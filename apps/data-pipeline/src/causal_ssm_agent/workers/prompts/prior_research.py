@@ -44,7 +44,7 @@ __PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 - AR coefficients (rho): Must be in [0, 1] for stationarity
 - Standard deviations: Must be positive
 - Correlations: Must be in [-1, 1]
-- Factor loadings: Typically positive by convention
+- Factor loadings: Must respect the fixed Stage 1b polarity (`positive` or `negative`)
 
 ## Output Format
 

@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 from causal_ssm_agent.orchestrator.schemas_model import (
     DistributionChoice,
-    LoadingConstraintChoice,
     validate_model_spec_decisions_dict,
 )
 
@@ -99,7 +98,6 @@ class Stage4StepResult:
     repair_plan: ResolvedRepairPlan | None = None
     accepted_block_id: str | None = None
     distribution_choice: dict[str, Any] | None = None
-    loading_constraints: tuple[dict[str, Any], ...] = ()
     persist_stage_output: bool = False
 
 
@@ -220,24 +218,6 @@ class Stage4Messages:
             lookup[variable] = choice
         return lookup
 
-    def _loading_constraint_lookup(self, runtime: Stage4Runtime) -> dict[str, str]:
-        """Return the current loading constraint per loading parameter."""
-        lookup: dict[str, str] = {}
-        for parameter in (runtime.accepted.model_spec or {}).get("parameters") or []:
-            if not isinstance(parameter, dict):
-                continue
-            if parameter.get("role") != "loading":
-                continue
-            name = parameter.get("name")
-            constraint = parameter.get("constraint")
-            if isinstance(name, str) and isinstance(constraint, str):
-                lookup[name] = constraint
-        for parameter_name, choice in runtime.decisions.loading_constraints.items():
-            constraint = choice.get("constraint")
-            if isinstance(constraint, str):
-                lookup[parameter_name] = constraint
-        return lookup
-
     def _distribution_cards_for_runtime(
         self,
         runtime: Stage4Runtime,
@@ -258,13 +238,8 @@ class Stage4Messages:
         runtime: Stage4Runtime,
     ) -> list[dict[str, Any]]:
         """Return stateful loading cards for the current runtime."""
-        loading_params = deepcopy(self.loading_params)
-        loading_constraint_lookup = self._loading_constraint_lookup(runtime)
-        for parameter in loading_params:
-            selected_constraint = loading_constraint_lookup.get(parameter.get("name"))
-            if selected_constraint is not None:
-                parameter["selected_constraint"] = selected_constraint
-        return loading_params
+        del runtime
+        return deepcopy(self.loading_params)
 
     def _construct_scale_cards_for_runtime(
         self,
@@ -287,16 +262,9 @@ class Stage4Messages:
         self,
         runtime: Stage4Runtime,
     ) -> list[dict[str, Any]]:
-        """Return prior cards enriched with accepted loading constraints."""
-        cards = deepcopy(self.prior_cards)
-        loading_constraint_lookup = self._loading_constraint_lookup(runtime)
-        for card in cards:
-            if card.get("role") != "loading":
-                continue
-            selected_constraint = loading_constraint_lookup.get(card.get("parameter"))
-            if selected_constraint is not None:
-                card["constraint"] = selected_constraint
-        return cards
+        """Return prior cards for the current runtime."""
+        del runtime
+        return deepcopy(self.prior_cards)
 
     def _messages_for_scope(
         self,
@@ -700,7 +668,7 @@ def _block_is_accepted(runtime: Stage4Runtime, block_id: str) -> bool:
 
 def _phase_for_block_kind(kind: str) -> str:
     """Project one authored block kind onto the public Stage 4 phase labels."""
-    if kind in {"indicator_decision", "loading_decision"}:
+    if kind == "indicator_decision":
         return "model_decisions"
     if kind == "global_review":
         return "global_review"
@@ -821,6 +789,159 @@ def get_stage4_phase(
     raise ValueError(f"Unknown Stage 4 cursor {cursor!r}")
 
 
+def project_stage4_graph(plan: Stage4Plan) -> dict[str, Any]:
+    """Project the static Stage 4 graph topology from the immutable plan.
+
+    Returns a JSON-serializable dict with ``nodes``, ``edges``, and ``phases``
+    suitable for the web UI's React Flow renderer. Repair routing is condensed:
+    the graph shows the repair barrier and whole-system prior review path
+    without expanding every possible reopened subset.
+    """
+    nodes: list[dict[str, str]] = []
+    edges: list[dict[str, str]] = []
+    prev_id: str | None = None
+
+    # Model blocks
+    for block in plan.model_blocks:
+        nodes.append(
+            {"id": block.id, "kind": block.kind, "label": block.label, "phase": "model_decisions"}
+        )
+        if prev_id is not None:
+            edges.append({"from": prev_id, "to": block.id, "kind": "forward"})
+        prev_id = block.id
+
+    # Synthetic lock node
+    lock_id = "__lock__"
+    nodes.append(
+        {
+            "id": lock_id,
+            "kind": "model_spec_lock",
+            "label": "Lock Model Spec",
+            "phase": "model_decisions",
+        }
+    )
+    if prev_id is not None:
+        edges.append({"from": prev_id, "to": lock_id, "kind": "phase_advance"})
+
+    # Review block
+    if plan.review_block is not None:
+        nodes.append(
+            {
+                "id": plan.review_block.id,
+                "kind": plan.review_block.kind,
+                "label": plan.review_block.label,
+                "phase": "global_review",
+            }
+        )
+        edges.append({"from": lock_id, "to": plan.review_block.id, "kind": "phase_advance"})
+        prev_id = plan.review_block.id
+    else:
+        prev_id = lock_id
+
+    # Prior blocks
+    for i, block in enumerate(plan.prior_blocks):
+        nodes.append(
+            {"id": block.id, "kind": block.kind, "label": block.label, "phase": "prior_blocks"}
+        )
+        if i == 0:
+            edges.append({"from": prev_id, "to": block.id, "kind": "phase_advance"})
+        else:
+            edges.append({"from": plan.prior_blocks[i - 1].id, "to": block.id, "kind": "forward"})
+
+    last_prior_id = plan.prior_blocks[-1].id if plan.prior_blocks else prev_id
+
+    # Prior review block (activated either directly from prior validation
+    # failures or from the repair barrier after a multi-block campaign).
+    if plan.prior_review_block is not None:
+        nodes.append(
+            {
+                "id": plan.prior_review_block.id,
+                "kind": plan.prior_review_block.kind,
+                "label": plan.prior_review_block.label,
+                "phase": "global_prior_review",
+            }
+        )
+        if last_prior_id is not None:
+            edges.append(
+                {
+                    "from": last_prior_id,
+                    "to": plan.prior_review_block.id,
+                    "kind": "repair_transition",
+                }
+            )
+
+    # Synthetic repair barrier node
+    repair_barrier_id = "__repair_barrier__"
+    nodes.append(
+        {
+            "id": repair_barrier_id,
+            "kind": "repair_barrier",
+            "label": "Validate Repair Scope",
+            "phase": "prior_blocks",
+        }
+    )
+    if plan.prior_blocks and last_prior_id is not None:
+        edges.append({"from": last_prior_id, "to": repair_barrier_id, "kind": "repair_transition"})
+    if plan.prior_review_block is not None:
+        edges.append(
+            {
+                "from": repair_barrier_id,
+                "to": plan.prior_review_block.id,
+                "kind": "repair_transition",
+            }
+        )
+
+    # Done node
+    done_id = "__done__"
+    nodes.append({"id": done_id, "kind": "done", "label": "Done", "phase": "done"})
+    edges.append({"from": last_prior_id, "to": done_id, "kind": "phase_advance"})
+    edges.append({"from": repair_barrier_id, "to": done_id, "kind": "repair_transition"})
+    if plan.prior_review_block is not None:
+        edges.append({"from": plan.prior_review_block.id, "to": done_id, "kind": "phase_advance"})
+
+    phases = [
+        {"id": "model_decisions", "label": "Model Decisions"},
+        {"id": "global_review", "label": "Global Review"},
+        {"id": "prior_blocks", "label": "Prior Elicitation"},
+        {"id": "global_prior_review", "label": "Prior Review"},
+        {"id": "done", "label": "Complete"},
+    ]
+
+    return {"nodes": nodes, "edges": edges, "phases": phases}
+
+
+def project_stage4_snapshot(plan: Stage4Plan, runtime: Stage4Runtime) -> dict[str, Any]:
+    """Project a JSON-serializable Stage 4 runtime snapshot for the web UI."""
+    cursor = runtime.cursor
+    if isinstance(cursor, Stage4BlockCursor):
+        cursor_dict: dict[str, Any] = {"kind": "block", "block_id": cursor.block_id}
+    elif isinstance(cursor, Stage4ModelSpecLockPendingCursor):
+        cursor_dict = {"kind": "model_spec_lock"}
+    elif isinstance(cursor, Stage4RepairBarrierCursor):
+        cursor_dict = {"kind": "repair_barrier", "scope_block_ids": list(cursor.scope_block_ids)}
+    elif isinstance(cursor, Stage4DoneCursor):
+        cursor_dict = {"kind": "done"}
+    else:
+        cursor_dict = {"kind": "unknown"}
+
+    campaign = runtime.repair_campaign
+    repair_dict: dict[str, Any] | None = None
+    if campaign is not None:
+        repair_dict = {
+            "scope_kind": campaign.scope_kind,
+            "scope_block_ids": list(campaign.scope_block_ids),
+            "completed_block_ids": list(campaign.completed_block_ids),
+        }
+
+    return {
+        "cursor": cursor_dict,
+        "block_status": dict(runtime.block_status),
+        "model_spec_locked": runtime.accepted.model_spec is not None,
+        "repair_campaign": repair_dict,
+        "phase": get_stage4_phase(runtime, plan=plan),
+    }
+
+
 def _next_pending_block(
     blocks: tuple[Stage4FrontierBlock, ...],
     runtime: Stage4Runtime,
@@ -878,7 +999,7 @@ def _mark_blocks_reopened(
             raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
         blocks.append(block)
 
-    if any(block.kind in {"indicator_decision", "loading_decision"} for block in blocks) and (
+    if any(block.kind == "indicator_decision" for block in blocks) and (
         plan.review_block is not None
     ):
         runtime.block_status[plan.review_block.id] = "pending"
@@ -896,7 +1017,7 @@ def _advance_after_block_acceptance(
     block: Stage4FrontierBlock,
 ) -> None:
     """Advance runtime after a block has been accepted."""
-    if block.kind in {"indicator_decision", "loading_decision"}:
+    if block.kind == "indicator_decision":
         _activate_model_phase(plan, runtime)
         return
     if block.kind == "global_review":
@@ -1131,8 +1252,7 @@ def _start_repair_campaign(
 
     if (
         any(
-            (block := plan.get_block(block_id)) is not None
-            and block.kind in {"indicator_decision", "loading_decision"}
+            (block := plan.get_block(block_id)) is not None and block.kind == "indicator_decision"
             for block_id in repair_plan.block_ids
         )
         and plan.review_block is not None
@@ -1279,32 +1399,6 @@ def _normalize_indicator_submission(
     return {"distribution_choice": choice}, None
 
 
-def _normalize_loading_submission(
-    block: Stage4FrontierBlock,
-    proposal: dict[str, Any],
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Validate a loading-decision proposal."""
-    raw_constraints = proposal.get("loading_constraints")
-    if not isinstance(raw_constraints, list) or not raw_constraints:
-        return None, "VALIDATION ERRORS:\n- `proposal.loading_constraints` must be a non-empty list"
-
-    allowed_parameters = set(block.parameter_names)
-    validated: list[dict[str, Any]] = []
-    for item in raw_constraints:
-        try:
-            constraint = LoadingConstraintChoice.model_validate(item).model_dump(mode="json")
-        except Exception as exc:
-            return None, f"VALIDATION ERRORS:\n- {exc}"
-        if constraint["parameter"] not in allowed_parameters:
-            return (
-                None,
-                "VALIDATION ERRORS:\n"
-                f"- loading parameter `{constraint['parameter']}` is not in the active block",
-            )
-        validated.append(constraint)
-    return {"loading_constraints": validated}, None
-
-
 def _normalize_prior_submission(
     block: Stage4FrontierBlock,
     proposal: dict[str, Any],
@@ -1386,24 +1480,6 @@ def _indicator_submission_example(block: Stage4FrontierBlock) -> dict[str, Any]:
     }
 
 
-def _loading_submission_example(block: Stage4FrontierBlock) -> dict[str, Any]:
-    """Example payload for loading-decision blocks."""
-    return {
-        "block_id": block.id,
-        "block_kind": block.kind,
-        "proposal": {
-            "loading_constraints": [
-                {
-                    "parameter": name,
-                    "constraint": "positive",
-                    "reasoning": "Higher indicator values should move in the same direction as the construct.",
-                }
-                for name in block.parameter_names[:1]
-            ]
-        },
-    }
-
-
 def _prior_submission_example(block: Stage4FrontierBlock) -> dict[str, Any]:
     """Example payload for prior-authoring blocks."""
     parameter = block.parameter_names[0]
@@ -1432,7 +1508,7 @@ def _global_review_submission_example(block: Stage4FrontierBlock) -> dict[str, A
         "block_kind": "global_review",
         "proposal": {
             "decision": "approve",
-            "reasoning": "The locked likelihoods and loading constraints are coherent for prior elicitation.",
+            "reasoning": "The locked likelihoods and loading orientations are coherent for prior elicitation.",
         },
     }
 
@@ -1452,8 +1528,6 @@ def _format_submission_example(
     """Render a block-local `validate_model` example payload."""
     if handler.kind == "indicator_decision":
         example = _indicator_submission_example(block)
-    elif handler.kind == "loading_decision":
-        example = _loading_submission_example(block)
     elif handler.kind == "global_review":
         example = _global_review_submission_example(block)
     elif handler.kind == "global_prior_review":
@@ -1517,9 +1591,6 @@ def _apply_stage4_step_result(
         choice = result.distribution_choice
         runtime.decisions.distribution_choices[choice["variable"]] = choice
 
-    for constraint in result.loading_constraints:
-        runtime.decisions.loading_constraints[constraint["parameter"]] = constraint
-
     if result.persist_stage_output:
         _persist_stage4_stage_output(runtime, result.stage_output)
 
@@ -1568,26 +1639,6 @@ def _apply_indicator_submission(
         ),
         accepted_block_id=active_block.id,
         distribution_choice=normalized["distribution_choice"],
-    )
-
-
-def _apply_loading_submission(
-    *,
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    active_block: Stage4FrontierBlock,
-    normalized: dict[str, Any],
-    deps: Stage4Deps,
-) -> Stage4StepResult:
-    """Apply one loading-constraint decision block."""
-    del deps
-    return Stage4StepResult(
-        feedback=_format_block_saved_feedback(
-            active_block,
-            _next_pending_after(plan.model_blocks, runtime, active_block.id),
-        ),
-        accepted_block_id=active_block.id,
-        loading_constraints=tuple(normalized["loading_constraints"]),
     )
 
 
@@ -1823,7 +1874,6 @@ def _build_model_spec_from_decisions(
     """Materialize a ModelSpec from accepted model-decision state."""
     decisions_data = {
         "distribution_choices": list(decisions.distribution_choices.values()),
-        "loading_constraints": list(decisions.loading_constraints.values()),
     }
     spec, errors = validate_model_spec_decisions_dict(
         decisions_data,
@@ -1842,12 +1892,6 @@ _BLOCK_HANDLERS: dict[str, Stage4BlockHandler] = {
         prompt_policy=get_stage4_prompt_scope_policy("indicator_decision"),
         normalize_submission=_normalize_indicator_submission,
         apply_submission=_apply_indicator_submission,
-    ),
-    "loading_decision": Stage4BlockHandler(
-        kind="loading_decision",
-        prompt_policy=get_stage4_prompt_scope_policy("loading_decision"),
-        normalize_submission=_normalize_loading_submission,
-        apply_submission=_apply_loading_submission,
     ),
     "measurement_prior": Stage4BlockHandler(
         kind="measurement_prior",
@@ -1958,7 +2002,7 @@ def compute_stage4_validate_step(
     )
 
     if (
-        active_block.kind in {"indicator_decision", "loading_decision"}
+        active_block.kind == "indicator_decision"
         and result.accepted_block_id == active_block.id
         and result.repair_plan is None
         and _all_model_blocks_accepted(plan, runtime)
@@ -2278,6 +2322,7 @@ async def run_stage4(
     load_checkpoint: Callable[[], Stage4Runtime | None] | None = None,
     save_checkpoint: Callable[[Stage4Runtime], None] | None = None,
     clear_checkpoint: Callable[[], None] | None = None,
+    on_state_change: Callable[[Stage4Plan, Stage4Runtime], None] | None = None,
 ) -> Stage4Result:
     """Run the frontier-reduced Stage 4 flow sequentially."""
     from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
@@ -2305,6 +2350,19 @@ async def run_stage4(
         clear_checkpoint=clear_checkpoint,
     ) or make_stage4_runtime(plan)
 
+    # Compose save_checkpoint and on_state_change into a single persist callback
+    def _persist(rt: Stage4Runtime) -> None:
+        if save_checkpoint is not None:
+            save_checkpoint(rt)
+        if on_state_change is not None:
+            on_state_change(plan, rt)
+
+    persist_runtime = _persist if (save_checkpoint or on_state_change) else None
+
+    # Emit initial state before the prompt loop
+    if on_state_change is not None:
+        on_state_change(plan, runtime)
+
     session = Stage4Session(
         plan=plan,
         prompt_context=msgs,
@@ -2316,7 +2374,7 @@ async def run_stage4(
             grounding_fn=stage4_grounding,
         ),
         runtime=runtime,
-        persist_runtime=save_checkpoint,
+        persist_runtime=persist_runtime,
     )
     tool_map = _build_stage4_tool_map(
         session,
@@ -2351,8 +2409,8 @@ async def run_stage4(
         _persist_stage4_stage_output(session.runtime, stage_output)
         session.runtime.last_feedback = None if feedback == "VALID" else feedback
         _activate_review_phase(plan, session.runtime)
-        if save_checkpoint is not None:
-            save_checkpoint(session.runtime)
+        if persist_runtime is not None:
+            persist_runtime(session.runtime)
 
     max_outer_turns = max(1, len(plan.all_blocks)) * 10
     for _outer_turn in range(max_outer_turns):

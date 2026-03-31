@@ -62,7 +62,6 @@ class Stage4DecisionState:
     """Accepted model-decision deltas before the full ModelSpec is locked."""
 
     distribution_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
-    loading_constraints: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

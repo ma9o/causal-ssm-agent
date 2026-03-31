@@ -49,6 +49,7 @@ class ParameterConstraint(StrEnum):
 
     NONE = "none"  # Unconstrained (can be any real number)
     POSITIVE = "positive"  # Must be > 0 (variances, SDs)
+    NEGATIVE = "negative"  # Must be < 0 (inverse-coded loadings)
     UNIT_INTERVAL = "unit_interval"  # Must be in [0, 1] (probabilities)
     CORRELATION = "correlation"  # Must be in [-1, 1]
 
@@ -252,7 +253,16 @@ def validate_model_spec_dict(
             role_enum = ParameterRole(role)
             constraint_enum = ParameterConstraint(constraint)
             expected = EXPECTED_CONSTRAINT_FOR_ROLE.get(role_enum)
-            if expected is not None and constraint_enum != expected:
+            if role_enum == ParameterRole.LOADING:
+                if constraint_enum not in {
+                    ParameterConstraint.POSITIVE,
+                    ParameterConstraint.NEGATIVE,
+                }:
+                    errors.append(
+                        f"parameters[{i}] '{name}': constraint '{constraint}' unexpected "
+                        "for role 'loading'; expected 'positive' or 'negative'"
+                    )
+            elif expected is not None and constraint_enum != expected:
                 errors.append(
                     f"parameters[{i}] '{name}': constraint '{constraint}' unexpected "
                     f"for role '{role}'; expected '{expected.value}'"
@@ -288,28 +298,16 @@ class DistributionChoice(BaseModel):
     reasoning: str = Field(description="Why this distribution/link")
 
 
-class LoadingConstraintChoice(BaseModel):
-    """LLM's decision on whether a loading should be positive or unconstrained."""
-
-    parameter: str = Field(description="Loading parameter name")
-    constraint: ParameterConstraint = Field(description="positive or none")
-    reasoning: str = Field(description="Why this constraint")
-
-
 class ModelSpecDecisions(BaseModel):
     """LLM decisions for the non-deterministic parts of the model specification.
 
     The deterministic parts (parameter enumeration, deterministic distributions/links,
-    role-based constraints) are pre-computed from the CausalSpec. The LLM only provides
-    the genuine decisions that require statistical judgment.
+    and loading polarities) are pre-computed from the CausalSpec. The LLM only provides
+    the genuine distribution/link decisions that require statistical judgment.
     """
 
     distribution_choices: list[DistributionChoice] = Field(
         description="Distribution/link choices for indicators with ambiguous dtypes"
-    )
-    loading_constraints: list[LoadingConstraintChoice] = Field(
-        default_factory=list,
-        description="Constraint decisions for loading parameters",
     )
 
 
@@ -328,8 +326,6 @@ def merge_decisions_to_spec(
     Returns:
         (ModelSpec or None, list of error messages)
     """
-    errors: list[str] = []
-
     # Build likelihoods: resolved + LLM choices
     likelihoods = []
     for rl in resolved_likelihoods:
@@ -351,22 +347,7 @@ def merge_decisions_to_spec(
             }
         )
 
-    # Apply loading constraint decisions
-    loading_overrides = {lc.parameter: lc.constraint.value for lc in decisions.loading_constraints}
-    final_params = []
-    for p in parameters:
-        param = dict(p)
-        if param["role"] == "loading" and param["name"] in loading_overrides:
-            param["constraint"] = loading_overrides[param["name"]]
-        final_params.append(param)
-
-    if errors:
-        return None, errors
-
-    spec_dict = {
-        "likelihoods": likelihoods,
-        "parameters": final_params,
-    }
+    spec_dict = {"likelihoods": likelihoods, "parameters": list(parameters)}
     return validate_model_spec_dict(spec_dict)
 
 
@@ -382,7 +363,7 @@ def validate_model_spec_decisions_dict(
         data: Raw dict to validate as ModelSpecDecisions
         resolved_likelihoods: Pre-computed deterministic likelihoods
         ambiguous_indicators: Indicators that need LLM decisions
-        parameters: Pre-computed parameters (with loading constraints TBD)
+        parameters: Pre-computed parameters with deterministic constraints
 
     Returns:
         (merged ModelSpec or None, list of error messages)
@@ -423,24 +404,6 @@ def validate_model_spec_decisions_dict(
             errors.append(
                 f"distribution_choices[{i}]: link '{link}' invalid; "
                 f"must be one of {sorted(valid_links)}"
-            )
-
-    # Validate loading_constraints entries
-    loading_constraints = data.get("loading_constraints", [])
-    if not isinstance(loading_constraints, list):
-        errors.append("'loading_constraints' must be a list")
-        loading_constraints = []
-
-    valid_constraints = {e.value for e in ParameterConstraint}
-    for i, lc in enumerate(loading_constraints):
-        if not isinstance(lc, dict):
-            errors.append(f"loading_constraints[{i}]: must be a dictionary")
-            continue
-        c = lc.get("constraint", "")
-        if c and c not in valid_constraints:
-            errors.append(
-                f"loading_constraints[{i}]: constraint '{c}' invalid; "
-                f"must be one of {sorted(valid_constraints)}"
             )
 
     if errors:

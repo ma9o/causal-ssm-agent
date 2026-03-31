@@ -67,6 +67,7 @@ class TestMeasurementCompiler:
                 {
                     "name": "treatment_dose_copy",
                     "construct_name": "Treatment",
+                    "construct_polarity": "positive",
                     "how_to_measure": "Extract the treatment dosage from the data",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -90,6 +91,7 @@ class TestMeasurementCompiler:
                 {
                     "name": "treatment_count",
                     "construct_name": "Treatment",
+                    "construct_polarity": "positive",
                     "how_to_measure": "Count the number of treatments administered",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -224,6 +226,7 @@ class TestStage1bGrounding:
                 {
                     "name": "treatment_signal",
                     "construct_name": "Treatment",
+                    "construct_polarity": "positive",
                     "how_to_measure": "Use the treatment column directly",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -231,6 +234,7 @@ class TestStage1bGrounding:
                 {
                     "name": "outcome_signal",
                     "construct_name": "Outcome",
+                    "construct_polarity": "positive",
                     "how_to_measure": "Use the outcome column directly",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",

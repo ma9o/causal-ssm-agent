@@ -180,6 +180,19 @@ class TestValidateModelSpecDict:
         assert spec is None
         assert any("must use canonical names starting with 'cor0_'" in e for e in errors)
 
+    def test_loading_role_accepts_negative_constraint(self):
+        d = _valid_spec_dict()
+        d["parameters"][0] = {
+            "name": "lambda_sleep_problem_search_count_sleep_quality",
+            "role": "loading",
+            "constraint": "negative",
+            "description": "Inverse proxy loading for sleep problems on sleep quality",
+        }
+        spec, errors = validate_model_spec_dict(d)
+        assert errors == []
+        assert spec is not None
+        assert spec.parameters[0].constraint == ParameterConstraint.NEGATIVE
+
 
 # =============================================================================
 # merge_decisions_to_spec
@@ -206,7 +219,6 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             distribution_choices=[],
-            loading_constraints=[],
             reasoning="Standard model",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
@@ -241,34 +253,6 @@ class TestMergeDecisionsToSpec:
         assert spec is not None
         assert len(spec.likelihoods) == 1
         assert spec.likelihoods[0].distribution == DistributionFamily.POISSON
-
-    def test_loading_constraint_override(self):
-        resolved = []
-        params = [
-            {
-                "name": "lambda_mood_pss",
-                "role": "loading",
-                "constraint": "none",
-                "description": "Loading",
-            },
-        ]
-        from causal_ssm_agent.orchestrator.schemas_model import LoadingConstraintChoice
-
-        decisions = ModelSpecDecisions(
-            distribution_choices=[],
-            loading_constraints=[
-                LoadingConstraintChoice(
-                    parameter="lambda_mood_pss",
-                    constraint=ParameterConstraint.POSITIVE,
-                    reasoning="Positive loading expected",
-                ),
-            ],
-            reasoning="test",
-        )
-        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
-        assert errors == []
-        assert spec is not None
-        assert spec.parameters[0].constraint == ParameterConstraint.POSITIVE
 
     def test_resolved_and_choices_combined(self):
         resolved = [
@@ -383,22 +367,6 @@ class TestValidateModelSpecDecisionsDict:
         )
         assert spec is None
         assert any("bad_dist" in e for e in errors)
-
-    def test_invalid_constraint_in_loading(self):
-        data = {
-            "distribution_choices": [
-                {"variable": "steps", "distribution": "poisson", "link": "log", "reasoning": "r"},
-            ],
-            "loading_constraints": [
-                {"parameter": "lam", "constraint": "bad_constraint", "reasoning": "r"},
-            ],
-            "reasoning": "test",
-        }
-        spec, errors = validate_model_spec_decisions_dict(
-            data, self._resolved(), self._ambiguous(), self._params()
-        )
-        assert spec is None
-        assert any("bad_constraint" in e for e in errors)
 
     def test_no_ambiguous_indicators(self):
         """When no ambiguous indicators, no distribution_choices needed."""

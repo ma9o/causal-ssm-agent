@@ -90,6 +90,13 @@ class TemporalStatus(StrEnum):
     TIME_INVARIANT = "time_invariant"  # Fixed for each person
 
 
+class IndicatorPolarity(StrEnum):
+    """Direction of an indicator relative to its construct."""
+
+    POSITIVE = "positive"  # Higher indicator values imply more of the construct
+    NEGATIVE = "negative"  # Higher indicator values imply less of the construct
+
+
 _COMPUTED_RULE_FUNCTIONS = {
     "abs",
     "all",
@@ -407,6 +414,12 @@ class Indicator(BaseModel):
     )
     how_to_measure: str = Field(
         description="Instructions for workers on how to extract this from data"
+    )
+    construct_polarity: IndicatorPolarity = Field(
+        description=(
+            "Whether higher indicator values move in the same direction as the construct "
+            "(`positive`) or the opposite direction (`negative`)."
+        )
     )
     measurement_dtype: str = Field(
         description="'continuous', 'binary', 'count', 'ordinal', 'categorical'"

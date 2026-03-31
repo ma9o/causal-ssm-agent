@@ -37,21 +37,18 @@ Only `title` and `snippet` are required. Do not use raw strings or ad hoc keys s
 
 
 def format_loading_params(loading_params: list[dict]) -> str:
-    """Format loading parameters needing constraint decisions."""
+    """Format deterministic loading orientations derived upstream."""
     if not loading_params:
-        return "\n(no multi-indicator constructs — skip this section)\n"
+        return "\n(no multi-indicator constructs)\n"
     lines = [
         "",
-        "Decide `positive` (reference/sign identification) or `none` (if negative "
-        "loadings are plausible) for each loading below. Richer indicator/reference "
-        "context is repeated in the loading prior cards.",
+        "These loading orientations are fixed from Stage 1b indicator polarity. "
+        "They are part of the locked model form and are not a decision surface in Stage 4.",
         "",
     ]
     for lp in loading_params:
-        selected_constraint = lp.get("selected_constraint")
-        selected_suffix = f" (selected: `{selected_constraint}`)" if selected_constraint else ""
         lines.append(
-            f"- `{lp['name']}`: `{lp['indicator']}` on `{lp['construct']}`{selected_suffix}"
+            f"- `{lp['name']}`: `{lp['indicator']}` on `{lp['construct']}` (`{lp['constraint']}`)"
         )
     lines.append("")
     return "\n".join(lines)
@@ -584,7 +581,7 @@ def _render_stage4_guidance_section(
         return (
             "## Measurement Prior Guidance\n\n"
             "- Use the construct scale card to anchor plausible indicator-to-construct magnitude.\n"
-            "- Respect the accepted loading/sign decision already locked for this block."
+            "- Respect the fixed loading orientation already locked for this block."
         )
     if section_key == "continuous_time_dynamics":
         return "## Continuous-Time Dynamics\n\n" + DYNAMIC_PRIOR_SCALE_GUIDANCE
@@ -769,7 +766,7 @@ def build_stage4_user_prompt(
         )
     if loading_params:
         sections.append(
-            _format_markdown_section("Loading Constraints", format_loading_params(loading_params))
+            _format_markdown_section("Loading Orientation", format_loading_params(loading_params))
         )
     if construct_scale_cards:
         sections.append(

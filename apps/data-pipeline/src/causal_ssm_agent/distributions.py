@@ -152,6 +152,7 @@ _CONSTRAINT_DOMAINS: Final[dict[str, str]] = {
     "unit_interval": "[0, 1]",
     "none": "(-inf, +inf)",
     "positive": "(0, +inf)",
+    "negative": "(-inf, 0)",
     "correlation": "[-1, 1]",
 }
 
@@ -210,8 +211,8 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         count="One per non-reference indicator in multi-indicator constructs",
         constraint="positive",
         ssm_location="Measurement model",
-        note="Stage 4 may enforce `positive` for sign identification "
-        "or `none` when negative loadings are theoretically justified",
+        note="Stage 1b indicator polarity fixes each loading sign as either "
+        "`positive` or `negative`; Stage 4 no longer chooses loading orientation",
     ),
     ParameterRoleSpec(
         role="correlation",
@@ -364,6 +365,11 @@ _DTYPE_ALTERNATIVE_NOTES: Final[dict[tuple[str, DistributionFamily], str]] = {
 PRIOR_CONSTRAINT_GUIDANCE: Final[tuple[PriorConstraintGuidance, ...]] = (
     PriorConstraintGuidance("none", "(-inf, +inf)", "Normal"),
     PriorConstraintGuidance("positive", "(0, +inf)", "HalfNormal, Gamma, LogNormal, Exponential"),
+    PriorConstraintGuidance(
+        "negative",
+        "(-inf, 0)",
+        "TruncatedNormal(mu<0, sigma, lower, 0), Uniform(lower, 0)",
+    ),
     PriorConstraintGuidance("unit_interval", "[0, 1]", "Beta, Uniform(0, 1)"),
     PriorConstraintGuidance(
         "correlation",
@@ -386,7 +392,12 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
         "Discrete-time persistence",
     ),
     PriorParameterGuidanceRow("sigma (residual SD)", "HalfNormal(1)", "[0, 5]", "Data scale"),
-    PriorParameterGuidanceRow("lambda (loading)", "HalfNormal(1)", "[0, 3]", "Data scale"),
+    PriorParameterGuidanceRow(
+        "lambda (loading)",
+        "HalfNormal(1) if positive, TruncatedNormal(-1, 0.5, -5, 0) if negative",
+        "[-3, 3]",
+        "Data scale with sign fixed by indicator polarity",
+    ),
     PriorParameterGuidanceRow(
         "cor (correlation)",
         "Uniform(-1, 1) or TruncatedNormal(0, 0.3, -1, 1)",
@@ -619,7 +630,7 @@ def render_parameter_roles_markdown_table() -> str:
     for spec in PARAMETER_ROLE_SPECS:
         constraint_cell = f"`{spec.constraint}` `{spec.domain}`"
         if spec.role == "loading":
-            constraint_cell = "`positive` or `none`"
+            constraint_cell = "`positive` or `negative`"
         lines.append(
             f"| `{spec.role}` | `{spec.symbol}` "
             f"| {spec.count} | {constraint_cell} | {spec.ssm_location} |"
