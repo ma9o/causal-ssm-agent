@@ -661,9 +661,7 @@ def _assemble_t0_cov(
     if diag_site is not None and diag_site.name in samples:
         diag_samples = samples[diag_site.name]
         corr_samples = (
-            samples[corr_site.name]
-            if corr_site is not None and corr_site.name in samples
-            else None
+            samples[corr_site.name] if corr_site is not None and corr_site.name in samples else None
         )
 
         def _build_stable_cov(
@@ -1263,7 +1261,9 @@ def _params_from_prior_dict(
         has_bounds = "lower" in prior_dict and "upper" in prior_dict
         return _make_real_params(
             site.shape,
-            family=prior_dict.get("family", 1 if has_bounds or site.support == SupportClass.CORRELATION else 0),
+            family=prior_dict.get(
+                "family", 1 if has_bounds or site.support == SupportClass.CORRELATION else 0
+            ),
             loc=prior_dict.get("mu", 0.0),
             scale=prior_dict.get("sigma", 1.0),
             low=prior_dict.get("lower", -1.0 if site.support == SupportClass.CORRELATION else None),

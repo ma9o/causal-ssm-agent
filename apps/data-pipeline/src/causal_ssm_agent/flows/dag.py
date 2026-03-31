@@ -308,6 +308,7 @@ async def stage4(
     stage2: dict,
     stage3: dict,
     enable_literature: bool,
+    workspace_id: str | None = None,
     openrouter_api_key: str | None = None,
     root_run_id: str | None = None,
 ) -> dict:
@@ -323,6 +324,7 @@ async def stage4(
         data_for_model=data_for_model,
         indicator_audits=stage3["indicators"],
         enable_literature=enable_literature,
+        workspace_id=workspace_id,
         openrouter_api_key=openrouter_api_key,
         root_run_id=root_run_id,
     )
@@ -657,9 +659,7 @@ async def stage6(
             draws = entry.get("posterior_draws")
             effect, prob = _draws_stats(draws)
             if effect is not None:
-                logger.info(
-                    "%d     %-30s %+10.4f %8.2f", rank, name, effect, prob
-                )
+                logger.info("%d     %-30s %+10.4f %8.2f", rank, name, effect, prob)
             else:
                 logger.info("%-5d %-30s %10s", rank, name, "—")
 
@@ -671,10 +671,14 @@ async def stage6(
                         "rank": i + 1,
                         "treatment": r["treatment"],
                         "effect": (
-                            f"{e:+.4f}" if (e := _draws_stats(r.get("posterior_draws"))[0]) is not None else "---"
+                            f"{e:+.4f}"
+                            if (e := _draws_stats(r.get("posterior_draws"))[0]) is not None
+                            else "---"
                         ),
                         "P(>0)": (
-                            f"{p:.2f}" if (p := _draws_stats(r.get("posterior_draws"))[1]) is not None else ""
+                            f"{p:.2f}"
+                            if (p := _draws_stats(r.get("posterior_draws"))[1]) is not None
+                            else ""
                         ),
                     }
                     for i, r in enumerate(intervention_results)

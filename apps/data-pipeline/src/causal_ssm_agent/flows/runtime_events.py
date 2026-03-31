@@ -49,7 +49,9 @@ def emit_stage_progress_event(
         payload["error"] = error
 
     normalized_subflow_run_id = (
-        stage_subflow_run_id.strip() if stage_subflow_run_id and stage_subflow_run_id.strip() else None
+        stage_subflow_run_id.strip()
+        if stage_subflow_run_id and stage_subflow_run_id.strip()
+        else None
     )
     normalized_log_flow_run_ids = _normalize_log_flow_run_ids(
         normalized_subflow_run_id,

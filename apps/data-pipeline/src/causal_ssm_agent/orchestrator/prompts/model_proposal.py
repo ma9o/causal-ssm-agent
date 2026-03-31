@@ -588,9 +588,62 @@ def _render_stage4_guidance_section(
         )
     if section_key == "continuous_time_dynamics":
         return "## Continuous-Time Dynamics\n\n" + DYNAMIC_PRIOR_SCALE_GUIDANCE
+    if section_key == "dynamics_budget_discipline":
+        return (
+            "## Dynamics Budget Discipline\n\n"
+            "- These priors determine the damping available for later incoming lagged effects.\n"
+            "- Avoid near-unit-root persistence or overly wide uncertainty unless strong evidence "
+            "supports it.\n"
+            "- Leave enough conservative decay that plausible incoming effects can still fit "
+            "inside the compiled drift budget.\n"
+            "- Treat the reported headroom as advisory stability guidance rather than a formal "
+            "acceptance rule.\n"
+            "- If the validator reports a partial drift failure at this stage, tighten the active "
+            "dynamics priors toward faster decay before moving on."
+        )
+    if section_key == "effect_row_budget_discipline":
+        return (
+            "## Effect Row Budget Discipline\n\n"
+            "- The user prompt reports a compiled continuous-time drift budget for the active "
+            "target row.\n"
+            "- Treat the conservative row budget and remaining headroom as advisory stability "
+            "guidance, not as a mechanical acceptance rule.\n"
+            "- Use the guidance to keep means and uncertainty modest; do not aim to spend the full "
+            "headroom.\n"
+            "- In dense SCC rows or when the Parameter Prior Cards mark `Feedback Loop` as `yes`, "
+            "start from tightly zero-centered priors with modest uncertainty, often around "
+            "`Normal(0, 0.1-0.2)` unless strong longitudinal evidence supports more.\n"
+            "- Prefer shrinkage toward zero when evidence is sparse, mixed, or indirect.\n"
+            "- If several incoming effects are plausible, distribute modest effects across them "
+            "instead of making one edge dominate without strong support.\n"
+            "- If validator feedback reports a partial drift failure, repair this row by "
+            "shrinking effect means and/or scales."
+        )
     if section_key == "lagged_effect_interval_guidance":
         return "## Lagged Effect Interval Guidance\n\n" + LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE
     raise ValueError(f"Unknown Stage 4 guidance section {section_key!r}")
+
+
+def _format_effect_prior_budget_discipline() -> str:
+    """Render the dynamic budget discipline section for effect-prior blocks."""
+    return (
+        "## Effect-Block Stability Discipline\n\n"
+        "- The frontier status above reports the compiled continuous-time drift budget for this "
+        "target row.\n"
+        "- Treat the remaining headroom as advisory stability telemetry for the full row in this "
+        "block.\n"
+        "- Keep the row conservative rather than trying to use all reported headroom.\n"
+        "- In dense feedback rows, start from tightly zero-centered effects with modest "
+        "uncertainty, often around `Normal(0, 0.1-0.2)` unless strong longitudinal evidence "
+        "supports more.\n"
+        "- If the Parameter Prior Cards mark `Feedback Loop` as `yes`, be more conservative than "
+        "you would be for a comparable acyclic lagged effect.\n"
+        "- Prefer smaller means and tighter scales when the literature is weak or mixed.\n"
+        "- If multiple incoming effects are plausible, spread modest effects across them instead "
+        "of forcing one dominant coefficient without strong evidence.\n"
+        "- If the latest validator feedback reports a partial drift failure, revise this row by "
+        "shrinking effect means and/or scales."
+    )
 
 
 def build_stage4_system_prompt(
@@ -704,6 +757,8 @@ def build_stage4_user_prompt(
             f"{block_instructions}"
         ),
     ]
+    if block_kind == "effect_prior":
+        sections.append(_format_effect_prior_budget_discipline())
 
     if distribution_cards:
         sections.append(

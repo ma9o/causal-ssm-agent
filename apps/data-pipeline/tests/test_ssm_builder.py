@@ -583,5 +583,8 @@ class TestPrepareModelRuntime:
         samples = runtime.builder.sample_prior_predictive(samples=3)
 
         assert samples["observations"].shape == (3, 2, 1)
+        assert samples["observations_mask"].shape == (3, 2, 1)
         assert jnp.isnan(samples["observations"][:, 0, 0]).all()
         assert jnp.isfinite(samples["observations"][:, 1, 0]).all()
+        assert (~samples["observations_mask"][:, 0, 0]).all()
+        assert samples["observations_mask"][:, 1, 0].all()

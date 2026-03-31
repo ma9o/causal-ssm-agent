@@ -191,7 +191,7 @@ def format_prior_proposal_errors(errors: dict[str, str]) -> str:
                 [
                     "- `sources` must be a list of objects, not raw strings",
                     "- each source object must include `title` and `snippet`",
-                    '- valid optional keys are `url`, `effect_size`, and `study_interval_days`',
+                    "- valid optional keys are `url`, `effect_size`, and `study_interval_days`",
                     '- example: {"title": "...", "snippet": "...", "url": "https://...", "effect_size": "β=0.2", "study_interval_days": 7.0}',
                     '- if you are unsure, use `"sources": []`',
                 ]
@@ -244,11 +244,16 @@ def build_prior_predictive_samples(
             y_np = np.asarray(validation.pp_raw_samples["observations"])
         else:
             return {}
+        observation_mask = validation.pp_raw_samples.get("observations_mask")
+        mask_np = np.asarray(observation_mask, dtype=bool) if observation_mask is not None else None
 
         samples: dict[str, list[float]] = {}
         for idx, name in enumerate(manifest_names):
-            col = y_np[:, :, idx].flatten()
-            col = col[np.isfinite(col)]
+            col = y_np[:, :, idx]
+            if mask_np is not None and mask_np.shape == y_np.shape:
+                col = col[mask_np[:, :, idx]]
+            else:
+                col = col[np.isfinite(col)]
             samples[name] = col.tolist()
         return samples
     except Exception as exc:

@@ -334,7 +334,9 @@ def _compile_validated_ssm_artifact(
         "spec": serialize_ssm_spec(spec),
         "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
         "parameter_bindings": parameter_bindings,
-        "compile_diagnostics": [diagnostic.model_dump(mode="json") for diagnostic in compile_diagnostics],
+        "compile_diagnostics": [
+            diagnostic.model_dump(mode="json") for diagnostic in compile_diagnostics
+        ],
     }
 
 

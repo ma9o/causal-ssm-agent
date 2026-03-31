@@ -60,6 +60,7 @@ async def _run_stage4(
     stage2: dict,
     stage3: dict,
     enable_literature: bool,
+    workspace_id: str,
     openrouter_api_key: str | None,
     root_run_id: str | None,
 ) -> dict:
@@ -72,6 +73,7 @@ async def _run_stage4(
         stage2,
         stage3,
         enable_literature,
+        workspace_id=workspace_id,
         openrouter_api_key=openrouter_api_key,
         root_run_id=root_run_id,
     )
@@ -98,6 +100,7 @@ async def modal_stage4_runner(
     stage2: dict,
     stage3: dict,
     enable_literature: bool,
+    workspace_id: str,
     root_run_id: str | None = None,
 ) -> dict:
     """Invoke stage 4 on Modal."""
@@ -109,6 +112,7 @@ async def modal_stage4_runner(
         stage2,
         stage3,
         enable_literature,
+        workspace_id,
         get_openrouter_api_key(),
         root_run_id,
     )

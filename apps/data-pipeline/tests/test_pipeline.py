@@ -183,10 +183,12 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        workspace_id: str,
         root_run_id: str | None = None,
     ) -> dict:
         return {
             "runner": "modal",
+            "workspace_id": workspace_id,
             "openrouter_api_key": openrouter_client.get_openrouter_api_key(),
             "root_run_id": root_run_id,
         }
@@ -197,10 +199,12 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        workspace_id: str | None = None,
         root_run_id: str | None = None,
     ) -> dict:
         return {
             "runner": "local",
+            "workspace_id": workspace_id,
             "openrouter_api_key": openrouter_client.get_openrouter_api_key(),
             "root_run_id": root_run_id,
         }
@@ -218,6 +222,7 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
                 stage2={},
                 stage3={},
                 enable_literature=True,
+                workspace_id="workspace-local",
                 openrouter_access_mode="user",
                 root_run_id="root-run-local",
             )
@@ -229,6 +234,7 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
             stage2={},
             stage3={},
             enable_literature=True,
+            workspace_id="workspace-modal",
             openrouter_access_mode=None,
             root_run_id="root-run-modal",
         )
@@ -236,14 +242,18 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
 
     assert local_result == {
         "runner": "local",
+        "workspace_id": "workspace-local",
         "openrouter_api_key": "user-key",
         "root_run_id": "root-run-local",
     }
     assert modal_result == {
         "runner": "modal",
+        "workspace_id": "workspace-modal",
         "openrouter_api_key": None,
         "root_run_id": "root-run-modal",
     }
+
+
 def test_stage2_binding_uses_access_mode_for_free_window_limit():
     from causal_ssm_agent.flows.stages.stage2_extract import MAX_FREE_WINDOWS
 
@@ -399,10 +409,22 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        workspace_id: str | None = None,
         openrouter_api_key: str | None = None,
         root_run_id: str | None = None,
     ) -> dict:
-        calls.append(("stage4", question, stage1b, stage2, stage3, enable_literature, root_run_id))
+        calls.append(
+            (
+                "stage4",
+                question,
+                stage1b,
+                stage2,
+                stage3,
+                enable_literature,
+                workspace_id,
+                root_run_id,
+            )
+        )
         return {
             "model_spec": {},
             "priors": {},
@@ -437,6 +459,8 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         for entry in calls
     )
     assert result == {"stage5b": True, "stage6": True}
+
+
 def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
@@ -500,6 +524,7 @@ def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path)
         stage2: dict,
         stage3: dict,
         enable_literature: bool,
+        workspace_id: str | None = None,
         openrouter_api_key: str | None = None,
     ) -> dict:
         raise AssertionError("stage4 should not run after a terminal stage outcome")
@@ -908,6 +933,30 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
     assert state["result"]["_data_for_model_path"] == str(model_path)
     assert state["result"]["workers"] == web_payload["workers"]
     assert state["result"]["preserved_field"] == "kept-from-snapshot"
+
+
+def test_stage4_checkpoints_append_in_incremental_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
+
+    workspace_id = "test_workspace"
+    first_runtime = {"cursor": "first"}
+    second_runtime = {"cursor": "second"}
+
+    first_path = run_store_module.save_stage4_checkpoint(first_runtime, workspace_id)
+    second_path = run_store_module.save_stage4_checkpoint(second_runtime, workspace_id)
+
+    checkpoint_dir = tmp_path / "data" / workspace_id / "run" / "stage-4-checkpoints"
+    checkpoint_files = sorted(path.name for path in checkpoint_dir.iterdir())
+
+    assert first_path.endswith("stage-4-checkpoints/000001.pkl")
+    assert second_path.endswith("stage-4-checkpoints/000002.pkl")
+    assert checkpoint_files == ["000001.pkl", "000002.pkl"]
+    assert run_store_module.load_stage4_checkpoint(workspace_id) == second_runtime
+
+    run_store_module.clear_stage4_checkpoint(workspace_id)
+
+    assert not checkpoint_dir.exists()
 
 
 def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
@@ -1657,6 +1706,7 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
             {"_data_for_model_path": str(data_path)},
             {"indicators": {}, "dataset_issues": [], "is_valid": True},
             enable_literature=True,
+            workspace_id="workspace-123",
         )
     )
 
@@ -1671,6 +1721,7 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
     assert kwargs["question"] == "why is this happening?"
     assert kwargs["indicator_audits"] == {}
     assert kwargs["enable_literature"] is True
+    assert kwargs["workspace_id"] == "workspace-123"
     assert kwargs["openrouter_api_key"] is None
     assert kwargs["root_run_id"] is None
     assert kwargs["data_for_model"].to_dicts() == [

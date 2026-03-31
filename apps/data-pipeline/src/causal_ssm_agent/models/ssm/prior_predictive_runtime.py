@@ -95,7 +95,7 @@ def sample_prior_predictive_from_runtime(
     samples.update(constrained_samples)
     samples.update(deterministic_samples)
     samples.update(extra_params)
-    samples["observations"] = simulate_posterior_predictive(
+    observations, observations_mask = simulate_posterior_predictive(
         samples,
         times,
         diffusion_dist=spec.diffusion_dist,
@@ -108,7 +108,10 @@ def sample_prior_predictive_from_runtime(
         observation_mask=observation_mask,
         n_subsample=num_samples,
         rng_seed=seed,
+        return_mask=True,
     )
+    samples["observations"] = observations
+    samples["observations_mask"] = observations_mask
     return samples
 
 

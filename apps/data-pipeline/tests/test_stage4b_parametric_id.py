@@ -103,9 +103,7 @@ class TestStage4bInferenceStructurePayload:
         self, label, spec_factory, obs_support, expected_reason
     ):
         spec = spec_factory()
-        model = _make_model(
-            spec, observation_support=obs_support() if obs_support else None
-        )
+        model = _make_model(spec, observation_support=obs_support() if obs_support else None)
         plan = plan_inference_structure(
             model.spec,
             likelihood=model.likelihood,

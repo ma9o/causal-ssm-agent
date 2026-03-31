@@ -163,7 +163,9 @@ class SSMPriors:
     # Initial state
     t0_means: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 2.0})
     t0_var_diag: dict = field(default_factory=lambda: {"sigma": 2.0})
-    t0_var_offdiag: dict = field(default_factory=lambda: dict(INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS))
+    t0_var_offdiag: dict = field(
+        default_factory=lambda: dict(INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS)
+    )
 
 
 def assemble_sampled_extra_params(

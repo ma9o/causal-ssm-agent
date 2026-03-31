@@ -31,6 +31,7 @@ STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet", "stage2-raw-input.parque
 STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
 STAGE4_COMPILED_SSM_FILENAMES = ("stage4-compiled-ssm.json",)
 STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
+STAGE4_CHECKPOINT_DIRNAME = "stage-4-checkpoints"
 
 # ---------------------------------------------------------------------------
 # Path helpers
@@ -132,6 +133,62 @@ def load_stage_snapshot(workspace_id: str, stage_id: str) -> dict[str, Any]:
         )
     with storage.open_file(path, "rb") as f:
         return cloudpickle.load(f)
+
+
+def _stage4_checkpoint_dir(workspace_id: str, *, create: bool) -> str:
+    """Return the Stage 4 checkpoint directory."""
+    run_dir = ensure_run_dir(workspace_id) if create else existing_run_dir(workspace_id)
+    return storage.join(run_dir, STAGE4_CHECKPOINT_DIRNAME)
+
+
+def _stage4_checkpoint_index(path: str) -> int | None:
+    """Parse an incremental Stage 4 checkpoint filename into its numeric index."""
+    name = path.rstrip("/").rsplit("/", 1)[-1]
+    if not name.endswith(".pkl"):
+        return None
+    stem = name[:-4]
+    if not stem.isdigit():
+        return None
+    return int(stem)
+
+
+def _list_stage4_checkpoint_paths(workspace_id: str) -> list[str]:
+    """Return sorted Stage 4 checkpoint paths from oldest to newest."""
+    try:
+        checkpoint_dir = _stage4_checkpoint_dir(workspace_id, create=False)
+    except FileNotFoundError:
+        return []
+    indexed_paths: list[tuple[int, str]] = []
+    for path in storage.listdir(checkpoint_dir):
+        index = _stage4_checkpoint_index(path)
+        if index is None:
+            continue
+        indexed_paths.append((index, path))
+    indexed_paths.sort(key=lambda item: item[0])
+    return [path for _, path in indexed_paths]
+
+
+def save_stage4_checkpoint(runtime: Any, workspace_id: str) -> str:
+    """Persist an in-progress Stage 4 runtime checkpoint."""
+    checkpoint_paths = _list_stage4_checkpoint_paths(workspace_id)
+    last_index = _stage4_checkpoint_index(checkpoint_paths[-1]) if checkpoint_paths else None
+    next_index = 1 if last_index is None else last_index + 1
+    filename = storage.join(STAGE4_CHECKPOINT_DIRNAME, f"{next_index:06d}.pkl")
+    return save_pickle(runtime, workspace_id, filename)
+
+
+def load_stage4_checkpoint(workspace_id: str) -> Any:
+    """Load a previously persisted Stage 4 runtime checkpoint."""
+    checkpoint_paths = _list_stage4_checkpoint_paths(workspace_id)
+    if not checkpoint_paths:
+        raise FileNotFoundError(f"No Stage 4 checkpoints found for workspace_id {workspace_id}")
+    return load_pickle(checkpoint_paths[-1])
+
+
+def clear_stage4_checkpoint(workspace_id: str) -> None:
+    """Remove any in-progress Stage 4 runtime checkpoint."""
+    path = _stage4_checkpoint_dir(workspace_id, create=True)
+    storage.remove(path, recursive=True)
 
 
 # ---------------------------------------------------------------------------

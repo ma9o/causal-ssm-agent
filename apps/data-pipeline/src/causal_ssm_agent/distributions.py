@@ -543,6 +543,7 @@ def render_prior_parameter_guidance_markdown_table() -> str:
 # Likelihood doc renderers
 # ---------------------------------------------------------------------------
 
+
 def _format_dist_with_links(dist: DistributionFamily) -> str:
     """Format a distribution with its valid links for the alternatives column."""
     links = OBSERVATION_LINK_VALUES_BY_DISTRIBUTION[dist]
@@ -576,9 +577,7 @@ def render_dtype_likelihood_markdown_table() -> str:
             alternatives.append(entry)
 
         alt_str = ", ".join(alternatives) if alternatives else "None"
-        lines.append(
-            f"| `{dtype}` | `{default_dist.value}` | `{default_link}` | {alt_str} |"
-        )
+        lines.append(f"| `{dtype}` | `{default_dist.value}` | `{default_link}` | {alt_str} |")
     return "\n".join(lines)
 
 
@@ -609,6 +608,7 @@ def render_link_functions_prose() -> str:
 # ---------------------------------------------------------------------------
 # Parameter role doc renderers
 # ---------------------------------------------------------------------------
+
 
 def render_parameter_roles_markdown_table() -> str:
     """Render the Parameter Roles table for docs codegen."""

@@ -144,15 +144,18 @@ class PriorValidationResult(BaseModel):
         default=None,
         description="Deterministic minimal repair scope for nonlocal failures",
     )
-    failure_stage: Literal[
-        "compiled_parameters",
-        "latent_dynamics",
-        "observation_sample",
-        "support_violation",
-        "model_build",
-        "prior_sampling",
-        "unknown",
-    ] | None = Field(
+    failure_stage: (
+        Literal[
+            "compiled_parameters",
+            "latent_dynamics",
+            "observation_sample",
+            "support_violation",
+            "model_build",
+            "prior_sampling",
+            "unknown",
+        ]
+        | None
+    ) = Field(
         default=None,
         description="Earliest validation stage that can currently be localized for this failure",
     )

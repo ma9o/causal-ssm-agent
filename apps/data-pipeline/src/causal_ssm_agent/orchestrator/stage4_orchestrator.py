@@ -57,6 +57,7 @@ class Stage4FrontierBlock:
     construct_names: tuple[str, ...] = ()
     variable_names: tuple[str, ...] = ()
     parameter_names: tuple[str, ...] = ()
+    expand_neighbor_topology: bool = True
     payload: dict[str, Any] = field(default_factory=dict)
 
 
@@ -67,6 +68,7 @@ class Stage4RepairTopology:
     parameter_to_block_id: dict[str, str] = field(default_factory=dict)
     indicator_to_decision_block_id: dict[str, str] = field(default_factory=dict)
     indicator_to_measurement_block_id: dict[str, str] = field(default_factory=dict)
+    indicator_names_by_construct: dict[str, tuple[str, ...]] = field(default_factory=dict)
     dynamics_block_id_by_construct: dict[str, str] = field(default_factory=dict)
     scc_id_by_construct: dict[str, str] = field(default_factory=dict)
     scc_construct_names_by_id: dict[str, tuple[str, ...]] = field(default_factory=dict)
@@ -81,6 +83,12 @@ class Stage4RepairTopology:
     def get_measurement_block_id(self, indicator_name: str) -> str | None:
         """Return the measurement block for a manifest indicator."""
         return self.indicator_to_measurement_block_id.get(indicator_name)
+
+    def get_indicator_owner_block_id(self, indicator_name: str) -> str | None:
+        """Return the owner block for a manifest indicator token."""
+        return self.indicator_to_decision_block_id.get(
+            indicator_name
+        ) or self.get_measurement_block_id(indicator_name)
 
     def get_scc_id(self, construct_name: str) -> str | None:
         """Return the SCC id for a latent construct."""
@@ -108,6 +116,13 @@ class Stage4Plan:
     def get_block(self, block_id: str) -> Stage4FrontierBlock | None:
         """Return a block by id, if present."""
         return self.blocks_by_id.get(block_id)
+
+    @property
+    def prior_review_block_id(self) -> str | None:
+        """Return the whole-system prior-review block id, if configured."""
+        if self.prior_review_block is None:
+            return None
+        return self.prior_review_block.id
 
 
 @dataclass(frozen=True)
@@ -173,35 +188,47 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
     "dynamics_prior": Stage4PromptScopePolicy(
         system_task=(
             "Propose full prior specifications only for the active block's parameters. "
-            "Choose the prior family, hyperparameters, and reasoning for the active scope only."
+            "These dynamics priors set the continuous-time damping budget that downstream effect "
+            "priors must fit inside, so avoid near-unit-root or overly diffuse persistence unless "
+            "strong evidence requires it."
         ),
         user_task=(
-            "Propose full prior specifications only for this block's parameters. "
-            "Do not send model decisions or priors for other blocks."
+            "Propose full prior specifications only for this block's parameters. Choose dynamics "
+            "priors that leave clear damping headroom for later incoming effects, and do not send "
+            "model decisions or priors for other blocks."
         ),
         visible_sections=("construct_scale_cards", "prior_cards"),
         guidance_section_keys=(
             "prior_distribution_types",
             "parameter_guidance",
             "continuous_time_dynamics",
+            "dynamics_budget_discipline",
         ),
         parameter_guidance_prefixes=("rho", "sigma"),
         allowed_tool_names=("validate_model", "elicit_prior_gmm"),
     ),
     "effect_prior": Stage4PromptScopePolicy(
         system_task=(
-            "Propose full prior specifications only for the active block's parameters. "
-            "Choose the prior family, hyperparameters, and reasoning for the active scope only."
+            "Author priors only for the active target construct's incoming lagged-effect row. "
+            "Use the row-level stability budget reported in the user message as advisory "
+            "headroom guidance, not as a mechanical acceptance rule. In dense feedback-coupled "
+            "rows, default to tightly zero-centered priors with modest uncertainty unless strong "
+            "longitudinal evidence supports larger effects."
         ),
         user_task=(
-            "Propose full prior specifications only for this block's parameters. "
-            "Do not send model decisions or priors for other blocks."
+            "This block owns one target construct's full incoming lagged-effect row. Use the "
+            "stability budget in Frontier Status as advisory headroom guidance for this row: "
+            "prefer tightly zero-centered, small-scale priors for SCC-internal or "
+            "`Feedback Loop = yes` edges, leave slack for uncertainty, and only grow effects "
+            "when strong longitudinal evidence justifies it. Submit priors only for this block's "
+            "parameters."
         ),
         visible_sections=("construct_scale_cards", "prior_cards"),
         guidance_section_keys=(
             "prior_distribution_types",
             "parameter_guidance",
             "continuous_time_dynamics",
+            "effect_row_budget_discipline",
             "lagged_effect_interval_guidance",
         ),
         parameter_guidance_prefixes=("beta",),
@@ -576,7 +603,9 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         parameters = effect_parameters_by_target.get(effect_name) or []
         if not parameters:
             continue
-        ordered_parameters = sorted(parameters, key=lambda parameter: param_order[parameter["name"]])
+        ordered_parameters = sorted(
+            parameters, key=lambda parameter: param_order[parameter["name"]]
+        )
         cause_names = tuple(dict.fromkeys(parameter["cause"] for parameter in ordered_parameters))
         construct_names = (*cause_names, effect_name)
         prior_blocks.append(
@@ -672,9 +701,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             cause_name = parameter.get("cause")
             effect_name = parameter.get("effect")
             construct_names = tuple(
-                name_
-                for name_ in (cause_name, effect_name)
-                if isinstance(name_, str)
+                name_ for name_ in (cause_name, effect_name) if isinstance(name_, str)
             )
             parameter_construct_names[name] = construct_names
             if len(construct_names) == 2:
@@ -713,6 +740,10 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         parameter_to_block_id=parameter_to_block_id,
         indicator_to_decision_block_id=indicator_to_decision_block_id,
         indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+        indicator_names_by_construct={
+            construct_name: tuple(indicators_per_construct.get(construct_name, ()))
+            for construct_name in construct_order
+        },
         dynamics_block_id_by_construct=dynamics_block_id_by_construct,
         scc_id_by_construct=scc_id_by_construct,
         scc_construct_names_by_id=scc_construct_names_by_id,

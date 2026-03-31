@@ -40,6 +40,7 @@ class TestConstruct:
                 temporal_status=TemporalStatus.TIME_VARYING,
             )
 
+
 class TestLatentModel:
     """Tests for LatentModel validation."""
 
@@ -166,6 +167,7 @@ class TestLatentModel:
                 ],
                 edges=[CausalEdge(cause="stress", effect="mood", description="Test")],
             )
+
 
 class TestIndicator:
     """Tests for Indicator validation."""

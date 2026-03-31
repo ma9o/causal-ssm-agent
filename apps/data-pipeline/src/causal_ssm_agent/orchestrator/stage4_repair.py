@@ -6,7 +6,8 @@ campaign-aware repair escalation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -17,17 +18,22 @@ if TYPE_CHECKING:
         PriorValidationResult,
     )
 
-    from .stage4 import Stage4Runtime
-    from .stage4_orchestrator import (
-        Stage4FrontierBlock,
-        Stage4Plan,
-        Stage4RepairTopology,
-    )
+    from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan, Stage4RepairTopology
+    from .stage4_state import Stage4Runtime
 
 
 _MAX_SCOPE_ATTEMPTS = 2
 _GLOBAL_REVIEW_SCOPE_RANK = 3
 _VALIDATOR_SCOPE_RANK = 2
+_DRIFT_RELATED_CODES = frozenset(
+    {
+        "dt_ct_approximation_warning",
+        "partial_dynamics_budget_exhausted",
+        "partial_dynamics_row_budget_exceeded",
+        "partial_dynamics_stability",
+        "partial_row_budget_exceeded",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -47,25 +53,64 @@ class Stage4FailureLocalization:
     @property
     def parameter_hints(self) -> tuple[str, ...]:
         """Return deterministic seed parameters for scope synthesis."""
-        return tuple(
-            dict.fromkeys([*self.direct_parameters, *self.supporting_parameters])
-        )
+        return tuple(dict.fromkeys([*self.direct_parameters, *self.supporting_parameters]))
 
 
 @dataclass(frozen=True)
 class ResolvedRepairScope:
-    """Deterministic structural repair scope projected back to Stage 4 blocks."""
+    """Deterministic structural repair scope independent of prompt blocks."""
 
     scope_kind: str
     scope_rank: int
     scope_key: str
-    block_ids: tuple[str, ...]
     reason: str
     failure_family: tuple[Any, ...]
     parameter_names: tuple[str, ...] = ()
     construct_names: tuple[str, ...] = ()
+    prompt_block_hints: tuple[str, ...] = ()
     diagnostic_codes: tuple[str, ...] = ()
     pathology_certificate: PriorPathologyCertificate | None = None
+
+
+@dataclass(frozen=True)
+class ResolvedRepairPlan:
+    """Prompt execution plan for one resolved structural repair scope."""
+
+    scope: ResolvedRepairScope
+    prompt_blocks: tuple[Stage4FrontierBlock, ...]
+    requires_barrier_validation: bool = False
+
+    @property
+    def scope_kind(self) -> str:
+        return self.scope.scope_kind
+
+    @property
+    def scope_rank(self) -> int:
+        return self.scope.scope_rank
+
+    @property
+    def scope_key(self) -> str:
+        return self.scope.scope_key
+
+    @property
+    def reason(self) -> str:
+        return self.scope.reason
+
+    @property
+    def failure_family(self) -> tuple[Any, ...]:
+        return self.scope.failure_family
+
+    @property
+    def diagnostic_codes(self) -> tuple[str, ...]:
+        return self.scope.diagnostic_codes
+
+    @property
+    def pathology_certificate(self) -> PriorPathologyCertificate | None:
+        return self.scope.pathology_certificate
+
+    @property
+    def block_ids(self) -> tuple[str, ...]:
+        return tuple(block.id for block in self.prompt_blocks)
 
 
 def _find_block_for_parameter(
@@ -92,27 +137,136 @@ def _resolved_repair_scope(
     *,
     scope_kind: str,
     scope_rank: int,
-    block_ids: tuple[str, ...],
     reason: str,
     failure_family: tuple[Any, ...],
     parameter_names: tuple[str, ...] = (),
     construct_names: tuple[str, ...] = (),
+    prompt_block_hints: tuple[str, ...] = (),
     diagnostic_codes: tuple[str, ...] = (),
     pathology_certificate: PriorPathologyCertificate | None = None,
+    scope_token: str | None = None,
 ) -> ResolvedRepairScope:
     """Build a deterministic resolved repair scope."""
-    scope_key = f"{scope_kind}:{'|'.join(block_ids)}"
+    scope_parts = [*construct_names, *parameter_names]
+    scope_suffix = (
+        "|".join(dict.fromkeys(scope_parts)) if scope_parts else (scope_token or "global")
+    )
+    scope_key = f"{scope_kind}:{scope_suffix}"
     return ResolvedRepairScope(
         scope_kind=scope_kind,
         scope_rank=scope_rank,
         scope_key=scope_key,
-        block_ids=block_ids,
         reason=reason,
         failure_family=failure_family,
         parameter_names=parameter_names,
         construct_names=construct_names,
+        prompt_block_hints=prompt_block_hints,
         diagnostic_codes=diagnostic_codes,
         pathology_certificate=pathology_certificate,
+    )
+
+
+def _effect_prompt_block_for_structural_scope(
+    plan: Stage4Plan,
+    block: Stage4FrontierBlock,
+    scope: ResolvedRepairScope,
+) -> Stage4FrontierBlock | None:
+    """Project a structural drift scope onto the narrowest authored effect prompt."""
+    if block.kind != "effect_prior" or scope.scope_kind not in {
+        "scc_drift_subsystem",
+        "validator_scope",
+    }:
+        return block
+
+    allowed_constructs = set(scope.construct_names)
+    if not allowed_constructs:
+        return block
+
+    topology = plan.repair_topology
+    allowed_parameter_names = tuple(
+        parameter_name
+        for parameter_name in block.parameter_names
+        if set(topology.parameter_construct_names.get(parameter_name, ())).issubset(
+            allowed_constructs
+        )
+    )
+    if not allowed_parameter_names:
+        return None
+    if allowed_parameter_names == block.parameter_names:
+        return block
+
+    prompt_construct_names = tuple(
+        construct_name
+        for construct_name in block.construct_names
+        if construct_name
+        in {
+            related_construct
+            for parameter_name in allowed_parameter_names
+            for related_construct in topology.parameter_construct_names.get(parameter_name, ())
+        }
+    )
+    prompt_variable_names = tuple(
+        indicator_name
+        for construct_name in prompt_construct_names
+        for indicator_name in topology.indicator_names_by_construct.get(construct_name, ())
+    )
+    return replace(
+        block,
+        label=f"{block.label} (internal SCC parameters only)",
+        construct_names=prompt_construct_names,
+        variable_names=prompt_variable_names,
+        parameter_names=allowed_parameter_names,
+        expand_neighbor_topology=False,
+    )
+
+
+def build_repair_plan(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+    *,
+    prompt_block_ids: tuple[str, ...] | None = None,
+    requires_barrier_validation: bool | None = None,
+) -> ResolvedRepairPlan:
+    """Project a structural scope into the prompt blocks Stage 4 should run."""
+    if prompt_block_ids is None:
+        if scope.prompt_block_hints:
+            prompt_block_ids = scope.prompt_block_hints
+        elif scope.scope_kind == "local_drift_motif":
+            prompt_block_ids = _local_drift_motif_block_ids(plan, scope.parameter_names)
+        elif scope.scope_kind == "reciprocal_pair":
+            prompt_block_ids = _reciprocal_pair_block_ids(plan, scope.parameter_names)
+        elif scope.scope_kind in {"scc_drift_subsystem", "validator_scope"}:
+            prompt_block_ids = _scc_drift_subsystem_block_ids(plan, scope.construct_names)
+        elif scope.scope_kind == "direct_writer_blocks":
+            prompt_block_ids = _ordered_block_ids(
+                plan,
+                {
+                    block.id
+                    for parameter_name in scope.parameter_names
+                    if (block := _find_block_for_parameter(plan, parameter_name)) is not None
+                },
+            )
+        elif scope.scope_kind == "global_prior_review":
+            prior_review_id = plan.prior_review_block_id
+            prompt_block_ids = () if prior_review_id is None else (prior_review_id,)
+        else:
+            prompt_block_ids = ()
+
+    prompt_blocks: list[Stage4FrontierBlock] = []
+    for block_id in prompt_block_ids:
+        block = plan.get_block(block_id)
+        if block is None:
+            raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
+        prompt_block = _effect_prompt_block_for_structural_scope(plan, block, scope)
+        if prompt_block is not None:
+            prompt_blocks.append(prompt_block)
+
+    if requires_barrier_validation is None:
+        requires_barrier_validation = len(prompt_blocks) > 1
+    return ResolvedRepairPlan(
+        scope=scope,
+        prompt_blocks=tuple(prompt_blocks),
+        requires_barrier_validation=requires_barrier_validation,
     )
 
 
@@ -120,27 +274,103 @@ def _classify_compile_failure_route(
     plan: Stage4Plan,
     active_block: Stage4FrontierBlock,
     feedback: str | None,
-) -> ResolvedRepairScope:
+) -> ResolvedRepairPlan:
     """Route compile failures back to the smallest matching block."""
     text = feedback or ""
     failure_family = ("compile_failure", active_block.id)
-    for block in plan.all_blocks:
-        for token in [*block.variable_names, *block.parameter_names]:
-            if token and token in text:
-                return _resolved_repair_scope(
-                    scope_kind="compile_local",
-                    scope_rank=0,
-                    block_ids=(block.id,),
-                    reason="compile failure mentions an active-scope token",
-                    failure_family=failure_family,
-                )
-    return _resolved_repair_scope(
-        scope_kind="compile_active_block",
-        scope_rank=0,
-        block_ids=(active_block.id,),
-        reason="compile failure could not be localized more narrowly",
-        failure_family=failure_family,
+    matching_block_ids = _compile_failure_matching_block_ids(plan, text)
+    if matching_block_ids:
+        chosen_block_id = _choose_compile_local_block_id(
+            active_block=active_block,
+            block_ids=matching_block_ids,
+        )
+        return build_repair_plan(
+            plan,
+            _resolved_repair_scope(
+                scope_kind="compile_local",
+                scope_rank=0,
+                reason="compile failure names an owned parameter or indicator exactly",
+                failure_family=failure_family,
+                scope_token=chosen_block_id,
+            ),
+            prompt_block_ids=(chosen_block_id,),
+            requires_barrier_validation=False,
+        )
+    if active_block.kind == "global_prior_review":
+        return build_repair_plan(
+            plan,
+            _resolved_repair_scope(
+                scope_kind="global_prior_review",
+                scope_rank=_GLOBAL_REVIEW_SCOPE_RANK,
+                reason="compile failure during whole-system prior review requires another global pass",
+                failure_family=failure_family,
+                scope_token="prior_system",
+            ),
+            requires_barrier_validation=False,
+        )
+    return build_repair_plan(
+        plan,
+        _resolved_repair_scope(
+            scope_kind="compile_active_block",
+            scope_rank=0,
+            reason="compile failure could not be localized more narrowly",
+            failure_family=failure_family,
+            scope_token=active_block.id,
+        ),
+        prompt_block_ids=(active_block.id,),
+        requires_barrier_validation=False,
     )
+
+
+def _compile_failure_matching_block_ids(
+    plan: Stage4Plan,
+    text: str,
+) -> tuple[str, ...]:
+    """Return owner block ids for exact identifiers mentioned in compile feedback."""
+    if not text:
+        return ()
+
+    topology = plan.repair_topology
+    matched_block_ids: set[str] = set()
+
+    for parameter_name in topology.parameter_to_block_id:
+        if not _feedback_mentions_identifier(text, parameter_name):
+            continue
+        block = _find_block_for_parameter(plan, parameter_name)
+        if block is not None:
+            matched_block_ids.add(block.id)
+
+    indicator_names = {
+        *topology.indicator_to_decision_block_id,
+        *topology.indicator_to_measurement_block_id,
+    }
+    for indicator_name in indicator_names:
+        if not _feedback_mentions_identifier(text, indicator_name):
+            continue
+        block_id = topology.get_indicator_owner_block_id(indicator_name)
+        if block_id is not None:
+            matched_block_ids.add(block_id)
+
+    return _ordered_block_ids(plan, matched_block_ids)
+
+
+def _feedback_mentions_identifier(text: str, identifier: str) -> bool:
+    """Whether compile feedback mentions an identifier as a full token."""
+    if not identifier:
+        return False
+    pattern = rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])"
+    return bool(re.search(pattern, text))
+
+
+def _choose_compile_local_block_id(
+    *,
+    active_block: Stage4FrontierBlock,
+    block_ids: tuple[str, ...],
+) -> str:
+    """Choose the narrowest compile-local block, preferring the active owner when matched."""
+    if active_block.id in block_ids:
+        return active_block.id
+    return block_ids[0]
 
 
 def _all_dynamics_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
@@ -210,12 +440,7 @@ def _localize_prior_failure(
 
     failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
     diagnostic_codes = tuple(sorted(dict.fromkeys(result.code for result in failed if result.code)))
-    supporting_codes = {
-        code
-        for result in failed
-        for code in result.supporting_codes
-        if code
-    }
+    supporting_codes = {code for result in failed for code in result.supporting_codes if code}
 
     direct_parameters = tuple(
         sorted(
@@ -239,7 +464,8 @@ def _localize_prior_failure(
                     supporting_codes=supporting_codes,
                 )
                 for parameter_name in (
-                    diagnostic.related_parameters or ([diagnostic.parameter] if diagnostic.parameter else [])
+                    diagnostic.related_parameters
+                    or ([diagnostic.parameter] if diagnostic.parameter else [])
                 )
                 if parameter_name and _find_block_for_parameter(plan, parameter_name) is not None
             )
@@ -342,7 +568,9 @@ def _local_drift_motif_block_ids(
         if block is None:
             continue
         bundle_block_ids.add(block.id)
-        constructs.extend(topology.parameter_construct_names.get(parameter_name, block.construct_names))
+        constructs.extend(
+            topology.parameter_construct_names.get(parameter_name, block.construct_names)
+        )
 
     for construct_name in dict.fromkeys(constructs):
         dynamics_block_id = topology.dynamics_block_id_by_construct.get(construct_name)
@@ -394,19 +622,15 @@ def _scc_drift_subsystem_block_ids(
     return _ordered_block_ids(plan, bundle_block_ids)
 
 
-def _global_prior_review_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
-    """Return the global prior-review block, if configured."""
-    if plan.prior_review_block is None:
-        return ()
-    return (plan.prior_review_block.id,)
-
-
 def _support_failure_scope(
     plan: Stage4Plan,
     localization: Stage4FailureLocalization,
 ) -> ResolvedRepairScope | None:
     """Localize support violations to indicator-decision blocks when possible."""
-    if "support check" not in localization.issues_text and "outside support" not in localization.issues_text:
+    if (
+        "support check" not in localization.issues_text
+        and "outside support" not in localization.issues_text
+    ):
         return None
 
     topology = plan.repair_topology
@@ -415,10 +639,11 @@ def _support_failure_scope(
             return _resolved_repair_scope(
                 scope_kind="likelihood_support",
                 scope_rank=0,
-                block_ids=(block_id,),
                 reason="global support failure names an indicator likelihood",
                 failure_family=localization.failure_family,
+                prompt_block_hints=(block_id,),
                 diagnostic_codes=localization.diagnostic_codes,
+                scope_token=block_id,
             )
 
     for block in plan.model_blocks:
@@ -426,10 +651,11 @@ def _support_failure_scope(
             return _resolved_repair_scope(
                 scope_kind="likelihood_support",
                 scope_rank=0,
-                block_ids=(block.id,),
                 reason="support failure requires indicator-decision repair",
                 failure_family=localization.failure_family,
+                prompt_block_hints=(block.id,),
                 diagnostic_codes=localization.diagnostic_codes,
+                scope_token=block.id,
             )
     return None
 
@@ -438,11 +664,10 @@ def _is_drift_related(localization: Stage4FailureLocalization) -> bool:
     """Whether the failure should be repaired through drift-structured scopes."""
     if localization.validator_repair_scope is not None:
         return True
-    if "dt_ct_approximation_warning" in localization.diagnostic_codes:
+    if any(code in _DRIFT_RELATED_CODES for code in localization.diagnostic_codes):
         return True
     return any(
-        parameter_name.startswith("beta_")
-        for parameter_name in localization.parameter_hints
+        parameter_name.startswith("beta_") for parameter_name in localization.parameter_hints
     )
 
 
@@ -459,23 +684,23 @@ def _build_scope_candidates(
         *,
         scope_kind: str,
         scope_rank: int,
-        block_ids: tuple[str, ...],
         reason: str,
         parameter_names: tuple[str, ...] = (),
         construct_names: tuple[str, ...] = (),
+        scope_token: str | None = None,
     ) -> None:
-        if not block_ids:
+        if not parameter_names and not construct_names and scope_token is None:
             return
         scope = _resolved_repair_scope(
             scope_kind=scope_kind,
             scope_rank=scope_rank,
-            block_ids=block_ids,
             reason=reason,
             failure_family=localization.failure_family,
             parameter_names=parameter_names,
             construct_names=construct_names,
             diagnostic_codes=localization.diagnostic_codes,
             pathology_certificate=localization.pathology_certificate,
+            scope_token=scope_token,
         )
         if any(existing.scope_key == scope.scope_key for existing in candidates):
             return
@@ -487,55 +712,58 @@ def _build_scope_candidates(
         return candidates
 
     if localization.validator_repair_scope is not None:
-        validator_block_ids = _block_ids_for_repair_scope(plan, localization.validator_repair_scope)
         add_candidate(
             scope_kind="validator_scope",
             scope_rank=_VALIDATOR_SCOPE_RANK,
-            block_ids=validator_block_ids,
             reason="validator supplied a deterministic SCC repair scope",
             construct_names=_validator_scope_construct_names(localization.validator_repair_scope),
         )
 
     if _is_drift_related(localization) and localization.parameter_hints:
-        local_blocks = _local_drift_motif_block_ids(plan, localization.parameter_hints)
         add_candidate(
             scope_kind="local_drift_motif",
             scope_rank=0,
-            block_ids=local_blocks,
             reason="drift-related PP failure should first repair the local drift motif",
             parameter_names=localization.parameter_hints,
-            construct_names=_parameter_construct_names(plan.repair_topology, localization.parameter_hints),
+            construct_names=_parameter_construct_names(
+                plan.repair_topology, localization.parameter_hints
+            ),
         )
 
-        reciprocal_blocks = _reciprocal_pair_block_ids(plan, localization.parameter_hints)
         add_candidate(
             scope_kind="reciprocal_pair",
             scope_rank=1,
-            block_ids=reciprocal_blocks,
             reason="reciprocal feedback should be repaired jointly before widening further",
-            parameter_names=localization.parameter_hints,
-            construct_names=_parameter_construct_names(plan.repair_topology, localization.parameter_hints),
+            parameter_names=tuple(
+                sorted(
+                    {
+                        *localization.parameter_hints,
+                        *(
+                            plan.repair_topology.reciprocal_parameter_by_parameter.get(
+                                parameter_name
+                            )
+                            for parameter_name in localization.parameter_hints
+                        ),
+                    }
+                    - {None}
+                )
+            ),
+            construct_names=_parameter_construct_names(
+                plan.repair_topology, localization.parameter_hints
+            ),
         )
 
-        scc_blocks = _scc_drift_subsystem_block_ids(plan, localization.construct_names)
         add_candidate(
             scope_kind="scc_drift_subsystem",
             scope_rank=2,
-            block_ids=scc_blocks,
             reason="persistent drift pathology requires an SCC-closed repair subsystem",
             parameter_names=localization.parameter_hints,
             construct_names=localization.construct_names,
         )
     elif localization.direct_parameters:
-        direct_block_ids = {
-            block.id
-            for parameter_name in localization.direct_parameters
-            if (block := _find_block_for_parameter(plan, parameter_name)) is not None
-        }
         add_candidate(
             scope_kind="direct_writer_blocks",
             scope_rank=0,
-            block_ids=_ordered_block_ids(plan, direct_block_ids),
             reason="diagnostic related_parameters map directly to Stage 4 blocks",
             parameter_names=localization.direct_parameters,
             construct_names=localization.construct_names,
@@ -545,10 +773,10 @@ def _build_scope_candidates(
         add_candidate(
             scope_kind="global_prior_review",
             scope_rank=_GLOBAL_REVIEW_SCOPE_RANK,
-            block_ids=_global_prior_review_block_ids(plan),
             reason="global PP failure could not be localized to a smaller bounded scope",
             parameter_names=localization.parameter_hints,
             construct_names=localization.construct_names,
+            scope_token="prior_system",
         )
 
     return candidates
@@ -564,24 +792,41 @@ def _advance_repair_scope(
     if not candidates:
         return None
 
+    ordered_candidates = [
+        candidate
+        for _index, candidate in sorted(
+            enumerate(candidates),
+            key=lambda item: (item[1].scope_rank, item[0]),
+        )
+    ]
     campaign = runtime.repair_campaign
     if campaign is None or campaign.failure_family_key != failure_family:
-        return candidates[0]
+        return ordered_candidates[0]
 
-    for candidate in candidates:
-        if candidate.scope_key == campaign.scope_key:
-            if (
-                campaign.attempts_at_scope < _MAX_SCOPE_ATTEMPTS
-                and _certificate_improved(
-                    candidate.pathology_certificate,
-                    campaign.best_certificate,
-                )
-            ):
-                return candidate
-            continue
+    current_scope = next(
+        (
+            candidate
+            for candidate in ordered_candidates
+            if candidate.scope_key == campaign.scope_key
+        ),
+        None,
+    )
+    if (
+        current_scope is not None
+        and campaign.attempts_at_scope < _MAX_SCOPE_ATTEMPTS
+        and (
+            current_scope.pathology_certificate is None
+            or campaign.best_certificate is None
+            or _certificate_improved(
+                current_scope.pathology_certificate,
+                campaign.best_certificate,
+            )
+        )
+    ):
+        return current_scope
+
+    for candidate in ordered_candidates:
         if candidate.scope_rank > campaign.scope_rank:
-            return candidate
-        if candidate.scope_rank == campaign.scope_rank and candidate.scope_key != campaign.scope_key:
             return candidate
     return None
 
@@ -591,15 +836,20 @@ def _classify_prior_failure_blocks(
     active_block: Stage4FrontierBlock,
     validation: AssemblyValidation | None,
     runtime: Stage4Runtime,
-) -> ResolvedRepairScope:
+) -> ResolvedRepairPlan:
     """Route prior-validation failures to the smallest monotone repair scope."""
     if validation is None:
-        return _resolved_repair_scope(
-            scope_kind="active_block_fallback",
-            scope_rank=0,
-            block_ids=(active_block.id,),
-            reason="missing validation payload",
-            failure_family=("missing_validation", active_block.id),
+        return build_repair_plan(
+            plan,
+            _resolved_repair_scope(
+                scope_kind="active_block_fallback",
+                scope_rank=0,
+                reason="missing validation payload",
+                failure_family=("missing_validation", active_block.id),
+                scope_token=active_block.id,
+            ),
+            prompt_block_ids=(active_block.id,),
+            requires_barrier_validation=False,
         )
 
     from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
@@ -612,7 +862,7 @@ def _classify_prior_failure_blocks(
         candidates=candidates,
     )
     if chosen_scope is not None:
-        return chosen_scope
+        return build_repair_plan(plan, chosen_scope)
 
     failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
     global_failures = [result for result in failed if result.parameter in GLOBAL_FAILURE_SITES]
@@ -626,11 +876,16 @@ def _classify_prior_failure_blocks(
             f"global prior-predictive failure. Details: {details}"
         )
 
-    return _resolved_repair_scope(
-        scope_kind="active_block_fallback",
-        scope_rank=0,
-        block_ids=(active_block.id,),
-        reason="non-global failure could not be localized more narrowly",
-        failure_family=localization.failure_family,
-        diagnostic_codes=localization.diagnostic_codes,
+    return build_repair_plan(
+        plan,
+        _resolved_repair_scope(
+            scope_kind="active_block_fallback",
+            scope_rank=0,
+            reason="non-global failure could not be localized more narrowly",
+            failure_family=localization.failure_family,
+            diagnostic_codes=localization.diagnostic_codes,
+            scope_token=active_block.id,
+        ),
+        prompt_block_ids=(active_block.id,),
+        requires_barrier_validation=False,
     )

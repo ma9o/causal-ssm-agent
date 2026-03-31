@@ -95,6 +95,30 @@ class TestCheckNanInf:
         assert result.pathology_certificate.kind == "nonfinite_samples"
         assert result.pathology_certificate.primary_score == pytest.approx(1.0)
 
+    def test_observations_mask_ignores_structural_nans(self):
+        observations = jnp.asarray(
+            [
+                [[float("nan"), float("nan")], [1.0, 2.0]],
+                [[float("nan"), float("nan")], [3.0, 4.0]],
+            ]
+        )
+        observations_mask = jnp.asarray(
+            [
+                [[False, False], [True, True]],
+                [[False, False], [True, True]],
+            ]
+        )
+
+        result = _check_nan_inf(
+            {
+                "observations": observations,
+                "observations_mask": observations_mask,
+            },
+            manifest_names=["activity_vas", "sleep_quality"],
+        )
+
+        assert result is None
+
 
 # =============================================================================
 # _check_constraint_violations
@@ -462,9 +486,11 @@ class TestCompiledPriorPredictiveRuntime:
         )
 
         assert samples["observations"].shape == (8, 6, 2)
+        assert samples["observations_mask"].shape == (8, 6, 2)
         assert bool(jnp.isfinite(samples["drift"]).all())
         assert bool(jnp.isfinite(samples["diffusion"]).all())
         assert bool(jnp.isfinite(samples["observations"]).all())
+        assert bool(samples["observations_mask"].all())
 
     def test_ordered_likelihood_requires_hydrated_level_counts(self):
         """Discrete emissions fail clearly until hydration provides level counts."""
@@ -517,5 +543,6 @@ class TestCompiledPriorPredictiveRuntime:
 
         min_eigs = jnp.linalg.eigvalsh(samples["t0_cov"])[..., 0]
         assert bool(jnp.isfinite(samples["observations"]).all())
+        assert bool(samples["observations_mask"].all())
         assert bool(jnp.isfinite(samples["t0_cov"]).all())
         assert bool((min_eigs > -1e-6).all())

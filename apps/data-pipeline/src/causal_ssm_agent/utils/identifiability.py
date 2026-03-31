@@ -576,4 +576,3 @@ def analyze_unobserved_constructs(
         "marginalize_reason": marginalize_reason,
         "blocking_details": blocking_details,
     }
-

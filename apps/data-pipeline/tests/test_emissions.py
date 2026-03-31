@@ -366,9 +366,7 @@ class TestGetEmissionFn:
         R = jnp.eye(1)
         mask = jnp.ones(1)
         lp_dispatch = fn(y, z, H, d, R, mask)
-        lp_direct = emission_log_prob_ordered_logistic(
-            y, z, H, d, R, mask, cutpoints, level_counts
-        )
+        lp_direct = emission_log_prob_ordered_logistic(y, z, H, d, R, mask, cutpoints, level_counts)
         assert jnp.isclose(lp_dispatch, lp_direct)
 
     def test_categorical_matches_direct(self):

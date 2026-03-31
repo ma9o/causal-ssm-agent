@@ -118,6 +118,7 @@ def _broadcast_draw_param(
         return value[indices]
     return jnp.broadcast_to(value, (n_use, *value.shape))
 
+
 def _linear_predictors_from_latent_trajectory(
     latent_trajectory: jnp.ndarray,
     lambda_mat: jnp.ndarray,
@@ -207,6 +208,23 @@ def _slice_extra_params_for_indices(
         sliced[key] = value
     return sliced
 
+def _resolve_effective_observation_mask(
+    target_shape: tuple[int, ...],
+    semantic_mask: jnp.ndarray | None,
+    observation_mask: jnp.ndarray | None,
+) -> jnp.ndarray:
+    """Return the explicit emitted-observation mask for one simulated draw."""
+    if len(target_shape) == 2:
+        mask_shape = target_shape
+    else:
+        mask_shape = target_shape[1:]
+    effective_mask = jnp.ones(mask_shape, dtype=bool)
+    if semantic_mask is not None:
+        effective_mask = effective_mask & (semantic_mask > 0.5)
+    if observation_mask is not None:
+        effective_mask = effective_mask & observation_mask.astype(bool)
+    return effective_mask
+
 
 def _apply_observation_mask(
     y_sim: jnp.ndarray,
@@ -214,15 +232,11 @@ def _apply_observation_mask(
     observation_mask: jnp.ndarray | None,
 ) -> jnp.ndarray:
     """Set structurally absent observations to NaN."""
-    if y_sim.ndim == 2:
-        target_shape = y_sim.shape
-    else:
-        target_shape = y_sim.shape[1:]
-    effective_mask = jnp.ones(target_shape, dtype=bool)
-    if semantic_mask is not None:
-        effective_mask = effective_mask & (semantic_mask > 0.5)
-    if observation_mask is not None:
-        effective_mask = effective_mask & observation_mask.astype(bool)
+    effective_mask = _resolve_effective_observation_mask(
+        y_sim.shape,
+        semantic_mask,
+        observation_mask,
+    )
     if y_sim.ndim == 2:
         return jnp.where(effective_mask, y_sim, jnp.nan)
     return jnp.where(effective_mask[None, :, :], y_sim, jnp.nan)
@@ -250,7 +264,7 @@ def _simulate_one_draw(
     observation_operator,
     observation_mask: jnp.ndarray | None,
     extra_params: dict | None,
-) -> jnp.ndarray:
+) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Simulate one draw using shared transition and observation operators."""
     key_latent, key_point, key_interval_summary = random.split(rng_key, 3)
     latent_trajectory = _simulate_latent_trajectory(
@@ -273,7 +287,12 @@ def _simulate_one_draw(
     point_samples = point_sampler.sample_point_trajectory(key_point, linear_predictors)
 
     if not observation_operator.requires_interval_summary_handling:
-        return _apply_observation_mask(point_samples, None, observation_mask)
+        effective_mask = _resolve_effective_observation_mask(
+            point_samples.shape,
+            None,
+            observation_mask,
+        )
+        return _apply_observation_mask(point_samples, None, observation_mask), effective_mask
 
     n_manifest = linear_predictors.shape[1]
     response_kernel = _build_response_kernel(
@@ -298,7 +317,12 @@ def _simulate_one_draw(
         sampled_interval_summary,
     )
 
-    return _apply_observation_mask(point_samples, semantic_mask, observation_mask)
+    effective_mask = _resolve_effective_observation_mask(
+        point_samples.shape,
+        semantic_mask,
+        observation_mask,
+    )
+    return _apply_observation_mask(point_samples, semantic_mask, observation_mask), effective_mask
 
 
 def simulate_posterior_predictive(
@@ -314,7 +338,8 @@ def simulate_posterior_predictive(
     observation_mask: jnp.ndarray | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
-) -> jnp.ndarray:
+    return_mask: bool = False,
+) -> jnp.ndarray | tuple[jnp.ndarray, jnp.ndarray]:
     """Forward-simulate observations from posterior draws.
 
     Args:
@@ -345,6 +370,8 @@ def simulate_posterior_predictive(
 
     Returns:
         y_sim: (n_subsample, T, n_manifest) simulated observations.
+        When ``return_mask`` is true, also returns the explicit emitted-observation
+        mask with the same shape.
     """
     drift_draws = samples["drift"]  # (n_draws, n, n) or (n_draws, n_subj, n, n)
     diffusion_draws = samples["diffusion"]  # (n_draws, n, n) or cholesky
@@ -508,8 +535,10 @@ def simulate_posterior_predictive(
             extra_params=extra_params,
         )
 
-    y_sim = vmap(sim_one)(jnp.arange(n_use))
+    y_sim, y_mask = vmap(sim_one)(jnp.arange(n_use))
 
+    if return_mask:
+        return y_sim, y_mask
     return y_sim
 
 

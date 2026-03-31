@@ -439,7 +439,9 @@ class TestDiagnosticChecks:
         # All should return PPCWarning lists with valid variable references
         all_warnings = cal_warnings + ac_warnings + vr_warnings
         for w in all_warnings:
-            assert w.variable in manifest_names, f"Warning references unknown variable: {w.variable}"
+            assert w.variable in manifest_names, (
+                f"Warning references unknown variable: {w.variable}"
+            )
             assert len(w.message) > 0
             assert np.isfinite(w.value), f"Warning value should be finite, got {w.value}"
 

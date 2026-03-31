@@ -490,7 +490,9 @@ class TestE2EPipeline:
 
     def test_stage5_fit_via_pipeline_path(self, stage4_result, daily_data):
         """fit_model.fn() surfaces unstable SVI runs as explicit task failures."""
-        result = fit_model.fn(stage4_result["_compiled_ssm"], daily_data, sampler_config=_SVI_CONFIG)
+        result = fit_model.fn(
+            stage4_result["_compiled_ssm"], daily_data, sampler_config=_SVI_CONFIG
+        )
         assert result["fitted"] is False
         assert "non-finite losses" in result["error"]
 
