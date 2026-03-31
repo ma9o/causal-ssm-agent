@@ -43,6 +43,7 @@ const Stage1aContent = lazy(() => import("./stage-contents/stage-1a-content"));
 const Stage1bContent = lazy(() => import("./stage-contents/stage-1b-content"));
 const Stage2Content = lazy(() => import("./stage-contents/stage-2-content"));
 const Stage2RunningContent = lazy(() => import("./stage-contents/stage-2-running-content"));
+const Stage4RunningContent = lazy(() => import("./stage-contents/stage-4-running-content"));
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
@@ -76,10 +77,7 @@ type StageSectionRouterProps = {
   stageRun?: AnalysisStageRun;
 };
 
-function stageRunsEqual(
-  previous?: AnalysisStageRun,
-  next?: AnalysisStageRun,
-): boolean {
+function stageRunsEqual(previous?: AnalysisStageRun, next?: AnalysisStageRun): boolean {
   return (
     previous?.ownerRootFlowRunId === next?.ownerRootFlowRunId &&
     previous?.stageSubflowRunId === next?.stageSubflowRunId &&
@@ -108,7 +106,7 @@ function StageSectionRouterInner({
   // Read context + trace + outcome from the stage data (once, after completion).
   const { data: stageData } = useStageData<StageViewData>(workspaceId, stage.id, isCompleted);
   const pendingStagePatch =
-    refiningStageId === stage.id ? pendingStagePatches[stage.id] ?? null : null;
+    refiningStageId === stage.id ? (pendingStagePatches[stage.id] ?? null) : null;
   const projectedStageData = useMemo(
     () =>
       stageData && pendingStagePatch
@@ -150,12 +148,15 @@ function StageSectionRouterInner({
     />
   ) : undefined;
 
-  const handleFixMeasurements = useCallback((prompt: string) => {
-    setPrefill("stage-1b", prompt);
-    requestAnimationFrame(() => {
-      document.getElementById("stage-1b")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, [setPrefill]);
+  const handleFixMeasurements = useCallback(
+    (prompt: string) => {
+      setPrefill("stage-1b", prompt);
+      requestAnimationFrame(() => {
+        document.getElementById("stage-1b")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    },
+    [setPrefill],
+  );
 
   return (
     <StagePresentationShell
@@ -167,16 +168,21 @@ function StageSectionRouterInner({
       loadingHint={stage.loadingHint}
       actions={
         stage.id === "stage-3" && isCompleted && projectedStageData ? (
-          <Stage3FixAction
-            data={projectedStageData as Stage3Data}
-            onFix={handleFixMeasurements}
-          />
+          <Stage3FixAction data={projectedStageData as Stage3Data} onFix={handleFixMeasurements} />
         ) : undefined
       }
       runningContent={
         stage.id === "stage-2" && status === "running" ? (
           <Suspense fallback={null}>
             <Stage2RunningContent
+              workspaceId={workspaceId}
+              stageStatus={status}
+              stageRun={stageRun}
+            />
+          </Suspense>
+        ) : stage.id === "stage-4" && status === "running" ? (
+          <Suspense fallback={null}>
+            <Stage4RunningContent
               workspaceId={workspaceId}
               stageStatus={status}
               stageRun={stageRun}
@@ -230,13 +236,7 @@ function createStageDataAdapter<TData>(Component: ElementType<{ data: TData }>) 
   };
 }
 
-function Stage4ConnectedContent({
-  workspaceId,
-  data,
-}: {
-  workspaceId: string;
-  data: Stage4Data;
-}) {
+function Stage4ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage4Data }) {
   const { data: stage2 } = useStageData<Stage2Data>(workspaceId, "stage-2", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
   return (
@@ -258,13 +258,7 @@ function Stage5bConnectedContent({
   return <Stage5bContent workspaceId={workspaceId} data={data} />;
 }
 
-function Stage6ConnectedContent({
-  workspaceId,
-  data,
-}: {
-  workspaceId: string;
-  data: Stage6Data;
-}) {
+function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage6Data }) {
   const { refinementMessages } = useRefinement();
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
@@ -285,12 +279,7 @@ function Stage6ConnectedContent({
     [refinementMessages, stage1a, stage1b, stage4, stage5a, stage5b],
   );
 
-  return (
-    <Stage6Showcase
-      data={data}
-      dagScene={dagScene}
-    />
-  );
+  return <Stage6Showcase data={data} dagScene={dagScene} />;
 }
 
 const stageContentAdapters = {
@@ -326,7 +315,6 @@ function StageContent({
   data?: StageViewData;
 }) {
   if (!data) return null;
-  const renderStageContent =
-    stageContentAdapters[stageId as keyof typeof stageContentAdapters];
+  const renderStageContent = stageContentAdapters[stageId as keyof typeof stageContentAdapters];
   return renderStageContent ? renderStageContent({ workspaceId, data }) : null;
 }

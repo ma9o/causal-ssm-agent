@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { STAGES, type StageId } from "@causal-ssm/api-types";
 import type { AnalysisStageRun, AnalysisStageRuns } from "@/lib/api/analysis";
+import { getStage4StateQueryKey } from "@/lib/stage4-runtime";
 import { createElement } from "react";
 import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -133,6 +134,39 @@ describe("useRunEvents manifest hydration", () => {
 
       expect(driver.readProgress(workspaceId)?.stages["stage-4"]).toBe("failed");
       expect(driver.readProgress(workspaceId)?.isFailed).toBe(true);
+    } finally {
+      await driver.dispose();
+    }
+  });
+
+  it("clears cached Stage 4 replay state when the active lineage changes", async () => {
+    const driver = new RunEventsTestDriver();
+    const workspaceId = "SMALLGOLDEN";
+
+    try {
+      await driver.render({
+        workspaceId,
+        rootFlowRunIds: ["old-root"],
+        stageRuns: makeStageRuns("stage-4", "RUNNING"),
+      });
+
+      driver.queryClient.setQueryData(getStage4StateQueryKey(workspaceId, "old-root"), {
+        graph: { nodes: [], edges: [], phases: [] },
+        snapshot: null,
+      });
+      expect(
+        driver.queryClient.getQueryData(getStage4StateQueryKey(workspaceId, "old-root")),
+      ).toBeTruthy();
+
+      await driver.render({
+        workspaceId,
+        rootFlowRunIds: ["new-root"],
+        stageRuns: makeStageRuns("stage-4", "RUNNING"),
+      });
+
+      expect(
+        driver.queryClient.getQueryData(getStage4StateQueryKey(workspaceId, "old-root")),
+      ).toBeUndefined();
     } finally {
       await driver.dispose();
     }

@@ -9,6 +9,13 @@ import {
 import { dedupeRootFlowRunIds, getLatestRootFlowRunId } from "@/lib/root-flow-runs";
 import { getPrefectEventsUrl } from "@/lib/runtime-urls";
 import {
+  applyStage4Event,
+  getStage4StateQueryKey,
+  getStage4StateQueryKeyPrefix,
+  parseStage4Event,
+  type Stage4ReplayState,
+} from "@/lib/stage4-runtime";
+import {
   patchStageRun,
   normalizeLogFlowRunIds,
   normalizeStageSubflowRunId,
@@ -143,6 +150,10 @@ export interface WorkerProgressEvent {
   occurredAt?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Stage 2 worker events
+// ---------------------------------------------------------------------------
+
 export function parseWorkerProgressEvent(
   event: PrefectEventSocketMessage["event"],
 ): WorkerProgressEvent | null {
@@ -164,17 +175,11 @@ export function parseWorkerProgressEvent(
   };
 }
 
-function applyWorkerEvent(
-  workers: Stage2Worker[],
-  event: WorkerProgressEvent,
-): Stage2Worker[] {
+function applyWorkerEvent(workers: Stage2Worker[], event: WorkerProgressEvent): Stage2Worker[] {
   const id = `worker-${event.workerId}`;
   const name = `extract-chunk-${event.workerId}`;
-  const state: Stage2Worker["state"] =
-    event.status === "submitted" ? "running" : event.status;
-  const completedAt = (event.status !== "submitted")
-    ? (event.occurredAt ?? Date.now())
-    : undefined;
+  const state: Stage2Worker["state"] = event.status === "submitted" ? "running" : event.status;
+  const completedAt = event.status !== "submitted" ? (event.occurredAt ?? Date.now()) : undefined;
 
   const existing = workers.find((w) => w.id === id);
   if (existing) {
@@ -183,15 +188,10 @@ function applyWorkerEvent(
       return workers;
     }
     return workers.map((w) =>
-      w.id === id
-        ? { ...w, state, nLlmCalls: event.nLlmCalls, completedAt }
-        : w,
+      w.id === id ? { ...w, state, nLlmCalls: event.nLlmCalls, completedAt } : w,
     );
   }
-  return [
-    ...workers,
-    { id, name, state, nLlmCalls: event.nLlmCalls, completedAt },
-  ];
+  return [...workers, { id, name, state, nLlmCalls: event.nLlmCalls, completedAt }];
 }
 
 function invalidateStageData(
@@ -236,7 +236,9 @@ function isPipelineTerminal(
   queryClient: ReturnType<typeof useQueryClient>,
   workspaceId: string,
 ): boolean {
-  const progress = queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId));
+  const progress = queryClient.getQueryData<PipelineProgress>(
+    getPipelineStatusQueryKey(workspaceId),
+  );
   return progress?.isComplete === true || hasStoppedStage(progress) || progress?.isFailed === true;
 }
 
@@ -284,6 +286,15 @@ export function useRunEvents(
   const handlePrefectEventMessage = useCallback(
     (message: PrefectEventSocketMessage, socket: { close: () => void }) => {
       if (!workspaceId || !activeRootFlowRunId) {
+        return;
+      }
+
+      const stage4Event = parseStage4Event(message.event);
+      if (stage4Event) {
+        queryClient.setQueryData<Stage4ReplayState>(
+          getStage4StateQueryKey(workspaceId, activeRootFlowRunId),
+          (old) => applyStage4Event(old, stage4Event),
+        );
         return;
       }
 
@@ -344,6 +355,7 @@ export function useRunEvents(
     // stages that completed before this page loaded (session resumption).
     queryClient.setQueryData(getPipelineStatusQueryKey(workspaceId), initialProgress());
     queryClient.removeQueries({ queryKey: getStage2WorkerQueryKeyPrefix(workspaceId) });
+    queryClient.removeQueries({ queryKey: getStage4StateQueryKeyPrefix(workspaceId) });
   }, [queryClient, rootFlowRunIds, workspaceId]);
 
   useEffect(() => {
