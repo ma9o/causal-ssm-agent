@@ -14,6 +14,16 @@ const LEVEL_COLORS: Record<number, string> = {
 };
 
 const ESTIMATED_LOG_ROW_HEIGHT = 20;
+const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 48;
+
+export function isNearLogTail(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  thresholdPx = AUTO_SCROLL_BOTTOM_THRESHOLD_PX,
+): boolean {
+  return scrollHeight - (scrollTop + clientHeight) <= thresholdPx;
+}
 
 function LogLine({ entry }: { entry: PrefectLogEntry }) {
   const ts = new Date(entry.timestamp).toLocaleTimeString();
@@ -44,6 +54,7 @@ export function VirtualizedLogList({
 }) {
   "use no memo"; // TODO: remove when TanStack Virtual supports React Compiler
   const parentRef = useRef<HTMLDivElement>(null);
+  const pinnedToTailRef = useRef(true);
 
   const virtualizer = useVirtualizer({
     count: logs.length,
@@ -53,7 +64,34 @@ export function VirtualizedLogList({
   });
 
   useEffect(() => {
-    if (!autoScroll || logs.length === 0) {
+    const element = parentRef.current;
+    if (!element) {
+      return;
+    }
+
+    if (!autoScroll) {
+      pinnedToTailRef.current = false;
+      return;
+    }
+
+    const updatePinnedState = () => {
+      pinnedToTailRef.current = isNearLogTail(
+        element.scrollTop,
+        element.scrollHeight,
+        element.clientHeight,
+      );
+    };
+
+    updatePinnedState();
+    element.addEventListener("scroll", updatePinnedState, { passive: true });
+
+    return () => {
+      element.removeEventListener("scroll", updatePinnedState);
+    };
+  }, [autoScroll]);
+
+  useEffect(() => {
+    if (!autoScroll || logs.length === 0 || !pinnedToTailRef.current) {
       return;
     }
 
@@ -62,14 +100,14 @@ export function VirtualizedLogList({
       if (!element) {
         return;
       }
-      element.scrollTo({
-        top: element.scrollHeight,
-        behavior: "smooth",
-      });
+
+      virtualizer.scrollToIndex(logs.length - 1, { align: "end" });
+      element.scrollTop = element.scrollHeight;
+      pinnedToTailRef.current = true;
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [autoScroll, logs.length]);
+  }, [autoScroll, logs.length, virtualizer]);
 
   return (
     <div

@@ -2,12 +2,10 @@
 
 import type { AnalysisStageRun } from "@/lib/api/analysis";
 import {
-  buildPrefectSubscriptionKey,
-  buildStageLogScopePath,
-  getStageLogScopeRefreshIntervalMs,
-  getStageRuntimeInitialLogFlowRunIds,
-  toStageRuntimeRef,
+  buildStageLogScopeDescriptor,
+  buildStageLogSubscriptionKey,
 } from "@/lib/stage-observability";
+import type { PrefectLogTimeWindow } from "@/lib/prefect-log-client";
 import type { StageId } from "@causal-ssm/api-types";
 import { useQuery } from "@tanstack/react-query";
 import type { StageRunStatus } from "./pipeline-progress";
@@ -17,8 +15,9 @@ interface StageLogScopeResponse {
 }
 
 export interface StageLogScopeResolution {
-  runtime: ReturnType<typeof toStageRuntimeRef>;
+  runtime: ReturnType<typeof buildStageLogScopeDescriptor>["runtime"];
   flowRunIds: string[];
+  timeWindow: PrefectLogTimeWindow;
   subscriptionKey: string;
 }
 
@@ -28,14 +27,9 @@ export function useStageLogScope(
   stageRun: AnalysisStageRun | null | undefined,
   status: StageRunStatus,
 ): StageLogScopeResolution {
-  const runtime = toStageRuntimeRef(stageRun);
-  const initialFlowRunIds = getStageRuntimeInitialLogFlowRunIds(stageRun);
-  const initialSignature = buildPrefectSubscriptionKey(initialFlowRunIds);
-  const refreshInterval = getStageLogScopeRefreshIntervalMs(
-    stageId,
-    status === "running",
-    runtime.stageSubflowRunId,
-  );
+  const descriptor = buildStageLogScopeDescriptor(workspaceId, stageId, stageRun, status);
+  const { runtime, initialFlowRunIds, timeWindow } = descriptor;
+  const initialSignature = buildStageLogSubscriptionKey(initialFlowRunIds, timeWindow);
 
   const { data } = useQuery({
     queryKey: [
@@ -47,14 +41,11 @@ export function useStageLogScope(
       initialSignature,
     ] as const,
     queryFn: async () => {
-      if (!runtime.stageSubflowRunId) {
+      if (descriptor.refresh === false) {
         return initialFlowRunIds;
       }
 
-      const response = await fetch(
-        buildStageLogScopePath(workspaceId, stageId, runtime.stageSubflowRunId),
-        { cache: "no-store" },
-      );
+      const response = await fetch(descriptor.refresh.path, { cache: "no-store" });
       if (!response.ok) {
         return initialFlowRunIds;
       }
@@ -64,17 +55,19 @@ export function useStageLogScope(
         (flowRunId): flowRunId is string => typeof flowRunId === "string" && flowRunId.trim().length > 0,
       );
     },
-    enabled: refreshInterval !== false,
+    enabled: descriptor.refresh !== false,
     initialData: initialFlowRunIds,
     initialDataUpdatedAt: 0,
-    refetchInterval: refreshInterval,
+    refetchInterval: descriptor.refresh === false ? false : descriptor.refresh.intervalMs,
     staleTime: 1000,
   });
 
-  const flowRunIds = refreshInterval !== false ? (data ?? initialFlowRunIds) : initialFlowRunIds;
+  const flowRunIds =
+    descriptor.refresh !== false ? (data ?? initialFlowRunIds) : initialFlowRunIds;
   return {
     runtime,
     flowRunIds,
-    subscriptionKey: buildPrefectSubscriptionKey(flowRunIds),
+    timeWindow,
+    subscriptionKey: buildStageLogSubscriptionKey(flowRunIds, timeWindow),
   };
 }
