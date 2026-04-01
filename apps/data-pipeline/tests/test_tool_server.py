@@ -62,6 +62,62 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
     }
 
 
+def test_execute_validate_model_loads_stage2_runtime_via_stage_registry(monkeypatch):
+    import causal_ssm_agent.flows.stage_registry as stage_registry
+
+    expected_data_for_model = object()
+    captured: dict[str, object] = {}
+
+    def fake_load_stage_state(workspace_id, stage_id, prior_states=None):
+        del prior_states
+        assert workspace_id == "user-123"
+        assert stage_id == "stage-2"
+        return {"result": {"_data_for_model_path": "/run/stage2-model-data.parquet"}}
+
+    def fake_load_parquet(path):
+        assert path == "/run/stage2-model-data.parquet"
+        return expected_data_for_model
+
+    def fake_stage4_grounding(
+        _data,
+        causal_spec,
+        *,
+        current=None,
+        data_for_model=None,
+        indicator_audits=None,
+    ):
+        captured["causal_spec"] = causal_spec
+        captured["current"] = current
+        captured["data_for_model"] = data_for_model
+        captured["indicator_audits"] = indicator_audits
+        return {"model_spec": {}}, "VALID"
+
+    monkeypatch.setattr(stage_registry, "load_stage_state", fake_load_stage_state)
+    monkeypatch.setattr(tool_server, "load_parquet", fake_load_parquet)
+    monkeypatch.setattr(
+        tool_server,
+        "_load_stage4_current",
+        lambda workspace_id: {"workspace_id": workspace_id, "model_spec": {"parameters": []}},
+    )
+    monkeypatch.setattr(tool_server, "stage4_grounding", fake_stage4_grounding)
+
+    result = tool_server._execute_validate_model(
+        {
+            "_workspace_id": "user-123",
+            "stage-1b": {"causal_spec": {"latent": {"constructs": []}}},
+        },
+        {"model_json": "{}"},
+    )
+
+    assert result == {"result": "VALID", "stage_output": {"model_spec": {}}}
+    assert captured == {
+        "causal_spec": {"latent": {"constructs": []}},
+        "current": {"workspace_id": "user-123", "model_spec": {"parameters": []}},
+        "data_for_model": expected_data_for_model,
+        "indicator_audits": None,
+    }
+
+
 def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     class FakeResult:
         def __init__(self, samples):
@@ -244,6 +300,31 @@ def test_get_tool_schemas_exposes_declared_result_schema():
     assert tools["get_model_info"]["result"] is None
     assert tools["simulate_intervention"]["result"] is not None
     assert tools["simulate_counterfactual"]["result"] is not None
+
+
+def test_manifest_effects_include_interval_supported_outcome_indicators():
+    samples = {
+        "lambda": jnp.array(
+            [
+                [
+                    [0.0, -1.0],
+                    [0.0, 0.5],
+                ]
+            ]
+        )
+    }
+
+    effects = tool_server._manifest_effects(
+        samples,
+        outcome_idx=1,
+        effect_mean=0.25,
+        manifest_names=["sleep_problem_search_count", "sleep_duration_hours"],
+    )
+
+    assert effects == {
+        "sleep_problem_search_count": pytest.approx(-0.25),
+        "sleep_duration_hours": pytest.approx(0.125),
+    }
 
 
 def test_get_model_info_uses_estimation_projection_for_variables_and_treatments():

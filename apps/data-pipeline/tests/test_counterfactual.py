@@ -5,6 +5,7 @@ Covers: steady_state, do, treatment_effect, forward_simulate_intervention,
 """
 
 import jax.numpy as jnp
+import pytest
 
 from causal_ssm_agent.models.ssm.counterfactual import (
     _summarize_trajectory,
@@ -448,3 +449,34 @@ class TestComputeInterventions:
         # With diagonal drift and zero cint, steady state is zero
         # so treatment effect should be nonzero from the shift
         assert results[0].get("posterior_draws") is not None
+
+    def test_manifest_effects_include_interval_supported_outcome_indicators(self):
+        """Outcome measurement projections should not be restricted to point-supported manifests."""
+        n = 4
+        drift = jnp.broadcast_to(
+            jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
+            (n, 2, 2),
+        )
+        cint = jnp.broadcast_to(jnp.zeros(2), (n, 2))
+        lambda_draws = jnp.broadcast_to(
+            jnp.array([[0.0, -1.0]]),
+            (n, 1, 2),
+        )
+        results = compute_interventions(
+            {
+                "drift": drift,
+                "cint": cint,
+                "lambda": lambda_draws,
+            },
+            treatments=["A"],
+            outcome="B",
+            latent_names=["A", "B"],
+            causal_spec={"measurement": {"model_clock": "1d"}},
+            manifest_names=["sleep_problem_search_count"],
+        )
+
+        manifest_effects = results[0].get("manifest_effects")
+        assert manifest_effects is not None
+        assert "sleep_problem_search_count" in manifest_effects
+        mean_effect = sum(results[0]["posterior_draws"]) / len(results[0]["posterior_draws"])
+        assert manifest_effects["sleep_problem_search_count"] == pytest.approx(-1.0 * mean_effect)
