@@ -9,6 +9,7 @@ import {
   fetchIncrementalPrefectLogs,
   getPrefectLogPageSize,
   mergePrefectLogs,
+  type PrefectLogTimeWindow,
   type PrefectLogEntry,
 } from "@/lib/prefect-log-client";
 import { type QueryStatus, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,6 +35,7 @@ interface PrefectLogSocketMessage {
 function usePrefectLogStream(
   queryKey: readonly unknown[],
   flowRunIds: string[],
+  timeWindow: PrefectLogTimeWindow,
   subscriptionKey: string,
   enabled: boolean,
 ) {
@@ -56,7 +58,7 @@ function usePrefectLogStream(
     enabled,
     subscriptionKey,
     getSocketUrl: () => getPrefectLogsUrl(window.location.origin),
-    buildFilterMessage: () => buildPrefectLogStreamFilterMessage(flowRunIds),
+    buildFilterMessage: () => buildPrefectLogStreamFilterMessage(flowRunIds, new Date(), timeWindow),
     onSubscribed: () => {
       queryClient.invalidateQueries({ queryKey });
     },
@@ -67,6 +69,7 @@ function usePrefectLogStream(
 export function usePrefectLogs(
   queryKey: readonly unknown[],
   flowRunIds: string[],
+  timeWindow: PrefectLogTimeWindow,
   subscriptionKey: string,
   status: StageRunStatus,
   {
@@ -89,6 +92,7 @@ export function usePrefectLogs(
       const nextLogs = await fetchIncrementalPrefectLogs(flowRunIds, existing, {
         limit: pageSize,
         offset: restartBootstrapFromBeginning ? 0 : existing.length,
+        timeWindow,
       });
       previousBootstrapScopeRef.current = subscriptionKey;
       return nextLogs;
@@ -101,6 +105,7 @@ export function usePrefectLogs(
   const connectionState = usePrefectLogStream(
     queryKey,
     flowRunIds,
+    timeWindow,
     subscriptionKey,
     status === "running" && flowRunIds.length > 0 && bootstrapStatus === "success",
   );
@@ -144,7 +149,7 @@ export function useStageLogs(
     pageSize?: number;
   } = {},
 ): PrefectLogsResult {
-  const { runtime, flowRunIds, subscriptionKey } = useStageLogScope(
+  const { runtime, flowRunIds, timeWindow, subscriptionKey } = useStageLogScope(
     workspaceId,
     stageId,
     stageRun,
@@ -157,5 +162,5 @@ export function useStageLogs(
     stageId,
     getStageLogQueryScopeKey(runtime),
   ] as const;
-  return usePrefectLogs(queryKey, flowRunIds, subscriptionKey, status, { pageSize });
+  return usePrefectLogs(queryKey, flowRunIds, timeWindow, subscriptionKey, status, { pageSize });
 }
