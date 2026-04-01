@@ -133,7 +133,7 @@ def fit_model(
         }
 
 
-@task(task_run_name="power-scaling-sensitivity", result_serializer="json")
+@task(task_run_name="power-scaling-sensitivity", persist_result=False)
 def run_power_scaling(fitted_result: dict) -> dict:
     """Post-fit power-scaling sensitivity diagnostic.
 
@@ -179,7 +179,7 @@ def run_power_scaling(fitted_result: dict) -> dict:
         return {"checked": False, "error": str(e)}
 
 
-@task(task_run_name="posterior-predictive-checks", result_serializer="json")
+@task(task_run_name="posterior-predictive-checks", persist_result=False)
 def run_ppc(fitted_result: dict) -> dict:
     """Run posterior predictive checks on the fitted model.
 
@@ -280,7 +280,6 @@ def run_interventions(
         causal_spec=causal_spec,
         manifest_names=manifest_names,
         times=fitted_artifact.times,
-        observation_support=fitted_artifact.observation_support,
     )
     logger.info("Interventions complete: ranked_treatments=%d", len(results))
     return results
