@@ -24,7 +24,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
-from causal_ssm_agent.flows.run_store import load_parquet, load_pickle, load_stage_snapshot
+from causal_ssm_agent.flows.run_store import load_parquet, load_pickle
 from causal_ssm_agent.flows.stages.contracts import STAGE_TOOLS
 from causal_ssm_agent.flows.stages.persist import persist_web_patch
 from causal_ssm_agent.flows.stages.stage_tools import (
@@ -78,25 +78,26 @@ def _load_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
     return storage.read_json(path)
 
 
-def _load_data_for_model(workspace_id: str) -> Any:
-    """Load data_for_model parquet for prior predictive checks."""
-    import polars as pl
-
-    path = storage.join(runs_dir(workspace_id), "stage-4-data.parquet")
-    if storage.exists(path):
-        return pl.read_parquet(path, storage_options=storage.polars_storage_options())
-    return None
+def _load_stage2_data_for_model(workspace_id: str) -> Any:
+    """Load Stage 2's canonical modeling rows through the stage restore path."""
+    stage2_runtime = _load_runtime_stage_result(workspace_id, "stage-2")
+    path = stage2_runtime.get("_data_for_model_path")
+    if not isinstance(path, str) or not path:
+        raise HTTPException(500, "Stage 2 runtime is missing _data_for_model_path")
+    return load_parquet(path)
 
 
 def _load_runtime_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
-    """Load the internal persisted stage result (with artifact paths)."""
+    """Load a stage runtime result through stage-owned rehydration logic."""
+    from causal_ssm_agent.flows.stage_registry import load_stage_state
+
     try:
-        snapshot = load_stage_snapshot(workspace_id, stage_id)
+        state = load_stage_state(workspace_id, stage_id)
     except FileNotFoundError as exc:
-        raise HTTPException(404, f"Stage snapshot not found for {stage_id}") from exc
-    result = snapshot.get("result")
+        raise HTTPException(404, f"Stage runtime not found for {stage_id}") from exc
+    result = state.get("result")
     if not isinstance(result, dict):
-        raise HTTPException(500, f"Stage snapshot for {stage_id} is malformed")
+        raise HTTPException(500, f"Stage runtime for {stage_id} is malformed")
     return result
 
 
@@ -168,26 +169,11 @@ def _stage6_time_config(
     return dt_days, horizon_steps
 
 
-def _point_like_manifest_names(observation_support: Any) -> set[str] | None:
-    if observation_support is None:
-        return None
-    return {
-        name
-        for name, support_kind in zip(
-            observation_support.manifest_names,
-            observation_support.support_kinds,
-            strict=False,
-        )
-        if support_kind in (None, "point")
-    }
-
-
 def _manifest_effects(
     samples: dict[str, Any],
     outcome_idx: int,
     effect_mean: float,
     manifest_names: list[str],
-    observation_support: Any,
 ) -> dict[str, float] | None:
     lambda_draws = samples.get("lambda")
     if lambda_draws is None:
@@ -198,15 +184,12 @@ def _manifest_effects(
     if getattr(lambda_mean, "ndim", 0) != 2:
         return None
 
-    point_like = _point_like_manifest_names(observation_support)
     effects: dict[str, float] = {}
     for idx, loading in enumerate(lambda_mean[:, outcome_idx]):
         loading_value = float(loading)
         if abs(loading_value) <= 1e-9:
             continue
         name = manifest_names[idx] if idx < len(manifest_names) else f"manifest_{idx}"
-        if point_like is not None and name not in point_like:
-            continue
         effects[name] = loading_value * effect_mean
     return effects or None
 
@@ -476,7 +459,6 @@ def _build_effect_outputs(
             setup.outcome_idx,
             summary["mean"],
             setup.manifest_names,
-            setup.fitted_artifact.observation_support,
         )
 
     return Stage6EffectOutputs(
@@ -566,7 +548,7 @@ def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
     stage1b = ctx.get("stage-1b", {})
     causal_spec = stage1b.get("causal_spec", {})
     current = _load_stage4_current(workspace_id)
-    data_for_model = _load_data_for_model(workspace_id)
+    data_for_model = _load_stage2_data_for_model(workspace_id)
     result = _run_compute(
         args,
         "model_json",
