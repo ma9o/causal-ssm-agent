@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 import { memo } from "react";
@@ -128,15 +129,17 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
         <div className="mt-3">
           <div className="flex flex-wrap gap-1">
             {d.statusItems.map((item) => (
-              <span
-                key={item.id}
-                title={item.label}
-                className={cn(
-                  "h-2.5 rounded-full transition-all",
-                  item.isActive ? "w-5" : "w-2.5",
-                  getDotClass(item),
-                )}
-              />
+              <Tooltip key={item.id}>
+                <TooltipTrigger
+                  render={<span />}
+                  className={cn(
+                    "h-2.5 cursor-default rounded-full transition-all",
+                    item.isActive ? "w-5" : "w-2.5",
+                    getDotClass(item),
+                  )}
+                />
+                <TooltipContent>{item.label}</TooltipContent>
+              </Tooltip>
             ))}
           </div>
         </div>
