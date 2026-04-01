@@ -1,6 +1,6 @@
 "use client";
 
-import type { RefineApplyResponse } from "@/lib/api/analysis";
+import { applyRefinement } from "@/lib/api/analysis";
 import { useRefinement } from "@/lib/contexts/refinement-context";
 import { STAGES, STAGE_IDS } from "@causal-ssm/api-types";
 import type { StageId } from "@causal-ssm/api-types";
@@ -24,11 +24,7 @@ export function ResumeButton({
   rootFlowRunId?: string | null;
 }) {
   const [applying, setApplying] = useState(false);
-  const {
-    clearPendingMaterialization,
-    pendingStagePatches,
-    refinementMessages,
-  } = useRefinement();
+  const { clearPendingMaterialization, pendingStagePatches, refinementMessages } = useRefinement();
   const normalizedStageId = stageId as StageId;
 
   const nextStageIdx = STAGE_IDS.indexOf(stageId as (typeof STAGE_IDS)[number]) + 1;
@@ -44,24 +40,13 @@ export function ResumeButton({
     if (applying) return;
     setApplying(true);
     try {
-      const res = await fetch("/api/refine/apply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workspaceId,
-          stageId,
-          stagePatch: pendingStagePatch,
-          messages: pendingMessages,
-          ...(rootFlowRunId ? { rootFlowRunId } : {}),
-        }),
+      const result = await applyRefinement({
+        workspaceId,
+        stageId: normalizedStageId,
+        stagePatch: pendingStagePatch,
+        messages: pendingMessages,
+        ...(rootFlowRunId ? { rootFlowRunId } : {}),
       });
-
-      if (!res.ok) {
-        console.error("Resume failed:", await res.text());
-        return;
-      }
-
-      const result = (await res.json()) as RefineApplyResponse;
       if (result.ok) {
         clearPendingMaterialization(normalizedStageId);
         if (isTerminalStage) {
@@ -78,6 +63,8 @@ export function ResumeButton({
           rootFlowRunId: result.rootFlowRunId,
         }).toString()}`;
       }
+    } catch (error) {
+      console.error("Resume failed:", error);
     } finally {
       setApplying(false);
     }
