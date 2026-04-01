@@ -186,7 +186,7 @@ async function fetchRootFlowRunLineage(
         rootFlowRunId,
         startStage: getFlowRunStartStage(flowRun?.parameters),
         endStage: getFlowRunEndStage(flowRun?.parameters),
-        createdAt: flowRun?.created ?? flowRun?.start_time ?? flowRun?.expected_start_time ?? null,
+        createdAt: flowRun?.start_time ?? flowRun?.expected_start_time ?? flowRun?.created ?? null,
         query: typeof flowRun?.parameters?.query === "string" ? flowRun.parameters.query : null,
       };
     }),
