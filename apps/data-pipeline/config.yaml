@@ -9,7 +9,7 @@ stage0_ingestion:
 # Stage 1: Structure Proposal (Orchestrator)
 # The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
 stage1_structure_proposal:
-  model: openrouter/anthropic/claude-opus-4.6
+  model: openrouter/xiaomi/mimo-v2-pro
   sample_chunks: 10  # Number of chunks to show orchestrator
   chunk_size: 100    # Lines per chunk for orchestrator
   stage1a_max_tool_turns: 40
@@ -40,6 +40,10 @@ stage4_prior_elicitation:
   paraphrasing:
     enabled: false       # Off by default (increases LLM cost)
     n_paraphrases: 10    # Number of paraphrased prompts per parameter
+
+# Stage 6: Narrative Commentary
+stage6_commentary:
+  model: openrouter/xiaomi/mimo-v2-pro
 
 # Stages 5a/5b: Inference preflight + full inference
 # Uses NumPyro SSM - no LLM needed
