@@ -1,24 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage5bData } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { withContainer } from "@/components/story-decorators";
+import { stage5bNutsda } from "@/components/__fixtures__/inference-data";
 import { PPCWarningsTable } from "./ppc-warnings-table";
-import nutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-5b-nutsda.json";
 
-const data = nutsdaFixture as Stage5bData;
-const ppc = data.ppc!;
+const ppc = stage5bNutsda.ppc!;
 
 const meta = {
   title: "Stages/Inference/PPCWarningsTable",
   component: PPCWarningsTable,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-4xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer()],
 } satisfies Meta<typeof PPCWarningsTable>;
 
 export default meta;

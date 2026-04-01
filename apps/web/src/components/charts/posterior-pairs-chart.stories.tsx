@@ -1,24 +1,14 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage5bData } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { withContainer } from "@/components/story-decorators";
+import { stage5b } from "@/components/__fixtures__/inference-data";
 import { PosteriorPairsChart } from "./posterior-pairs-chart";
-import fixture from "../../../../../data/DOCTOLIB/run/stage-5b.json";
 
-const data = fixture as Stage5bData;
-const pairs = data.posterior_pairs ?? [];
+const pairs = stage5b.posterior_pairs ?? [];
 
 const meta = {
   title: "Charts/PosteriorPairsChart",
   component: PosteriorPairsChart,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-sm mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer("max-w-sm")],
 } satisfies Meta<typeof PosteriorPairsChart>;
 
 export default meta;
