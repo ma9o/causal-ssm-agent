@@ -5,6 +5,8 @@ can fetch them via /api/results/[workspace_id]/[stage].
 """
 
 import json
+import math
+from typing import Any
 
 from prefect import task
 
@@ -17,14 +19,27 @@ from .contracts import _validate_stage_model
 logger = get_prefect_logger(__name__)
 
 
+def _normalize_nonfinite_json_values(value: Any) -> Any:
+    """Replace non-finite numeric values with null-compatible ``None`` recursively."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _normalize_nonfinite_json_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_nonfinite_json_values(item) for item in value]
+    if isinstance(value, tuple):
+        return [_normalize_nonfinite_json_values(item) for item in value]
+    return value
+
+
 def persist_validated_web_result(stage_id: str, data: dict, workspace_id: str) -> dict:
     """Validate and persist a stage's public web payload."""
     model = _validate_stage_model(stage_id, data)
-    payload = model.model_dump(mode="json")
+    payload = _normalize_nonfinite_json_values(model.model_dump(mode="json"))
 
     path = storage.join(runs_dir(workspace_id), f"{stage_id}.json")
     storage.makedirs(runs_dir(workspace_id))
-    storage.write_text(path, json.dumps(payload))
+    storage.write_text(path, json.dumps(payload, allow_nan=False))
 
     logger.debug("Persisted %s result to %s", stage_id, path)
     level, summary = model.summarize()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from copy import deepcopy
 
@@ -263,6 +264,33 @@ def valid_stage_payloads() -> dict[str, dict]:
             "final_summary": "Stress reduction remains the dominant actionable lever.",
         },
     }
+
+
+def test_persist_web_result_normalizes_nonfinite_numbers(tmp_path, monkeypatch, valid_stage_payloads):
+    from causal_ssm_agent.flows.stages import persist as persist_module
+
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(
+        persist_module.storage,
+        "join",
+        lambda *parts: "/".join(str(part).strip("/") for part in parts if part),
+    )
+    monkeypatch.setattr(persist_module.storage, "makedirs", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        persist_module.storage,
+        "write_text",
+        lambda path, text: captured.setdefault(path, text),
+    )
+
+    payload = deepcopy(valid_stage_payloads["stage-5b"])
+    payload["power_scaling"][0]["psis_k_hat"] = float("inf")
+
+    result = persist_web_result.fn("stage-5b", payload, "run-123")
+
+    assert result["power_scaling"][0]["psis_k_hat"] is None
+    written = json.loads(next(iter(captured.values())))
+    assert written["power_scaling"][0]["psis_k_hat"] is None
 
 
 def test_tool_server_registry_matches_served_tool_contracts() -> None:

@@ -48,6 +48,22 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user");
   });
 
+  it("normalizes top-level non-finite numbers in persisted stage payloads", async () => {
+    vi.mocked(readData).mockResolvedValue(
+      '{"outcome":"warn","power_scaling":[{"parameter":"sigma","psis_k_hat":Infinity}]}',
+    );
+
+    const response = await GET(new Request("http://localhost/api/results/user/stage-5b"), {
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-5b" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      outcome: "warn",
+      power_scaling: [{ parameter: "sigma", psis_k_hat: null }],
+    });
+  });
+
   it("returns a parse error when the persisted payload is invalid", async () => {
     vi.mocked(readData).mockResolvedValue('{"metadata":{},"result":"{"}');
 

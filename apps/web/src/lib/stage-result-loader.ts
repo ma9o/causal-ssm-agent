@@ -56,7 +56,13 @@ function normalizeNonFiniteJsonTokens(serialized: string): string {
 }
 
 function parseStoredStagePayload(raw: string): unknown {
-  const parsed = JSON.parse(raw);
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    parsed = JSON.parse(normalizeNonFiniteJsonTokens(raw));
+  }
 
   if (!parsed?.metadata || typeof parsed.result !== "string") {
     return parsed;
