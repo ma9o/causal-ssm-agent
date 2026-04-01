@@ -84,12 +84,3 @@ export function createCompletedStageStory<TArgs extends object>({
     },
   };
 }
-
-export function createOpenPanelStageStory<TArgs extends object>(
-  config: CompletedStageStoryConfig<TArgs>,
-): StoryObj<TArgs> {
-  return createCompletedStageStory({
-    ...config,
-    defaultPanelOpen: true,
-  });
-}

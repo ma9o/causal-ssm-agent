@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { LLMTrace, Stage1aData, Stage1bData } from "@causal-ssm/api-types";
+import type { LLMTrace } from "@causal-ssm/api-types";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { withContainer } from "@/components/story-decorators";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
@@ -16,16 +16,7 @@ import {
   mockTrace,
   processNoise,
 } from "./__fixtures__/intervention-dag-fixture";
-import stage1aFixture from "../../../../../data/DOCTOLIB/run/stage-1a.json";
-import stage1bFixture from "../../../../../data/DOCTOLIB/run/stage-1b.json";
-
-// ── Fixture data ──────────────────────────────────────────────────────
-
-const stage1a = stage1aFixture as unknown as Stage1aData;
-const stage1b = stage1bFixture as unknown as Stage1bData;
-const constructs = stage1a.latent_model.constructs;
-const edges = stage1a.latent_model.edges;
-const indicators = stage1b.causal_spec.measurement.indicators;
+import { constructs, edges, indicators } from "./__fixtures__/dag-base-fixtures";
 
 // ── Shared trace panel ────────────────────────────────────────────────
 
@@ -98,15 +89,7 @@ function StaticDagWithControls() {
 const meta = {
   title: "DAG/InterventionDag",
   component: InterventionDag,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-6xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer("max-w-6xl")],
 } satisfies Meta<typeof InterventionDag>;
 
 export default meta;

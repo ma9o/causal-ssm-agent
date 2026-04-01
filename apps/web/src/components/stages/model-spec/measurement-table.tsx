@@ -238,7 +238,7 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
     id: "reasoning",
     header: "Reasoning",
     cell: ({ row }) => (
-      <span className="max-w-xs text-xs text-muted-foreground line-clamp-2">
+      <span className="max-w-xs whitespace-normal text-xs text-muted-foreground">
         {row.original.likelihood.reasoning}
       </span>
     ),

@@ -3,7 +3,6 @@ import { STAGES } from "@causal-ssm/api-types";
 import type { Stage1bData, Stage2Data, Stage4Data } from "@causal-ssm/api-types";
 import {
   createCompletedStageStory,
-  createOpenPanelStageStory,
   createStageStatusStory,
   stageStoryDecorators,
 } from "../stage-story-helpers";
@@ -38,12 +37,13 @@ export const Completed = createCompletedStageStory({
   renderContent: (args) => <Stage4Content {...args} />,
 });
 
-export const OpenPanel = createOpenPanelStageStory({
+export const OpenPanel = createCompletedStageStory({
   stage,
   args: { data, extractions, indicators },
   outcome: data.outcome,
   elapsedMs: 15_600,
   trace: data.llm_trace ?? undefined,
+  defaultPanelOpen: true,
   renderContent: (args) => <Stage4Content {...args} />,
 });
 

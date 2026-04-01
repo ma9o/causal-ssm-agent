@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { Construct, Stage1aData } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { withContainer } from "@/components/story-decorators";
 import { ConstructDetailPanel } from "./construct-detail-panel";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
 
@@ -13,15 +13,7 @@ const outcome = constructs.find((c) => c.is_outcome)!;
 const meta = {
   title: "Stages/LatentModel/ConstructDetailPanel",
   component: ConstructDetailPanel,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-md mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer("max-w-md")],
 } satisfies Meta<typeof ConstructDetailPanel>;
 
 export default meta;

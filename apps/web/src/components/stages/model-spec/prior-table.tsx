@@ -102,7 +102,7 @@ const baseColumns = [
   col.accessor("reasoning", {
     header: "Reasoning",
     cell: (info) => (
-      <span className="max-w-xs text-xs text-muted-foreground line-clamp-2">{info.getValue()}</span>
+      <span className="max-w-xs whitespace-normal text-xs text-muted-foreground">{info.getValue()}</span>
     ),
   }),
   col.display({
