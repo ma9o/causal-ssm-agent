@@ -661,6 +661,67 @@ describe("buildAnalysisManifest", () => {
     });
   });
 
+  it("orders lineage by actual start time before original creation time", async () => {
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const flowRuns = body.flow_runs as Record<string, unknown> | undefined;
+        const tags = (flowRuns?.tags as { all_?: string[] } | undefined)?.all_;
+        if (tags?.[0] === "workspace:user-123") {
+          return jsonResponse([{ id: "older-scheduled-run" }, { id: "newer-created-run" }]);
+        }
+        return jsonResponse([]);
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/older-scheduled-run") {
+        return jsonResponse({
+          id: "older-scheduled-run",
+          created: "2026-03-13T18:00:00.000Z",
+          start_time: "2026-03-13T19:00:00.000Z",
+          parameters: { query: "Why did this start late?" },
+        });
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/newer-created-run") {
+        return jsonResponse({
+          id: "newer-created-run",
+          created: "2026-03-13T18:30:00.000Z",
+          start_time: "2026-03-13T18:31:00.000Z",
+          parameters: {},
+        });
+      }
+
+      if (url === "http://localhost:4200/api/events/filter") {
+        const rootFlowRunId = getEventRootFlowRunId(parseBody(init));
+
+        if (rootFlowRunId === "older-scheduled-run") {
+          return jsonResponse(
+            eventPage([stageEvent("stage-2", "running", "2026-03-13T19:00:05.000Z")]),
+          );
+        }
+
+        if (rootFlowRunId === "newer-created-run") {
+          return jsonResponse(
+            eventPage([stageEvent("stage-1b", "completed", "2026-03-13T18:31:10.000Z")]),
+          );
+        }
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("user-123");
+
+    expect(manifest).toMatchObject({
+      rootFlowRunIds: ["newer-created-run", "older-scheduled-run"],
+      latestRootFlowRunId: "older-scheduled-run",
+      createdAt: "2026-03-13T18:31:00.000Z",
+      question: "Why did this start late?",
+    });
+  });
+
   it("falls back to query.txt when Prefect flow runs omit the question", async () => {
     vi.mocked(readData).mockResolvedValue("Stored workspace question\n");
 
