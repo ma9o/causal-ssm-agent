@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { Stage1aData } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { withContainer } from "@/components/story-decorators";
 import { EdgeList } from "./edge-list";
 import fixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
 
@@ -10,15 +10,7 @@ const edges = data.latent_model.edges;
 const meta = {
   title: "Stages/LatentModel/EdgeList",
   component: EdgeList,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-md mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer("max-w-md")],
 } satisfies Meta<typeof EdgeList>;
 
 export default meta;

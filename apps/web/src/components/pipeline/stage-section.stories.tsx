@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { StageOutcome } from "@causal-ssm/api-types";
 import type { PrefectLogEntry } from "@/lib/prefect-log-client";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
+import { withContainer } from "@/components/story-decorators";
 import { useEffect, useState } from "react";
 import { StageSection } from "./stage-section";
 import { StageLogView } from "./stage-log-viewer";
@@ -61,15 +61,7 @@ function CompletedLogView() {
 const meta = {
   title: "Pipeline/StageSection",
   component: StageSection,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-3xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer("max-w-3xl")],
   args: {
     number: "0",
     title: "Example Stage",

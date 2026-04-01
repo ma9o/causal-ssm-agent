@@ -13,7 +13,6 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
 import {
   createCompletedStageStory,
-  createOpenPanelStageStory,
   createStageStatusStory,
   stageStoryDecorators,
 } from "../stage-story-helpers";
@@ -354,13 +353,14 @@ export const Completed = createCompletedStageStory({
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
 
-export const OpenPanel = createOpenPanelStageStory({
+export const OpenPanel = createCompletedStageStory({
   stage,
   args: {
     data: dataWithTrace,
     dagScene: baselineDagScene,
   },
   ...completedShellProps,
+  defaultPanelOpen: true,
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
 
