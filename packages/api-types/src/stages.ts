@@ -108,7 +108,7 @@ export const STAGES: StageMeta[] = [
     number: "5b",
     loadingHint: "Running Bayesian inference...",
     description:
-      "Fits the Bayesian model via MCMC or SVI and runs convergence and sensitivity diagnostics.",
+      "Fits the Bayesian model and runs convergence and sensitivity diagnostics.",
     interactive: false,
   },
   {
