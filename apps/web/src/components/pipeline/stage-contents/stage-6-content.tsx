@@ -30,7 +30,7 @@ export default function Stage6Content({
             <Bot className="h-3.5 w-3.5" />
             Stage Interpretation
           </div>
-          <div className="prose prose-sm max-w-none overflow-y-auto text-sm [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0" style={{ maxHeight: "7.5rem" }}>
+          <div className="prose prose-sm max-w-none overflow-y-auto text-sm [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0" style={{ maxHeight: "12.5rem" }}>
             <Markdown remarkPlugins={[remarkGfm]}>{narrative}</Markdown>
           </div>
         </div>

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
+import { VirtualizedChartGrid } from "@/components/ui/virtualized-chart-grid";
 import { formatNumber } from "@/lib/utils/format";
 import type {
   LOODiagnostics,
@@ -263,11 +264,13 @@ export function DiagnosticsAccordion({
                   <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Marginal distributions
                   </h4>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {marginals.map((m) => (
-                      <PosteriorDensityChart key={m.parameter} marginal={m} />
-                    ))}
-                  </div>
+                  <VirtualizedChartGrid
+                    items={marginals}
+                    estimateRowHeight={152}
+                    maxHeight={456}
+                    renderItem={(m) => <PosteriorDensityChart marginal={m} />}
+                    keyExtractor={(m) => m.parameter}
+                  />
                 </div>
               )}
               {hasPairs && (
@@ -275,11 +278,13 @@ export function DiagnosticsAccordion({
                   <h4 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
                     Pairwise correlations
                   </h4>
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {pairs.map((p) => (
-                      <PosteriorPairsChart key={`${p.param_x}-${p.param_y}`} pair={p} />
-                    ))}
-                  </div>
+                  <VirtualizedChartGrid
+                    items={pairs}
+                    estimateRowHeight={180}
+                    maxHeight={540}
+                    renderItem={(p) => <PosteriorPairsChart pair={p} />}
+                    keyExtractor={(p) => `${p.param_x}-${p.param_y}`}
+                  />
                 </div>
               )}
             </div>
