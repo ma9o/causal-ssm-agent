@@ -1,5 +1,5 @@
 import { loadEnvConfig } from "@next/env";
-import { join } from "node:path";
+import { getRepoRoot } from "@/lib/server/repo-root";
 
 let rootEnvLoaded = false;
 
@@ -8,9 +8,7 @@ function ensureRootEnvLoaded() {
     return;
   }
 
-  const projectDir = process.cwd();
-  loadEnvConfig(projectDir);
-  loadEnvConfig(join(projectDir, "..", ".."));
+  loadEnvConfig(getRepoRoot());
   rootEnvLoaded = true;
 }
 
