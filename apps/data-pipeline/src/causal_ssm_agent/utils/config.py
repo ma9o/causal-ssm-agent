@@ -74,6 +74,13 @@ class Stage4Config:
 
 
 @dataclass(frozen=True)
+class Stage6Config:
+    """Stage 6: Narrative commentary over intervention results and fit diagnostics."""
+
+    model: str
+
+
+@dataclass(frozen=True)
 class SVIConfig:
     """SVI-specific inference settings."""
 
@@ -178,6 +185,7 @@ class PipelineConfig:
     stage1_structure_proposal: Stage1Config
     stage2_workers: Stage2Config
     stage4_prior_elicitation: Stage4Config
+    stage6_commentary: Stage6Config
     inference: InferenceConfig = InferenceConfig()
     llm: LLMConfig = LLMConfig()
     pipeline: PipelineBehaviorConfig = PipelineBehaviorConfig()
@@ -264,6 +272,7 @@ def load_config() -> PipelineConfig:
         stage1_structure_proposal=Stage1Config(**raw["stage1_structure_proposal"]),
         stage2_workers=Stage2Config(**raw["stage2_workers"]),
         stage4_prior_elicitation=stage4_config,
+        stage6_commentary=Stage6Config(**raw["stage6_commentary"]),
         inference=inference_config,
         llm=llm_config,
         pipeline=pipeline_config,

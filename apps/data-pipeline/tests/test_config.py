@@ -89,6 +89,8 @@ class TestToSamplerConfig:
 
 
 MINIMAL_CONFIG = textwrap.dedent("""\
+    stage6_commentary:
+      model: gpt-4
     stage1_structure_proposal:
       model: gpt-4
       sample_chunks: 3
@@ -101,6 +103,8 @@ MINIMAL_CONFIG = textwrap.dedent("""\
 """)
 
 FULL_CONFIG = textwrap.dedent("""\
+    stage6_commentary:
+      model: claude-3
     stage1_structure_proposal:
       model: claude-3
       sample_chunks: 5
@@ -159,6 +163,7 @@ class TestLoadConfig:
         assert cfg.stage2_workers.max_tool_turns == 40
         assert cfg.stage4_prior_elicitation.model == "gpt-4"
         assert cfg.stage4_prior_elicitation.max_tool_turns == 40
+        assert cfg.stage6_commentary.model == "gpt-4"
         # Defaults for optional sections
         assert cfg.inference.method == "auto"
         assert cfg.llm.max_tokens == 65536
@@ -184,6 +189,7 @@ class TestLoadConfig:
         assert cfg.stage4_prior_elicitation.literature_search.enabled is False
         assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True
         assert cfg.stage4_prior_elicitation.paraphrasing.n_paraphrases == 5
+        assert cfg.stage6_commentary.model == "claude-3"
         assert cfg.inference.method == "nuts"
         assert cfg.inference.num_warmup == 500
         assert cfg.inference.num_samples == 2000
