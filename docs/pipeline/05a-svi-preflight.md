@@ -27,7 +27,7 @@ flowchart LR
 
 **Runtime preparation:** Loads the observation data, pivots to wide format, builds an executable model from the [`CompiledSSMArtifact`](../reference/compilation.md), and resolves the [inference structure](../reference/inference-routing.md) (likelihood backend, Rao-Blackwellization split). The inference structure is re-derived at fit time rather than reused from [Stage 4b](04b-parametric-identifiability.md).
 
-**SVI fit:** Fits a full-rank multivariate normal guide[^blei2017] [^kucukelbir2017] over all latent parameters using 5 000 gradient steps, then draws 500 posterior samples. The multivariate normal family captures posterior correlations but cannot represent multimodality or heavy tails — sufficient for detecting gross misspecification, not for characterizing the full posterior.
+**SVI fit:** Runs a bounded universal SVI preflight ladder that always attempts a cheap variational fit before [Stage 5b](05b-inference-diagnostics.md). The stage first tries a very conservative point-mass (`AutoDelta`) probe, then retries with a mean-field guide, and finally with a capped full-rank guide[^blei2017] [^kucukelbir2017] if the cheaper attempts diverge. All attempts use small learning rates and short budgets. The first successful attempt draws a small posterior sample for diagnostics. This keeps the preflight universal and non-blocking without assuming one SVI setting is stable for every compiled model.
 
 **Diagnostic extraction:** From the posterior draws the stage computes:
 

@@ -16,6 +16,7 @@ Prefer a parsimonious, source-faithful measurement model:
 - If a direct deterministic measurement exists, operationalize that first.
 - Reuse deterministic computed operationalizations instead of inventing broader semantic proxies for the same construct.
 - Do not introduce wider support windows or weak proxy indicators unless the data genuinely requires them.
+- Do not keep dead measurement baggage. If an indicator has no real support in the available data, remove the indicator. If that leaves a construct with no viable indicators, remove the construct and all incident edges rather than keeping an unmeasured latent.
 
 ## Reflective Measurement Model (A1)
 
@@ -184,6 +185,14 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 3. You CANNOT add new causal edges—only operationalize existing constructs
 5. No direct causal edges between indicators (pure indicators assumption)
 
+## Refinement Rule
+
+When revising an existing measurement model after validation or downstream extraction feedback:
+- First remove indicators that are unsupported, constant, unusable, or otherwise not genuinely measured by the dataset.
+- Then check construct coverage again.
+- If a construct has no viable indicators left after that cleanup, remove the construct and all of its incident edges.
+- Do not keep a latent in the graph if the dataset no longer measures it.
+
 ## Model Clock
 
 The `model_clock` defines the latent-state discretization and the default extraction/support window. Indicators normally emit one value per `model_clock` bucket unless they explicitly declare a wider `observation_window`.
@@ -274,6 +283,7 @@ Operationalize constructs as indicators using the available data columns. Rememb
 - For time-invariant constructs, only add indicators when there is explicit stable proxy evidence in the data
 - Multiple indicators per construct improve reliability
 - Choose appropriate dtypes and aggregation functions for each indicator
+- If cleanup leaves a construct with zero viable indicators, remove the construct instead of keeping an unmeasured latent
 
 Think very hard.
 """
@@ -285,6 +295,7 @@ Review your proposed measurement model for operationalization coherence.
 
 1. **Model clock**: Is the chosen `model_clock` appropriate for the data density and causal timescale?
 2. **Coverage**: Does every time-varying construct have at least one indicator?
+   - If not, either add a genuinely supported indicator or drop the construct and its incident edges
 3. **how_to_measure clarity**: Are instructions specific enough for workers?
 4. **Support-window semantics**: If an indicator summarizes a wider period than `model_clock`, does it declare `observation_window`, and does `how_to_measure` clearly say whether to aggregate event-level evidence or extract an explicit summary mention?
 5. **dtype/aggregation consistency**:
@@ -299,6 +310,7 @@ Review your proposed measurement model for operationalization coherence.
 9. **extraction_mode**: Could any `"semantic"` indicators be `"computed"`? Deterministic direct aggregations and deterministic support-window rules should not go through LLM workers.
 10. **Missingness semantics**: For `"semantic"` indicators, does `how_to_measure` clearly distinguish observed negative (`0` or equivalent) from no usable observation (`null`)?
 11. **Parsimony/stability**: Did you introduce a broader semantic proxy, a gratuitously renamed indicator, or a wider support window where a narrower deterministic operationalization would suffice?
+12. **Dead measurement cleanup**: Does any construct survive only via indicators that are unsupported, constant, or unusable? If so, remove those indicators; if nothing viable remains, remove the construct and its edges.
 
 ## Red Flags
 
@@ -311,6 +323,7 @@ Review your proposed measurement model for operationalization coherence.
 - semantic instructions like "return 1 if found, otherwise 0" that do not distinguish `0` from `null`
 - semantic proxy duplicates or weakens an available deterministic computed measurement
 - weak proxy for a time-invariant construct inferred from sparse incidental text
+- construct kept in the graph after all of its viable indicators have been removed
 - Indicators that directly cause each other → violates pure indicators assumption
 - Cumulative/running metrics → violates A8 (temporal independence)
 
