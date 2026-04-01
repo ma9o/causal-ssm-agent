@@ -72,9 +72,12 @@ curl -sf http://localhost:8100/api/tools/docs && echo "tool server ok"
 
 # Next.js frontend
 curl -sf -o /dev/null http://localhost:3000 && echo "next.js ok"
+
+# Web launch auth/access
+curl -sf http://localhost:3000/api/auth/status | jq '{mode, canRun, reason, creditStatus}'
 ```
 
-All four must succeed before proceeding. For agentic runs, also confirm `get_errors` reports no current Next.js errors before moving to browser automation.
+All five must succeed before proceeding. The `/api/auth/status` check should report `canRun: true`; if it reports `mode: "none"`, `/api/runs` will fail with `402`. For agentic runs, also confirm `get_errors` reports no current Next.js errors before moving to browser automation.
 
 ## Workspace Layout
 
@@ -129,6 +132,8 @@ FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/
 echo "Flow Run ID: $FLOW_RUN_ID"
 ```
 
+Use this deployment-backed route, or the web `/api/runs` route below, for durable execution. Do not substitute a one-off local `uv run python ... causal_inference_pipeline(...)` invocation just because it can add the right Prefect tags; that creates a UI-visible root run, but the run is still tied to the lifetime of that local interactive process.
+
 ### 3. Verify workspace lookup
 
 Private workspaces are now browser-session scoped. If you create a workspace by
@@ -147,6 +152,9 @@ curl -s -c "$COOKIE_JAR" -X POST http://localhost:3000/api/upload \
   -F "workspaceId=$WORKSPACE_ID" \
   -F "file=@data/GOLDEN/input/MyActivity.json"
 
+curl -s -b "$COOKIE_JAR" http://localhost:3000/api/auth/status \
+  | jq '{mode, canRun, reason, creditStatus}'
+
 curl -s -b "$COOKIE_JAR" -X POST http://localhost:3000/api/runs \
   -H 'Content-Type: application/json' \
   -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"launchId\":\"$LAUNCH_ID\",\"query\":\"$QUESTION\"}"
@@ -154,6 +162,13 @@ curl -s -b "$COOKIE_JAR" -X POST http://localhost:3000/api/runs \
 curl -s -b "$COOKIE_JAR" http://localhost:3000/api/analysis/$WORKSPACE_ID
 # → {"workspaceId":"...","question":"...","rootFlowRunIds":["..."],"latestRootFlowRunId":"...","stages":{...}}
 ```
+
+If `/api/auth/status` reports `canRun: false`, fix that before calling `/api/runs`:
+
+- `mode: "trial"` or `mode: "user"` is runnable.
+- `mode: "none"` means the Next.js server cannot launch runs for this browser session.
+- Trial mode depends on `OPENROUTER_API_KEY` being available to the Next.js server from the same root `.env` described above.
+- User mode depends on this same browser session having completed the OpenRouter auth exchange through [`/api/auth/exchange`](../../apps/web/src/app/api/auth/exchange/route.ts), which stores the `openrouter_session` cookie used by the server.
 
 ### 4. Open the analysis via browser automation
 
@@ -226,6 +241,67 @@ FLOW_RUN_ID=$(curl -s -X POST "http://localhost:4200/api/deployments/$DEPLOY_ID/
 No extra web-side registration step is required after reruns. The analysis UI
 discovers workspace history directly from Prefect root runs tagged with
 `workspace:{workspace_id}`.
+
+## Apply a stage refinement via API
+
+The same refinement materialization flow used by the UI is already exposed over HTTP.
+
+Use [`/api/refine/apply`](../../apps/web/src/app/api/refine/apply/route.ts) when you have a client-held refinement patch and optional refinement chat messages and want the server to do the same thing as the Resume button:
+
+- for non-terminal stages, merge the patch into the current stage payload and trigger [`/api/replay`](../../apps/web/src/app/api/replay/route.ts)
+- for terminal `stage-6`, persist the patch in place through the tool server
+
+```bash
+curl -s -b "$COOKIE_JAR" -X POST http://localhost:3000/api/refine/apply \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workspaceId": "'"$WORKSPACE_ID"'",
+    "stageId": "stage-1b",
+    "rootFlowRunId": "'"$FLOW_RUN_ID"'",
+    "stagePatch": {
+      "causal_spec": {
+        "measurement": {
+          "model_clock": "1d",
+          "indicators": []
+        }
+      }
+    },
+    "messages": []
+  }'
+```
+
+The response matches the UI contract:
+
+```json
+{
+  "ok": true,
+  "updatedFields": ["causal_spec"],
+  "resumeFrom": "stage-2",
+  "rootFlowRunId": "..."
+}
+```
+
+Use [`/api/replay`](../../apps/web/src/app/api/replay/route.ts) directly when you already have the fully materialized stage payload and do not need the server to merge refinement messages into `llm_trace` first:
+
+```bash
+curl -s -b "$COOKIE_JAR" -X POST http://localhost:3000/api/replay \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "workspaceId": "'"$WORKSPACE_ID"'",
+    "stageId": "stage-1b",
+    "rootFlowRunId": "'"$FLOW_RUN_ID"'",
+    "stageData": {
+      "causal_spec": {
+        "measurement": {
+          "model_clock": "1d",
+          "indicators": []
+        }
+      }
+    }
+  }'
+```
+
+This route launches a new root flow run with `start_stage` set to the edited stage and a `stage_overrides` entry for that stage, so upstream stages restore from persisted artifacts and only downstream stages rerun.
 
 ### Valid stage IDs
 

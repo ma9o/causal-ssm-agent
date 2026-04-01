@@ -8,6 +8,8 @@ THINK VERY HARD
 
 - NEVER add backwards compatibility code. This project is not deployed anywhere yet. When refactoring, completely replace old patterns with new ones - do not support both old and new formats simultaneously.
 
+- For integration testing, starting services, health-checking the stack, or triggering pipeline runs manually, always read and follow [docs/guides/agentic_integration_testing.md](docs/guides/agentic_integration_testing.md). Do not improvise steps from memory.
+
 # Docs
 
 - NEVER clump together links or references. ALWAYS either juxtapose references to the sentence or clause they support or use hyperlinks on the terms themselves.
