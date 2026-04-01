@@ -776,6 +776,7 @@ def _fit_svi(
     num_steps: int = 5000,
     num_samples: int = 1000,
     learning_rate: float = 0.01,
+    init_scale: float = 0.01,
     progress_bar: bool = False,
     seed: int = 0,
     reparam=None,
@@ -801,6 +802,8 @@ def _fit_svi(
     Returns:
         InferenceResult with approximate posterior samples
     """
+    del progress_bar
+
     guide_cls = {
         "normal": AutoNormal,
         "mvn": AutoMultivariateNormal,
@@ -819,13 +822,17 @@ def _fit_svi(
             tuple(times.shape),
             guide_type,
             float(learning_rate),
+            float(init_scale),
             *reparam_key,
         )
 
     def _build_svi_bundle():
         public_sites = _trace_public_sites(base_model_fn, observations, times)
         model_fn = _apply_reparam(base_model_fn, reparam)
-        guide = guide_cls(model_fn)
+        guide_kwargs = {"init_loc_fn": init_to_median(num_samples=15)}
+        if guide_type != "delta":
+            guide_kwargs["init_scale"] = init_scale
+        guide = guide_cls(model_fn, **guide_kwargs)
         optimizer = ClippedAdam(step_size=learning_rate)
         return {
             "public_sites": public_sites,
@@ -845,25 +852,38 @@ def _fit_svi(
     svi = cached_bundle["svi"]
 
     rng_key = random.PRNGKey(seed)
-    svi_result = svi.run(
-        rng_key,
-        num_steps,
-        observations,
-        times,
-        progress_bar=progress_bar,
-    )
+    rng_key, init_key, sample_key = random.split(rng_key, 3)
+    svi_state = svi.init(init_key, observations, times)
 
-    if not _all_numeric_leaves_finite(svi_result.losses):
+    losses = []
+    for step in range(num_steps):
+        svi_state, loss = svi.update(
+            svi_state,
+            observations,
+            times,
+            forward_mode_differentiation=False,
+        )
+        if not bool(jnp.isfinite(loss)):
+            raise FloatingPointError(f"SVI produced non-finite losses at step {step + 1}")
+        losses.append(loss)
+
+    svi_losses = (
+        jnp.asarray(losses, dtype=jnp.float32)
+        if losses
+        else jnp.empty((0,), dtype=jnp.float32)
+    )
+    svi_params = svi.get_params(svi_state)
+
+    if not _all_numeric_leaves_finite(svi_losses):
         raise FloatingPointError("SVI produced non-finite losses")
-    if not _all_numeric_leaves_finite(svi_result.params):
+    if not _all_numeric_leaves_finite(svi_params):
         raise FloatingPointError("SVI produced non-finite guide parameters")
 
     # Draw posterior samples from the fitted guide
-    sample_key = random.PRNGKey(seed + 1)
     predictive = Predictive(
         model_fn,
         guide=guide,
-        params=svi_result.params,
+        params=svi_params,
         num_samples=num_samples,
     )
     raw_samples = predictive(sample_key, observations, times)
@@ -875,7 +895,7 @@ def _fit_svi(
     return InferenceResult(
         _samples=samples,
         method="svi",
-        diagnostics={"losses": svi_result.losses, "params": svi_result.params},
+        diagnostics={"losses": svi_losses, "params": svi_params},
     )
 
 
