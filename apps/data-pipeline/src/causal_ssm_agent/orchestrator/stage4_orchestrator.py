@@ -481,7 +481,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             Stage4FrontierBlock(
                 id=f"indicator:{variable}",
                 kind="indicator_decision",
-                label=f"Choose likelihood for {variable}",
+                label=variable.replace("_", " ").title(),
                 construct_names=(construct_name,) if isinstance(construct_name, str) else (),
                 variable_names=(variable,),
                 payload=dict(item),
@@ -497,7 +497,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     review_block = Stage4FrontierBlock(
         id="review:model_spec",
         kind="global_review",
-        label="Review locked model specification before prior elicitation",
+        label="Model Specification",
         construct_names=tuple(construct_order),
         variable_names=tuple(item["variable"] for item in skeleton.ambiguous_indicators),
         parameter_names=tuple(
@@ -518,7 +518,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             Stage4FrontierBlock(
                 id=f"measurement:{construct_name}",
                 kind="measurement_prior",
-                label=f"Elicit measurement priors for {construct_name}",
+                label=construct_name,
                 construct_names=(construct_name,),
                 variable_names=tuple(indicators_per_construct.get(construct_name) or ()),
                 parameter_names=tuple(sorted(names, key=param_order.__getitem__)),
@@ -549,12 +549,11 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         ]
         if not names:
             continue
-        label_suffix = ", ".join(ordered_members)
         prior_blocks.append(
             Stage4FrontierBlock(
                 id=f"dynamics:{'+'.join(ordered_members)}",
                 kind="dynamics_prior",
-                label=f"Elicit dynamics priors for {label_suffix}",
+                label=", ".join(ordered_members),
                 construct_names=ordered_members,
                 variable_names=tuple(
                     indicator_name
@@ -583,7 +582,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             Stage4FrontierBlock(
                 id=f"effects:{effect_name}",
                 kind="effect_prior",
-                label=f"Elicit effect priors for incoming effects on {effect_name}",
+                label=effect_name,
                 construct_names=construct_names,
                 variable_names=tuple(
                     indicator_name
@@ -607,11 +606,16 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             for name in (parameter.get("construct_1"), parameter.get("construct_2"))
             if isinstance(name, str)
         )
+        correlation_label = (
+            f"{construct_names[0]} \u00d7 {construct_names[1]}"
+            if len(construct_names) == 2
+            else parameter["name"]
+        )
         prior_blocks.append(
             Stage4FrontierBlock(
                 id=f"correlation:{parameter['name']}",
                 kind="correlation_prior",
-                label=f"Elicit correlation prior for {parameter['name']}",
+                label=correlation_label,
                 construct_names=construct_names,
                 variable_names=tuple(
                     indicator_name
@@ -625,7 +629,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     prior_review_block = Stage4FrontierBlock(
         id="review:prior_system",
         kind="global_prior_review",
-        label="Repair the full prior system after global validation failures",
+        label="Full Prior System",
         construct_names=tuple(construct_order),
         variable_names=tuple(indicator["name"] for indicator in indicators),
         parameter_names=tuple(

@@ -156,14 +156,6 @@ function buildSectionSummaries(
       detailLabel = "Not required for this plan";
     }
 
-    // Split "Type: Construct Name" into title (type) + subtitle (construct)
-    const colonIndex = displayLabel.indexOf(": ");
-    if (colonIndex !== -1 && !detailLabel) {
-      detailLabel = displayLabel.slice(colonIndex + 2);
-      displayLabel = displayLabel.slice(0, colonIndex);
-    }
-
-
     return {
       id: section.id,
       label: section.label,
