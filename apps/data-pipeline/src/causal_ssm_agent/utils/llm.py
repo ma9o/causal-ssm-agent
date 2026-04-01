@@ -112,6 +112,22 @@ def _merge_trace(existing: LLMTrace, new_trace: LLMTrace) -> LLMTrace:
     )
 
 
+def _record_trace_segment(
+    trace_capture: dict | None,
+    trace_messages: list[dict[str, Any]],
+    output: dict[str, Any],
+) -> None:
+    """Record one trace segment into stage-local trace capture."""
+    if trace_capture is None:
+        return
+    new_trace = _build_trace(trace_messages, output)
+    existing = trace_capture.get("trace")
+    if isinstance(existing, LLMTrace):
+        trace_capture["trace"] = _merge_trace(existing, new_trace)
+    else:
+        trace_capture["trace"] = new_trace
+
+
 # ---------------------------------------------------------------------------
 # Type aliases for generate functions (unified)
 # ---------------------------------------------------------------------------
@@ -222,6 +238,7 @@ def make_generate_fn(
         rewrite_tools: ToolRewriter | None = None,
     ) -> str:
         chat_messages = dict_messages_to_chat(messages)
+        trace_messages = list(chat_messages)
 
         if follow_ups or tools:
             return await multi_turn_generate(
@@ -238,6 +255,8 @@ def make_generate_fn(
             )
         chat_messages = _rewrite_context_messages(chat_messages, rewrite_messages)
         response = await call_model(model_name, chat_messages, config=config, log_label=label)
+        trace_messages.append(response["message"])
+        _record_trace_segment(trace_capture, trace_messages, response)
         return response["completion"]
 
     return generate
@@ -741,13 +760,7 @@ async def multi_turn_generate(
             last_nonempty = output["completion"]
 
     # --- Finalize ---
-    if trace_capture is not None:
-        new_trace = _build_trace(trace_messages, output)
-        existing = trace_capture.get("trace")
-        if isinstance(existing, LLMTrace):
-            trace_capture["trace"] = _merge_trace(existing, new_trace)
-        else:
-            trace_capture["trace"] = new_trace
+    _record_trace_segment(trace_capture, trace_messages, output)
 
     elapsed_total = time.monotonic() - t0
     logger.info(scoped_log(log_label, "multi_turn_generate completed in %.1fs"), elapsed_total)

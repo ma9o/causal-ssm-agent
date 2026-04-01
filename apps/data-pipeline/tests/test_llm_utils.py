@@ -15,6 +15,7 @@ from causal_ssm_agent.utils.llm import (
     TraceMessage,
     _validate_json_and_format,
     attach_trace,
+    make_generate_fn,
     make_validation_tool,
     multi_turn_generate,
     parse_json_response,
@@ -774,6 +775,66 @@ class TestWorkerValidationTools:
 
         assert result == "done"
         assert seen_tool_names == [["validate_model"], ["search_literature"]]
+
+
+# =============================================================================
+# make_generate_fn
+# =============================================================================
+
+
+class TestMakeGenerateFn:
+    def test_single_turn_capture_preserves_original_context_when_rewriting(self, monkeypatch):
+        trace_capture: dict[str, object] = {}
+        rewrite_inputs: list[list[str]] = []
+
+        def rewrite_messages(messages: list[dict]) -> list[dict]:
+            rewrite_inputs.append([str(message["role"]) for message in messages])
+            return [{"role": "user", "content": "compact-context"}]
+
+        async def fake_call_model(*args, **kwargs):
+            messages = args[1]
+            assert messages == [{"role": "user", "content": "compact-context"}]
+            return {
+                "message": {
+                    "role": "assistant",
+                    "content": "summary",
+                    "reasoning": "hidden rationale",
+                },
+                "completion": "summary",
+                "usage": {
+                    "input_tokens": 11,
+                    "output_tokens": 7,
+                    "reasoning_tokens": 3,
+                },
+                "model": "test-model",
+                "time": 0.2,
+                "stop_reason": "stop",
+            }
+
+        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+
+        generate = make_generate_fn("test-model", trace_capture=trace_capture)
+        result = _run(
+            generate(
+                [{"role": "user", "content": "original prompt"}],
+                label="single-turn",
+                rewrite_messages=rewrite_messages,
+            )
+        )
+
+        assert result == "summary"
+        assert rewrite_inputs == [["user"]]
+
+        trace = trace_capture["trace"]
+        assert isinstance(trace, LLMTrace)
+        assert [message.role for message in trace.messages] == ["user", "assistant"]
+        assert trace.messages[0].content == "original prompt"
+        assert trace.messages[1].content == "summary"
+        assert trace.messages[1].reasoning == "hidden rationale"
+        assert trace.usage.input_tokens == 11
+        assert trace.usage.output_tokens == 7
+        assert trace.usage.reasoning_tokens == 3
+        assert all("compact-context" not in message.content for message in trace.messages)
 
 
 # =============================================================================
