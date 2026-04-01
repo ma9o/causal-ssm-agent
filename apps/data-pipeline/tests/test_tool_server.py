@@ -32,6 +32,32 @@ def test_execute_tool_rejects_invalid_input_before_invoking_tool(monkeypatch):
     assert called is False
 
 
+def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
+    client = TestClient(tool_server.app)
+
+    monkeypatch.setattr(tool_server, "_build_context", lambda *_args, **_kwargs: {})
+    monkeypatch.setitem(
+        tool_server._TOOL_IMPLS,
+        ("stage-1a", "validate_latent_model"),
+        lambda _ctx, _args: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    response = client.post(
+        "/api/tools/stage-1a/validate_latent_model",
+        json={"workspace_id": "user-123", "input": {"structure_json": "{}"}},
+    )
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": {
+            "message": "boom",
+            "exception_type": "RuntimeError",
+            "stage_id": "stage-1a",
+            "tool_name": "validate_latent_model",
+        }
+    }
+
+
 def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
     client = TestClient(tool_server.app)
 
@@ -60,6 +86,61 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
         "patch": {"llm_trace": {"messages": []}},
         "workspace_id": "user-123",
     }
+
+
+def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch):
+    spec = SimpleNamespace(latent_names=["screen_time", "sleep_quality"], manifest_names=["sleep_obs"])
+    fitted_artifact = SimpleNamespace(
+        builder=SimpleNamespace(_spec=spec),
+        observation_support=None,
+    )
+    rebuilt_builder = SimpleNamespace(_spec=spec, _model=object())
+    rebuilt_runtime = SimpleNamespace(
+        builder=rebuilt_builder,
+        observation_support="support-runtime",
+        observation_data=None,
+    )
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        tool_server,
+        "_load_stage_result",
+        lambda _workspace_id, stage_id: (
+            {"causal_spec": {"identifiability": {}, "measurement": {}}, "outcome": "warn"}
+            if stage_id == "stage-1b"
+            else {"outcome": "warn"}
+        ),
+    )
+    monkeypatch.setattr(tool_server, "_load_optional_stage_result", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        tool_server,
+        "_load_runtime_stage_result",
+        lambda _workspace_id, stage_id: {
+            "_data_for_model_path": "/tmp/stage2.parquet"
+        }
+        if stage_id == "stage-2"
+        else {"_fitted_result_path": "/tmp/stage5b.pkl"},
+    )
+    monkeypatch.setattr(tool_server, "load_pickle", lambda _path: fitted_artifact)
+    monkeypatch.setattr(tool_server, "load_parquet", lambda _path: object())
+    monkeypatch.setattr(tool_server, "_extract_observation_timestamps", lambda _obs: [])
+    monkeypatch.setattr(tool_server, "get_outcome_name", lambda _spec: "sleep_quality")
+    monkeypatch.setattr(tool_server, "get_estimable_treatments", lambda _spec: ["screen_time"])
+
+    def fake_prepare_model_runtime(*, data_for_model, builder, compiled_ssm=None, sampler_config=None):
+        del data_for_model, compiled_ssm, sampler_config
+        captured["builder"] = builder
+        return rebuilt_runtime
+
+    monkeypatch.setattr(tool_server, "prepare_model_runtime", fake_prepare_model_runtime)
+
+    ctx = tool_server._build_stage6_context("user-123")
+
+    assert isinstance(captured["builder"], tool_server.SSMModelBuilder)
+    assert captured["builder"]._ssm_spec is spec
+    assert ctx["_fitted_artifact"].builder is rebuilt_builder
+    assert ctx["_fitted_artifact"].observation_support == "support-runtime"
+    assert ctx["_prepared_runtime"] is rebuilt_runtime
 
 
 def test_execute_validate_model_loads_stage2_runtime_via_stage_registry(monkeypatch):
