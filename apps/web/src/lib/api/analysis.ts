@@ -1,6 +1,7 @@
 import type { StageId } from "@causal-ssm/api-types";
 import type { Stage4ReplayState } from "../stage4-runtime";
 import { apiFetch } from "./client";
+import type { RefinementUIMessage } from "../utils/trace-to-core";
 
 export interface ReplayResponse {
   ok: true;
@@ -14,6 +15,21 @@ export interface RefineApplyResponse {
   resumeFrom?: StageId | null;
   rootFlowRunId?: string;
   sessionPersisted?: boolean;
+}
+
+export interface ReplayStageOverrideRequest {
+  workspaceId: string;
+  stageId: StageId;
+  stageData: Record<string, unknown>;
+  rootFlowRunId?: string | null;
+}
+
+export interface ApplyRefinementRequest {
+  workspaceId: string;
+  stageId: StageId;
+  stagePatch?: Record<string, unknown>;
+  messages?: RefinementUIMessage[];
+  rootFlowRunId?: string | null;
 }
 
 export interface AnalysisStageExecution {
@@ -60,4 +76,22 @@ export async function getStage4ReplayState(
 ): Promise<Stage4ReplayState> {
   const search = new URLSearchParams({ rootFlowRunId }).toString();
   return apiFetch<Stage4ReplayState>(`/api/analysis/${workspaceId}/stage4-state?${search}`);
+}
+
+export async function replayStageOverride(
+  payload: ReplayStageOverrideRequest,
+): Promise<ReplayResponse> {
+  return apiFetch<ReplayResponse>("/api/replay", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function applyRefinement(
+  payload: ApplyRefinementRequest,
+): Promise<RefineApplyResponse> {
+  return apiFetch<RefineApplyResponse>("/api/refine/apply", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
