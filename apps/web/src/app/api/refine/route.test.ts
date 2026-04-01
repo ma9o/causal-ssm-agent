@@ -306,6 +306,57 @@ describe("POST /api/refine", () => {
     });
   });
 
+  it("surfaces structured tool error detail instead of a generic proxy error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: {
+            message: "Stage 6 fitted artifact is missing a live builder.",
+          },
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    streamTextMock.mockImplementation(({ tools }) => ({
+      toUIMessageStreamResponse: async () => {
+        await expect(
+          tools.validate_measurement_model.execute({
+            measurement_json: "{}",
+          }),
+        ).rejects.toThrow("Stage 6 fitted artifact is missing a live builder.");
+
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    }));
+
+    const response = await POST(
+      new Request("http://localhost/api/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: "user-123",
+          stageId: "stage-1b",
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              parts: [{ type: "text", text: "Validate the measurement model." }],
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it("rejects invalid message payloads", async () => {
     const response = await POST(
       new Request("http://localhost/api/refine", {

@@ -41,7 +41,7 @@ from causal_ssm_agent.models.ssm.counterfactual import (
     summarize_draws,
     treatment_effect_for_action,
 )
-from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
+from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.causal_spec import (
@@ -260,7 +260,19 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     stage5b_runtime = _load_runtime_stage_result(workspace_id, "stage-5b")
     fitted_artifact = load_pickle(stage5b_runtime["_fitted_result_path"])
     data_for_model = load_parquet(stage2_runtime["_data_for_model_path"])
-    runtime = prepare_model_runtime(data_for_model=data_for_model, builder=fitted_artifact.builder)
+    persisted_builder = getattr(fitted_artifact, "builder", None)
+    fitted_spec = getattr(persisted_builder, "_spec", None)
+    if fitted_spec is None:
+        raise HTTPException(
+            500,
+            "Stage 5b fitted artifact is missing the compiled SSMSpec required for stage-6 tools.",
+        )
+    runtime = prepare_model_runtime(
+        data_for_model=data_for_model,
+        builder=SSMModelBuilder(ssm_spec=fitted_spec),
+    )
+    fitted_artifact.builder = runtime.builder
+    fitted_artifact.observation_support = runtime.observation_support
 
     causal_spec = stage1b.get("causal_spec", {})
     non_identifiable = (causal_spec.get("identifiability") or {}).get(
@@ -978,14 +990,29 @@ async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) 
     except ValidationError as exc:
         raise HTTPException(422, detail=exc.errors()) from exc
 
-    ctx = _build_context(request.workspace_id, stage_id)
-    import inspect
+    try:
+        ctx = _build_context(request.workspace_id, stage_id)
+        import inspect
 
-    payload = (
-        await impl(ctx, validated_input)
-        if inspect.iscoroutinefunction(impl)
-        else impl(ctx, validated_input)
-    )
+        payload = (
+            await impl(ctx, validated_input)
+            if inspect.iscoroutinefunction(impl)
+            else impl(ctx, validated_input)
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Tool execution failed for %s/%s", stage_id, tool_name)
+        raise HTTPException(
+            500,
+            detail={
+                "message": str(exc) or repr(exc),
+                "exception_type": exc.__class__.__name__,
+                "stage_id": stage_id,
+                "tool_name": tool_name,
+            },
+        ) from exc
+
     if contract.output_schema is None:
         return payload
 

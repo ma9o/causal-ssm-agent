@@ -77,6 +77,33 @@ function normalizeToolArgsForSchema(
   return normalized;
 }
 
+async function readToolErrorMessage(response: Response): Promise<string> {
+  const bodyText = await response.text();
+  if (!bodyText.trim()) {
+    return `Tool execution failed with HTTP ${response.status}`;
+  }
+
+  try {
+    const parsed = JSON.parse(bodyText) as unknown;
+    if (isRecord(parsed)) {
+      if (typeof parsed.error === "string" && parsed.error.trim()) {
+        return parsed.error;
+      }
+      const detail = parsed.detail;
+      if (typeof detail === "string" && detail.trim()) {
+        return detail;
+      }
+      if (isRecord(detail) && typeof detail.message === "string" && detail.message.trim()) {
+        return detail.message;
+      }
+    }
+  } catch {
+    // Fall back to the raw response text below.
+  }
+
+  return bodyText;
+}
+
 /**
  * POST /api/refine
  *
@@ -153,8 +180,7 @@ export async function POST(req: Request) {
             },
           );
           if (!res.ok) {
-            const text = await res.text();
-            throw new Error(`Tool execution failed: ${text}`);
+            throw new Error(await readToolErrorMessage(res));
           }
           const data = await res.json();
 
