@@ -22,6 +22,46 @@ from .run_store import (
 logger = get_prefect_logger(__name__)
 
 
+def _build_stage5a_svi_attempts() -> list[dict[str, Any]]:
+    """Return the universal cheap SVI preflight ladder.
+
+    Stage 5a always runs, but it should not depend on one brittle optimizer
+    configuration. Use a bounded attempt ladder that keeps the stage cheap and
+    non-blocking while giving harder models a second, more stable try.
+    """
+
+    from causal_ssm_agent.utils.config import get_config
+
+    svi_config = get_config().inference.svi
+    sample_count = min(250, get_config().inference.num_samples)
+
+    return [
+        {
+            "method": "svi",
+            "guide_type": "delta",
+            "learning_rate": min(float(svi_config.learning_rate), 1e-4),
+            "num_steps": min(int(svi_config.num_steps), 150),
+            "num_samples": sample_count,
+        },
+        {
+            "method": "svi",
+            "guide_type": "normal",
+            "learning_rate": min(float(svi_config.learning_rate), 1e-4),
+            "init_scale": 0.01,
+            "num_steps": min(int(svi_config.num_steps), 500),
+            "num_samples": sample_count,
+        },
+        {
+            "method": "svi",
+            "guide_type": "mvn",
+            "learning_rate": min(float(svi_config.learning_rate), 3e-4),
+            "init_scale": 0.01,
+            "num_steps": min(int(svi_config.num_steps), 750),
+            "num_samples": sample_count,
+        },
+    ]
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 0: Agentic data ingestion
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -68,34 +108,18 @@ async def stage1a(question: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage1b(
-    question: str,
-    stage0: dict,
-    stage1a: dict,
-) -> dict:
-    """Propose measurement model and check identifiability.
-
-    Returns: {causal_spec, measurement_model, identifiability_status, llm_trace?}
-    """
-    from .pipeline_helpers import format_schema_for_llm
-    from .stages import propose_measurement_with_identifiability_fix
-
-    ingested_df = load_parquet(stage0["_df_path"])
-    column_descriptions = stage0["_column_descriptions"]
-    latent_model = stage1a["latent_model"]
-
-    dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
-    result = await propose_measurement_with_identifiability_fix(
-        question,
-        latent_model,
-        [dataset_schema],
-        dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
-    )
-    causal_spec = result.get("causal_spec", {})
+def finalize_stage1b_result(
+    result: dict[str, Any],
+    *,
+    latent_model: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Materialize Stage 1b derived fields from a causal spec payload."""
     from causal_ssm_agent.utils.causal_spec import get_estimable_treatments, get_outcome_name
 
+    finalized = dict(result)
+    causal_spec = finalized.get("causal_spec", {}) or {}
     treatments = list(get_estimable_treatments(causal_spec))
-    outcome_name = get_outcome_name(causal_spec) or get_outcome_name(latent_model) or ""
+    outcome_name = get_outcome_name(causal_spec) or get_outcome_name(latent_model or {}) or ""
     identifiability = causal_spec.get("identifiability", {}) or {}
     non_identifiable = identifiability.get("non_identifiable_treatments", {})
 
@@ -138,11 +162,39 @@ async def stage1b(
         outcome = "warn"
         fail_reason = None
 
-    result["_identified_treatments"] = treatments
-    result["outcome"] = outcome
+    finalized["_identified_treatments"] = treatments
+    finalized["outcome"] = outcome
     if fail_reason is not None:
-        result["fail_reason"] = fail_reason
-    return result
+        finalized["fail_reason"] = fail_reason
+    else:
+        finalized.pop("fail_reason", None)
+    return finalized
+
+
+async def stage1b(
+    question: str,
+    stage0: dict,
+    stage1a: dict,
+) -> dict:
+    """Propose measurement model and check identifiability.
+
+    Returns: {causal_spec, measurement_model, identifiability_status, llm_trace?}
+    """
+    from .pipeline_helpers import format_schema_for_llm
+    from .stages import propose_measurement_with_identifiability_fix
+
+    ingested_df = load_parquet(stage0["_df_path"])
+    column_descriptions = stage0["_column_descriptions"]
+    latent_model = stage1a["latent_model"]
+
+    dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
+    result = await propose_measurement_with_identifiability_fix(
+        question,
+        latent_model,
+        [dataset_schema],
+        dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
+    )
+    return finalize_stage1b_result(result, latent_model=latent_model)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -415,17 +467,39 @@ def stage5a(
 
     data_for_model = load_parquet(stage2["_data_for_model_path"])
 
-    svi_config = {"method": "svi", "num_steps": 5000, "num_samples": 500}
+    total_duration = 0.0
+    attempts = _build_stage5a_svi_attempts()
+    fitted_result: dict[str, Any] | None = None
 
-    fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=svi_config)
-    fitted_result = unwrap_task_result(fitted)
+    for index, svi_config in enumerate(attempts, start=1):
+        logger.info(
+            "Stage 5a SVI attempt %d/%d: guide=%s lr=%s steps=%s samples=%s",
+            index,
+            len(attempts),
+            svi_config.get("guide_type"),
+            svi_config.get("learning_rate"),
+            svi_config.get("num_steps"),
+            svi_config.get("num_samples"),
+        )
+        fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=svi_config)
+        fitted_result = unwrap_task_result(fitted)
+        total_duration += float(fitted_result.get("duration_seconds", 0.0))
+        if fitted_result.get("fitted", False):
+            break
 
-    if not fitted_result.get("fitted", False):
+        logger.warning(
+            "Stage 5a SVI attempt %d/%d failed: %s",
+            index,
+            len(attempts),
+            fitted_result.get("error", "unknown"),
+        )
+
+    if not fitted_result or not fitted_result.get("fitted", False):
         return {
             "inference_metadata": {
                 "method": "svi",
                 "n_samples": 0,
-                "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
+                "duration_seconds": total_duration,
             },
             "svi_diagnostics": None,
             "posterior_marginals": None,
@@ -437,7 +511,7 @@ def stage5a(
         "inference_metadata": {
             "method": "svi",
             "n_samples": int(fitted_result.get("n_samples", 0)),
-            "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
+            "duration_seconds": total_duration,
         },
         "svi_diagnostics": fitted_result.get("svi_diagnostics"),
         "posterior_marginals": fitted_result.get("posterior_marginals"),
@@ -760,7 +834,7 @@ async def stage6(
     ]
 
     async with LLMStageContext("stage-6") as ctx:
-        generate = ctx.make_generate(get_config().stage0_ingestion.model)
+        generate = ctx.make_generate(get_config().stage6_commentary.model)
         await generate(commentary_messages, label="comment-results")
         result = {
             "intervention_results": intervention_results,

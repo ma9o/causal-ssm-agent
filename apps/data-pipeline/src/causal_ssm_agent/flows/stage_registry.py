@@ -77,6 +77,14 @@ class StageMaterializer:
 
 
 @dataclass(frozen=True)
+class StageOverrideAdapter:
+    """Stage-owned replay adapter: public/editable payload -> runtime result."""
+
+    coerce_editable: Callable[[dict[str, Any]], dict[str, Any]]
+    materialize: Callable[[dict[str, Any], PipelineContext, dict[str, dict]], dict[str, Any]]
+
+
+@dataclass(frozen=True)
 class StageDefinition:
     """Declarative stage metadata with behavior carried as first-class functions.
 
@@ -99,8 +107,7 @@ class StageDefinition:
     question_required: bool = False
     override_eligible: bool = False
 
-    # (override_payload, ctx, stage_states) -> prepared result
-    prepare_override: Callable[[dict, PipelineContext, dict[str, dict]], dict] | None = None
+    override_adapter: StageOverrideAdapter | None = None
 
     # True for stage-5a (best-effort preflight, no restore on resume)
     skip_restore: bool = False
@@ -123,10 +130,13 @@ async def run_stage_flow(
         ctx.supported_overrides.get(defn.stage_id) if defn.override_eligible else None
     )
 
-    if override_payload is not None and defn.prepare_override is not None:
-        result = defn.prepare_override(override_payload, ctx, stage_states)
+    if override_payload is not None and defn.override_adapter is not None:
+        editable = defn.override_adapter.coerce_editable(dict(override_payload))
+        result = defn.override_adapter.materialize(editable, ctx, stage_states)
     elif override_payload is not None:
-        result = dict(override_payload)
+        raise ValueError(
+            f"Stage {defn.stage_id} received an override without an explicit materialization policy"
+        )
     else:
         inputs = defn.bind_inputs(ctx, stage_states)
         with use_openrouter_api_key(ctx.openrouter_api_key):
@@ -412,15 +422,79 @@ def _bind_stage6(ctx: PipelineContext, states: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) -> dict:
+def _coerce_override_stage1a(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept a replay payload and keep only authored stage-1a fields."""
+    latent_model = payload.get("latent_model")
+    if not isinstance(latent_model, dict):
+        raise ValueError("Stage 1a replay requires a 'latent_model' object")
+
+    editable = {"latent_model": latent_model}
+    if "llm_trace" in payload:
+        editable["llm_trace"] = payload.get("llm_trace")
+    if "outcome" in payload:
+        editable["outcome"] = payload.get("outcome")
+    if "fail_reason" in payload:
+        editable["fail_reason"] = payload.get("fail_reason")
+    return editable
+
+
+def _materialize_override_identity(
+    editable: dict[str, Any],
+    ctx: PipelineContext,
+    states: dict[str, dict],
+) -> dict[str, Any]:
+    """Use the authored editable payload directly as the runtime result."""
+    return dict(editable)
+
+
+def _coerce_override_stage1b(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept a replay payload and keep only authored stage-1b fields."""
+    causal_spec = payload.get("causal_spec")
+    if not isinstance(causal_spec, dict):
+        raise ValueError("Stage 1b replay requires a 'causal_spec' object")
+
+    editable = {"causal_spec": causal_spec}
+    if "llm_trace" in payload:
+        editable["llm_trace"] = payload.get("llm_trace")
+    if "outcome" in payload:
+        editable["outcome"] = payload.get("outcome")
+    if "fail_reason" in payload:
+        editable["fail_reason"] = payload.get("fail_reason")
+    return editable
+
+
+def _coerce_override_stage4(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept a replay payload and keep only authored stage-4 fields."""
+    from .stages.stage4_assembly import coerce_stage4_override_payload
+
+    return coerce_stage4_override_payload(payload)
+
+
+def _materialize_override_stage1b(
+    editable: dict[str, Any],
+    ctx: PipelineContext,
+    states: dict[str, dict],
+) -> dict[str, Any]:
+    """Materialize a stage-1b override via the same derived-field finalizer as normal runs."""
+    from . import dag
+
+    latent_model = ((states.get("stage-1a") or {}).get("result") or {}).get("latent_model")
+    return dag.finalize_stage1b_result(dict(editable), latent_model=latent_model)
+
+
+def _materialize_override_stage4(
+    editable: dict[str, Any],
+    ctx: PipelineContext,
+    states: dict[str, dict],
+) -> dict[str, Any]:
     """Prepare a stage-4 override via the same stage-owned finalizer as normal runs."""
     from .run_store import load_parquet
-    from .stages.stage4_assembly import coerce_stage4_override_payload, materialize_stage4_result
+    from .stages.stage4_assembly import materialize_stage4_result
 
     stage1b_result = states["stage-1b"]["result"]
     stage2_result = states["stage-2"]["result"]
     stage3_result = states["stage-3"]["result"]
-    authored = coerce_stage4_override_payload(payload)
+    authored = dict(editable)
     return materialize_stage4_result(
         model_spec=authored["model_spec"],
         authored_priors=authored["authored_priors"],
@@ -429,8 +503,6 @@ def _prepare_override_stage4(payload: dict, ctx: PipelineContext, states: dict) 
         causal_spec=stage1b_result["causal_spec"],
         llm_trace=authored.get("llm_trace"),
     )
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage registry
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -441,7 +513,7 @@ def _build_registry() -> dict[str, StageDefinition]:
     from dataclasses import replace
 
     from . import dag
-    from .stages.contracts import STAGE_CONTRACTS
+    from .stages.contracts import INTERACTIVE_STAGES, STAGE_CONTRACTS
 
     registry = {
         "stage-0": StageDefinition(
@@ -463,6 +535,10 @@ def _build_registry() -> dict[str, StageDefinition]:
             runner=dag.stage1a,
             question_required=True,
             override_eligible=True,
+            override_adapter=StageOverrideAdapter(
+                coerce_editable=_coerce_override_stage1a,
+                materialize=_materialize_override_identity,
+            ),
         ),
         "stage-1b": StageDefinition(
             stage_id="stage-1b",
@@ -472,6 +548,10 @@ def _build_registry() -> dict[str, StageDefinition]:
             runner=dag.stage1b,
             question_required=True,
             override_eligible=True,
+            override_adapter=StageOverrideAdapter(
+                coerce_editable=_coerce_override_stage1b,
+                materialize=_materialize_override_stage1b,
+            ),
         ),
         "stage-2": StageDefinition(
             stage_id="stage-2",
@@ -506,7 +586,10 @@ def _build_registry() -> dict[str, StageDefinition]:
             ),
             question_required=True,
             override_eligible=True,
-            prepare_override=_prepare_override_stage4,
+            override_adapter=StageOverrideAdapter(
+                coerce_editable=_coerce_override_stage4,
+                materialize=_materialize_override_stage4,
+            ),
         ),
         "stage-4b": StageDefinition(
             stage_id="stage-4b",
@@ -543,6 +626,14 @@ def _build_registry() -> dict[str, StageDefinition]:
             runner=dag.stage6,
         ),
     }
+
+    for stage_id in INTERACTIVE_STAGES:
+        defn = registry[stage_id]
+        if defn.override_eligible and defn.override_adapter is None:
+            raise ValueError(
+                f"Interactive stage {stage_id} must declare override materialization "
+                "via StageOverrideAdapter"
+            )
 
     # In production, offload stages 4 and 5b to Modal
     if os.environ.get("DEPLOYMENT_ENV") == "production":

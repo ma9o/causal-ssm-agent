@@ -290,6 +290,43 @@ def test_stage2_binding_uses_access_mode_for_free_window_limit():
     assert trial_inputs["max_windows"] == MAX_FREE_WINDOWS
 
 
+def test_interactive_overrideable_stages_declare_materialization_policy():
+    from causal_ssm_agent.flows.stages.contracts import INTERACTIVE_STAGES
+
+    registry = stage_registry.get_stage_registry()
+
+    for stage_id in INTERACTIVE_STAGES:
+        defn = registry[stage_id]
+        if not defn.override_eligible:
+            continue
+        assert defn.override_adapter is not None
+
+
+def test_run_stage_flow_rejects_override_without_materialization_policy():
+    contract = stage_registry.get_stage_registry()["stage-1a"].contract
+    defn = stage_registry.StageDefinition(
+        stage_id="stage-test",
+        depends_on=frozenset(),
+        contract=contract,
+        bind_inputs=lambda _ctx, _states: {},
+        runner=lambda: {"latent_model": _stage1a_latent_model()},
+        override_eligible=True,
+    )
+    ctx = stage_registry.PipelineContext(
+        workspace_id="workspace",
+        prefect_run_id="run",
+        question="why",
+        lit_enabled=True,
+        inference_method=None,
+        supported_overrides={"stage-test": {"latent_model": _stage1a_latent_model()}},
+        openrouter_api_key=None,
+        openrouter_access_mode=None,
+    )
+
+    with pytest.raises(ValueError, match="explicit materialization policy"):
+        asyncio.run(stage_registry.run_stage_flow(defn, ctx, {}))
+
+
 def test_pipeline_consumes_byok_secret_ref_once_and_threads_key(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
@@ -545,6 +582,91 @@ def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path)
     assert result["stage"]["outcome"] == "fail"
     assert result["stage"]["fail_reason"] == "data_validation_failed"
     assert not any(entry[0] == "stage4" for entry in calls)
+
+
+def test_pipeline_materializes_stage1b_override_before_stage6(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    _redirect_storage(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.config.get_config",
+        _stub_config,
+    )
+    monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
+
+    calls: list = []
+    _patch_common_stage_stubs(monkeypatch, calls)
+
+    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
+        calls.append(("stage1a", question))
+        return {"latent_model": _stage1a_latent_model("override_treatment", "override_outcome")}
+
+    async def stage4(
+        question: str,
+        stage1b: dict,
+        stage2: dict,
+        stage3: dict,
+        enable_literature: bool,
+        workspace_id: str,
+        root_run_id: str | None = None,
+    ) -> dict:
+        calls.append(("stage4", question, stage1b, stage2, stage3, enable_literature, workspace_id))
+        return {
+            "model_spec": {},
+            "priors": {},
+            "authored_priors": {},
+            "resolved_priors": [],
+            "causal_spec": stage1b["causal_spec"],
+            "_compiled_ssm": {},
+        }
+
+    monkeypatch.setattr(dag, "stage1a", stage1a)
+    monkeypatch.setattr(dag, "stage4", stage4)
+    _reset_stage_registry(monkeypatch)
+
+    override_payload = {
+        "causal_spec": {
+            "latent": _stage1a_latent_model("override_treatment", "override_outcome"),
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "stress_score",
+                        "construct_name": "override_treatment",
+                        "how_to_measure": "Measure override_treatment",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "construct_polarity": "positive",
+                    }
+                ],
+            },
+            "estimation": {
+                "state_order": ["override_treatment", "override_outcome"],
+                "edges": [
+                    {
+                        "cause": "override_treatment",
+                        "effect": "override_outcome",
+                        "description": "override_treatment affects override_outcome",
+                        "lagged": True,
+                    }
+                ],
+                "induced_dependencies": [],
+            },
+        }
+    }
+
+    result = asyncio.run(
+        pipeline.causal_inference_pipeline(
+            query="why is this happening?",
+            stage_overrides={"stage-1b": override_payload},
+        )
+    )
+
+    stage6_calls = [entry for entry in calls if entry[0] == "stage6"]
+    assert len(stage6_calls) == 1
+    materialized_stage1b = stage6_calls[0][2]
+    assert materialized_stage1b["_identified_treatments"] == ["override_treatment"]
+    assert materialized_stage1b["outcome"] == "success"
+    assert result == {"stage5b": True, "stage6": True}
 
 
 def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
@@ -1174,6 +1296,11 @@ def test_stage5a_uses_fit_metadata(monkeypatch):
 
     monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
     monkeypatch.setattr(
+        dag,
+        "_build_stage5a_svi_attempts",
+        lambda: [{"method": "svi", "guide_type": "mvn"}],
+    )
+    monkeypatch.setattr(
         "causal_ssm_agent.flows.stages.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": True,
@@ -1203,6 +1330,14 @@ def test_stage5a_failed_fit_returns_warn(monkeypatch):
 
     monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
     monkeypatch.setattr(
+        dag,
+        "_build_stage5a_svi_attempts",
+        lambda: [
+            {"method": "svi", "guide_type": "mvn"},
+            {"method": "svi", "guide_type": "normal"},
+        ],
+    )
+    monkeypatch.setattr(
         "causal_ssm_agent.flows.stages.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": False,
@@ -1219,9 +1354,66 @@ def test_stage5a_failed_fit_returns_warn(monkeypatch):
     assert result["inference_metadata"] == {
         "method": "svi",
         "n_samples": 0,
-        "duration_seconds": 1.25,
+        "duration_seconds": 2.5,
     }
     assert result["svi_diagnostics"] is None
+
+
+def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
+    data_for_model = pl.DataFrame(
+        {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
+    )
+
+    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
+    monkeypatch.setattr(
+        dag,
+        "_build_stage5a_svi_attempts",
+        lambda: [
+            {
+                "method": "svi",
+                "guide_type": "mvn",
+                "learning_rate": 0.003,
+            },
+            {
+                "method": "svi",
+                "guide_type": "normal",
+                "learning_rate": 0.001,
+            },
+        ],
+    )
+
+    calls: list[dict] = []
+
+    def _fit_model(_compiled, _data, sampler_config=None, **_kwargs):
+        calls.append(dict(sampler_config or {}))
+        if len(calls) == 1:
+            return {
+                "fitted": False,
+                "error": "SVI produced non-finite losses",
+                "duration_seconds": 1.25,
+            }
+        return {
+            "fitted": True,
+            "n_samples": 123,
+            "duration_seconds": 2.5,
+            "svi_diagnostics": {"elbo_losses": [2.0, 1.0]},
+            "posterior_marginals": [],
+            "posterior_pairs": [],
+        }
+
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.fit_model", _fit_model)
+
+    result = dag.stage5a(
+        {"model_spec": {}}, {"_data_for_model_path": "/tmp/stage2-model-data.parquet"}
+    )
+
+    assert [call["guide_type"] for call in calls] == ["mvn", "normal"]
+    assert result["outcome"] == "success"
+    assert result["inference_metadata"] == {
+        "method": "svi",
+        "n_samples": 123,
+        "duration_seconds": 3.75,
+    }
 
 
 def test_stage5b_uses_fit_metadata(monkeypatch):
