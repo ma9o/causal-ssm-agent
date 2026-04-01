@@ -1,28 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage5bData } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { withContainer } from "@/components/story-decorators";
+import { stage5bNutsda } from "@/components/__fixtures__/inference-data";
 import { EnergyChart } from "./energy-chart";
-import fixture from "../../../../../data/DOCTOLIB/run/stage-5b-nutsda.json";
-
-const data = fixture as Stage5bData;
 
 const meta = {
   title: "Charts/EnergyChart",
   component: EnergyChart,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-3xl mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer("max-w-3xl")],
 } satisfies Meta<typeof EnergyChart>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { energy: data.mcmc_diagnostics!.energy! },
+  args: { energy: stage5bNutsda.mcmc_diagnostics!.energy! },
 };

@@ -1,28 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage5bData } from "@causal-ssm/api-types";
-import { TooltipProvider } from "@/components/ui/tooltip";
+import { withContainer } from "@/components/story-decorators";
+import { stage5b } from "@/components/__fixtures__/inference-data";
 import { LOOPITChart } from "./loo-pit-chart";
-import fixture from "../../../../../data/DOCTOLIB/run/stage-5b.json";
-
-const data = fixture as Stage5bData;
 
 const meta = {
   title: "Charts/LOOPITChart",
   component: LOOPITChart,
-  decorators: [
-    (Story) => (
-      <TooltipProvider>
-        <div className="max-w-md mx-auto p-4">
-          <Story />
-        </div>
-      </TooltipProvider>
-    ),
-  ],
+  decorators: [withContainer("max-w-md")],
 } satisfies Meta<typeof LOOPITChart>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { loo: data.loo_diagnostics! },
+  args: { loo: stage5b.loo_diagnostics! },
 };
