@@ -18,6 +18,10 @@ export type Role = "endogenous" | "exogenous";
  */
 export type TemporalStatus = "time_varying" | "time_invariant";
 /**
+ * Direction of an indicator relative to its construct.
+ */
+export type IndicatorPolarity = "positive" | "negative";
+/**
  * Whether the measurement equation is point-local or interval-summary.
  */
 export type SupportKind = "point" | "interval";
@@ -60,7 +64,7 @@ export type ParameterRole =
 /**
  * Constraints on parameter values.
  */
-export type ParameterConstraint = "none" | "positive" | "unit_interval" | "correlation";
+export type ParameterConstraint = "none" | "positive" | "negative" | "unit_interval" | "correlation";
 /**
  * Distribution families allowed in Stage 4 prior proposals.
  */
@@ -268,6 +272,7 @@ export interface Indicator {
    * Instructions for workers on how to extract this from data
    */
   how_to_measure: string;
+  construct_polarity: IndicatorPolarity;
   /**
    * 'continuous', 'binary', 'count', 'ordinal', 'categorical'
    */
