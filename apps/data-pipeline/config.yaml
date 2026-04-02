@@ -9,7 +9,7 @@ stage0_ingestion:
 # Stage 1: Structure Proposal (Orchestrator)
 # The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
 stage1_structure_proposal:
-  model: openrouter/xiaomi/mimo-v2-pro
+  model: openrouter/openai/gpt-5.4
   sample_chunks: 10  # Number of chunks to show orchestrator
   chunk_size: 100    # Lines per chunk for orchestrator
   stage1a_max_tool_turns: 40
