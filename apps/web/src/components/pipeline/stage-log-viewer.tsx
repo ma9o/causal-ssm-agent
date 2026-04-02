@@ -3,10 +3,12 @@
 import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import type { PrefectSocketConnectionState } from "@/lib/hooks/use-prefect-socket";
 import { Terminal } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { QueryStatus } from "@tanstack/react-query";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { VirtualizedLogList } from "./virtualized-log-list";
+
+const MAX_DISPLAY_LOGS = 1_000;
 
 /** Presentational log view — no data-fetching, fully drivable from props. */
 export function StageLogView({
@@ -22,6 +24,12 @@ export function StageLogView({
 }) {
   const [open, setOpen] = useState(false);
   const isRunning = status === "running";
+
+  const displayLogs = useMemo(
+    () => (logs.length > MAX_DISPLAY_LOGS ? logs.slice(-MAX_DISPLAY_LOGS) : logs),
+    [logs],
+  );
+  const trimmed = logs.length - displayLogs.length;
 
   if (logs.length === 0 && !isRunning) return null;
 
@@ -49,11 +57,13 @@ export function StageLogView({
           <Terminal className="h-3.5 w-3.5" />
           Logs
           {logs.length > 0 && (
-            <span className="text-muted-foreground/50">({logs.length})</span>
+            <span className="text-muted-foreground/50">
+              ({logs.length}{trimmed > 0 ? `, showing last ${MAX_DISPLAY_LOGS}` : ""})
+            </span>
           )}
         </div>
         <VirtualizedLogList
-          logs={logs}
+          logs={displayLogs}
           emptyMessage={emptyMessage}
           autoScroll
           className="bg-muted/30 p-2"
@@ -73,12 +83,14 @@ export function StageLogView({
         <Terminal className="h-3.5 w-3.5" />
         {open ? "Hide" : "Show"} logs
         {logs.length > 0 && (
-          <span className="text-muted-foreground/50">({logs.length})</span>
+          <span className="text-muted-foreground/50">
+            ({logs.length}{trimmed > 0 ? `, showing last ${MAX_DISPLAY_LOGS}` : ""})
+          </span>
         )}
       </button>
       {open && (
         <VirtualizedLogList
-          logs={logs}
+          logs={displayLogs}
           emptyMessage={emptyMessage}
           autoScroll={false}
           className="mt-2 bg-muted/30 p-2"
