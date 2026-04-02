@@ -80,18 +80,21 @@ function IssueBadge({ summary }: { summary: ColumnIssueSummary | undefined }) {
   );
 }
 
-function rowIssueSummary(row: IndicatorAuditRow): ColumnIssueSummary {
+export function summarizeValidationIssues(validation: IndicatorValidation): ColumnIssueSummary {
   let count = 0;
   let hasError = false;
-  for (const field of STATUS_FIELDS) {
-    const status = rowStatus(row, field);
-    if (status === "warning") count++;
-    if (status === "error") {
-      count++;
+  for (const issue of validation.issues ?? []) {
+    if (issue.severity === "info") continue;
+    count++;
+    if (issue.severity === "error") {
       hasError = true;
     }
   }
   return { count, hasError };
+}
+
+function rowIssueSummary(row: IndicatorAuditRow): ColumnIssueSummary {
+  return summarizeValidationIssues(row.validation);
 }
 
 function buildRows(audits: Record<string, IndicatorAudit | undefined>): IndicatorAuditRow[] {
