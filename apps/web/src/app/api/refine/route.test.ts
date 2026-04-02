@@ -52,11 +52,13 @@ vi.mock("@openrouter/ai-sdk-provider", () => ({
 }));
 
 vi.mock("ai", () => ({
+  addToolInputExamplesMiddleware: vi.fn(() => "mock-middleware"),
   convertToModelMessages: vi.fn(async (messages) => messages),
   jsonSchema: vi.fn((schema) => schema),
   stepCountIs: vi.fn((count: number) => ({ type: "stepCountIs", count })),
   tool: vi.fn((definition) => definition),
   streamText: streamTextMock,
+  wrapLanguageModel: vi.fn(({ model }) => model),
 }));
 
 import { readData } from "@/lib/storage";
