@@ -274,13 +274,15 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
     """
     from prefect.artifacts import create_table_artifact
 
-    from .stages import validate_extraction
+    from .stages.stage3_validation import derive_validation_status, validate_extraction
 
     causal_spec = stage1b["causal_spec"]
     data_for_model = load_parquet(stage2["_data_for_model_path"])
 
     validation_task = validate_extraction(causal_spec, [data_for_model])
     audit_result = unwrap_task_result(validation_task)
+    outcome = "fail"
+    fail_reason: str | None = "data_validation_failed"
 
     if audit_result:
         indicator_issues = [
@@ -290,7 +292,12 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
         ]
         dataset_issues = audit_result.get("dataset_issues", [])
         all_issues = [*indicator_issues, *dataset_issues]
-        if not audit_result.get("is_valid", True):
+        status = derive_validation_status(all_issues)
+        audit_result = {**audit_result, "is_valid": status["is_valid"]}
+        outcome = status["outcome"]
+        fail_reason = status["fail_reason"]
+
+        if not status["is_valid"]:
             logger.warning("Stage 3 validation errors detected:")
             for issue in all_issues:
                 logger.warning(
@@ -333,18 +340,6 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
         "indicators": {},
         "dataset_issues": [],
     }
-    fail_reason: str | None = None
-    if not report.get("is_valid", True):
-        outcome = "fail"
-        fail_reason = "data_validation_failed"
-    elif any(
-        issue.get("severity") in ("warning", "error")
-        for audit in report.get("indicators", {}).values()
-        for issue in audit.get("validation", {}).get("issues", [])
-    ) or any(i.get("severity") in ("warning", "error") for i in report.get("dataset_issues", [])):
-        outcome = "warn"
-    else:
-        outcome = "success"
 
     return {**report, "outcome": outcome, "fail_reason": fail_reason}
 

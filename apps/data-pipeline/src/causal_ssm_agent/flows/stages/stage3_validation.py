@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 from prefect import task
@@ -174,6 +174,32 @@ def _issue_payload(issue: Issue) -> dict[str, str | None]:
         "issue_type": issue.issue_type,
         "severity": issue.severity,
         "message": issue.message,
+    }
+
+
+def derive_validation_status(
+    issues: list[dict[str, Any]],
+) -> dict[str, bool | Literal["success", "warn", "fail"] | str | None]:
+    """Derive Stage 3 validity and outcome directly from local issue severities."""
+    has_error = any(issue.get("severity") == "error" for issue in issues)
+    has_warning = any(issue.get("severity") == "warning" for issue in issues)
+
+    if has_error:
+        return {
+            "is_valid": False,
+            "outcome": "fail",
+            "fail_reason": "data_validation_failed",
+        }
+    if has_warning:
+        return {
+            "is_valid": True,
+            "outcome": "warn",
+            "fail_reason": None,
+        }
+    return {
+        "is_valid": True,
+        "outcome": "success",
+        "fail_reason": None,
     }
 
 
@@ -1010,11 +1036,10 @@ def validate_extraction(
     )
 
     all_issues = [*indicator_issues, *dataset_issues]
-    errors = [i for i in all_issues if i["severity"] == "error"]
-    is_valid = len(errors) == 0
+    status = derive_validation_status(all_issues)
 
     return {
-        "is_valid": is_valid,
+        "is_valid": status["is_valid"],
         "indicators": indicator_audits,
         "dataset_issues": dataset_issues,
     }
