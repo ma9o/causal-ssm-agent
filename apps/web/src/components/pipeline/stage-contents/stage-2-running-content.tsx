@@ -1,25 +1,22 @@
 "use client";
 
 import type { AnalysisStageRun } from "@/lib/api/analysis";
+import { useStage2State } from "@/lib/hooks/use-stage2-state";
 import { cn } from "@/lib/utils";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import {
-  type Stage2Worker,
-  useStage2Workers,
-} from "@/lib/hooks/use-stage2-workers";
 import { CheckCircle2, Gauge, Loader2, XCircle } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import type { Stage2WorkerRecord } from "@/lib/stage2-runtime";
 
 const MAX_RPM = 450;
 
-function WorkerGrid({ workers }: { workers: Stage2Worker[] }) {
+function WorkerGrid({ workers }: { workers: Stage2WorkerRecord[] }) {
   if (workers.length === 0) return null;
 
   return (
     <div className="flex flex-wrap gap-[3px]">
       {workers.map((w) => (
         <div
-          key={w.id}
+          key={w.worker_id}
           className={cn(
             "h-2.5 w-2.5 rounded-[2px] transition-colors duration-300",
             w.state === "completed" && "bg-emerald-500",
@@ -27,38 +24,14 @@ function WorkerGrid({ workers }: { workers: Stage2Worker[] }) {
             w.state === "running" && "bg-primary animate-pulse",
             w.state === "pending" && "bg-muted-foreground/20",
           )}
-          title={`${w.name}: ${w.state}`}
+          title={`extract-chunk-${w.worker_id}: ${w.state}`}
         />
       ))}
     </div>
   );
 }
-
-function useRpm(workers: Stage2Worker[]): number {
-  // Periodic tick so the 60s window slides even when no new workers complete
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 5_000);
-    return () => clearInterval(id);
-  }, []);
-
-  return useMemo(() => {
-    const now = Date.now();
-    const windowMs = 60_000;
-    let totalCalls = 0;
-    for (const w of workers) {
-      if (w.completedAt && now - w.completedAt < windowMs && w.nLlmCalls) {
-        totalCalls += w.nLlmCalls;
-      }
-    }
-    // Rolling 60s count = RPM (matches OpenRouter's sliding window)
-    return totalCalls;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workers, tick]);
-}
-
-function RpmGauge({ rpm }: { rpm: number }) {
-  const pct = Math.min(100, (rpm / MAX_RPM) * 100);
+function RpmGauge({ rpm, maxRpm = MAX_RPM }: { rpm: number; maxRpm?: number }) {
+  const pct = Math.min(100, (rpm / maxRpm) * 100);
   const isHigh = pct > 80;
   const isMed = pct > 50;
 
@@ -79,7 +52,7 @@ function RpmGauge({ rpm }: { rpm: number }) {
           "tabular-nums",
           isHigh ? "text-red-500" : "text-muted-foreground",
         )}>
-          {rpm}/{MAX_RPM} rpm
+          {rpm}/{maxRpm} rpm
         </span>
       </div>
     </div>
@@ -89,15 +62,22 @@ function RpmGauge({ rpm }: { rpm: number }) {
 /** Presentational component — no hooks, pure props. Used by stories too. */
 export function Stage2RunningView({
   workers,
+  failed,
+  maxRpm = MAX_RPM,
+  running,
   rpm = 0,
+  total,
 }: {
-  workers: Stage2Worker[];
+  workers: Stage2WorkerRecord[];
+  failed?: number;
+  maxRpm?: number;
+  running?: number;
   rpm?: number;
+  total: number;
 }) {
-  const total = workers.length;
   const completed = workers.filter((w) => w.state === "completed").length;
-  const failed = workers.filter((w) => w.state === "failed").length;
-  const running = workers.filter((w) => w.state === "running").length;
+  const failedCount = failed ?? workers.filter((w) => w.state === "failed").length;
+  const runningCount = running ?? workers.filter((w) => w.state === "running").length;
 
   return (
     <div className="space-y-4">
@@ -111,16 +91,16 @@ export function Stage2RunningView({
                 <span className="text-muted-foreground font-normal">/</span>
                 {total} done
               </span>
-              {failed > 0 && (
+              {failedCount > 0 && (
                 <span className="flex items-center gap-1 text-destructive">
                   <XCircle className="h-3.5 w-3.5" />
-                  {failed} failed
+                  {failedCount} failed
                 </span>
               )}
-              {running > 0 && (
+              {runningCount > 0 && (
                 <span className="flex items-center gap-1 text-muted-foreground">
                   <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                  {running} running
+                  {runningCount} running
                 </span>
               )}
             </>
@@ -132,7 +112,7 @@ export function Stage2RunningView({
           )}
         </div>
 
-        {rpm > 0 && <RpmGauge rpm={rpm} />}
+        {rpm > 0 && <RpmGauge rpm={rpm} maxRpm={maxRpm} />}
       </div>
 
       <WorkerGrid workers={workers} />
@@ -149,8 +129,20 @@ export default function Stage2RunningContent({
   stageStatus: StageRunStatus;
   stageRun?: AnalysisStageRun | null;
 }) {
-  const { workers } = useStage2Workers(workspaceId, stageRun, stageStatus);
-  const rpm = useRpm(workers);
+  const { workers, summary, rpm, maxRpm } = useStage2State(
+    workspaceId,
+    stageStatus,
+    stageRun?.ownerRootFlowRunId ?? null,
+  );
 
-  return <Stage2RunningView workers={workers} rpm={rpm} />;
+  return (
+    <Stage2RunningView
+      workers={workers}
+      total={summary.total}
+      failed={summary.failed}
+      running={summary.running}
+      rpm={rpm}
+      maxRpm={maxRpm}
+    />
+  );
 }

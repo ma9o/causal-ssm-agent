@@ -771,7 +771,7 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
 
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", fake_create_table_artifact)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.validate_extraction",
+        "causal_ssm_agent.flows.stages.stage3_validation.validate_extraction",
         lambda *_args, **_kwargs: {
             "is_valid": True,
             "indicators": {
@@ -815,6 +815,62 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
             "message": "Outlier detected",
         }
     ]
+
+
+def test_stage3_normalizes_global_status_from_local_issue_severity(monkeypatch, tmp_path):
+    model_path = tmp_path / "stage2-model-data.parquet"
+    data_for_model = pl.DataFrame(
+        {
+            "indicator": ["stress_score"],
+            "value": ["1.0"],
+            "anchor_time": ["2024-01-01"],
+        }
+    )
+    data_for_model.write_parquet(model_path)
+
+    async def fake_create_table_artifact(**_kwargs):
+        return None
+
+    monkeypatch.setattr("prefect.artifacts.create_table_artifact", fake_create_table_artifact)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage3_validation.validate_extraction",
+        lambda *_args, **_kwargs: {
+            "is_valid": False,
+            "indicators": {
+                "stress_score": {
+                    "validation": {
+                        "issues": [
+                            {
+                                "indicator": "stress_score",
+                                "issue_type": "low_n",
+                                "severity": "warning",
+                                "message": "Only 1 observation remains.",
+                            }
+                        ],
+                        "checks": {},
+                    }
+                }
+            },
+            "dataset_issues": [],
+        },
+    )
+
+    result = asyncio.run(
+        dag.stage3(
+            {
+                "causal_spec": {
+                    "measurement": {"model_clock": "1d", "indicators": [{"name": "stress_score"}]}
+                }
+            },
+            {
+                "_data_for_model_path": str(model_path),
+            },
+        )
+    )
+
+    assert result["is_valid"] is True
+    assert result["outcome"] == "warn"
+    assert result["fail_reason"] is None
 
 
 def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):

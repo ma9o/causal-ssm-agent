@@ -9,6 +9,13 @@ import {
 import { dedupeRootFlowRunIds, getLatestRootFlowRunId } from "@/lib/root-flow-runs";
 import { getPrefectEventsUrl } from "@/lib/runtime-urls";
 import {
+  applyStage2Event,
+  getStage2StateQueryKey,
+  getStage2StateQueryKeyPrefix,
+  parseStage2Event,
+  type Stage2ReplayState,
+} from "@/lib/stage2-runtime";
+import {
   applyStage4Event,
   getStage4StateQueryKey,
   getStage4StateQueryKeyPrefix,
@@ -35,11 +42,6 @@ import {
   type PipelineProgress,
   type StageRunStatus,
 } from "./pipeline-progress";
-import {
-  getStage2WorkerQueryKey,
-  getStage2WorkerQueryKeyPrefix,
-  type Stage2Worker,
-} from "./use-stage2-workers";
 import { usePrefectSocketSubscription } from "./use-prefect-socket";
 
 export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-progress";
@@ -47,7 +49,6 @@ export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-p
 const EVENT_LOOKBACK_MS = 60_000;
 const EVENT_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
 const CAUSAL_SSM_EVENT_PREFIX = "causal-ssm.";
-const WORKER_EVENT_PREFIX = "causal-ssm.worker.";
 
 interface PrefectEventSocketMessage {
   type?: string;
@@ -136,62 +137,6 @@ export function parsePrefectStageProgressEvent(
     stageSubflowRunId,
     logFlowRunIds: explicitLogFlowRunIds.length > 0 ? explicitLogFlowRunIds : undefined,
   };
-}
-
-export interface WorkerProgressEvent {
-  workerId: number;
-  status: "submitted" | "completed" | "failed";
-  nWindows: number;
-  totalWorkers: number;
-  completedCount: number;
-  nExtractions?: number;
-  nLlmCalls?: number;
-  error?: string;
-  occurredAt?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Stage 2 worker events
-// ---------------------------------------------------------------------------
-
-export function parseWorkerProgressEvent(
-  event: PrefectEventSocketMessage["event"],
-): WorkerProgressEvent | null {
-  if (!event?.event?.startsWith(WORKER_EVENT_PREFIX)) return null;
-  const p = event.payload;
-  if (!p || typeof p.worker_id !== "number") return null;
-  const status = p.status;
-  if (status !== "submitted" && status !== "completed" && status !== "failed") return null;
-  return {
-    workerId: p.worker_id as number,
-    status,
-    nWindows: (p.n_windows as number) ?? 0,
-    totalWorkers: (p.total_workers as number) ?? 0,
-    completedCount: (p.completed_count as number) ?? 0,
-    nExtractions: typeof p.n_extractions === "number" ? p.n_extractions : undefined,
-    nLlmCalls: typeof p.n_llm_calls === "number" ? p.n_llm_calls : undefined,
-    error: typeof p.error === "string" ? p.error : undefined,
-    occurredAt: event?.occurred ? new Date(event.occurred).getTime() : undefined,
-  };
-}
-
-function applyWorkerEvent(workers: Stage2Worker[], event: WorkerProgressEvent): Stage2Worker[] {
-  const id = `worker-${event.workerId}`;
-  const name = `extract-chunk-${event.workerId}`;
-  const state: Stage2Worker["state"] = event.status === "submitted" ? "running" : event.status;
-  const completedAt = event.status !== "submitted" ? (event.occurredAt ?? Date.now()) : undefined;
-
-  const existing = workers.find((w) => w.id === id);
-  if (existing) {
-    // Don't regress: if already completed/failed, ignore submitted
-    if (event.status === "submitted" && existing.state !== "pending") {
-      return workers;
-    }
-    return workers.map((w) =>
-      w.id === id ? { ...w, state, nLlmCalls: event.nLlmCalls, completedAt } : w,
-    );
-  }
-  return [...workers, { id, name, state, nLlmCalls: event.nLlmCalls, completedAt }];
 }
 
 function invalidateStageData(
@@ -298,11 +243,11 @@ export function useRunEvents(
         return;
       }
 
-      const workerEvent = parseWorkerProgressEvent(message.event);
-      if (workerEvent) {
-        queryClient.setQueryData<Stage2Worker[]>(
-          getStage2WorkerQueryKey(workspaceId, activeRootFlowRunId),
-          (old) => applyWorkerEvent(old ?? [], workerEvent),
+      const stage2Event = parseStage2Event(message.event);
+      if (stage2Event) {
+        queryClient.setQueryData<Stage2ReplayState>(
+          getStage2StateQueryKey(workspaceId, activeRootFlowRunId),
+          (old) => applyStage2Event(old, stage2Event),
         );
         return;
       }
@@ -354,7 +299,7 @@ export function useRunEvents(
     // Initialize progress, then hydrate from Prefect to catch up on
     // stages that completed before this page loaded (session resumption).
     queryClient.setQueryData(getPipelineStatusQueryKey(workspaceId), initialProgress());
-    queryClient.removeQueries({ queryKey: getStage2WorkerQueryKeyPrefix(workspaceId) });
+    queryClient.removeQueries({ queryKey: getStage2StateQueryKeyPrefix(workspaceId) });
     queryClient.removeQueries({ queryKey: getStage4StateQueryKeyPrefix(workspaceId) });
   }, [queryClient, rootFlowRunIds, workspaceId]);
 

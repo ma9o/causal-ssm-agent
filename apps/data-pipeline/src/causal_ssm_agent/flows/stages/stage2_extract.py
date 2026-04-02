@@ -9,60 +9,137 @@ merged output into canonical observation rows with ``anchor_time``,
 ``support_start``, and ``support_end``.
 """
 
+import threading
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 
 import polars as pl
 from prefect import flow, get_run_logger, task
-from prefect.events import emit_event
 from prefect.futures import as_completed
 
 from .. import get_prefect_logger
-from ..runtime_events import emit_nested_stage_running_event
+from ..runtime_events import (
+    emit_nested_stage_running_event,
+    emit_stage2_plan_event,
+    emit_stage2_snapshot_event,
+    emit_stage2_worker_event,
+)
 
 logger = get_prefect_logger(__name__)
 
-WORKER_EVENT_PREFIX = "causal-ssm.worker"
 MAX_FREE_WINDOWS = 100
 SemanticChunkRunner = Callable[..., Awaitable[tuple[list[dict], list[dict], int, dict | None]]]
+_TERMINAL_STAGE2_WORKER_STATES = {"completed", "failed"}
 
 
-def _emit_worker_event(
+@dataclass
+class _Stage2ProgressTracker:
+    total_workers: int
+    pending_workers: int
+    running_workers: int = 0
+    completed_workers: int = 0
+    failed_workers: int = 0
+    worker_states: dict[int, str] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    @classmethod
+    def create(cls, total_workers: int) -> "_Stage2ProgressTracker":
+        return cls(
+            total_workers=total_workers,
+            pending_workers=total_workers,
+            worker_states=dict.fromkeys(range(total_workers), "pending"),
+        )
+
+    def mark_running(self, worker_id: int) -> dict[str, int]:
+        return self._transition(worker_id, "running")
+
+    def mark_terminal(self, worker_id: int, state: str) -> dict[str, int]:
+        return self._transition(worker_id, state)
+
+    def snapshot(self) -> dict[str, int]:
+        with self._lock:
+            return self._snapshot_unlocked()
+
+    def _snapshot_unlocked(self) -> dict[str, int]:
+        return {
+            "total_workers": self.total_workers,
+            "pending_workers": self.pending_workers,
+            "running_workers": self.running_workers,
+            "completed_workers": self.completed_workers,
+            "failed_workers": self.failed_workers,
+        }
+
+    def _transition(self, worker_id: int, next_state: str) -> dict[str, int]:
+        with self._lock:
+            current_state = self.worker_states.get(worker_id, "pending")
+            if current_state == next_state:
+                return self._snapshot_unlocked()
+            if current_state in _TERMINAL_STAGE2_WORKER_STATES:
+                return self._snapshot_unlocked()
+
+            self._decrement_state_unlocked(current_state)
+            self._increment_state_unlocked(next_state)
+            self.worker_states[worker_id] = next_state
+            return self._snapshot_unlocked()
+
+    def _decrement_state_unlocked(self, state: str) -> None:
+        if state == "pending":
+            self.pending_workers -= 1
+        elif state == "running":
+            self.running_workers -= 1
+        elif state == "completed":
+            self.completed_workers -= 1
+        elif state == "failed":
+            self.failed_workers -= 1
+
+    def _increment_state_unlocked(self, state: str) -> None:
+        if state == "pending":
+            self.pending_workers += 1
+        elif state == "running":
+            self.running_workers += 1
+        elif state == "completed":
+            self.completed_workers += 1
+        elif state == "failed":
+            self.failed_workers += 1
+
+
+_stage2_progress_trackers: dict[str, _Stage2ProgressTracker] = {}
+_stage2_progress_trackers_lock = threading.Lock()
+
+
+def _register_stage2_progress_tracker(
     root_run_id: str,
     *,
-    worker_id: int,
-    status: str,
     total_workers: int,
-    completed_count: int,
-    n_windows: int,
-    n_extractions: int | None = None,
-    n_llm_calls: int | None = None,
-    error: str | None = None,
-) -> None:
-    """Emit a worker progress event on the root flow run resource."""
-    payload: dict[str, Any] = {
-        "stage_id": "stage-2",
-        "worker_id": worker_id,
-        "status": status,
-        "n_windows": n_windows,
-        "total_workers": total_workers,
-        "completed_count": completed_count,
-    }
-    if n_extractions is not None:
-        payload["n_extractions"] = n_extractions
-    if n_llm_calls is not None:
-        payload["n_llm_calls"] = n_llm_calls
-    if error is not None:
-        payload["error"] = error
-    emit_event(
-        event=f"{WORKER_EVENT_PREFIX}.{status}",
-        resource={
-            "prefect.resource.id": f"prefect.flow-run.{root_run_id}",
-            "prefect.resource.name": root_run_id,
+) -> _Stage2ProgressTracker:
+    tracker = _Stage2ProgressTracker.create(total_workers)
+    with _stage2_progress_trackers_lock:
+        _stage2_progress_trackers[root_run_id] = tracker
+    return tracker
+
+
+def _get_stage2_progress_tracker(root_run_id: str) -> _Stage2ProgressTracker | None:
+    with _stage2_progress_trackers_lock:
+        return _stage2_progress_trackers.get(root_run_id)
+
+
+def _clear_stage2_progress_tracker(root_run_id: str) -> None:
+    with _stage2_progress_trackers_lock:
+        _stage2_progress_trackers.pop(root_run_id, None)
+
+
+def _emit_stage2_snapshot(root_run_id: str, snapshot: dict[str, int]) -> None:
+    from causal_ssm_agent.utils.openrouter_client import get_limiter_request_count
+
+    emit_stage2_snapshot_event(
+        root_run_id,
+        snapshot={
+            **snapshot,
+            "llm_requests_last_60s": get_limiter_request_count("llm"),
         },
-        payload=payload,
     )
 
 
@@ -182,15 +259,16 @@ def _collect_batch_results(
                 "error": str(exc),
             }
             if root_run_id:
-                _emit_worker_event(
+                emit_stage2_worker_event(
                     root_run_id,
                     worker_id=worker_id,
-                    status="failed",
-                    total_workers=total_chunks,
-                    completed_count=overall_completed,
+                    state="failed",
                     n_windows=n_windows,
                     error=str(exc),
                 )
+                tracker = _get_stage2_progress_tracker(root_run_id)
+                if tracker is not None:
+                    _emit_stage2_snapshot(root_run_id, tracker.mark_terminal(worker_id, "failed"))
             continue
 
         n_ext = result.get("n_extractions", 0)
@@ -226,16 +304,17 @@ def _collect_batch_results(
             len(output_rows),
         )
         if root_run_id:
-            _emit_worker_event(
+            emit_stage2_worker_event(
                 root_run_id,
                 worker_id=worker_id,
-                status="completed",
-                total_workers=total_chunks,
-                completed_count=overall_completed,
+                state="completed",
                 n_windows=n_windows,
                 n_extractions=n_ext,
                 n_llm_calls=worker_llm_calls or None,
             )
+            tracker = _get_stage2_progress_tracker(root_run_id)
+            if tracker is not None:
+                _emit_stage2_snapshot(root_run_id, tracker.mark_terminal(worker_id, "completed"))
 
     ordered_rows = [row for worker_id in batch_indices for row in rows_by_worker.get(worker_id, [])]
     ordered_statuses = [
@@ -347,24 +426,27 @@ async def _run_semantic_chunks_prefect(
         set_limiter("llm", RpmLimiter(max_rpm))
 
     try:
+        if root_run_id:
+            emit_stage2_plan_event(
+                root_run_id,
+                total_workers=len(chunk_texts),
+                max_concurrent_workers=max_concurrent_workers,
+                max_rpm=max_rpm,
+            )
+            tracker = _register_stage2_progress_tracker(
+                root_run_id,
+                total_workers=len(chunk_texts),
+            )
+            _emit_stage2_snapshot(root_run_id, tracker.snapshot())
         results = extract_window_chunk_task.map(
             chunk_texts,
             window_starts=chunk_window_starts,
             chunk_idx=all_indices,
             question=unmapped(question),
             causal_spec=chunk_contexts,
+            root_run_id=unmapped(root_run_id),
             openrouter_api_key=unmapped(openrouter_api_key),
         )
-        if root_run_id:
-            for idx, n_w in zip(all_indices, all_n_windows, strict=True):
-                _emit_worker_event(
-                    root_run_id,
-                    worker_id=idx,
-                    status="submitted",
-                    total_workers=len(chunk_texts),
-                    completed_count=0,
-                    n_windows=n_w,
-                )
         return _collect_batch_results(
             futures=results,
             batch_indices=all_indices,
@@ -375,6 +457,8 @@ async def _run_semantic_chunks_prefect(
             root_run_id=root_run_id,
         )
     finally:
+        if root_run_id:
+            _clear_stage2_progress_tracker(root_run_id)
         set_limiter("llm", None)
 
 
@@ -553,6 +637,7 @@ async def extract_window_chunk_task(
     chunk_idx: int,
     question: str,
     causal_spec: dict,
+    root_run_id: str | None = None,
     openrouter_api_key: str | None = None,
 ) -> dict:
     """Extract indicator values from a chunk of support windows.
@@ -600,6 +685,16 @@ async def extract_window_chunk_task(
         generate_config.max_tokens,
         generate_config.reasoning_effort,
     )
+    if root_run_id:
+        emit_stage2_worker_event(
+            root_run_id,
+            worker_id=chunk_idx,
+            state="running",
+            n_windows=len(window_starts),
+        )
+        tracker = _get_stage2_progress_tracker(root_run_id)
+        if tracker is not None:
+            _emit_stage2_snapshot(root_run_id, tracker.mark_running(chunk_idx))
 
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext(f"stage-2/chunk-{chunk_idx}") as ctx:

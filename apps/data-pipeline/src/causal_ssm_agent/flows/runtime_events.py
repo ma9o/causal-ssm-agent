@@ -8,6 +8,7 @@ from prefect.context import get_run_context
 from prefect.events import emit_event
 
 STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage"
+STAGE2_EVENT_PREFIX = "causal-ssm.stage2"
 
 
 def _normalize_log_flow_run_ids(
@@ -100,6 +101,81 @@ def emit_nested_stage_running_event(
     return stage_subflow_run_id
 
 
+def emit_stage2_plan_event(
+    resource_run_id: str,
+    *,
+    total_workers: int,
+    max_concurrent_workers: int | None,
+    max_rpm: int | None,
+) -> None:
+    """Emit the static Stage 2 execution plan for replay/bootstrap."""
+    emit_event(
+        event=f"{STAGE2_EVENT_PREFIX}.plan",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
+            "prefect.resource.name": resource_run_id,
+        },
+        payload={
+            "stage_id": "stage-2",
+            "type": "plan",
+            "total_workers": total_workers,
+            "max_concurrent_workers": max_concurrent_workers,
+            "max_rpm": max_rpm,
+        },
+    )
+
+
+def emit_stage2_worker_event(
+    resource_run_id: str,
+    *,
+    worker_id: int,
+    state: str,
+    n_windows: int,
+    n_extractions: int | None = None,
+    n_llm_calls: int | None = None,
+    error: str | None = None,
+) -> None:
+    """Emit a Stage 2 worker state transition on the root flow run resource."""
+    payload: dict[str, Any] = {
+        "stage_id": "stage-2",
+        "type": "worker",
+        "worker_id": worker_id,
+        "state": state,
+        "n_windows": n_windows,
+    }
+    if n_extractions is not None:
+        payload["n_extractions"] = n_extractions
+    if n_llm_calls is not None:
+        payload["n_llm_calls"] = n_llm_calls
+    if error is not None:
+        payload["error"] = error
+
+    emit_event(
+        event=f"{STAGE2_EVENT_PREFIX}.worker",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
+            "prefect.resource.name": resource_run_id,
+        },
+        payload=payload,
+    )
+
+
+def emit_stage2_snapshot_event(
+    resource_run_id: str,
+    *,
+    snapshot: dict[str, Any],
+) -> None:
+    """Emit a Stage 2 runtime snapshot as a Prefect custom event."""
+    emit_event(
+        event=f"{STAGE2_EVENT_PREFIX}.snapshot",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
+            "prefect.resource.name": resource_run_id,
+        },
+        payload={"stage_id": "stage-2", "type": "snapshot", **snapshot},
+    )
+
+
 STAGE4_EVENT_PREFIX = "causal-ssm.stage4"
 
 
@@ -136,9 +212,13 @@ def emit_stage4_snapshot_event(
 
 
 __all__ = [
+    "STAGE2_EVENT_PREFIX",
     "STAGE4_EVENT_PREFIX",
     "STAGE_PROGRESS_EVENT_PREFIX",
     "emit_nested_stage_running_event",
+    "emit_stage2_plan_event",
+    "emit_stage2_snapshot_event",
+    "emit_stage2_worker_event",
     "emit_stage4_graph_event",
     "emit_stage4_snapshot_event",
     "emit_stage_progress_event",
