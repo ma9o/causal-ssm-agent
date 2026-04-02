@@ -59,6 +59,34 @@ StageId = Literal[
 # ---------------------------------------------------------------------------
 
 
+def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
+    """Recursively inline all ``$ref`` pointers using ``$defs``, then drop ``$defs``.
+
+    LLM tool-use APIs handle flat, self-contained schemas far more reliably
+    than schemas with JSON Schema ``$ref`` pointers.  Pydantic's
+    ``model_json_schema()`` produces ``$defs`` + ``$ref`` for any nested
+    BaseModel, so we resolve them here before handing schemas to codegen or
+    the refinement proxy.
+    """
+    defs = schema.get("$defs", {})
+    if not defs:
+        return schema
+
+    def _resolve(node: Any) -> Any:
+        if isinstance(node, list):
+            return [_resolve(item) for item in node]
+        if not isinstance(node, dict):
+            return node
+        if "$ref" in node:
+            ref_path = node["$ref"]  # e.g. "#/$defs/FooInput"
+            ref_name = ref_path.rsplit("/", 1)[-1]
+            resolved = defs.get(ref_name, node)
+            return _resolve(dict(resolved))  # resolve nested refs too
+        return {k: _resolve(v) for k, v in node.items() if k != "$defs"}
+
+    return _resolve(schema)
+
+
 @dataclass(frozen=True)
 class ToolContract:
     """Declarative tool definition shared between pipeline, codegen, and refinement proxy.
@@ -74,10 +102,15 @@ class ToolContract:
     output_schema: type[BaseModel] | None = None
 
     def parameters_json_schema(self) -> dict[str, Any]:
-        """Generate JSON Schema for the tool's input parameters."""
+        """Generate JSON Schema for the tool's input parameters.
+
+        Inlines all ``$ref`` / ``$defs`` so the schema is self-contained.
+        LLM tool-use APIs (Anthropic, OpenAI) handle flat schemas much more
+        reliably than schemas with ``$ref`` pointers.
+        """
         schema = self.input_schema.model_json_schema()
         schema["additionalProperties"] = False
-        return schema
+        return _inline_refs(schema)
 
     def result_json_schema(self) -> dict[str, Any] | None:
         """Generate JSON Schema for the tool's result payload."""
@@ -86,7 +119,7 @@ class ToolContract:
         schema = self.output_schema.model_json_schema(mode="serialization")
         if schema.get("type") == "object":
             schema["additionalProperties"] = False
-        return schema
+        return _inline_refs(schema)
 
 
 # --- Stage 0 tool inputs ---
