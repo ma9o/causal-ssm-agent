@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyRefinement,
   getAnalysisManifest,
+  getStage2ReplayState,
   getStage4ReplayState,
   replayStageOverride,
 } from "./analysis";
@@ -53,6 +54,21 @@ describe("analysis api helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/analysis/user-1/stage4-state?rootFlowRunId=root-123",
+      expect.any(Object),
+    );
+  });
+
+  it("fetches the Stage 2 replay state for a specific root flow run", async () => {
+    const payload = { plan: null, snapshot: null, workers: {} };
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(payload),
+    } as Response);
+
+    await getStage2ReplayState("user-1", "root-456");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/analysis/user-1/stage2-state?rootFlowRunId=root-456",
       expect.any(Object),
     );
   });

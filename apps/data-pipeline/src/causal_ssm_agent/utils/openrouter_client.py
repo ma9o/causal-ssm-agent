@@ -57,6 +57,13 @@ class RpmLimiter:
         while self._timestamps and self._timestamps[0] <= now - self._window:
             self._timestamps.popleft()
 
+    def request_count(self) -> int:
+        """Return the current rolling-window request count."""
+        with self._lock:
+            now = monotonic()
+            self._purge(now)
+            return len(self._timestamps)
+
     async def acquire(self) -> None:
         """Wait until a request slot is available within the window."""
         while True:
@@ -97,6 +104,14 @@ async def acquire_limiter(name: str) -> None:
     limiter = _limiters.get(name)
     if limiter is not None:
         await limiter.acquire()
+
+
+def get_limiter_request_count(name: str) -> int:
+    """Return the current rolling-window request count for a limiter."""
+    limiter = _limiters.get(name)
+    if limiter is None:
+        return 0
+    return limiter.request_count()
 
 
 def get_openrouter_api_key() -> str | None:

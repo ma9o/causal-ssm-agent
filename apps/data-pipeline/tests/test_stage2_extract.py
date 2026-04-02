@@ -186,6 +186,106 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     assert "reasoning_effort=medium" in caplog.text
 
 
+def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_events(monkeypatch):
+    import causal_ssm_agent.utils.causal_spec as causal_spec_mod
+    import causal_ssm_agent.utils.config as config_mod
+    import causal_ssm_agent.utils.llm as llm_mod
+    import causal_ssm_agent.workers.core as worker_core
+
+    worker_events: list[dict[str, object]] = []
+    snapshot_events: list[dict[str, object]] = []
+
+    monkeypatch.setattr(stage2_extract, "get_run_logger", lambda: logging.getLogger("stage2-events"))
+    monkeypatch.setattr(
+        config_mod,
+        "get_config",
+        lambda: SimpleNamespace(
+            stage2_workers=SimpleNamespace(model="mock-stage2-model", max_tool_turns=40)
+        ),
+    )
+    monkeypatch.setattr(
+        causal_spec_mod,
+        "get_indicators",
+        lambda _causal_spec: [{"name": "indicator_a"}],
+    )
+    monkeypatch.setattr(
+        llm_mod,
+        "get_generate_config",
+        lambda: SimpleNamespace(
+            max_tokens=4096,
+            reasoning_effort="medium",
+            timeout=None,
+            max_tool_output=None,
+        ),
+    )
+    monkeypatch.setattr(llm_mod, "make_generate_fn", lambda *_args, **_kwargs: "mock-generate")
+
+    async def fake_run_worker_extraction(**_kwargs):
+        return SimpleNamespace(
+            output=SimpleNamespace(extractions=[]),
+            dataframe=pl.DataFrame([]),
+        )
+
+    monkeypatch.setattr(worker_core, "run_worker_extraction", fake_run_worker_extraction)
+    monkeypatch.setattr(
+        stage2_extract,
+        "emit_stage2_worker_event",
+        lambda resource_run_id, **payload: worker_events.append(
+            {"resource_run_id": resource_run_id, **payload}
+        ),
+    )
+    monkeypatch.setattr(
+        stage2_extract,
+        "_get_stage2_progress_tracker",
+        lambda _root_run_id: SimpleNamespace(
+            mark_running=lambda _worker_id: {
+                "total_workers": 8,
+                "pending_workers": 7,
+                "running_workers": 1,
+                "completed_workers": 0,
+                "failed_workers": 0,
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        stage2_extract,
+        "_emit_stage2_snapshot",
+        lambda resource_run_id, snapshot: snapshot_events.append(
+            {"resource_run_id": resource_run_id, **snapshot}
+        ),
+    )
+
+    _run(
+        stage2_extract.extract_window_chunk_task.fn(
+            window_text="## Window Start: 2024-01-01",
+            window_starts=["2024-01-01"],
+            chunk_idx=7,
+            question="Q",
+            causal_spec={"measurement": {"model_clock": "1d", "indicators": []}},
+            root_run_id="root-123",
+        )
+    )
+
+    assert worker_events == [
+        {
+            "resource_run_id": "root-123",
+            "worker_id": 7,
+            "state": "running",
+            "n_windows": 1,
+        }
+    ]
+    assert snapshot_events == [
+        {
+            "resource_run_id": "root-123",
+            "total_workers": 8,
+            "pending_workers": 7,
+            "running_workers": 1,
+            "completed_workers": 0,
+            "failed_workers": 0,
+        }
+    ]
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # _project_to_source_columns tests
 # ══════════════════════════════════════════════════════════════════════════════
@@ -302,6 +402,116 @@ def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
     ]
     assert captured_runner["chunk_texts"] == ["chunk:1d-window", "chunk:1mo-window"]
     assert result["observation_rows"] == []
+
+
+def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_events(monkeypatch):
+    plan_events: list[dict[str, object]] = []
+    worker_events: list[dict[str, object]] = []
+    snapshot_events: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        stage2_extract,
+        "emit_stage2_plan_event",
+        lambda resource_run_id, **payload: plan_events.append(
+            {"resource_run_id": resource_run_id, **payload}
+        ),
+    )
+    monkeypatch.setattr(
+        stage2_extract,
+        "emit_stage2_worker_event",
+        lambda resource_run_id, **payload: worker_events.append(
+            {"resource_run_id": resource_run_id, **payload}
+        ),
+    )
+    monkeypatch.setattr(
+        stage2_extract,
+        "_emit_stage2_snapshot",
+        lambda resource_run_id, snapshot: snapshot_events.append(
+            {"resource_run_id": resource_run_id, **snapshot}
+        ),
+    )
+
+    future_ok = _FakeFuture({"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"})
+    future_fail = _FakeFuture(error=RuntimeError("timeout"))
+
+    def fake_map(chunk_texts, **_kwargs):
+        assert chunk_texts == ["chunk-0", "chunk-1"]
+        return [future_ok, future_fail]
+
+    monkeypatch.setattr(stage2_extract.extract_window_chunk_task, "map", fake_map)
+    monkeypatch.setattr(stage2_extract, "as_completed", lambda futures: iter(futures))
+
+    rows, statuses, n_total, sampled_trace = _run(
+        stage2_extract._run_semantic_chunks_prefect(
+            chunk_texts=["chunk-0", "chunk-1"],
+            chunk_window_starts=[["2024-01-01"], ["2024-01-02"]],
+            chunk_contexts=[{"measurement": {}}, {"measurement": {}}],
+            question="Q",
+            root_run_id="root-456",
+            openrouter_api_key=None,
+            max_concurrent_workers=6,
+            max_rpm=450,
+        )
+    )
+
+    assert plan_events == [
+        {
+            "resource_run_id": "root-456",
+            "total_workers": 2,
+            "max_concurrent_workers": 6,
+            "max_rpm": 450,
+        }
+    ]
+    assert snapshot_events == [
+        {
+            "resource_run_id": "root-456",
+            "total_workers": 2,
+            "pending_workers": 2,
+            "running_workers": 0,
+            "completed_workers": 0,
+            "failed_workers": 0,
+        },
+        {
+            "resource_run_id": "root-456",
+            "total_workers": 2,
+            "pending_workers": 1,
+            "running_workers": 0,
+            "completed_workers": 1,
+            "failed_workers": 0,
+        },
+        {
+            "resource_run_id": "root-456",
+            "total_workers": 2,
+            "pending_workers": 0,
+            "running_workers": 0,
+            "completed_workers": 1,
+            "failed_workers": 1,
+        },
+    ]
+    assert worker_events == [
+        {
+            "resource_run_id": "root-456",
+            "worker_id": 0,
+            "state": "completed",
+            "n_windows": 1,
+            "n_extractions": 2,
+            "n_llm_calls": None,
+        },
+        {
+            "resource_run_id": "root-456",
+            "worker_id": 1,
+            "state": "failed",
+            "n_windows": 1,
+            "error": "timeout",
+        },
+    ]
+    assert rows == [{"indicator": "a"}]
+    assert statuses == [
+        {"worker_id": 0, "status": "completed", "n_extractions": 2, "n_windows": 1},
+        {"worker_id": 1, "status": "failed", "n_extractions": 0, "n_windows": 1, "error": "timeout"},
+    ]
+    assert n_total == 2
+    assert sampled_trace is None
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")

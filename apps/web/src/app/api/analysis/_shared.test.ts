@@ -7,6 +7,7 @@ vi.mock("@/lib/storage", () => ({
 import { readData } from "@/lib/storage";
 import {
   buildAnalysisManifest,
+  buildStage2ReplayState,
   buildStage4ReplayState,
   resolveStageLogScopeFlowRunIds,
 } from "./_shared";
@@ -92,6 +93,58 @@ function stage4SnapshotEvent(occurred: string, phase: string) {
       model_spec_locked: phase !== "model_decisions",
       repair_campaign: null,
       phase,
+    },
+  };
+}
+
+function stage2PlanEvent(occurred: string) {
+  return {
+    occurred,
+    event: "causal-ssm.stage2.plan",
+    payload: {
+      type: "plan",
+      total_workers: 3,
+      max_concurrent_workers: 30,
+      max_rpm: 450,
+    },
+  };
+}
+
+function stage2WorkerEvent(
+  occurred: string,
+  workerId: number,
+  state: "running" | "completed" | "failed",
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    occurred,
+    event: "causal-ssm.stage2.worker",
+    payload: {
+      type: "worker",
+      worker_id: workerId,
+      state,
+      n_windows: 1,
+      ...overrides,
+    },
+  };
+}
+
+function stage2SnapshotEvent(
+  occurred: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    occurred,
+    event: "causal-ssm.stage2.snapshot",
+    payload: {
+      type: "snapshot",
+      total_workers: 3,
+      pending_workers: 1,
+      running_workers: 0,
+      completed_workers: 1,
+      failed_workers: 1,
+      llm_requests_last_60s: 17,
+      ...overrides,
     },
   };
 }
@@ -835,6 +888,84 @@ describe("buildStage4ReplayState", () => {
         repair_campaign: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload
           .repair_campaign,
         phase: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload.phase,
+      },
+    });
+  });
+});
+
+describe("buildStage2ReplayState", () => {
+  it("reduces historical Stage 2 custom events into the latest replay state", async () => {
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/events/filter") {
+        const body = parseBody(init);
+        const prefix = ((body.filter as { event?: { prefix?: string[] } } | undefined)?.event
+          ?.prefix ?? [])[0];
+        const rootFlowRunId = getEventRootFlowRunId(body);
+        expect(prefix).toBe("causal-ssm.stage2.");
+        expect(rootFlowRunId).toBe("run-stage2");
+        return jsonResponse(
+          eventPage([
+            stage2PlanEvent("2026-04-02T10:00:00.000Z"),
+            stage2WorkerEvent("2026-04-02T10:00:01.000Z", 0, "running"),
+            stage2WorkerEvent("2026-04-02T10:00:02.000Z", 0, "completed", {
+              n_extractions: 6,
+              n_llm_calls: 1,
+            }),
+            stage2WorkerEvent("2026-04-02T10:00:03.000Z", 2, "failed", {
+              error: "Error code: 402",
+            }),
+            stage2SnapshotEvent("2026-04-02T10:00:04.000Z"),
+          ]),
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    await expect(buildStage2ReplayState("run-stage2")).resolves.toEqual({
+      plan: {
+        total_workers: 3,
+        max_concurrent_workers: 30,
+        max_rpm: 450,
+      },
+      snapshot: {
+        total_workers: 3,
+        pending_workers: 1,
+        running_workers: 0,
+        completed_workers: 1,
+        failed_workers: 1,
+        llm_requests_last_60s: 17,
+      },
+      workers: {
+        "0": {
+          worker_id: 0,
+          state: "completed",
+          n_windows: 1,
+          n_extractions: 6,
+          n_llm_calls: 1,
+          error: null,
+          completed_at: "2026-04-02T10:00:02.000Z",
+        },
+        "1": {
+          worker_id: 1,
+          state: "pending",
+          n_windows: 0,
+          n_extractions: null,
+          n_llm_calls: null,
+          error: null,
+          completed_at: null,
+        },
+        "2": {
+          worker_id: 2,
+          state: "failed",
+          n_windows: 1,
+          n_extractions: null,
+          n_llm_calls: null,
+          error: "Error code: 402",
+          completed_at: "2026-04-02T10:00:03.000Z",
+        },
       },
     });
   });

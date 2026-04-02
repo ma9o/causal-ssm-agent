@@ -1,5 +1,11 @@
 import type { AnalysisManifest, AnalysisStageRun, AnalysisStageRuns } from "@/lib/api/analysis";
 import {
+  STAGE2_EVENT_PREFIX,
+  reduceStage2Events,
+  type PrefectStage2EventRecord,
+  type Stage2ReplayState,
+} from "@/lib/stage2-runtime";
+import {
   STAGE4_EVENT_PREFIX,
   reduceStage4Events,
   type PrefectStage4EventRecord,
@@ -248,6 +254,11 @@ async function fetchPrefectEventsForRootFlowRun(
 export async function buildStage4ReplayState(rootFlowRunId: string): Promise<Stage4ReplayState> {
   const events = await fetchPrefectEventsForRootFlowRun(rootFlowRunId, STAGE4_EVENT_PREFIX);
   return reduceStage4Events(events as PrefectStage4EventRecord[]);
+}
+
+export async function buildStage2ReplayState(rootFlowRunId: string): Promise<Stage2ReplayState> {
+  const events = await fetchPrefectEventsForRootFlowRun(rootFlowRunId, STAGE2_EVENT_PREFIX, 10000);
+  return reduceStage2Events(events as PrefectStage2EventRecord[]);
 }
 
 export async function resolveStageLogScopeFlowRunIds(
