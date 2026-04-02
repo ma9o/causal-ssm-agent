@@ -363,7 +363,7 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
         "stage0": states["stage-0"]["result"],
         "stage1b": states["stage-1b"]["result"],
         "root_run_id": ctx.prefect_run_id,
-        "max_windows": None if ctx.openrouter_access_mode == "user" else MAX_FREE_WINDOWS,
+        "max_windows": None if ctx.openrouter_access_mode == "user" or os.environ.get("DEPLOYMENT_ENV") != "production" else MAX_FREE_WINDOWS,
     }
 
 

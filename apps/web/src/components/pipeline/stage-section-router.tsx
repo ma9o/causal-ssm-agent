@@ -27,7 +27,7 @@ import {
   Suspense,
   lazy,
   memo,
-  type ElementType,
+  type ComponentType,
   type ReactNode,
   useCallback,
   useEffect,
@@ -230,7 +230,7 @@ type StageContentAdapterProps = {
   data: AnyStageData;
 };
 
-function createStageDataAdapter<TData>(Component: ElementType<{ data: TData }>) {
+function createStageDataAdapter<TData>(Component: ComponentType<{ data: TData }>) {
   return function StageDataAdapter({ data }: StageContentAdapterProps) {
     return <Component data={data as TData} />;
   };
