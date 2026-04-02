@@ -1,7 +1,15 @@
 import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
 import type { LLMTrace } from "@causal-ssm/api-types";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { convertToModelMessages, jsonSchema, stepCountIs, streamText, tool } from "ai";
+import {
+  addToolInputExamplesMiddleware,
+  convertToModelMessages,
+  jsonSchema,
+  stepCountIs,
+  streamText,
+  tool,
+  wrapLanguageModel,
+} from "ai";
 import { NextResponse } from "next/server";
 
 import { getToolServerUrl } from "@/lib/runtime-urls";
@@ -75,6 +83,161 @@ function normalizeToolArgsForSchema(
   }
 
   return normalized;
+}
+
+interface ToolInputExample {
+  input: Record<string, unknown>;
+}
+
+function getStringEncodedJsonFields(schema: unknown): string[] {
+  if (!isRecord(schema) || !isRecord(schema.properties)) {
+    return [];
+  }
+
+  return Object.entries(schema.properties).flatMap(([key, value]) => {
+    if (!isRecord(value) || value.type !== "string") {
+      return [];
+    }
+
+    const description = typeof value.description === "string" ? value.description.toLowerCase() : "";
+    return key.endsWith("_json") || description.includes("json string") || description.includes("json object")
+      ? [key]
+      : [];
+  });
+}
+
+function buildToolDescription(
+  stageId: string,
+  toolName: string,
+  description: string,
+  schema: unknown,
+): string {
+  const notes: string[] = [];
+  const jsonFields = getStringEncodedJsonFields(schema);
+
+  if (jsonFields.length > 0) {
+    notes.push(
+      `Input requirement: ${jsonFields.map((field) => `\`${field}\``).join(", ")} must be valid JSON strings, not nested objects.`,
+    );
+  }
+
+  if (stageId === "stage-4" && toolName === "validate_model") {
+    notes.push(
+      "Submit either `model_spec` or `priors` inside `model_json`. Do not mix both in the same call.",
+    );
+  }
+
+  return notes.length > 0 ? `${description}\n\n${notes.join("\n")}` : description;
+}
+
+function getToolInputExamples(stageId: string, toolName: string): ToolInputExample[] | undefined {
+  switch (`${stageId}/${toolName}`) {
+    case "stage-1a/validate_latent_model":
+      return [
+        {
+          input: {
+            structure_json: JSON.stringify({
+              constructs: [],
+              edges: [],
+            }),
+          },
+        },
+      ];
+    case "stage-1b/validate_measurement_model":
+      return [
+        {
+          input: {
+            measurement_json: JSON.stringify({
+              model_clock: "1d",
+              indicators: [],
+            }),
+          },
+        },
+      ];
+    case "stage-4/search_literature":
+      return [
+        {
+          input: {
+            query: "daily stress sleep longitudinal effect size",
+            parameter_name: "beta_stress_sleep",
+          },
+        },
+      ];
+    case "stage-4/validate_model":
+      return [
+        {
+          input: {
+            model_json: JSON.stringify({
+              priors: {
+                beta_stress_sleep: {
+                  distribution: "Normal",
+                  params: { mu: -0.2, sigma: 0.1 },
+                },
+              },
+            }),
+          },
+        },
+        {
+          input: {
+            model_json: JSON.stringify({
+              model_spec: {
+                likelihoods: [],
+                parameters: [],
+              },
+            }),
+          },
+        },
+      ];
+    case "stage-6/get_model_info":
+      return [
+        {
+          input: {
+            sections: ["overview", "variables", "capabilities"],
+            names: ["stress", "sleep_quality"],
+          },
+        },
+      ];
+    case "stage-6/simulate_intervention":
+      return [
+        {
+          input: {
+            action: { variable: "stress", mode: "shift", amount: -0.5 },
+            outcome: "sleep_quality",
+            query: { estimand: "trajectory", horizon_days: 30, projection: "latent" },
+          },
+        },
+      ];
+    case "stage-6/simulate_counterfactual":
+      return [
+        {
+          input: {
+            evidence: {
+              start_time: "2026-01-01T00:00:00Z",
+              end_time: "2026-01-07T00:00:00Z",
+              variables: ["stress", "sleep_quality"],
+            },
+            action: { variable: "stress", mode: "shift", amount: -0.5 },
+            outcome: "sleep_quality",
+            query: { estimand: "trajectory", horizon_days: 30, projection: "latent" },
+          },
+        },
+      ];
+    default:
+      return undefined;
+  }
+}
+
+function logModelStepRequest(stageId: string, event: { stepNumber: number; request?: { body?: unknown }; warnings?: unknown }) {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+
+  console.info("[refine] model step request", {
+    stageId,
+    stepNumber: event.stepNumber,
+    requestBody: event.request?.body ?? null,
+    warnings: event.warnings ?? null,
+  });
 }
 
 async function readToolErrorMessage(response: Response): Promise<string> {
@@ -161,8 +324,13 @@ export async function POST(req: Request) {
     toolDefs.map((t) => [
       t.name,
       tool({
-        description: t.description,
-        parameters: jsonSchema(t.parameters),
+        description: buildToolDescription(safeStageId, t.name, t.description, t.parameters),
+        inputSchema: jsonSchema<Record<string, unknown>>(t.parameters),
+        ...(t.result ? { outputSchema: jsonSchema(t.result) } : {}),
+        ...(getToolInputExamples(safeStageId, t.name)
+          ? { inputExamples: getToolInputExamples(safeStageId, t.name) }
+          : {}),
+        strict: true,
         execute: async (args: Record<string, unknown>) => {
           if (!normalizedWorkspaceId) {
             throw new Error("Tool execution requires a workspace");
@@ -202,10 +370,20 @@ export async function POST(req: Request) {
   const startedAt = Date.now();
   let nextStagePatch = { ...safePendingStagePatch };
   const openrouter = createOpenRouter({ apiKey: access.apiKey });
+  const model = wrapLanguageModel({
+    model: openrouter(REFINE_MODEL),
+    middleware: addToolInputExamplesMiddleware({
+      prefix: "Input Examples:",
+    }),
+  });
 
   const result = streamText({
-    model: openrouter(REFINE_MODEL),
+    model,
     messages: [...traceContext, ...refinementContext, ...modelMessages],
+    onStepFinish: (event) => {
+      logModelStepRequest(safeStageId, event);
+    },
+    experimental_include: { requestBody: true },
     ...(Object.keys(tools).length > 0 ? { tools, stopWhen: stepCountIs(10) } : {}),
   });
 
