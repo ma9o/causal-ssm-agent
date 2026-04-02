@@ -413,6 +413,10 @@
           "title": "How To Measure",
           "type": "string"
         },
+        "construct_polarity": {
+          "$ref": "#/$defs/IndicatorPolarity",
+          "description": "Whether higher indicator values move in the same direction as the construct (`positive`) or the opposite direction (`negative`)."
+        },
         "measurement_dtype": {
           "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'",
           "title": "Measurement Dtype",
@@ -497,6 +501,7 @@
         "aggregation",
         "anchor_policy",
         "construct_name",
+        "construct_polarity",
         "extraction_mode",
         "how_to_measure",
         "measurement_dtype",
@@ -778,6 +783,15 @@
       ],
       "title": "IndicatorEmpiricalProfileContract",
       "type": "object"
+    },
+    "IndicatorPolarity": {
+      "description": "Direction of an indicator relative to its construct.",
+      "enum": [
+        "positive",
+        "negative"
+      ],
+      "title": "IndicatorPolarity",
+      "type": "string"
     },
     "IndicatorValidationContract": {
       "additionalProperties": false,
@@ -1652,6 +1666,7 @@
       "enum": [
         "none",
         "positive",
+        "negative",
         "unit_interval",
         "correlation"
       ],
