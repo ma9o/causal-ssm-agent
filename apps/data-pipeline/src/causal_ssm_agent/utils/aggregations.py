@@ -174,6 +174,35 @@ def _compile_computed_rule_call(node: ast.Call, *, allowed_names: set[str]) -> p
     if node.keywords:
         raise ValueError("computed_rule.window_expr does not support keyword arguments")
 
+    if name == "contains" and len(node.args) != 2:
+        raise ValueError("computed_rule function 'contains' expects exactly 2 arguments")
+    if name == "contains_any" and len(node.args) != 2:
+        raise ValueError("computed_rule function 'contains_any' expects exactly 2 arguments")
+    if name == "coalesce" and len(node.args) < 2:
+        raise ValueError("computed_rule function 'coalesce' expects at least 2 arguments")
+
+    if name == "contains":
+        haystack = _compile_computed_rule_node(node.args[0], allowed_names=allowed_names)
+        pattern = _string_literal_from_ast(node.args[1], fn_name="contains")
+        return (
+            haystack.cast(pl.Utf8, strict=False)
+            .str.to_lowercase()
+            .str.contains(pattern.lower(), literal=True)
+        )
+    if name == "contains_any":
+        haystack = _compile_computed_rule_node(node.args[0], allowed_names=allowed_names)
+        patterns = _string_list_literal_from_ast(node.args[1], fn_name="contains_any")
+        if not patterns:
+            return pl.lit(False)
+        result: pl.Expr | None = None
+        haystack = haystack.cast(pl.Utf8, strict=False).str.to_lowercase()
+        for pattern in patterns:
+            current = haystack.str.contains(pattern.lower(), literal=True)
+            result = current if result is None else result | current
+        if result is None:
+            return pl.lit(False)
+        return result
+
     args = [_compile_computed_rule_node(arg, allowed_names=allowed_names) for arg in node.args]
     if (
         name
@@ -195,12 +224,6 @@ def _compile_computed_rule_call(node: ast.Call, *, allowed_names: set[str]) -> p
         and len(args) != 1
     ):
         raise ValueError(f"computed_rule function '{name}' expects exactly 1 argument")
-    if name == "contains" and len(node.args) != 2:
-        raise ValueError("computed_rule function 'contains' expects exactly 2 arguments")
-    if name == "contains_any" and len(node.args) != 2:
-        raise ValueError("computed_rule function 'contains_any' expects exactly 2 arguments")
-    if name == "coalesce" and len(args) < 2:
-        raise ValueError("computed_rule function 'coalesce' expects at least 2 arguments")
 
     if name == "abs":
         return args[0].abs()
@@ -214,26 +237,6 @@ def _compile_computed_rule_call(node: ast.Call, *, allowed_names: set[str]) -> p
         return args[0].fill_null(False).any()
     if name == "coalesce":
         return pl.coalesce(args)
-    if name == "contains":
-        pattern = _string_literal_from_ast(node.args[1], fn_name="contains")
-        return (
-            args[0]
-            .cast(pl.Utf8, strict=False)
-            .str.to_lowercase()
-            .str.contains(pattern.lower(), literal=True)
-        )
-    if name == "contains_any":
-        patterns = _string_list_literal_from_ast(node.args[1], fn_name="contains_any")
-        if not patterns:
-            return pl.lit(False)
-        result: pl.Expr | None = None
-        haystack = args[0].cast(pl.Utf8, strict=False).str.to_lowercase()
-        for pattern in patterns:
-            current = haystack.str.contains(pattern.lower(), literal=True)
-            result = current if result is None else result | current
-        if result is None:
-            return pl.lit(False)
-        return result
     if name == "count_non_null":
         return args[0].is_not_null().cast(pl.Int64).sum()
     if name == "count_true":

@@ -515,6 +515,87 @@ class TestComputeIndicators:
 
         assert result["value"].to_list() == ["0", "1", None]
 
+    def test_computed_rule_contains_any_literal_list(self):
+        """contains_any() should accept literal string lists in computed rules."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                    datetime(2024, 1, 2, 9, 0),
+                ],
+                "title_url": [
+                    "https://facebook.com/some-post",
+                    "https://example.com",
+                    "https://reddit.com/r/polars",
+                ],
+            }
+        )
+        indicators = [
+            {
+                "name": "social_media_hits",
+                "source_columns": ["title_url"],
+                "measurement_dtype": "count",
+                "aggregation": "count",
+                "computed_rule": {
+                    "window_expr": 'count_true(contains_any(title_url, ["facebook.com", "reddit.com"]))'
+                },
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["timestamp"].to_list() == ["2024-01-01T00:00:00", "2024-01-02T00:00:00"]
+        assert result["value"].to_list() == ["1", "1"]
+
+    def test_computed_rule_nested_contains_any_with_if_else(self):
+        """Nested computed rules should handle contains_any() list literals inside bool expressions."""
+        df = pl.DataFrame(
+            {
+                "timestamp": [
+                    datetime(2024, 1, 1, 8, 0),
+                    datetime(2024, 1, 1, 12, 0),
+                    datetime(2024, 1, 2, 9, 0),
+                    datetime(2024, 1, 2, 14, 0),
+                    datetime(2024, 1, 3, 10, 0),
+                ],
+                "title": [
+                    "Stress management",
+                    None,
+                    "ordinary browsing",
+                    None,
+                    "nothing relevant",
+                ],
+                "title_url": [
+                    None,
+                    "https://example.com",
+                    "https://burnout.example/article",
+                    "https://example.com/other",
+                    None,
+                ],
+            }
+        )
+        indicators = [
+            {
+                "name": "stress_content_count",
+                "source_columns": ["timestamp", "title", "title_url"],
+                "measurement_dtype": "count",
+                "aggregation": "count",
+                "computed_rule": {
+                    "window_expr": 'None if count_non_null(timestamp) == 0 else count_true(contains_any(lower(coalesce(title, "")), ["stress", "burnout"]) or contains_any(lower(coalesce(title_url, "")), ["stress", "burnout"]))'
+                },
+            }
+        ]
+
+        result = compute_indicators(df, indicators, "1d", "timestamp")
+
+        assert result["timestamp"].to_list() == [
+            "2024-01-01T00:00:00",
+            "2024-01-02T00:00:00",
+            "2024-01-03T00:00:00",
+        ]
+        assert result["value"].to_list() == ["1", "1", "0"]
+
     def test_timestamp_format_matches_bucket_by_clock(self):
         """Computed timestamps match the ISO format from bucket_by_clock."""
         df = _make_raw_df()
