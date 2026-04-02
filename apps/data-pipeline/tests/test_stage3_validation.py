@@ -11,6 +11,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage3_validation import (
+    derive_validation_status,
     validate_extraction,
 )
 
@@ -123,6 +124,42 @@ def _make_spec(
 
 class TestValidateExtraction:
     """Test validate_extraction semantic checks."""
+
+    def test_derive_validation_status_maps_issue_severity_to_stage_outcome(self):
+        """Stage-level status should reduce directly from local issue severities."""
+        assert derive_validation_status([]) == {
+            "is_valid": True,
+            "outcome": "success",
+            "fail_reason": None,
+        }
+        assert derive_validation_status(
+            [
+                {
+                    "indicator": "stress_score",
+                    "issue_type": "low_n",
+                    "severity": "warning",
+                    "message": "Only 3 observations",
+                }
+            ]
+        ) == {
+            "is_valid": True,
+            "outcome": "warn",
+            "fail_reason": None,
+        }
+        assert derive_validation_status(
+            [
+                {
+                    "indicator": "stress_score",
+                    "issue_type": "no_numeric",
+                    "severity": "error",
+                    "message": "No numeric values extracted",
+                }
+            ]
+        ) == {
+            "is_valid": False,
+            "outcome": "fail",
+            "fail_reason": "data_validation_failed",
+        }
 
     def test_empty_results_returns_error(self, simple_causal_spec):
         """Empty worker results returns error."""
