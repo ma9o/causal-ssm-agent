@@ -8,7 +8,7 @@ const meta = {
   component: LandingPageView,
   args: {
     access: {
-      mode: "trial" as const,
+      mode: "anonymous" as const,
       canRun: true as const,
       creditStatus: "available" as const,
     },
@@ -38,7 +38,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-/** Default state: trial credits available, empty form. */
+/** Default state: anonymous mode with shared credits available. */
 export const Default: Story = {};
 
 /** User has signed in with OpenRouter. */
@@ -48,10 +48,17 @@ export const SignedIn: Story = {
   },
 };
 
+/** Local development uses the server key directly and hides BYOK auth controls. */
+export const LocalMode: Story = {
+  args: {
+    access: { mode: "local", canRun: true },
+  },
+};
+
 /** No access — submit blocked, sign-in CTA prominent. */
 export const NoAccess: Story = {
   args: {
-    access: { mode: "none", canRun: false, reason: "trial_exhausted" },
+    access: { mode: "none", canRun: false, reason: "anonymous_exhausted" },
     noAccess: true,
   },
 };

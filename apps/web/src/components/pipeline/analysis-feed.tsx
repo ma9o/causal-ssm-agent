@@ -88,17 +88,17 @@ export function AnalysisFeed({
 }) {
   if (!progress) {
     return (
-      <div className="flex flex-col items-center justify-center gap-4 py-20">
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-4 px-4 py-20 sm:px-6">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        <div className="text-center space-y-1">
+        <div className="space-y-1 text-center">
           <p className="text-sm font-medium text-muted-foreground">
             Waiting for pipeline to start...
           </p>
           <p className="text-xs text-muted-foreground/60">This usually takes a few seconds</p>
         </div>
-        <div className="w-full max-w-md space-y-3 mt-4">
-          <Skeleton className="h-4 w-3/4 mx-auto" />
-          <Skeleton className="h-4 w-1/2 mx-auto" />
+        <div className="mt-4 w-full max-w-md space-y-3">
+          <Skeleton className="mx-auto h-4 w-3/4" />
+          <Skeleton className="mx-auto h-4 w-1/2" />
         </div>
       </div>
     );
