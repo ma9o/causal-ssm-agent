@@ -29,7 +29,7 @@
 | Compilation from Stage 4 outputs to executable SSM runtime | [reference/compilation.md](reference/compilation.md) |
 | Continuous-time estimation and discretization | [reference/estimation.md](reference/estimation.md) |
 | Inference-method selection and structural routing | [reference/inference-routing.md](reference/inference-routing.md) |
-| LLM versus deterministic decision ownership across the pipeline | [reference/llm-decision-surface.md](reference/llm-decision-surface.md) |
+| How Stage 4 constrains LLM model-form and prior decisions | [reference/model-spec/llm-driven-specification.md](reference/model-spec/llm-driven-specification.md) |
 
 ## Guides
 
