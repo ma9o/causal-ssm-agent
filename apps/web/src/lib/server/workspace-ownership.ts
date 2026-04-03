@@ -13,12 +13,6 @@ import { readAuthorizedWorkspaceIds } from "@/lib/server/workspace-session";
 const MAX_PERSISTED_WORKSPACES = 256;
 const WORKSPACE_OWNERSHIP_TABLE = "workspace_ownership";
 
-type WorkspaceOwnershipRow = {
-  ownerUserId: string;
-  updatedAtMs: number;
-  workspaceId: string;
-};
-
 export type WorkspaceOwnershipContext =
   | { mode: "anonymous" }
   | { mode: "user"; userId: string }
@@ -71,51 +65,21 @@ async function ensureWorkspaceOwnershipSchema(): Promise<void> {
   );
 }
 
-function coerceOwnershipRow(value: unknown): WorkspaceOwnershipRow | null {
+function readWorkspaceIdCell(value: unknown): string | null {
   if (!value || typeof value !== "object") {
     return null;
   }
 
-  const row = value as Record<string, unknown>;
-  const workspaceId = row.workspace_id;
-  const ownerUserId = row.owner_user_id;
-  const updatedAtMs = row.updated_at_ms;
-
-  if (typeof workspaceId !== "string" || typeof ownerUserId !== "string") {
-    return null;
-  }
-
-  const coerceNumber = (input: unknown): number => {
-    if (typeof input === "number") {
-      return input;
-    }
-    if (typeof input === "bigint") {
-      return Number(input);
-    }
-    if (typeof input === "string") {
-      return Number.parseInt(input, 10);
-    }
-    return Number.NaN;
-  };
-
-  const updated = coerceNumber(updatedAtMs);
-  if (!Number.isFinite(updated)) {
-    return null;
-  }
-
-  return {
-    ownerUserId,
-    updatedAtMs: updated,
-    workspaceId,
-  };
+  const workspaceId = (value as Record<string, unknown>).workspace_id;
+  return typeof workspaceId === "string" ? workspaceId : null;
 }
 
-async function listOpenRouterWorkspaceRows(userId: string): Promise<WorkspaceOwnershipRow[]> {
+async function listOpenRouterWorkspaceIds(userId: string): Promise<string[]> {
   await ensureWorkspaceOwnershipSchema();
 
   const client = createControlStoreClient();
   const result = await client.execute({
-    sql: `SELECT workspace_id, owner_user_id, updated_at_ms
+    sql: `SELECT workspace_id
           FROM ${WORKSPACE_OWNERSHIP_TABLE}
           WHERE owner_user_id = ?
           ORDER BY updated_at_ms DESC
@@ -124,8 +88,8 @@ async function listOpenRouterWorkspaceRows(userId: string): Promise<WorkspaceOwn
   });
 
   return result.rows
-    .map(coerceOwnershipRow)
-    .filter((row): row is WorkspaceOwnershipRow => row !== null);
+    .map(readWorkspaceIdCell)
+    .filter((workspaceId): workspaceId is string => workspaceId !== null);
 }
 
 async function persistOpenRouterWorkspaceOwnership(
@@ -167,7 +131,7 @@ export async function resolveWorkspaceOwnershipContext(): Promise<WorkspaceOwner
 }
 
 export async function readOpenRouterOwnedWorkspaceIds(userId: string): Promise<string[]> {
-  return (await listOpenRouterWorkspaceRows(userId)).map((row) => row.workspaceId);
+  return listOpenRouterWorkspaceIds(userId);
 }
 
 export async function hasOpenRouterWorkspaceAccess(
@@ -178,14 +142,14 @@ export async function hasOpenRouterWorkspaceAccess(
 
   const client = createControlStoreClient();
   const result = await client.execute({
-    sql: `SELECT workspace_id, owner_user_id, updated_at_ms
+    sql: `SELECT workspace_id
           FROM ${WORKSPACE_OWNERSHIP_TABLE}
           WHERE workspace_id = ?
             AND owner_user_id = ?
           LIMIT 1`,
     args: [workspaceId, userId],
   });
-  return coerceOwnershipRow(result.rows[0]) !== null;
+  return result.rows.length > 0;
 }
 
 export async function authorizeWorkspaceForOpenRouterUser(
