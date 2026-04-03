@@ -16,7 +16,6 @@ export interface Stage4NodeStatusItem {
   isActive?: boolean;
   inRepairScope?: boolean;
   detailText?: string;
-  tooltipDetailText?: string;
 }
 
 export interface Stage4BlockNodeData {
@@ -32,18 +31,16 @@ export interface Stage4BlockNodeData {
   reopenedCount?: number;
   statusItems?: Stage4NodeStatusItem[];
   detailLabel?: string;
-  detailTooltipText?: string;
   tooltipText?: string;
   minHeight?: number;
 }
 
 function getDotTooltipDescription(item: Stage4NodeStatusItem): string {
-  const detailText = item.tooltipDetailText ?? item.detailText;
-  if (item.isActive && detailText) {
-    return item.inRepairScope ? `Repair in progress. ${detailText}` : `In progress. ${detailText}`;
+  if (item.isActive && item.detailText) {
+    return item.inRepairScope ? `Repair in progress. ${item.detailText}` : `In progress. ${item.detailText}`;
   }
-  if (detailText) {
-    return detailText;
+  if (item.detailText) {
+    return item.detailText;
   }
   if (item.isActive) {
     return item.inRepairScope
@@ -109,9 +106,6 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
   const isActive = d.isActive ?? false;
   const acceptedCount = d.acceptedCount ?? 0;
   const totalCount = d.totalCount ?? 0;
-  const detailLabel = d.detailLabel ? (
-    <div className="truncate pt-0.5 text-[11px] text-muted-foreground">{d.detailLabel}</div>
-  ) : null;
 
   return (
     <div
@@ -135,22 +129,13 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
           <div className="flex items-start gap-2">
             <StatusIcon status={d.status} isActive={isActive} />
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold leading-tight text-foreground">
+              <div className="truncate text-[13px] font-semibold leading-tight text-foreground" title={d.label}>
                 {d.label}
               </div>
-              {d.detailTooltipText && d.detailTooltipText !== d.detailLabel ? (
-                <Tooltip>
-                  <TooltipTrigger render={<span />} className="pointer-events-auto block cursor-help">
-                    {detailLabel}
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xl items-start whitespace-normal">
-                    <div className="text-xs text-background/80 break-words leading-relaxed">
-                      {d.detailTooltipText}
-                    </div>
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                detailLabel
+              {d.detailLabel && (
+                <div className="truncate pt-0.5 text-[11px] text-muted-foreground" title={d.detailLabel}>
+                  {d.detailLabel}
+                </div>
               )}
             </div>
           </div>
