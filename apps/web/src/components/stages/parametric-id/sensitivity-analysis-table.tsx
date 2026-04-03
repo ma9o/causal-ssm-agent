@@ -10,7 +10,8 @@ import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 
 const col = createColumnHelper<SensitivityEntry>();
 
-function formatSV(v: number) {
+function formatSV(v: number | null | undefined) {
+  if (v == null) return "—";
   return v < 0.01 ? v.toExponential(1) : formatNumber(v, 4);
 }
 

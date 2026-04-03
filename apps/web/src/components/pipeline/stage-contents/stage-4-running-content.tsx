@@ -41,7 +41,6 @@ interface Stage4SectionSummary {
   tooltip: string;
   displayLabel: string;
   detailLabel: string;
-  detailTooltipLabel: string;
   status: Stage4BlockStatus;
   isActive: boolean;
   totalCount: number;
@@ -57,12 +56,6 @@ interface Stage4LayoutResult {
   height: number;
 }
 
-interface Stage4DetailFormatOptions {
-  maxArrayItems?: number;
-  maxParamEntries?: number;
-  maxBundleItems?: number;
-}
-
 const nodeTypes: NodeTypes = {
   stage4Block: Stage4BlockNode,
 };
@@ -70,7 +63,7 @@ const edgeTypes: EdgeTypes = {
   stage4Section: Stage4SectionEdge,
 };
 
-function formatStage4Value(value: unknown, options: Stage4DetailFormatOptions = {}): string {
+function formatStage4Value(value: unknown): string {
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return String(value);
@@ -80,12 +73,7 @@ function formatStage4Value(value: unknown, options: Stage4DetailFormatOptions = 
     return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
   }
   if (Array.isArray(value)) {
-    const maxArrayItems = options.maxArrayItems ?? value.length;
-    const preview = value
-      .slice(0, maxArrayItems)
-      .map((item) => formatStage4Value(item, options))
-      .join(", ");
-    return `[${preview}${value.length > maxArrayItems ? ", ..." : ""}]`;
+    return `[${value.map((item) => formatStage4Value(item)).join(", ")}]`;
   }
   if (value === null) return "null";
   if (value === undefined) return "";
@@ -95,23 +83,16 @@ function formatStage4Value(value: unknown, options: Stage4DetailFormatOptions = 
 function formatStage4DistributionCall(
   distribution?: string,
   params?: Record<string, unknown>,
-  options: Stage4DetailFormatOptions = {},
 ): string {
   if (!distribution) return "";
   if (!params || Object.keys(params).length === 0) return distribution;
-  const maxParamEntries = options.maxParamEntries ?? Object.keys(params).length;
-  const entries = Object.entries(params).slice(0, maxParamEntries);
-  const rendered = entries
-    .map(([key, value]) => `${key}=${formatStage4Value(value, options)}`)
+  const rendered = Object.entries(params)
+    .map(([key, value]) => `${key}=${formatStage4Value(value)}`)
     .join(", ");
-  const suffix = Object.keys(params).length > maxParamEntries ? ", ..." : "";
-  return `${distribution}(${rendered}${suffix})`;
+  return `${distribution}(${rendered})`;
 }
 
-function formatStage4LastBlockStateDetail(
-  lastState: Stage4BlockLastState | undefined,
-  options: Stage4DetailFormatOptions = {},
-): string {
+function formatStage4LastBlockStateDetail(lastState: Stage4BlockLastState | undefined): string {
   if (!lastState) return "";
   switch (lastState.detail_kind) {
     case "revision":
@@ -130,17 +111,13 @@ function formatStage4LastBlockStateDetail(
       const priors = lastState.priors ?? [];
       if (priors.length === 0) return "";
       const single = priors.length === 1;
-      const maxBundleItems = options.maxBundleItems ?? priors.length;
-      const preview = priors
-        .slice(0, maxBundleItems)
+      return priors
         .map((prior) => {
-          const call = formatStage4DistributionCall(prior.distribution, prior.params, options);
+          const call = formatStage4DistributionCall(prior.distribution, prior.params);
           return single ? call : `${prior.parameter} ~ ${call}`;
         })
         .filter((value) => value.length > 0)
         .join("; ");
-      if (!preview) return "";
-      return priors.length > maxBundleItems ? `${preview}; +${priors.length - maxBundleItems} more` : preview;
     }
     default:
       return "";
@@ -177,22 +154,14 @@ function buildSectionSummaries(
     const activeNode = currentNodeId ? byId.get(currentNodeId) : null;
     const activeInSection = Boolean(activeNode && getStage4SectionId(activeNode.kind) === section.id);
 
-    const statusItems = logicalNodes.map((node) => {
-      const lastState = lastBlockStateById[node.id];
-      return {
-        id: node.id,
-        label: node.label,
-        status: (snapshot?.block_status[node.id] ?? "pending") as Stage4BlockStatus,
-        isActive: node.id === currentNodeId,
-        inRepairScope: repairScopeIds.has(node.id),
-        detailText: formatStage4LastBlockStateDetail(lastState, {
-          maxArrayItems: 3,
-          maxParamEntries: 3,
-          maxBundleItems: 2,
-        }),
-        tooltipDetailText: formatStage4LastBlockStateDetail(lastState),
-      };
-    });
+    const statusItems = logicalNodes.map((node) => ({
+      id: node.id,
+      label: node.label,
+      status: (snapshot?.block_status[node.id] ?? "pending") as Stage4BlockStatus,
+      isActive: node.id === currentNodeId,
+      inRepairScope: repairScopeIds.has(node.id),
+      detailText: formatStage4LastBlockStateDetail(lastBlockStateById[node.id]),
+    }));
 
     const totalCount = logicalNodes.length;
     const acceptedCount = statusItems.filter((item) => item.status === "accepted").length;
@@ -228,7 +197,6 @@ function buildSectionSummaries(
 
     let displayLabel = section.label;
     let detailLabel = "";
-    let detailTooltipLabel = "";
 
     if (section.id === "done") {
       displayLabel = snapshot?.cursor.kind === "done" ? "Stage 4 complete" : "Awaiting completion";
@@ -241,24 +209,19 @@ function buildSectionSummaries(
         snapshot?.cursor.kind === "repair_barrier"
           ? `${repairScopeIds.size} repaired block${repairScopeIds.size === 1 ? "" : "s"} ready`
           : "";
-      detailTooltipLabel = detailLabel;
     } else if (activeInSection && activeNode) {
       displayLabel = activeNode.label;
       detailLabel = activeStatusItem?.detailText ?? "";
-      detailTooltipLabel = activeStatusItem?.tooltipDetailText ?? "";
     } else if (status === "accepted" && totalCount > 0) {
       displayLabel = logicalNodes[logicalNodes.length - 1]?.label ?? section.label;
       detailLabel = acceptedTailItem?.detailText ?? "";
-      detailTooltipLabel = acceptedTailItem?.tooltipDetailText ?? "";
     } else if (reopenedCount > 0 && nextOpenItem) {
       displayLabel = nextOpenItem.label;
       detailLabel = nextOpenItem.detailText ?? `${reopenedCount} reopened`;
-      detailTooltipLabel = nextOpenItem.tooltipDetailText ?? detailLabel;
     } else if (nextOpenItem) {
       displayLabel = nextOpenItem.label;
     } else if (optionalAbsent) {
       detailLabel = "Not required for this plan";
-      detailTooltipLabel = detailLabel;
     }
 
     return {
@@ -267,7 +230,6 @@ function buildSectionSummaries(
       tooltip: section.tooltip,
       displayLabel,
       detailLabel,
-      detailTooltipLabel,
       status,
       isActive: activeInSection,
       totalCount,
@@ -300,7 +262,6 @@ function layoutSectionGraph(
       reopenedCount: section.reopenedCount,
       statusItems: section.statusItems,
       detailLabel: section.detailLabel,
-      detailTooltipText: section.detailTooltipLabel,
       tooltipText: section.tooltip,
     } satisfies Stage4BlockNodeData,
   }));
