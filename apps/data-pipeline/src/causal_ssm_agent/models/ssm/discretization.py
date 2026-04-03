@@ -30,7 +30,7 @@ def _kron_lyapunov_solve(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
     return X_vec.reshape(n, n)
 
 
-@jax.custom_vjp
+@jax.custom_jvp
 def solve_lyapunov(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
     """Solve the continuous Lyapunov equation: A*X + X*A' = -Q.
 
@@ -53,26 +53,19 @@ def solve_lyapunov(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
     return _kron_lyapunov_solve(A, Q)
 
 
-def _solve_lyapunov_fwd(A, Q):
-    X = solve_lyapunov(A, Q)
-    return X, (A, X)
+@solve_lyapunov.defjvp
+def _solve_lyapunov_jvp(primals, tangents):
+    """JVP via implicit differentiation of AX + XA' = -Q.
 
-
-def _solve_lyapunov_bwd(res, g):
-    """VJP via implicit differentiation of AX + XA' = -Q.
-
-    The adjoint equation is A'V + VA = g, solved via Kronecker vectorization.
-    Then: grad_A = -(V @ X' + V' @ X), grad_Q = -V.
+    Differentiating the Lyapunov equation gives:
+    A dX + dX A' = -(dA X + X dA' + dQ)
     """
-    A, X = res
-    # Solve adjoint Lyapunov: A'V + VA = g  =>  solve_lyap(A', -g) = V
-    V = _kron_lyapunov_solve(A.T, -g)
-    grad_A = -(V @ X.T + V.T @ X)
-    grad_Q = -V
-    return grad_A, grad_Q
-
-
-solve_lyapunov.defvjp(_solve_lyapunov_fwd, _solve_lyapunov_bwd)
+    A, Q = primals
+    dA, dQ = tangents
+    X = _kron_lyapunov_solve(A, Q)
+    tangent_rhs = dA @ X + X @ dA.T + dQ
+    dX = _kron_lyapunov_solve(A, tangent_rhs)
+    return X, dX
 
 
 def compute_asymptotic_diffusion(drift: jnp.ndarray, diffusion_cov: jnp.ndarray) -> jnp.ndarray:
