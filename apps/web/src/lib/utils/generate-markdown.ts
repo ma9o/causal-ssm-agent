@@ -602,6 +602,7 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       if (sa.per_parameter.length > 0) {
         const saRows = sa.per_parameter.map((p) => [
           p.parameter,
+          p.interpretable_parameter,
           formatNumber(p.sensitivity_norm),
           formatNumber(p.effective_sv),
           p.sv_status,
@@ -610,7 +611,15 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         ]);
         lines.push(
           mdTable(
-            ["Parameter", "Sensitivity Norm", "Effective SV", "SV Status", "Normalized SV", "Norm. Status"],
+            [
+              "Parameter",
+              "Interpretable Parameter",
+              "Sensitivity Norm",
+              "Effective SV",
+              "SV Status",
+              "Normalized SV",
+              "Norm. Status",
+            ],
             saRows,
           ),
         );

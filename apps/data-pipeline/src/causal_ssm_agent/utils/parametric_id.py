@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from enum import Enum
@@ -30,6 +31,7 @@ from pydantic import BaseModel
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
+from causal_ssm_agent.models.ssm.assembler import SSMAssembler, lower_triangle_positions
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.parameterization import (
     SiteRuntimeBundle,
@@ -56,6 +58,7 @@ logger = get_prefect_logger(__name__)
 CHI2_THRESHOLD_95 = 1.92
 CHI2_THRESHOLD_99 = 3.32
 _STAGE4B_SWEEP_CONTEXT_CACHE_MAXSIZE = 8
+_SCALAR_PARAMETER_INDEX_RE = re.compile(r"^(?P<site>.+)\[(?P<index>\d+)\]$")
 
 
 @dataclass(frozen=True)
@@ -196,7 +199,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
         spec=model.spec,
         site_runtime=site_runtime,
         predict_moments_fn=_predict,
-        jacobian_fn=jax.jit(jax.jacrev(_predict, argnums=0)),
+        jacobian_fn=jax.jit(jax.jacfwd(_predict, argnums=0)),
         log_lik_fn=log_lik_fn,
         log_prior_unc_fn=log_prior_unc_fn,
     )
@@ -570,9 +573,137 @@ class OutputSensitivityResult:
         logger.info("\n%s", "\n".join(lines))
 
 
+def _build_sensitivity_output_mask(observations: jnp.ndarray | None) -> np.ndarray | None:
+    """Return a row mask that keeps only actually observed mean/variance outputs."""
+    if observations is None:
+        return None
+
+    obs_mask = ~np.isnan(np.asarray(observations))
+    flat_mask = obs_mask.reshape(-1)
+    return np.concatenate([flat_mask, flat_mask])
+
+
+def _spectral_svd_from_gram(S: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Compute singular values and right singular vectors via the P x P Gram matrix."""
+    gram = S.T @ S
+    eigvals, eigvecs = jnp.linalg.eigh(gram)
+    eigvals = jnp.clip(eigvals, a_min=0.0)
+    order = jnp.arange(eigvals.shape[0] - 1, -1, -1)
+    singular_values = jnp.sqrt(eigvals[order])
+    right_singular_vectors = eigvecs[:, order]
+    return singular_values, right_singular_vectors
+
+
+def _split_scalar_parameter_name(parameter: str) -> tuple[str, int]:
+    """Split ``site_name[idx]`` strings into their site name and flat index."""
+    match = _SCALAR_PARAMETER_INDEX_RE.fullmatch(parameter)
+    if match is None:
+        return parameter, 0
+    return match.group("site"), int(match.group("index"))
+
+
+def _axis_names(
+    names: list[str] | None,
+    *,
+    expected: int,
+    prefix: str,
+) -> list[str]:
+    """Return axis names with deterministic fallbacks when metadata is incomplete."""
+    resolved = [str(name) for name in (names or []) if name]
+    if len(resolved) >= expected:
+        return resolved[:expected]
+    return resolved + [f"{prefix}_{idx}" for idx in range(len(resolved), expected)]
+
+
+def _binding_index_for_model(model: SSMModel) -> dict[tuple[str, int], str]:
+    """Index compiler parameter bindings by sample site and flat index."""
+    binding_index: dict[tuple[str, int], str] = {}
+    for binding in list(getattr(model, "parameter_bindings", []) or []):
+        if not isinstance(binding, dict):
+            continue
+        site_name = binding.get("site_name")
+        flat_index = binding.get("flat_index")
+        parameter = binding.get("parameter")
+        if not isinstance(site_name, str) or not isinstance(flat_index, int):
+            continue
+        if not isinstance(parameter, str) or not parameter:
+            continue
+        binding_index[(site_name, flat_index)] = parameter
+    return binding_index
+
+
+def _fallback_interpretable_parameter_name(
+    spec: SSMSpec,
+    site_name: str,
+    flat_index: int,
+    *,
+    assembler: SSMAssembler,
+) -> str:
+    """Resolve a best-effort semantic alias for one scalar sample-site element."""
+    latent_names = _axis_names(spec.latent_names, expected=spec.n_latent, prefix="latent")
+    manifest_names = _axis_names(spec.manifest_names, expected=spec.n_manifest, prefix="manifest")
+
+    if site_name == "drift_diag_pop" and flat_index < len(latent_names):
+        return f"rho_{latent_names[flat_index]}"
+    if site_name == "drift_offdiag_pop" and flat_index < len(assembler.offdiag_positions):
+        effect_idx, cause_idx = assembler.offdiag_positions[flat_index]
+        return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
+    if site_name == "diffusion_diag_pop" and flat_index < len(latent_names):
+        return f"sigma_{latent_names[flat_index]}"
+    if site_name == "diffusion_lower":
+        positions = lower_triangle_positions(spec.n_latent)
+        if flat_index < len(positions):
+            row, col = positions[flat_index]
+            return f"cor_{latent_names[col]}_{latent_names[row]}"
+    if site_name == "cint_pop" and flat_index < len(latent_names):
+        return f"cint_{latent_names[flat_index]}"
+    if site_name == "lambda_free" and flat_index < len(assembler.lambda_free_positions):
+        manifest_idx, latent_idx = assembler.lambda_free_positions[flat_index]
+        return f"lambda_{manifest_names[manifest_idx]}_{latent_names[latent_idx]}"
+    if site_name == "manifest_means" and flat_index < len(manifest_names):
+        return f"manifest_mean_{manifest_names[flat_index]}"
+    if site_name == "manifest_var_diag" and flat_index < len(assembler.manifest_var_free_positions):
+        manifest_idx = assembler.manifest_var_free_positions[flat_index]
+        return f"obs_sd_{manifest_names[manifest_idx]}"
+    if site_name == "t0_means_pop" and flat_index < len(latent_names):
+        return f"t0_mean_{latent_names[flat_index]}"
+    if site_name == "t0_var_diag" and flat_index < len(latent_names):
+        return f"t0_sd_{latent_names[flat_index]}"
+    if site_name == "t0_var_lower" and flat_index < len(assembler.t0_correlation_positions):
+        row, col = assembler.t0_correlation_positions[flat_index]
+        return f"cor0_{latent_names[col]}_{latent_names[row]}"
+    return site_name if flat_index == 0 else f"{site_name}[{flat_index}]"
+
+
+def _interpretable_parameter_name_map(
+    model: SSMModel,
+    scalar_names: list[str],
+) -> dict[str, str]:
+    """Resolve semantic display names for all scalar Stage 4b parameters."""
+    binding_index = _binding_index_for_model(model)
+    assembler = getattr(model, "_assembler", None)
+    if not isinstance(assembler, SSMAssembler):
+        assembler = SSMAssembler(model.spec)
+
+    resolved: dict[str, str] = {}
+    for scalar_name in scalar_names:
+        site_name, flat_index = _split_scalar_parameter_name(scalar_name)
+        interpretable = binding_index.get((site_name, flat_index))
+        if interpretable is None:
+            interpretable = _fallback_interpretable_parameter_name(
+                model.spec,
+                site_name,
+                flat_index,
+                assembler=assembler,
+            )
+        resolved[scalar_name] = interpretable
+    return resolved
+
+
 def output_sensitivity_analysis(
     model: SSMModel,
     times: jnp.ndarray,
+    observations: jnp.ndarray | None = None,
     n_draws: int = 8,
     seed: int = 42,
     sweep_context: Stage4bSweepContext | None = None,
@@ -610,12 +741,19 @@ def output_sensitivity_analysis(
         prior_state,
         n_samples=n_draws,
     )
-    prior_z_std, rng_key = sample_prior_unconstrained(rng_key, context.registry, prior_state)
+    prior_std_draws = min(64, max(32, n_draws * 4))
+    prior_z_std, rng_key = sample_prior_unconstrained(
+        rng_key,
+        context.registry,
+        prior_state,
+        n_samples=prior_std_draws,
+    )
     prior_std = jnp.std(prior_z_std, axis=0)  # (P,) per-parameter prior SD
     # Guard against degenerate priors (zero std)
     prior_std = jnp.maximum(prior_std, NUMERICAL_EPSILON)
 
-    N_out = 2 * T_obs * n_manifest
+    output_mask = _build_sensitivity_output_mask(observations)
+    N_out = int(output_mask.sum()) if output_mask is not None else 2 * T_obs * n_manifest
 
     # Helper to extract manifest_cov for a given parameter vector
     def _get_obs_noise_scales(z_0):
@@ -652,10 +790,11 @@ def output_sensitivity_analysis(
     for i in range(n_draws):
         z_0 = prior_z[i]
         S = context.jacobian_fn(z_0, times)  # (N_out, P) sensitivity matrix
+        if output_mask is not None:
+            S = S[output_mask]
 
         # --- Raw SVD ---
-        _U, sv, Vt = jnp.linalg.svd(S, full_matrices=False)
-        V = Vt.T  # (P, rank)
+        sv, V = _spectral_svd_from_gram(S)
         all_sv.append(sv)
         all_col_norms.append(jnp.linalg.norm(S, axis=0))
         all_effective_sv.append(_per_param_effective_sv(V, sv))
@@ -663,10 +802,11 @@ def output_sensitivity_analysis(
         # --- Normalized SVD ---
         # S_norm[i,j] = (prior_std[j] / obs_scale[i]) * S[i,j]
         row_scales = _get_obs_noise_scales(z_0)
+        if output_mask is not None:
+            row_scales = row_scales[output_mask]
         row_scales = jnp.maximum(row_scales, NUMERICAL_EPSILON)
         S_norm = (prior_std[None, :] / row_scales[:, None]) * S
-        _Un, sv_n, Vt_n = jnp.linalg.svd(S_norm, full_matrices=False)
-        V_n = Vt_n.T
+        sv_n, V_n = _spectral_svd_from_gram(S_norm)
         all_norm_effective_sv.append(_per_param_effective_sv(V_n, sv_n))
 
     sv_matrix = jnp.stack(all_sv)  # (n_draws, rank)
@@ -687,6 +827,7 @@ def output_sensitivity_analysis(
     # 6. Classify per-parameter identifiability
     # Raw effective SV: relative 3-decade gap thresholds (Joubert et al.)
     # Normalized effective SV: absolute thresholds (Fisher/prior scaling)
+    interpretable_names = _interpretable_parameter_name_map(model, scalar_names)
     per_param = []
     for k, sname in enumerate(scalar_names):
         norm_k = float(median_col_norms[k])
@@ -712,6 +853,7 @@ def output_sensitivity_analysis(
         per_param.append(
             {
                 "parameter": sname,
+                "interpretable_parameter": interpretable_names[sname],
                 "sensitivity_norm": norm_k,
                 "effective_sv": eff_sv_k,
                 "sv_status": sv_status,
