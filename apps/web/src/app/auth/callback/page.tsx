@@ -1,10 +1,12 @@
 "use client";
 
 import { clearCodeVerifier, getCodeVerifier } from "@/lib/auth";
+import { getAccessibleWorkspacesQueryKey } from "@/lib/api/workspaces";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { use, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function AuthCallbackPage({
   searchParams,
@@ -13,6 +15,7 @@ export default function AuthCallbackPage({
 }) {
   const { code, flow_id: flowId } = use(searchParams);
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const startedRef = useRef(false);
   const validationError = useMemo(() => {
@@ -44,13 +47,17 @@ export default function AuthCallbackPage({
       .then((res) => {
         if (!res.ok) throw new Error("Exchange failed");
         clearCodeVerifier(flowId);
+        queryClient.removeQueries({
+          queryKey: getAccessibleWorkspacesQueryKey(),
+        });
         router.push("/");
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error("Auth exchange failed:", err);
         clearCodeVerifier(flowId);
         setError("Failed to complete authentication. Please start the sign-in flow again.");
       });
-  }, [code, flowId, router, validationError]);
+  }, [code, flowId, queryClient, router, validationError]);
 
   if (!code) {
     return (

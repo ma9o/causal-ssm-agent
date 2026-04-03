@@ -1,4 +1,5 @@
 import type { ObservationRecord, Stage2Data, Stage2PersistedData } from "@causal-ssm/api-types";
+import type { FileMetaData } from "hyparquet";
 
 type ParquetSchemaColumn = {
   name: string;
@@ -26,7 +27,7 @@ async function readRows(
 
   return parquetReadObjects({
     file,
-    metadata: metadata as any,
+    metadata: metadata as unknown as FileMetaData,
     compressors,
     rowStart,
     rowEnd,
