@@ -1,9 +1,6 @@
 import type { Stage4Data } from "@causal-ssm/api-types";
 import type { ModelMessage } from "ai";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import { isRecord } from "@/lib/utils/type-guards";
 
 function isStage4Data(value: unknown): value is Stage4Data {
   return (

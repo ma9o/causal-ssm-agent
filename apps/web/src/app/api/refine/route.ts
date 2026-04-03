@@ -15,12 +15,13 @@ import { NextResponse } from "next/server";
 import { getToolServerUrl } from "@/lib/runtime-urls";
 import { buildRefinementContextMessages } from "@/lib/server/refinement-prompts";
 import { noAccessMessage, resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
-import { readData } from "@/lib/storage";
+import { isStorageNotFoundError, readData } from "@/lib/storage";
 import {
   type RefinementMessageMetadata,
   type RefinementUIMessage,
   traceToModelMessages,
 } from "@/lib/utils/trace-to-core";
+import { isRecord } from "@/lib/utils/type-guards";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 const TOOL_SERVER = getToolServerUrl();
@@ -49,18 +50,16 @@ async function loadTraceContext(
       traceContext: [],
       stageData,
     };
-  } catch {
-    // No trace available — proceed without context
+  } catch (e: unknown) {
+    if (!isStorageNotFoundError(e)) {
+      throw e;
+    }
   }
 
   return {
     traceContext: [],
     stageData: null,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeToolArgsForSchema(

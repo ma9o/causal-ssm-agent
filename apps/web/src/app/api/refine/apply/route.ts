@@ -1,8 +1,9 @@
 import type { LLMTrace } from "@causal-ssm/api-types";
 import { STAGE_IDS } from "@causal-ssm/api-types";
 import { NextResponse } from "next/server";
-import { readData } from "@/lib/storage";
+import { isStorageNotFoundError, readData } from "@/lib/storage";
 import { getToolServerUrl } from "@/lib/runtime-urls";
+import { isRecord } from "@/lib/utils/type-guards";
 import {
   mergePersistedTrace,
   summarizeRefinementMessages,
@@ -11,10 +12,6 @@ import {
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 const TOOL_SERVER = getToolServerUrl();
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * POST /api/refine/apply
@@ -51,10 +48,16 @@ export async function POST(request: Request) {
   let currentStageData: Record<string, unknown>;
   try {
     currentStageData = JSON.parse(await readData(`${safeWorkspaceId}/run/${safeStageId}.json`));
-  } catch {
+  } catch (e: unknown) {
+    if (isStorageNotFoundError(e)) {
+      return NextResponse.json(
+        { error: "Could not read current stage data" },
+        { status: 404 },
+      );
+    }
     return NextResponse.json(
-      { error: "Could not read current stage data" },
-      { status: 404 },
+      { error: `Failed to read stage data: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 500 },
     );
   }
 
