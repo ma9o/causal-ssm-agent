@@ -122,6 +122,10 @@ class SSMSpec:
     drift_mask: np.ndarray | None = None
     # lambda_mask: (n_manifest, n_latent) bool — True where loading is free to sample
     lambda_mask: np.ndarray | None = None
+    # manifest_var_mask: (n_manifest,) bool — True where measurement SD is free
+    # to sample on the diagonal of manifest_var. When None, manifest_var follows
+    # its global mode ("diag"/"free" = all free, fixed ndarray = all fixed).
+    manifest_var_mask: np.ndarray | None = None
 
     # t0_correlation_mask: (n_latent, n_latent) bool — True on lower-triangle
     # positions where an authored initial-state correlation parameter exists.
@@ -515,14 +519,18 @@ class SSMModel:
             )
 
         # Variance (Cholesky)
-        if isinstance(spec.manifest_var, jnp.ndarray):
+        if isinstance(spec.manifest_var, jnp.ndarray) and spec.manifest_var_mask is None:
             manifest_chol = spec.manifest_var
         else:
-            var_diag = numpyro.sample(
-                "manifest_var_diag",
-                dist.HalfNormal(self.priors.manifest_var_diag["sigma"]).expand((n_m,)),
-            )
-            manifest_chol = jnp.diag(var_diag)
+            n_free = len(self._assembler.manifest_var_free_positions)
+            if n_free > 0:
+                var_diag = numpyro.sample(
+                    "manifest_var_diag",
+                    dist.HalfNormal(self.priors.manifest_var_diag["sigma"]).expand((n_free,)),
+                )
+                manifest_chol = self._assembler.assemble_manifest_chol(var_diag)
+            else:
+                manifest_chol = self._assembler.manifest_var_template
 
         numpyro.deterministic("manifest_cov", manifest_chol @ manifest_chol.T)
         return jnp.asarray(manifest_means), jnp.asarray(manifest_chol)

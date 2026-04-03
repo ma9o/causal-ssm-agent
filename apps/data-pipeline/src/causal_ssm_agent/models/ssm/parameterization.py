@@ -389,19 +389,21 @@ def build_site_registry(
             )
         )
 
-    if not isinstance(spec.manifest_var, jnp.ndarray):
-        sites.append(
-            _site(
-                "manifest_var_diag",
-                (n_m,),
-                SupportClass.POSITIVE,
-                "manifest",
-                SiteKind.MANIFEST_VAR_DIAG,
-                deterministic_name="manifest_cov",
-                fixed_spec_field="manifest_var",
-                priors_field="manifest_var_diag",
+    if not (isinstance(spec.manifest_var, jnp.ndarray) and spec.manifest_var_mask is None):
+        n_free = len(assembler.manifest_var_free_positions)
+        if n_free > 0:
+            sites.append(
+                _site(
+                    "manifest_var_diag",
+                    (n_free,),
+                    SupportClass.POSITIVE,
+                    "manifest",
+                    SiteKind.MANIFEST_VAR_DIAG,
+                    deterministic_name="manifest_cov",
+                    fixed_spec_field="manifest_var",
+                    priors_field="manifest_var_diag",
+                )
             )
-        )
 
     if not isinstance(spec.t0_means, jnp.ndarray):
         sites.append(
@@ -636,12 +638,17 @@ def _assemble_diag_to_cov(
     site: SiteDescriptor | None,
     samples: dict[str, jnp.ndarray],
     fixed_chol: jnp.ndarray | None,
+    assembler: SSMAssembler | None,
     n_draws: int,
     dim: int,
 ) -> jnp.ndarray | None:
     """Convert diagonal variance samples to full covariance, or broadcast fixed Cholesky."""
     if site is not None and site.name in samples:
-        return jax.vmap(lambda d: jnp.diag(d**2))(samples[site.name])
+        diag_samples = samples[site.name]
+        if assembler is not None:
+            chol = jax.vmap(assembler.assemble_manifest_chol)(diag_samples)
+            return jax.vmap(lambda ch: ch @ ch.T)(chol)
+        return jax.vmap(lambda d: jnp.diag(d**2))(diag_samples)
     if isinstance(fixed_chol, jnp.ndarray):
         fixed_cov = fixed_chol @ fixed_chol.T
         return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
@@ -758,7 +765,12 @@ def assemble_deterministics_from_registry(
         det["manifest_means"] = _broadcast_fixed(spec.manifest_means, n_draws)
 
     manifest_cov = _assemble_diag_to_cov(
-        by_kind.get(SiteKind.MANIFEST_VAR_DIAG), samples, spec.manifest_var, n_draws, n_m
+        by_kind.get(SiteKind.MANIFEST_VAR_DIAG),
+        samples,
+        spec.manifest_var,
+        assembler,
+        n_draws,
+        n_m,
     )
     if manifest_cov is not None:
         det["manifest_cov"] = manifest_cov

@@ -193,6 +193,58 @@ def build_masks_from_causal_spec(
     return drift_mask, lambda_mat, lambda_mask, edge_lag_days
 
 
+def build_manifest_variance_from_causal_spec(
+    latent_names: list[str] | None,
+    manifest_cols: list[str],
+    *,
+    causal_spec: dict | None,
+) -> tuple[jnp.ndarray | str, np.ndarray | None]:
+    """Build manifest-noise structure from the retained measurement model.
+
+    Single-indicator constructs absorb measurement error into the structural
+    residual, so their manifest channels get fixed zero observation noise.
+    Multi-indicator constructs keep free diagonal manifest noise.
+    """
+    if causal_spec is None or latent_names is None:
+        return "diag", None
+
+    indicators = get_indicators(causal_spec)
+    latent_name_set = set(latent_names)
+    manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
+    manifest_to_construct: dict[str, str] = {}
+    indicators_per_construct: dict[str, int] = {}
+
+    for indicator in indicators:
+        ind_name = indicator.get("name") if isinstance(indicator, dict) else indicator.name
+        construct_name = (
+            indicator.get("construct_name")
+            if isinstance(indicator, dict)
+            else indicator.construct_name
+        )
+        if ind_name not in manifest_idx or construct_name not in latent_name_set:
+            continue
+        manifest_to_construct[ind_name] = construct_name
+        indicators_per_construct[construct_name] = (
+            indicators_per_construct.get(construct_name, 0) + 1
+        )
+
+    if not manifest_to_construct:
+        return "diag", None
+
+    manifest_var_mask = np.ones(len(manifest_cols), dtype=bool)
+    fixed_any = False
+    for manifest_name, construct_name in manifest_to_construct.items():
+        if indicators_per_construct.get(construct_name) == 1:
+            manifest_var_mask[manifest_idx[manifest_name]] = False
+            fixed_any = True
+
+    if not fixed_any:
+        return "diag", None
+
+    manifest_var = np.zeros((len(manifest_cols), len(manifest_cols)), dtype=np.float64)
+    return jnp.array(manifest_var), manifest_var_mask
+
+
 def translate_spec(
     model_spec: ModelSpec | dict,
     causal_spec: dict | None = None,
@@ -284,6 +336,12 @@ def translate_spec(
         lambda_mask = None
         edge_lag_days = {}
 
+    manifest_var, manifest_var_mask = build_manifest_variance_from_causal_spec(
+        latent_names,
+        manifest_cols,
+        causal_spec=causal_spec,
+    )
+
     has_innovation_correlation = any(
         parameter.role == ParameterRole.CORRELATION for parameter in model_spec.parameters
     )
@@ -306,7 +364,7 @@ def translate_spec(
         diffusion=diffusion_mode,
         cint="free",
         manifest_means=None,
-        manifest_var="diag",
+        manifest_var=manifest_var,
         manifest_dist=manifest_dist,
         manifest_dists=manifest_dists,
         manifest_link=manifest_link,
@@ -317,6 +375,7 @@ def translate_spec(
         manifest_names=manifest_cols,
         drift_mask=drift_mask,
         lambda_mask=lambda_mask,
+        manifest_var_mask=manifest_var_mask,
         t0_correlation_mask=t0_correlation_mask,
         time_invariant_mask=time_invariant_mask,
     )
