@@ -464,6 +464,13 @@ def compile_model_artifact(
             authored_priors,
             causal_spec=causal_spec,
         )
+    except Exception as exc:
+        return {
+            "model_built": False,
+            "error": str(exc),
+        }
+
+    try:
         runtime = prepare_model_runtime(data_for_model, compiled_ssm=artifact)
         builder = runtime.builder
         return {
@@ -476,11 +483,13 @@ def compile_model_artifact(
         return {
             "model_built": False,
             "error": "SSM implementation not available",
+            "compiled_ssm": artifact,
         }
     except Exception as exc:
         return {
             "model_built": False,
             "error": str(exc),
+            "compiled_ssm": artifact,
         }
 
 
