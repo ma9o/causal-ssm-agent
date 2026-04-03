@@ -681,6 +681,7 @@ export interface SensitivityAnalysisResult {
  */
 export interface SensitivityEntry {
   parameter: string;
+  interpretable_parameter: string;
   sensitivity_norm: number;
   effective_sv: number;
   sv_status: "pass" | "warn" | "fail";

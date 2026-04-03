@@ -315,7 +315,8 @@ describe("generateMarkdown", () => {
             singular_values: [1.0, 0.5, 0.1],
             per_parameter: [
               {
-                parameter: "rho_x",
+                parameter: "drift_diag_pop[0]",
+                interpretable_parameter: "rho_x",
                 sensitivity_norm: 0.8,
                 effective_sv: 0.5,
                 sv_status: "pass" as const,
@@ -324,7 +325,8 @@ describe("generateMarkdown", () => {
                 identifiable: true,
               },
               {
-                parameter: "sigma_y",
+                parameter: "diffusion_diag_pop[0]",
+                interpretable_parameter: "sigma_y",
                 sensitivity_norm: 0.01,
                 effective_sv: 0.0001,
                 sv_status: "fail" as const,
@@ -341,7 +343,10 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Sensitivity Analysis");
     expect(result).toContain("Condition number");
     expect(result).toContain("42.500");
+    expect(result).toContain("Interpretable Parameter");
+    expect(result).toContain("drift_diag_pop[0]");
     expect(result).toContain("rho_x");
+    expect(result).toContain("diffusion_diag_pop[0]");
     expect(result).toContain("sigma_y");
     expect(result).toContain("Effective SV");
     expect(result).toContain("fail");

@@ -2408,6 +2408,10 @@
           "title": "Parameter",
           "type": "string"
         },
+        "interpretable_parameter": {
+          "title": "Interpretable Parameter",
+          "type": "string"
+        },
         "sensitivity_norm": {
           "title": "Sensitivity Norm",
           "type": "number"
@@ -2446,6 +2450,7 @@
       "required": [
         "effective_sv",
         "identifiable",
+        "interpretable_parameter",
         "normalized_effective_sv",
         "normalized_sv_status",
         "parameter",

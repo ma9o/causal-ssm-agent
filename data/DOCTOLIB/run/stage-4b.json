@@ -39,6 +39,7 @@
       "per_parameter": [
         {
           "parameter": "beta_lipid_inflammation",
+          "interpretable_parameter": "beta_lipid_inflammation",
           "sensitivity_norm": 2.84,
           "effective_sv": 1.93,
           "sv_status": "pass",
@@ -48,6 +49,7 @@
         },
         {
           "parameter": "beta_pressure_cv",
+          "interpretable_parameter": "beta_pressure_cv",
           "sensitivity_norm": 2.31,
           "effective_sv": 1.41,
           "sv_status": "pass",
@@ -57,6 +59,7 @@
         },
         {
           "parameter": "beta_inflammation_cv",
+          "interpretable_parameter": "beta_inflammation_cv",
           "sensitivity_norm": 2.67,
           "effective_sv": 1.93,
           "sv_status": "pass",
@@ -66,6 +69,7 @@
         },
         {
           "parameter": "beta_glycemic_lipid",
+          "interpretable_parameter": "beta_glycemic_lipid",
           "sensitivity_norm": 1.52,
           "effective_sv": 0.87,
           "sv_status": "pass",
@@ -75,6 +79,7 @@
         },
         {
           "parameter": "beta_cv_pressure",
+          "interpretable_parameter": "beta_cv_pressure",
           "sensitivity_norm": 1.89,
           "effective_sv": 1.41,
           "sv_status": "pass",
@@ -84,6 +89,7 @@
         },
         {
           "parameter": "beta_glycemic_inflammation",
+          "interpretable_parameter": "beta_glycemic_inflammation",
           "sensitivity_norm": 1.14,
           "effective_sv": 0.52,
           "sv_status": "pass",
@@ -93,6 +99,7 @@
         },
         {
           "parameter": "rho_cv",
+          "interpretable_parameter": "rho_cv",
           "sensitivity_norm": 3.21,
           "effective_sv": 2.64,
           "sv_status": "pass",
@@ -102,6 +109,7 @@
         },
         {
           "parameter": "rho_lipid",
+          "interpretable_parameter": "rho_lipid",
           "sensitivity_norm": 2.95,
           "effective_sv": 2.64,
           "sv_status": "pass",
@@ -111,6 +119,7 @@
         },
         {
           "parameter": "rho_pressure",
+          "interpretable_parameter": "rho_pressure",
           "sensitivity_norm": 1.73,
           "effective_sv": 0.31,
           "sv_status": "pass",
@@ -120,6 +129,7 @@
         },
         {
           "parameter": "sigma_cv",
+          "interpretable_parameter": "sigma_cv",
           "sensitivity_norm": 0.87,
           "effective_sv": 0.14,
           "sv_status": "pass",
@@ -129,6 +139,7 @@
         },
         {
           "parameter": "sigma_pressure",
+          "interpretable_parameter": "sigma_pressure",
           "sensitivity_norm": 0.09,
           "effective_sv": 0.003,
           "sv_status": "warn",

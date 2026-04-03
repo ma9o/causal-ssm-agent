@@ -198,6 +198,7 @@ class SensitivityEntry(BaseModel):
     """Per-parameter output sensitivity analysis entry."""
 
     parameter: str
+    interpretable_parameter: str
     sensitivity_norm: float
     effective_sv: float
     sv_status: Literal["pass", "warn", "fail"]

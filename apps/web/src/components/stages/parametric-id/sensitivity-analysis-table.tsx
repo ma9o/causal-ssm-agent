@@ -26,6 +26,16 @@ const columns = [
     cell: (info) => <span className="font-medium">{info.getValue()}</span>,
     meta: { mono: true },
   }),
+  col.accessor("interpretable_parameter", {
+    header: () => (
+      <HeaderWithTooltip
+        label="Interpretable Parameter"
+        tooltip="Semantic parameter name resolved from the Stage 4 model specification when available. This maps compiled scalar sites like drift_offdiag_pop[0] back to user-facing parameters like beta_sleep_stress."
+      />
+    ),
+    cell: (info) => <span className="font-medium">{info.getValue()}</span>,
+    meta: { mono: true },
+  }),
   col.accessor("sensitivity_norm", {
     header: () => (
       <HeaderWithTooltip
