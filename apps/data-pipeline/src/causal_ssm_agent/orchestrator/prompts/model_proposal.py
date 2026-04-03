@@ -196,7 +196,11 @@ def format_construct_scale_cards(construct_scale_cards: list[dict]) -> str:
     if not construct_scale_cards:
         return "(none)"
 
-    lines: list[str] = []
+    lines: list[str] = [
+        "- These cards summarize observed indicators attached to each construct.",
+        "- Use them to understand semantics and rough observed scale, but do not copy raw indicator means or `log(mean(indicator))` into latent `t0_mean_*` priors unless the construct is explicitly identified on that observed scale.",
+        "",
+    ]
     for card in construct_scale_cards:
         lines.extend(
             [
@@ -406,6 +410,46 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             )
         lines.append("")
 
+    initial_state_mean_cards = groups.get("initial_state_mean") or []
+    if initial_state_mean_cards:
+        lines.extend(
+            [
+                "#### Initial-State Means",
+                "",
+                "| Parameter | Construct | Constraint |",
+                "|-----------|-----------|------------|",
+            ]
+        )
+        for card in initial_state_mean_cards:
+            lines.append(
+                "| {parameter} | {construct} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct=(card.get("structural_context") or {}).get("construct", "-"),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
+    initial_state_sd_cards = groups.get("initial_state_sd") or []
+    if initial_state_sd_cards:
+        lines.extend(
+            [
+                "#### Initial-State SDs",
+                "",
+                "| Parameter | Construct | Constraint |",
+                "|-----------|-----------|------------|",
+            ]
+        )
+        for card in initial_state_sd_cards:
+            lines.append(
+                "| {parameter} | {construct} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct=(card.get("structural_context") or {}).get("construct", "-"),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
     loading_cards = groups.get("loading") or []
     if loading_cards:
         lines.extend(
@@ -487,6 +531,8 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             "ar_coefficient",
             "fixed_effect",
             "residual_sd",
+            "initial_state_mean",
+            "initial_state_sd",
             "loading",
             "correlation",
             "initial_state_correlation",
@@ -585,6 +631,13 @@ def _render_stage4_guidance_section(
         )
     if section_key == "continuous_time_dynamics":
         return "## Continuous-Time Dynamics\n\n" + DYNAMIC_PRIOR_SCALE_GUIDANCE
+    if section_key == "latent_initial_state_guidance":
+        return (
+            "## Initial-State Scale Discipline\n\n"
+            "- `t0_mean_*` and `t0_sd_*` live on the latent state scale.\n"
+            "- Do not set `t0_mean_*` to the raw reference-indicator mean or `log(mean(indicator))` just because the indicator uses an identity or log link.\n"
+            "- Default to weakly informative latent-scale priors such as `Normal(0, 1)` and `HalfNormal(1)` unless the construct is explicitly identified on an observed scale."
+        )
     if section_key == "dynamics_budget_discipline":
         return (
             "## Dynamics Budget Discipline\n\n"
@@ -778,6 +831,14 @@ def build_stage4_user_prompt(
     if prior_cards:
         sections.append(
             _format_markdown_section("Parameter Prior Cards", format_prior_cards(prior_cards))
+        )
+    if any(
+        card.get("role") in {"initial_state_mean", "initial_state_sd"} for card in prior_cards
+    ):
+        sections.append(
+            "### Initial-State Scale Note\n\n"
+            "- `t0_mean_*` and `t0_sd_*` are latent-state priors.\n"
+            "- Do not anchor them to the raw reference-indicator mean or `log(mean(indicator))` unless the construct is explicitly identified on that observed scale."
         )
 
     submission_parts = ["## Submission Contract\n\n" + submission_example]

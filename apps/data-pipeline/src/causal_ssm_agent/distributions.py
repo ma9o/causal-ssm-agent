@@ -119,7 +119,10 @@ def render_dynamic_prior_scale_guidance() -> str:
         "per observation interval. `beta_*` priors should be authored on the "
         "interval they mean. For lagged `beta_*`, set `reference_interval_days` "
         "when the evidence is on a different interval; otherwise the model interval "
-        "is assumed. The compiler handles interval normalization and CT conversion."
+        "is assumed. The compiler handles interval normalization and CT conversion. "
+        "`t0_mean_*` and `t0_sd_*` live on the latent state scale: do not set them "
+        "to raw reference-indicator means or `log(mean(indicator))` unless the "
+        "construct is explicitly identified on that observed scale."
     )
 
 
@@ -197,6 +200,20 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         count="One per construct",
         constraint="positive",
         ssm_location="Diffusion diagonal",
+    ),
+    ParameterRoleSpec(
+        role="initial_state_mean",
+        symbol="t0_mean",
+        count="One per latent construct",
+        constraint="none",
+        ssm_location="Initial-state mean vector",
+    ),
+    ParameterRoleSpec(
+        role="initial_state_sd",
+        symbol="t0_sd",
+        count="One per latent construct",
+        constraint="positive",
+        ssm_location="Initial-state covariance diagonal",
     ),
     ParameterRoleSpec(
         role="static_state_sd",
@@ -393,6 +410,18 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
     ),
     PriorParameterGuidanceRow("sigma (residual SD)", "HalfNormal(1)", "[0, 5]", "Data scale"),
     PriorParameterGuidanceRow(
+        "t0_mean (initial-state mean)",
+        "Normal(0, 1)",
+        "[-3, 3]",
+        "Latent state scale; do not copy raw indicator means or log-means unless the construct is explicitly identified on that observed scale",
+    ),
+    PriorParameterGuidanceRow(
+        "t0_sd (initial-state SD)",
+        "HalfNormal(1)",
+        "[0, 3]",
+        "Latent state scale",
+    ),
+    PriorParameterGuidanceRow(
         "lambda (loading)",
         "HalfNormal(1) if positive, TruncatedNormal(-1, 0.5, -5, 0) if negative",
         "[-3, 3]",
@@ -403,6 +432,18 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
         "Uniform(-1, 1) or TruncatedNormal(0, 0.3, -1, 1)",
         "[-1, 1]",
         "Innovation correlation",
+    ),
+    PriorParameterGuidanceRow(
+        "t0_mean (initial state mean)",
+        "Normal(0, 1)",
+        "[-5, 5]",
+        "Latent-state scale at the first modeled timepoint",
+    ),
+    PriorParameterGuidanceRow(
+        "t0_sd (initial state SD)",
+        "HalfNormal(1)",
+        "[0, 5]",
+        "Latent-state scale at the first modeled timepoint",
     ),
     PriorParameterGuidanceRow("tau (random SD)", "HalfNormal(0.5)", "[0, 2]", "Data scale"),
 )

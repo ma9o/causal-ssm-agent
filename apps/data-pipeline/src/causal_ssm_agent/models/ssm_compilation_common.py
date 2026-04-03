@@ -32,6 +32,8 @@ PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
 ]
 
 SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
@@ -40,6 +42,8 @@ SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
     "diffusion_diag": "diffusion_diag_pop",
     "diffusion_offdiag": "diffusion_lower",
     "lambda_free": "lambda_free",
+    "t0_means": "t0_means_pop",
+    "t0_var_diag": "t0_var_diag",
     "t0_var_offdiag": "t0_var_lower",
 }
 
@@ -48,6 +52,9 @@ SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "drift_offdiag": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
     "lambda_free": ["lambda", "loading"],
+    "t0_means": ["t0_mean"],
+    "t0_means_pop": ["t0_mean"],
+    "t0_var_diag": ["t0_sd"],
     "t0_var_offdiag": list(INITIAL_STATE_CORRELATION_KEYWORDS),
     "diffusion_offdiag": ["cor"],
 }
@@ -59,7 +66,7 @@ SITE_TO_KEYWORDS["dynamics_stability"] = ["rho", "ar", "sigma", "sd"]
 # cannot be re-elicited.  Used to filter validation failures before mapping
 # them back to user-facing parameter names.
 NUISANCE_SITES: frozenset[str] = frozenset(
-    {"cint_pop", "cint", "t0_means_pop", "t0_means", "t0_var_diag", "t0_cov"}
+    {"cint_pop", "cint", "t0_means", "t0_cov"}
 )
 
 # Validation failure parameters that are global (affect all ModelSpec params).

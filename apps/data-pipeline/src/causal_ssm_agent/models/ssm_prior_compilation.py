@@ -351,6 +351,8 @@ def compile_priors(
         diffusion_diag_param_index,
         diffusion_offdiag_param_index,
         t0_offdiag_param_index,
+        t0_mean_param_index,
+        t0_sd_param_index,
     ) = index_maps
     errors: list[str] = []
 
@@ -436,6 +438,16 @@ def compile_priors(
                 _append_structured_prior(per_element, attr, idx, normalized)
                 continue
 
+            if param_name in t0_mean_param_index:
+                attr, idx = t0_mean_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
+            if param_name in t0_sd_param_index:
+                attr, idx = t0_sd_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
             if param_name in diffusion_offdiag_param_index:
                 attr, idx = diffusion_offdiag_param_index[param_name]
                 _append_structured_prior(per_element, attr, idx, normalized)
@@ -508,6 +520,8 @@ def bind_parameters(
         diffusion_diag_index,
         diffusion_offdiag_index,
         t0_offdiag_index,
+        t0_mean_index,
+        t0_sd_index,
     ) = index_maps
 
     bindings: list[dict[str, Any]] = []
@@ -515,6 +529,8 @@ def bind_parameters(
         diag_index,
         offdiag_index,
         diffusion_diag_index,
+        t0_mean_index,
+        t0_sd_index,
         diffusion_offdiag_index,
         t0_offdiag_index,
         lambda_index,

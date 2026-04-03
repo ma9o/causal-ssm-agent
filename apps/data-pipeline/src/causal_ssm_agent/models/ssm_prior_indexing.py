@@ -37,6 +37,8 @@ def build_prior_index_maps(
     diffusion_diag_index: dict[str, tuple[str, int]] = {}
     diffusion_offdiag_index: dict[str, tuple[str, int]] = {}
     t0_offdiag_index: dict[str, tuple[str, int]] = {}
+    t0_mean_index: dict[str, tuple[str, int]] = {}
+    t0_sd_index: dict[str, tuple[str, int]] = {}
 
     if ssm_spec is None or not model_spec:
         return (
@@ -46,6 +48,8 @@ def build_prior_index_maps(
             diffusion_diag_index,
             diffusion_offdiag_index,
             t0_offdiag_index,
+            t0_mean_index,
+            t0_sd_index,
         )
 
     if isinstance(model_spec, dict):
@@ -60,6 +64,8 @@ def build_prior_index_maps(
             diffusion_diag_index,
             diffusion_offdiag_index,
             t0_offdiag_index,
+            t0_mean_index,
+            t0_sd_index,
         )
 
     latent_names = ssm_spec.latent_names or []
@@ -89,6 +95,30 @@ def build_prior_index_maps(
         elif strict_structure:
             errors.append(
                 "RESIDUAL_SD parameter does not reference a construct in causal_spec: "
+                f"{parameter.name!r} not in {sorted(latent_idx_map)}"
+            )
+
+    for parameter in spec_obj.parameters:
+        if parameter.role != ParameterRole.INITIAL_STATE_MEAN:
+            continue
+        construct = parameter.name.removeprefix("t0_mean_")
+        if construct in latent_idx_map:
+            t0_mean_index[parameter.name] = ("t0_means", latent_idx_map[construct])
+        elif strict_structure:
+            errors.append(
+                "INITIAL_STATE_MEAN parameter does not reference a construct in causal_spec: "
+                f"{parameter.name!r} not in {sorted(latent_idx_map)}"
+            )
+
+    for parameter in spec_obj.parameters:
+        if parameter.role != ParameterRole.INITIAL_STATE_SD:
+            continue
+        construct = parameter.name.removeprefix("t0_sd_")
+        if construct in latent_idx_map:
+            t0_sd_index[parameter.name] = ("t0_var_diag", latent_idx_map[construct])
+        elif strict_structure:
+            errors.append(
+                "INITIAL_STATE_SD parameter does not reference a construct in causal_spec: "
                 f"{parameter.name!r} not in {sorted(latent_idx_map)}"
             )
 
@@ -239,4 +269,6 @@ def build_prior_index_maps(
         diffusion_diag_index,
         diffusion_offdiag_index,
         t0_offdiag_index,
+        t0_mean_index,
+        t0_sd_index,
     )

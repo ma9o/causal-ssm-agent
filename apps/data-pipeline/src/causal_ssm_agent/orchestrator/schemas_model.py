@@ -36,6 +36,8 @@ class ParameterRole(StrEnum):
     FIXED_EFFECT = "fixed_effect"  # Beta coefficients for causal effects
     AR_COEFFICIENT = "ar_coefficient"  # DT persistence rho for autoregressive terms
     RESIDUAL_SD = "residual_sd"  # Sigma for residual variance
+    INITIAL_STATE_MEAN = "initial_state_mean"  # Mean of the latent initial state
+    INITIAL_STATE_SD = "initial_state_sd"  # SD of the latent initial state
     STATIC_STATE_SD = "static_state_sd"  # Scale for quasi-constant latent states
     CORRELATION = "correlation"  # Correlation between latent innovations
     INITIAL_STATE_CORRELATION = (
