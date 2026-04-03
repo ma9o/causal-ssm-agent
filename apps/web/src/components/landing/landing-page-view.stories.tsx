@@ -8,6 +8,7 @@ const meta = {
   component: LandingPageView,
   args: {
     access: {
+      authScope: "anonymous",
       mode: "anonymous" as const,
       canRun: true as const,
       creditStatus: "available" as const,
@@ -44,21 +45,26 @@ export const Default: Story = {};
 /** User has signed in with OpenRouter. */
 export const SignedIn: Story = {
   args: {
-    access: { mode: "user", canRun: true },
+    access: { authScope: "user:story-user", mode: "user", canRun: true },
   },
 };
 
 /** Local development uses the server key directly and hides BYOK auth controls. */
 export const LocalMode: Story = {
   args: {
-    access: { mode: "local", canRun: true },
+    access: { authScope: "local", mode: "local", canRun: true },
   },
 };
 
 /** No access — submit blocked, sign-in CTA prominent. */
 export const NoAccess: Story = {
   args: {
-    access: { mode: "none", canRun: false, reason: "anonymous_exhausted" },
+    access: {
+      authScope: "none:anonymous_exhausted",
+      mode: "none",
+      canRun: false,
+      reason: "anonymous_exhausted",
+    },
     noAccess: true,
   },
 };

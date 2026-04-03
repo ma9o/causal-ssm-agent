@@ -147,13 +147,23 @@ export async function resolveOpenRouterAccess(): Promise<ResolvedOpenRouterAcces
 export function toAccessStatus(access: ResolvedOpenRouterAccess): AccessStatus {
   switch (access.mode) {
     case "local":
-      return { mode: "local", canRun: true };
+      return { authScope: "local", mode: "local", canRun: true };
     case "user":
-      return { mode: "user", canRun: true };
+      return { authScope: `user:${access.userId}`, mode: "user", canRun: true };
     case "anonymous":
-      return { mode: "anonymous", canRun: true, creditStatus: access.creditStatus };
+      return {
+        authScope: "anonymous",
+        mode: "anonymous",
+        canRun: true,
+        creditStatus: access.creditStatus,
+      };
     case "none":
-      return { mode: "none", canRun: false, reason: access.reason };
+      return {
+        authScope: `none:${access.reason}`,
+        mode: "none",
+        canRun: false,
+        reason: access.reason,
+      };
   }
 }
 
