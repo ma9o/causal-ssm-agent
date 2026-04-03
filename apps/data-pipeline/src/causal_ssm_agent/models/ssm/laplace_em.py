@@ -26,6 +26,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.kernels import compile_measurement_semantics
 from causal_ssm_agent.models.likelihoods.trajectory_observations import (
     accumulate_support_statistics,
@@ -47,6 +48,8 @@ if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+
+logger = get_prefect_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -465,43 +468,47 @@ def _ieks_smooth(
 
     def _ieks_body(_, z_est):
         """Single IEKS iteration: linearize emissions and solve the normal equations."""
-        # Linearize emissions around current state estimates
-        grads_and_hess = jax.vmap(_emission_grad_hess)(observations, z_est, obs_mask_float)
-        grads = grads_and_hess[0]  # (T, D)
-        J_t = grads_and_hess[1]  # (T, D, D) negative Hessian
+        with jax.named_scope("laplace_em/ieks_linearize"):
+            grads_and_hess = jax.vmap(_emission_grad_hess)(observations, z_est, obs_mask_float)
+            grads = grads_and_hess[0]  # (T, D)
+            J_t = grads_and_hess[1]  # (T, D, D) negative Hessian
 
-        # Pseudo-observations in information form
-        tilde_y = jax.vmap(lambda J, z, g: J @ z + g)(J_t, z_est, grads)
-        lower, diag, upper, rhs = _build_ieks_system(
+        with jax.named_scope("laplace_em/ieks_build_system"):
+            tilde_y = jax.vmap(lambda J, z, g: J @ z + g)(J_t, z_est, grads)
+            lower, diag, upper, rhs = _build_ieks_system(
+                Ad,
+                Qd,
+                cd_scan,
+                init_mean,
+                init_cov,
+                J_t,
+                tilde_y,
+            )
+
+        with jax.named_scope("laplace_em/ieks_solve_system"):
+            return _solve_block_tridiagonal(lower, diag, upper, rhs)
+
+    with jax.named_scope("laplace_em/ieks_iterations"):
+        z_est = jax.lax.fori_loop(0, n_ieks_iters, _ieks_body, z_est)
+    z_smooth = z_est
+
+    # Compute approximate log-likelihood via prediction error decomposition
+    # Sum of log p(y_t | y_{1:t-1}, theta) from the final filter pass
+    with jax.named_scope("laplace_em/ieks_log_likelihood"):
+        log_lik = _compute_laplace_log_lik(
+            observations,
+            obs_mask,
+            z_smooth,
             Ad,
             Qd,
             cd_scan,
             init_mean,
             init_cov,
-            J_t,
-            tilde_y,
+            obs_kernel,
+            H,
+            d,
+            R,
         )
-        return _solve_block_tridiagonal(lower, diag, upper, rhs)
-
-    z_est = jax.lax.fori_loop(0, n_ieks_iters, _ieks_body, z_est)
-    z_smooth = z_est
-
-    # Compute approximate log-likelihood via prediction error decomposition
-    # Sum of log p(y_t | y_{1:t-1}, theta) from the final filter pass
-    log_lik = _compute_laplace_log_lik(
-        observations,
-        obs_mask,
-        z_smooth,
-        Ad,
-        Qd,
-        cd_scan,
-        init_mean,
-        init_cov,
-        obs_kernel,
-        H,
-        d,
-        R,
-    )
 
     return z_smooth, log_lik
 
@@ -541,9 +548,10 @@ def _compute_laplace_log_lik(
     def _emission_grad_hess(y_t, z_t, mask_t):
         return obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
 
-    all_grads_hess = jax.vmap(_emission_grad_hess)(observations, z_smooth, mask_float)
-    grads = all_grads_hess[0]  # (T, D)
-    J_t = all_grads_hess[1]  # (T, D, D) — emission info matrices
+    with jax.named_scope("laplace_em/loglik_linearize"):
+        all_grads_hess = jax.vmap(_emission_grad_hess)(observations, z_smooth, mask_float)
+        grads = all_grads_hess[0]  # (T, D)
+        J_t = all_grads_hess[1]  # (T, D, D) — emission info matrices
 
     def _step_ll(y_t, mask_t, z_pred, P_pred, J_obs, grad_obs, z_lin):
         """Single-step Laplace log-likelihood contribution.
@@ -603,20 +611,21 @@ def _compute_laplace_log_lik(
 
         return (z_filt, P_filt), ll_t
 
-    _, ll_rest = jax.lax.scan(
-        _forward_ll_step,
-        (z_filt_0, P_filt_0),
-        (
-            Ad[1:],
-            Qd[1:],
-            cd[1:],
-            z_smooth[1:],
-            J_t[1:],
-            grads[1:],
-            observations[1:],
-            mask_float[1:],
-        ),
-    )
+    with jax.named_scope("laplace_em/loglik_forward_pass"):
+        _, ll_rest = jax.lax.scan(
+            _forward_ll_step,
+            (z_filt_0, P_filt_0),
+            (
+                Ad[1:],
+                Qd[1:],
+                cd[1:],
+                z_smooth[1:],
+                J_t[1:],
+                grads[1:],
+                observations[1:],
+                mask_float[1:],
+            ),
+        )
 
     # Return (T,) cumulative log-normalizing constants matching LikelihoodBackend protocol.
     ll_all = jnp.concatenate([jnp.array([ll_0]), ll_rest])
@@ -825,7 +834,39 @@ def _support_aware_ieks_log_lik(
     T, D = observations.shape[0], init_mean.shape[0]
 
     z_est = jnp.broadcast_to(init_mean, (T, D)).copy()
-    for _ in range(max(n_ieks_iters, 1)):
+    with jax.named_scope("laplace_em/support_aware_newton"):
+        for _ in range(max(n_ieks_iters, 1)):
+            with jax.named_scope("laplace_em/support_aware_prior_system"):
+                prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
+                    Ad,
+                    Qd,
+                    cd,
+                    init_mean,
+                    init_cov,
+                    bandwidth,
+                )
+            with jax.named_scope("laplace_em/support_aware_observation_system"):
+                obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
+                    z_est,
+                    observations,
+                    obs_mask,
+                    H,
+                    d,
+                    R,
+                    obs_kernel,
+                    mean_log_prob_fn,
+                    observation_support,
+                    support_groups,
+                    bandwidth,
+                )
+            system_diag = prior_diag + obs_diag
+            system_upper = prior_upper + obs_upper
+            system_rhs = prior_rhs + obs_rhs
+            with jax.named_scope("laplace_em/support_aware_solve"):
+                chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
+                z_est = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+
+    with jax.named_scope("laplace_em/support_aware_final_hessian"):
         prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
             Ad,
             Qd,
@@ -850,49 +891,23 @@ def _support_aware_ieks_log_lik(
         system_diag = prior_diag + obs_diag
         system_upper = prior_upper + obs_upper
         system_rhs = prior_rhs + obs_rhs
-        chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
-        z_est = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
-
-    prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
-        Ad,
-        Qd,
-        cd,
-        init_mean,
-        init_cov,
-        bandwidth,
-    )
-    obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
-        z_est,
-        observations,
-        obs_mask,
-        H,
-        d,
-        R,
-        obs_kernel,
-        mean_log_prob_fn,
-        observation_support,
-        support_groups,
-        bandwidth,
-    )
-    system_diag = prior_diag + obs_diag
-    system_upper = prior_upper + obs_upper
-    system_rhs = prior_rhs + obs_rhs
-    chol_diag, _lower = _factor_block_banded_cholesky(system_diag, system_upper)
+        chol_diag, _lower = _factor_block_banded_cholesky(system_diag, system_upper)
 
     flat_dim = T * D
-    mode_log_joint = _trajectory_prior_log_prob(z_est, Ad, Qd, cd, init_mean, init_cov) + (
-        trajectory_observation_log_prob(
-            z_est,
-            observations,
-            obs_mask,
-            H,
-            d,
-            R,
-            obs_kernel,
-            mean_log_prob_fn,
-            observation_support,
+    with jax.named_scope("laplace_em/support_aware_mode_log_joint"):
+        mode_log_joint = _trajectory_prior_log_prob(z_est, Ad, Qd, cd, init_mean, init_cov) + (
+            trajectory_observation_log_prob(
+                z_est,
+                observations,
+                obs_mask,
+                H,
+                d,
+                R,
+                obs_kernel,
+                mean_log_prob_fn,
+                observation_support,
+            )
         )
-    )
     return (
         mode_log_joint
         + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi)
@@ -934,7 +949,8 @@ def _dense_support_laplace_log_lik(
         _, z_rest = jax.lax.scan(_step, z0, (Ad[1:], cd[1:]))
         return jnp.concatenate([z0[None], z_rest], axis=0)
 
-    z_init = _predictive_init()
+    with jax.named_scope("laplace_em/dense_support_init"):
+        z_init = _predictive_init()
 
     def _joint_log_prob(z_flat):
         z = z_flat.reshape(T, D)
@@ -956,18 +972,20 @@ def _dense_support_laplace_log_lik(
         return -_joint_log_prob(z_flat)
 
     z_flat = z_init.reshape(-1)
-    for _ in range(max(n_newton_iters, 1)):
-        grad = jax.grad(_neg_log_prob)(z_flat)
-        hess = jax.hessian(_neg_log_prob)(z_flat)
-        hess = 0.5 * (hess + hess.T) + 1e-4 * eye
-        step = jla.solve(hess, grad, assume_a="sym")
-        z_flat = z_flat - 0.5 * step
+    with jax.named_scope("laplace_em/dense_support_newton"):
+        for _ in range(max(n_newton_iters, 1)):
+            grad = jax.grad(_neg_log_prob)(z_flat)
+            hess = jax.hessian(_neg_log_prob)(z_flat)
+            hess = 0.5 * (hess + hess.T) + 1e-4 * eye
+            step = jla.solve(hess, grad, assume_a="sym")
+            z_flat = z_flat - 0.5 * step
 
-    mode_log_joint = _joint_log_prob(z_flat)
-    hess = jax.hessian(_neg_log_prob)(z_flat)
-    hess = 0.5 * (hess + hess.T)
-    eigvals = jnp.linalg.eigvalsh(hess)
-    logdet = jnp.sum(jnp.log(jnp.maximum(eigvals, 1e-6)))
+    with jax.named_scope("laplace_em/dense_support_curvature"):
+        mode_log_joint = _joint_log_prob(z_flat)
+        hess = jax.hessian(_neg_log_prob)(z_flat)
+        hess = 0.5 * (hess + hess.T)
+        eigvals = jnp.linalg.eigvalsh(hess)
+        logdet = jnp.sum(jnp.log(jnp.maximum(eigvals, 1e-6)))
     return mode_log_joint + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi) - 0.5 * logdet
 
 
@@ -1034,9 +1052,13 @@ class LaplaceLikelihood:
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
 
         # Pre-discretize CT -> DT
-        Ad, Qd, cd = discretize_system_batched(
-            ct_params.drift, ct_params.diffusion_cov, ct_params.cint, time_intervals
-        )
+        with jax.named_scope("laplace_em/discretize_system"):
+            Ad, Qd, cd = discretize_system_batched(
+                ct_params.drift,
+                ct_params.diffusion_cov,
+                ct_params.cint,
+                time_intervals,
+            )
         if cd is None:
             cd = jnp.zeros((len(time_intervals), n))
         else:
@@ -1044,14 +1066,15 @@ class LaplaceLikelihood:
             if cd.ndim == 1:
                 cd = cd[:, None]
 
-        measurement_semantics = compile_measurement_semantics(
-            self.manifest_dists[0],
-            manifest_cov=measurement_params.manifest_cov,
-            extra_params=extra_params,
-            manifest_dists=self.manifest_dists,
-            manifest_links=self.manifest_links,
-            observation_support=self.observation_support,
-        )
+        with jax.named_scope("laplace_em/compile_measurement_semantics"):
+            measurement_semantics = compile_measurement_semantics(
+                self.manifest_dists[0],
+                manifest_cov=measurement_params.manifest_cov,
+                extra_params=extra_params,
+                manifest_dists=self.manifest_dists,
+                manifest_links=self.manifest_links,
+                observation_support=self.observation_support,
+            )
         obs_kernel = measurement_semantics.obs_kernel
 
         if (
@@ -1062,7 +1085,25 @@ class LaplaceLikelihood:
                 n_time=clean_obs.shape[0],
                 n_latent=self.n_latent,
             ):
-                return _dense_support_laplace_log_lik(
+                with jax.named_scope("laplace_em/dense_support_backend"):
+                    return _dense_support_laplace_log_lik(
+                        clean_obs,
+                        obs_mask,
+                        Ad,
+                        Qd,
+                        cd,
+                        measurement_params.lambda_mat,
+                        measurement_params.manifest_means,
+                        measurement_params.manifest_cov,
+                        initial_state.mean,
+                        initial_state.cov,
+                        obs_kernel,
+                        measurement_semantics.mean_log_prob_fn,
+                        self.observation_support,
+                        self.n_ieks_iters,
+                    )
+            with jax.named_scope("laplace_em/support_aware_backend"):
+                return _support_aware_ieks_log_lik(
                     clean_obs,
                     obs_mask,
                     Ad,
@@ -1076,9 +1117,13 @@ class LaplaceLikelihood:
                     obs_kernel,
                     measurement_semantics.mean_log_prob_fn,
                     self.observation_support,
+                    self._support_groups,
+                    self._support_bandwidth,
                     self.n_ieks_iters,
                 )
-            return _support_aware_ieks_log_lik(
+
+        with jax.named_scope("laplace_em/ieks_backend"):
+            _, log_lik = _ieks_smooth(
                 clean_obs,
                 obs_mask,
                 Ad,
@@ -1090,27 +1135,8 @@ class LaplaceLikelihood:
                 initial_state.mean,
                 initial_state.cov,
                 obs_kernel,
-                measurement_semantics.mean_log_prob_fn,
-                self.observation_support,
-                self._support_groups,
-                self._support_bandwidth,
-                self.n_ieks_iters,
+                n_ieks_iters=self.n_ieks_iters,
             )
-
-        _, log_lik = _ieks_smooth(
-            clean_obs,
-            obs_mask,
-            Ad,
-            Qd,
-            cd,
-            measurement_params.lambda_mat,
-            measurement_params.manifest_means,
-            measurement_params.manifest_cov,
-            initial_state.mean,
-            initial_state.cov,
-            obs_kernel,
-            n_ieks_iters=self.n_ieks_iters,
-        )
 
         return log_lik
 
@@ -1147,28 +1173,46 @@ def fit_laplace_em(
     If the model has an explicit likelihood override (e.g. likelihood="kalman"),
     that backend is used instead of the Laplace approximation.
     """
-    if model.likelihood == "kalman":
-        backend = model.make_likelihood_backend()
-    else:
-        backend = model.make_laplace_backend(n_ieks_iters)
-    return run_tempered_smc(
-        model,
-        observations,
-        times,
-        n_outer=n_outer,
-        n_csmc_particles=n_csmc_particles,
-        n_mh_steps=n_mh_steps,
-        param_step_size=param_step_size,
-        n_warmup=n_warmup,
-        target_accept=target_accept,
-        seed=seed,
-        adaptive_tempering=adaptive_tempering,
-        target_ess_ratio=target_ess_ratio,
-        waste_free=waste_free,
-        n_leapfrog=n_leapfrog,
-        method_name="laplace_em",
-        likelihood_backend=backend,
-        extra_diagnostics={"n_ieks_iters": n_ieks_iters, "likelihood_backend": backend},
-        print_prefix="Laplace-EM",
-        reparam=reparam,
+    backend_label = "kalman" if model.likelihood == "kalman" else "laplace_ieks"
+    logger.info(
+        "Laplace-EM config: backend=%s n_outer=%s n_particles=%s n_mh=%s "
+        "n_leapfrog=%s n_ieks_iters=%s adaptive_tempering=%s target_ess_ratio=%.2f "
+        "waste_free=%s n_warmup=%s",
+        backend_label,
+        n_outer,
+        n_csmc_particles,
+        n_mh_steps,
+        n_leapfrog,
+        n_ieks_iters,
+        adaptive_tempering,
+        target_ess_ratio,
+        waste_free,
+        n_warmup if n_warmup is not None else 5,
     )
+    with jax.profiler.TraceAnnotation("laplace_em/build_likelihood_backend"):
+        if model.likelihood == "kalman":
+            backend = model.make_likelihood_backend()
+        else:
+            backend = model.make_laplace_backend(n_ieks_iters)
+    with jax.profiler.TraceAnnotation("laplace_em/run_tempered_smc"):
+        return run_tempered_smc(
+            model,
+            observations,
+            times,
+            n_outer=n_outer,
+            n_csmc_particles=n_csmc_particles,
+            n_mh_steps=n_mh_steps,
+            param_step_size=param_step_size,
+            n_warmup=n_warmup,
+            target_accept=target_accept,
+            seed=seed,
+            adaptive_tempering=adaptive_tempering,
+            target_ess_ratio=target_ess_ratio,
+            waste_free=waste_free,
+            n_leapfrog=n_leapfrog,
+            method_name="laplace_em",
+            likelihood_backend=backend,
+            extra_diagnostics={"n_ieks_iters": n_ieks_iters, "likelihood_backend": backend},
+            print_prefix="Laplace-EM",
+            reparam=reparam,
+        )
