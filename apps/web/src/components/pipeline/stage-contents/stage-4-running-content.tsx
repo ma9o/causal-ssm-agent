@@ -56,6 +56,12 @@ interface Stage4LayoutResult {
   height: number;
 }
 
+interface Stage4DetailFormatOptions {
+  maxArrayItems?: number;
+  maxParamEntries?: number;
+  maxBundleItems?: number;
+}
+
 const nodeTypes: NodeTypes = {
   stage4Block: Stage4BlockNode,
 };
@@ -63,7 +69,7 @@ const edgeTypes: EdgeTypes = {
   stage4Section: Stage4SectionEdge,
 };
 
-function formatStage4Value(value: unknown): string {
+function formatStage4Value(value: unknown, options: Stage4DetailFormatOptions = {}): string {
   if (typeof value === "boolean") return value ? "true" : "false";
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return String(value);
@@ -73,8 +79,12 @@ function formatStage4Value(value: unknown): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
   }
   if (Array.isArray(value)) {
-    const preview = value.slice(0, 3).map((item) => formatStage4Value(item)).join(", ");
-    return `[${preview}${value.length > 3 ? ", ..." : ""}]`;
+    const maxArrayItems = options.maxArrayItems ?? value.length;
+    const preview = value
+      .slice(0, maxArrayItems)
+      .map((item) => formatStage4Value(item, options))
+      .join(", ");
+    return `[${preview}${value.length > maxArrayItems ? ", ..." : ""}]`;
   }
   if (value === null) return "null";
   if (value === undefined) return "";
@@ -84,16 +94,23 @@ function formatStage4Value(value: unknown): string {
 function formatStage4DistributionCall(
   distribution?: string,
   params?: Record<string, unknown>,
+  options: Stage4DetailFormatOptions = {},
 ): string {
   if (!distribution) return "";
   if (!params || Object.keys(params).length === 0) return distribution;
-  const entries = Object.entries(params).slice(0, 3);
-  const rendered = entries.map(([key, value]) => `${key}=${formatStage4Value(value)}`).join(", ");
-  const suffix = Object.keys(params).length > 3 ? ", ..." : "";
+  const maxParamEntries = options.maxParamEntries ?? Object.keys(params).length;
+  const entries = Object.entries(params).slice(0, maxParamEntries);
+  const rendered = entries
+    .map(([key, value]) => `${key}=${formatStage4Value(value, options)}`)
+    .join(", ");
+  const suffix = Object.keys(params).length > maxParamEntries ? ", ..." : "";
   return `${distribution}(${rendered}${suffix})`;
 }
 
-function formatStage4LastBlockStateDetail(lastState: Stage4BlockLastState | undefined): string {
+function formatStage4LastBlockStateDetail(
+  lastState: Stage4BlockLastState | undefined,
+  options: Stage4DetailFormatOptions = {},
+): string {
   if (!lastState) return "";
   switch (lastState.detail_kind) {
     case "revision":
@@ -112,16 +129,17 @@ function formatStage4LastBlockStateDetail(lastState: Stage4BlockLastState | unde
       const priors = lastState.priors ?? [];
       if (priors.length === 0) return "";
       const single = priors.length === 1;
+      const maxBundleItems = options.maxBundleItems ?? priors.length;
       const preview = priors
-        .slice(0, 2)
+        .slice(0, maxBundleItems)
         .map((prior) => {
-          const call = formatStage4DistributionCall(prior.distribution, prior.params);
+          const call = formatStage4DistributionCall(prior.distribution, prior.params, options);
           return single ? call : `${prior.parameter} ~ ${call}`;
         })
         .filter((value) => value.length > 0)
         .join("; ");
       if (!preview) return "";
-      return priors.length > 2 ? `${preview}; +${priors.length - 2} more` : preview;
+      return priors.length > maxBundleItems ? `${preview}; +${priors.length - maxBundleItems} more` : preview;
     }
     default:
       return "";
@@ -158,14 +176,22 @@ function buildSectionSummaries(
     const activeNode = currentNodeId ? byId.get(currentNodeId) : null;
     const activeInSection = Boolean(activeNode && getStage4SectionId(activeNode.kind) === section.id);
 
-    const statusItems = logicalNodes.map((node) => ({
-      id: node.id,
-      label: node.label,
-      status: (snapshot?.block_status[node.id] ?? "pending") as Stage4BlockStatus,
-      isActive: node.id === currentNodeId,
-      inRepairScope: repairScopeIds.has(node.id),
-      detailText: formatStage4LastBlockStateDetail(lastBlockStateById[node.id]),
-    }));
+    const statusItems = logicalNodes.map((node) => {
+      const lastState = lastBlockStateById[node.id];
+      return {
+        id: node.id,
+        label: node.label,
+        status: (snapshot?.block_status[node.id] ?? "pending") as Stage4BlockStatus,
+        isActive: node.id === currentNodeId,
+        inRepairScope: repairScopeIds.has(node.id),
+        detailText: formatStage4LastBlockStateDetail(lastState, {
+          maxArrayItems: 3,
+          maxParamEntries: 3,
+          maxBundleItems: 2,
+        }),
+        tooltipDetailText: formatStage4LastBlockStateDetail(lastState),
+      };
+    });
 
     const totalCount = logicalNodes.length;
     const acceptedCount = statusItems.filter((item) => item.status === "accepted").length;
