@@ -433,131 +433,157 @@ def _check_scale_plausibility(
 ) -> list[PriorValidationResult]:
     """Check implied observation scale vs data scale.
 
-    For a subsample of draws, compute stationary covariance analytically:
-      solve_lyapunov(drift, diffusion @ diffusion.T) -> Sigma_inf
-      implied_obs_cov = lambda @ Sigma_inf @ lambda.T + manifest_cov
-
-    Compare sqrt(diag(implied_obs_cov)) to data std per indicator.
+    This diagnostic is defined on sampled observations. A successful prior
+    predictive run should always provide manifest draws, so missing or malformed
+    observation arrays are treated as harness errors rather than silently
+    approximating scale from latent stationary covariance.
     """
     from causal_ssm_agent.models.ssm.discretization import solve_lyapunov
 
     results = []
 
-    if "drift" not in samples or "diffusion" not in samples:
-        return results
-
-    drift_samples = np.asarray(samples["drift"])
-    diffusion_samples = np.asarray(samples["diffusion"])
-
-    # Get lambda and manifest_cov if available
-    lambda_samples = np.asarray(samples.get("lambda")) if "lambda" in samples else None
-    manifest_cov_samples = (
-        np.asarray(samples.get("manifest_cov")) if "manifest_cov" in samples else None
-    )
-
-    n_total = drift_samples.shape[0]
-    idx = np.random.default_rng(42).choice(n_total, size=min(n_subsample, n_total), replace=False)
-
-    implied_stds_list = []
-    n_unstable = 0
-    unstable_indices: list[int] = []
-
-    for i in idx:
-        drift_i = jnp.array(drift_samples[i])
-        diff_i = jnp.array(diffusion_samples[i])
-        diff_cov_i = diff_i @ diff_i.T
-
-        # Explicit stability check before attempting Lyapunov solve
-        eigvals = jnp.linalg.eigvals(drift_i)
-        max_real = float(jnp.max(jnp.real(eigvals)))
-        if max_real >= 0:
-            logger.debug(
-                "Unstable drift draw %d (max real eigenvalue=%.4f, eigenvalue range=[%.4f, %.4f])",
-                i,
-                max_real,
-                float(jnp.min(jnp.real(eigvals))),
-                max_real,
+    observations = samples.get("observations")
+    observation_mask = samples.get("observations_mask")
+    if observations is None:
+        return [
+            _pp_result(
+                parameter="prior_predictive",
+                is_valid=False,
+                code="prior_predictive_missing_observations",
+                issue="Prior predictive samples are missing `observations` after sampling",
+                suggested_adjustment=(
+                    "Treat this as a harness error: prior predictive sampling must "
+                    "populate manifest observation draws before scale validation"
+                ),
+                failure_stage="observation_sample",
+                bad_sample_sites=["observations"],
             )
-            n_unstable += 1
-            unstable_indices.append(int(i))
-            continue
+        ]
 
-        try:
-            sigma_inf = solve_lyapunov(drift_i, diff_cov_i)
-            sigma_inf_np = np.asarray(sigma_inf)
+    obs = np.asarray(observations)
+    if obs.ndim != 3 or obs.shape[2] != len(manifest_names):
+        return [
+            _pp_result(
+                parameter="prior_predictive",
+                is_valid=False,
+                code="prior_predictive_malformed_observations",
+                issue=(
+                    "Prior predictive samples contain malformed `observations` with "
+                    f"shape {obs.shape}; expected (draw, time, manifest={len(manifest_names)})"
+                ),
+                suggested_adjustment=(
+                    "Treat this as a harness error: prior predictive sampling must "
+                    "emit a manifest-aligned observation tensor"
+                ),
+                failure_stage="observation_sample",
+                bad_sample_sites=["observations"],
+            )
+        ]
 
-            # Check stability: Sigma_inf should be positive semi-definite
-            if np.any(np.isnan(sigma_inf_np)) or np.any(np.diag(sigma_inf_np) < 0):
+    if "drift" in samples and "diffusion" in samples:
+        drift_samples = np.asarray(samples["drift"])
+        diffusion_samples = np.asarray(samples["diffusion"])
+        n_total = drift_samples.shape[0]
+        idx = np.random.default_rng(42).choice(
+            n_total,
+            size=min(n_subsample, n_total),
+            replace=False,
+        )
+        n_unstable = 0
+        unstable_indices: list[int] = []
+        for i in idx:
+            drift_i = jnp.array(drift_samples[i])
+            diff_i = jnp.array(diffusion_samples[i])
+            diff_cov_i = diff_i @ diff_i.T
+
+            eigvals = jnp.linalg.eigvals(drift_i)
+            max_real = float(jnp.max(jnp.real(eigvals)))
+            if max_real >= 0:
+                logger.debug(
+                    "Unstable drift draw %d (max real eigenvalue=%.4f, eigenvalue range=[%.4f, %.4f])",
+                    i,
+                    max_real,
+                    float(jnp.min(jnp.real(eigvals))),
+                    max_real,
+                )
                 n_unstable += 1
                 unstable_indices.append(int(i))
                 continue
 
-            # Compute implied observation covariance
-            if lambda_samples is not None:
-                lam = jnp.array(lambda_samples[i] if lambda_samples.ndim == 3 else lambda_samples)
-            else:
-                lam = jnp.eye(drift_i.shape[0])
+            try:
+                sigma_inf = solve_lyapunov(drift_i, diff_cov_i)
+                sigma_inf_np = np.asarray(sigma_inf)
+                if np.any(np.isnan(sigma_inf_np)) or np.any(np.diag(sigma_inf_np) < 0):
+                    n_unstable += 1
+                    unstable_indices.append(int(i))
+                    continue
+            except Exception:
+                logger.debug("Prior draw %d unstable (Lyapunov solver failed)", i, exc_info=True)
+                n_unstable += 1
+                unstable_indices.append(int(i))
+                continue
 
-            implied_obs = np.asarray(lam @ sigma_inf @ lam.T)
-            if manifest_cov_samples is not None:
-                mcov = (
-                    manifest_cov_samples[i]
-                    if manifest_cov_samples.ndim == 3
-                    else manifest_cov_samples
-                )
-                implied_obs = implied_obs + np.asarray(mcov)
-
-            implied_std = np.sqrt(np.maximum(np.diag(implied_obs), 0))
-            implied_stds_list.append(implied_std)
-
-        except Exception:
-            logger.debug("Prior draw %d unstable (Lyapunov solver failed)", i, exc_info=True)
-            n_unstable += 1
-            unstable_indices.append(int(i))
-            continue
-
-    if n_unstable > len(idx) * 0.5:
-        sorted_unstable_indices = sorted(unstable_indices)
-        repair_scope = _infer_dynamics_repair_scope(
-            drift_samples,
-            sorted_unstable_indices,
-            compiled_ssm=compiled_ssm,
-            causal_spec=causal_spec,
-        )
-        related_parameters, supporting_codes = _supporting_compile_context(
-            compiled_ssm,
-            construct_names=list(repair_scope.construct_names) if repair_scope else None,
-        )
-        results.append(
-            _pp_result(
-                parameter="dynamics_stability",
-                is_valid=False,
-                code="dynamics_stability",
-                issue=(
-                    f"Unstable dynamics: {n_unstable}/{len(idx)} prior draws have "
-                    f"unstable drift (Lyapunov solver failed)"
-                ),
-                suggested_adjustment="Tighten drift_diag prior toward more negative values",
-                related_parameters=related_parameters,
-                supporting_codes=supporting_codes,
-                repair_scope=repair_scope,
-                failure_stage="latent_dynamics",
-                failing_draw_indices=sorted_unstable_indices,
-                pathology_certificate=PriorPathologyCertificate(
-                    kind="dynamics_stability",
-                    primary_score=n_unstable / max(1, len(idx)),
-                ),
+        if n_unstable > len(idx) * 0.5:
+            sorted_unstable_indices = sorted(unstable_indices)
+            repair_scope = _infer_dynamics_repair_scope(
+                drift_samples,
+                sorted_unstable_indices,
+                compiled_ssm=compiled_ssm,
+                causal_spec=causal_spec,
             )
-        )
+            related_parameters, supporting_codes = _supporting_compile_context(
+                compiled_ssm,
+                construct_names=list(repair_scope.construct_names) if repair_scope else None,
+            )
+            results.append(
+                _pp_result(
+                    parameter="dynamics_stability",
+                    is_valid=False,
+                    code="dynamics_stability",
+                    issue=(
+                        f"Unstable dynamics: {n_unstable}/{len(idx)} prior draws have "
+                        f"unstable drift (Lyapunov solver failed)"
+                    ),
+                    suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                    related_parameters=related_parameters,
+                    supporting_codes=supporting_codes,
+                    repair_scope=repair_scope,
+                    failure_stage="latent_dynamics",
+                    failing_draw_indices=sorted_unstable_indices,
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="dynamics_stability",
+                        primary_score=n_unstable / max(1, len(idx)),
+                    ),
+                )
+            )
 
-    if not implied_stds_list:
-        return results
+    mask = np.asarray(observation_mask, dtype=bool) if observation_mask is not None else None
+    manifest_draw_stds: list[list[float]] = [[] for _ in manifest_names]
+    for draw_idx in range(obs.shape[0]):
+        draw_obs = obs[draw_idx]
+        draw_mask = mask[draw_idx] if mask is not None and mask.shape == obs.shape else None
+        for manifest_idx in range(len(manifest_names)):
+            values = draw_obs[:, manifest_idx]
+            if draw_mask is not None:
+                values = values[draw_mask[:, manifest_idx]]
+            else:
+                values = values[np.isfinite(values)]
+            values = values[np.isfinite(values)]
+            if values.size >= 2:
+                manifest_draw_stds[manifest_idx].append(float(np.std(values)))
 
-    median_implied = np.median(implied_stds_list, axis=0)
+    median_implied = np.asarray(
+        [
+            float(np.median(stds)) if stds else np.nan
+            for stds in manifest_draw_stds
+        ]
+    )
 
     for j, name in enumerate(manifest_names):
         if j >= len(median_implied):
             break
+        if not np.isfinite(median_implied[j]):
+            continue
         if name not in data_stats or data_stats[name]["std"] is None:
             continue
 
