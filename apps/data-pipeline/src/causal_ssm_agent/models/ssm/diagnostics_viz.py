@@ -245,7 +245,7 @@ def compute_posterior_pairs(
                 div_flat = extra["diverging"].reshape(-1)
                 div_mask = [bool(v) for v in div_flat[::step]]
         except Exception:
-            logger.debug("Divergence mask extraction failed", exc_info=True)
+            logger.warning("Divergence mask extraction failed", exc_info=True)
 
     pairs: list[dict[str, Any]] = []
     for i in range(len(scalars)):

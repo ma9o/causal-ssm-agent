@@ -35,7 +35,7 @@ from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, init_to_media
 from numpyro.infer.autoguide import AutoDelta, AutoMultivariateNormal, AutoNormal
 from numpyro.optim import ClippedAdam
 
-from causal_ssm_agent.models.ssm.autoreparam import AutoReparam, reparam_cache_key
+from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 from causal_ssm_agent.models.ssm.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
@@ -61,10 +61,6 @@ logger = get_prefect_logger(__name__)
 
 # Sentinel for "use AutoReparam with method-appropriate centering".
 _AUTO_REPARAM = object()
-
-# Re-export for tests that import from here
-HIST_PADDING_RATIO = 0.05
-HIST_PADDING_DEFAULT = 0.5
 
 _AUTO_METHOD_CONFIG_KEYS: dict[str, str] = {
     "svi": "svi_config",
@@ -118,12 +114,12 @@ class FittedArtifact:
         }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
-        self.result = state.get("result")
-        self.builder = state.get("builder")
-        self.times = state.get("times")
-        self.observation_support = state.get("observation_support")
-        self.ppc_result = state.get("ppc_result")
-        self.power_scaling_result = state.get("power_scaling_result")
+        self.result = state["result"]
+        self.builder = state["builder"]
+        self.times = state["times"]
+        self.observation_support = state["observation_support"]
+        self.ppc_result = state["ppc_result"]
+        self.power_scaling_result = state["power_scaling_result"]
 
 
 @dataclass
@@ -158,78 +154,65 @@ class InferenceResult:
         from numpyro.diagnostics import summary as numpyro_summary
 
         result: dict[str, Any] = {}
-        chain_samples = None
+
+        chain_samples = mcmc.get_samples(group_by_chain=True)
+        public_sites = self.diagnostics.get("public_sites")
+        if public_sites is not None:
+            chain_samples = _filter_public_samples(chain_samples, set(public_sites))
 
         # Per-parameter convergence diagnostics via numpyro.diagnostics.summary
-        try:
-            chain_samples = mcmc.get_samples(group_by_chain=True)
-            public_sites = self.diagnostics.get("public_sites")
-            if public_sites is not None:
-                chain_samples = _filter_public_samples(chain_samples, set(public_sites))
-            summ = numpyro_summary(chain_samples)
-            per_param: list[dict[str, Any]] = []
-            for name, stats in summ.items():
-                entry: dict[str, Any] = {"parameter": name}
-                if "r_hat" in stats:
-                    val = stats["r_hat"]
-                    entry["r_hat"] = float(val) if val.ndim == 0 else [float(v) for v in val.flat]
-                if "n_eff" in stats:
-                    val = stats["n_eff"]
-                    entry["ess_bulk"] = (
-                        float(val) if val.ndim == 0 else [float(v) for v in val.flat]
-                    )
-                per_param.append(entry)
-            result["per_parameter"] = per_param
-        except Exception:
-            logger.debug("Failed to compute per-parameter diagnostics", exc_info=True)
-            result["per_parameter"] = []
+        summ = numpyro_summary(chain_samples)
+        per_param: list[dict[str, Any]] = []
+        for name, stats in summ.items():
+            entry: dict[str, Any] = {"parameter": name}
+            if "r_hat" in stats:
+                val = stats["r_hat"]
+                entry["r_hat"] = float(val) if val.ndim == 0 else [float(v) for v in val.flat]
+            if "n_eff" in stats:
+                val = stats["n_eff"]
+                entry["ess_bulk"] = float(val) if val.ndim == 0 else [float(v) for v in val.flat]
+            per_param.append(entry)
+        result["per_parameter"] = per_param
 
         # ArviZ-based ESS-tail and MCSE (enriches per_parameter entries)
-        try:
-            import arviz as az
+        import arviz as az
 
-            idata = az.from_numpyro(mcmc)
-            ess_tail = az.ess(idata, method="tail")
-            mcse_mean = az.mcse(idata, method="mean")
+        idata = az.from_numpyro(mcmc)
+        ess_tail = az.ess(idata, method="tail")
+        mcse_mean = az.mcse(idata, method="mean")
 
-            # Merge into per_parameter entries
-            for entry in result["per_parameter"]:
-                name = entry["parameter"]
-                if name in ess_tail:
-                    v = ess_tail[name].values
-                    entry["ess_tail"] = float(v) if v.ndim == 0 else [float(x) for x in v.flat]
-                if name in mcse_mean:
-                    v = mcse_mean[name].values
-                    entry["mcse_mean"] = float(v) if v.ndim == 0 else [float(x) for x in v.flat]
-        except Exception:
-            logger.debug("ArviZ ESS-tail/MCSE enrichment failed", exc_info=True)
+        for entry in result["per_parameter"]:
+            name = entry["parameter"]
+            if name in ess_tail:
+                v = ess_tail[name].values
+                entry["ess_tail"] = float(v) if v.ndim == 0 else [float(x) for x in v.flat]
+            if name in mcse_mean:
+                v = mcse_mean[name].values
+                entry["mcse_mean"] = float(v) if v.ndim == 0 else [float(x) for x in v.flat]
 
         # Sampler-level diagnostics from extra fields
-        try:
-            extra = mcmc.get_extra_fields()
-            if "diverging" in extra:
-                div = extra["diverging"]
-                result["num_divergences"] = int(jnp.sum(div))
-                result["divergence_rate"] = float(jnp.mean(div))
-            if "num_steps" in extra:
-                steps = extra["num_steps"]
-                result["tree_depth_mean"] = float(jnp.mean(steps))
-                result["tree_depth_max"] = int(jnp.max(steps))
-            if "accept_prob" in extra:
-                ap = extra["accept_prob"]
-                result["accept_prob_mean"] = float(jnp.mean(ap))
-            if "energy" in extra:
-                energy = extra["energy"]
-                # Reshape to (n_chains, n_draws) if possible for per-chain BFMI
-                n_ch = int(mcmc.num_chains) if hasattr(mcmc, "num_chains") else 1
-                if n_ch > 1 and energy.ndim == 1 and energy.shape[0] % n_ch == 0:
-                    energy = energy.reshape(n_ch, -1)
-                result["energy"] = _build_energy_diagnostics(energy)
-        except Exception:
-            logger.debug("Sampler-level diagnostics extraction failed", exc_info=True)
+        extra = mcmc.get_extra_fields()
+        if "diverging" in extra:
+            div = extra["diverging"]
+            result["num_divergences"] = int(jnp.sum(div))
+            result["divergence_rate"] = float(jnp.mean(div))
+        if "num_steps" in extra:
+            steps = extra["num_steps"]
+            result["tree_depth_mean"] = float(jnp.mean(steps))
+            result["tree_depth_max"] = int(jnp.max(steps))
+        if "accept_prob" in extra:
+            ap = extra["accept_prob"]
+            result["accept_prob_mean"] = float(jnp.mean(ap))
+        if "energy" in extra:
+            energy = extra["energy"]
+            # Reshape to (n_chains, n_draws) if possible for per-chain BFMI
+            n_ch = int(mcmc.num_chains)
+            if n_ch > 1 and energy.ndim == 1 and energy.shape[0] % n_ch == 0:
+                energy = energy.reshape(n_ch, -1)
+            result["energy"] = _build_energy_diagnostics(energy)
 
-        result["num_chains"] = int(mcmc.num_chains) if hasattr(mcmc, "num_chains") else None
-        result["num_samples"] = int(mcmc._num_samples) if hasattr(mcmc, "_num_samples") else None
+        result["num_chains"] = int(mcmc.num_chains)
+        result["num_samples"] = int(mcmc.num_samples)
 
         # Chain-level trace data (thinned to ~200 points per chain)
         # and rank histograms for chain mixing assessment
@@ -273,13 +256,7 @@ class InferenceResult:
         if losses is None:
             return None
 
-        loss_list = [float(v) for v in losses]
-        # Thin to at most 500 points for the frontend
-        if len(loss_list) > 500:
-            step = len(loss_list) / 500
-            loss_list = [loss_list[int(i * step)] for i in range(500)]
-
-        return {"elbo_losses": loss_list}
+        return {"elbo_losses": [float(v) for v in losses]}
 
     def get_loo_diagnostics(
         self,
@@ -314,112 +291,98 @@ class InferenceResult:
         if mcmc is None and not self._samples:
             return None
 
-        try:
-            import arviz as az
+        import arviz as az
 
-            # Get posterior samples and chain structure.
-            # MCMC: extract from MCMC object (has chain info).
-            # SMC: use stored posterior samples directly (1 chain of N particles).
+        # Get posterior samples and chain structure.
+        # MCMC: extract from MCMC object (has chain info).
+        # SMC: use stored posterior samples directly (1 chain of N particles).
+        if mcmc is not None:
+            flat_samples = mcmc.get_samples()
+            public_sites = self.diagnostics.get("public_sites")
+            if public_sites is not None:
+                flat_samples = _filter_public_samples(flat_samples, set(public_sites))
+            n_draws = next(iter(flat_samples.values())).shape[0]
+            n_chains = int(mcmc.num_chains)
+        else:
+            flat_samples = self._samples
+            n_draws = next(iter(flat_samples.values())).shape[0]
+            n_chains = 1
+
+        n_per_chain = n_draws // n_chains
+
+        # SSM-specific path: replay model to extract ll_per_timestep
+        # deterministic (innovation decomposition). Falls back to standard
+        # ArviZ extraction for models with observed sample sites.
+        pred = Predictive(model_fn, posterior_samples=flat_samples)
+        pred_result = pred(random.PRNGKey(0), observations, times)
+
+        if "ll_per_timestep" in pred_result:
+            ll_per_t = pred_result["ll_per_timestep"]  # (n_draws, T)
+            if observations.ndim == 2:
+                valid_timesteps = jnp.any(~jnp.isnan(observations), axis=1)
+                ll_per_t = ll_per_t[:, valid_timesteps]
+            if ll_per_t.shape[1] == 0:
+                return None
+            n_timesteps = ll_per_t.shape[1]
+            ll_chained = ll_per_t[: n_chains * n_per_chain].reshape(
+                n_chains, n_per_chain, n_timesteps
+            )
             if mcmc is not None:
-                flat_samples = mcmc.get_samples()
-                public_sites = self.diagnostics.get("public_sites")
-                if public_sites is not None:
-                    flat_samples = _filter_public_samples(flat_samples, set(public_sites))
-                n_draws = next(iter(flat_samples.values())).shape[0]
-                n_chains = int(mcmc.num_chains) if hasattr(mcmc, "num_chains") else 1
+                idata = az.from_numpyro(
+                    mcmc,
+                    log_likelihood={"ll_per_timestep": ll_chained},
+                )
             else:
-                flat_samples = self._samples
-                n_draws = next(iter(flat_samples.values())).shape[0]
-                n_chains = 1
+                # Build InferenceData from dict for SMC-based methods.
+                # Treat N particles as 1 chain of N draws.
+                import numpy as np
 
-            n_per_chain = n_draws // n_chains
-
-            # Try SSM-specific path first: replay model to extract
-            # ll_per_timestep deterministic (innovation decomposition).
-            # Falls back to standard ArviZ extraction for models with
-            # observed sample sites (e.g. numpyro.sample(..., obs=y)).
+                posterior_dict = {}
+                n_used = n_chains * n_per_chain
+                for name, vals in flat_samples.items():
+                    v = np.asarray(vals[:n_used])
+                    posterior_dict[name] = v.reshape(n_chains, n_per_chain, *v.shape[1:])
+                idata = az.from_dict(
+                    posterior=posterior_dict,
+                    log_likelihood={"ll_per_timestep": np.asarray(ll_chained)},
+                )
+            ll_per_timestep_found = True
+        elif mcmc is not None:
+            # Standard path: ArviZ extracts LL from observed sample sites
+            idata = az.from_numpyro(mcmc)
+            if not hasattr(idata, "log_likelihood"):
+                return None
             ll_per_timestep_found = False
-            try:
-                pred = Predictive(model_fn, posterior_samples=flat_samples)
-                rng_key = random.PRNGKey(0)
-                pred_result = pred(rng_key, observations, times)
-                if "ll_per_timestep" in pred_result:
-                    ll_per_t = pred_result["ll_per_timestep"]  # (n_draws, T)
-                    if observations is not None and getattr(observations, "ndim", 0) == 2:
-                        valid_timesteps = jnp.any(~jnp.isnan(observations), axis=1)
-                        ll_per_t = ll_per_t[:, valid_timesteps]
-                    if ll_per_t.shape[1] == 0:
-                        return None
-                    n_timesteps = ll_per_t.shape[1]
-                    ll_chained = ll_per_t[: n_chains * n_per_chain].reshape(
-                        n_chains, n_per_chain, n_timesteps
-                    )
-                    if mcmc is not None:
-                        idata = az.from_numpyro(
-                            mcmc,
-                            log_likelihood={"ll_per_timestep": ll_chained},
-                        )
-                    else:
-                        # Build InferenceData from dict for SMC-based methods.
-                        # Treat N particles as 1 chain of N draws.
-                        import numpy as np
-
-                        posterior_dict = {}
-                        n_used = n_chains * n_per_chain
-                        for name, vals in flat_samples.items():
-                            v = np.asarray(vals[:n_used])
-                            posterior_dict[name] = v.reshape(n_chains, n_per_chain, *v.shape[1:])
-                        idata = az.from_dict(
-                            posterior=posterior_dict,
-                            log_likelihood={"ll_per_timestep": np.asarray(ll_chained)},
-                        )
-                    ll_per_timestep_found = True
-            except Exception:
-                logger.debug("SSM-specific LOO path failed, trying standard ArviZ", exc_info=True)
-
-            if not ll_per_timestep_found:
-                if mcmc is not None:
-                    # Standard path: ArviZ extracts LL from observed sample sites
-                    idata = az.from_numpyro(mcmc)
-                    if not hasattr(idata, "log_likelihood"):
-                        return None
-                else:
-                    # No ll_per_timestep and no MCMC → can't compute LOO
-                    return None
-
-            loo_result = az.loo(idata)
-
-            result: dict[str, Any] = {
-                "elpd_loo": float(loo_result.elpd_loo),
-                "p_loo": float(loo_result.p_loo),
-                "se": float(loo_result.se),
-                "n_data_points": int(loo_result.n_data_points),
-                "observation_unit": "timestep" if ll_per_timestep_found else "observation",
-            }
-
-            # Per-data-point Pareto k values
-            if hasattr(loo_result, "pareto_k"):
-                pk = loo_result.pareto_k
-                pk_vals = pk.values if hasattr(pk, "values") else jnp.array(pk)
-                result["pareto_k"] = [float(v) for v in pk_vals]
-                result["n_bad_k"] = int((pk_vals > 0.7).sum())
-
-            # LOO-PIT for calibration (SSM path only)
-            if ll_per_timestep_found:
-                try:
-                    pit_vals = az.loo_pit(idata, y="ll_per_timestep")
-                    if hasattr(pit_vals, "values"):
-                        result["loo_pit"] = [float(v) for v in pit_vals.values.flat]
-                    else:
-                        result["loo_pit"] = [float(v) for v in jnp.array(pit_vals).flatten()]
-                except Exception:
-                    logger.debug("LOO-PIT computation failed", exc_info=True)
-
-            return result
-
-        except Exception:
-            logger.debug("LOO diagnostics computation failed", exc_info=True)
+        else:
+            # No ll_per_timestep and no MCMC → can't compute LOO
             return None
+
+        loo_result = az.loo(idata)
+
+        result: dict[str, Any] = {
+            "elpd_loo": float(loo_result.elpd_loo),
+            "p_loo": float(loo_result.p_loo),
+            "se": float(loo_result.se),
+            "n_data_points": int(loo_result.n_data_points),
+            "observation_unit": "timestep" if ll_per_timestep_found else "observation",
+        }
+
+        # Per-data-point Pareto k values
+        if hasattr(loo_result, "pareto_k"):
+            pk = loo_result.pareto_k
+            pk_vals = pk.values if hasattr(pk, "values") else jnp.array(pk)
+            result["pareto_k"] = [float(v) for v in pk_vals]
+            result["n_bad_k"] = int((pk_vals > 0.7).sum())
+
+        # LOO-PIT for calibration (requires observed_data in idata)
+        if ll_per_timestep_found and hasattr(idata, "observed_data"):
+            pit_vals = az.loo_pit(idata, y="ll_per_timestep")
+            if hasattr(pit_vals, "values"):
+                result["loo_pit"] = [float(v) for v in pit_vals.values.flat]
+            else:
+                result["loo_pit"] = [float(v) for v in jnp.array(pit_vals).flatten()]
+
+        return result
 
     def get_posterior_marginals(self, n_bins: int = 50) -> list[dict[str, Any]]:
         """Compute marginal posterior density data for visualization."""
@@ -436,25 +399,15 @@ class InferenceResult:
         logger.info("\n%s", format_summary(self._samples, self.method))
 
 
-def _serialize_fitted_result(result: Any) -> InferenceResult | None:
+def _serialize_fitted_result(result: InferenceResult | None) -> InferenceResult | None:
     """Reduce persisted inference output to the posterior samples Stage 6 uses."""
     if result is None:
         return None
-    if isinstance(result, InferenceResult):
-        return InferenceResult(
-            _samples=result.get_samples(),
-            method=result.method,
-            diagnostics={},
-        )
-    get_samples = getattr(result, "get_samples", None)
-    if callable(get_samples):
-        method = getattr(result, "method", "auto")
-        return InferenceResult(
-            _samples=get_samples(),
-            method=method,
-            diagnostics={},
-        )
-    return None
+    return InferenceResult(
+        _samples=result.get_samples(),
+        method=result.method,
+        diagnostics={},
+    )
 
 
 def _serialize_fitted_builder(builder: Any) -> Any:
@@ -521,11 +474,9 @@ def _trace_public_sites(
 
 
 def _filter_public_samples(
-    samples: dict[str, jnp.ndarray], public_sites: set[str] | None
+    samples: dict[str, jnp.ndarray], public_sites: set[str]
 ) -> dict[str, jnp.ndarray]:
     """Drop internal handler sites, keeping only original model outputs."""
-    if public_sites is None:
-        return samples
     return {name: values for name, values in samples.items() if name in public_sites}
 
 
@@ -777,7 +728,6 @@ def _fit_svi(
     num_samples: int = 1000,
     learning_rate: float = 0.01,
     init_scale: float = 0.01,
-    progress_bar: bool = False,
     seed: int = 0,
     reparam=None,
     **kwargs: Any,  # noqa: ARG001
@@ -802,8 +752,6 @@ def _fit_svi(
     Returns:
         InferenceResult with approximate posterior samples
     """
-    del progress_bar
-
     guide_cls = {
         "normal": AutoNormal,
         "mvn": AutoMultivariateNormal,
@@ -813,43 +761,14 @@ def _fit_svi(
         model.model,
         likelihood_backend=model.make_likelihood_backend(),
     )
-    cache_key = None
-    reparam_key = reparam_cache_key(reparam)
-    if reparam_key is not None:
-        cache_key = (
-            "svi",
-            tuple(observations.shape),
-            tuple(times.shape),
-            guide_type,
-            float(learning_rate),
-            float(init_scale),
-            *reparam_key,
-        )
-
-    def _build_svi_bundle():
-        public_sites = _trace_public_sites(base_model_fn, observations, times)
-        model_fn = _apply_reparam(base_model_fn, reparam)
-        guide_kwargs = {"init_loc_fn": init_to_median(num_samples=15)}
-        if guide_type != "delta":
-            guide_kwargs["init_scale"] = init_scale
-        guide = guide_cls(model_fn, **guide_kwargs)
-        optimizer = ClippedAdam(step_size=learning_rate)
-        return {
-            "public_sites": public_sites,
-            "model_fn": model_fn,
-            "guide": guide,
-            "svi": SVI(model_fn, guide, optimizer, Trace_ELBO()),
-        }
-
-    if cache_key is None:
-        cached_bundle = _build_svi_bundle()
-    else:
-        cached_bundle = model.get_cached_artifact(cache_key, _build_svi_bundle)
-
-    public_sites = cached_bundle["public_sites"]
-    model_fn = cached_bundle["model_fn"]
-    guide = cached_bundle["guide"]
-    svi = cached_bundle["svi"]
+    public_sites = _trace_public_sites(base_model_fn, observations, times)
+    model_fn = _apply_reparam(base_model_fn, reparam)
+    guide_kwargs = {"init_loc_fn": init_to_median(num_samples=15)}
+    if guide_type != "delta":
+        guide_kwargs["init_scale"] = init_scale
+    guide = guide_cls(model_fn, **guide_kwargs)
+    optimizer = ClippedAdam(step_size=learning_rate)
+    svi = SVI(model_fn, guide, optimizer, Trace_ELBO())
 
     rng_key = random.PRNGKey(seed)
     rng_key, init_key, sample_key = random.split(rng_key, 3)
@@ -872,8 +791,6 @@ def _fit_svi(
     )
     svi_params = svi.get_params(svi_state)
 
-    if not _all_numeric_leaves_finite(svi_losses):
-        raise FloatingPointError("SVI produced non-finite losses")
     if not _all_numeric_leaves_finite(svi_params):
         raise FloatingPointError("SVI produced non-finite guide parameters")
 
