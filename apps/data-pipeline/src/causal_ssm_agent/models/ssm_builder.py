@@ -19,6 +19,10 @@ from causal_ssm_agent.models.ssm.inference_structure import (
     InferenceStructurePlan,
     plan_inference_structure,
 )
+from causal_ssm_agent.models.ssm.parameterization import (
+    PriorRuntimeBundle,
+    load_prior_runtime_bundle,
+)
 from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
 from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
 from causal_ssm_agent.models.ssm_observation_metadata import (
@@ -67,6 +71,7 @@ class SSMModelBuilder:
         ssm_spec: SSMSpec | None = None,
         ssm_priors: SSMPriors | None = None,
         compiled_prior_semantics: dict | None = None,
+        prior_runtime_bundle: PriorRuntimeBundle | None = None,
         model_config: dict | None = None,
         sampler_config: dict | None = None,
         causal_spec: dict | None = None,
@@ -90,6 +95,7 @@ class SSMModelBuilder:
         self._ssm_spec = ssm_spec
         self._ssm_priors = ssm_priors
         self._compiled_prior_semantics = compiled_prior_semantics
+        self._prior_runtime_bundle = prior_runtime_bundle
         self._model_config = model_config or {}
         self._sampler_config = sampler_config or self.get_default_sampler_config()
         self._causal_spec = causal_spec
@@ -98,6 +104,12 @@ class SSMModelBuilder:
         self._model: SSMModel | None = None
         self._spec: SSMSpec | None = None
         self._result: InferenceResult | None = None
+
+    def _get_prior_runtime_bundle(self) -> PriorRuntimeBundle | None:
+        """Load compiled prior semantics once for runtime consumers."""
+        if self._prior_runtime_bundle is None and self._compiled_prior_semantics is not None:
+            self._prior_runtime_bundle = load_prior_runtime_bundle(self._compiled_prior_semantics)
+        return self._prior_runtime_bundle
 
     def compile_inputs(self) -> tuple[SSMSpec, SSMPriors]:
         """Compile user-facing specs into executable SSM inputs."""
@@ -148,6 +160,9 @@ class SSMModelBuilder:
                 ssm_spec=spec,
                 causal_spec=self._causal_spec,
             )
+        elif self._compiled_prior_semantics is not None and self._ssm_spec is not None:
+            spec = self._ssm_spec
+            priors = self._ssm_priors or SSMPriors()
         else:
             spec, priors = self.compile_inputs()
 
@@ -157,7 +172,13 @@ class SSMModelBuilder:
         # Create model with PF config from model_config
         n_particles = self._model_config.get("n_particles", 200)
         pf_seed = self._model_config.get("pf_seed", 0)
-        self._model = SSMModel(spec, priors, n_particles=n_particles, pf_seed=pf_seed)
+        self._model = SSMModel(
+            spec,
+            priors,
+            prior_runtime_bundle=self._get_prior_runtime_bundle(),
+            n_particles=n_particles,
+            pf_seed=pf_seed,
+        )
         self._model.parameter_bindings = list(self._parameter_bindings or [])
         self._spec = spec
 
@@ -283,8 +304,8 @@ class SSMModelBuilder:
             any_family_needs_level_metadata,
         )
         from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
-            sample_prior_predictive_from_compiled_semantics,
             sample_prior_predictive_from_priors,
+            sample_prior_predictive_from_runtime,
         )
 
         manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
@@ -295,10 +316,12 @@ class SSMModelBuilder:
                 "manifest_level_counts. Build the model with data first."
             )
 
-        if self._compiled_prior_semantics is not None and self._spec is None:
-            return sample_prior_predictive_from_compiled_semantics(
+        if self._compiled_prior_semantics is not None:
+            runtime = self._get_prior_runtime_bundle()
+            assert runtime is not None
+            return sample_prior_predictive_from_runtime(
                 spec,
-                self._compiled_prior_semantics,
+                runtime,
                 times,
                 observation_support=observation_support,
                 observation_mask=observation_mask,

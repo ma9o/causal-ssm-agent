@@ -696,42 +696,6 @@ def resolve_prior_proposals(
     return resolved
 
 
-def _reconstruct_priors_from_compiled_semantics(
-    compiled_ssm: CompiledSSMArtifact,
-):
-    """Reconstruct builder priors from the canonical compiled semantics block."""
-    from causal_ssm_agent.models.ssm.parameterization import (
-        load_prior_runtime_bundle,
-        reconstruct_ssm_priors,
-    )
-
-    semantics = compiled_ssm.get("compiled_prior_semantics")
-    if semantics is None:
-        raise ValueError(
-            "Compiled artifact is missing required 'compiled_prior_semantics'. "
-            "Recompile the artifact with the current compiler."
-        )
-
-    missing_keys = [key for key in ("site_registry", "prior_state") if key not in semantics]
-    if missing_keys:
-        missing = ", ".join(sorted(missing_keys))
-        raise ValueError(
-            f"Compiled artifact has incomplete 'compiled_prior_semantics': missing {missing}."
-        )
-
-    bundle = load_prior_runtime_bundle(semantics)
-    return reconstruct_ssm_priors(bundle.registry, bundle.prior_state)
-
-
-def _reconstruct_ssm_inputs_from_artifact(
-    compiled_ssm: CompiledSSMArtifact,
-):
-    """Reconstruct executable SSM inputs from a compiled artifact."""
-    spec = deserialize_ssm_spec(compiled_ssm["spec"])
-    priors = _reconstruct_priors_from_compiled_semantics(compiled_ssm)
-    return spec, priors
-
-
 def make_builder_from_compiled_artifact(
     compiled_ssm: CompiledSSMArtifact,
     *,
@@ -740,17 +704,25 @@ def make_builder_from_compiled_artifact(
 ):
     """Instantiate an SSMModelBuilder directly from a compiled artifact.
 
-    Reads builder priors from ``compiled_prior_semantics``, which is now the
-    only supported cross-stage prior representation.
+    Uses ``compiled_prior_semantics`` as the canonical runtime prior state for
+    compiled artifacts.
     """
+    from causal_ssm_agent.models.ssm.parameterization import load_prior_runtime_bundle
     from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
-    spec, priors = _reconstruct_ssm_inputs_from_artifact(compiled_ssm)
+    spec = deserialize_ssm_spec(compiled_ssm["spec"])
+    semantics = compiled_ssm.get("compiled_prior_semantics")
+    if not isinstance(semantics, dict):
+        raise ValueError(
+            "Compiled artifact is missing required 'compiled_prior_semantics'. "
+            "Recompile the artifact with the current compiler."
+        )
+    prior_runtime_bundle = load_prior_runtime_bundle(semantics)
 
     return SSMModelBuilder(
         ssm_spec=spec,
-        ssm_priors=priors,
-        compiled_prior_semantics=compiled_ssm.get("compiled_prior_semantics"),
+        compiled_prior_semantics=semantics,
+        prior_runtime_bundle=prior_runtime_bundle,
         model_config=model_config,
         sampler_config=sampler_config,
         parameter_bindings=list(compiled_ssm.get("parameter_bindings", []) or []),

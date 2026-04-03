@@ -16,14 +16,15 @@ from causal_ssm_agent.models.ssm.parameterization import (
     SupportClass,
     assemble_deterministics_from_registry,
     build_prior_runtime_state,
+    build_site_prior_distribution,
     build_site_registry,
     build_unravel_fn,
     compile_prior_semantics,
     deserialize_prior_runtime_state,
     deserialize_site_registry,
     group_sites_by_assembly_role,
+    load_prior_runtime_bundle,
     log_prior_unconstrained,
-    reconstruct_ssm_priors,
     sample_prior_unconstrained,
     serialize_prior_runtime_state,
     serialize_site_registry,
@@ -713,87 +714,29 @@ class TestSerialization:
         assert jnp.allclose(state["drift_diag_pop"]["loc"], jnp.full(2, -1.0), atol=1e-6)
 
 
-# ---------------------------------------------------------------------------
-# SSMPriors reconstruction
-# ---------------------------------------------------------------------------
-
-
-class TestSSMPriorsReconstruction:
-    def test_reconstruct_matches_original_scalar(self, simple_spec):
-        """Reconstructed SSMPriors matches original for scalar priors."""
-        original = SSMPriors()
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry, original)
-        reconstructed = reconstruct_ssm_priors(registry, state)
-        # Scalar priors should roundtrip as scalars
-        assert isinstance(reconstructed.drift_diag["mu"], float)
-        assert isinstance(reconstructed.diffusion_diag["sigma"], float)
-        assert abs(reconstructed.drift_diag["mu"] - original.drift_diag["mu"]) < 1e-5
-        assert abs(reconstructed.drift_diag["sigma"] - original.drift_diag["sigma"]) < 1e-5
-        assert abs(reconstructed.diffusion_diag["sigma"] - original.diffusion_diag["sigma"]) < 1e-5
-
-    def test_reconstruct_preserves_per_element_priors(self):
-        """Per-element array priors survive reconstruction."""
+class TestCanonicalRuntimePriors:
+    def test_loaded_runtime_preserves_per_element_priors(self):
+        """Compiled prior semantics preserve vector-valued site parameters exactly."""
         spec = SSMSpec(n_latent=3, n_manifest=3)
         priors = SSMPriors(
             drift_diag={"mu": [-0.5, -0.3, -0.7], "sigma": [1.0, 0.5, 0.8]},
         )
-        registry = build_site_registry(spec)
-        state = build_prior_runtime_state(registry, priors)
-        reconstructed = reconstruct_ssm_priors(registry, state)
-        # Per-element priors should roundtrip as lists
-        assert isinstance(reconstructed.drift_diag["mu"], list)
-        assert len(reconstructed.drift_diag["mu"]) == 3
-        for i in range(3):
-            assert abs(reconstructed.drift_diag["mu"][i] - priors.drift_diag["mu"][i]) < 1e-5
-
-    def test_reconstruct_preserves_likelihood_extras(self, simple_spec):
-        """Likelihood-extra prior surfaces should roundtrip through reconstruction."""
-        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
-
-        spec = SSMSpec(
-            n_latent=2,
-            n_manifest=2,
-            manifest_dist=DistributionFamily.STUDENT_T,
+        runtime = load_prior_runtime_bundle(compile_prior_semantics(spec, priors))
+        assert runtime.prior_state["drift_diag_pop"]["loc"].shape == (3,)
+        assert jnp.allclose(
+            runtime.prior_state["drift_diag_pop"]["loc"],
+            jnp.array([-0.5, -0.3, -0.7], dtype=jnp.float32),
         )
-        registry = build_site_registry(spec)
-        state = build_prior_runtime_state(registry)
-        reconstructed = reconstruct_ssm_priors(registry, state)
-        assert reconstructed.obs_df["family"] >= 0
-        assert reconstructed.obs_df["concentration"] == pytest.approx(5.0)
-        assert reconstructed.obs_df["rate"] == pytest.approx(1.0)
 
-    def test_reconstruct_preserves_positive_family_metadata(self, simple_spec):
-        """Positive runtime families should roundtrip through compiled semantics."""
-        priors = SSMPriors(diffusion_diag={"family": 2, "loc": 0.2, "sigma": 0.7})
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry, priors)
-        reconstructed = reconstruct_ssm_priors(registry, state)
-        assert reconstructed.diffusion_diag["family"] == 2
-        assert reconstructed.diffusion_diag["loc"] == pytest.approx(0.2)
-        assert reconstructed.diffusion_diag["sigma"] == pytest.approx(0.7)
-
-    def test_reconstruct_preserves_bounded_real_metadata(self, simple_spec):
-        """Bounded executable priors should retain their bounds after reconstruction."""
-        priors = SSMPriors(
-            drift_offdiag={"family": 2, "mu": 0.0, "sigma": 0.3, "lower": -1.0, "upper": 1.0}
-        )
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry, priors)
-        reconstructed = reconstruct_ssm_priors(registry, state)
-        assert reconstructed.drift_offdiag["family"] == 2
-        assert reconstructed.drift_offdiag["mu"] == pytest.approx(0.0)
-        assert reconstructed.drift_offdiag["sigma"] == pytest.approx(0.3)
-        assert reconstructed.drift_offdiag["lower"] == pytest.approx(-1.0)
-        assert reconstructed.drift_offdiag["upper"] == pytest.approx(1.0)
-
-    def test_reconstruct_preserves_exponential_metadata(self, simple_spec):
-        """Exponential priors should roundtrip distinctly from Gamma."""
-        priors = SSMPriors(diffusion_diag={"family": 3, "rate": 2.5})
-        registry = build_site_registry(simple_spec)
-        state = build_prior_runtime_state(registry, priors)
-        reconstructed = reconstruct_ssm_priors(registry, state)
-        assert reconstructed.diffusion_diag == {"family": 3, "rate": pytest.approx(2.5)}
+    def test_site_distribution_handles_vector_positive_priors(self, simple_spec):
+        """Canonical site distributions accept vector-valued positive scales."""
+        priors = SSMPriors(t0_var_diag={"sigma": [1.0, 2.0]})
+        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
+        site = next(site for site in runtime.registry if site.name == "t0_var_diag")
+        prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
+        assert isinstance(prior_dist, dist.HalfNormal)
+        assert prior_dist.batch_shape == (2,)
+        assert jnp.allclose(prior_dist.scale, jnp.array([1.0, 2.0], dtype=jnp.float32))
 
 
 # ---------------------------------------------------------------------------
@@ -872,7 +815,8 @@ class TestCompiledArtifactIntegration:
         model_spec, priors = model_spec_and_priors
         artifact = compile_ssm_artifact(model_spec, priors)
         builder = make_builder_from_compiled_artifact(artifact)
-        assert builder._ssm_priors is not None
+        assert builder._ssm_priors is None
+        assert builder._prior_runtime_bundle is not None
 
     def test_builder_requires_compiled_prior_semantics(self, model_spec_and_priors):
         """Builder fails clearly when compiled semantics are missing."""
@@ -928,3 +872,45 @@ class TestCompiledArtifactIntegration:
         assert "drift" in samples
         assert samples["drift"].shape[0] == 4
         assert "observations" in samples
+
+    def test_compiled_builder_traces_vector_t0_prior_without_reconstructing(self):
+        """Compiled builders execute vector-valued positive priors via runtime semantics."""
+        import polars as pl
+
+        from causal_ssm_agent.models.ssm_compiler import (
+            make_builder_from_compiled_artifact,
+            serialize_ssm_spec,
+        )
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            manifest_var="diag",
+            manifest_names=["m0", "m1"],
+        )
+        priors = SSMPriors(t0_var_diag={"sigma": [1.0, 2.0]})
+        artifact = {
+            "spec": serialize_ssm_spec(spec),
+            "compiled_prior_semantics": compile_prior_semantics(spec, priors),
+            "parameter_bindings": [],
+        }
+        wide = pl.DataFrame(
+            {
+                "time": [0.0, 1.0, 2.0],
+                "m0": [0.1, 0.2, 0.3],
+                "m1": [0.4, 0.5, 0.6],
+            }
+        )
+
+        builder = make_builder_from_compiled_artifact(artifact)
+        model = builder.build_model(wide)
+        observations, times, _manifest_names = builder.prepare_fit_inputs(wide)
+        backend = model.make_likelihood_backend()
+        trace = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
+            observations,
+            times,
+            likelihood_backend=backend,
+        )
+
+        assert trace["t0_var_diag"]["value"].shape == (2,)
