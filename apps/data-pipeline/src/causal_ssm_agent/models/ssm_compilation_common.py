@@ -85,9 +85,7 @@ SITE_TO_KEYWORDS["dynamics_stability"] = ["rho", "ar", "sigma", "sd"]
 # SSM parameters with fixed default priors that are not in ModelSpec and
 # cannot be re-elicited.  Used to filter validation failures before mapping
 # them back to user-facing parameter names.
-NUISANCE_SITES: frozenset[str] = frozenset(
-    {"cint_pop", "cint", "t0_means", "t0_cov"}
-)
+NUISANCE_SITES: frozenset[str] = frozenset({"cint_pop", "cint", "t0_means", "t0_cov"})
 
 # Validation failure parameters that are global (affect all ModelSpec params).
 GLOBAL_FAILURE_SITES: frozenset[str] = frozenset(

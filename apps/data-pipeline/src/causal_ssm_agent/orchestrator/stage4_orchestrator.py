@@ -778,13 +778,17 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             parameter_construct_names[name] = construct_names
             if len(construct_names) == 2:
                 effect_parameter_by_edge[(construct_names[0], construct_names[1])] = name
-        elif role in {
-            "ar_coefficient",
-            "residual_sd",
-            "initial_state_mean",
-            "initial_state_sd",
-            "measurement_error_sd",
-        } or role == "loading":
+        elif (
+            role
+            in {
+                "ar_coefficient",
+                "residual_sd",
+                "initial_state_mean",
+                "initial_state_sd",
+                "measurement_error_sd",
+            }
+            or role == "loading"
+        ):
             construct_name = parameter.get("construct")
             if isinstance(construct_name, str):
                 parameter_construct_names[name] = (construct_name,)
@@ -1074,8 +1078,7 @@ def _compiler_authoritative_stage4_inventory(
     from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact, resolve_prior_proposals
 
     seed_by_name = {
-        parameter["name"]: dict(parameter)
-        for parameter in [*seed_parameters, *seed_loading_params]
+        parameter["name"]: dict(parameter) for parameter in [*seed_parameters, *seed_loading_params]
     }
     provisional_likelihoods = [
         *resolved_likelihoods,
@@ -1137,14 +1140,17 @@ def _compiler_authoritative_stage4_inventory(
         final_inventory[parameter_name] = dict(parameter)
 
     for parameter_name, parameter in seed_by_name.items():
-        if parameter_name in final_inventory or not _is_conditional_prior_surface_parameter(parameter):
+        if parameter_name in final_inventory or not _is_conditional_prior_surface_parameter(
+            parameter
+        ):
             continue
         final_inventory[parameter_name] = dict(parameter)
 
     missing_explicit = sorted(
         parameter_name
         for parameter_name, parameter in seed_by_name.items()
-        if parameter_name not in final_inventory and not _is_conditional_prior_surface_parameter(parameter)
+        if parameter_name not in final_inventory
+        and not _is_conditional_prior_surface_parameter(parameter)
     )
     if missing_explicit:
         missing = ", ".join(missing_explicit)
@@ -1196,9 +1202,7 @@ def _order_stage4_inventory(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return deterministically ordered parameter and loading inventories."""
     construct_order = {name: idx for idx, name in enumerate(retained_state_order)}
-    edge_order = {
-        (edge["cause"], edge["effect"]): idx for idx, edge in enumerate(retained_edges)
-    }
+    edge_order = {(edge["cause"], edge["effect"]): idx for idx, edge in enumerate(retained_edges)}
     dependency_order = {
         _dependency_parameter_name(dependency): idx
         for idx, dependency in enumerate(induced_dependencies)
@@ -1494,16 +1498,13 @@ def _provisional_likelihood_choices(
         else:
             valid_distributions = list(item.get("valid_distributions") or [])
             if not valid_distributions:
-                raise ValueError(
-                    f"Ambiguous indicator {variable!r} is missing valid distributions"
-                )
+                raise ValueError(f"Ambiguous indicator {variable!r} is missing valid distributions")
             distribution = str(valid_distributions[0])
             link_options = item.get("link_options") or {}
             valid_links = list(link_options.get(distribution) or [])
             if not valid_links:
                 raise ValueError(
-                    f"Ambiguous indicator {variable!r} is missing link options for "
-                    f"{distribution!r}"
+                    f"Ambiguous indicator {variable!r} is missing link options for {distribution!r}"
                 )
             link = str(valid_links[0])
         choices.append(

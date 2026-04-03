@@ -161,9 +161,7 @@ def stage4_grounding(
         return make_stage4_grounding_result(
             stage_output=output or None,
             status="compile_error",
-            feedback=_with_stateful_retry_guidance(
-                f"COMPILE ERROR:\n{validation.compile_error}"
-            ),
+            feedback=_with_stateful_retry_guidance(f"COMPILE ERROR:\n{validation.compile_error}"),
             validation=validation,
             changed_parameters=changed_parameters,
             state_retained=bool(output),
