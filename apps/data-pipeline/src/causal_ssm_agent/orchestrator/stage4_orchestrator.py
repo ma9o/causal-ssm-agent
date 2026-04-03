@@ -12,7 +12,7 @@ from typing import Any
 
 import networkx as nx
 
-from causal_ssm_agent.distributions import VALID_LIKELIHOODS_FOR_DTYPE
+from causal_ssm_agent.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.orchestrator.schemas_model import (
     VALID_LINKS_FOR_DISTRIBUTION,
@@ -171,7 +171,26 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "parameter_guidance",
             "measurement_prior_guidance",
         ),
-        parameter_guidance_prefixes=("lambda",),
+        parameter_guidance_prefixes=("lambda", "obs_sd"),
+        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
+    ),
+    "observation_prior": Stage4PromptScopePolicy(
+        system_task=(
+            "Propose full prior specifications only for the active observation-family "
+            "hyperparameters. These priors control tails, dispersion, concentration, or "
+            "threshold geometry for the locked likelihood family already chosen upstream."
+        ),
+        user_task=(
+            "Propose priors only for this active observation-family block. Do not change the "
+            "locked likelihood family or submit priors for other blocks."
+        ),
+        visible_sections=("distribution_cards", "construct_scale_cards", "prior_cards"),
+        guidance_section_keys=(
+            "prior_distribution_types",
+            "parameter_guidance",
+            "measurement_prior_guidance",
+        ),
+        parameter_guidance_prefixes=("obs_",),
         allowed_tool_names=("validate_model", "elicit_prior_gmm"),
     ),
     "dynamics_prior": Stage4PromptScopePolicy(
@@ -278,7 +297,16 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "latent_initial_state_guidance",
             "lagged_effect_interval_guidance",
         ),
-        parameter_guidance_prefixes=("lambda", "rho", "sigma", "beta", "cor", "t0_mean", "t0_sd"),
+        parameter_guidance_prefixes=(
+            "lambda",
+            "obs_",
+            "rho",
+            "sigma",
+            "beta",
+            "cor",
+            "t0_mean",
+            "t0_sd",
+        ),
         allowed_tool_names=("validate_model",),
     ),
 }
@@ -404,6 +432,14 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             }
         )
 
+    seed_parameters.extend(
+        _measurement_error_parameters(
+            indicators,
+            retained_construct_names=retained_construct_names,
+            indicators_per_construct=indicators_per_construct,
+        )
+    )
+
     # --- Loadings ---
     for indicator in indicators:
         construct_name = indicator.get("construct_name")
@@ -430,6 +466,14 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
                 "indicator_polarity": get_indicator_polarity(indicator),
             }
         )
+
+    seed_parameters.extend(
+        _candidate_observation_extra_parameters(
+            indicators,
+            resolved_likelihoods=resolved_likelihoods,
+            ambiguous_indicators=ambiguous_indicators,
+        )
+    )
 
     # --- Correlations from marginalized confounders ---
     for dependency in induced_dependencies:
@@ -504,11 +548,21 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             )
         )
 
-    loading_names_by_construct: dict[str, list[str]] = {}
+    measurement_parameter_names_by_construct: dict[str, list[str]] = {}
     for parameter in skeleton.loading_params:
         construct_name = parameter.get("construct")
         if isinstance(construct_name, str):
-            loading_names_by_construct.setdefault(construct_name, []).append(parameter["name"])
+            measurement_parameter_names_by_construct.setdefault(construct_name, []).append(
+                parameter["name"]
+            )
+    for parameter in skeleton.parameters:
+        if parameter.get("role") != "measurement_error_sd":
+            continue
+        construct_name = parameter.get("construct")
+        if isinstance(construct_name, str):
+            measurement_parameter_names_by_construct.setdefault(construct_name, []).append(
+                parameter["name"]
+            )
 
     review_block = Stage4FrontierBlock(
         id="review:model_spec",
@@ -527,7 +581,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
 
     prior_blocks: list[Stage4FrontierBlock] = []
     for construct_name in construct_order:
-        names = loading_names_by_construct.get(construct_name) or []
+        names = measurement_parameter_names_by_construct.get(construct_name) or []
         if not names:
             continue
         prior_blocks.append(
@@ -538,6 +592,28 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                 construct_names=(construct_name,),
                 variable_names=tuple(indicators_per_construct.get(construct_name) or ()),
                 parameter_names=tuple(sorted(names, key=param_order.__getitem__)),
+            )
+        )
+
+    observation_parameter_roles = {
+        "observation_hyperparameter",
+        "observation_hyperparameter_positive",
+    }
+    for parameter in skeleton.parameters:
+        if parameter["role"] not in observation_parameter_roles:
+            continue
+        indicator_names = tuple(parameter.get("indicator_names") or ())
+        construct_names = tuple(parameter.get("construct_names") or ())
+        label = str(parameter.get("description") or parameter["name"])
+        prior_blocks.append(
+            Stage4FrontierBlock(
+                id=f"observation:{parameter['name']}",
+                kind="observation_prior",
+                label=label,
+                construct_names=construct_names,
+                variable_names=indicator_names,
+                parameter_names=(parameter["name"],),
+                expand_neighbor_topology=False,
             )
         )
 
@@ -707,10 +783,19 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             "residual_sd",
             "initial_state_mean",
             "initial_state_sd",
+            "measurement_error_sd",
         } or role == "loading":
             construct_name = parameter.get("construct")
             if isinstance(construct_name, str):
                 parameter_construct_names[name] = (construct_name,)
+        elif role in {"observation_hyperparameter", "observation_hyperparameter_positive"}:
+            construct_names = tuple(
+                construct_name
+                for construct_name in (parameter.get("construct_names") or ())
+                if isinstance(construct_name, str)
+            )
+            if construct_names:
+                parameter_construct_names[name] = construct_names
         elif role in {"correlation", "initial_state_correlation"}:
             construct_names = tuple(
                 name_
@@ -905,9 +990,19 @@ def build_prior_cards(causal_spec: dict, skeleton: Stage4Skeleton) -> list[dict[
             "role": role,
             "constraint": parameter["constraint"],
         }
-        if role in {"ar_coefficient", "residual_sd", "initial_state_mean", "initial_state_sd"}:
+        if role in {
+            "ar_coefficient",
+            "residual_sd",
+            "initial_state_mean",
+            "initial_state_sd",
+        }:
             construct_name = parameter["construct"]
             card["structural_context"] = {"construct": construct_name}
+        elif role == "measurement_error_sd":
+            card["structural_context"] = {
+                "construct": parameter["construct"],
+                "indicator": parameter["indicator"],
+            }
         elif role == "fixed_effect":
             cause = parameter["cause"]
             effect = parameter["effect"]
@@ -928,6 +1023,14 @@ def build_prior_cards(causal_spec: dict, skeleton: Stage4Skeleton) -> list[dict[
                 "indicator": indicator_name,
                 "reference_indicator": reference_indicator,
                 "indicator_polarity": parameter.get("indicator_polarity"),
+            }
+        elif role in {"observation_hyperparameter", "observation_hyperparameter_positive"}:
+            card["structural_context"] = {
+                "indicator_names": list(parameter.get("indicator_names") or ()),
+                "construct_names": list(parameter.get("construct_names") or ()),
+                "activation_distribution_families": list(
+                    parameter.get("activation_distribution_families") or ()
+                ),
             }
         elif role in {"correlation", "initial_state_correlation"}:
             construct_1 = parameter["construct_1"]
@@ -974,12 +1077,30 @@ def _compiler_authoritative_stage4_inventory(
         parameter["name"]: dict(parameter)
         for parameter in [*seed_parameters, *seed_loading_params]
     }
+    provisional_likelihoods = [
+        *resolved_likelihoods,
+        *_provisional_likelihood_choices(ambiguous_indicators),
+    ]
+    provisional_distribution_by_variable = {
+        str(likelihood["variable"]): str(likelihood["distribution"])
+        for likelihood in provisional_likelihoods
+    }
     provisional_model_spec = {
-        "likelihoods": [
-            *resolved_likelihoods,
-            *_provisional_likelihood_choices(ambiguous_indicators),
+        "likelihoods": provisional_likelihoods,
+        "parameters": [
+            parameter
+            for parameter in [*seed_parameters, *seed_loading_params]
+            if not parameter.get("activation_distribution_families")
+            or any(
+                provisional_distribution_by_variable.get(indicator_name)
+                in set(parameter.get("activation_distribution_families") or ())
+                for indicator_name in (
+                    parameter.get("activation_indicator_names")
+                    or parameter.get("indicator_names")
+                    or provisional_distribution_by_variable.keys()
+                )
+            )
         ],
-        "parameters": [*seed_parameters, *seed_loading_params],
     }
     try:
         compiled_ssm = compile_ssm_artifact(provisional_model_spec, {}, causal_spec=causal_spec)
@@ -1015,7 +1136,16 @@ def _compiler_authoritative_stage4_inventory(
             )
         final_inventory[parameter_name] = dict(parameter)
 
-    missing_explicit = sorted(set(seed_by_name) - set(final_inventory))
+    for parameter_name, parameter in seed_by_name.items():
+        if parameter_name in final_inventory or not _is_conditional_prior_surface_parameter(parameter):
+            continue
+        final_inventory[parameter_name] = dict(parameter)
+
+    missing_explicit = sorted(
+        parameter_name
+        for parameter_name, parameter in seed_by_name.items()
+        if parameter_name not in final_inventory and not _is_conditional_prior_surface_parameter(parameter)
+    )
     if missing_explicit:
         missing = ", ".join(missing_explicit)
         raise ValueError(
@@ -1089,7 +1219,33 @@ def _order_stage4_inventory(
         construct_name = str(parameter.get("construct") or "")
         return (construct_order.get(construct_name, len(construct_order)), construct_name)
 
+    def _measurement_error_key(parameter: dict[str, Any]) -> tuple[int, str, str]:
+        construct_name = str(parameter.get("construct") or "")
+        indicator_name = str(parameter.get("indicator") or "")
+        return (
+            construct_order.get(construct_name, len(construct_order)),
+            construct_name,
+            indicator_name,
+        )
+
+    def _observation_parameter_key(parameter: dict[str, Any]) -> tuple[int, str]:
+        construct_names = tuple(parameter.get("construct_names") or ())
+        first_construct = str(construct_names[0]) if construct_names else ""
+        return (construct_order.get(first_construct, len(construct_order)), str(parameter["name"]))
+
     ordered_parameters: list[dict[str, Any]] = []
+    ordered_parameters.extend(
+        sorted(role_buckets.pop("measurement_error_sd", []), key=_measurement_error_key)
+    )
+    ordered_parameters.extend(
+        sorted(role_buckets.pop("observation_hyperparameter", []), key=_observation_parameter_key)
+    )
+    ordered_parameters.extend(
+        sorted(
+            role_buckets.pop("observation_hyperparameter_positive", []),
+            key=_observation_parameter_key,
+        )
+    )
     ordered_parameters.extend(sorted(role_buckets.pop("ar_coefficient", []), key=_construct_key))
     ordered_parameters.extend(
         sorted(
@@ -1146,17 +1302,180 @@ def _dependency_parameter_name(dependency: dict[str, Any]) -> str:
 
 def _is_compiler_default_only_parameter_name(parameter_name: str) -> bool:
     """Return whether a compiler-emitted name should stay hidden from Stage 4."""
-    return parameter_name in {
-        "obs_df",
-        "obs_shape",
-        "obs_r",
-        "obs_concentration",
-        "obs_ordered_base",
-        "obs_ordered_gaps",
-        "obs_cat_intercepts",
-        "obs_cat_slopes",
-        "proc_df",
+    return parameter_name == "proc_df"
+
+
+def _is_conditional_prior_surface_parameter(parameter: dict[str, Any]) -> bool:
+    """Whether a parameter is conditional on the locked likelihood choices."""
+    return bool(parameter.get("conditional_prior_surface"))
+
+
+def _measurement_error_parameters(
+    indicators: list[dict[str, Any]],
+    *,
+    retained_construct_names: set[str],
+    indicators_per_construct: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Return one semantic measurement-error prior per free manifest channel."""
+    parameters: list[dict[str, Any]] = []
+    for indicator in indicators:
+        construct_name = indicator.get("construct_name")
+        indicator_name = indicator["name"]
+        if (
+            not isinstance(construct_name, str)
+            or construct_name not in retained_construct_names
+            or len(indicators_per_construct.get(construct_name, ())) <= 1
+        ):
+            continue
+        parameters.append(
+            {
+                "name": f"obs_sd_{indicator_name}",
+                "role": "measurement_error_sd",
+                "constraint": "positive",
+                "description": f"Measurement-error SD for {indicator_name}",
+                "construct": construct_name,
+                "indicator": indicator_name,
+            }
+        )
+    return parameters
+
+
+def _candidate_observation_extra_parameters(
+    indicators: list[dict[str, Any]],
+    *,
+    resolved_likelihoods: list[dict[str, Any]],
+    ambiguous_indicators: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return likelihood-extra prior candidates activated by the locked family choices."""
+    indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
+    possible_distributions_by_indicator: dict[str, set[str]] = {}
+
+    for likelihood in resolved_likelihoods:
+        variable = str(likelihood["variable"])
+        possible_distributions_by_indicator.setdefault(variable, set()).add(
+            str(likelihood["distribution"])
+        )
+    for item in ambiguous_indicators:
+        variable = str(item["variable"])
+        if "fixed_distribution" in item:
+            possible_distributions_by_indicator.setdefault(variable, set()).add(
+                str(item["fixed_distribution"])
+            )
+        else:
+            possible_distributions_by_indicator.setdefault(variable, set()).update(
+                str(distribution) for distribution in item.get("valid_distributions", ())
+            )
+
+    def _construct_names(indicator_names: list[str]) -> list[str]:
+        seen: list[str] = []
+        for indicator_name in indicator_names:
+            construct_name = (indicator_lookup.get(indicator_name) or {}).get("construct_name")
+            if isinstance(construct_name, str) and construct_name not in seen:
+                seen.append(construct_name)
+        return seen
+
+    def _candidate_variables(family: DistributionFamily) -> list[str]:
+        return sorted(
+            indicator_name
+            for indicator_name, families in possible_distributions_by_indicator.items()
+            if family.value in families
+        )
+
+    candidates: list[dict[str, Any]] = []
+
+    positive_sites = {
+        "obs_df": (
+            DistributionFamily.STUDENT_T,
+            "Student-t observation degrees of freedom",
+        ),
+        "obs_shape": (
+            DistributionFamily.GAMMA,
+            "Gamma observation shape",
+        ),
+        "obs_r": (
+            DistributionFamily.NEGATIVE_BINOMIAL,
+            "Negative-binomial observation dispersion",
+        ),
+        "obs_concentration": (
+            DistributionFamily.BETA,
+            "Beta observation concentration",
+        ),
     }
+    for parameter_name, (family, description) in positive_sites.items():
+        indicator_names = _candidate_variables(family)
+        if not indicator_names:
+            continue
+        candidates.append(
+            {
+                "name": parameter_name,
+                "role": "observation_hyperparameter_positive",
+                "constraint": "positive",
+                "description": description,
+                "indicator_names": indicator_names,
+                "construct_names": _construct_names(indicator_names),
+                "activation_indicator_names": list(indicator_names),
+                "activation_distribution_families": [family.value],
+                "conditional_prior_surface": True,
+            }
+        )
+
+    ordered_indicator_names = _candidate_variables(DistributionFamily.ORDERED_LOGISTIC)
+    if ordered_indicator_names:
+        candidates.append(
+            {
+                "name": "obs_ordered_base",
+                "role": "observation_hyperparameter",
+                "constraint": "none",
+                "description": "Ordered-logistic threshold base locations",
+                "indicator_names": ordered_indicator_names,
+                "construct_names": _construct_names(ordered_indicator_names),
+                "activation_indicator_names": list(ordered_indicator_names),
+                "activation_distribution_families": [DistributionFamily.ORDERED_LOGISTIC.value],
+                "conditional_prior_surface": True,
+            }
+        )
+
+    ordered_gap_indicator_names = sorted(
+        indicator_name
+        for indicator_name in ordered_indicator_names
+        if len((indicator_lookup.get(indicator_name) or {}).get("ordinal_levels") or ()) > 2
+    )
+    if ordered_gap_indicator_names:
+        candidates.append(
+            {
+                "name": "obs_ordered_gaps",
+                "role": "observation_hyperparameter_positive",
+                "constraint": "positive",
+                "description": "Ordered-logistic threshold gaps",
+                "indicator_names": ordered_indicator_names,
+                "construct_names": _construct_names(ordered_indicator_names),
+                "activation_indicator_names": ordered_gap_indicator_names,
+                "activation_distribution_families": [DistributionFamily.ORDERED_LOGISTIC.value],
+                "conditional_prior_surface": True,
+            }
+        )
+
+    categorical_indicator_names = _candidate_variables(DistributionFamily.CATEGORICAL)
+    if categorical_indicator_names:
+        for parameter_name, description in (
+            ("obs_cat_intercepts", "Categorical class intercepts"),
+            ("obs_cat_slopes", "Categorical class slopes"),
+        ):
+            candidates.append(
+                {
+                    "name": parameter_name,
+                    "role": "observation_hyperparameter",
+                    "constraint": "none",
+                    "description": description,
+                    "indicator_names": categorical_indicator_names,
+                    "construct_names": _construct_names(categorical_indicator_names),
+                    "activation_indicator_names": list(categorical_indicator_names),
+                    "activation_distribution_families": [DistributionFamily.CATEGORICAL.value],
+                    "conditional_prior_surface": True,
+                }
+            )
+
+    return candidates
 
 
 def _provisional_likelihood_choices(

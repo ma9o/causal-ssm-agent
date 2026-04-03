@@ -10,7 +10,7 @@ from causal_ssm_agent.models.ssm.parameter_names import (
     resolve_initial_state_correlation_bindings,
 )
 from causal_ssm_agent.models.ssm_compilation_common import PriorIndexMaps, split_compound_name
-from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec, ParameterRole
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
@@ -39,6 +39,8 @@ def build_prior_index_maps(
     t0_offdiag_index: dict[str, tuple[str, int]] = {}
     t0_mean_index: dict[str, tuple[str, int]] = {}
     t0_sd_index: dict[str, tuple[str, int]] = {}
+    manifest_var_index: dict[str, tuple[str, int]] = {}
+    observation_site_index: dict[str, tuple[str, int]] = {}
 
     if ssm_spec is None or not model_spec:
         return (
@@ -50,6 +52,8 @@ def build_prior_index_maps(
             t0_offdiag_index,
             t0_mean_index,
             t0_sd_index,
+            manifest_var_index,
+            observation_site_index,
         )
 
     if isinstance(model_spec, dict):
@@ -66,6 +70,8 @@ def build_prior_index_maps(
             t0_offdiag_index,
             t0_mean_index,
             t0_sd_index,
+            manifest_var_index,
+            observation_site_index,
         )
 
     latent_names = ssm_spec.latent_names or []
@@ -191,6 +197,80 @@ def build_prior_index_maps(
                     f"{parameter.name!r}"
                 )
 
+    manifest_names = ssm_spec.manifest_names or []
+    manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
+    if not (not isinstance(ssm_spec.manifest_var, str) and ssm_spec.manifest_var_mask is None):
+        if ssm_spec.manifest_var_mask is None:
+            free_manifest_indices = list(range(ssm_spec.n_manifest))
+        else:
+            free_manifest_indices = [
+                idx for idx, is_free in enumerate(ssm_spec.manifest_var_mask) if bool(is_free)
+            ]
+        free_manifest_lookup = {
+            manifest_idx: flat_idx for flat_idx, manifest_idx in enumerate(free_manifest_indices)
+        }
+        for parameter in spec_obj.parameters:
+            if parameter.role != ParameterRole.MEASUREMENT_ERROR_SD:
+                continue
+            indicator_name = parameter.name.removeprefix("obs_sd_")
+            manifest_idx = manifest_idx_map.get(indicator_name)
+            if manifest_idx is None:
+                message = (
+                    "Could not parse MEASUREMENT_ERROR_SD parameter "
+                    f"{parameter.name!r} into a known manifest from {sorted(manifest_idx_map)}"
+                )
+                if strict_structure:
+                    errors.append(message)
+                    continue
+                logger.warning("%s", message)
+                continue
+            flat_idx = free_manifest_lookup.get(manifest_idx)
+            if flat_idx is None:
+                if strict_structure:
+                    errors.append(
+                        "MEASUREMENT_ERROR_SD parameter does not correspond to a free manifest "
+                        f"noise term in causal_spec: {parameter.name!r}"
+                    )
+                continue
+            manifest_var_index[parameter.name] = ("manifest_var_diag", flat_idx)
+
+    available_observation_sites: set[str] = set()
+    manifest_dists = ssm_spec.manifest_dists or [ssm_spec.manifest_dist] * ssm_spec.n_manifest
+    manifest_dist_set = set(manifest_dists)
+    if DistributionFamily.STUDENT_T in manifest_dist_set:
+        available_observation_sites.add("obs_df")
+    if DistributionFamily.GAMMA in manifest_dist_set:
+        available_observation_sites.add("obs_shape")
+    if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
+        available_observation_sites.add("obs_r")
+    if DistributionFamily.BETA in manifest_dist_set:
+        available_observation_sites.add("obs_concentration")
+
+    if ssm_spec.manifest_level_counts is not None:
+        level_counts_list = list(ssm_spec.manifest_level_counts)
+        max_levels = max(level_counts_list) if level_counts_list else 0
+        max_cutpoints = max(max_levels - 1, 0)
+        if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set and max_cutpoints > 0:
+            available_observation_sites.add("obs_ordered_base")
+            if max_cutpoints > 1:
+                available_observation_sites.add("obs_ordered_gaps")
+        if DistributionFamily.CATEGORICAL in manifest_dist_set and max_cutpoints > 0:
+            available_observation_sites.update({"obs_cat_intercepts", "obs_cat_slopes"})
+
+    for parameter in spec_obj.parameters:
+        if parameter.role not in {
+            ParameterRole.OBSERVATION_HYPERPARAMETER,
+            ParameterRole.OBSERVATION_HYPERPARAMETER_POSITIVE,
+        }:
+            continue
+        if parameter.name in available_observation_sites:
+            observation_site_index[parameter.name] = (parameter.name, 0)
+        elif strict_structure:
+            errors.append(
+                "Observation hyperparameter does not correspond to an active compiled "
+                f"observation site: {parameter.name!r}"
+            )
+
     if ssm_spec.diffusion == "free":
         lower_positions: list[tuple[int, int]] = []
         for i in range(ssm_spec.n_latent):
@@ -271,4 +351,6 @@ def build_prior_index_maps(
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
+        manifest_var_index,
+        observation_site_index,
     )

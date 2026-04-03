@@ -44,6 +44,11 @@ class ParameterRole(StrEnum):
         "initial_state_correlation"  # Correlation between initial latent states
     )
     LOADING = "loading"  # Factor loading for multi-indicator constructs
+    MEASUREMENT_ERROR_SD = "measurement_error_sd"  # Manifest observation noise SD
+    OBSERVATION_HYPERPARAMETER = "observation_hyperparameter"  # Real-valued obs extras
+    OBSERVATION_HYPERPARAMETER_POSITIVE = (
+        "observation_hyperparameter_positive"  # Positive obs extras
+    )
 
 
 class ParameterConstraint(StrEnum):
@@ -349,8 +354,42 @@ def merge_decisions_to_spec(
             }
         )
 
-    spec_dict = {"likelihoods": likelihoods, "parameters": list(parameters)}
+    chosen_distribution_by_variable = {
+        str(likelihood["variable"]): str(likelihood["distribution"])
+        for likelihood in likelihoods
+        if isinstance(likelihood.get("variable"), str)
+        and isinstance(likelihood.get("distribution"), str)
+    }
+    active_parameters = [
+        parameter
+        for parameter in parameters
+        if _parameter_is_active_for_likelihoods(parameter, chosen_distribution_by_variable)
+    ]
+
+    spec_dict = {"likelihoods": likelihoods, "parameters": active_parameters}
     return validate_model_spec_dict(spec_dict)
+
+
+def _parameter_is_active_for_likelihoods(
+    parameter: dict,
+    chosen_distribution_by_variable: dict[str, str],
+) -> bool:
+    """Return whether a candidate Stage 4 parameter is active for the locked likelihoods."""
+    activation_families = parameter.get("activation_distribution_families")
+    if not isinstance(activation_families, list) or not activation_families:
+        return True
+
+    relevant_variables = parameter.get("activation_indicator_names")
+    if not isinstance(relevant_variables, list) or not relevant_variables:
+        relevant_variables = parameter.get("indicator_names")
+    if not isinstance(relevant_variables, list) or not relevant_variables:
+        relevant_variables = list(chosen_distribution_by_variable)
+
+    allowed_families = {str(family) for family in activation_families}
+    return any(
+        chosen_distribution_by_variable.get(str(variable)) in allowed_families
+        for variable in relevant_variables
+    )
 
 
 def validate_model_spec_decisions_dict(

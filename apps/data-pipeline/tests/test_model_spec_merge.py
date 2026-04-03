@@ -314,6 +314,52 @@ class TestMergeDecisionsToSpec:
         variables = {lik.variable for lik in spec.likelihoods}
         assert variables == {"mood", "steps"}
 
+    def test_merge_filters_inactive_conditional_observation_parameters(self):
+        resolved = [
+            {
+                "variable": "steps",
+                "distribution": "gaussian",
+                "link": "identity",
+                "reasoning": "resolved for test",
+            },
+        ]
+        params = [
+            {
+                "name": "obs_df",
+                "role": "observation_hyperparameter_positive",
+                "constraint": "positive",
+                "description": "Student-t observation degrees of freedom",
+                "indicator_names": ["steps"],
+                "activation_indicator_names": ["steps"],
+                "activation_distribution_families": ["student_t"],
+            },
+            {
+                "name": "obs_r",
+                "role": "observation_hyperparameter_positive",
+                "constraint": "positive",
+                "description": "Negative-binomial observation dispersion",
+                "indicator_names": ["steps"],
+                "activation_indicator_names": ["steps"],
+                "activation_distribution_families": ["negative_binomial"],
+            },
+            {
+                "name": "beta_x",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "Effect of X",
+            },
+        ]
+        decisions = ModelSpecDecisions(
+            distribution_choices=[],
+            reasoning="test",
+        )
+
+        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+
+        assert errors == []
+        assert spec is not None
+        assert [parameter.name for parameter in spec.parameters] == ["beta_x"]
+
 
 # =============================================================================
 # validate_model_spec_decisions_dict

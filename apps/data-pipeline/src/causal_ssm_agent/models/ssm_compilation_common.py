@@ -34,6 +34,8 @@ PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
 ]
 
 SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
@@ -42,9 +44,18 @@ SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
     "diffusion_diag": "diffusion_diag_pop",
     "diffusion_offdiag": "diffusion_lower",
     "lambda_free": "lambda_free",
+    "manifest_var_diag": "manifest_var_diag",
     "t0_means": "t0_means_pop",
     "t0_var_diag": "t0_var_diag",
     "t0_var_offdiag": "t0_var_lower",
+    "obs_df": "obs_df",
+    "obs_shape": "obs_shape",
+    "obs_r": "obs_r",
+    "obs_concentration": "obs_concentration",
+    "obs_ordered_base": "obs_ordered_base",
+    "obs_ordered_gaps": "obs_ordered_gaps",
+    "obs_cat_intercepts": "obs_cat_intercepts",
+    "obs_cat_slopes": "obs_cat_slopes",
 }
 
 SITE_TO_KEYWORDS: dict[str, list[str]] = {
@@ -52,11 +63,20 @@ SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "drift_offdiag": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
     "lambda_free": ["lambda", "loading"],
+    "manifest_var_diag": ["obs_sd", "measurement_error"],
     "t0_means": ["t0_mean"],
     "t0_means_pop": ["t0_mean"],
     "t0_var_diag": ["t0_sd"],
     "t0_var_offdiag": list(INITIAL_STATE_CORRELATION_KEYWORDS),
     "diffusion_offdiag": ["cor"],
+    "obs_df": ["obs_df"],
+    "obs_shape": ["obs_shape"],
+    "obs_r": ["obs_r"],
+    "obs_concentration": ["obs_concentration"],
+    "obs_ordered_base": ["obs_ordered_base"],
+    "obs_ordered_gaps": ["obs_ordered_gaps"],
+    "obs_cat_intercepts": ["obs_cat_intercepts"],
+    "obs_cat_slopes": ["obs_cat_slopes"],
 }
 # dynamics_stability is a synthetic validation site (not a prior field) that
 # covers both drift and diffusion parameters.
@@ -176,6 +196,13 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
         if ssm_spec.lambda_mask is None:
             return None
         return int(np.asarray(ssm_spec.lambda_mask).sum())
+
+    if attr == "manifest_var_diag":
+        if not isinstance(ssm_spec.manifest_var, str) and ssm_spec.manifest_var_mask is None:
+            return 0
+        if ssm_spec.manifest_var_mask is None:
+            return ssm_spec.n_manifest
+        return int(np.asarray(ssm_spec.manifest_var_mask).sum())
 
     if attr == "diffusion_offdiag":
         if ssm_spec.diffusion != "free":
