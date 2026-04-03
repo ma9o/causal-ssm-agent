@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/storage", () => ({
+  deleteData: vi.fn(),
   ensureDir: vi.fn(),
   writeBinary: vi.fn(),
 }));
@@ -10,7 +11,7 @@ vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi.fn(),
 }));
 
-import { ensureDir, writeBinary } from "@/lib/storage";
+import { deleteData, ensureDir, writeBinary } from "@/lib/storage";
 import { finalizeWorkspaceCreate, requireWorkspaceAccess } from "@/lib/workspace-access";
 import { POST } from "./route";
 
@@ -70,5 +71,34 @@ describe("POST /api/upload", () => {
     await expect(response.json()).resolves.toEqual({ error: "Invalid file name" });
     expect(writeBinary).not.toHaveBeenCalled();
     expect(finalizeWorkspaceCreate).not.toHaveBeenCalled();
+  });
+
+  it("rolls back the uploaded file when workspace finalization fails", async () => {
+    vi.mocked(requireWorkspaceAccess).mockResolvedValue({
+      ok: true,
+      workspaceId: "BROKEN",
+      creationPending: true,
+    });
+    vi.mocked(finalizeWorkspaceCreate).mockRejectedValue(
+      new Error("finalize failed"),
+    );
+
+    const file = new File(["hello"], "data.csv", { type: "text/csv" });
+    const formData = new FormData();
+    formData.set("workspaceId", "BROKEN");
+    formData.set("file", file);
+
+    const response = await POST(
+      new Request("http://localhost/api/upload", {
+        method: "POST",
+        body: formData,
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to finalize workspace creation",
+    });
+    expect(deleteData).toHaveBeenCalledWith("BROKEN/input/data.csv");
   });
 });
