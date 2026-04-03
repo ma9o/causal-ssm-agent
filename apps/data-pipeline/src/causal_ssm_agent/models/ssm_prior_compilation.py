@@ -353,6 +353,8 @@ def compile_priors(
         t0_offdiag_param_index,
         t0_mean_param_index,
         t0_sd_param_index,
+        manifest_var_param_index,
+        observation_site_param_index,
     ) = index_maps
     errors: list[str] = []
 
@@ -433,6 +435,11 @@ def compile_priors(
                 _append_structured_prior(per_element, attr, idx, normalized)
                 continue
 
+            if param_name in manifest_var_param_index:
+                attr, idx = manifest_var_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
             if param_name in diffusion_diag_param_index:
                 attr, idx = diffusion_diag_param_index[param_name]
                 _append_structured_prior(per_element, attr, idx, normalized)
@@ -461,6 +468,11 @@ def compile_priors(
                     idx,
                     _coerce_initial_state_correlation_prior(normalized),
                 )
+                continue
+
+            if param_name in observation_site_param_index:
+                attr, _idx = observation_site_param_index[param_name]
+                setattr(ssm_priors, attr, dict(normalized))
                 continue
 
             role = role_by_name.get(param_name)
@@ -522,6 +534,8 @@ def bind_parameters(
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
+        manifest_var_index,
+        observation_site_index,
     ) = index_maps
 
     bindings: list[dict[str, Any]] = []
@@ -534,6 +548,8 @@ def bind_parameters(
         diffusion_offdiag_index,
         t0_offdiag_index,
         lambda_index,
+        manifest_var_index,
+        observation_site_index,
     )
     for mapping in ordered_maps:
         for param_name, (prior_field, flat_index) in sorted(mapping.items()):

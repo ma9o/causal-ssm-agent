@@ -99,6 +99,8 @@ def _build_partial_drift_state(
         _t0_offdiag_param_index,
         _t0_mean_param_index,
         _t0_sd_param_index,
+        _manifest_var_param_index,
+        _observation_site_param_index,
     ) = index_maps
 
     latent_names = tuple(ssm_spec.latent_names or ())

@@ -454,13 +454,38 @@ def build_site_registry(
     manifest_dist_set = set(manifest_dists)
 
     if DistributionFamily.STUDENT_T in manifest_dist_set:
-        sites.append(_site("obs_df", (), SupportClass.POSITIVE, "likelihood", SiteKind.OBS_DF))
+        sites.append(
+            _site(
+                "obs_df",
+                (),
+                SupportClass.POSITIVE,
+                "likelihood",
+                SiteKind.OBS_DF,
+                priors_field="obs_df",
+            )
+        )
     if DistributionFamily.GAMMA in manifest_dist_set:
         sites.append(
-            _site("obs_shape", (), SupportClass.POSITIVE, "likelihood", SiteKind.OBS_SHAPE)
+            _site(
+                "obs_shape",
+                (),
+                SupportClass.POSITIVE,
+                "likelihood",
+                SiteKind.OBS_SHAPE,
+                priors_field="obs_shape",
+            )
         )
     if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
-        sites.append(_site("obs_r", (), SupportClass.POSITIVE, "likelihood", SiteKind.OBS_R))
+        sites.append(
+            _site(
+                "obs_r",
+                (),
+                SupportClass.POSITIVE,
+                "likelihood",
+                SiteKind.OBS_R,
+                priors_field="obs_r",
+            )
+        )
     if DistributionFamily.BETA in manifest_dist_set:
         sites.append(
             _site(
@@ -469,6 +494,7 @@ def build_site_registry(
                 SupportClass.POSITIVE,
                 "likelihood",
                 SiteKind.OBS_CONCENTRATION,
+                priors_field="obs_concentration",
             )
         )
 
@@ -485,6 +511,7 @@ def build_site_registry(
                     SupportClass.REAL,
                     "likelihood",
                     SiteKind.OBS_ORDERED_BASE,
+                    priors_field="obs_ordered_base",
                 )
             )
             if max_cutpoints > 1:
@@ -495,6 +522,7 @@ def build_site_registry(
                         SupportClass.POSITIVE,
                         "likelihood",
                         SiteKind.OBS_ORDERED_GAPS,
+                        priors_field="obs_ordered_gaps",
                     )
                 )
 
@@ -507,6 +535,7 @@ def build_site_registry(
                     SupportClass.REAL,
                     "likelihood",
                     SiteKind.OBS_CAT_INTERCEPTS,
+                    priors_field="obs_cat_intercepts",
                 )
             )
             sites.append(
@@ -516,6 +545,7 @@ def build_site_registry(
                     SupportClass.REAL,
                     "likelihood",
                     SiteKind.OBS_CAT_SLOPES,
+                    priors_field="obs_cat_slopes",
                 )
             )
 
@@ -1496,8 +1526,8 @@ def reconstruct_ssm_priors(
     prior parameters back to the ``SSMPriors`` dict-based format that
     ``SSMModel.__init__`` expects.
 
-    Likelihood extra sites (obs_df, proc_df, etc.) have no SSMPriors field
-    and are silently skipped.
+    Only sites without an ``SSMPriors`` field (currently things like ``proc_df``)
+    are skipped.
     """
     import numpy as np
 

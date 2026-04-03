@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 from causal_ssm_agent.distributions import (
     PriorRuntimeKind,
+    get_positive_runtime_family_index,
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
@@ -163,6 +164,40 @@ class SSMPriors:
 
     # Manifest variance (measurement error)
     manifest_var_diag: dict = field(default_factory=lambda: {"sigma": 1.0})
+
+    # Observation-family extras
+    obs_df: dict = field(
+        default_factory=lambda: {
+            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "concentration": 5.0,
+            "rate": 1.0,
+        }
+    )
+    obs_shape: dict = field(
+        default_factory=lambda: {
+            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "concentration": 2.0,
+            "rate": 1.0,
+        }
+    )
+    obs_r: dict = field(
+        default_factory=lambda: {
+            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "concentration": 2.0,
+            "rate": 0.5,
+        }
+    )
+    obs_concentration: dict = field(
+        default_factory=lambda: {
+            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "concentration": 5.0,
+            "rate": 0.5,
+        }
+    )
+    obs_ordered_base: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
+    obs_ordered_gaps: dict = field(default_factory=lambda: {"sigma": 1.0})
+    obs_cat_intercepts: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
+    obs_cat_slopes: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
 
     # Initial state
     t0_means: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 2.0})
@@ -624,15 +659,24 @@ class SSMModel:
         manifest_dist_set = set(manifest_dists)
 
         if DistributionFamily.STUDENT_T in manifest_dist_set:
-            sampled_values["obs_df"] = numpyro.sample("obs_df", dist.Gamma(5.0, 1.0))
+            sampled_values["obs_df"] = numpyro.sample(
+                "obs_df",
+                _make_prior_dist(self.priors.obs_df),
+            )
         if DistributionFamily.GAMMA in manifest_dist_set:
-            sampled_values["obs_shape"] = numpyro.sample("obs_shape", dist.Gamma(2.0, 1.0))
+            sampled_values["obs_shape"] = numpyro.sample(
+                "obs_shape",
+                _make_prior_dist(self.priors.obs_shape),
+            )
         if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
-            sampled_values["obs_r"] = numpyro.sample("obs_r", dist.Gamma(2.0, 0.5))
+            sampled_values["obs_r"] = numpyro.sample(
+                "obs_r",
+                _make_prior_dist(self.priors.obs_r),
+            )
         if DistributionFamily.BETA in manifest_dist_set:
             sampled_values["obs_concentration"] = numpyro.sample(
                 "obs_concentration",
-                dist.Gamma(5.0, 0.5),
+                _make_prior_dist(self.priors.obs_concentration),
             )
 
         if spec.manifest_level_counts is not None:
@@ -648,23 +692,25 @@ class SSMModel:
             if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
                 sampled_values["obs_ordered_base"] = numpyro.sample(
                     "obs_ordered_base",
-                    dist.Normal(0.0, 1.0).expand((spec.n_manifest,)),
+                    _make_prior_dist(self.priors.obs_ordered_base).expand((spec.n_manifest,)),
                 )
                 if max_cutpoints > 1:
                     sampled_values["obs_ordered_gaps"] = numpyro.sample(
                         "obs_ordered_gaps",
-                        dist.HalfNormal(1.0).expand((spec.n_manifest, max_cutpoints - 1)),
+                        _make_prior_dist(self.priors.obs_ordered_gaps).expand(
+                            (spec.n_manifest, max_cutpoints - 1)
+                        ),
                     )
 
             if DistributionFamily.CATEGORICAL in manifest_dist_set:
                 cat_shape = (spec.n_manifest, max_cutpoints)
                 sampled_values["obs_cat_intercepts"] = numpyro.sample(
                     "obs_cat_intercepts",
-                    dist.Normal(0.0, 1.0).expand(cat_shape),
+                    _make_prior_dist(self.priors.obs_cat_intercepts).expand(cat_shape),
                 )
                 sampled_values["obs_cat_slopes"] = numpyro.sample(
                     "obs_cat_slopes",
-                    dist.Normal(0.0, 1.0).expand(cat_shape),
+                    _make_prior_dist(self.priors.obs_cat_slopes).expand(cat_shape),
                 )
 
         from causal_ssm_agent.models.likelihoods.graph_analysis import has_student_t_diffusion

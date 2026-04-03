@@ -747,8 +747,8 @@ class TestSSMPriorsReconstruction:
         for i in range(3):
             assert abs(reconstructed.drift_diag["mu"][i] - priors.drift_diag["mu"][i]) < 1e-5
 
-    def test_reconstruct_skips_likelihood_extras(self, simple_spec):
-        """Likelihood extra sites don't appear in SSMPriors."""
+    def test_reconstruct_preserves_likelihood_extras(self, simple_spec):
+        """Likelihood-extra prior surfaces should roundtrip through reconstruction."""
         from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
         spec = SSMSpec(
@@ -759,8 +759,9 @@ class TestSSMPriorsReconstruction:
         registry = build_site_registry(spec)
         state = build_prior_runtime_state(registry)
         reconstructed = reconstruct_ssm_priors(registry, state)
-        # obs_df is a likelihood extra — should not appear in SSMPriors
-        assert not hasattr(reconstructed, "obs_df")
+        assert reconstructed.obs_df["family"] >= 0
+        assert reconstructed.obs_df["concentration"] == pytest.approx(5.0)
+        assert reconstructed.obs_df["rate"] == pytest.approx(1.0)
 
     def test_reconstruct_preserves_positive_family_metadata(self, simple_spec):
         """Positive runtime families should roundtrip through compiled semantics."""
