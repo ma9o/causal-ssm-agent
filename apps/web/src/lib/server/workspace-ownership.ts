@@ -1,13 +1,22 @@
 import { readdir } from "node:fs/promises";
 import { SHARED_WORKSPACE_IDS } from "@/lib/shared-workspaces";
-import { LOCAL_DATA_DIR, prefixExists, readData, writeData } from "@/lib/storage";
+import {
+  LOCAL_DATA_DIR,
+  isStorageNotFoundError,
+  prefixExists,
+  readData,
+} from "@/lib/storage";
+import { createControlStoreClient } from "@/lib/server/control-store";
 import { resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
 import { readAuthorizedWorkspaceIds } from "@/lib/server/workspace-session";
 
 const MAX_PERSISTED_WORKSPACES = 256;
+const WORKSPACE_OWNERSHIP_TABLE = "workspace_ownership";
 
-type OpenRouterWorkspaceIndex = {
-  workspaceIds?: string[];
+type WorkspaceOwnershipRow = {
+  ownerUserId: string;
+  updatedAtMs: number;
+  workspaceId: string;
 };
 
 export type WorkspaceOwnershipContext =
@@ -41,15 +50,105 @@ function deduplicateWorkspaceIds(workspaceIds: string[]): string[] {
   return [...normalized].slice(0, MAX_PERSISTED_WORKSPACES);
 }
 
-function openRouterWorkspaceIndexPath(userId: string): string {
-  return `.private/openrouter-users/${Buffer.from(userId, "utf-8").toString("base64url")}/workspaces.json`;
+async function ensureWorkspaceOwnershipSchema(): Promise<void> {
+  const client = createControlStoreClient();
+
+  await client.batch(
+    [
+      {
+        sql: `CREATE TABLE IF NOT EXISTS ${WORKSPACE_OWNERSHIP_TABLE} (
+                workspace_id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL,
+                updated_at_ms INTEGER NOT NULL
+              )`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS ${WORKSPACE_OWNERSHIP_TABLE}_owner_idx
+              ON ${WORKSPACE_OWNERSHIP_TABLE} (owner_user_id, updated_at_ms DESC)`,
+      },
+    ],
+    "write",
+  );
 }
 
-async function readOpenRouterWorkspaceIndex(userId: string): Promise<OpenRouterWorkspaceIndex> {
-  try {
-    return JSON.parse(await readData(openRouterWorkspaceIndexPath(userId))) as OpenRouterWorkspaceIndex;
-  } catch {
-    return {};
+function coerceOwnershipRow(value: unknown): WorkspaceOwnershipRow | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const row = value as Record<string, unknown>;
+  const workspaceId = row.workspace_id;
+  const ownerUserId = row.owner_user_id;
+  const updatedAtMs = row.updated_at_ms;
+
+  if (typeof workspaceId !== "string" || typeof ownerUserId !== "string") {
+    return null;
+  }
+
+  const coerceNumber = (input: unknown): number => {
+    if (typeof input === "number") {
+      return input;
+    }
+    if (typeof input === "bigint") {
+      return Number(input);
+    }
+    if (typeof input === "string") {
+      return Number.parseInt(input, 10);
+    }
+    return Number.NaN;
+  };
+
+  const updated = coerceNumber(updatedAtMs);
+  if (!Number.isFinite(updated)) {
+    return null;
+  }
+
+  return {
+    ownerUserId,
+    updatedAtMs: updated,
+    workspaceId,
+  };
+}
+
+async function listOpenRouterWorkspaceRows(userId: string): Promise<WorkspaceOwnershipRow[]> {
+  await ensureWorkspaceOwnershipSchema();
+
+  const client = createControlStoreClient();
+  const result = await client.execute({
+    sql: `SELECT workspace_id, owner_user_id, updated_at_ms
+          FROM ${WORKSPACE_OWNERSHIP_TABLE}
+          WHERE owner_user_id = ?
+          ORDER BY updated_at_ms DESC
+          LIMIT ?`,
+    args: [userId, MAX_PERSISTED_WORKSPACES],
+  });
+
+  return result.rows
+    .map(coerceOwnershipRow)
+    .filter((row): row is WorkspaceOwnershipRow => row !== null);
+}
+
+async function persistOpenRouterWorkspaceOwnership(
+  userId: string,
+  workspaceId: string,
+  updatedAtMs: number,
+): Promise<void> {
+  await ensureWorkspaceOwnershipSchema();
+
+  const client = createControlStoreClient();
+  const result = await client.execute({
+    sql: `INSERT INTO ${WORKSPACE_OWNERSHIP_TABLE}
+            (workspace_id, owner_user_id, updated_at_ms)
+          VALUES (?, ?, ?)
+          ON CONFLICT(workspace_id) DO UPDATE SET
+            updated_at_ms = excluded.updated_at_ms
+          WHERE ${WORKSPACE_OWNERSHIP_TABLE}.owner_user_id = excluded.owner_user_id
+          RETURNING workspace_id`,
+    args: [workspaceId, userId, updatedAtMs],
+  });
+
+  if (result.rows.length === 0) {
+    throw new Error(`Workspace '${workspaceId}' is already owned by another user.`);
   }
 }
 
@@ -68,16 +167,25 @@ export async function resolveWorkspaceOwnershipContext(): Promise<WorkspaceOwner
 }
 
 export async function readOpenRouterOwnedWorkspaceIds(userId: string): Promise<string[]> {
-  const index = await readOpenRouterWorkspaceIndex(userId);
-  return index.workspaceIds ?? [];
+  return (await listOpenRouterWorkspaceRows(userId)).map((row) => row.workspaceId);
 }
 
 export async function hasOpenRouterWorkspaceAccess(
   userId: string,
   workspaceId: string,
 ): Promise<boolean> {
-  const workspaceIds = await readOpenRouterOwnedWorkspaceIds(userId);
-  return workspaceIds.includes(workspaceId);
+  await ensureWorkspaceOwnershipSchema();
+
+  const client = createControlStoreClient();
+  const result = await client.execute({
+    sql: `SELECT workspace_id, owner_user_id, updated_at_ms
+          FROM ${WORKSPACE_OWNERSHIP_TABLE}
+          WHERE workspace_id = ?
+            AND owner_user_id = ?
+          LIMIT 1`,
+    args: [workspaceId, userId],
+  });
+  return coerceOwnershipRow(result.rows[0]) !== null;
 }
 
 export async function authorizeWorkspaceForOpenRouterUser(
@@ -91,12 +199,16 @@ export async function authorizeWorkspacesForOpenRouterUser(
   userId: string,
   workspaceIds: string[],
 ): Promise<void> {
-  const existing = await readOpenRouterOwnedWorkspaceIds(userId);
-  const merged = deduplicateWorkspaceIds([...workspaceIds, ...existing]);
-  await writeData(
-    openRouterWorkspaceIndexPath(userId),
-    JSON.stringify({ workspaceIds: merged }, null, 2),
-  );
+  const normalizedWorkspaceIds = deduplicateWorkspaceIds(workspaceIds);
+  const baseUpdatedAtMs = Date.now();
+
+  for (const [index, workspaceId] of normalizedWorkspaceIds.entries()) {
+    await persistOpenRouterWorkspaceOwnership(
+      userId,
+      workspaceId,
+      baseUpdatedAtMs - index,
+    );
+  }
 }
 
 export async function listLocalWorkspaceIds(): Promise<string[]> {
@@ -106,8 +218,11 @@ export async function listLocalWorkspaceIds(): Promise<string[]> {
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
       .map((entry) => entry.name)
       .sort((left, right) => left.localeCompare(right));
-  } catch {
-    return [];
+  } catch (e: unknown) {
+    if (e instanceof Error && "code" in e && (e as NodeJS.ErrnoException).code === "ENOENT") {
+      return [];
+    }
+    throw e;
   }
 }
 
@@ -133,14 +248,6 @@ async function filterExistingWorkspaceIds(workspaceIds: string[]): Promise<strin
   return checks.filter((entry) => entry.exists).map((entry) => entry.workspaceId);
 }
 
-async function readAuthorizedWorkspaceIdsSafely(): Promise<string[]> {
-  try {
-    return deduplicateWorkspaceIds(await readAuthorizedWorkspaceIds());
-  } catch {
-    return [];
-  }
-}
-
 async function readWorkspaceQuestion(workspaceId: string): Promise<string | null> {
   try {
     const text = (await readData(`${workspaceId}/query.txt`)).trim();
@@ -148,8 +255,11 @@ async function readWorkspaceQuestion(workspaceId: string): Promise<string | null
       return null;
     }
     return text.length > 120 ? `${text.slice(0, 117)}...` : text;
-  } catch {
-    return null;
+  } catch (e: unknown) {
+    if (isStorageNotFoundError(e)) {
+      return null;
+    }
+    throw e;
   }
 }
 
@@ -183,14 +293,16 @@ export async function listAccessibleWorkspaces(): Promise<AccessibleWorkspaceLis
   if (ownership.mode === "user") {
     entries.push(
       ...await buildEntries(
-        await filterExistingWorkspaceIds(await readOpenRouterOwnedWorkspaceIds(ownership.userId)),
+        await readOpenRouterOwnedWorkspaceIds(ownership.userId),
         "user",
       ),
     );
   } else {
     const sharedSet = new Set(sharedWorkspaceIds);
     const sessionWorkspaceIds = (
-      await filterExistingWorkspaceIds(await readAuthorizedWorkspaceIdsSafely())
+      await filterExistingWorkspaceIds(
+        deduplicateWorkspaceIds(await readAuthorizedWorkspaceIds()),
+      )
     ).filter((workspaceId) => !sharedSet.has(workspaceId));
     entries.push(...await buildEntries(sessionWorkspaceIds, "session"));
   }

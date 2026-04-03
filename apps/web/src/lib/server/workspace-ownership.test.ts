@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const readdirMock = vi.hoisted(() => vi.fn());
@@ -16,26 +19,35 @@ vi.mock("@/lib/server/workspace-session", () => ({
 
 vi.mock("@/lib/storage", () => ({
   LOCAL_DATA_DIR: "/tmp/data",
+  isStorageNotFoundError: vi.fn((error: unknown) =>
+    error instanceof Error && error.message.startsWith("ENOENT:"),
+  ),
   prefixExists: vi.fn(),
   readData: vi.fn(),
-  writeData: vi.fn(),
 }));
 
 import { resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
 import { readAuthorizedWorkspaceIds } from "@/lib/server/workspace-session";
-import { prefixExists, readData, writeData } from "@/lib/storage";
+import { prefixExists, readData } from "@/lib/storage";
 import {
   authorizeWorkspaceForOpenRouterUser,
+  authorizeWorkspacesForOpenRouterUser,
   listAccessibleWorkspaces,
   readOpenRouterOwnedWorkspaceIds,
 } from "./workspace-ownership";
 
+const originalStoreUrl = process.env.BYOK_SECRET_STORE_URL;
+const originalStoreAuthToken = process.env.BYOK_SECRET_STORE_AUTH_TOKEN;
+
 describe("workspace-ownership", () => {
+  let tempDir: string;
+
   beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), "workspace-ownership-"));
+    process.env.BYOK_SECRET_STORE_URL = `file:${join(tempDir, "control-store.db")}`;
+    delete process.env.BYOK_SECRET_STORE_AUTH_TOKEN;
+
     vi.mocked(readData).mockImplementation(async (path: string) => {
-      if (path.includes("/workspaces.json")) {
-        return JSON.stringify({ workspaceIds: ["OWNED1", "OWNED2"] });
-      }
       if (path === "OWNED1/query.txt") {
         return "Owned question";
       }
@@ -48,6 +60,17 @@ describe("workspace-ownership", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    if (originalStoreUrl === undefined) {
+      delete process.env.BYOK_SECRET_STORE_URL;
+    } else {
+      process.env.BYOK_SECRET_STORE_URL = originalStoreUrl;
+    }
+    if (originalStoreAuthToken === undefined) {
+      delete process.env.BYOK_SECRET_STORE_AUTH_TOKEN;
+    } else {
+      process.env.BYOK_SECRET_STORE_AUTH_TOKEN = originalStoreAuthToken;
+    }
+    rmSync(tempDir, { recursive: true, force: true });
   });
 
   it("lists every local workspace under ./data in local mode", async () => {
@@ -90,6 +113,7 @@ describe("workspace-ownership", () => {
       userId: "or-user-123",
     });
     vi.mocked(readAuthorizedWorkspaceIds).mockResolvedValue(["OWNED1", "SESSIONONLY"]);
+    await authorizeWorkspacesForOpenRouterUser("or-user-123", ["OWNED1", "OWNED2"]);
     vi.mocked(prefixExists).mockImplementation(
       async (path: string) =>
         path === "OWNED1/" || path === "OWNED2/" || path === "DEFAULT/",
@@ -122,20 +146,23 @@ describe("workspace-ownership", () => {
     });
   });
 
-  it("persists user-owned workspaces in recency order", async () => {
-    vi.mocked(readData).mockResolvedValueOnce(
-      JSON.stringify({ workspaceIds: ["OWNED1", "OWNED2"] }),
-    );
+  it("keeps distinct workspaces when the same user authorizes them concurrently", async () => {
+    await Promise.all([
+      authorizeWorkspaceForOpenRouterUser("or-user-123", "OWNED1"),
+      authorizeWorkspaceForOpenRouterUser("or-user-123", "OWNED2"),
+    ]);
 
-    await authorizeWorkspaceForOpenRouterUser("or-user-123", "OWNED2");
+    const workspaceIds = await readOpenRouterOwnedWorkspaceIds("or-user-123");
 
-    expect(writeData).toHaveBeenCalledWith(
-      expect.stringContaining("/workspaces.json"),
-      JSON.stringify({ workspaceIds: ["OWNED2", "OWNED1"] }, null, 2),
-    );
+    expect(new Set(workspaceIds)).toEqual(new Set(["OWNED1", "OWNED2"]));
+  });
+
+  it("keeps owned workspaces even if their artifacts are missing", async () => {
+    await authorizeWorkspacesForOpenRouterUser("or-user-123", ["LIVE1", "MISSING1"]);
+
     await expect(readOpenRouterOwnedWorkspaceIds("or-user-123")).resolves.toEqual([
-      "OWNED1",
-      "OWNED2",
+      "LIVE1",
+      "MISSING1",
     ]);
   });
 });
