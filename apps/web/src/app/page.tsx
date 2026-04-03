@@ -121,7 +121,7 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 py-6 sm:px-6 xl:grid xl:grid-cols-[1fr_auto_1fr] xl:items-center xl:gap-6">
       <LandingPageView
         access={auth.access}
         noAccess={auth.noAccess}
@@ -140,6 +140,7 @@ export default function LandingPage() {
         onSubmit={handleSubmit}
         error={error}
       />
+      <div className="hidden xl:block w-px h-2/3 bg-border" />
       <AccessibleWorkspacesRail
         data={accessibleWorkspacesQuery.data}
         error={accessibleWorkspacesQuery.error?.message ?? null}

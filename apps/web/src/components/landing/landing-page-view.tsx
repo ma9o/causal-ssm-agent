@@ -171,8 +171,7 @@ export function LandingPageView({
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-4 py-6 sm:px-6">
-      <div className="w-full max-w-2xl space-y-4 sm:space-y-6">
+    <div className="w-full max-w-2xl mx-auto space-y-4 sm:space-y-6">
         <motion.div className="text-center space-y-2" {...fadeIn}>
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
             causal-ssm-agent
@@ -331,7 +330,6 @@ export function LandingPageView({
             )}
           </Button>
         </motion.div>
-      </div>
     </div>
   );
 }
