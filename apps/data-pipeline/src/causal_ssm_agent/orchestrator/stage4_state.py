@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+    from causal_ssm_agent.orchestrator.stage4_feedback import Stage4ValidationPacket
     from causal_ssm_agent.orchestrator.stage4_orchestrator import Stage4FrontierBlock
     from causal_ssm_agent.workers.schemas_prior import PriorPathologyCertificate
 
@@ -142,7 +143,7 @@ class Stage4Runtime:
     block_status: dict[str, str] = field(default_factory=dict)
     decisions: Stage4DecisionState = field(default_factory=Stage4DecisionState)
     accepted: Stage4AcceptedState = field(default_factory=Stage4AcceptedState)
-    last_feedback: str | None = None
+    last_validation_packet: Stage4ValidationPacket | None = None
     search_cache: dict[str, str] = field(default_factory=dict)
     search_queries: dict[str, str] = field(default_factory=dict)
     repair_campaign: Stage4RepairCampaignState | None = None

@@ -13,8 +13,8 @@ from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
 
-from .. import get_prefect_logger
-from ..runtime_events import (
+from ... import get_prefect_logger
+from ...runtime_events import (
     emit_nested_stage_running_event,
     emit_stage4_block_transition_event,
     emit_stage4_graph_event,
@@ -70,11 +70,11 @@ async def stage4_agentic_flow(
         run_stage4,
     )
 
-    from ..run_store import (
+    from ...run_store import (
         clear_stage4_checkpoint,
         save_stage4_checkpoint,
     )
-    from .stage4_assembly import materialize_stage4_result
+    from .assembly import materialize_stage4_result
 
     if root_run_id:
         emit_nested_stage_running_event(root_run_id, "stage-4")
@@ -140,7 +140,7 @@ async def stage4_agentic_flow(
 
 def _load_stage4_checkpoint_or_none(workspace_id: str):
     """Load a Stage 4 checkpoint when present, otherwise return ``None``."""
-    from ..run_store import load_stage4_checkpoint
+    from ...run_store import load_stage4_checkpoint
 
     try:
         return load_stage4_checkpoint(workspace_id)

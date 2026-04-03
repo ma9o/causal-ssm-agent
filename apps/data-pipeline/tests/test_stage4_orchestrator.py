@@ -11,6 +11,10 @@ from causal_ssm_agent.orchestrator.stage4 import (
     Stage4Session,
     make_stage4_runtime,
 )
+from causal_ssm_agent.orchestrator.stage4_feedback import (
+    make_stage4_grounding_result,
+    make_stage4_validation_packet,
+)
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
@@ -89,8 +93,20 @@ def _simple_spec():
 def _noop_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
     """Minimal grounding stub for message-rewriter tests."""
     if current:
-        return dict(current), "VALID"
-    return data, "VALID"
+        return make_stage4_grounding_result(
+            stage_output=dict(current),
+            status="accepted",
+            feedback="VALID",
+            retain_for_next_prompt=False,
+            capture_stage_output=True,
+        )
+    return make_stage4_grounding_result(
+        stage_output=data,
+        status="accepted",
+        feedback="VALID",
+        retain_for_next_prompt=False,
+        capture_stage_output=True,
+    )
 
 
 def _make_session(
@@ -209,7 +225,7 @@ class TestDeriveDeterministicSpec:
         assert {"t0_mean_stress", "t0_sd_stress", "t0_mean_sleep", "t0_sd_sleep"} <= parameter_names
 
     def test_stage4_inventory_matches_compiler_public_prior_rows(self):
-        """Stage 4 should expose exactly the compiler's public prior rows."""
+        """Stage 4 should expose compiler rows plus conditional likelihood extras."""
         from causal_ssm_agent.models.ssm_compiler import (
             compile_ssm_artifact,
             resolve_prior_proposals,
@@ -268,10 +284,16 @@ class TestDeriveDeterministicSpec:
             row["parameter"] for row in resolve_prior_proposals(compiled_ssm, authored_priors={})
         }
 
-        assert compiler_parameter_names == set(skeleton.final_parameter_names)
+        final_parameter_names = set(skeleton.final_parameter_names)
+        assert compiler_parameter_names <= final_parameter_names
+        assert final_parameter_names - compiler_parameter_names == {
+            "obs_concentration",
+            "obs_df",
+            "obs_shape",
+        }
 
-    def test_observation_defaults_stay_compiler_only(self):
-        """Likelihood-extra defaults such as obs_r should stay hidden from Stage 4."""
+    def test_negative_binomial_candidate_obs_r_is_surfaced_to_stage4(self):
+        """Stage 4 should expose the negative-binomial dispersion prior surface."""
         from causal_ssm_agent.models.ssm_compiler import (
             compile_ssm_artifact,
             resolve_prior_proposals,
@@ -310,6 +332,12 @@ class TestDeriveDeterministicSpec:
                 ],
                 "parameters": [
                     {
+                        "name": "obs_r",
+                        "role": "observation_hyperparameter_positive",
+                        "constraint": "positive",
+                        "description": "Negative-binomial observation dispersion",
+                    },
+                    {
                         "name": "rho_activity",
                         "role": "ar_coefficient",
                         "constraint": "unit_interval",
@@ -331,9 +359,8 @@ class TestDeriveDeterministicSpec:
             row["parameter"] for row in resolve_prior_proposals(compiled_ssm, authored_priors={})
         }
 
-        assert all(not name.startswith("obs_") for name in compiler_parameter_names)
-        assert all(not name.startswith("obs_") for name in skeleton.final_parameter_names)
-        assert "obs_r" not in compiler_parameter_names
+        assert "obs_r" in compiler_parameter_names
+        assert "obs_r" in skeleton.final_parameter_names
 
     def test_multi_indicator_loadings(self):
         """Multi-indicator constructs should get loading params for non-reference indicators."""
@@ -667,12 +694,56 @@ class TestStage4Plan:
         assert plan.prior_review_block is not None
         assert plan.prior_review_block.kind == "global_prior_review"
         assert "review:prior_system" in {block.id for block in plan.all_blocks}
-        assert [block.kind for block in plan.prior_blocks] == ["dynamics_prior"]
-        assert set(plan.prior_blocks[0].parameter_names) == {
+        assert [block.kind for block in plan.prior_blocks] == [
+            "observation_prior",
+            "dynamics_prior",
+        ]
+        assert plan.prior_blocks[0].parameter_names == ("obs_r",)
+        assert set(plan.prior_blocks[1].parameter_names) == {
             "rho_activity",
             "sigma_activity",
             "t0_mean_activity",
             "t0_sd_activity",
+        }
+
+    def test_multi_indicator_measurement_block_includes_obs_sd_priors(self):
+        """Free manifest-noise priors should surface alongside loading priors."""
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "stress",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                },
+            ],
+            edges=[],
+            indicators=[
+                {
+                    "name": "pss",
+                    "construct_name": "stress",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "PSS",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "vas",
+                    "construct_name": "stress",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "VAS",
+                    "aggregation": "mean",
+                },
+            ],
+        )
+
+        skeleton = derive_deterministic_spec(spec)
+        plan = build_stage4_plan(spec, skeleton)
+        measurement_block = next(block for block in plan.prior_blocks if block.kind == "measurement_prior")
+
+        assert set(measurement_block.parameter_names) == {
+            "lambda_vas_stress",
+            "obs_sd_pss",
+            "obs_sd_vas",
         }
 
     def test_plan_groups_effect_priors_by_target_construct(self):
@@ -804,7 +875,24 @@ class TestStage4TurnProjection:
             question="How does stress affect sleep?",
             model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
             construct_scale_cards=[],
-            prior_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                },
+                {
+                    "parameter": "rho_sleep",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "structural_context": {"construct": "sleep"},
+                },
+            ],
         )
         prior_blocks = (
             Stage4FrontierBlock(
@@ -862,7 +950,13 @@ class TestStage4TurnProjection:
         runtime.accepted = Stage4AcceptedState(
             model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
         )
-        runtime.last_feedback = "submit priors"
+        runtime.last_validation_packet = make_stage4_validation_packet(
+            status="info",
+            feedback="submit priors",
+            active_scope_id="effects:sleep",
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
+        )
         active_block = plan.get_block("effects:sleep")
         assert active_block is not None
         stage4_module._set_block_cursor(runtime, active_block)
@@ -871,7 +965,18 @@ class TestStage4TurnProjection:
                 question="How does stress affect sleep?",
                 model_topology={},
                 construct_scale_cards=[],
-                prior_cards=[],
+                prior_cards=[
+                    {
+                        "parameter": "beta_stress_sleep",
+                        "role": "fixed_effect",
+                        "constraint": "none",
+                        "structural_context": {
+                            "cause": "stress",
+                            "effect": "sleep",
+                            "lagged": True,
+                        },
+                    }
+                ],
             ),
             plan=plan,
             runtime=runtime,
@@ -902,7 +1007,18 @@ class TestStage4TurnProjection:
                 question="How does stress affect sleep?",
                 model_topology={},
                 construct_scale_cards=[],
-                prior_cards=[],
+                prior_cards=[
+                    {
+                        "parameter": "beta_stress_sleep",
+                        "role": "fixed_effect",
+                        "constraint": "none",
+                        "structural_context": {
+                            "cause": "stress",
+                            "effect": "sleep",
+                            "lagged": True,
+                        },
+                    }
+                ],
             ),
             plan=plan,
             runtime=runtime,
@@ -923,13 +1039,26 @@ class TestStage4PromptScopePolicy:
 
         assert policy.system_task.startswith("Propose full prior specifications")
         assert policy.user_task.startswith("Propose full prior specifications")
-        assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
+        assert policy.visible_sections == (
+            "distribution_cards",
+            "construct_scale_cards",
+            "prior_cards",
+        )
         assert policy.guidance_section_keys == (
             "prior_distribution_types",
             "parameter_guidance",
             "measurement_prior_guidance",
         )
-        assert policy.parameter_guidance_prefixes == ("lambda",)
+        assert policy.parameter_guidance_prefixes == ("lambda", "obs_sd")
+        assert policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
+
+    def test_observation_policy_is_looked_up_by_block_kind(self):
+        policy = get_stage4_prompt_scope_policy("observation_prior")
+
+        assert policy.system_task.startswith("Propose full prior specifications")
+        assert policy.user_task.startswith("Propose priors only for this active observation-family")
+        assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
+        assert policy.parameter_guidance_prefixes == ("obs_",)
         assert policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
 
     def test_effect_policy_keeps_search_enabled(self):
@@ -967,6 +1096,7 @@ class TestStage4PromptScopePolicy:
         assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
         assert policy.parameter_guidance_prefixes == (
             "lambda",
+            "obs_",
             "rho",
             "sigma",
             "beta",

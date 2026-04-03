@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from causal_ssm_agent.flows.stages.stage1b_measurement import build_causal_spec
+from causal_ssm_agent.flows.stages.stage1b.flow import build_causal_spec
 from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
 from causal_ssm_agent.orchestrator.schemas import CausalSpec
 from causal_ssm_agent.orchestrator.stage1b import (
@@ -143,7 +143,7 @@ class TestStage1bGrounding:
 
     def test_valid_identifiable(self, stage1b_simple_latent, stage1b_measurement_all_observed):
         """Valid + identifiable returns VALID feedback and stage_output."""
-        from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
+        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
             stage1b_measurement_all_observed, stage1b_simple_latent
@@ -157,7 +157,7 @@ class TestStage1bGrounding:
         self, stage1b_confounded_latent, stage1b_measurement_all_observed
     ):
         """Valid but not identifiable returns stage_output with identifiability feedback."""
-        from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
+        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
             stage1b_measurement_all_observed, stage1b_confounded_latent
@@ -172,7 +172,7 @@ class TestStage1bGrounding:
 
     def test_invalid_schema(self, stage1b_simple_latent):
         """Invalid schema returns None stage_output."""
-        from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
+        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
             {"indicators": [{"bad": "data"}]}, stage1b_simple_latent
@@ -183,7 +183,7 @@ class TestStage1bGrounding:
 
     def test_drops_unmeasured_constructs_from_estimation_projection(self, monkeypatch):
         """Latent-only constructs should not remain in the executable state vector."""
-        from causal_ssm_agent.flows.stages.stage_tools import stage1b_grounding
+        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
 
         latent_model = {
             "constructs": [

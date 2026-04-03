@@ -9,11 +9,11 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows.stages.contracts import (
+from causal_ssm_agent.flows.stage_contracts import (
     STAGE_TOOLS,
     validate_stage_payload,
 )
-from causal_ssm_agent.flows.stages.persist import persist_web_result
+from causal_ssm_agent.flows.stage_persistence import persist_web_result
 
 
 @pytest.fixture
@@ -269,7 +269,7 @@ def valid_stage_payloads() -> dict[str, dict]:
 def test_persist_web_result_normalizes_nonfinite_numbers(
     tmp_path, monkeypatch, valid_stage_payloads
 ):
-    from causal_ssm_agent.flows.stages import persist as persist_module
+    from causal_ssm_agent.flows import stage_persistence as persist_module
 
     captured: dict[str, str] = {}
 
@@ -335,7 +335,7 @@ def test_persist_web_result_logs_stage5b_summary(
     valid_stage_payloads: dict[str, dict], caplog: pytest.LogCaptureFixture
 ):
     """Persistence task should emit a compact stage summary for UI-visible logs."""
-    with caplog.at_level(logging.INFO, logger="causal_ssm_agent.flows.stages.persist"):
+    with caplog.at_level(logging.INFO, logger="causal_ssm_agent.flows.stage_persistence"):
         persist_web_result.fn("stage-5b", valid_stage_payloads["stage-5b"], "run-123")
 
     assert any(
@@ -361,7 +361,7 @@ def test_persist_web_result_logs_warning_summary_for_warn_stage(
         }
     ]
 
-    with caplog.at_level(logging.INFO, logger="causal_ssm_agent.flows.stages.persist"):
+    with caplog.at_level(logging.INFO, logger="causal_ssm_agent.flows.stage_persistence"):
         persist_web_result.fn("stage-3", payload, "run-123")
 
     assert any(

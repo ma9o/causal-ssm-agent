@@ -20,8 +20,8 @@ import polars as pl
 from prefect import flow, get_run_logger, task
 from prefect.futures import as_completed
 
-from .. import get_prefect_logger
-from ..runtime_events import (
+from ... import get_prefect_logger
+from ...runtime_events import (
     emit_nested_stage_running_event,
     emit_stage2_plan_event,
     emit_stage2_snapshot_event,
@@ -30,7 +30,6 @@ from ..runtime_events import (
 
 logger = get_prefect_logger(__name__)
 
-MAX_FREE_WINDOWS = 100
 SemanticChunkRunner = Callable[..., Awaitable[tuple[list[dict], list[dict], int, dict | None]]]
 _TERMINAL_STAGE2_WORKER_STATES = {"completed", "failed"}
 

@@ -13,8 +13,8 @@ from prefect import task
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.data import runs_dir
 
-from .. import get_prefect_logger
-from .contracts import _validate_stage_model
+from . import get_prefect_logger
+from .stage_contracts import _validate_stage_model
 
 logger = get_prefect_logger(__name__)
 
@@ -49,7 +49,7 @@ def persist_validated_web_result(stage_id: str, data: dict, workspace_id: str) -
 
 def persist_web_patch(stage_id: str, patch: dict, workspace_id: str) -> dict:
     """Merge a web-payload patch, validate it, persist it, and refresh the snapshot web state."""
-    from ..run_store import load_public_payload, load_stage_snapshot, save_stage_snapshot
+    from .run_store import load_public_payload, load_stage_snapshot, save_stage_snapshot
 
     current = load_public_payload(workspace_id, stage_id)
     payload = persist_validated_web_result(stage_id, {**current, **patch}, workspace_id)

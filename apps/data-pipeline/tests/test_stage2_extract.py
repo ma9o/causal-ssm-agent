@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows.stages import stage2_extract
+from causal_ssm_agent.flows.stages.stage2 import flow as stage2_extract
 
 
 class _FakeFuture:

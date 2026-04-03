@@ -22,7 +22,7 @@ from causal_ssm_agent.utils.data import input_dir
 from causal_ssm_agent.utils.llm import GenerateFn, LLMStageContext
 from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
-from .stage0_tools import ModalCodeSandbox, make_ingestion_tools
+from .tools import ModalCodeSandbox, make_ingestion_tools
 
 logger = get_prefect_logger(__name__)
 
@@ -106,41 +106,9 @@ The uploaded input files have been staged and are available via DATA_DIR.
 Explore the contents and parse all relevant data into a single Polars DataFrame.
 """
 
-FINALIZE_PROMPT = """\
-The dataframe has already been created successfully and is stored in memory.
-
-Do not call `execute_python` again unless the dataframe itself is wrong.
-Call `submit_table()` exactly once with:
-- a JSON object with descriptions for EVERY column in the dataframe
-
-Current schema:
-{schema}
-
-Sample rows:
-{sample}
-"""
-
-
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
-
-
-def _has_submission_metadata(capture: dict) -> bool:
-    df = capture.get("dataframe")
-    if df is None or df.is_empty():
-        return False
-
-    column_descriptions = capture.get("column_descriptions")
-    return isinstance(column_descriptions, dict) and set(column_descriptions) == set(df.columns)
-
-
-def _format_finalize_prompt(df: pl.DataFrame) -> str:
-    schema_lines = [f"- {col}: {df.schema[col]}" for col in df.columns]
-    return FINALIZE_PROMPT.format(
-        schema="\n".join(schema_lines),
-        sample=df.head(5),
-    )
 
 
 async def run_agentic_ingestion(
@@ -164,7 +132,6 @@ async def run_agentic_ingestion(
     """
     with ModalCodeSandbox(extract_dir) as sandbox:
         tools, capture = make_ingestion_tools(extract_dir, sandbox)
-        submit_tool = next(tool for tool in tools if tool.name == "submit_table")
 
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -173,24 +140,16 @@ async def run_agentic_ingestion(
 
         await generate(messages, tools)
 
-        df = capture.get("dataframe")
-        if df is not None and not df.is_empty() and not _has_submission_metadata(capture):
-            await generate(
-                [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": _format_finalize_prompt(df)},
-                ],
-                [submit_tool],
-            )
-
     # Extract result from capture
     df = capture.get("dataframe")
     if df is None or df.is_empty():
         raise ValueError("Ingestion agent did not produce a valid DataFrame")
-    if not _has_submission_metadata(capture):
-        raise ValueError("Ingestion agent produced a DataFrame but did not finalize it")
 
-    column_descriptions = capture["column_descriptions"]
+    column_descriptions = capture.get("column_descriptions")
+    if column_descriptions is None:
+        column_descriptions = {}
+    elif not isinstance(column_descriptions, dict) or set(column_descriptions) != set(df.columns):
+        raise ValueError("Ingestion agent produced invalid column descriptions")
 
     return IngestionResult(
         dataframe=df,

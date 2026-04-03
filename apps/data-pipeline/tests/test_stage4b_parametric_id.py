@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.dag import stage4b
-from causal_ssm_agent.flows.stages.stage4b_parametric_id import parametric_id_task
+from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task
 from causal_ssm_agent.models.ssm.inference_structure import (
     build_inference_structure_payload,
     plan_inference_structure,
@@ -619,7 +619,7 @@ class TestStage4bInferenceStructurePayload:
 
     def test_stage4b_demotes_t_rule_failure_to_warning(self, monkeypatch):
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4b_parametric_id_flow",
+            "causal_ssm_agent.flows.stages.stage4b.flow.stage4b_parametric_id_flow",
             lambda *_args, **_kwargs: {
                 "parametric_id": {
                     "checked": True,

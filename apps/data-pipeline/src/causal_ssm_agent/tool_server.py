@@ -25,14 +25,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 from causal_ssm_agent.flows.run_store import load_parquet, load_pickle
-from causal_ssm_agent.flows.stages.contracts import STAGE_TOOLS
-from causal_ssm_agent.flows.stages.persist import persist_web_patch
-from causal_ssm_agent.flows.stages.stage_tools import (
-    search_literature,
-    stage1a_grounding,
-    stage1b_grounding,
-    stage4_grounding,
-)
+from causal_ssm_agent.flows.stage_contracts import STAGE_TOOLS
+from causal_ssm_agent.flows.stage_persistence import persist_web_patch
+from causal_ssm_agent.flows.stages.stage1a.grounding import stage1a_grounding
+from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
+from causal_ssm_agent.flows.stages.stage4.tools import search_literature
 from causal_ssm_agent.models.ssm.counterfactual import (
     approximate_abducted_state,
     forward_simulate_action_from_state,
@@ -556,23 +554,28 @@ def _execute_validate_measurement_model(
 
 
 def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    from causal_ssm_agent.flows.stages.stage_tools import should_capture_stage4_output
+    from causal_ssm_agent.flows.stages.stage4.grounding import should_capture_stage4_output
 
     workspace_id = ctx["_workspace_id"]
     stage1b = ctx.get("stage-1b", {})
     causal_spec = stage1b.get("causal_spec", {})
     current = _load_stage4_current(workspace_id)
     data_for_model = _load_stage2_data_for_model(workspace_id)
-    result = _run_compute(
-        args,
-        "model_json",
-        lambda data: stage4_grounding(
-            data, causal_spec, current=current, data_for_model=data_for_model
-        ),
+    raw = args.get("model_json", "")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"result": f"JSON parse error: {e}", "stage_output": None}
+
+    grounding_result = stage4_grounding(
+        data, causal_spec, current=current, data_for_model=data_for_model
     )
-    if not should_capture_stage4_output(result.get("stage_output"), result.get("result", "")):
-        result["stage_output"] = None
-    return result
+    stage_output = (
+        grounding_result.stage_output
+        if should_capture_stage4_output(grounding_result)
+        else None
+    )
+    return {"result": grounding_result.feedback, "stage_output": stage_output}
 
 
 async def _execute_search_literature(_ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:

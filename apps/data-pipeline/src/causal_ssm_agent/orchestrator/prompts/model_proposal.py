@@ -8,6 +8,8 @@ and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py, and prior families
 in causal_ssm_agent.distributions.PriorDistributionFamily
 """
 
+from typing import Any
+
 from causal_ssm_agent.distributions import (
     PRIOR_PARAMETER_GUIDANCE_ROWS,
     render_dynamic_prior_scale_guidance,
@@ -15,6 +17,10 @@ from causal_ssm_agent.distributions import (
     render_observation_distribution_guidance_bullets,
     render_observation_link_guidance_bullets,
     render_prior_distribution_guidance_bullets,
+)
+from causal_ssm_agent.orchestrator.stage4_feedback import (
+    Stage4ScopeSnapshot,
+    render_stage4_validation_feedback,
 )
 
 OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS = render_observation_distribution_guidance_bullets()
@@ -342,6 +348,24 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
         groups.setdefault(card["role"], []).append(card)
 
     lines: list[str] = []
+    accepted_prior_cards = [card for card in prior_cards if card.get("accepted_prior") is not None]
+    if accepted_prior_cards:
+        lines.extend(
+            [
+                "#### Current Accepted Priors",
+                "",
+                "| Parameter | Accepted Prior |",
+                "|-----------|----------------|",
+            ]
+        )
+        for card in accepted_prior_cards:
+            lines.append(
+                "| {parameter} | {accepted_prior} |".format(
+                    parameter=card["parameter"],
+                    accepted_prior=_format_authored_prior_summary(card.get("accepted_prior")),
+                )
+            )
+        lines.append("")
 
     ar_cards = groups.get("ar_coefficient") or []
     if ar_cards:
@@ -410,6 +434,28 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             )
         lines.append("")
 
+    measurement_error_cards = groups.get("measurement_error_sd") or []
+    if measurement_error_cards:
+        lines.extend(
+            [
+                "#### Measurement-Error SDs",
+                "",
+                "| Parameter | Construct | Indicator | Constraint |",
+                "|-----------|-----------|-----------|------------|",
+            ]
+        )
+        for card in measurement_error_cards:
+            structural_context = card.get("structural_context") or {}
+            lines.append(
+                "| {parameter} | {construct} | {indicator} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    construct=structural_context.get("construct", "-"),
+                    indicator=structural_context.get("indicator", "-"),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
     initial_state_mean_cards = groups.get("initial_state_mean") or []
     if initial_state_mean_cards:
         lines.extend(
@@ -473,6 +519,33 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             )
         lines.append("")
 
+    observation_hyperparameter_cards = [
+        *(groups.get("observation_hyperparameter") or []),
+        *(groups.get("observation_hyperparameter_positive") or []),
+    ]
+    if observation_hyperparameter_cards:
+        lines.extend(
+            [
+                "#### Observation Hyperparameters",
+                "",
+                "| Parameter | Families | Indicators | Constraint |",
+                "|-----------|----------|------------|------------|",
+            ]
+        )
+        for card in observation_hyperparameter_cards:
+            structural_context = card.get("structural_context") or {}
+            lines.append(
+                "| {parameter} | {families} | {indicators} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    families=", ".join(
+                        structural_context.get("activation_distribution_families") or ["-"]
+                    ),
+                    indicators=", ".join(structural_context.get("indicator_names") or ["-"]),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
     correlation_cards = groups.get("correlation") or []
     if correlation_cards:
         lines.extend(
@@ -531,9 +604,12 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             "ar_coefficient",
             "fixed_effect",
             "residual_sd",
+            "measurement_error_sd",
             "initial_state_mean",
             "initial_state_sd",
             "loading",
+            "observation_hyperparameter",
+            "observation_hyperparameter_positive",
             "correlation",
             "initial_state_correlation",
         }
@@ -578,6 +654,94 @@ def _format_markdown_section(title: str, body: str) -> str:
     if not content:
         return ""
     return f"### {title}\n\n{content}"
+
+
+def _summarize_scope_names(names: tuple[str, ...]) -> str:
+    """Render a compact preview of scope parameter names."""
+    if not names:
+        return "(none)"
+    return ", ".join(f"`{name}`" for name in names)
+
+
+def _format_authored_prior_summary(prior: dict[str, Any] | None) -> str:
+    """Format one accepted prior into a compact single-line summary."""
+    if not isinstance(prior, dict):
+        return "-"
+    distribution = prior.get("distribution")
+    params = prior.get("params")
+    if not isinstance(distribution, str):
+        return "-"
+    if not isinstance(params, dict) or not params:
+        return distribution
+    ordered_parts = [f"{key}={params[key]}" for key in sorted(params)]
+    return f"{distribution}({', '.join(ordered_parts)})"
+
+
+def _format_stage4_scope_snapshot(snapshot: Stage4ScopeSnapshot) -> str:
+    """Render the typed prompt-visible scope snapshot."""
+    visible_parameter_names = snapshot.visible_parameter_names
+    if not visible_parameter_names and snapshot.loading_params:
+        visible_parameter_names = tuple(
+            item["name"] for item in snapshot.loading_params if isinstance(item.get("name"), str)
+        )
+    lines = ["## Scope Snapshot", ""]
+    if snapshot.editable_parameter_names:
+        lines.append(
+            f"- editable parameters: {_summarize_scope_names(snapshot.editable_parameter_names)}"
+        )
+    if visible_parameter_names:
+        lines.append(f"- visible parameters: {_summarize_scope_names(visible_parameter_names)}")
+    if snapshot.coupled_parameter_names:
+        lines.append(
+            "- coupled parameters outside this local edit scope: "
+            f"{_summarize_scope_names(snapshot.coupled_parameter_names)}"
+        )
+    if len(lines) == 2:
+        lines.append("- this block has no prior-parameter edit surface.")
+    return "\n".join(lines)
+
+
+def _format_latest_validation_state(snapshot: Stage4ScopeSnapshot) -> str:
+    """Render a typed validation summary alongside the full validator text."""
+    packet = snapshot.latest_validation
+    lines = [
+        "## Latest Validation State",
+        "",
+        f"- status: `{packet.status}`",
+        f"- summary: {packet.summary}",
+    ]
+    if packet.failing_parameters:
+        lines.append(
+            f"- failing parameters: {_summarize_scope_names(packet.failing_parameters)}"
+        )
+    if packet.coupled_parameters:
+        lines.append(
+            f"- coupled parameters: {_summarize_scope_names(packet.coupled_parameters)}"
+        )
+    if packet.global_failure_sites:
+        lines.append(
+            f"- global failure sites: {_summarize_scope_names(packet.global_failure_sites)}"
+        )
+    return "\n".join(lines)
+
+
+def _format_coupled_prior_cards(prior_cards: list[dict[str, Any]]) -> str:
+    """Format accepted priors that are visible for coupling context only."""
+    if not prior_cards:
+        return "(none)"
+    lines = [
+        "| Parameter | Structural Context | Accepted Prior |",
+        "|-----------|--------------------|----------------|",
+    ]
+    for card in prior_cards:
+        lines.append(
+            "| {parameter} | {structural_context} | {accepted_prior} |".format(
+                parameter=card["parameter"],
+                structural_context=_format_structural_context(card.get("structural_context") or {}),
+                accepted_prior=_format_authored_prior_summary(card.get("accepted_prior")),
+            )
+        )
+    return "\n".join(lines)
 
 
 def _render_scope_parameter_guidance(parameter_guidance_prefixes: tuple[str, ...]) -> str:
@@ -627,7 +791,9 @@ def _render_stage4_guidance_section(
         return (
             "## Measurement Prior Guidance\n\n"
             "- Use the construct scale card to anchor plausible indicator-to-construct magnitude.\n"
-            "- Respect the fixed loading orientation already locked for this block."
+            "- Respect the fixed loading orientation already locked for this block.\n"
+            "- For `obs_sd_*`, larger scales shift more variance into indicator noise instead of latent structure.\n"
+            "- For `obs_*` observation hyperparameters, calibrate tails, dispersion, concentration, or thresholds to the locked likelihood family only."
         )
     if section_key == "continuous_time_dynamics":
         return "## Continuous-Time Dynamics\n\n" + DYNAMIC_PRIOR_SCALE_GUIDANCE
@@ -780,60 +946,63 @@ def build_stage4_system_prompt(
 def build_stage4_user_prompt(
     *,
     question: str,
-    model_topology: dict,
-    frontier_status: str,
-    block_id: str,
-    block_kind: str,
-    block_label: str,
-    block_instructions: str,
-    distribution_cards: list[dict],
-    loading_params: list[dict],
-    construct_scale_cards: list[dict],
-    prior_cards: list[dict],
-    submission_example: str,
-    latest_feedback: str,
-    include_prior_source_guidance: bool,
+    snapshot: Stage4ScopeSnapshot,
 ) -> str:
     """Build the scope-local Stage 4 user prompt for the active frontier."""
     sections = [
         "## Research Question\n\n" + question,
-        "## Fixed Model Context\n\n## Model Topology\n\n" + format_model_topology(model_topology),
-        "## Frontier Status\n\n" + frontier_status,
+        "## Fixed Model Context\n\n## Model Topology\n\n" + format_model_topology(snapshot.model_topology),
+        "## Frontier Status\n\n" + snapshot.frontier_status,
         (
             "## Active Block\n\n"
-            f"- `id`: `{block_id}`\n"
-            f"- `kind`: `{block_kind}`\n"
-            f"- `label`: {block_label}\n\n"
-            f"{block_instructions}"
+            f"- `id`: `{snapshot.block_id}`\n"
+            f"- `kind`: `{snapshot.block_kind}`\n"
+            f"- `label`: {snapshot.block_label}\n\n"
+            f"{snapshot.block_instructions}"
         ),
+        _format_stage4_scope_snapshot(snapshot),
     ]
-    if block_kind == "effect_prior":
+    if snapshot.block_kind == "effect_prior":
         sections.append(_format_effect_prior_budget_discipline())
 
-    if distribution_cards:
+    if snapshot.distribution_cards:
         sections.append(
             _format_markdown_section(
                 "Distribution Decision Cards",
-                format_distribution_cards(distribution_cards),
+                format_distribution_cards(snapshot.distribution_cards),
             )
         )
-    if loading_params:
+    if snapshot.loading_params:
         sections.append(
-            _format_markdown_section("Loading Orientation", format_loading_params(loading_params))
+            _format_markdown_section(
+                "Loading Orientation",
+                format_loading_params(snapshot.loading_params),
+            )
         )
-    if construct_scale_cards:
+    if snapshot.construct_scale_cards:
         sections.append(
             _format_markdown_section(
                 "Construct Scale Cards",
-                format_construct_scale_cards(construct_scale_cards),
+                format_construct_scale_cards(snapshot.construct_scale_cards),
             )
         )
-    if prior_cards:
+    if snapshot.prior_cards:
         sections.append(
-            _format_markdown_section("Parameter Prior Cards", format_prior_cards(prior_cards))
+            _format_markdown_section(
+                "Parameter Prior Cards",
+                format_prior_cards(snapshot.prior_cards),
+            )
+        )
+    if snapshot.coupled_prior_cards:
+        sections.append(
+            _format_markdown_section(
+                "Accepted Coupled Priors Outside This Edit Scope",
+                _format_coupled_prior_cards(snapshot.coupled_prior_cards),
+            )
         )
     if any(
-        card.get("role") in {"initial_state_mean", "initial_state_sd"} for card in prior_cards
+        card.get("role") in {"initial_state_mean", "initial_state_sd"}
+        for card in snapshot.prior_cards
     ):
         sections.append(
             "### Initial-State Scale Note\n\n"
@@ -841,9 +1010,13 @@ def build_stage4_user_prompt(
             "- Do not anchor them to the raw reference-indicator mean or `log(mean(indicator))` unless the construct is explicitly identified on that observed scale."
         )
 
-    submission_parts = ["## Submission Contract\n\n" + submission_example]
-    if include_prior_source_guidance:
+    submission_parts = ["## Submission Contract\n\n" + snapshot.submission_example]
+    if snapshot.include_prior_source_guidance:
         submission_parts.append(PRIOR_SOURCE_GUIDANCE.replace("{{", "{").replace("}}", "}"))
     sections.append(_join_sections(submission_parts))
-    sections.append("## Latest Validator Feedback\n\n" + latest_feedback)
+    sections.append(_format_latest_validation_state(snapshot))
+    sections.append(
+        "## Latest Validator Feedback\n\n"
+        + render_stage4_validation_feedback(snapshot.latest_validation)
+    )
     return _join_sections(sections)

@@ -335,7 +335,7 @@ def make_validation_tool(
     ``(result, errors)`` validator interface to the ``(stage_output, feedback)``
     grounding interface.
     """
-    from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool
+    from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
 
     def _adapted(data: dict) -> tuple[dict | None, str]:
         result, errors = validator(data)

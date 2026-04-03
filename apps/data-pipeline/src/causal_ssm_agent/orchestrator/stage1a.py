@@ -59,7 +59,8 @@ async def run_stage1a(
     Returns:
         Stage1aResult with the validated latent model
     """
-    from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool, stage1a_grounding
+    from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
+    from causal_ssm_agent.flows.stages.stage1a.grounding import stage1a_grounding
 
     msgs = Stage1aMessages(question)
 

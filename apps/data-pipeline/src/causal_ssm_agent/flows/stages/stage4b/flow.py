@@ -15,8 +15,9 @@ from typing import Any
 import polars as pl
 from prefect import flow, task
 
-from .. import get_prefect_logger
-from ..runtime_events import emit_nested_stage_running_event
+from ... import get_prefect_logger
+from ...run_store import load_parquet
+from ...runtime_events import emit_nested_stage_running_event
 
 logger = get_prefect_logger(__name__)
 
@@ -336,3 +337,58 @@ def stage4b_parametric_id_flow(
         "parametric_id": diagnostics["parametric_id"],
         "inference_structure": diagnostics["inference_structure"],
     }
+
+
+def run_stage4b(
+    stage4: dict,
+    stage2: dict,
+    ssm_builder: Any = None,
+    root_run_id: str | None = None,
+) -> dict:
+    """Run Stage 4b and materialize its public outcome."""
+    result = stage4b_parametric_id_flow(
+        compiled_ssm=stage4.get("_compiled_ssm"),
+        data_for_model=load_parquet(stage2["_data_for_model_path"]),
+        builder=ssm_builder,
+        root_run_id=root_run_id,
+    )
+    param_id = result.get("parametric_id") or {}
+    t_rule: dict[str, Any] = {}
+
+    if param_id.get("checked", False):
+        t_rule = param_id.get("t_rule", {})
+        if not t_rule.get("satisfies", True):
+            logger.warning(
+                "Stage 4b warning: T-rule screen failed (%s free params > conservative lower-bound %s moments), continuing",
+                t_rule.get("n_free_params"),
+                t_rule.get("n_moments"),
+            )
+        summary = param_id.get("summary", {})
+        if summary.get("structural_issues"):
+            logger.warning(
+                "STRUCTURAL non-identifiability detected — some parameters unconstrained"
+            )
+        elif summary.get("boundary_issues"):
+            logger.warning("Boundary identifiability issues at some prior draws")
+        else:
+            logger.info("Parametric identifiability OK")
+        weak = summary.get("weak_params", [])
+        if weak:
+            logger.info("  Weak parameters (low contraction): %s", weak)
+    else:
+        logger.info("  Skipped: %s", param_id.get("error", "unknown"))
+
+    if param_id.get("checked", False):
+        summary = param_id.get("summary", {})
+        has_issues = (
+            not t_rule.get("satisfies", True)
+            or summary.get("structural_issues")
+            or summary.get("boundary_issues")
+            or summary.get("weak_params")
+        )
+        outcome = "warn" if has_issues else "success"
+    else:
+        outcome = "success"
+
+    result["outcome"] = outcome
+    return result

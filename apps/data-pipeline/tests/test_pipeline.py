@@ -167,7 +167,9 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     monkeypatch.setattr(dag, "stage4b", stage4b)
     monkeypatch.setattr(dag, "stage5b", stage5b)
     monkeypatch.setattr(dag, "stage6", stage6)
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.persist_web_result", persist_web_result)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stage_persistence.persist_web_result", persist_web_result
+    )
     _reset_stage_registry(monkeypatch)
 
 
@@ -275,7 +277,9 @@ def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
 
 
 def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
-    from causal_ssm_agent.flows.stages.stage2_extract import MAX_FREE_WINDOWS
+    from causal_ssm_agent.utils.config import get_config
+
+    MAX_FREE_WINDOWS = get_config().stage2_workers.max_free_windows
 
     monkeypatch.setenv("DEPLOYMENT_ENV", "production")
     states = {
@@ -323,7 +327,7 @@ def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
 
 
 def test_interactive_overrideable_stages_declare_materialization_policy():
-    from causal_ssm_agent.flows.stages.contracts import INTERACTIVE_STAGES
+    from causal_ssm_agent.flows.stage_contracts import INTERACTIVE_STAGES
 
     registry = stage_registry.get_stage_registry()
 
@@ -860,7 +864,10 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
 
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(dag, "load_pickle", lambda _path: fitted_artifact)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage6.flow.load_pickle",
+        lambda _path: fitted_artifact,
+    )
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", lambda **_kwargs: None)
 
     class _FakeLLMStageContext:
@@ -935,7 +942,7 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
 
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", fake_create_table_artifact)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage3_validation.validate_extraction",
+        "causal_ssm_agent.flows.stages.stage3.flow.validate_extraction",
         lambda *_args, **_kwargs: {
             "is_valid": True,
             "indicators": {
@@ -997,7 +1004,7 @@ def test_stage3_normalizes_global_status_from_local_issue_severity(monkeypatch, 
 
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", fake_create_table_artifact)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage3_validation.validate_extraction",
+        "causal_ssm_agent.flows.stages.stage3.flow.validate_extraction",
         lambda *_args, **_kwargs: {
             "is_valid": False,
             "indicators": {
@@ -1116,7 +1123,7 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
         return {"causal_spec": causal_spec}
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.propose_measurement_with_identifiability_fix",
+        "causal_ssm_agent.flows.stages.stage1b.flow.propose_measurement_with_identifiability_fix",
         fake_propose_measurement_with_identifiability_fix,
     )
 
@@ -1514,14 +1521,16 @@ def test_stage5a_uses_fit_metadata(monkeypatch):
         {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
     )
 
-    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
     monkeypatch.setattr(
-        dag,
-        "_build_stage5a_svi_attempts",
+        "causal_ssm_agent.flows.stages.stage5a.flow.load_parquet",
+        lambda _path: data_for_model,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
         lambda: [{"method": "svi", "guide_type": "mvn"}],
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.fit_model",
+        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": True,
             "n_samples": 321,
@@ -1548,17 +1557,19 @@ def test_stage5a_failed_fit_returns_warn(monkeypatch):
         {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
     )
 
-    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
     monkeypatch.setattr(
-        dag,
-        "_build_stage5a_svi_attempts",
+        "causal_ssm_agent.flows.stages.stage5a.flow.load_parquet",
+        lambda _path: data_for_model,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
         lambda: [
             {"method": "svi", "guide_type": "mvn"},
             {"method": "svi", "guide_type": "normal"},
         ],
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.fit_model",
+        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": False,
             "error": "fit exploded",
@@ -1584,10 +1595,12 @@ def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
         {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
     )
 
-    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
     monkeypatch.setattr(
-        dag,
-        "_build_stage5a_svi_attempts",
+        "causal_ssm_agent.flows.stages.stage5a.flow.load_parquet",
+        lambda _path: data_for_model,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
         lambda: [
             {
                 "method": "svi",
@@ -1621,7 +1634,7 @@ def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
             "posterior_pairs": [],
         }
 
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.fit_model", _fit_model)
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage5b.fit.fit_model", _fit_model)
 
     result = dag.stage5a(
         {"model_spec": {}}, {"_data_for_model_path": "/tmp/stage2-model-data.parquet"}
@@ -1641,9 +1654,12 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
     )
 
-    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.fit_model",
+        "causal_ssm_agent.flows.stages.stage5b.flow.load_parquet",
+        lambda _path: data_for_model,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": True,
             "n_samples": 654,
@@ -1662,11 +1678,11 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.run_power_scaling",
+        "causal_ssm_agent.flows.stages.stage5b.fit.run_power_scaling",
         lambda *_args, **_kwargs: {"checked": False, "error": "skip"},
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.run_ppc",
+        "causal_ssm_agent.flows.stages.stage5b.fit.run_ppc",
         lambda *_args, **_kwargs: {"checked": False, "per_variable_warnings": []},
     )
     monkeypatch.setattr(
@@ -1696,9 +1712,12 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
     )
 
-    monkeypatch.setattr(dag, "load_parquet", lambda _path: data_for_model)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.fit_model",
+        "causal_ssm_agent.flows.stages.stage5b.flow.load_parquet",
+        lambda _path: data_for_model,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": False,
             "error": "fit exploded",
@@ -1713,11 +1732,11 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         raise AssertionError("run_ppc should not run after a failed fit")
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.run_power_scaling",
+        "causal_ssm_agent.flows.stages.stage5b.fit.run_power_scaling",
         _unexpected_power_scaling,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.run_ppc",
+        "causal_ssm_agent.flows.stages.stage5b.fit.run_ppc",
         _unexpected_ppc,
     )
     monkeypatch.setattr(
@@ -1756,7 +1775,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr("prefect.artifacts.create_markdown_artifact", _noop_artifact)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.persist_web_result",
+        "causal_ssm_agent.flows.stage_persistence.persist_web_result",
         lambda _stage_id, data, _workspace_id: data,
     )
 
@@ -1935,7 +1954,7 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
             "n_total_extractions": 1,
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2_extraction_flow", stub)
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2.flow.stage2_extraction_flow", stub)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
@@ -2001,7 +2020,7 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
             "n_total_extractions": 2,
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2_extraction_flow", stub)
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2.flow.stage2_extraction_flow", stub)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
@@ -2079,7 +2098,7 @@ def test_stage2_keeps_semantic_rows_in_model_data(monkeypatch, tmp_path):
             "n_total_extractions": 2,
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2_extraction_flow", stub)
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2.flow.stage2_extraction_flow", stub)
     monkeypatch.setattr(
         "causal_ssm_agent.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
@@ -2143,7 +2162,7 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
             },
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4_agentic_flow", stub)
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4.flow.stage4_agentic_flow", stub)
 
     result = asyncio.run(
         dag.stage4(
@@ -2197,7 +2216,7 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
             },
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4_agentic_flow", stub)
+    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4.flow.stage4_agentic_flow", stub)
 
     with openrouter_client.use_openrouter_api_key("context-key"):
         asyncio.run(
@@ -2227,7 +2246,9 @@ def test_stage4b_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_p
     ).write_parquet(data_path)
 
     stub = _SyncSubflowStub({"parametric_id": {"checked": True}})
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4b_parametric_id_flow", stub)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage4b.flow.stage4b_parametric_id_flow", stub
+    )
     builder = object()
 
     result = dag.stage4b(
