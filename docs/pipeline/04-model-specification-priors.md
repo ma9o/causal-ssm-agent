@@ -6,6 +6,8 @@
 
 Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks.
 
+For the control semantics of the LLM-driven loop, see [LLM-Driven Stage 4 Specification](../reference/model-spec/llm-driven-specification.md).
+
 ## Inputs
 
 | Input | Source | Description |
@@ -38,16 +40,15 @@ flowchart LR
     RR -- "prior issue" --> PB
 ```
 
-**Skeleton:** Before any LLM judgment, a deterministic engine enumerates [parameters](../reference/model-spec/parameters.md), locks [likelihoods](../reference/model-spec/likelihoods.md#dtype-to-distribution-mapping) where the dtype maps to exactly one distribution, and fixes temporal structure (AR(1) dynamics, factor-analysis loadings with scale identification[^bollen1989], multi-resolution aggregation). Indicators where the dtype admits multiple distributions or links are deferred to the LLM.
+**Skeleton:** Before any LLM judgment, a deterministic engine enumerates [parameters](../reference/model-spec/parameters.md), locks [likelihoods](../reference/model-spec/likelihoods.md#dtype-to-distribution-mapping) where the dtype maps to exactly one distribution, fixes loading orientations from Stage 1b indicator polarity, and fixes temporal structure (AR(1) dynamics, factor-analysis loadings with scale identification[^bollen1989], multi-resolution aggregation). Indicators where the dtype admits multiple distributions or links are deferred to the LLM.
 
-**Frontier Formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator or loading-constraint choice) and *prior blocks* in dependency order: measurement → dynamics → grouped causal-effect families (incoming effects per target construct) → confounding.
+**Frontier Formation:** The skeleton produces *model-decision blocks* (one per ambiguous indicator) and *prior blocks* in dependency order: measurement → dynamics → grouped causal-effect families (incoming effects per target construct) → confounding.
 
-**Model-Decision Block:** Each block resolves either:
+**Model-Decision Block:** Each block resolves:
 
-- *Distribution and link* for one ambiguous indicator, informed by its [Stage 3](03-extraction-validation.md) empirical profile and domain semantics; or
-- *Loading constraint* for a construct's loading parameters: `positive` for sign identification, or `none` if negative loadings are theoretically plausible
+- *Distribution and link* for one ambiguous indicator, informed by its [Stage 3](03-extraction-validation.md) empirical profile and domain semantics
 
-Model-decision blocks are validated locally against the active frontier and accepted into reducer state one block at a time. Once all model-decision blocks are accepted, the stage materializes the full `ModelSpec` and runs a [compilation check](../reference/compilation.md) with PPCs disabled; compile failures reopen the smallest responsible model-decision block. Before prior elicitation, a compact global-review checkpoint can reopen the relevant model-decision blocks when those choices need to move together.
+Model-decision blocks are validated locally against the active frontier and accepted into reducer state one block at a time. Once all model-decision blocks are accepted, the stage materializes the full `ModelSpec` and runs a [compilation check](../reference/compilation.md) with PPCs disabled; compile failures reopen the smallest responsible model-decision block. Before prior elicitation, a compact global-review checkpoint can reopen the relevant model-decision blocks when those choices need to move together. Loading orientations remain visible at that checkpoint but are already fixed from Stage 1b indicator polarity rather than authored blockwise in Stage 4.
 
 **Prior Elicitation Block:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
 
