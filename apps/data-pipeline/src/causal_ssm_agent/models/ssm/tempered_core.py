@@ -10,6 +10,7 @@ waste-free recycling, multi-step leapfrog, and precision preconditioning.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import jax
@@ -79,21 +80,23 @@ def _build_tempered_smc_bundle(
     log_prior_unc_val_and_grad = jax.value_and_grad(log_prior_unc_fn)
 
     def _safe_lik_val_and_grad(z):
-        val, grad = log_lik_val_and_grad(z)
-        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
-        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
-        return safe_val, safe_grad
+        with jax.named_scope("tempered_smc/likelihood_value_and_grad"):
+            val, grad = log_lik_val_and_grad(z)
+            safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
+            safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
+            return safe_val, safe_grad
 
     batch_lik_val_and_grad = jax.jit(jax.vmap(_safe_lik_val_and_grad))
 
     def _tempered_val_and_grad(z, beta):
-        lik_val, lik_grad = log_lik_val_and_grad(z)
-        prior_val, prior_grad = log_prior_unc_val_and_grad(z)
-        val = prior_val + beta * lik_val
-        grad = prior_grad + beta * lik_grad
-        safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
-        safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
-        return safe_val, safe_grad
+        with jax.named_scope("tempered_smc/tempered_target_value_and_grad"):
+            lik_val, lik_grad = log_lik_val_and_grad(z)
+            prior_val, prior_grad = log_prior_unc_val_and_grad(z)
+            val = prior_val + beta * lik_val
+            grad = prior_grad + beta * lik_grad
+            safe_val = jnp.where(jnp.isfinite(val), val, -1e30)
+            safe_grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
+            return safe_val, safe_grad
 
     def _hmc_scan_body(carry, rng_key, beta, eps, chol_mass):
         z, n_accept = carry
@@ -305,32 +308,21 @@ def run_tempered_smc(
             "likelihood_backend is required. Use model.make_likelihood_backend() for the default."
         )
 
+    started_at = time.monotonic()
+    logger.info(
+        "%s: preparing inference kernels (obs_shape=%s time_shape=%s n_mh=%s n_leapfrog=%s)",
+        print_prefix,
+        tuple(observations.shape),
+        tuple(times.shape),
+        n_mh_steps,
+        n_leapfrog,
+    )
+
     rng_key, trace_key = random.split(rng_key)
     reparam_key = reparam_cache_key(reparam)
-    if reparam_key is None:
-        cached_bundle = _build_tempered_smc_bundle(
-            model,
-            observations,
-            times,
-            trace_key,
-            likelihood_backend,
-            reparam,
-            n_mh_steps,
-            n_leapfrog,
-        )
-    else:
-        cache_key = (
-            "tempered_smc_core",
-            id(likelihood_backend),
-            tuple(observations.shape),
-            tuple(times.shape),
-            n_mh_steps,
-            n_leapfrog,
-            *reparam_key,
-        )
-        cached_bundle = model.get_cached_artifact(
-            cache_key,
-            lambda: _build_tempered_smc_bundle(
+    with jax.profiler.TraceAnnotation(f"{method_name}/build_tempered_smc_bundle"):
+        if reparam_key is None:
+            cached_bundle = _build_tempered_smc_bundle(
                 model,
                 observations,
                 times,
@@ -339,8 +331,30 @@ def run_tempered_smc(
                 reparam,
                 n_mh_steps,
                 n_leapfrog,
-            ),
-        )
+            )
+        else:
+            cache_key = (
+                "tempered_smc_core",
+                id(likelihood_backend),
+                tuple(observations.shape),
+                tuple(times.shape),
+                n_mh_steps,
+                n_leapfrog,
+                *reparam_key,
+            )
+            cached_bundle = model.get_cached_artifact(
+                cache_key,
+                lambda: _build_tempered_smc_bundle(
+                    model,
+                    observations,
+                    times,
+                    trace_key,
+                    likelihood_backend,
+                    reparam,
+                    n_mh_steps,
+                    n_leapfrog,
+                ),
+            )
 
     D = cached_bundle["dim"]
     site_info = cached_bundle["site_info"]
@@ -350,6 +364,13 @@ def run_tempered_smc(
     _mutate_batch_wastefree_jit = cached_bundle["mutate_batch_wastefree_jit"]
     _pilot_adapt_jit = cached_bundle["pilot_adapt_jit"]
     _standard_mutation_rounds_jit = cached_bundle["standard_mutation_rounds_jit"]
+    logger.info(
+        "%s: inference kernels ready in %.1fs; parameter_dim=%s traced_sites=%s",
+        print_prefix,
+        time.monotonic() - started_at,
+        D,
+        len(site_info),
+    )
 
     # 3. Initialize N particles from prior
     eps = jnp.asarray(param_step_size, dtype=observations.dtype)
@@ -371,40 +392,64 @@ def run_tempered_smc(
     )
     logger.info("  Initializing %s particles from prior...", N)
 
-    parts = []
-    for name in sorted(site_info.keys()):
-        info = site_info[name]
-        rng_key, sample_key = random.split(rng_key)
-        prior_samples = info["distribution"].sample(sample_key, (N,))
-        unc_samples = info["transform"].inv(prior_samples)
-        parts.append(unc_samples.reshape(N, -1))
+    with jax.profiler.TraceAnnotation(f"{method_name}/initialize_prior_particles"):
+        parts = []
+        for name in sorted(site_info.keys()):
+            info = site_info[name]
+            rng_key, sample_key = random.split(rng_key)
+            prior_samples = info["distribution"].sample(sample_key, (N,))
+            unc_samples = info["transform"].inv(prior_samples)
+            parts.append(unc_samples.reshape(N, -1))
 
-    particles = jnp.concatenate(parts, axis=1)  # (N, D)
+        particles = jnp.concatenate(parts, axis=1)  # (N, D)
 
-    # Initial mass matrix from prior particle covariance (uniform weights)
-    chol_mass = compute_weighted_chol_mass(particles, jnp.zeros(N), D)
+        # Initial mass matrix from prior particle covariance (uniform weights)
+        chol_mass = compute_weighted_chol_mass(particles, jnp.zeros(N), D)
+    logger.info(
+        "  Prior particles ready in %.1fs; initial mass matrix estimated.",
+        time.monotonic() - started_at,
+    )
 
     # ===================================================================
     # Pilot: tune eps at prior (beta=0) before tempering
     # ===================================================================
-    logger.info("  Pilot: adapting step size at prior...")
-    rng_key, particles, eps, pilot_converged, avg_accept_arr = _pilot_adapt_jit(
-        rng_key,
-        particles,
-        eps,
-        chol_mass,
-        target_accept,
+    logger.info(
+        "  Pilot: adapting step size at prior (elapsed=%.1fs)...", time.monotonic() - started_at
     )
+    with jax.profiler.TraceAnnotation(f"{method_name}/pilot_adapt"):
+        rng_key, particles, eps, pilot_converged, avg_accept_arr = _pilot_adapt_jit(
+            rng_key,
+            particles,
+            eps,
+            chol_mass,
+            target_accept,
+        )
     avg_accept = float(jax.device_get(avg_accept_arr))
     eps_host = float(jax.device_get(eps))
     if bool(jax.device_get(pilot_converged)):
-        logger.info("    pilot converged: accept=%.2f eps=%.4f", avg_accept, eps_host)
+        logger.info(
+            "    pilot converged: accept=%.2f eps=%.4f elapsed=%.1fs",
+            avg_accept,
+            eps_host,
+            time.monotonic() - started_at,
+        )
     else:
-        logger.info("    pilot done: accept=%.2f eps=%.4f", avg_accept, eps_host)
+        logger.info(
+            "    pilot done: accept=%.2f eps=%.4f elapsed=%.1fs",
+            avg_accept,
+            eps_host,
+            time.monotonic() - started_at,
+        )
 
     # Recompute after pilot diversification
-    log_liks, _ = batch_lik_val_and_grad(particles)
-    chol_mass = compute_weighted_chol_mass(particles, jnp.zeros(N), D)
+    logger.info("  Refreshing initial log-likelihood batch after pilot...")
+    with jax.profiler.TraceAnnotation(f"{method_name}/initial_loglik_batch"):
+        log_liks, _ = batch_lik_val_and_grad(particles)
+        chol_mass = compute_weighted_chol_mass(particles, jnp.zeros(N), D)
+    logger.info(
+        "  Initial log-likelihood batch ready in %.1fs; entering tempering ladder.",
+        time.monotonic() - started_at,
+    )
 
     logw = jnp.zeros(N)  # uniform weights at beta=0
 
@@ -422,76 +467,93 @@ def run_tempered_smc(
 
     # 5. Tempering loop
     while beta_prev < 1.0 and level < n_outer:
-        # a. Select next beta
-        if adaptive_tempering:
-            beta_k = find_next_beta(logw, log_liks, beta_prev, target_ess_ratio, N)
-        else:
-            beta_k = float(level + 1) / n_outer
+        with jax.profiler.TraceAnnotation(f"{method_name}/tempering_level_{level + 1}"):
+            # a. Select next beta
+            if adaptive_tempering:
+                beta_k = find_next_beta(logw, log_liks, beta_prev, target_ess_ratio, N)
+            else:
+                beta_k = float(level + 1) / n_outer
 
-        beta_schedule.append(beta_k)
+            beta_schedule.append(beta_k)
 
-        # b. Incremental reweight: logw += (beta_k - beta_{k-1}) * log_lik
-        logw = logw + (beta_k - beta_prev) * log_liks
+            # b. Incremental reweight: logw += (beta_k - beta_{k-1}) * log_lik
+            logw = logw + (beta_k - beta_prev) * log_liks
 
-        # Normalize and compute ESS
-        lse = jax.nn.logsumexp(logw)
-        log_wn = logw - lse
-        wn = jnp.exp(log_wn)
-        ess_arr = 1.0 / jnp.sum(wn**2)
-        ess = float(jax.device_get(ess_arr))
-        ess_history.append(ess)
-
-        # c. Update mass matrix only when ESS is healthy
-        if ess > N / 4:
-            chol_mass = compute_weighted_chol_mass(particles, logw, D)
-
-        # d. Resample and mutate
-        if waste_free:
-            # Waste-free: resample M particles, mutate each n_mh_steps times
-            rng_key, resample_key, mutate_key = random.split(rng_key, 3)
-            idx = _systematic_resample(resample_key, wn, M)
-            resampled = particles[idx]
-
-            all_trajs, n_accs = _mutate_batch_wastefree_jit(
-                mutate_key, resampled, beta_k, eps, chol_mass
+            # Normalize and compute ESS
+            lse = jax.nn.logsumexp(logw)
+            log_wn = logw - lse
+            wn = jnp.exp(log_wn)
+            ess_arr = 1.0 / jnp.sum(wn**2)
+            ess = float(jax.device_get(ess_arr))
+            ess_history.append(ess)
+            mutation_tag = (
+                " [waste-free]" if waste_free else " [will resample]" if ess < N / 2 else ""
             )
-            # all_trajs: (M, n_mh_steps, D) -> reshape to (N, D)
-            particles = all_trajs.reshape(N, D)
-            logw = jnp.full(N, -jnp.log(float(N)))
-
-            avg_accept_arr = jnp.mean(n_accs) / n_mh_steps
-            avg_accept = float(jax.device_get(avg_accept_arr))
-            n_rounds = 1
-
-            # Adapt step size
-            eps = _adapt_step_size(eps, avg_accept_arr, target_accept)
-        else:
-            # Standard: resample if ESS < N/2, then adaptive mutation rounds
-            did_resample = False
-            if ess < N / 2:
-                rng_key, resample_key = random.split(rng_key)
-                idx = _systematic_resample(resample_key, wn, N)
-                particles = particles[idx]
-                log_liks = log_liks[idx]
-                logw = jnp.full(N, -jnp.log(float(N)))
-                did_resample = True
-
-            rng_key, particles, eps, avg_accept_arr, n_rounds_arr = _standard_mutation_rounds_jit(
-                rng_key,
-                particles,
+            logger.info(
+                "  step %s entering mutation: beta %.3f -> %.3f  ESS=%.1f/%s%s  elapsed=%.1fs",
+                level + 1,
+                beta_prev,
                 beta_k,
-                eps,
-                chol_mass,
-                target_accept,
+                ess,
+                N,
+                mutation_tag,
+                time.monotonic() - started_at,
             )
-            avg_accept = float(jax.device_get(avg_accept_arr))
-            n_rounds = int(jax.device_get(n_rounds_arr))
 
-        accept_rates.append(avg_accept)
-        eps_history.append(eps)
+            # c. Update mass matrix only when ESS is healthy
+            if ess > N / 4:
+                chol_mass = compute_weighted_chol_mass(particles, logw, D)
 
-        # Recompute log-likelihoods for next incremental reweight
-        log_liks, _ = batch_lik_val_and_grad(particles)
+            # d. Resample and mutate
+            if waste_free:
+                with jax.profiler.TraceAnnotation(f"{method_name}/waste_free_mutation"):
+                    rng_key, resample_key, mutate_key = random.split(rng_key, 3)
+                    idx = _systematic_resample(resample_key, wn, M)
+                    resampled = particles[idx]
+
+                    all_trajs, n_accs = _mutate_batch_wastefree_jit(
+                        mutate_key, resampled, beta_k, eps, chol_mass
+                    )
+                    particles = all_trajs.reshape(N, D)
+                    logw = jnp.full(N, -jnp.log(float(N)))
+
+                    avg_accept_arr = jnp.mean(n_accs) / n_mh_steps
+                    avg_accept = float(jax.device_get(avg_accept_arr))
+                    n_rounds = 1
+                    eps = _adapt_step_size(eps, avg_accept_arr, target_accept)
+            else:
+                with jax.profiler.TraceAnnotation(f"{method_name}/standard_mutation"):
+                    did_resample = False
+                    if ess < N / 2:
+                        rng_key, resample_key = random.split(rng_key)
+                        idx = _systematic_resample(resample_key, wn, N)
+                        particles = particles[idx]
+                        log_liks = log_liks[idx]
+                        logw = jnp.full(N, -jnp.log(float(N)))
+                        did_resample = True
+
+                    (
+                        rng_key,
+                        particles,
+                        eps,
+                        avg_accept_arr,
+                        n_rounds_arr,
+                    ) = _standard_mutation_rounds_jit(
+                        rng_key,
+                        particles,
+                        beta_k,
+                        eps,
+                        chol_mass,
+                        target_accept,
+                    )
+                    avg_accept = float(jax.device_get(avg_accept_arr))
+                    n_rounds = int(jax.device_get(n_rounds_arr))
+
+            accept_rates.append(avg_accept)
+            eps_history.append(eps)
+
+            with jax.profiler.TraceAnnotation(f"{method_name}/refresh_loglik_batch"):
+                log_liks, _ = batch_lik_val_and_grad(particles)
 
         resamp_tag = ""
         if not waste_free and did_resample:
@@ -500,7 +562,8 @@ def run_tempered_smc(
             resamp_tag = " [waste-free]"
 
         logger.info(
-            "  step %s  beta=%.3f  ESS=%.1f/%s  accept=%.2f  eps=%.4f  rounds=%s%s",
+            "  step %s done: beta=%.3f  ESS=%.1f/%s  accept=%.2f  eps=%.4f  "
+            "rounds=%s%s  elapsed=%.1fs",
             level + 1,
             beta_k,
             ess,
@@ -509,6 +572,7 @@ def run_tempered_smc(
             float(jax.device_get(eps)),
             n_rounds,
             resamp_tag,
+            time.monotonic() - started_at,
         )
 
         beta_prev = beta_k
@@ -520,33 +584,43 @@ def run_tempered_smc(
     # n_warmup controls how many extra rounds to run (default: 5).
     n_mixing_rounds = n_warmup if n_warmup is not None else 5
     if n_mixing_rounds > 0 and beta_prev >= 1.0:
-        logger.info("  Running %s extra mixing rounds at beta=1.0...", n_mixing_rounds)
-        for _mix_round in range(n_mixing_rounds):
-            rng_key, mutate_key = random.split(rng_key)
-            particles, n_accepts = _mutate_batch_jit(mutate_key, particles, 1.0, eps, chol_mass)
-            mix_accept_arr = jnp.mean(n_accepts) / n_mh_steps
-            mix_accept = float(jax.device_get(mix_accept_arr))
-            # Adapt step size
-            eps = _adapt_step_size(eps, mix_accept_arr, target_accept)
         logger.info(
-            "    mixing done: accept=%.2f eps=%.4f",
+            "  Running %s extra mixing rounds at beta=1.0 (elapsed=%.1fs)...",
+            n_mixing_rounds,
+            time.monotonic() - started_at,
+        )
+        with jax.profiler.TraceAnnotation(f"{method_name}/posterior_mixing"):
+            for _mix_round in range(n_mixing_rounds):
+                with jax.profiler.TraceAnnotation(f"{method_name}/mix_round_{_mix_round + 1}"):
+                    rng_key, mutate_key = random.split(rng_key)
+                    particles, n_accepts = _mutate_batch_jit(
+                        mutate_key, particles, 1.0, eps, chol_mass
+                    )
+                    mix_accept_arr = jnp.mean(n_accepts) / n_mh_steps
+                    mix_accept = float(jax.device_get(mix_accept_arr))
+                    eps = _adapt_step_size(eps, mix_accept_arr, target_accept)
+        logger.info(
+            "    mixing done: accept=%.2f eps=%.4f elapsed=%.1fs",
             mix_accept,
             float(jax.device_get(eps)),
+            time.monotonic() - started_at,
         )
 
     # Posterior = all N particles at beta=1.0
     chain_particles = particles  # (N, D)
 
-    samples = extract_constrained_samples(
-        chain_particles,
-        site_info,
-        unravel_fn,
-        model.spec,
-        reparam=reparam,
-        model=model,
-        observations=observations,
-        times=times,
-    )
+    logger.info("  Extracting posterior samples from %s particles...", N)
+    with jax.profiler.TraceAnnotation(f"{method_name}/extract_constrained_samples"):
+        samples = extract_constrained_samples(
+            chain_particles,
+            site_info,
+            unravel_fn,
+            model.spec,
+            reparam=reparam,
+            model=model,
+            observations=observations,
+            times=times,
+        )
 
     diagnostics = {
         "accept_rates": accept_rates,
@@ -566,6 +640,12 @@ def run_tempered_smc(
     }
     if extra_diagnostics:
         diagnostics.update(extra_diagnostics)
+    logger.info(
+        "%s complete in %.1fs across %s tempering levels.",
+        print_prefix,
+        time.monotonic() - started_at,
+        actual_levels,
+    )
 
     return InferenceResult(
         _samples=samples,
