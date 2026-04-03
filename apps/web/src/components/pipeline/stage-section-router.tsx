@@ -37,6 +37,7 @@ import { StageLogView } from "./stage-log-viewer";
 import { StagePresentationShell } from "./stage-presentation-shell";
 import { Stage3FixAction } from "./stage-contents/stage-3-content";
 import { buildStage6DagScene } from "./stage-contents/stage-6-presentation";
+import { resolveStageObservedStatus } from "@/lib/stage-runtime";
 
 const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
 const Stage1aContent = lazy(() => import("./stage-contents/stage-1a-content"));
@@ -99,7 +100,8 @@ function StageSectionRouterInner({
   const queryClient = useQueryClient();
   const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill } = useRefinement();
   const invalidated = isInvalidated(stage.id);
-  const isCompleted = status === "completed";
+  const effectiveStatus = resolveStageObservedStatus(status, stageRun);
+  const isCompleted = effectiveStatus === "completed";
   const elapsedMs =
     timing?.completedAt && timing?.startedAt ? timing.completedAt - timing.startedAt : undefined;
 
@@ -136,13 +138,13 @@ function StageSectionRouterInner({
     workspaceId,
     stage.id,
     stageRun,
-    status,
+    effectiveStatus,
   );
-  const showLogViewer = status !== "pending";
+  const showLogViewer = effectiveStatus !== "pending";
   const logView = showLogViewer ? (
     <StageLogView
       logs={logs}
-      status={status}
+      status={effectiveStatus}
       bootstrapStatus={bootstrapStatus}
       connectionState={connectionState}
     />
@@ -161,7 +163,7 @@ function StageSectionRouterInner({
   return (
     <StagePresentationShell
       stage={stage}
-      status={status}
+      status={effectiveStatus}
       elapsedMs={elapsedMs}
       context={stage.description}
       outcome={outcome}
@@ -172,19 +174,19 @@ function StageSectionRouterInner({
         ) : undefined
       }
       runningContent={
-        stage.id === "stage-2" && status === "running" ? (
+        stage.id === "stage-2" && effectiveStatus === "running" ? (
           <Suspense fallback={null}>
             <Stage2RunningContent
               workspaceId={workspaceId}
-              stageStatus={status}
+              stageStatus={effectiveStatus}
               stageRun={stageRun}
             />
           </Suspense>
-        ) : stage.id === "stage-4" && status === "running" ? (
+        ) : stage.id === "stage-4" && effectiveStatus === "running" ? (
           <Suspense fallback={null}>
             <Stage4RunningContent
               workspaceId={workspaceId}
-              stageStatus={status}
+              stageStatus={effectiveStatus}
               stageRun={stageRun}
             />
           </Suspense>

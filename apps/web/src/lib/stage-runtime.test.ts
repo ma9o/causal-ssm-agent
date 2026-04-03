@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AnalysisStageRun } from "@/lib/api/analysis";
-import { patchStageRun, summarizeStageProgressEvents, type StageRuntimeEventRecord } from "./stage-runtime";
+import {
+  getStageRunStatus,
+  patchStageRun,
+  resolveStageObservedStatus,
+  summarizeStageProgressEvents,
+  type StageRuntimeEventRecord,
+} from "./stage-runtime";
 
 function emptyStageRun(): AnalysisStageRun {
   return {
@@ -82,5 +88,44 @@ describe("stage runtime reducers", () => {
     });
     expect(nextStageRun.stageSubflowRunId).toBe("subflow-123");
     expect(nextStageRun.initialLogFlowRunIds).toEqual(["subflow-123"]);
+  });
+
+  it("derives a stage status from the manifest execution summary", () => {
+    expect(
+      getStageRunStatus({
+        execution: {
+          stateType: "COMPLETED",
+          startTime: "2026-03-10T08:00:00.000Z",
+          endTime: "2026-03-10T08:00:10.000Z",
+        },
+      }),
+    ).toBe("completed");
+
+    expect(
+      getStageRunStatus({
+        execution: {
+          stateType: "FAILED",
+          startTime: "2026-03-10T08:00:00.000Z",
+          endTime: "2026-03-10T08:00:10.000Z",
+        },
+      }),
+    ).toBe("failed");
+  });
+
+  it("lets terminal manifest execution override a stale running section status", () => {
+    const completedStageRun: AnalysisStageRun = {
+      ownerRootFlowRunId: "root-123",
+      stageSubflowRunId: "subflow-123",
+      initialLogFlowRunIds: ["subflow-123"],
+      execution: {
+        stateType: "COMPLETED",
+        startTime: "2026-03-10T08:00:00.000Z",
+        endTime: "2026-03-10T08:00:10.000Z",
+      },
+    };
+
+    expect(resolveStageObservedStatus("running", completedStageRun)).toBe("completed");
+    expect(resolveStageObservedStatus("pending", completedStageRun)).toBe("completed");
+    expect(resolveStageObservedStatus("completed", completedStageRun)).toBe("completed");
   });
 });
