@@ -8,6 +8,7 @@ const OPENROUTER_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export type OpenRouterSession = {
   apiKey: string;
+  userId: string;
 };
 
 type OpenRouterSessionStore = Partial<OpenRouterSession>;
@@ -48,8 +49,8 @@ async function getOpenRouterSessionStore() {
   return getIronSession<OpenRouterSessionStore>(await cookies(), options);
 }
 
-export function createOpenRouterSession(apiKey: string): OpenRouterSession {
-  return { apiKey };
+export function createOpenRouterSession(apiKey: string, userId: string): OpenRouterSession {
+  return { apiKey, userId };
 }
 
 export function hasOpenRouterSessionSecret(): boolean {
@@ -58,12 +59,13 @@ export function hasOpenRouterSessionSecret(): boolean {
 
 export async function readOpenRouterSession(): Promise<OpenRouterSession | null> {
   const session = await getOpenRouterSessionStore();
-  if (!session || typeof session.apiKey !== "string") {
+  if (!session || typeof session.apiKey !== "string" || typeof session.userId !== "string") {
     return null;
   }
 
   return {
     apiKey: session.apiKey,
+    userId: session.userId,
   };
 }
 
@@ -74,6 +76,7 @@ export async function writeOpenRouterSession(session: OpenRouterSession): Promis
   }
 
   cookieSession.apiKey = session.apiKey;
+  cookieSession.userId = session.userId;
   await cookieSession.save();
 }
 
