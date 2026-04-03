@@ -571,9 +571,7 @@ def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
         data, causal_spec, current=current, data_for_model=data_for_model
     )
     stage_output = (
-        grounding_result.stage_output
-        if should_capture_stage4_output(grounding_result)
-        else None
+        grounding_result.stage_output if should_capture_stage4_output(grounding_result) else None
     )
     return {"result": grounding_result.feedback, "stage_output": stage_output}
 

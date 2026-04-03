@@ -376,7 +376,9 @@ def resolve_prior_repair_decision(
         and active_block.id in repair_plan.block_ids
     )
     accepted_block_id = None
-    if active_block.id not in repair_plan.block_ids or (len(repair_plan.block_ids) > 1 and not widening_scope):
+    if active_block.id not in repair_plan.block_ids or (
+        len(repair_plan.block_ids) > 1 and not widening_scope
+    ):
         accepted_block_id = active_block.id
 
     route_kind = "repair_multi" if len(repair_plan.block_ids) > 1 else "repair_single"

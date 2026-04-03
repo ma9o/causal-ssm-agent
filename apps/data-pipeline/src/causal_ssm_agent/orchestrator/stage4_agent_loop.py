@@ -5,16 +5,19 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from .stage4 import (
-    Stage4Deps,
-    Stage4Messages,
-    Stage4Result,
-    Stage4Session,
-    _build_model_spec_from_decisions,
-    _persist_stage4_stage_output,
-)
 from .stage4_feedback import should_store_stage4_validation_packet
 from .stage4_navigation import _activate_review_phase, make_stage4_runtime
+from .stage4_orchestrator import (
+    build_construct_scale_cards,
+    build_distribution_cards,
+    build_model_topology,
+    build_prior_cards,
+    build_stage4_plan,
+    derive_deterministic_spec,
+)
+from .stage4_prompt_context import Stage4Messages
+from .stage4_reducer import _build_model_spec_from_decisions, _persist_stage4_stage_output
+from .stage4_session import Stage4Session
 from .stage4_state import (
     Stage4BlockCursor,
     Stage4DoneCursor,
@@ -22,6 +25,7 @@ from .stage4_state import (
     Stage4RepairBarrierCursor,
     Stage4Runtime,
 )
+from .stage4_types import Stage4Deps, Stage4Result
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -243,22 +247,20 @@ async def run_stage4(
     """Run the frontier-reduced Stage 4 flow sequentially."""
     from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
 
-    from . import stage4 as stage4_module
-
-    skeleton = stage4_module.derive_deterministic_spec(causal_spec)
-    model_topology = stage4_module.build_model_topology(causal_spec)
-    distribution_cards = stage4_module.build_distribution_cards(
+    skeleton = derive_deterministic_spec(causal_spec)
+    model_topology = build_model_topology(causal_spec)
+    distribution_cards = build_distribution_cards(
         causal_spec,
         indicator_audits,
         skeleton,
     )
-    construct_scale_cards = stage4_module.build_construct_scale_cards(
+    construct_scale_cards = build_construct_scale_cards(
         causal_spec,
         indicator_audits,
         skeleton,
     )
-    prior_cards = stage4_module.build_prior_cards(causal_spec, skeleton)
-    plan = stage4_module.build_stage4_plan(causal_spec, skeleton)
+    prior_cards = build_prior_cards(causal_spec, skeleton)
+    plan = build_stage4_plan(causal_spec, skeleton)
     msgs = Stage4Messages(
         question=question,
         causal_spec=causal_spec,

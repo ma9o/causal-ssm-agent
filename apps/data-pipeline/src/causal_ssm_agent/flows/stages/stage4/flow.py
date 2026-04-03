@@ -1,9 +1,7 @@
 """Stage 4: Model Specification & Prior Elicitation (Prefect wrapper).
 
-Thin Prefect wrapper around ``orchestrator.stage4.run_stage4``.
-Follows the same two-layer pattern as stages 1a/1b:
-- ``orchestrator/stage4.py`` contains the pure agentic logic
-- This module manages config, Prefect lifecycle, and materialization
+Thin Prefect wrapper around the Stage 4 agent loop and runtime projections.
+This module manages config, Prefect lifecycle, and materialization.
 """
 
 import polars as pl
@@ -64,10 +62,10 @@ async def stage4_agentic_flow(
     Returns:
         Full grounded Stage 4 result (same shape as before).
     """
-    from causal_ssm_agent.orchestrator.stage4 import (
+    from causal_ssm_agent.orchestrator.stage4_agent_loop import run_stage4
+    from causal_ssm_agent.orchestrator.stage4_navigation import (
         project_stage4_graph,
         project_stage4_snapshot,
-        run_stage4,
     )
 
     from ...run_store import (

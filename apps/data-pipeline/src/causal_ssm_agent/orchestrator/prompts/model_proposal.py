@@ -711,13 +711,9 @@ def _format_latest_validation_state(snapshot: Stage4ScopeSnapshot) -> str:
         f"- summary: {packet.summary}",
     ]
     if packet.failing_parameters:
-        lines.append(
-            f"- failing parameters: {_summarize_scope_names(packet.failing_parameters)}"
-        )
+        lines.append(f"- failing parameters: {_summarize_scope_names(packet.failing_parameters)}")
     if packet.coupled_parameters:
-        lines.append(
-            f"- coupled parameters: {_summarize_scope_names(packet.coupled_parameters)}"
-        )
+        lines.append(f"- coupled parameters: {_summarize_scope_names(packet.coupled_parameters)}")
     if packet.global_failure_sites:
         lines.append(
             f"- global failure sites: {_summarize_scope_names(packet.global_failure_sites)}"
@@ -951,7 +947,8 @@ def build_stage4_user_prompt(
     """Build the scope-local Stage 4 user prompt for the active frontier."""
     sections = [
         "## Research Question\n\n" + question,
-        "## Fixed Model Context\n\n## Model Topology\n\n" + format_model_topology(snapshot.model_topology),
+        "## Fixed Model Context\n\n## Model Topology\n\n"
+        + format_model_topology(snapshot.model_topology),
         "## Frontier Status\n\n" + snapshot.frontier_status,
         (
             "## Active Block\n\n"

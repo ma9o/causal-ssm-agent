@@ -23,11 +23,13 @@ import pandas as pd
 import polars as pl
 import pytest
 
-import causal_ssm_agent.orchestrator.stage4 as stage4_module
 from causal_ssm_agent.flows import stage_registry
 from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 from causal_ssm_agent.flows.stages.stage4.flow import (
     _stage4_generate_config,
+)
+from causal_ssm_agent.models.predictive_simulation import (
+    PredictiveObservationMeanOverflow,
 )
 from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
@@ -39,26 +41,24 @@ from causal_ssm_agent.models.ssm_compilation import (
 from causal_ssm_agent.models.ssm_compilation import (
     compile_ssm_inputs,
 )
-from causal_ssm_agent.orchestrator.stage4 import (
-    Stage4AcceptedState,
-    Stage4Deps,
-    Stage4Messages,
-    Stage4Runtime,
-    Stage4Session,
-    compute_stage4_validate_step,
+from causal_ssm_agent.orchestrator.stage4_agent_loop import run_stage4
+from causal_ssm_agent.orchestrator.stage4_feedback import (
+    Stage4GroundingResult,
+    make_stage4_grounding_result,
+    make_stage4_validation_packet,
+)
+from causal_ssm_agent.orchestrator.stage4_navigation import (
+    _activate_prior_phase,
+    _set_block_cursor,
+    _set_done_cursor,
+    _set_model_spec_lock_cursor,
+    _set_repair_barrier_cursor,
     get_active_plan_block,
-    get_stage4_block_handler,
     get_stage4_phase,
     make_stage4_runtime,
     project_stage4_graph,
     project_stage4_initial_state,
     project_stage4_snapshot,
-    run_stage4,
-)
-from causal_ssm_agent.orchestrator.stage4_feedback import (
-    Stage4GroundingResult,
-    make_stage4_grounding_result,
-    make_stage4_validation_packet,
 )
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     Stage4FrontierBlock,
@@ -67,9 +67,27 @@ from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     build_stage4_plan,
     derive_deterministic_spec,
 )
+from causal_ssm_agent.orchestrator.stage4_prompt_context import (
+    Stage4Messages,
+    format_stage4_plan_status,
+)
+from causal_ssm_agent.orchestrator.stage4_reducer import (
+    _build_model_spec_from_decisions,
+    _compute_stage4_validate_step_with_transitions,
+    compute_stage4_validate_step,
+)
 from causal_ssm_agent.orchestrator.stage4_repair import (
+    ResolvedRepairScope,
     _classify_prior_failure_blocks,
 )
+from causal_ssm_agent.orchestrator.stage4_session import Stage4Session
+from causal_ssm_agent.orchestrator.stage4_state import (
+    Stage4AcceptedState,
+    Stage4RepairCampaignState,
+    Stage4Runtime,
+)
+from causal_ssm_agent.orchestrator.stage4_submission import get_stage4_block_handler
+from causal_ssm_agent.orchestrator.stage4_types import Stage4Deps
 from causal_ssm_agent.utils.llm import make_generate_fn
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
@@ -78,6 +96,8 @@ from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
 from tests.helpers import make_stage4_plan as _make_plan
+
+_ORDINAL_LEVELS = ("low", "high")
 
 # --- Fixtures ---
 
@@ -158,11 +178,11 @@ def _make_runtime(
     if active_block_id is not None:
         _set_runtime_block(plan, runtime, active_block_id)
     elif phase == "done":
-        stage4_module._set_done_cursor(runtime)
+        _set_done_cursor(runtime)
     elif phase == "model_decisions":
-        stage4_module._set_model_spec_lock_cursor(runtime, reason="test override")
+        _set_model_spec_lock_cursor(runtime, reason="test override")
     elif phase is not None:
-        stage4_module._set_repair_barrier_cursor(
+        _set_repair_barrier_cursor(
             runtime,
             reason="test override",
             scope_block_ids=(),
@@ -177,7 +197,7 @@ def _set_runtime_block(plan: Stage4Plan, runtime: Stage4Runtime, block_id: str) 
     """Move a test runtime onto one promptable Stage 4 block."""
     block = plan.get_block(block_id)
     assert block is not None
-    stage4_module._set_block_cursor(runtime, block)
+    _set_block_cursor(runtime, block)
 
 
 def _with_positive_indicator_polarity(spec: dict[str, Any]) -> dict[str, Any]:
@@ -276,7 +296,7 @@ def test_project_stage4_snapshot_serializes_repair_barrier_cursor_scope():
         ),
     )
     runtime = make_stage4_runtime(plan)
-    stage4_module._set_repair_barrier_cursor(
+    _set_repair_barrier_cursor(
         runtime,
         reason="repair barrier pending",
         scope_block_ids=("effects:sleep", "effects:stress"),
@@ -621,6 +641,59 @@ class TestStage4Messages:
         assert "batch those `search_literature` calls in the same turn" in system_content
         assert "advisory stability guidance" in system_content
         assert "stop searching and submit `validate_model`" in system_content
+
+    def test_messages_for_scope_omit_literature_prompt_parts_when_disabled(self):
+        block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            construct_names=("stress", "sleep"),
+            parameter_names=("beta_stress_sleep",),
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={},
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                }
+            ],
+            enable_literature=False,
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedState(
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}]},
+                authored_priors={},
+            ),
+        )
+
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+
+        system_content = messages[0]["content"]
+        user_content = messages[1]["content"]
+
+        assert "## Literature Evidence" not in system_content
+        assert "search_literature" not in system_content
+        assert "If you include non-empty `sources`" not in user_content
 
     def test_messages_for_scope_include_parameter_prior_cards(self):
         block = Stage4FrontierBlock(
@@ -1457,6 +1530,7 @@ def _make_stage4_mechanics_spec() -> dict:
             "name": "activity_vas",
             "construct_name": "activity",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Activity visual analog scale",
             "aggregation": "mean",
         },
@@ -1464,6 +1538,7 @@ def _make_stage4_mechanics_spec() -> dict:
             "name": "sleep_quality",
             "construct_name": "sleep",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Sleep quality rating",
             "aggregation": "mean",
         },
@@ -1501,6 +1576,7 @@ def _make_stage4_global_repair_spec() -> dict:
             "name": "activity_vas",
             "construct_name": "activity",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Activity visual analog scale",
             "aggregation": "mean",
         },
@@ -1508,6 +1584,7 @@ def _make_stage4_global_repair_spec() -> dict:
             "name": "sleep_quality",
             "construct_name": "sleep",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Sleep quality rating",
             "aggregation": "mean",
         },
@@ -1570,6 +1647,7 @@ def _make_stage4_two_effect_spec() -> dict:
             "name": "activity_vas",
             "construct_name": "activity",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Activity visual analog scale",
             "aggregation": "mean",
         },
@@ -1577,6 +1655,7 @@ def _make_stage4_two_effect_spec() -> dict:
             "name": "sleep_quality",
             "construct_name": "sleep",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Sleep quality rating",
             "aggregation": "mean",
         },
@@ -1584,6 +1663,7 @@ def _make_stage4_two_effect_spec() -> dict:
             "name": "mood_rating",
             "construct_name": "mood",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Mood rating",
             "aggregation": "mean",
         },
@@ -1616,6 +1696,7 @@ def _make_stage4_no_model_block_spec() -> dict:
             "name": "sleep_quality",
             "construct_name": "sleep",
             "measurement_dtype": "ordinal",
+            "ordinal_levels": list(_ORDINAL_LEVELS),
             "how_to_measure": "Sleep quality rating",
             "aggregation": "mean",
         },
@@ -1653,6 +1734,7 @@ def _make_stage4_deps(
     stage4_grounding_fn,
 ) -> Stage4Deps:
     """Build a Stage 4 reducer environment for tests."""
+
     def _wrap_grounding(*args, **kwargs):
         result = stage4_grounding_fn(*args, **kwargs)
         if isinstance(result, Stage4GroundingResult):
@@ -1771,8 +1853,7 @@ def _make_scripted_stage4_generate(
             block_id = label.removeprefix("stage-4:")
         if turn_index >= len(submissions):
             raise AssertionError(
-                f"Unexpected extra Stage 4 turn at {block_id!r}; "
-                f"visited={visited_blocks}"
+                f"Unexpected extra Stage 4 turn at {block_id!r}; visited={visited_blocks}"
             )
         submission = submissions[turn_index]
         turn_index += 1
@@ -2135,6 +2216,49 @@ class TestPriorPredictiveValidation:
 
         assert is_valid is True
         assert results
+
+    def test_validate_prior_predictive_reports_log_link_mean_overflow(
+        self,
+        simple_model_spec,
+        simple_priors,
+    ):
+        """Prior predictive should surface predictive-mean overflow as a typed diagnostic."""
+
+        class _OverflowBuilder:
+            def sample_prior_predictive(self, samples: int = 500):
+                del samples
+                raise PredictiveObservationMeanOverflow(
+                    bad_manifest_names=("monthly_eveningness_activity_timing",),
+                    manifest_indices=(0,),
+                    failing_draw_indices=(0, 2),
+                    first_bad_time_index=73,
+                    max_linear_predictor=111.52,
+                    overflow_threshold=88.72,
+                )
+
+        runtime = SimpleNamespace(builder=_OverflowBuilder())
+
+        with patch(
+            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            return_value=runtime,
+        ):
+            is_valid, results, _samples = validate_prior_predictive(
+                simple_model_spec,
+                simple_priors,
+                _make_polars_data(),
+                n_samples=3,
+                compiled_ssm={"schema_version": 1, "compile_diagnostics": []},
+            )
+
+        assert is_valid is False
+        assert [result.code for result in results if not result.is_valid] == [
+            "prior_predictive_observation_mean_overflow"
+        ]
+        result = next(result for result in results if not result.is_valid)
+        assert result.failure_stage == "observation_mean"
+        assert result.bad_manifest_names == ["monthly_eveningness_activity_timing"]
+        assert result.failing_draw_indices == [0, 2]
+        assert result.first_bad_time_index == 73
 
     def test_resolve_prior_proposals_reads_compiled_semantics_per_state(self):
         """Implicit initial-state priors should come from compiled semantics."""
@@ -3455,22 +3579,28 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         del causal_spec, skeleton
         return []
 
-    monkeypatch.setattr(stage4_module, "derive_deterministic_spec", stub_derive_deterministic_spec)
-    monkeypatch.setattr(stage4_module, "build_model_topology", stub_build_model_topology)
     monkeypatch.setattr(
-        stage4_module,
-        "build_distribution_cards",
+        "causal_ssm_agent.orchestrator.stage4_agent_loop.derive_deterministic_spec",
+        stub_derive_deterministic_spec,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_model_topology",
+        stub_build_model_topology,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_distribution_cards",
         stub_build_distribution_cards,
     )
     monkeypatch.setattr(
-        stage4_module,
-        "build_construct_scale_cards",
+        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_construct_scale_cards",
         stub_build_construct_scale_cards,
     )
-    monkeypatch.setattr(stage4_module, "build_prior_cards", stub_build_prior_cards)
     monkeypatch.setattr(
-        stage4_module,
-        "build_stage4_plan",
+        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_prior_cards",
+        stub_build_prior_cards,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_stage4_plan",
         lambda _causal_spec, _skeleton: _make_plan(),
     )
 
@@ -3518,7 +3648,7 @@ class TestStage4Mechanics:
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
-        model_spec, errors = stage4_module._build_model_spec_from_decisions(
+        model_spec, errors = _build_model_spec_from_decisions(
             runtime.decisions,
             skeleton,
         )
@@ -3564,11 +3694,11 @@ class TestStage4Mechanics:
                 },
             },
         )
-        stage4_module._activate_prior_phase(plan, runtime)
+        _activate_prior_phase(plan, runtime)
         block = plan.get_block("effects:sleep")
         assert block is not None
 
-        status = stage4_module._format_plan_status(
+        status = format_stage4_plan_status(
             plan,
             runtime,
             block,
@@ -3709,19 +3839,17 @@ class TestStage4Mechanics:
                 )
             }, "COMPILE ERROR:\nsteps support mismatch"
 
-        stage_output, feedback, transitions = (
-            stage4_module._compute_stage4_validate_step_with_transitions(
-                indicator_payload,
-                plan=plan,
-                runtime=runtime,
-                deps=_make_stage4_deps(
-                    causal_spec=causal_spec,
-                    skeleton=skeleton,
-                    data_for_model=data_for_model,
-                    indicator_audits={},
-                    stage4_grounding_fn=stub_stage4_grounding,
-                ),
-            )
+        stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
+            indicator_payload,
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec=causal_spec,
+                skeleton=skeleton,
+                data_for_model=data_for_model,
+                indicator_audits={},
+                stage4_grounding_fn=stub_stage4_grounding,
+            ),
         )
 
         assert stage_output is not None
@@ -3753,7 +3881,7 @@ class TestStage4Mechanics:
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
-        model_spec, errors = stage4_module._build_model_spec_from_decisions(
+        model_spec, errors = _build_model_spec_from_decisions(
             runtime.decisions,
             skeleton,
         )
@@ -3856,7 +3984,7 @@ class TestStage4Mechanics:
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
-        model_spec, errors = stage4_module._build_model_spec_from_decisions(
+        model_spec, errors = _build_model_spec_from_decisions(
             runtime.decisions,
             skeleton,
         )
@@ -3919,8 +4047,7 @@ class TestStage4Mechanics:
             }, "BLOCK ACCEPTED"
 
         monkeypatch.setattr(
-            stage4_module,
-            "validate_dynamics_block_partial_drift",
+            "causal_ssm_agent.orchestrator.stage4_partial_drift.validate_dynamics_block_partial_drift",
             lambda **_kwargs: (
                 PriorValidationResult(
                     parameter="rho_sleep",
@@ -4385,19 +4512,17 @@ class TestStage4Mechanics:
                 ),
             }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
 
-        stage_output, feedback, transitions = (
-            stage4_module._compute_stage4_validate_step_with_transitions(
-                correlation_payload,
-                plan=plan,
-                runtime=runtime,
-                deps=_make_stage4_deps(
-                    causal_spec=causal_spec,
-                    skeleton=skeleton,
-                    data_for_model=pl.DataFrame(),
-                    indicator_audits={},
-                    stage4_grounding_fn=stub_stage4_grounding,
-                ),
-            )
+        stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
+            correlation_payload,
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec=causal_spec,
+                skeleton=skeleton,
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                stage4_grounding_fn=stub_stage4_grounding,
+            ),
         )
 
         assert stage_output is not None
@@ -4445,7 +4570,7 @@ class TestStage4Mechanics:
         _set_runtime_block(plan, runtime, repair_block.id)
         runtime.block_status[repair_block.id] = "reopened"
         runtime.block_status[next_block.id] = "reopened"
-        runtime.repair_campaign = stage4_module.Stage4RepairCampaignState(
+        runtime.repair_campaign = Stage4RepairCampaignState(
             failure_family_key=(("prior_predictive_nonfinite_samples",), (), ("activity", "sleep")),
             scope_kind="validator_scope",
             scope_key="validator_scope:sleep",
@@ -4491,19 +4616,17 @@ class TestStage4Mechanics:
                 ),
             }, "VALID"
 
-        stage_output, feedback, transitions = (
-            stage4_module._compute_stage4_validate_step_with_transitions(
-                repair_payload,
-                plan=plan,
-                runtime=runtime,
-                deps=_make_stage4_deps(
-                    causal_spec=causal_spec,
-                    skeleton=skeleton,
-                    data_for_model=pl.DataFrame(),
-                    indicator_audits={},
-                    stage4_grounding_fn=stub_stage4_grounding,
-                ),
-            )
+        stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
+            repair_payload,
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec=causal_spec,
+                skeleton=skeleton,
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                stage4_grounding_fn=stub_stage4_grounding,
+            ),
         )
 
         assert stage_output is not None
@@ -4534,6 +4657,172 @@ class TestStage4Mechanics:
         assert runtime.repair_campaign is not None
         assert runtime.repair_campaign.completed_block_ids == frozenset((repair_block.id,))
         assert get_active_plan_block(plan, runtime).id == next_block.id
+
+    def test_compute_stage4_validate_step_reruns_ppc_after_final_barrier_repair(
+        self, monkeypatch
+    ):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        repair_block = plan.get_block("correlation:cor0_activity_sleep")
+        final_block = plan.get_block("effects:sleep")
+        assert repair_block is not None
+        assert final_block is not None
+
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "activity_vas",
+                    "distribution": "ordered_logistic",
+                    "link": "logit",
+                },
+                {
+                    "variable": "sleep_quality",
+                    "distribution": "ordered_logistic",
+                    "link": "logit",
+                },
+            ],
+            "parameters": [
+                {"name": "lambda_activity_vas_activity"},
+                {"name": "lambda_sleep_quality_sleep"},
+                {"name": "rho_activity"},
+                {"name": "sigma_activity"},
+                {"name": "rho_sleep"},
+                {"name": "sigma_sleep"},
+                {"name": "beta_activity_sleep"},
+                {"name": "cor0_activity_sleep"},
+            ],
+        }
+        runtime.accepted = Stage4AcceptedState(
+            model_spec=model_spec,
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+                "cor0_activity_sleep": {"distribution": "Normal"},
+            },
+        )
+        _set_runtime_block(plan, runtime, final_block.id)
+        runtime.block_status[repair_block.id] = "accepted"
+        runtime.block_status[final_block.id] = "reopened"
+        runtime.repair_campaign = Stage4RepairCampaignState(
+            failure_family_key=(("prior_predictive_nonfinite_samples",), (), ("activity", "sleep")),
+            scope_kind="validator_scope",
+            scope_key="validator_scope:sleep",
+            scope_rank=0,
+            scope_block_ids=(repair_block.id, final_block.id),
+            prompt_blocks_by_id={
+                repair_block.id: repair_block,
+                final_block.id: final_block,
+            },
+            completed_block_ids=frozenset((repair_block.id,)),
+            requires_barrier_validation=True,
+            attempts_at_scope=1,
+            best_certificate=None,
+        )
+        repair_payload = {
+            "block_id": final_block.id,
+            "block_kind": "effect_prior",
+            "proposal": {
+                "priors": {
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.15},
+                        "sources": [],
+                        "reasoning": "repair tightened the effect prior",
+                    }
+                }
+            },
+        }
+
+        seen_skip_ppc: list[bool] = []
+        barrier_validations: list[dict[str, Any]] = []
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            seen_skip_ppc.append(kwargs["skip_ppc"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=False,
+                    pp_valid=True,
+                ),
+            }, "VALID"
+
+        def stub_validate_assembly(
+            model_spec_arg,
+            authored_priors_arg,
+            _data_for_model,
+            _indicator_audits,
+            _causal_spec,
+            *,
+            skip_ppc=False,
+        ):
+            barrier_validations.append(
+                {
+                    "model_spec": model_spec_arg,
+                    "authored_priors": dict(authored_priors_arg or {}),
+                    "skip_ppc": skip_ppc,
+                }
+            )
+            return AssemblyValidation(
+                normalized_model_spec=model_spec_arg,
+                compile_ok=True,
+                pp_checked=True,
+                pp_valid=False,
+                diagnostics=[
+                    PriorValidationResult(
+                        parameter="beta_activity_sleep",
+                        is_valid=False,
+                        code="effect_still_too_wide",
+                        origin="prior_predictive",
+                        issue="Effect prior still too wide",
+                        suggested_adjustment="Tighten beta_activity_sleep",
+                    )
+                ],
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.orchestrator.stage4_partial_drift.validate_effect_block_partial_drift",
+            lambda **_kwargs: None,
+        )
+
+        stage_output, feedback, _transitions = _compute_stage4_validate_step_with_transitions(
+            repair_payload,
+            plan=plan,
+            runtime=runtime,
+            deps=_make_stage4_deps(
+                causal_spec=causal_spec,
+                skeleton=skeleton,
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                stage4_grounding_fn=stub_stage4_grounding,
+            ),
+        )
+
+        assert stage_output is not None
+        assert feedback.startswith("PRIOR PREDICTIVE FEEDBACK:\n")
+        assert seen_skip_ppc == [True]
+        assert len(barrier_validations) == 1
+        assert barrier_validations[0]["skip_ppc"] is False
+        assert "beta_activity_sleep" in barrier_validations[0]["authored_priors"]
+        assert runtime.accepted.validation is not None
+        assert runtime.accepted.validation.pp_checked is True
+        assert runtime.accepted.validation.pp_valid is False
+        assert runtime.last_validation_packet is not None
+        assert runtime.last_validation_packet.status == "prior_predictive_failure"
 
     def test_compute_stage4_validate_step_synthesizes_bounded_repair_bundle_from_supporting_diagnostics(
         self,
@@ -4656,7 +4945,7 @@ class TestStage4Mechanics:
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
         _set_runtime_block(plan, runtime, "effects:sleep")
-        runtime.repair_campaign = stage4_module.Stage4RepairCampaignState(
+        runtime.repair_campaign = Stage4RepairCampaignState(
             failure_family_key=(
                 ("prior_predictive_nonfinite_samples",),
                 ("dt_ct_approximation_warning",),
@@ -4748,6 +5037,7 @@ class TestStage4Mechanics:
                             "name": "activity_vas",
                             "construct_name": "activity",
                             "measurement_dtype": "ordinal",
+                            "ordinal_levels": list(_ORDINAL_LEVELS),
                             "how_to_measure": "Activity rating",
                             "aggregation": "mean",
                         },
@@ -4755,6 +5045,7 @@ class TestStage4Mechanics:
                             "name": "sleep_quality",
                             "construct_name": "sleep",
                             "measurement_dtype": "ordinal",
+                            "ordinal_levels": list(_ORDINAL_LEVELS),
                             "how_to_measure": "Sleep quality rating",
                             "aggregation": "mean",
                         },
@@ -4852,6 +5143,7 @@ class TestStage4Mechanics:
                             "name": "stress_vas",
                             "construct_name": "stress",
                             "measurement_dtype": "ordinal",
+                            "ordinal_levels": list(_ORDINAL_LEVELS),
                             "how_to_measure": "Stress rating",
                             "aggregation": "mean",
                         },
@@ -4859,6 +5151,7 @@ class TestStage4Mechanics:
                             "name": "activity_vas",
                             "construct_name": "activity",
                             "measurement_dtype": "ordinal",
+                            "ordinal_levels": list(_ORDINAL_LEVELS),
                             "how_to_measure": "Activity rating",
                             "aggregation": "mean",
                         },
@@ -4866,6 +5159,7 @@ class TestStage4Mechanics:
                             "name": "sleep_quality",
                             "construct_name": "sleep",
                             "measurement_dtype": "ordinal",
+                            "ordinal_levels": list(_ORDINAL_LEVELS),
                             "how_to_measure": "Sleep quality rating",
                             "aggregation": "mean",
                         },
@@ -4887,7 +5181,7 @@ class TestStage4Mechanics:
 
         repair_plan = build_repair_plan(
             plan,
-            stage4_module.ResolvedRepairScope(
+            ResolvedRepairScope(
                 scope_kind="scc_drift_subsystem",
                 scope_rank=2,
                 scope_key="scc_drift_subsystem:activity|sleep",
@@ -5270,7 +5564,7 @@ class TestStage4Mechanics:
                 "beta_activity_sleep": {"distribution": "Normal"},
             },
         )
-        stage4_module._set_done_cursor(runtime)
+        _set_done_cursor(runtime)
 
         stage_output, feedback = compute_stage4_validate_step(
             {
@@ -5328,21 +5622,6 @@ class TestStage4Mechanics:
                             "params": {"sigma": 0.4},
                             "sources": [],
                             "reasoning": "initial measurement prior",
-                        }
-                    }
-                },
-            },
-            {
-                "block_id": "observation:obs_ordered_base",
-                "block_kind": "observation_prior",
-                "proposal": {
-                    "priors": {
-                        "obs_ordered_base": {
-                            "parameter": "obs_ordered_base",
-                            "distribution": "Normal",
-                            "params": {"mu": 0.0, "sigma": 1.0},
-                            "sources": [],
-                            "reasoning": "ordered-threshold location prior",
                         }
                     }
                 },
@@ -6664,6 +6943,21 @@ class TestStage4Mechanics:
                             "params": {"sigma": 0.4},
                             "sources": [],
                             "reasoning": "initial measurement prior",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
                         }
                     }
                 },

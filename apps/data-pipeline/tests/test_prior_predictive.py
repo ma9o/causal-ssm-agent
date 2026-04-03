@@ -449,8 +449,12 @@ class TestScalePlausibilityDiagnostics:
 
     def test_overwhelmingly_unstable_dynamics_raise_runtime_error(self, monkeypatch):
         samples = {
-            "drift": jnp.asarray([[[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]]], dtype=jnp.float32),
-            "diffusion": jnp.asarray([[[0.1]], [[0.1]], [[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32),
+            "drift": jnp.asarray(
+                [[[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]]], dtype=jnp.float32
+            ),
+            "diffusion": jnp.asarray(
+                [[[0.1]], [[0.1]], [[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32
+            ),
             "observations": jnp.asarray(
                 [
                     [[0.0]],

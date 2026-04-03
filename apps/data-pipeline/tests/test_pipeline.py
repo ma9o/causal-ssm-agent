@@ -145,6 +145,10 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             "outcome": "success",
         }
 
+    def stage5a(stage4: dict, stage2: dict) -> dict:
+        calls.append(("stage5a", stage4, stage2))
+        return {"outcome": "success"}
+
     def stage6(
         stage5b: dict,
         stage1b: dict,
@@ -165,6 +169,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     monkeypatch.setattr(dag, "stage2", stage2)
     monkeypatch.setattr(dag, "stage3", stage3)
     monkeypatch.setattr(dag, "stage4b", stage4b)
+    monkeypatch.setattr(dag, "stage5a", stage5a)
     monkeypatch.setattr(dag, "stage5b", stage5b)
     monkeypatch.setattr(dag, "stage6", stage6)
     monkeypatch.setattr(
@@ -367,7 +372,7 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
     events: list[tuple[str, object]] = []
 
     monkeypatch.setattr(
-        "causal_ssm_agent.orchestrator.stage4.project_stage4_initial_state",
+        "causal_ssm_agent.orchestrator.stage4_navigation.project_stage4_initial_state",
         lambda _causal_spec: (
             {"nodes": [{"id": "indicator:x"}], "edges": [], "phases": []},
             {
@@ -603,8 +608,32 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
         calls.append(("stage1b", question, stage0, stage1a))
         return {
             "causal_spec": {
-                "latent": {"constructs": [], "edges": []},
-                "measurement": {"model_clock": "1d", "indicators": []},
+                "latent": stage1a["latent_model"],
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "treatment_score",
+                            "construct_name": "override-treatment",
+                            "how_to_measure": "Measure override-treatment",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "construct_polarity": "positive",
+                        }
+                    ],
+                },
+                "estimation": {
+                    "state_order": ["override-treatment", "override-outcome"],
+                    "edges": [
+                        {
+                            "cause": "override-treatment",
+                            "effect": "override-outcome",
+                            "description": ("override-treatment affects override-outcome"),
+                            "lagged": True,
+                        }
+                    ],
+                    "induced_dependencies": [],
+                },
             }
         }
 
@@ -1800,6 +1829,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
                     "how_to_measure": "Stress rating",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
+                    "construct_polarity": "positive",
                 }
             ],
         },

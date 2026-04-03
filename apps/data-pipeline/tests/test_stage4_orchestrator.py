@@ -2,19 +2,11 @@
 
 import polars as pl
 
-import causal_ssm_agent.orchestrator.stage4 as stage4_module
-from causal_ssm_agent.orchestrator.stage4 import (
-    Stage4AcceptedState,
-    Stage4Deps,
-    Stage4Messages,
-    Stage4Runtime,
-    Stage4Session,
-    make_stage4_runtime,
-)
 from causal_ssm_agent.orchestrator.stage4_feedback import (
     make_stage4_grounding_result,
     make_stage4_validation_packet,
 )
+from causal_ssm_agent.orchestrator.stage4_navigation import _set_block_cursor, make_stage4_runtime
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
@@ -27,6 +19,10 @@ from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     derive_deterministic_spec,
     get_stage4_prompt_scope_policy,
 )
+from causal_ssm_agent.orchestrator.stage4_prompt_context import Stage4Messages
+from causal_ssm_agent.orchestrator.stage4_session import Stage4Session
+from causal_ssm_agent.orchestrator.stage4_state import Stage4AcceptedState, Stage4Runtime
+from causal_ssm_agent.orchestrator.stage4_types import Stage4Deps
 from tests.helpers import make_stage4_plan as _make_plan
 
 
@@ -738,7 +734,9 @@ class TestStage4Plan:
 
         skeleton = derive_deterministic_spec(spec)
         plan = build_stage4_plan(spec, skeleton)
-        measurement_block = next(block for block in plan.prior_blocks if block.kind == "measurement_prior")
+        measurement_block = next(
+            block for block in plan.prior_blocks if block.kind == "measurement_prior"
+        )
 
         assert set(measurement_block.parameter_names) == {
             "lambda_vas_stress",
@@ -924,7 +922,7 @@ class TestStage4TurnProjection:
         )
         active_block = plan.get_block("dynamics:sleep")
         assert active_block is not None
-        stage4_module._set_block_cursor(runtime, active_block)
+        _set_block_cursor(runtime, active_block)
         session = _make_session(messages=messages, plan=plan, runtime=runtime)
 
         turn = session.current_turn()
@@ -959,7 +957,7 @@ class TestStage4TurnProjection:
         )
         active_block = plan.get_block("effects:sleep")
         assert active_block is not None
-        stage4_module._set_block_cursor(runtime, active_block)
+        _set_block_cursor(runtime, active_block)
         session = _make_session(
             messages=Stage4Messages(
                 question="How does stress affect sleep?",
@@ -1001,7 +999,7 @@ class TestStage4TurnProjection:
         runtime.accepted = Stage4AcceptedState(
             model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
         )
-        stage4_module._set_block_cursor(runtime, prior_review_block)
+        _set_block_cursor(runtime, prior_review_block)
         session = _make_session(
             messages=Stage4Messages(
                 question="How does stress affect sleep?",
@@ -1039,11 +1037,7 @@ class TestStage4PromptScopePolicy:
 
         assert policy.system_task.startswith("Propose full prior specifications")
         assert policy.user_task.startswith("Propose full prior specifications")
-        assert policy.visible_sections == (
-            "distribution_cards",
-            "construct_scale_cards",
-            "prior_cards",
-        )
+        assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
         assert policy.guidance_section_keys == (
             "prior_distribution_types",
             "parameter_guidance",
@@ -1057,7 +1051,11 @@ class TestStage4PromptScopePolicy:
 
         assert policy.system_task.startswith("Propose full prior specifications")
         assert policy.user_task.startswith("Propose priors only for this active observation-family")
-        assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
+        assert policy.visible_sections == (
+            "distribution_cards",
+            "construct_scale_cards",
+            "prior_cards",
+        )
         assert policy.parameter_guidance_prefixes == ("obs_",)
         assert policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
 

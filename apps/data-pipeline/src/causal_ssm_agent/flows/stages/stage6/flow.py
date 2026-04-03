@@ -83,7 +83,8 @@ async def run_stage6(
                         "treatment": result["treatment"],
                         "effect": (
                             f"{effect:+.4f}"
-                            if (effect := _draws_stats(result.get("posterior_draws"))[0]) is not None
+                            if (effect := _draws_stats(result.get("posterior_draws"))[0])
+                            is not None
                             else "---"
                         ),
                         "P(>0)": (
