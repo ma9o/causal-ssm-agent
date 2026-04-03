@@ -25,6 +25,7 @@ stage2_workers:
   max_rpm: 450                 # OpenRouter sliding-window RPM limit
   worker_timeout: 120          # Per-LLM-call timeout in seconds (prevents hung workers)
   max_tool_turns: 40
+  max_free_windows: 100        # Max support windows for anonymous users in production
 
 # Stage 3: Validation
 # Rule-based extraction validation and indicator audits - no LLM needed

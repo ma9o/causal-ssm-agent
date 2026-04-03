@@ -45,6 +45,7 @@ class Stage2Config:
     worker_timeout: int = 120
     chunk_size: int = 50
     max_tool_turns: int = 40
+    max_free_windows: int = 100
 
 
 @dataclass(frozen=True)

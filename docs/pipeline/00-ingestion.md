@@ -28,5 +28,5 @@ A ZIP containing `tickets.csv` and `deploys.csv` may be normalized into one data
 | Output | Type | Description |
 |---|---|---|
 | `raw_dataframe` | `polars.DataFrame` | Normalized typed observed-data table indexed by `timestamp`. May be wide (multiple columns) or long (event log format), depending on the raw data structure. |
-| `column_descriptions` | `list[dict{name, description}]` | Human-readable description for each column, derived from the agent's reasoning about the raw data |
+| `column_descriptions` | `list[dict{name, description}]` | Human-readable descriptions for columns when the agent provides them via `submit_table`; may be empty when Stage 0 completes from the captured dataframe alone |
 | `llm_trace` | `LLMTrace` | Conversation trace for UI provenance and debugging |
