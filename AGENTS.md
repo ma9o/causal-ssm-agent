@@ -6,7 +6,11 @@ THINK VERY HARD
 
 - Interpret `cp` as an alias for "commit and push". Every time you commit make sure to split commits atomically, avoiding clumping multiple increments into a single one.
 
-- NEVER add backwards compatibility code. This project is not deployed anywhere yet. When refactoring, completely replace old patterns with new ones - do not support both old and new formats simultaneously.
+- NEVER add backwards compatibility code or defensive engineering with fallbacks. 
+
+- NEVER add backwards compatibility code or defensive engineering with fallbacks. 
+
+- NEVER add backwards compatibility code or defensive engineering with fallbacks. 
 
 - For integration testing, starting services, health-checking the stack, or triggering pipeline runs manually, always read and follow [docs/guides/agentic_integration_testing.md](docs/guides/agentic_integration_testing.md). Do not improvise steps from memory.
 

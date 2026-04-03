@@ -8,6 +8,7 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "docs:check": "markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\"",
+    "integration:start": "bash scripts/start_agentic_integration_stack.sh",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
     "test": "turbo test",

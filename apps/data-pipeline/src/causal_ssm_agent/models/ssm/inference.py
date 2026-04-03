@@ -868,9 +868,7 @@ def _fit_svi(
         losses.append(loss)
 
     svi_losses = (
-        jnp.asarray(losses, dtype=jnp.float32)
-        if losses
-        else jnp.empty((0,), dtype=jnp.float32)
+        jnp.asarray(losses, dtype=jnp.float32) if losses else jnp.empty((0,), dtype=jnp.float32)
     )
     svi_params = svi.get_params(svi_state)
 
