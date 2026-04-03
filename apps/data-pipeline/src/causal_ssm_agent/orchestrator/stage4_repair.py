@@ -11,6 +11,8 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
     from causal_ssm_agent.workers.schemas_prior import (
         PriorPathologyCertificate,
@@ -49,6 +51,11 @@ class Stage4FailureLocalization:
     pathology_certificate: PriorPathologyCertificate | None
     has_global_failure: bool
     issues_text: str
+    default_reason: str | None
+    support_reason: str | None
+    drift_reason: str | None
+    validator_reason: str | None
+    global_reason: str | None
 
     @property
     def parameter_hints(self) -> tuple[str, ...]:
@@ -124,6 +131,13 @@ def _find_block_for_parameter(
         measurement_block_id = topology.get_measurement_block_id(indicator_name)
         if measurement_block_id is not None:
             return plan.get_block(measurement_block_id)
+        for construct_name, indicator_names in topology.indicator_names_by_construct.items():
+            if indicator_name not in indicator_names:
+                continue
+            dynamics_block_id = topology.dynamics_block_id_by_construct.get(construct_name)
+            if dynamics_block_id is not None:
+                return plan.get_block(dynamics_block_id)
+            break
     block_id = topology.get_parameter_block_id(parameter_name)
     return None if block_id is None else plan.get_block(block_id)
 
@@ -289,7 +303,7 @@ def _classify_compile_failure_route(
             _resolved_repair_scope(
                 scope_kind="compile_local",
                 scope_rank=0,
-                reason="compile failure names an owned parameter or indicator exactly",
+                reason=_repair_reason_from_feedback(feedback),
                 failure_family=failure_family,
                 scope_token=chosen_block_id,
             ),
@@ -302,7 +316,7 @@ def _classify_compile_failure_route(
             _resolved_repair_scope(
                 scope_kind="global_prior_review",
                 scope_rank=_GLOBAL_REVIEW_SCOPE_RANK,
-                reason="compile failure during whole-system prior review requires another global pass",
+                reason=_repair_reason_from_feedback(feedback),
                 failure_family=failure_family,
                 scope_token="prior_system",
             ),
@@ -313,7 +327,7 @@ def _classify_compile_failure_route(
         _resolved_repair_scope(
             scope_kind="compile_active_block",
             scope_rank=0,
-            reason="compile failure could not be localized more narrowly",
+            reason=_repair_reason_from_feedback(feedback),
             failure_family=failure_family,
             scope_token=active_block.id,
         ),
@@ -352,6 +366,50 @@ def _compile_failure_matching_block_ids(
             matched_block_ids.add(block_id)
 
     return _ordered_block_ids(plan, matched_block_ids)
+
+
+def _normalize_reason_text(text: str | None) -> str:
+    """Collapse multiline validation text into one compact sentence."""
+    return " ".join((text or "").split())
+
+
+def _format_diagnostic_reason(result: PriorValidationResult) -> str | None:
+    """Render one diagnostic into a user-facing repair reason."""
+    issue = _normalize_reason_text(result.issue)
+    suggested_adjustment = _normalize_reason_text(result.suggested_adjustment)
+    if issue and suggested_adjustment:
+        return f"{issue} Suggested fix: {suggested_adjustment}"
+    return issue or suggested_adjustment or None
+
+
+def _first_diagnostic_reason(
+    diagnostics: list[PriorValidationResult],
+    *,
+    predicate: Callable[[PriorValidationResult], bool] | None = None,
+) -> str | None:
+    """Return the first concrete reason matching the predicate."""
+    for result in diagnostics:
+        if predicate is not None and not predicate(result):
+            continue
+        reason = _format_diagnostic_reason(result)
+        if reason:
+            return reason
+    return None
+
+
+def _require_reason(*reasons: str | None, context: str) -> str:
+    """Return the first concrete repair reason or raise."""
+    for reason in reasons:
+        if reason:
+            return reason
+    raise ValueError(f"Stage 4 repair classification requires a concrete reason for {context}")
+
+
+def _repair_reason_from_feedback(feedback: str | None) -> str:
+    """Extract a concrete repair reason from compile feedback."""
+    compact = _normalize_reason_text(feedback)
+    compact = re.sub(r"^(compile error:|validation errors:)\s*", "", compact, flags=re.IGNORECASE)
+    return _require_reason(compact, context="compile failure")
 
 
 def _feedback_mentions_identifier(text: str, identifier: str) -> bool:
@@ -480,6 +538,7 @@ def _localize_prior_failure(
         validation,
         supporting_codes=supporting_codes,
     )
+    all_reason_diagnostics = [*failed, *supporting_compile_diagnostics]
     pp_certificates = [
         result.pathology_certificate
         for result in failed
@@ -529,6 +588,35 @@ def _localize_prior_failure(
     )
     issues_text = " ".join(result.issue or "" for result in failed).lower()
     has_global_failure = any(result.parameter in GLOBAL_FAILURE_SITES for result in failed)
+    default_reason = _first_diagnostic_reason(all_reason_diagnostics)
+    support_reason = _first_diagnostic_reason(
+        all_reason_diagnostics,
+        predicate=lambda result: (
+            "support check" in (result.issue or "").lower()
+            or "outside support" in (result.issue or "").lower()
+        ),
+    )
+    validator_reason = _first_diagnostic_reason(
+        failed,
+        predicate=lambda result: result.repair_scope is not None,
+    )
+    drift_reason = _first_diagnostic_reason(
+        all_reason_diagnostics,
+        predicate=lambda result: (
+            result.repair_scope is not None
+            or result.code in _DRIFT_RELATED_CODES
+            or any(
+                parameter_name.startswith("beta_")
+                for parameter_name in (
+                    result.related_parameters or ([result.parameter] if result.parameter else [])
+                )
+            )
+        ),
+    )
+    global_reason = _first_diagnostic_reason(
+        failed,
+        predicate=lambda result: result.parameter in GLOBAL_FAILURE_SITES,
+    )
     return Stage4FailureLocalization(
         failure_family=failure_family,
         diagnostic_codes=diagnostic_codes,
@@ -539,6 +627,11 @@ def _localize_prior_failure(
         pathology_certificate=pathology_certificate,
         has_global_failure=has_global_failure,
         issues_text=issues_text,
+        default_reason=default_reason,
+        support_reason=support_reason,
+        drift_reason=drift_reason,
+        validator_reason=validator_reason,
+        global_reason=global_reason,
     )
 
 
@@ -639,7 +732,10 @@ def _support_failure_scope(
             return _resolved_repair_scope(
                 scope_kind="likelihood_support",
                 scope_rank=0,
-                reason="global support failure names an indicator likelihood",
+                reason=_require_reason(
+                    localization.support_reason,
+                    context="likelihood support repair",
+                ),
                 failure_family=localization.failure_family,
                 prompt_block_hints=(block_id,),
                 diagnostic_codes=localization.diagnostic_codes,
@@ -651,7 +747,10 @@ def _support_failure_scope(
             return _resolved_repair_scope(
                 scope_kind="likelihood_support",
                 scope_rank=0,
-                reason="support failure requires indicator-decision repair",
+                reason=_require_reason(
+                    localization.support_reason,
+                    context="likelihood support repair",
+                ),
                 failure_family=localization.failure_family,
                 prompt_block_hints=(block.id,),
                 diagnostic_codes=localization.diagnostic_codes,
@@ -715,7 +814,11 @@ def _build_scope_candidates(
         add_candidate(
             scope_kind="validator_scope",
             scope_rank=_VALIDATOR_SCOPE_RANK,
-            reason="validator supplied a deterministic SCC repair scope",
+            reason=_require_reason(
+                localization.validator_reason,
+                localization.drift_reason,
+                context="validator_scope",
+            ),
             construct_names=_validator_scope_construct_names(localization.validator_repair_scope),
         )
 
@@ -723,7 +826,11 @@ def _build_scope_candidates(
         add_candidate(
             scope_kind="local_drift_motif",
             scope_rank=0,
-            reason="drift-related PP failure should first repair the local drift motif",
+            reason=_require_reason(
+                localization.drift_reason,
+                localization.validator_reason,
+                context="local_drift_motif",
+            ),
             parameter_names=localization.parameter_hints,
             construct_names=_parameter_construct_names(
                 plan.repair_topology, localization.parameter_hints
@@ -733,7 +840,11 @@ def _build_scope_candidates(
         add_candidate(
             scope_kind="reciprocal_pair",
             scope_rank=1,
-            reason="reciprocal feedback should be repaired jointly before widening further",
+            reason=_require_reason(
+                localization.drift_reason,
+                localization.validator_reason,
+                context="reciprocal_pair",
+            ),
             parameter_names=tuple(
                 sorted(
                     {
@@ -756,7 +867,11 @@ def _build_scope_candidates(
         add_candidate(
             scope_kind="scc_drift_subsystem",
             scope_rank=2,
-            reason="persistent drift pathology requires an SCC-closed repair subsystem",
+            reason=_require_reason(
+                localization.drift_reason,
+                localization.validator_reason,
+                context="scc_drift_subsystem",
+            ),
             parameter_names=localization.parameter_hints,
             construct_names=localization.construct_names,
         )
@@ -764,7 +879,10 @@ def _build_scope_candidates(
         add_candidate(
             scope_kind="direct_writer_blocks",
             scope_rank=0,
-            reason="diagnostic related_parameters map directly to Stage 4 blocks",
+            reason=_require_reason(
+                localization.default_reason,
+                context="direct_writer_blocks",
+            ),
             parameter_names=localization.direct_parameters,
             construct_names=localization.construct_names,
         )
@@ -773,7 +891,11 @@ def _build_scope_candidates(
         add_candidate(
             scope_kind="global_prior_review",
             scope_rank=_GLOBAL_REVIEW_SCOPE_RANK,
-            reason="global PP failure could not be localized to a smaller bounded scope",
+            reason=_require_reason(
+                localization.global_reason,
+                localization.default_reason,
+                context="global_prior_review",
+            ),
             parameter_names=localization.parameter_hints,
             construct_names=localization.construct_names,
             scope_token="prior_system",
@@ -839,17 +961,9 @@ def _classify_prior_failure_blocks(
 ) -> ResolvedRepairPlan:
     """Route prior-validation failures to the smallest monotone repair scope."""
     if validation is None:
-        return build_repair_plan(
-            plan,
-            _resolved_repair_scope(
-                scope_kind="active_block_fallback",
-                scope_rank=0,
-                reason="missing validation payload",
-                failure_family=("missing_validation", active_block.id),
-                scope_token=active_block.id,
-            ),
-            prompt_block_ids=(active_block.id,),
-            requires_barrier_validation=False,
+        raise ValueError(
+            f"Stage 4 prior failure classification requires a validation payload for "
+            f"{active_block.id!r}"
         )
 
     from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
@@ -876,16 +990,7 @@ def _classify_prior_failure_blocks(
             f"global prior-predictive failure. Details: {details}"
         )
 
-    return build_repair_plan(
-        plan,
-        _resolved_repair_scope(
-            scope_kind="active_block_fallback",
-            scope_rank=0,
-            reason="non-global failure could not be localized more narrowly",
-            failure_family=localization.failure_family,
-            diagnostic_codes=localization.diagnostic_codes,
-            scope_token=active_block.id,
-        ),
-        prompt_block_ids=(active_block.id,),
-        requires_barrier_validation=False,
+    raise ValueError(
+        "Stage 4 could not derive a concrete structural repair scope from the failing "
+        f"diagnostics for {active_block.id!r}"
     )
