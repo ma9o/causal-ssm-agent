@@ -148,6 +148,7 @@ class PriorValidationResult(BaseModel):
         Literal[
             "compiled_parameters",
             "latent_dynamics",
+            "observation_mean",
             "observation_sample",
             "support_violation",
             "model_build",

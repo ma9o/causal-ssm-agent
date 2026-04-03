@@ -250,7 +250,8 @@ def _check_nan_inf(
     def _stage_rank(stage: str) -> int:
         ordering = {
             "compiled_parameters": 0,
-            "observation_sample": 1,
+            "observation_mean": 1,
+            "observation_sample": 2,
             "unknown": 99,
         }
         return ordering.get(stage, 99)
@@ -528,11 +529,6 @@ def _check_scale_plausibility(
                 continue
 
         n_draws = len(idx)
-        if n_unstable > n_draws * 0.8:
-            raise RuntimeError(
-                f"Prior predictive: {n_unstable}/{n_draws} draws unstable — likely a model specification bug"
-            )
-
         if n_unstable > n_draws * 0.5:
             sorted_unstable_indices = sorted(unstable_indices)
             repair_scope = _infer_dynamics_repair_scope(
@@ -583,10 +579,7 @@ def _check_scale_plausibility(
                 manifest_draw_stds[manifest_idx].append(float(np.std(values)))
 
     median_implied = np.asarray(
-        [
-            float(np.median(stds)) if stds else np.nan
-            for stds in manifest_draw_stds
-        ]
+        [float(np.median(stds)) if stds else np.nan for stds in manifest_draw_stds]
     )
 
     for j, name in enumerate(manifest_names):
@@ -772,9 +765,12 @@ def validate_prior_predictive(
 
     Returns:
         Tuple of (is_valid, validation results, raw prior predictive samples).
-        The samples dict can be passed to simulate_posterior_predictive() to
-        generate per-variable observation samples for visualization.
+        The samples dict can be passed to ``simulate_predictive_observations()``
+        to generate per-variable observation samples for visualization.
     """
+    from causal_ssm_agent.models.predictive_simulation import (
+        PredictiveObservationMeanOverflow,
+    )
     from causal_ssm_agent.models.ssm_builder import (
         prepare_model_runtime,
         prepare_wide_model_runtime,
@@ -828,6 +824,37 @@ def validate_prior_predictive(
     # 2. Sample prior predictive
     try:
         samples = builder.sample_prior_predictive(samples=n_samples)
+    except PredictiveObservationMeanOverflow as exc:
+        related_parameters, supporting_codes = _supporting_compile_context(artifact)
+        certificate = PriorPathologyCertificate(
+            kind="nonfinite_samples",
+            primary_score=len(exc.failing_draw_indices) / max(1, n_samples),
+            secondary_score=float(len(exc.bad_manifest_names)) if exc.bad_manifest_names else None,
+        )
+        return (
+            False,
+            [
+                _pp_result(
+                    parameter="prior_predictive",
+                    is_valid=False,
+                    code="prior_predictive_observation_mean_overflow",
+                    issue=str(exc),
+                    suggested_adjustment=(
+                        "Tighten priors that drive these log-link observation means so the "
+                        "predictive response stays finite before sampling."
+                    ),
+                    related_parameters=related_parameters,
+                    supporting_codes=supporting_codes,
+                    failure_stage="observation_mean",
+                    bad_sample_sites=["observations"],
+                    bad_manifest_names=list(exc.bad_manifest_names),
+                    failing_draw_indices=list(exc.failing_draw_indices),
+                    first_bad_time_index=exc.first_bad_time_index,
+                    pathology_certificate=certificate,
+                )
+            ],
+            {},
+        )
     except Exception as e:
         return (
             False,

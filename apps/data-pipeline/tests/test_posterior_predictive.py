@@ -5,7 +5,7 @@ import jax.random as random
 import numpy as np
 import pytest
 
-import causal_ssm_agent.models.posterior_predictive as posterior_predictive_module
+import causal_ssm_agent.models.predictive_simulation as predictive_simulation_module
 from causal_ssm_agent.models.likelihoods.observation_families import (
     get_posterior_predictive_switch_index,
 )
@@ -18,7 +18,10 @@ from causal_ssm_agent.models.posterior_predictive import (
     _compute_test_stats,
     get_relevant_manifest_variables,
     run_posterior_predictive_checks,
-    simulate_posterior_predictive,
+)
+from causal_ssm_agent.models.predictive_simulation import (
+    PredictiveObservationMeanOverflow,
+    simulate_predictive_observations,
 )
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
@@ -83,7 +86,7 @@ def _make_samples(
 
 
 class TestForwardSimulation:
-    """Tests for simulate_posterior_predictive."""
+    """Tests for shared predictive observation simulation."""
 
     @staticmethod
     def _window_average_support() -> ObservationSupportRuntime:
@@ -114,7 +117,7 @@ class TestForwardSimulation:
         samples = _make_samples(n_draws=n_draws, n_latent=n_latent, n_manifest=n_manifest)
         times = jnp.arange(T, dtype=float)
 
-        y_sim = simulate_posterior_predictive(samples=samples, times=times, n_subsample=n_draws)
+        y_sim = simulate_predictive_observations(samples=samples, times=times, n_subsample=n_draws)
 
         assert y_sim.shape == (n_draws, T, n_manifest)
         assert jnp.all(jnp.isfinite(y_sim))
@@ -124,7 +127,7 @@ class TestForwardSimulation:
         samples = _make_samples(n_draws=50, n_latent=2, n_manifest=2)
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(samples=samples, times=times, n_subsample=10)
+        y_sim = simulate_predictive_observations(samples=samples, times=times, n_subsample=10)
 
         assert y_sim.shape[0] == 10
 
@@ -141,7 +144,7 @@ class TestForwardSimulation:
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
         obs_mask = jnp.array([[False], [False], [True]])
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dist="gaussian",
@@ -177,12 +180,12 @@ class TestForwardSimulation:
             return Ad, Qd, cd
 
         monkeypatch.setattr(
-            posterior_predictive_module,
+            predictive_simulation_module,
             "discretize_system_batched",
             fake_discretize_system_batched,
         )
 
-        y_sim = posterior_predictive_module.simulate_posterior_predictive(
+        y_sim = predictive_simulation_module.simulate_predictive_observations(
             samples=samples,
             times=times,
             n_subsample=1,
@@ -218,12 +221,12 @@ class TestForwardSimulation:
             return Ad, Qd, cd
 
         monkeypatch.setattr(
-            posterior_predictive_module,
+            predictive_simulation_module,
             "discretize_system_batched",
             fake_discretize_system_batched,
         )
 
-        y_sim = posterior_predictive_module.simulate_posterior_predictive(
+        y_sim = predictive_simulation_module.simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dists=["gaussian", "bernoulli", "gaussian"],
@@ -239,7 +242,7 @@ class TestForwardSimulation:
         samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples, times=times, manifest_dist="poisson", n_subsample=10
         )
 
@@ -253,7 +256,7 @@ class TestForwardSimulation:
         samples["proc_df"] = jnp.full((6,), 5.0)
         times = jnp.arange(6, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             diffusion_dists=["gaussian", "student_t"],
@@ -270,7 +273,7 @@ class TestForwardSimulation:
         samples["obs_df"] = jnp.array(3.0)  # low df = heavy tails
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples, times=times, manifest_dist="student_t", n_subsample=10
         )
 
@@ -283,12 +286,35 @@ class TestForwardSimulation:
         samples["obs_shape"] = jnp.array(2.0)
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples, times=times, manifest_dist="gamma", n_subsample=10
         )
 
         assert y_sim.shape == (10, 15, 2)
         assert jnp.all(y_sim > 0)
+
+    def test_forward_simulate_raises_on_log_link_mean_overflow(self):
+        """Overflowing log-link means fail before observation sampling."""
+        samples = {
+            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
+            "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
+            "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
+            "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
+            "t0_means": jnp.array([[100.0]], dtype=jnp.float32),
+            "t0_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
+            "obs_shape": jnp.array(2.0, dtype=jnp.float32),
+        }
+        times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+        with pytest.raises(PredictiveObservationMeanOverflow, match="log-link mean overflow"):
+            simulate_predictive_observations(
+                samples=samples,
+                times=times,
+                manifest_dist="gamma",
+                manifest_names=["monthly_eveningness_activity_timing"],
+                n_subsample=1,
+                rng_seed=0,
+            )
 
     def test_forward_simulate_ordered_logistic(self):
         """Ordered-logistic simulation returns encoded category indices."""
@@ -296,7 +322,7 @@ class TestForwardSimulation:
         samples["obs_ordered_cutpoints"] = jnp.array([[-1.0, 1.0, 0.0], [-1.5, 0.0, 1.5]])
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dist="ordered_logistic",
@@ -316,7 +342,7 @@ class TestForwardSimulation:
         samples["obs_cat_slopes"] = jnp.array([[0.2, -0.4], [0.5, 0.1]])
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dist="categorical",
@@ -338,7 +364,7 @@ class TestDiagnosticChecks:
         samples = _make_samples(n_draws=n_draws, n_latent=2, n_manifest=n_manifest)
         times = jnp.arange(T, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples, times=times, n_subsample=n_draws, rng_seed=0
         )
         # Use one draw as "observed data" — should be well-calibrated
@@ -363,7 +389,7 @@ class TestDiagnosticChecks:
             n_draws=100, n_latent=2, n_manifest=n_manifest, drift_diag=-0.3
         )
         times = jnp.arange(T, dtype=float)
-        y_sim_true = simulate_posterior_predictive(
+        y_sim_true = simulate_predictive_observations(
             samples=samples_true, times=times, n_subsample=100, rng_seed=0
         )
 
@@ -507,7 +533,7 @@ class TestLinkFunctionSimulation:
         samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dist="bernoulli",
@@ -526,7 +552,7 @@ class TestLinkFunctionSimulation:
         samples["obs_shape"] = jnp.array(2.0)
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dist="gamma",
@@ -543,7 +569,7 @@ class TestLinkFunctionSimulation:
         samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dist="beta",
@@ -562,7 +588,7 @@ class TestLinkFunctionSimulation:
         times = jnp.arange(10, dtype=float)
 
         # Channel 0: Bernoulli probit, Channel 1: Bernoulli logit (default)
-        y_sim = simulate_posterior_predictive(
+        y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
             manifest_dists=["bernoulli", "bernoulli"],
