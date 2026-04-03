@@ -191,9 +191,10 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "prior_distribution_types",
             "parameter_guidance",
             "continuous_time_dynamics",
+            "latent_initial_state_guidance",
             "dynamics_budget_discipline",
         ),
-        parameter_guidance_prefixes=("rho", "sigma"),
+        parameter_guidance_prefixes=("rho", "sigma", "t0_mean", "t0_sd"),
         allowed_tool_names=("validate_model", "elicit_prior_gmm"),
     ),
     "effect_prior": Stage4PromptScopePolicy(
@@ -274,9 +275,10 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "prior_distribution_types",
             "parameter_guidance",
             "continuous_time_dynamics",
+            "latent_initial_state_guidance",
             "lagged_effect_interval_guidance",
         ),
-        parameter_guidance_prefixes=("lambda", "rho", "sigma", "beta", "cor"),
+        parameter_guidance_prefixes=("lambda", "rho", "sigma", "beta", "cor", "t0_mean", "t0_sd"),
         allowed_tool_names=("validate_model",),
     ),
 }
@@ -294,6 +296,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     """Pre-compute all deterministic parts of the stage-4 model skeleton."""
     retained_state_order = get_estimation_state_order(causal_spec)
     retained_edges = get_estimation_edges(causal_spec)
+    induced_dependencies = get_induced_dependencies(causal_spec)
     indicators = get_indicators(causal_spec)
     latent_construct_lookup = {
         construct["name"]: construct for construct in get_latent_constructs(causal_spec)
@@ -306,11 +309,12 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
 
     indicators_per_construct = _indicators_per_construct(indicators)
     reference_indicator_lookup = build_reference_indicator_lookup(indicators)
+    retained_construct_names = {construct["name"] for construct in retained_constructs}
 
     resolved_likelihoods: list[dict[str, Any]] = []
     ambiguous_indicators: list[dict[str, Any]] = []
-    parameters: list[dict[str, Any]] = []
-    loading_params: list[dict[str, Any]] = []
+    seed_parameters: list[dict[str, Any]] = []
+    seed_loading_params: list[dict[str, Any]] = []
 
     # --- Likelihoods ---
     for indicator in indicators:
@@ -361,7 +365,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             and construct.get("role") == "endogenous"
         ):
             construct_name = construct["name"]
-            parameters.append(
+            seed_parameters.append(
                 {
                     "name": f"rho_{construct_name}",
                     "role": "ar_coefficient",
@@ -375,7 +379,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     for edge in retained_edges:
         cause = edge["cause"]
         effect = edge["effect"]
-        parameters.append(
+        seed_parameters.append(
             {
                 "name": f"beta_{cause}_{effect}",
                 "role": "fixed_effect",
@@ -390,7 +394,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     # --- Residual SDs ---
     for construct in retained_constructs:
         construct_name = construct["name"]
-        parameters.append(
+        seed_parameters.append(
             {
                 "name": f"sigma_{construct_name}",
                 "role": "residual_sd",
@@ -414,7 +418,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             continue
 
         reference_indicator = reference_indicator_lookup.get(construct_name)
-        loading_params.append(
+        seed_loading_params.append(
             {
                 "name": f"lambda_{indicator['name']}_{construct_name}",
                 "role": "loading",
@@ -428,7 +432,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         )
 
     # --- Correlations from marginalized confounders ---
-    for dependency in get_induced_dependencies(causal_spec):
+    for dependency in induced_dependencies:
         construct_1, construct_2 = dependency["between"]
         dependency_kind = dependency["kind"]
         parameter_name = (
@@ -441,7 +445,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             if dependency_kind == "innovation_correlation"
             else "initial_state_correlation"
         )
-        parameters.append(
+        seed_parameters.append(
             {
                 "name": parameter_name,
                 "role": role,
@@ -456,6 +460,18 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
                 "source_confounders": dependency["source_confounders"],
             }
         )
+
+    parameters, loading_params = _compiler_authoritative_stage4_inventory(
+        causal_spec,
+        resolved_likelihoods=resolved_likelihoods,
+        ambiguous_indicators=ambiguous_indicators,
+        seed_parameters=seed_parameters,
+        seed_loading_params=seed_loading_params,
+        retained_state_order=retained_state_order,
+        retained_edges=retained_edges,
+        induced_dependencies=induced_dependencies,
+        retained_construct_names=retained_construct_names,
+    )
 
     return Stage4Skeleton(
         resolved_likelihoods=resolved_likelihoods,
@@ -530,7 +546,12 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     for edge in get_estimation_edges(causal_spec):
         graph.add_edge(edge["cause"], edge["effect"])
     order_lookup = {name: idx for idx, name in enumerate(construct_order)}
-    dynamics_roles = {"ar_coefficient", "residual_sd"}
+    dynamics_roles = {
+        "ar_coefficient",
+        "residual_sd",
+        "initial_state_mean",
+        "initial_state_sd",
+    }
     scc_id_by_construct: dict[str, str] = {}
     scc_construct_names_by_id: dict[str, tuple[str, ...]] = {}
     for component in sorted(
@@ -681,7 +702,12 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             parameter_construct_names[name] = construct_names
             if len(construct_names) == 2:
                 effect_parameter_by_edge[(construct_names[0], construct_names[1])] = name
-        elif role in {"ar_coefficient", "residual_sd"} or role == "loading":
+        elif role in {
+            "ar_coefficient",
+            "residual_sd",
+            "initial_state_mean",
+            "initial_state_sd",
+        } or role == "loading":
             construct_name = parameter.get("construct")
             if isinstance(construct_name, str):
                 parameter_construct_names[name] = (construct_name,)
@@ -879,7 +905,7 @@ def build_prior_cards(causal_spec: dict, skeleton: Stage4Skeleton) -> list[dict[
             "role": role,
             "constraint": parameter["constraint"],
         }
-        if role in {"ar_coefficient", "residual_sd"}:
+        if role in {"ar_coefficient", "residual_sd", "initial_state_mean", "initial_state_sd"}:
             construct_name = parameter["construct"]
             card["structural_context"] = {"construct": construct_name}
         elif role == "fixed_effect":
@@ -927,6 +953,282 @@ def _indicators_per_construct(indicators: list[dict[str, Any]]) -> dict[str, lis
         if construct_name:
             grouped.setdefault(construct_name, []).append(indicator["name"])
     return grouped
+
+
+def _compiler_authoritative_stage4_inventory(
+    causal_spec: dict,
+    *,
+    resolved_likelihoods: list[dict[str, Any]],
+    ambiguous_indicators: list[dict[str, Any]],
+    seed_parameters: list[dict[str, Any]],
+    seed_loading_params: list[dict[str, Any]],
+    retained_state_order: list[str],
+    retained_edges: list[dict[str, Any]],
+    induced_dependencies: list[dict[str, Any]],
+    retained_construct_names: set[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return the compiler-authoritative public Stage 4 prior inventory."""
+    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact, resolve_prior_proposals
+
+    seed_by_name = {
+        parameter["name"]: dict(parameter)
+        for parameter in [*seed_parameters, *seed_loading_params]
+    }
+    provisional_model_spec = {
+        "likelihoods": [
+            *resolved_likelihoods,
+            *_provisional_likelihood_choices(ambiguous_indicators),
+        ],
+        "parameters": [*seed_parameters, *seed_loading_params],
+    }
+    try:
+        compiled_ssm = compile_ssm_artifact(provisional_model_spec, {}, causal_spec=causal_spec)
+    except ValueError:
+        # Some unit tests intentionally exercise pre-compile-invalid causal specs.
+        # Preserve the deterministic skeleton for those cases and simply skip the
+        # compiler-backed membership step rather than failing at prompt-construction time.
+        fallback_inventory = dict(seed_by_name)
+        for parameter in _fallback_initial_state_parameters(retained_state_order):
+            fallback_inventory.setdefault(parameter["name"], parameter)
+        return _order_stage4_inventory(
+            fallback_inventory.values(),
+            retained_state_order=retained_state_order,
+            retained_edges=retained_edges,
+            induced_dependencies=induced_dependencies,
+        )
+
+    final_inventory: dict[str, dict[str, Any]] = {}
+    for row in resolve_prior_proposals(compiled_ssm, authored_priors={}):
+        parameter_name = str(row.get("parameter") or "")
+        if not parameter_name or _is_compiler_default_only_parameter_name(parameter_name):
+            continue
+        parameter = seed_by_name.get(parameter_name)
+        if parameter is None:
+            parameter = _parameter_metadata_from_compiler_row(
+                parameter_name,
+                retained_construct_names=retained_construct_names,
+            )
+        if parameter is None:
+            raise ValueError(
+                "Stage 4 deterministic inventory is missing compiler-exposed parameter "
+                f"{parameter_name!r}; add explicit metadata instead of silently dropping it."
+            )
+        final_inventory[parameter_name] = dict(parameter)
+
+    missing_explicit = sorted(set(seed_by_name) - set(final_inventory))
+    if missing_explicit:
+        missing = ", ".join(missing_explicit)
+        raise ValueError(
+            "Stage 4 deterministic inventory drifted from compiler-exposed parameters; "
+            f"compiler is missing seeded parameters: {missing}"
+        )
+
+    return _order_stage4_inventory(
+        final_inventory.values(),
+        retained_state_order=retained_state_order,
+        retained_edges=retained_edges,
+        induced_dependencies=induced_dependencies,
+    )
+
+
+def _fallback_initial_state_parameters(retained_state_order: list[str]) -> list[dict[str, Any]]:
+    """Provide deterministic initial-state parameters when compile-time discovery is unavailable."""
+    parameters: list[dict[str, Any]] = []
+    for construct_name in retained_state_order:
+        parameters.append(
+            {
+                "name": f"t0_mean_{construct_name}",
+                "role": "initial_state_mean",
+                "constraint": "none",
+                "description": f"Initial-state mean for {construct_name}",
+                "construct": construct_name,
+            }
+        )
+    for construct_name in retained_state_order:
+        parameters.append(
+            {
+                "name": f"t0_sd_{construct_name}",
+                "role": "initial_state_sd",
+                "constraint": "positive",
+                "description": f"Initial-state SD for {construct_name}",
+                "construct": construct_name,
+            }
+        )
+    return parameters
+
+
+def _order_stage4_inventory(
+    parameters: list[dict[str, Any]] | Any,
+    *,
+    retained_state_order: list[str],
+    retained_edges: list[dict[str, Any]],
+    induced_dependencies: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Return deterministically ordered parameter and loading inventories."""
+    construct_order = {name: idx for idx, name in enumerate(retained_state_order)}
+    edge_order = {
+        (edge["cause"], edge["effect"]): idx for idx, edge in enumerate(retained_edges)
+    }
+    dependency_order = {
+        _dependency_parameter_name(dependency): idx
+        for idx, dependency in enumerate(induced_dependencies)
+    }
+
+    parameters_list = [dict(parameter) for parameter in parameters]
+    role_buckets: dict[str, list[dict[str, Any]]] = {}
+    loading_params: list[dict[str, Any]] = []
+
+    for parameter in parameters_list:
+        role = str(parameter["role"])
+        if role == "loading":
+            loading_params.append(parameter)
+            continue
+        role_buckets.setdefault(role, []).append(parameter)
+
+    def _construct_key(parameter: dict[str, Any]) -> tuple[int, str]:
+        construct_name = str(parameter.get("construct") or "")
+        return (construct_order.get(construct_name, len(construct_order)), construct_name)
+
+    ordered_parameters: list[dict[str, Any]] = []
+    ordered_parameters.extend(sorted(role_buckets.pop("ar_coefficient", []), key=_construct_key))
+    ordered_parameters.extend(
+        sorted(
+            role_buckets.pop("fixed_effect", []),
+            key=lambda parameter: (
+                edge_order.get(
+                    (str(parameter.get("cause") or ""), str(parameter.get("effect") or "")),
+                    len(edge_order),
+                ),
+                str(parameter["name"]),
+            ),
+        )
+    )
+    ordered_parameters.extend(sorted(role_buckets.pop("residual_sd", []), key=_construct_key))
+    ordered_parameters.extend(
+        sorted(role_buckets.pop("initial_state_mean", []), key=_construct_key)
+    )
+    ordered_parameters.extend(sorted(role_buckets.pop("initial_state_sd", []), key=_construct_key))
+    ordered_parameters.extend(
+        sorted(
+            [
+                *role_buckets.pop("correlation", []),
+                *role_buckets.pop("initial_state_correlation", []),
+            ],
+            key=lambda parameter: (
+                dependency_order.get(str(parameter["name"]), len(dependency_order)),
+                str(parameter["name"]),
+            ),
+        )
+    )
+    if role_buckets:
+        unknown_roles = ", ".join(sorted(role_buckets))
+        raise ValueError(
+            f"Unsupported Stage 4 parameter roles in deterministic ordering: {unknown_roles}"
+        )
+
+    loading_params.sort(
+        key=lambda parameter: (
+            construct_order.get(str(parameter.get("construct") or ""), len(construct_order)),
+            str(parameter.get("indicator") or ""),
+            str(parameter["name"]),
+        )
+    )
+    return ordered_parameters, loading_params
+
+
+def _dependency_parameter_name(dependency: dict[str, Any]) -> str:
+    """Return the semantic Stage 4 parameter name for one induced dependency."""
+    construct_1, construct_2 = dependency["between"]
+    if dependency["kind"] == "innovation_correlation":
+        return f"cor_{construct_1}_{construct_2}"
+    return f"cor0_{construct_1}_{construct_2}"
+
+
+def _is_compiler_default_only_parameter_name(parameter_name: str) -> bool:
+    """Return whether a compiler-emitted name should stay hidden from Stage 4."""
+    return parameter_name in {
+        "obs_df",
+        "obs_shape",
+        "obs_r",
+        "obs_concentration",
+        "obs_ordered_base",
+        "obs_ordered_gaps",
+        "obs_cat_intercepts",
+        "obs_cat_slopes",
+        "proc_df",
+    }
+
+
+def _provisional_likelihood_choices(
+    ambiguous_indicators: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Choose deterministic provisional likelihoods for compiler-owned prior discovery."""
+    choices: list[dict[str, Any]] = []
+    for item in ambiguous_indicators:
+        variable = str(item["variable"])
+        if "fixed_distribution" in item:
+            distribution = str(item["fixed_distribution"])
+            valid_links = list(item.get("valid_links") or [])
+            if not valid_links:
+                raise ValueError(f"Ambiguous indicator {variable!r} is missing valid links")
+            link = str(valid_links[0])
+        else:
+            valid_distributions = list(item.get("valid_distributions") or [])
+            if not valid_distributions:
+                raise ValueError(
+                    f"Ambiguous indicator {variable!r} is missing valid distributions"
+                )
+            distribution = str(valid_distributions[0])
+            link_options = item.get("link_options") or {}
+            valid_links = list(link_options.get(distribution) or [])
+            if not valid_links:
+                raise ValueError(
+                    f"Ambiguous indicator {variable!r} is missing link options for "
+                    f"{distribution!r}"
+                )
+            link = str(valid_links[0])
+        choices.append(
+            {
+                "variable": variable,
+                "distribution": distribution,
+                "link": link,
+                "reasoning": "Deterministic provisional choice for compiler-owned prior discovery.",
+            }
+        )
+    return choices
+
+
+def _parameter_metadata_from_compiler_row(
+    parameter_name: str,
+    *,
+    retained_construct_names: set[str],
+) -> dict[str, Any] | None:
+    """Convert one compiler-owned extra prior row into Stage 4 parameter metadata."""
+    if parameter_name.startswith("t0_mean_"):
+        construct_name = parameter_name.removeprefix("t0_mean_")
+        if construct_name in retained_construct_names:
+            return {
+                "name": parameter_name,
+                "role": "initial_state_mean",
+                "constraint": "none",
+                "description": f"Initial-state mean for {construct_name}",
+                "construct": construct_name,
+            }
+        return None
+
+    if parameter_name.startswith("t0_sd_"):
+        construct_name = parameter_name.removeprefix("t0_sd_")
+        if construct_name in retained_construct_names:
+            return {
+                "name": parameter_name,
+                "role": "initial_state_sd",
+                "constraint": "positive",
+                "description": f"Initial-state SD for {construct_name}",
+                "construct": construct_name,
+            }
+        return None
+
+    return None
 
 
 def _build_indicator_anchor(

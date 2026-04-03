@@ -43,6 +43,7 @@ _SPEC_ARRAY_FIELDS = {
 _SPEC_BOOL_ARRAY_FIELDS = {
     "drift_mask",
     "lambda_mask",
+    "manifest_var_mask",
     "t0_correlation_mask",
     "time_invariant_mask",
 }
@@ -505,12 +506,24 @@ def _build_compiled_parameter_prior(
         raise ValueError(f"Compiled artifact is missing prior state for site {site_name!r}")
 
     distribution, distribution_params = _compiled_distribution_for_site(site, params, flat_index)
+    if parameter.startswith("t0_mean_"):
+        reasoning = (
+            "Compiler-resolved prior for the initial state mean of "
+            f"{parameter.removeprefix('t0_mean_').replace('_', ' ')}."
+        )
+    elif parameter.startswith("t0_sd_"):
+        reasoning = (
+            "Compiler-resolved prior for the initial state standard deviation of "
+            f"{parameter.removeprefix('t0_sd_').replace('_', ' ')}."
+        )
+    else:
+        reasoning = f"Compiler-resolved prior for {parameter}."
     return PriorProposal(
         parameter=parameter,
         distribution=distribution,
         params=distribution_params,
         sources=[],
-        reasoning=f"Compiler-resolved prior for {parameter}.",
+        reasoning=reasoning,
     ).model_dump(mode="json")
 
 
@@ -665,13 +678,16 @@ def resolve_prior_proposals(
         )
         seen.add(parameter)
 
-    resolved.extend(
-        _build_compiled_initial_state_priors(
-            compiled_ssm,
-            site_by_field=site_by_field,
-            prior_state=bundle.prior_state,
-        )
-    )
+    for row in _build_compiled_initial_state_priors(
+        compiled_ssm,
+        site_by_field=site_by_field,
+        prior_state=bundle.prior_state,
+    ):
+        parameter = str(row.get("parameter") or "")
+        if not parameter or parameter in seen:
+            continue
+        resolved.append(row)
+        seen.add(parameter)
     return resolved
 
 
