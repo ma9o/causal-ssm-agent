@@ -13,12 +13,18 @@ type CreditsCacheEntry = {
 type UserAccess = {
   apiKey: string;
   mode: "user";
+  userId: string;
 };
 
-type TrialAccess = {
+type LocalAccess = {
+  apiKey: string;
+  mode: "local";
+};
+
+type AnonymousAccess = {
   apiKey: string;
   creditStatus: TrialCreditStatus;
-  mode: "trial";
+  mode: "anonymous";
 };
 
 type NoAccess = {
@@ -26,7 +32,11 @@ type NoAccess = {
   reason: Extract<AccessStatus, { mode: "none" }>["reason"];
 };
 
-export type ResolvedOpenRouterAccess = UserAccess | TrialAccess | NoAccess;
+export type ResolvedOpenRouterAccess =
+  | UserAccess
+  | LocalAccess
+  | AnonymousAccess
+  | NoAccess;
 export type RunnableOpenRouterAccess = Exclude<ResolvedOpenRouterAccess, NoAccess>;
 export type RunnableOpenRouterAccessMode = RunnableOpenRouterAccess["mode"];
 
@@ -86,15 +96,31 @@ async function getTrialCreditStatus(apiKey: string): Promise<TrialCreditStatus> 
 }
 
 export async function resolveOpenRouterAccess(): Promise<ResolvedOpenRouterAccess> {
+  const apiKey = getOpenRouterApiKey();
+
+  if (process.env.DEPLOYMENT_ENV !== "production") {
+    if (!apiKey) {
+      return {
+        mode: "none",
+        reason: "local_missing_key",
+      };
+    }
+
+    return {
+      mode: "local",
+      apiKey,
+    };
+  }
+
   const session = await readOpenRouterSession();
   if (session) {
     return {
       mode: "user",
       apiKey: session.apiKey,
+      userId: session.userId,
     };
   }
 
-  const apiKey = getOpenRouterApiKey();
   if (!apiKey) {
     return {
       mode: "none",
@@ -106,12 +132,12 @@ export async function resolveOpenRouterAccess(): Promise<ResolvedOpenRouterAcces
   if (creditStatus === "exhausted") {
     return {
       mode: "none",
-      reason: "trial_exhausted",
+      reason: "anonymous_exhausted",
     };
   }
 
   return {
-    mode: "trial",
+    mode: "anonymous",
     apiKey,
     creditStatus,
   };
@@ -119,12 +145,25 @@ export async function resolveOpenRouterAccess(): Promise<ResolvedOpenRouterAcces
 
 export function toAccessStatus(access: ResolvedOpenRouterAccess): AccessStatus {
   switch (access.mode) {
+    case "local":
+      return { mode: "local", canRun: true };
     case "user":
       return { mode: "user", canRun: true };
-    case "trial":
-      return { mode: "trial", canRun: true, creditStatus: access.creditStatus };
+    case "anonymous":
+      return { mode: "anonymous", canRun: true, creditStatus: access.creditStatus };
     case "none":
       return { mode: "none", canRun: false, reason: access.reason };
+  }
+}
+
+export function noAccessMessage(reason: NoAccess["reason"]): string {
+  switch (reason) {
+    case "anonymous_exhausted":
+      return "Anonymous credits exhausted. Sign in with OpenRouter to continue.";
+    case "local_missing_key":
+      return "Local mode requires OPENROUTER_API_KEY to be configured.";
+    case "misconfigured":
+      return "No OpenRouter access is configured.";
   }
 }
 

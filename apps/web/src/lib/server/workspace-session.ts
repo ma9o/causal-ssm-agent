@@ -64,3 +64,13 @@ export async function authorizeWorkspaceInSession(workspaceId: string): Promise<
   session.workspaceIds = [workspaceId, ...existing].slice(0, MAX_AUTHORIZED_WORKSPACES);
   await session.save();
 }
+
+export async function replaceAuthorizedWorkspaceIds(workspaceIds: string[]): Promise<void> {
+  const session = await getWorkspaceSessionStore();
+  session.workspaceIds = normalizeWorkspaceIds(workspaceIds);
+  await session.save();
+}
+
+export async function clearAuthorizedWorkspaceIds(): Promise<void> {
+  await replaceAuthorizedWorkspaceIds([]);
+}

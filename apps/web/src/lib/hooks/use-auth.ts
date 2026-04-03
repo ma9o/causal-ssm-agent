@@ -6,7 +6,7 @@ import type { AccessStatus } from "@/lib/auth-status";
 export type AuthState = {
   /** Server-derived OpenRouter access status */
   access: AccessStatus | null;
-  /** True when user has no access at all (no key + no trial credits) */
+  /** True when the current auth mode cannot launch runs */
   noAccess: boolean;
   /** Sign out — clears the server session */
   signOut: () => Promise<void>;

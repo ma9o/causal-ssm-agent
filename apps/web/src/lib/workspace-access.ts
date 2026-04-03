@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
 import { authorizeWorkspaceInSession, hasWorkspaceSessionAccess } from "@/lib/server/workspace-session";
+import {
+  authorizeWorkspaceForOpenRouterUser,
+  hasOpenRouterWorkspaceAccess,
+  resolveWorkspaceOwnershipContext,
+  type WorkspaceOwnershipContext,
+} from "@/lib/server/workspace-ownership";
 import { prefixExists } from "@/lib/storage";
 
 const MAX_WORKSPACE_ID_LENGTH = 200;
@@ -14,7 +20,11 @@ export type WorkspaceAccessOptions = {
 };
 
 export type WorkspaceAccessRequirement =
-  | { ok: true; workspaceId: string }
+  | { ok: true; workspaceId: string; creationPending: boolean }
+  | { ok: false; response: NextResponse };
+
+type AuthorizedWorkspaceRequestResult =
+  | { ok: true; workspaceId: string; creationPending: boolean }
   | { ok: false; response: NextResponse };
 
 export function normalizeWorkspaceId(value: string): string | null {
@@ -30,44 +40,72 @@ export function normalizeWorkspaceId(value: string): string | null {
   return trimmed;
 }
 
+function deny403(): WorkspaceAccessDecision {
+  return {
+    ok: false,
+    response: NextResponse.json({ error: "Workspace access denied" }, { status: 403 }),
+  };
+}
+
+async function hasExistingAccess(
+  ownership: WorkspaceOwnershipContext,
+  workspaceId: string,
+): Promise<boolean> {
+  if (ownership.mode === "local") {
+    return prefixExists(`${workspaceId}/`);
+  }
+  if (ownership.mode === "user") {
+    return hasOpenRouterWorkspaceAccess(ownership.userId, workspaceId);
+  }
+  return hasWorkspaceSessionAccess(workspaceId);
+}
+
+async function finalizeNewAccess(
+  ownership: WorkspaceOwnershipContext,
+  workspaceId: string,
+): Promise<void> {
+  if (ownership.mode === "user") {
+    await authorizeWorkspaceForOpenRouterUser(ownership.userId, workspaceId);
+    return;
+  }
+
+  if (ownership.mode === "anonymous") {
+    await authorizeWorkspaceInSession(workspaceId);
+  }
+}
+
 export async function authorizeWorkspaceRequest(
   _request: Request,
   workspaceId: string,
   options: WorkspaceAccessOptions = {},
-): Promise<WorkspaceAccessDecision> {
+): Promise<AuthorizedWorkspaceRequestResult> {
   const { allowCreate = false } = options;
 
   if (isSharedWorkspaceId(workspaceId)) {
-    return { ok: true };
+    return allowCreate ? deny403() : { ok: true, workspaceId, creationPending: false };
   }
 
-  if (await hasWorkspaceSessionAccess(workspaceId)) {
-    return { ok: true };
+  const ownership = await resolveWorkspaceOwnershipContext();
+
+  if (await hasExistingAccess(ownership, workspaceId)) {
+    return { ok: true, workspaceId, creationPending: false };
   }
 
   if (!allowCreate) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: "Workspace access required" }, { status: 401 }),
-    };
+    if (ownership.mode === "anonymous") {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: "Workspace access required" }, { status: 401 }),
+      };
+    }
+    return deny403();
   }
 
   if (await prefixExists(`${workspaceId}/`)) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: "Workspace access denied" }, { status: 403 }),
-    };
+    return deny403();
   }
 
-  await authorizeWorkspaceInSession(workspaceId);
-  return { ok: true };
-}
-
-function workspaceSessionErrorResponse(): NextResponse {
-  return NextResponse.json(
-    { error: "Workspace session is unavailable" },
-    { status: 500 },
-  );
+  return { ok: true, workspaceId, creationPending: true };
 }
 
 export async function requireWorkspaceAccess(
@@ -84,13 +122,13 @@ export async function requireWorkspaceAccess(
     };
   }
 
-  let authorization: WorkspaceAccessDecision;
+  let authorization: AuthorizedWorkspaceRequestResult;
   try {
     authorization = await authorizeWorkspaceRequest(request, workspaceId, { allowCreate });
   } catch {
     return {
       ok: false,
-      response: workspaceSessionErrorResponse(),
+      response: NextResponse.json({ error: "Workspace session is unavailable" }, { status: 500 }),
     };
   }
 
@@ -104,5 +142,15 @@ export async function requireWorkspaceAccess(
   return {
     ok: true,
     workspaceId,
+    creationPending: authorization.creationPending,
   };
+}
+
+export async function finalizeWorkspaceCreate(workspaceId: string): Promise<void> {
+  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+  if (!normalizedWorkspaceId || isSharedWorkspaceId(normalizedWorkspaceId)) {
+    return;
+  }
+
+  await finalizeNewAccess(await resolveWorkspaceOwnershipContext(), normalizedWorkspaceId);
 }
