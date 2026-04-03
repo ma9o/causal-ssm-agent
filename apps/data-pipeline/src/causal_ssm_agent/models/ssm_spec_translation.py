@@ -245,6 +245,53 @@ def build_manifest_variance_from_causal_spec(
     return jnp.array(manifest_var), manifest_var_mask
 
 
+def build_manifest_level_counts_from_causal_spec(
+    manifest_cols: list[str],
+    manifest_dists: list[DistributionFamily],
+    *,
+    causal_spec: dict | None,
+) -> list[int] | None:
+    """Build per-manifest discrete level counts from causal-spec metadata."""
+    if causal_spec is None:
+        return None
+
+    needs_level_metadata = any(
+        dist in {DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL}
+        for dist in manifest_dists
+    )
+    if not needs_level_metadata:
+        return None
+
+    indicator_lookup = {
+        (indicator.get("name") if isinstance(indicator, dict) else indicator.name): indicator
+        for indicator in get_indicators(causal_spec)
+    }
+    level_counts = [0] * len(manifest_cols)
+    errors: list[str] = []
+
+    for idx, (manifest_name, dist) in enumerate(zip(manifest_cols, manifest_dists, strict=False)):
+        if dist != DistributionFamily.ORDERED_LOGISTIC:
+            continue
+
+        indicator = indicator_lookup.get(manifest_name)
+        ordinal_levels = (
+            indicator.get("ordinal_levels")
+            if isinstance(indicator, dict)
+            else getattr(indicator, "ordinal_levels", None)
+        )
+        if not ordinal_levels or len(ordinal_levels) < 2:
+            errors.append(
+                f"Indicator '{manifest_name}' uses ordered_logistic but causal_spec is missing "
+                "ordinal_levels with at least 2 levels"
+            )
+            continue
+        level_counts[idx] = len(ordinal_levels)
+
+    if errors:
+        raise SpecTranslationError(errors)
+    return level_counts
+
+
 def translate_spec(
     model_spec: ModelSpec | dict,
     causal_spec: dict | None = None,
@@ -341,6 +388,15 @@ def translate_spec(
         manifest_cols,
         causal_spec=causal_spec,
     )
+    try:
+        manifest_level_counts = build_manifest_level_counts_from_causal_spec(
+            manifest_cols,
+            manifest_dists,
+            causal_spec=causal_spec,
+        )
+    except SpecTranslationError as exc:
+        errors.extend(exc.errors)
+        manifest_level_counts = None
 
     has_innovation_correlation = any(
         parameter.role == ParameterRole.CORRELATION for parameter in model_spec.parameters
@@ -369,6 +425,7 @@ def translate_spec(
         manifest_dists=manifest_dists,
         manifest_link=manifest_link,
         manifest_links=manifest_links,
+        manifest_level_counts=manifest_level_counts,
         t0_means="free",
         t0_var=t0_var_mode,
         latent_names=latent_names,
