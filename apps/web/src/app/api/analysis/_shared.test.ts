@@ -97,6 +97,23 @@ function stage4SnapshotEvent(occurred: string, phase: string) {
   };
 }
 
+function stage4TransitionEvent(occurred: string) {
+  return {
+    occurred,
+    event: "causal-ssm.stage4.block_transition",
+    payload: {
+      type: "block_transition",
+      block_id: "indicator:sleep_quality",
+      status: "accepted",
+      detail_kind: "indicator_choice",
+      variable: "sleep_quality",
+      distribution: "gaussian",
+      link: "identity",
+      reasoning: "Continuous rating scale.",
+    },
+  };
+}
+
 function stage2PlanEvent(occurred: string) {
   return {
     occurred,
@@ -864,6 +881,7 @@ describe("buildStage4ReplayState", () => {
         return jsonResponse(
           eventPage([
             stage4GraphEvent("2026-03-31T11:00:00.000Z"),
+            stage4TransitionEvent("2026-03-31T11:00:00.500Z"),
             stage4SnapshotEvent("2026-03-31T11:00:01.000Z", "model_decisions"),
             stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review"),
           ]),
@@ -889,8 +907,20 @@ describe("buildStage4ReplayState", () => {
           .repair_campaign,
         phase: stage4SnapshotEvent("2026-03-31T11:00:02.000Z", "global_review").payload.phase,
       },
+      lastBlockStateById: {
+        "indicator:sleep_quality": {
+          block_id: "indicator:sleep_quality",
+          status: "accepted",
+          detail_kind: "indicator_choice",
+          variable: "sleep_quality",
+          distribution: "gaussian",
+          link: "identity",
+          reasoning: "Continuous rating scale.",
+        },
+      },
     });
   });
+
 });
 
 describe("buildStage2ReplayState", () => {

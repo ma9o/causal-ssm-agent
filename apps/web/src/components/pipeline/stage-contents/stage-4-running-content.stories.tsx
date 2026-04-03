@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import {
   type PrefectStage4EventRecord,
+  type Stage4BlockLastState,
   type Stage4ReplayState,
   EMPTY_STAGE4_REPLAY_STATE,
   STAGE4_EVENT_PREFIX,
@@ -45,6 +46,15 @@ function snapshotEvent(snapshot: Stage4Snapshot): PrefectStage4EventRecord {
     event: `${STAGE4_EVENT_PREFIX}snapshot`,
     occurred: new Date().toISOString(),
     payload: { stage_id: "stage-4", type: "snapshot", ...snapshot },
+  };
+}
+
+/** Build a raw Prefect event record matching what `emit_stage4_block_transition_event` emits. */
+function transitionEvent(transition: Stage4BlockLastState): PrefectStage4EventRecord {
+  return {
+    event: `${STAGE4_EVENT_PREFIX}block_transition`,
+    occurred: new Date().toISOString(),
+    payload: { stage_id: "stage-4", type: "block_transition", ...transition },
   };
 }
 
@@ -361,6 +371,15 @@ const EVENT_TIMELINE: PrefectStage4EventRecord[] = [
     repair_campaign: null,
     phase: "model_decisions",
   }),
+  transitionEvent({
+    block_id: "loading:screen_time",
+    status: "accepted",
+    detail_kind: "indicator_choice",
+    variable: "screen_time",
+    distribution: "gaussian",
+    link: "identity",
+    reasoning: "Continuous daily minutes are modeled on the identity scale.",
+  }),
   snapshotEvent({
     cursor: { kind: "model_spec_lock" },
     block_status: statusFor({ accepted: MODEL_BLOCK_IDS }),
@@ -368,12 +387,36 @@ const EVENT_TIMELINE: PrefectStage4EventRecord[] = [
     repair_campaign: null,
     phase: "model_decisions",
   }),
+  transitionEvent({
+    block_id: "review:model_spec",
+    status: "accepted",
+    detail_kind: "review_approval",
+    reasoning: "The likelihood and loading decisions are coherent enough to lock the model spec.",
+  }),
   snapshotEvent({
     cursor: { kind: "block", block_id: "review:model_spec" },
     block_status: statusFor({ accepted: MODEL_BLOCK_IDS }),
     model_spec_locked: true,
     repair_campaign: null,
     phase: "global_review",
+  }),
+  transitionEvent({
+    block_id: "measurement:screen_time",
+    status: "accepted",
+    detail_kind: "prior_bundle",
+    parameter_names: ["lambda_screen_time_screen_time", "sigma_screen_time"],
+    priors: [
+      {
+        parameter: "lambda_screen_time_screen_time",
+        distribution: "HalfNormal",
+        params: { sigma: 0.35 },
+      },
+      {
+        parameter: "sigma_screen_time",
+        distribution: "HalfNormal",
+        params: { sigma: 0.6 },
+      },
+    ],
   }),
   snapshotEvent({
     cursor: { kind: "block", block_id: "measurement:screen_time" },
@@ -413,6 +456,28 @@ const EVENT_TIMELINE: PrefectStage4EventRecord[] = [
     repair_campaign: null,
     phase: "prior_blocks",
   }),
+  transitionEvent({
+    block_id: "correlation:cor0_sleep_hygiene_sleep_quality",
+    status: "accepted",
+    detail_kind: "prior_bundle",
+    parameter_names: ["cor0_sleep_hygiene_sleep_quality"],
+    priors: [
+      {
+        parameter: "cor0_sleep_hygiene_sleep_quality",
+        distribution: "Normal",
+        params: { mu: 0, sigma: 0.2, lower: -1, upper: 1 },
+      },
+    ],
+  }),
+  ...REPAIR_SCOPE_IDS.map((blockId) =>
+    transitionEvent({
+      block_id: blockId,
+      status: "reopened",
+      detail_kind: "revision",
+      reason: "Joint prior predictive checks showed the sleep row still drifts unrealistically.",
+      scope_kind: "global_prior_consistency",
+    }),
+  ),
   snapshotEvent({
     cursor: { kind: "block", block_id: "dynamics:sleep_quality" },
     block_status: statusFor({
@@ -514,7 +579,13 @@ function AnimatedStage4() {
     return () => clearInterval(timer);
   }, []);
 
-  return <Stage4RunningView graph={state.graph} snapshot={state.snapshot} />;
+  return (
+    <Stage4RunningView
+      graph={state.graph}
+      snapshot={state.snapshot}
+      lastBlockStateById={state.lastBlockStateById}
+    />
+  );
 }
 
 // ---------------------------------------------------------------------------
