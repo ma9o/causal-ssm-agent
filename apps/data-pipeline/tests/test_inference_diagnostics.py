@@ -156,8 +156,7 @@ class TestMCMCDiagnostics:
         assert "tree_depth_mean" in diag
         assert "accept_prob_mean" in diag
         assert diag["num_chains"] == 2
-        # num_samples may be None if _num_samples is not set on MCMC object
-        assert diag["num_samples"] is None or diag["num_samples"] == 200
+        assert diag["num_samples"] == 200
 
 
 class TestLOODiagnostics:
