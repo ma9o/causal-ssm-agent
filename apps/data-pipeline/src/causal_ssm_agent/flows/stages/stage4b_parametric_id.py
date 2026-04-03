@@ -200,9 +200,9 @@ def parametric_id_task(
                 "n_observations": sa_result.n_observations,
                 "n_parameters": sa_result.n_parameters,
             }
-        except Exception:
-            logger.debug(
-                "Sensitivity analysis failed, continuing with profile likelihood", exc_info=True
+        except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+            logger.warning(
+                "Sensitivity analysis failed, continuing with profile likelihood: %s", exc
             )
 
         # Restrict profiling to the active first-pass Kalman block when a
@@ -221,8 +221,8 @@ def parametric_id_task(
                     len(kalman_indices),
                     ssm_model.spec.n_latent,
                 )
-        except Exception:
-            logger.debug("Inference-structure profile filtering failed", exc_info=True)
+        except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+            logger.warning("Inference-structure profile filtering failed: %s", exc)
 
         if runtime.inference_structure.likelihood_path == "particle":
             logger.info(
@@ -293,7 +293,7 @@ def parametric_id_task(
             "inference_structure": inference_structure_payload,
         }
 
-    except Exception as e:
+    except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as e:
         logger.exception("Parametric ID check failed")
         return {
             "parametric_id": {

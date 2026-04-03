@@ -9,12 +9,15 @@ Can be used for manual evaluation or with DSPy optimization.
 """
 
 import json
+import logging
 
 from pydantic import ValidationError
 
 from causal_ssm_agent.orchestrator.schemas import (
     LatentModel,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def score_latent_model(_example, pred, _trace=None) -> float:
@@ -33,18 +36,19 @@ def score_latent_model(_example, pred, _trace=None) -> float:
     try:
         structure_json = pred.structure
     except AttributeError:
+        _logger.info("Prediction missing 'structure' field")
         return 0.0
 
-    # Parse JSON
     try:
         data = json.loads(structure_json)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        _logger.info("Invalid JSON in prediction structure: %s", e)
         return 0.0
 
-    # Validate against schema (returns 0 if any hard rule violated)
     try:
         structure = LatentModel(**data)
-    except (ValidationError, ValueError, TypeError):
+    except (ValidationError, ValueError, TypeError) as e:
+        _logger.info("Prediction failed schema validation: %s", e)
         return 0.0
 
     # Count points for each rule instance respected

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
 
 
 def _truthy_env(name: str) -> bool:
@@ -19,6 +22,7 @@ def _configure_jax_persistent_cache() -> None:
     try:
         import jax
     except Exception:
+        _logger.debug("JAX import failed; skipping persistent cache setup", exc_info=True)
         return
 
     cache_dir = os.getenv("JAX_COMPILATION_CACHE_DIR")
@@ -31,6 +35,7 @@ def _configure_jax_persistent_cache() -> None:
             jax.config.update("jax_compilation_cache_dir", cache_dir)
     except Exception:
         # Cache configuration is an optimization only; it must never block imports.
+        _logger.debug("JAX cache configuration failed", exc_info=True)
         return
 
 

@@ -104,8 +104,10 @@ def _load_runtime_stage_result(workspace_id: str, stage_id: str) -> dict[str, An
 def _load_optional_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
     try:
         return _load_stage_result(workspace_id, stage_id)
-    except HTTPException:
-        return {}
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return {}
+        raise
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:

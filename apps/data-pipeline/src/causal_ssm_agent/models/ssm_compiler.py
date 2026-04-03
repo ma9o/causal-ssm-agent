@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm import SSMSpec
 from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
 from causal_ssm_agent.orchestrator.schemas_model import (
@@ -19,6 +20,8 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     ModelSpec,
     ParameterRole,
 )
+
+logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -369,7 +372,7 @@ def trial_compile_model_spec(
             default_priors,
             causal_spec=causal_spec,
         )
-    except Exception as e:
+    except (ValueError, KeyError, TypeError, RuntimeError) as e:
         return str(e)
     return None
 
@@ -574,11 +577,13 @@ def _build_compiled_initial_state_priors(
     mean_site = site_by_field.get("t0_means")
     sd_site = site_by_field.get("t0_var_diag")
     if mean_site is None or sd_site is None:
+        logger.warning("Missing mean/sd sites for initial-state prior binding; skipping")
         return []
 
     mean_params = prior_state.get(mean_site.name)
     sd_params = prior_state.get(sd_site.name)
     if not isinstance(mean_params, dict) or not isinstance(sd_params, dict):
+        logger.warning("Missing prior state for initial-state sites; skipping")
         return []
 
     n_latent = int(np.prod(mean_site.shape)) if mean_site.shape else 1

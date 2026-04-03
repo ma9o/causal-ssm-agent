@@ -350,7 +350,7 @@ def _build_eval_fns(
             extra_params=extra_params,
         )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        return jnp.where(jnp.isfinite(total_ll), total_ll, -1e30)
+        return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
 
     # Checkpoint: recompute PF intermediates during backward pass instead of
     # storing them. Trades ~2x compute for O(1) memory in time-series length.
@@ -405,7 +405,7 @@ def _build_runtime_eval_fns_from_registry(
             extra_params=extra_params,
         )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        return jnp.where(jnp.isfinite(total_ll), total_ll, -1e30)
+        return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
 
     log_lik_fn = jax.checkpoint(_log_lik_fn)
 

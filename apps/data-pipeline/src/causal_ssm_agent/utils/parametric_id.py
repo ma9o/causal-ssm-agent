@@ -1268,10 +1268,10 @@ def sbc_check(
         rng_key, sim_key = random.split(rng_key)
         try:
             y_star = _simulate_from_params(true_con, model.spec, times, sim_key, registry=registry)
-        except Exception:
-            logger.debug("SBC replicate %d: simulation failed", rep, exc_info=True)
+        except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+            logger.info("SBC replicate %d: simulation failed: %s", rep, exc)
             n_failed += 1
-            continue  # skip replicate on simulation failure
+            continue
 
         if not jnp.all(jnp.isfinite(y_star)):
             n_failed += 1
@@ -1283,10 +1283,10 @@ def sbc_check(
             fit_result = fit(
                 model, y_star, times, method=method, seed=int(fit_key[0]), **fit_kwargs
             )
-        except Exception:
-            logger.debug("SBC replicate %d: fit failed", rep, exc_info=True)
+        except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+            logger.info("SBC replicate %d: fit failed: %s", rep, exc)
             n_failed += 1
-            continue  # skip replicate on fit failure
+            continue
 
         # e. Get posterior samples
         samples = fit_result.get_samples()
@@ -1337,9 +1337,13 @@ def sbc_check(
             ll_rank = 0
         ll_ranks.append(ll_rank)
 
-    # Warn if failure rate exceeds 20%
     n_attempted = n_sbc
     failure_rate = n_failed / n_attempted if n_attempted > 0 else 0.0
+    if failure_rate > 0.8:
+        raise RuntimeError(
+            f"SBC: {n_failed}/{n_attempted} replicates failed ({failure_rate:.0%}) "
+            f"— likely a model specification bug"
+        )
     if failure_rate > 0.2:
         logger.warning(
             "SBC: %d/%d replicates failed (%.0f%%). Results may be biased "

@@ -259,8 +259,19 @@ def build_prior_predictive_samples(
                 col = col[np.isfinite(col)]
             samples[name] = col.tolist()
         return samples
-    except Exception as exc:
-        logger.warning("Prior predictive simulation failed: %s", exc)
+    except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+        raise RuntimeError(f"Prior predictive simulation failed: {exc}") from exc
+
+
+def _safe_build_pp_samples(
+    validation: AssemblyValidation,
+    model_spec: dict,
+) -> dict[str, list[float]]:
+    """Build prior predictive samples, returning empty dict on failure."""
+    try:
+        return build_prior_predictive_samples(validation, model_spec)
+    except RuntimeError:
+        logger.warning("Prior predictive samples unavailable for web payload", exc_info=True)
         return {}
 
 
@@ -301,7 +312,7 @@ def build_validation_payload(
             ]
         ),
         "warnings": warnings,
-        "prior_predictive_samples": build_prior_predictive_samples(validation, payload_spec),
+        "prior_predictive_samples": _safe_build_pp_samples(validation, payload_spec),
     }
 
 

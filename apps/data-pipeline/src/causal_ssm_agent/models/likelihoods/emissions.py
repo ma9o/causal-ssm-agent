@@ -466,10 +466,7 @@ def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None)
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     extra_params = extra_params or {}
-    try:
-        dist = DistributionFamily(manifest_dist)
-    except ValueError:
-        return None
+    dist = DistributionFamily(manifest_dist)
     family_spec = FAMILY_REGISTRY.get(dist)
     if family_spec is None:
         return None

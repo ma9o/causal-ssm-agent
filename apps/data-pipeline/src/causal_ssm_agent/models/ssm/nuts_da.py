@@ -535,7 +535,7 @@ def _try_svi(
 
         return param_init, det_values
 
-    except Exception as e:
+    except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as e:
         logger.warning("SVI (%s) failed: %s", backend_type, e)
         return None, None
 
@@ -600,7 +600,7 @@ def _try_smoother(
         )
         return smoothed
 
-    except Exception as e:
+    except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as e:
         logger.warning("Kalman smoother failed: %s", e)
         return None
 
@@ -636,7 +636,7 @@ def _check_init_log_density(model_fn, init_values, observations, times, seed):
             float(total_lp),
             bool(jnp.isfinite(total_lp)),
         )
-    except Exception as e:
+    except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as e:
         logger.warning("DIAG check failed: %s", e)
 
 

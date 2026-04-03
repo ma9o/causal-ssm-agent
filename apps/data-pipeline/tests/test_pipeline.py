@@ -510,7 +510,11 @@ def _stub_stage1a_result():
     ],
 )
 def test_pipeline_threads_openrouter_key_by_access_mode(
-    monkeypatch, tmp_path, access_mode, expected_key, extra_setup,
+    monkeypatch,
+    tmp_path,
+    access_mode,
+    expected_key,
+    extra_setup,
 ):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)

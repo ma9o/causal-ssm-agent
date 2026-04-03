@@ -20,6 +20,7 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.emissions import (
     build_composite_mean_log_prob_fn,
     categorical_moments,
@@ -29,6 +30,8 @@ from causal_ssm_agent.models.likelihoods.emissions import (
     ordered_logistic_moments,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+
+logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -283,7 +286,7 @@ def _slice_observation_extra_params(
                     sliced[key] = value[idx]
                     continue
             except TypeError:
-                pass
+                logger.warning("Unexpected type for kernel parameter %r during slicing", key)
         sliced[key] = value
     return sliced
 
