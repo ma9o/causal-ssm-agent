@@ -34,11 +34,24 @@ const fadeInUp = (delay = 0) => ({
   transition: { duration: 0.4, ease: "easeOut" as const, delay },
 });
 
+export function canOfferOpenRouterSignIn(access: AccessStatus | null): boolean {
+  if (!access) {
+    return false;
+  }
+  if (access.mode === "local" || access.mode === "user") {
+    return false;
+  }
+  if (access.mode === "none" && access.reason === "local_missing_key") {
+    return false;
+  }
+  return true;
+}
+
 function AccessIndicator({ access }: { access: AccessStatus | null }) {
   if (!access) {
     return <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />;
   }
-  if (access.mode === "user" || access.mode === "trial") {
+  if (access.mode === "user" || access.mode === "anonymous" || access.mode === "local") {
     return <div className="h-2 w-2 rounded-full bg-success" />;
   }
   return <div className="h-2 w-2 rounded-full bg-destructive" />;
@@ -48,34 +61,51 @@ function AccessMessage({ access }: { access: AccessStatus | null }) {
   if (!access) {
     return <p className="text-sm text-muted-foreground">Checking access...</p>;
   }
+  if (access.mode === "local") {
+    return (
+      <>
+        <p className="text-sm font-medium">Local mode</p>
+        <p className="text-xs text-muted-foreground">
+          Using the server OpenRouter key. OpenRouter sign-in is disabled outside production.
+        </p>
+      </>
+    );
+  }
   if (access.mode === "user") {
-    return <p className="text-sm font-medium">Using your OpenRouter account</p>;
-  }
-  if (access.mode === "trial" && access.creditStatus === "available") {
     return (
       <>
-        <p className="text-sm font-medium">Free credits available</p>
+        <p className="text-sm font-medium">User mode</p>
         <p className="text-xs text-muted-foreground">
-          Or sign in with OpenRouter to use your own key
+          Using your OpenRouter BYOK session.
         </p>
       </>
     );
   }
-  if (access.mode === "trial" && access.creditStatus === "unknown") {
+  if (access.mode === "anonymous" && access.creditStatus === "available") {
     return (
       <>
-        <p className="text-sm font-medium">Trial access available</p>
+        <p className="text-sm font-medium">Anonymous mode</p>
         <p className="text-xs text-muted-foreground">
-          Credit status is unavailable, but the server can still run requests
+          Using shared trial credits. Sign in with OpenRouter to use your own key instead.
         </p>
       </>
     );
   }
-  if (access.mode === "none" && access.reason === "trial_exhausted") {
+  if (access.mode === "anonymous" && access.creditStatus === "unknown") {
+    return (
+      <>
+        <p className="text-sm font-medium">Anonymous mode</p>
+        <p className="text-xs text-muted-foreground">
+          Shared credits are enabled, but their remaining balance is unavailable.
+        </p>
+      </>
+    );
+  }
+  if (access.mode === "none" && access.reason === "anonymous_exhausted") {
     return (
       <>
         <p className="text-sm font-medium text-destructive">
-          Free credits exhausted
+          Anonymous mode exhausted
         </p>
         <p className="text-xs text-muted-foreground">
           Sign in with OpenRouter to continue with your own key
@@ -86,10 +116,10 @@ function AccessMessage({ access }: { access: AccessStatus | null }) {
   return (
     <>
       <p className="text-sm font-medium text-destructive">
-        Trial access unavailable
+        OpenRouter access unavailable
       </p>
       <p className="text-xs text-muted-foreground">
-        Sign in with OpenRouter to continue
+        Configure the server OpenRouter key and try again.
       </p>
     </>
   );
@@ -164,7 +194,7 @@ export function LandingPageView({
                 <Button variant="ghost" size="sm" onClick={onSignOut}>
                   Sign out
                 </Button>
-              ) : (
+              ) : canOfferOpenRouterSignIn(access) ? (
                 <Button
                   variant={noAccess ? "default" : "outline"}
                   size="sm"
@@ -173,7 +203,7 @@ export function LandingPageView({
                   <KeyRound className="h-3.5 w-3.5 mr-1.5" />
                   Sign in with OpenRouter
                 </Button>
-              )}
+              ) : null}
             </CardContent>
           </Card>
         </motion.div>

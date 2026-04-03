@@ -1,10 +1,15 @@
 "use client";
 
 import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
+import { AccessibleWorkspacesRail } from "@/components/pipeline/accessible-workspaces-rail";
 import {
   getAnalysisManifest,
   getAnalysisManifestQueryKey,
 } from "@/lib/api/analysis";
+import {
+  getAccessibleWorkspaces,
+  getAccessibleWorkspacesQueryKey,
+} from "@/lib/api/workspaces";
 import { hasStoppedStage } from "@/lib/hooks/pipeline-progress";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
@@ -34,6 +39,12 @@ export default function AnalysisPage({
     retry: false,
   });
   const manifest = manifestQuery.data;
+  const accessibleWorkspacesQuery = useQuery({
+    queryKey: getAccessibleWorkspacesQueryKey(),
+    queryFn: getAccessibleWorkspaces,
+    staleTime: 30_000,
+    retry: false,
+  });
   const manifestError = useMemo(() => {
     if (manifest) {
       return null;
@@ -86,24 +97,20 @@ export default function AnalysisPage({
       : `(${completed}/${STAGES.length}) Running | causal-ssm-agent`;
   }, [progress]);
 
-  if (manifestError) {
-    return (
-      <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="max-w-md space-y-3 rounded-lg border bg-card p-6 text-center">
-          <h1 className="text-lg font-semibold">Workspace unavailable</h1>
-          <p className="text-sm text-muted-foreground">{manifestError}</p>
-          <Link
-            href="/"
-            className="inline-flex rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-          >
-            Return Home
-          </Link>
-        </div>
+  const mainContent = manifestError ? (
+    <div className="flex min-h-screen items-center justify-center px-4 py-10 sm:px-6">
+      <div className="max-w-md space-y-3 rounded-lg border bg-card p-6 text-center">
+        <h1 className="text-lg font-semibold">Workspace unavailable</h1>
+        <p className="text-sm text-muted-foreground">{manifestError}</p>
+        <Link
+          href="/"
+          className="inline-flex rounded-md border px-3 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+        >
+          Return Home
+        </Link>
       </div>
-    );
-  }
-
-  return (
+    </div>
+  ) : (
     <AnalysisFeed
       workspaceId={workspaceId}
       question={manifest?.question}
@@ -111,5 +118,17 @@ export default function AnalysisPage({
       progress={progress}
       latestRootFlowRunId={manifest?.latestRootFlowRunId}
     />
+  );
+
+  return (
+    <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
+      {mainContent}
+      <AccessibleWorkspacesRail
+        currentWorkspaceId={workspaceId}
+        data={accessibleWorkspacesQuery.data}
+        error={accessibleWorkspacesQuery.error?.message ?? null}
+        isLoading={accessibleWorkspacesQuery.isLoading}
+      />
+    </div>
   );
 }
