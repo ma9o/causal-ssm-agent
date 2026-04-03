@@ -750,6 +750,8 @@ class DPFLikelihood:
     for efficient importance sampling in the particle filter.
     """
 
+    checkpoint_loglik = True
+
     def __init__(
         self,
         n_latent: int,

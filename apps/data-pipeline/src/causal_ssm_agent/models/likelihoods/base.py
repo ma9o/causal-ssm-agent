@@ -83,6 +83,8 @@ class LikelihoodBackend(Protocol):
     - ParticleLikelihood: Universal backend via differentiable bootstrap PF (cuthbert SMC)
     """
 
+    checkpoint_loglik: bool
+
     def compute_log_likelihood(
         self,
         ct_params: CTParams,

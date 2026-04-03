@@ -193,6 +193,8 @@ class ParticleLikelihood:
         ess_threshold: ESS/N threshold for resampling
     """
 
+    checkpoint_loglik = True
+
     def __init__(
         self,
         n_latent: int,
