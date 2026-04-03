@@ -24,6 +24,7 @@ export function ResumeButton({
   rootFlowRunId?: string | null;
 }) {
   const [applying, setApplying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const { clearPendingMaterialization, pendingStagePatches, refinementMessages } = useRefinement();
   const normalizedStageId = stageId as StageId;
 
@@ -63,8 +64,9 @@ export function ResumeButton({
           rootFlowRunId: result.rootFlowRunId,
         }).toString()}`;
       }
-    } catch (error) {
-      console.error("Resume failed:", error);
+    } catch (err) {
+      console.error("Resume failed:", err);
+      setError(err instanceof Error ? err.message : "Resume failed");
     } finally {
       setApplying(false);
     }
@@ -87,6 +89,9 @@ export function ResumeButton({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >
+      {error && (
+        <p className="mb-2 text-center text-sm text-destructive">{error}</p>
+      )}
       <button
         type="button"
         onClick={handleResume}

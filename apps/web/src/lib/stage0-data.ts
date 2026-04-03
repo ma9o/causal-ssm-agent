@@ -1,4 +1,5 @@
 import type { Stage0Data, Stage0PersistedData } from "@causal-ssm/api-types";
+import type { FileMetaData } from "hyparquet";
 
 type TemporalKind = "timestamp" | "date" | "time";
 
@@ -176,7 +177,7 @@ async function readRows(
 
   return parquetReadObjects({
     file,
-    metadata: metadata as any,
+    metadata: metadata as unknown as FileMetaData,
     compressors,
     rowStart,
     rowEnd,

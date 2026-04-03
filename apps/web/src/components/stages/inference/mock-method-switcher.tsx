@@ -32,14 +32,15 @@ export function MockMethodSwitcher({ workspaceId, baseData, onDataChange }: Mock
         onDataChange(nutsdaData);
       } else {
         fetch(`/api/results/${workspaceId}/stage-5b-nutsda`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => {
-            if (d) {
-              setNutsdaData(d);
-              onDataChange(d);
-            }
+          .then((r) => {
+            if (!r.ok) throw new Error(`NUTS-DA fetch failed: ${r.status}`);
+            return r.json();
           })
-          .catch(() => {});
+          .then((d) => {
+            setNutsdaData(d);
+            onDataChange(d);
+          })
+          .catch((e) => console.error("Failed to fetch NUTS-DA data:", e));
       }
     }
   };

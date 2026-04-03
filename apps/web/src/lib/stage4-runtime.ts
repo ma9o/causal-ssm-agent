@@ -112,7 +112,7 @@ export function parseStage4Event(
       graph: {
         nodes: payload.nodes as Stage4GraphNode[],
         edges: payload.edges as Stage4GraphEdge[],
-        phases: (payload.phases as Stage4GraphPhase[]) ?? [],
+        phases: (payload.phases ?? []) as Stage4GraphPhase[],
       },
     };
   }
@@ -124,7 +124,7 @@ export function parseStage4Event(
         cursor: payload.cursor as Stage4Cursor,
         block_status: payload.block_status as Record<string, string>,
         model_spec_locked: !!payload.model_spec_locked,
-        repair_campaign: (payload.repair_campaign as Stage4RepairCampaign) ?? null,
+        repair_campaign: (payload.repair_campaign ?? null) as Stage4RepairCampaign | null,
         phase: (payload.phase as string) ?? "unknown",
       },
     };
