@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import jax.numpy as jnp
 import polars as pl
 
-from causal_ssm_agent.flows.stages import stage5_inference
+from causal_ssm_agent.flows.stages.stage5b import fit as stage5_inference
 from causal_ssm_agent.models.ssm.inference_structure import (
     FirstPassRBPlan,
     InferenceStructurePlan,

@@ -7,7 +7,6 @@ handled by the stage registry (``stage_registry.py``).
 
 from __future__ import annotations
 
-import json
 from inspect import isawaitable
 from pathlib import Path
 from typing import Any
@@ -15,51 +14,10 @@ from typing import Any
 from . import get_prefect_logger
 from .run_store import (
     load_parquet,
-    load_pickle,
     unwrap_task_result,
 )
 
 logger = get_prefect_logger(__name__)
-
-
-def _build_stage5a_svi_attempts() -> list[dict[str, Any]]:
-    """Return the universal cheap SVI preflight ladder.
-
-    Stage 5a always runs, but it should not depend on one brittle optimizer
-    configuration. Use a bounded attempt ladder that keeps the stage cheap and
-    non-blocking while giving harder models a second, more stable try.
-    """
-
-    from causal_ssm_agent.utils.config import get_config
-
-    svi_config = get_config().inference.svi
-    sample_count = min(250, get_config().inference.num_samples)
-
-    return [
-        {
-            "method": "svi",
-            "guide_type": "delta",
-            "learning_rate": min(float(svi_config.learning_rate), 1e-4),
-            "num_steps": min(int(svi_config.num_steps), 150),
-            "num_samples": sample_count,
-        },
-        {
-            "method": "svi",
-            "guide_type": "normal",
-            "learning_rate": min(float(svi_config.learning_rate), 1e-4),
-            "init_scale": 0.01,
-            "num_steps": min(int(svi_config.num_steps), 500),
-            "num_samples": sample_count,
-        },
-        {
-            "method": "svi",
-            "guide_type": "mvn",
-            "learning_rate": min(float(svi_config.learning_rate), 3e-4),
-            "init_scale": 0.01,
-            "num_steps": min(int(svi_config.num_steps), 750),
-            "num_samples": sample_count,
-        },
-    ]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -75,7 +33,7 @@ async def stage0(workspace_id: str) -> dict:
     - ``_column_descriptions``: dict mapping col -> description
     """
     from .pipeline_helpers import build_stage0_payload
-    from .stages import agentic_ingest
+    from .stages.stage0.flow import agentic_ingest
 
     result = await agentic_ingest(workspace_id)
     df = result.dataframe
@@ -98,7 +56,7 @@ async def stage1a(question: str) -> dict:
 
     Returns: {latent_model, llm_trace?}
     """
-    from .stages import propose_latent_model
+    from .stages.stage1a.flow import propose_latent_model
 
     return await propose_latent_model(question)
 
@@ -106,69 +64,6 @@ async def stage1a(question: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 1b: Measurement model + identifiability
 # ═══════════════════════════════════════════════════════════════════════════════
-
-
-def finalize_stage1b_result(
-    result: dict[str, Any],
-    *,
-    latent_model: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Materialize Stage 1b derived fields from a causal spec payload."""
-    from causal_ssm_agent.utils.causal_spec import get_estimable_treatments, get_outcome_name
-
-    finalized = dict(result)
-    causal_spec = finalized.get("causal_spec", {}) or {}
-    treatments = list(get_estimable_treatments(causal_spec))
-    outcome_name = get_outcome_name(causal_spec) or get_outcome_name(latent_model or {}) or ""
-    identifiability = causal_spec.get("identifiability", {}) or {}
-    non_identifiable = identifiability.get("non_identifiable_treatments", {})
-
-    if non_identifiable:
-        logger.warning("NON-IDENTIFIABLE TREATMENT EFFECTS (excluded from analysis):")
-        for treatment in sorted(non_identifiable.keys()):
-            details = non_identifiable[treatment]
-            blockers = details.get("confounders", []) if isinstance(details, dict) else []
-            notes = details.get("notes") if isinstance(details, dict) else None
-            if blockers:
-                logger.warning(
-                    "  - %s → %s (blocked by: %s)",
-                    treatment,
-                    outcome_name,
-                    ", ".join(blockers),
-                )
-            elif notes:
-                logger.warning("  - %s → %s (%s)", treatment, outcome_name, notes)
-            else:
-                logger.warning("  - %s → %s", treatment, outcome_name)
-        treatments = [t for t in treatments if t not in non_identifiable]
-        logger.info(
-            "Retaining %d estimable intervention targets after identifiability filtering",
-            len(treatments),
-        )
-
-    if not treatments:
-        logger.warning(
-            "No retained estimation-stage intervention targets remain for %s",
-            outcome_name or "the outcome",
-        )
-
-    if treatments and not non_identifiable:
-        outcome = "success"
-        fail_reason = None
-    elif not treatments:
-        outcome = "fail"
-        fail_reason = "no_estimable_treatments"
-    else:
-        outcome = "warn"
-        fail_reason = None
-
-    finalized["_identified_treatments"] = treatments
-    finalized["outcome"] = outcome
-    if fail_reason is not None:
-        finalized["fail_reason"] = fail_reason
-    else:
-        finalized.pop("fail_reason", None)
-    return finalized
 
 
 async def stage1b(
@@ -181,7 +76,8 @@ async def stage1b(
     Returns: {causal_spec, measurement_model, identifiability_status, llm_trace?}
     """
     from .pipeline_helpers import format_schema_for_llm
-    from .stages import propose_measurement_with_identifiability_fix
+    from .stages.stage1b.flow import propose_measurement_with_identifiability_fix
+    from .stages.stage1b.result import finalize_stage1b_result
 
     ingested_df = load_parquet(stage0["_df_path"])
     column_descriptions = stage0["_column_descriptions"]
@@ -219,8 +115,7 @@ async def stage2(
 
     from causal_ssm_agent.utils.config import get_config
 
-    from .stages import stage2_extraction_flow
-    from .stages.stage2_extract import materialize_stage2_outputs
+    from .stages.stage2.flow import materialize_stage2_outputs, stage2_extraction_flow
 
     config = get_config()
     causal_spec = stage1b["causal_spec"]
@@ -274,7 +169,7 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
     """
     from prefect.artifacts import create_table_artifact
 
-    from .stages.stage3_validation import derive_validation_status, validate_extraction
+    from .stages.stage3.flow import derive_validation_status, validate_extraction
 
     causal_spec = stage1b["causal_spec"]
     data_for_model = load_parquet(stage2["_data_for_model_path"])
@@ -360,7 +255,7 @@ async def stage4(
     root_run_id: str | None = None,
 ) -> dict:
     """Propose model spec, elicit priors, and return the grounded stage-4 result."""
-    from .stages import stage4_agentic_flow
+    from .stages.stage4.flow import stage4_agentic_flow
 
     causal_spec = stage1b["causal_spec"]
     data_for_model = load_parquet(stage2["_data_for_model_path"])
@@ -392,55 +287,9 @@ def stage4b(
 
     Returns: {parametric_id, inference_structure, outcome}
     """
-    from .stages import stage4b_parametric_id_flow
+    from .stages.stage4b.flow import run_stage4b
 
-    result = stage4b_parametric_id_flow(
-        compiled_ssm=stage4.get("_compiled_ssm"),
-        data_for_model=load_parquet(stage2["_data_for_model_path"]),
-        builder=ssm_builder,
-        root_run_id=root_run_id,
-    )
-    param_id = result.get("parametric_id") or {}
-    t_rule: dict = {}
-
-    if param_id.get("checked", False):
-        t_rule = param_id.get("t_rule", {})
-        if not t_rule.get("satisfies", True):
-            logger.warning(
-                "Stage 4b warning: T-rule screen failed (%s free params > conservative lower-bound %s moments), continuing",
-                t_rule.get("n_free_params"),
-                t_rule.get("n_moments"),
-            )
-        summary = param_id.get("summary", {})
-        if summary.get("structural_issues"):
-            logger.warning(
-                "STRUCTURAL non-identifiability detected — some parameters unconstrained"
-            )
-        elif summary.get("boundary_issues"):
-            logger.warning("Boundary identifiability issues at some prior draws")
-        else:
-            logger.info("Parametric identifiability OK")
-        weak = summary.get("weak_params", [])
-        if weak:
-            logger.info("  Weak parameters (low contraction): %s", weak)
-    else:
-        logger.info("  Skipped: %s", param_id.get("error", "unknown"))
-
-    # Compute outcome
-    if param_id.get("checked", False):
-        summary = param_id.get("summary", {})
-        has_issues = (
-            not t_rule.get("satisfies", True)
-            or summary.get("structural_issues")
-            or summary.get("boundary_issues")
-            or summary.get("weak_params")
-        )
-        outcome = "warn" if has_issues else "success"
-    else:
-        outcome = "success"
-
-    result["outcome"] = outcome
-    return result
+    return run_stage4b(stage4, stage2, ssm_builder=ssm_builder, root_run_id=root_run_id)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -452,67 +301,10 @@ def stage5a(
     stage4: dict,
     stage2: dict,
 ) -> dict:
-    """SVI preflight: fast approximate fit before expensive inference.
+    """SVI preflight: fast approximate fit before expensive inference."""
+    from .stages.stage5a.flow import run_stage5a_preflight
 
-    Runs the same fit_model task as stage5b but with method="svi" forced.
-    Produces SVI diagnostics (ELBO curve) and posterior marginals for
-    quick sanity-checking before committing to laplace_em / SMC.
-    """
-    from .stages import fit_model
-
-    data_for_model = load_parquet(stage2["_data_for_model_path"])
-
-    total_duration = 0.0
-    attempts = _build_stage5a_svi_attempts()
-    fitted_result: dict[str, Any] | None = None
-
-    for index, svi_config in enumerate(attempts, start=1):
-        logger.info(
-            "Stage 5a SVI attempt %d/%d: guide=%s lr=%s steps=%s samples=%s",
-            index,
-            len(attempts),
-            svi_config.get("guide_type"),
-            svi_config.get("learning_rate"),
-            svi_config.get("num_steps"),
-            svi_config.get("num_samples"),
-        )
-        fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=svi_config)
-        fitted_result = unwrap_task_result(fitted)
-        total_duration += float(fitted_result.get("duration_seconds", 0.0))
-        if fitted_result.get("fitted", False):
-            break
-
-        logger.warning(
-            "Stage 5a SVI attempt %d/%d failed: %s",
-            index,
-            len(attempts),
-            fitted_result.get("error", "unknown"),
-        )
-
-    if not fitted_result or not fitted_result.get("fitted", False):
-        return {
-            "inference_metadata": {
-                "method": "svi",
-                "n_samples": 0,
-                "duration_seconds": total_duration,
-            },
-            "svi_diagnostics": None,
-            "posterior_marginals": None,
-            "posterior_pairs": None,
-            "outcome": "warn",
-        }
-
-    return {
-        "inference_metadata": {
-            "method": "svi",
-            "n_samples": int(fitted_result.get("n_samples", 0)),
-            "duration_seconds": total_duration,
-        },
-        "svi_diagnostics": fitted_result.get("svi_diagnostics"),
-        "posterior_marginals": fitted_result.get("posterior_marginals"),
-        "posterior_pairs": fitted_result.get("posterior_pairs"),
-        "outcome": "success",
-    }
+    return run_stage5a_preflight(stage4, stage2)
 
 
 def stage5b(
@@ -526,142 +318,9 @@ def stage5b(
               inference_metadata, mcmc_diagnostics, svi_diagnostics, smc_diagnostics,
               loo_diagnostics, posterior_marginals, posterior_pairs, outcome}
     """
-    from causal_ssm_agent.models.ssm.inference import FittedArtifact
-    from causal_ssm_agent.utils.config import get_config
+    from .stages.stage5b.flow import run_stage5b
 
-    from .stages import fit_model, run_power_scaling, run_ppc
-
-    config = get_config()
-    data_for_model = load_parquet(stage2["_data_for_model_path"])
-
-    sampler_config = config.inference.to_sampler_config(method_override=inference_method)
-
-    fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=sampler_config)
-    fitted_result = unwrap_task_result(fitted)
-    inf_method = fitted_result.get("inference_type") or sampler_config.get("method", "unknown")
-
-    if not fitted_result.get("fitted", False):
-        ps_result = {"checked": False, "error": fitted_result.get("error", "Model not fitted")}
-        ppc_result = {"checked": False, "per_variable_warnings": []}
-        fitted_artifact = FittedArtifact(
-            result=fitted_result.get("result"),
-            builder=fitted_result.get("builder"),
-            times=fitted_result.get("times"),
-            observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
-            ppc_result=ppc_result,
-            power_scaling_result=ps_result,
-        )
-        return {
-            "_fitted_artifact": fitted_artifact,
-            "power_scaling": [],
-            "ppc": ppc_result,
-            "inference_metadata": {
-                "method": inf_method,
-                "n_samples": int(fitted_result.get("n_samples", 0)),
-                "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
-            },
-            "mcmc_diagnostics": fitted_result.get("mcmc_diagnostics"),
-            "svi_diagnostics": fitted_result.get("svi_diagnostics"),
-            "smc_diagnostics": fitted_result.get("smc_diagnostics"),
-            "loo_diagnostics": fitted_result.get("loo_diagnostics"),
-            "posterior_marginals": fitted_result.get("posterior_marginals"),
-            "posterior_pairs": fitted_result.get("posterior_pairs"),
-            "outcome": "fail",
-            "fail_reason": "model_fit_failed",
-        }
-
-    power_scaling = run_power_scaling(fitted_result)
-    ps_result = unwrap_task_result(power_scaling)
-
-    ppc_task = run_ppc(fitted_result)
-    ppc_result = unwrap_task_result(ppc_task)
-
-    mcmc_diagnostics = fitted_result.get("mcmc_diagnostics")
-    svi_diagnostics = fitted_result.get("svi_diagnostics")
-    smc_diagnostics = fitted_result.get("smc_diagnostics")
-    loo_diagnostics = fitted_result.get("loo_diagnostics")
-    posterior_marginals = fitted_result.get("posterior_marginals")
-    posterior_pairs = fitted_result.get("posterior_pairs")
-
-    # Build FittedArtifact — the only shape persisted and consumed by stage 6
-    fitted_artifact = FittedArtifact(
-        result=fitted_result.get("result"),
-        builder=fitted_result.get("builder"),
-        times=fitted_result.get("times"),
-        observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
-        ppc_result=ppc_result,
-        power_scaling_result=ps_result,
-    )
-
-    # Log power-scaling results
-    logger.info("--- Power-Scaling Sensitivity ---")
-    if ps_result.get("checked", False):
-        diagnosis = ps_result.get("diagnosis", {})
-        prior_dominated = [k for k, v in diagnosis.items() if v == "prior_dominated"]
-        conflicts = [k for k, v in diagnosis.items() if v == "prior_data_conflict"]
-        if prior_dominated:
-            logger.warning("  Prior-dominated parameters: %s", prior_dominated)
-        if conflicts:
-            logger.warning("  Prior-data conflicts: %s", conflicts)
-        if not prior_dominated and not conflicts:
-            logger.info("  All parameters well-identified")
-    else:
-        logger.info("  Skipped: %s", ps_result.get("error", "unknown"))
-
-    # Log PPC results
-    logger.info("--- Posterior Predictive Checks ---")
-    if ppc_result.get("checked", False):
-        ppc_warnings = ppc_result.get("per_variable_warnings", [])
-        if ppc_warnings:
-            logger.warning("  %d warning(s):", len(ppc_warnings))
-            for w in ppc_warnings:
-                logger.warning("    - %s: %s", w["variable"], w["message"])
-        else:
-            logger.info("  All checks passed")
-    else:
-        logger.info("  Skipped: %s", ppc_result.get("error", "unknown"))
-
-    # Reshape power-scaling into per-param list for web
-    ps_list = []
-    if ps_result.get("checked", False):
-        diag = ps_result.get("diagnosis", {})
-        prior_s = ps_result.get("prior_sensitivity", {})
-        lik_s = ps_result.get("likelihood_sensitivity", {})
-        psis_k = ps_result.get("psis_k_hat", {})
-        for param in diag:
-            entry = {
-                "parameter": param,
-                "diagnosis": diag[param],
-                "prior_sensitivity": prior_s.get(param, 0.0),
-                "likelihood_sensitivity": lik_s.get(param, 0.0),
-            }
-            if param in psis_k:
-                entry["psis_k_hat"] = psis_k[param]
-            ps_list.append(entry)
-
-    has_ppc_warnings = bool(ppc_result.get("per_variable_warnings"))
-    has_ps_issues = any(
-        e["diagnosis"] in ("prior_dominated", "prior_data_conflict") for e in ps_list
-    )
-    outcome = "warn" if (has_ppc_warnings or has_ps_issues) else "success"
-
-    return {
-        "_fitted_artifact": fitted_artifact,
-        "power_scaling": ps_list,
-        "ppc": ppc_result,
-        "inference_metadata": {
-            "method": inf_method,
-            "n_samples": int(fitted_result.get("n_samples", 0)),
-            "duration_seconds": float(fitted_result.get("duration_seconds", 0.0)),
-        },
-        "mcmc_diagnostics": mcmc_diagnostics,
-        "svi_diagnostics": svi_diagnostics,
-        "smc_diagnostics": smc_diagnostics,
-        "loo_diagnostics": loo_diagnostics,
-        "posterior_marginals": posterior_marginals,
-        "posterior_pairs": posterior_pairs,
-        "outcome": outcome,
-    }
+    return run_stage5b(stage4, stage2, inference_method)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -678,164 +337,6 @@ async def stage6(
 
     Returns: {intervention_results, outcome}
     """
-    from prefect.artifacts import create_table_artifact
+    from .stages.stage6.flow import run_stage6
 
-    from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import LLMStageContext
-
-    from .stages import run_interventions
-
-    def _first_assistant_summary(trace: Any) -> str | None:
-        messages = getattr(trace, "messages", None) or []
-        for message in messages:
-            if getattr(message, "role", None) != "assistant":
-                continue
-            content = (getattr(message, "content", "") or "").strip()
-            if content:
-                return content
-        return None
-
-    from causal_ssm_agent.utils.causal_spec import get_outcome_name
-
-    fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
-    treatments = stage1b["_identified_treatments"]
-    causal_spec = stage1b["causal_spec"]
-    outcome_name = get_outcome_name(causal_spec) or ""
-
-    logger.info("=== Stage 6: Treatment Effects ===")
-    logger.info("Estimating effects of %d treatments on %s", len(treatments), outcome_name)
-
-    results = run_interventions(
-        fitted_artifact,
-        treatments,
-        outcome_name,
-        causal_spec,
-    )
-    intervention_results = unwrap_task_result(results)
-
-    # Helper to derive summary stats from posterior draws
-    def _draws_stats(draws):
-        if not draws:
-            return None, None
-        return sum(draws) / len(draws), sum(1 for d in draws if d > 0) / len(draws)
-
-    # Log ranked results
-    if intervention_results:
-        logger.info("%-5s %-30s %10s %8s", "Rank", "Treatment", "Effect", "P(>0)")
-        logger.info("-" * 55)
-        for rank, entry in enumerate(intervention_results, 1):
-            name = entry["treatment"]
-            draws = entry.get("posterior_draws")
-            effect, prob = _draws_stats(draws)
-            if effect is not None:
-                logger.info("%d     %-30s %+10.4f %8.2f", rank, name, effect, prob)
-            else:
-                logger.info("%-5d %-30s %10s", rank, name, "—")
-
-        await _await_artifact(
-            create_table_artifact(
-                key="treatment-ranking",
-                table=[
-                    {
-                        "rank": i + 1,
-                        "treatment": r["treatment"],
-                        "effect": (
-                            f"{e:+.4f}"
-                            if (e := _draws_stats(r.get("posterior_draws"))[0]) is not None
-                            else "---"
-                        ),
-                        "P(>0)": (
-                            f"{p:.2f}"
-                            if (p := _draws_stats(r.get("posterior_draws"))[1]) is not None
-                            else ""
-                        ),
-                    }
-                    for i, r in enumerate(intervention_results)
-                ],
-                description="Final treatment effect ranking",
-            )
-        )
-
-    # Derive warnings from Stage 5b diagnostics
-    power_scaling_issues = [
-        {
-            "parameter": item.get("parameter"),
-            "diagnosis": item.get("diagnosis"),
-            "prior_sensitivity": item.get("prior_sensitivity"),
-            "likelihood_sensitivity": item.get("likelihood_sensitivity"),
-        }
-        for item in stage5b.get("power_scaling", [])
-        if item.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
-    ][:5]
-    ppc_warnings = [
-        {
-            "variable": warning.get("variable"),
-            "issue_type": warning.get("issue_type"),
-            "severity": warning.get("severity"),
-            "message": warning.get("message"),
-        }
-        for warning in stage5b.get("ppc", {}).get("per_variable_warnings", [])
-    ][:5]
-    has_warnings = bool(power_scaling_issues or ppc_warnings)
-
-    top_results = [
-        {
-            "treatment": entry.get("treatment"),
-            "effect_size": _draws_stats(entry.get("posterior_draws"))[0],
-            "prob_positive": _draws_stats(entry.get("posterior_draws"))[1],
-        }
-        for entry in intervention_results[:5]
-    ]
-
-    commentary_input = {
-        "question": question,
-        "outcome": outcome_name,
-        "identifiable_treatments": treatments,
-        "excluded_non_identifiable_treatments": sorted(
-            stage1b.get("causal_spec", {})
-            .get("identifiability", {})
-            .get("non_identifiable_treatments", {})
-            .keys()
-        ),
-        "top_ranked_effects": top_results,
-        "power_scaling_issues": power_scaling_issues,
-        "ppc_warnings": ppc_warnings,
-        "follow_up_capabilities": {
-            "get_model_info": "Inspect variables, measurement, identifiability, diagnostics, and baseline effects.",
-            "simulate_intervention": "Run Pearl rung-2 intervention simulations on the fitted generative model.",
-            "simulate_counterfactual": "Run Pearl rung-3 counterfactual simulations conditioned on an observed history window.",
-        },
-    }
-
-    commentary_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are writing the opening commentary for Stage 6 of a causal state-space "
-                "analysis. Comment on the treatment-effect results for a technical user. "
-                "Be concise and grounded. Do not invent certainty. Mention the strongest "
-                "effects, note warnings or identifiability limits, and end by stating that "
-                "follow-up chat can inspect model details or run Pearl rung 2 and rung 3 "
-                "simulations. Return plain Markdown only."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                "Comment the results of Stage 6.\n\n"
-                f"{json.dumps(commentary_input, indent=2, sort_keys=True)}"
-            ),
-        },
-    ]
-
-    async with LLMStageContext("stage-6") as ctx:
-        generate = ctx.make_generate(get_config().stage6_commentary.model)
-        await generate(commentary_messages, label="comment-results")
-        result = {
-            "intervention_results": intervention_results,
-            "outcome": "warn" if has_warnings else "success",
-        }
-        final_summary = _first_assistant_summary(ctx.trace_capture.get("trace"))
-        if final_summary:
-            result["final_summary"] = final_summary
-        return ctx.finalize(result)
+    return await run_stage6(stage5b, stage1b, question=question)

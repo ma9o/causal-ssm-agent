@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
     from causal_ssm_agent.workers.schemas_prior import (
         PriorPathologyCertificate,
         PriorRepairScope,
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     )
 
     from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan, Stage4RepairTopology
-    from .stage4_state import Stage4Runtime
+    from .stage4_state import Stage4RepairCampaignState, Stage4Runtime
 
 
 _MAX_SCOPE_ATTEMPTS = 2
@@ -36,6 +36,12 @@ _DRIFT_RELATED_CODES = frozenset(
         "partial_row_budget_exceeded",
     }
 )
+
+Stage4ValidationOutcome = Literal[
+    "accepted",
+    "compile_error",
+    "prior_predictive_failure",
+]
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,28 @@ class ResolvedRepairPlan:
     @property
     def block_ids(self) -> tuple[str, ...]:
         return tuple(block.id for block in self.prompt_blocks)
+
+
+@dataclass(frozen=True)
+class Stage4ValidationOutcomeDecision:
+    """Typed classification for one validation outcome."""
+
+    outcome: Stage4ValidationOutcome
+    repair_plan: ResolvedRepairPlan | None = None
+
+
+@dataclass(frozen=True)
+class Stage4PriorRepairDecision:
+    """Typed reducer decision for a prior submission after repair routing."""
+
+    repair_plan: ResolvedRepairPlan | None
+    accepted_block_id: str | None
+    route_kind: Literal["accepted", "repair_single", "repair_multi", "rejected"]
+
+    @property
+    def promote_campaign_feedback(self) -> bool:
+        """Whether reducer feedback should surface campaign-wide routing."""
+        return self.route_kind == "repair_multi"
 
 
 def _find_block_for_parameter(
@@ -281,6 +309,81 @@ def build_repair_plan(
         scope=scope,
         prompt_blocks=tuple(prompt_blocks),
         requires_barrier_validation=requires_barrier_validation,
+    )
+
+
+def classify_validation_outcome(
+    plan: Stage4Plan,
+    active_block: Stage4FrontierBlock,
+    validation: AssemblyValidation | None,
+    runtime: Stage4Runtime,
+    *,
+    feedback: str | None,
+    include_prior_predictive: bool = True,
+) -> Stage4ValidationOutcomeDecision:
+    """Classify validation into acceptance or a concrete repair route."""
+    if validation is not None and getattr(validation, "compile_ok", True) is False:
+        return Stage4ValidationOutcomeDecision(
+            outcome="compile_error",
+            repair_plan=_classify_compile_failure_route(
+                plan,
+                active_block,
+                getattr(validation, "compile_error", None) or feedback,
+            ),
+        )
+    if (
+        include_prior_predictive
+        and validation is not None
+        and getattr(validation, "pp_checked", False)
+        and getattr(validation, "pp_valid", True) is False
+    ):
+        return Stage4ValidationOutcomeDecision(
+            outcome="prior_predictive_failure",
+            repair_plan=_classify_prior_failure_blocks(
+                plan,
+                active_block,
+                validation,
+                runtime,
+            ),
+        )
+    return Stage4ValidationOutcomeDecision(outcome="accepted")
+
+
+def resolve_prior_repair_decision(
+    *,
+    active_block: Stage4FrontierBlock,
+    repair_plan: ResolvedRepairPlan | None,
+    campaign: Stage4RepairCampaignState | None,
+    stage_output_present: bool,
+) -> Stage4PriorRepairDecision:
+    """Decide whether the active prior block remains accepted while routing repair."""
+    if not stage_output_present:
+        return Stage4PriorRepairDecision(
+            repair_plan=repair_plan,
+            accepted_block_id=None,
+            route_kind="rejected",
+        )
+    if repair_plan is None:
+        return Stage4PriorRepairDecision(
+            repair_plan=None,
+            accepted_block_id=active_block.id,
+            route_kind="accepted",
+        )
+
+    widening_scope = (
+        campaign is not None
+        and repair_plan.scope_rank > campaign.scope_rank
+        and active_block.id in repair_plan.block_ids
+    )
+    accepted_block_id = None
+    if active_block.id not in repair_plan.block_ids or (len(repair_plan.block_ids) > 1 and not widening_scope):
+        accepted_block_id = active_block.id
+
+    route_kind = "repair_multi" if len(repair_plan.block_ids) > 1 else "repair_single"
+    return Stage4PriorRepairDecision(
+        repair_plan=repair_plan,
+        accepted_block_id=accepted_block_id,
+        route_kind=route_kind,
     )
 
 

@@ -178,9 +178,7 @@ async def causal_inference_pipeline(
         "anonymous",
         "user",
     }:
-        raise ValueError(
-            "Production runs must set openrouter_access_mode to 'anonymous' or 'user'"
-        )
+        raise ValueError("Production runs must set openrouter_access_mode to 'anonymous' or 'user'")
 
     openrouter_api_key: str | None = None
     if openrouter_secret_ref:

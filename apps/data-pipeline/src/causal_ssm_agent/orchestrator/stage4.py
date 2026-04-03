@@ -6,14 +6,14 @@ accepted decisions and routes retries back to the smallest current frontier.
 
 Follows the same two-layer architecture as stages 1a/1b:
 - This module contains pure orchestrator logic (framework-agnostic).
-- The Prefect wrapper lives in ``flows/stages/stage4_model.py``.
+- The Prefect wrapper lives in ``flows/stages/stage4/flow.py``.
 """
 
 from __future__ import annotations
 
 import json
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from causal_ssm_agent.orchestrator.schemas_model import (
@@ -24,6 +24,44 @@ from causal_ssm_agent.orchestrator.schemas_model import (
 from .prompts.model_proposal import (
     build_stage4_system_prompt,
     build_stage4_user_prompt,
+)
+from .stage4_events import (
+    Stage4AcceptedStatePersistedEvent,
+    Stage4BarrierValidationPassedEvent,
+    Stage4BlockAcceptedEvent,
+    Stage4ReducerEvent,
+    Stage4RepairPlannedEvent,
+)
+from .stage4_feedback import (
+    Stage4GroundingResult,
+    Stage4ScopeSnapshot,
+    Stage4ValidationPacket,
+    Stage4ValidationStatus,
+    default_stage4_validation_packet,
+    make_stage4_validation_packet,
+    render_stage4_validation_feedback,
+    should_store_stage4_validation_packet,
+)
+from .stage4_navigation import (
+    _activate_prior_phase,
+    _activate_review_phase,
+    _block_is_accepted,
+    _next_pending_block,
+    _pending_repair_campaign_block_ids,
+    _set_block_cursor,
+    _set_done_cursor,
+    _set_model_spec_lock_cursor,
+    _set_repair_barrier_cursor,
+    apply_stage4_barrier_validation_success,
+    apply_stage4_block_acceptance,
+    apply_stage4_repair_plan,
+    get_active_plan_block,
+    get_active_prompt_block,
+    get_stage4_phase,
+    make_stage4_runtime,
+    project_stage4_graph,
+    project_stage4_initial_state,
+    project_stage4_snapshot,
 )
 from .stage4_orchestrator import (
     Stage4FrontierBlock,
@@ -43,10 +81,16 @@ from .stage4_partial_drift import (
     validate_dynamics_block_partial_drift,
     validate_effect_block_partial_drift,
 )
-from .stage4_repair import ResolvedRepairPlan, ResolvedRepairScope, build_repair_plan
+from .stage4_repair import (
+    ResolvedRepairPlan,
+    ResolvedRepairScope,
+    Stage4PriorRepairDecision,
+    build_repair_plan,
+    classify_validation_outcome,
+    resolve_prior_repair_decision,
+)
 from .stage4_state import (
     Stage4AcceptedState,
-    Stage4BlockCursor,
     Stage4DecisionState,
     Stage4DoneCursor,
     Stage4ModelSpecLockPendingCursor,
@@ -60,12 +104,30 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
     from causal_ssm_agent.utils.llm import GenerateFn
-    from causal_ssm_agent.workers.schemas_prior import PriorPathologyCertificate
 
 
 _STAGE4_FRONTIER_PREFIX = "ACTIVE FRONTIER (machine-generated)"
+_STAGE4_NAVIGATION_EXPORTS = (
+    _activate_prior_phase,
+    _set_block_cursor,
+    _set_done_cursor,
+    _set_model_spec_lock_cursor,
+    _set_repair_barrier_cursor,
+    make_stage4_runtime,
+    project_stage4_graph,
+    project_stage4_initial_state,
+    project_stage4_snapshot,
+)
+_STAGE4_PLAN_EXPORTS = (
+    build_construct_scale_cards,
+    build_distribution_cards,
+    build_model_topology,
+    build_prior_cards,
+    build_stage4_plan,
+    derive_deterministic_spec,
+)
 
 
 @dataclass
@@ -86,20 +148,65 @@ class Stage4Deps:
     causal_spec: dict[str, Any]
     data_for_model: pl.DataFrame
     indicator_audits: dict[str, dict[str, Any]]
-    grounding_fn: Callable[..., tuple[dict | None, str]]
+    grounding_fn: Callable[..., Stage4GroundingResult]
 
 
 @dataclass(frozen=True)
 class Stage4StepResult:
     """Reducer transition returned by a single Stage 4 step."""
 
-    feedback: str | None = None
+    validation_packet: Stage4ValidationPacket
     stage_output: dict[str, Any] | None = None
+    events: tuple[Stage4ReducerEvent, ...] = ()
+
+    @property
+    def feedback(self) -> str:
+        """Return model-facing feedback from the authoritative validation packet."""
+        return render_stage4_validation_feedback(self.validation_packet)
+
+    @property
+    def accepted_block_id(self) -> str | None:
+        """Return the primary accepted block, if this update accepts one."""
+        for event in self.events:
+            if isinstance(event, Stage4BlockAcceptedEvent):
+                return event.block_id
+            if isinstance(event, Stage4RepairPlannedEvent):
+                return event.accepted_block_id
+        return None
+
+    @property
+    def repair_plan(self) -> ResolvedRepairPlan | None:
+        """Return the repair plan routed by this update, if any."""
+        for event in self.events:
+            if isinstance(event, Stage4RepairPlannedEvent):
+                return event.repair_plan
+        return None
+
+
+@dataclass(frozen=True)
+class _Stage4PriorCampaignContext:
+    """Reducer-owned campaign context for one prior submission."""
+
+    campaign: Stage4RepairCampaignState | None
+    pending_block_ids: tuple[str, ...]
+    in_active_campaign: bool
+    final_campaign_block: bool
+
+
+@dataclass(frozen=True)
+class _Stage4PriorSubmissionState:
+    """Typed intermediate state for one prior-submission reducer pass."""
+
+    stage_output: dict[str, Any] | None
+    validation: AssemblyValidation | None
+    validation_packet: Stage4ValidationPacket
+    changed_parameters: tuple[str, ...]
     repair_plan: ResolvedRepairPlan | None = None
-    accepted_block_id: str | None = None
-    distribution_choice: dict[str, Any] | None = None
-    persist_stage_output: bool = False
-    accepted_transition: dict[str, Any] | None = None
+
+    @property
+    def feedback(self) -> str:
+        """Return authoritative model-facing feedback for the current state."""
+        return render_stage4_validation_feedback(self.validation_packet)
 
 
 @dataclass(frozen=True)
@@ -176,7 +283,7 @@ class Stage4BlockHandler:
             enable_literature=prompt_context.enable_literature,
             enable_paraphrasing=prompt_context.enable_paraphrasing,
         )
-        latest_feedback = runtime.last_feedback or _default_stage4_feedback()
+        latest_feedback = render_stage4_validation_feedback(runtime.last_validation_packet)
         messages = prompt_context.messages_for_block(
             block=block,
             plan=plan,
@@ -234,14 +341,6 @@ class Stage4Messages:
             card["selected_link"] = choice.get("link")
         return cards
 
-    def _loading_params_for_runtime(
-        self,
-        runtime: Stage4Runtime,
-    ) -> list[dict[str, Any]]:
-        """Return stateful loading cards for the current runtime."""
-        del runtime
-        return deepcopy(self.loading_params)
-
     def _construct_scale_cards_for_runtime(
         self,
         runtime: Stage4Runtime,
@@ -264,8 +363,108 @@ class Stage4Messages:
         runtime: Stage4Runtime,
     ) -> list[dict[str, Any]]:
         """Return prior cards for the current runtime."""
-        del runtime
-        return deepcopy(self.prior_cards)
+        cards = deepcopy(self.prior_cards)
+        accepted_priors = runtime.accepted.authored_priors
+        for card in cards:
+            parameter_name = card.get("parameter")
+            if not isinstance(parameter_name, str):
+                continue
+            accepted_prior = accepted_priors.get(parameter_name)
+            if accepted_prior is not None:
+                card["accepted_prior"] = deepcopy(accepted_prior)
+        return cards
+
+    def _current_validation_packet(self, runtime: Stage4Runtime) -> Stage4ValidationPacket:
+        """Return the latest typed validation state for prompt rendering."""
+        return runtime.last_validation_packet or default_stage4_validation_packet()
+
+    def _scope_snapshot_for_block(
+        self,
+        *,
+        block: Stage4FrontierBlock,
+        plan: Stage4Plan,
+        runtime: Stage4Runtime,
+        policy: Stage4PromptScopePolicy,
+        submission_example: str,
+        include_prior_source_guidance: bool,
+    ) -> Stage4ScopeSnapshot:
+        """Build the typed LLM-visible snapshot for one active Stage 4 block."""
+        distribution_cards = self._distribution_cards_for_runtime(runtime)
+        loading_params = deepcopy(self.loading_params)
+        construct_scale_cards = self._construct_scale_cards_for_runtime(runtime)
+        prior_cards = self._prior_cards_for_runtime(runtime)
+        visible_distribution_cards = _visible_block_section(
+            policy,
+            "distribution_cards",
+            _filter_cards(distribution_cards, "variable", block.variable_names),
+        )
+        visible_loading_params = _visible_block_section(
+            policy,
+            "loading_params",
+            _filter_cards(loading_params, "name", block.parameter_names),
+        )
+        visible_construct_scale_cards = _visible_block_section(
+            policy,
+            "construct_scale_cards",
+            _filter_cards(construct_scale_cards, "construct", block.construct_names),
+        )
+        visible_prior_cards = _visible_block_section(
+            policy,
+            "prior_cards",
+            _filter_cards(prior_cards, "parameter", block.parameter_names),
+        )
+        active_parameter_names = _active_prior_parameter_names(runtime)
+        if active_parameter_names is not None:
+            visible_prior_cards = [
+                card
+                for card in visible_prior_cards
+                if str(card.get("parameter") or "") in active_parameter_names
+            ]
+        latest_validation = self._current_validation_packet(runtime)
+        local_parameter_names = set(block.parameter_names)
+        coupled_parameter_names = tuple(
+            parameter_name
+            for parameter_name in latest_validation.coupled_parameters
+            if parameter_name not in local_parameter_names
+        )
+        coupled_prior_cards = [
+            card
+            for card in prior_cards
+            if card.get("parameter") in coupled_parameter_names and card.get("accepted_prior") is not None
+        ]
+        visible_parameter_names = tuple(
+            card["parameter"]
+            for card in visible_prior_cards
+            if isinstance(card.get("parameter"), str)
+        )
+        return Stage4ScopeSnapshot(
+            block_id=block.id,
+            block_kind=block.kind,
+            block_label=block.label,
+            block_instructions=policy.user_task,
+            frontier_status=_format_plan_status(
+                plan,
+                runtime,
+                block,
+                causal_spec=self.causal_spec,
+            ),
+            model_topology=_filter_model_topology(self.model_topology, block),
+            distribution_cards=visible_distribution_cards,
+            loading_params=visible_loading_params,
+            construct_scale_cards=visible_construct_scale_cards,
+            prior_cards=visible_prior_cards,
+            coupled_prior_cards=coupled_prior_cards,
+            submission_example=_format_submission_example(
+                block,
+                prior_cards=visible_prior_cards,
+                fallback_submission_example=submission_example,
+            ),
+            include_prior_source_guidance=include_prior_source_guidance,
+            latest_validation=latest_validation,
+            editable_parameter_names=visible_parameter_names,
+            visible_parameter_names=visible_parameter_names,
+            coupled_parameter_names=coupled_parameter_names,
+        )
 
     def _messages_for_scope(
         self,
@@ -279,29 +478,13 @@ class Stage4Messages:
         include_prior_source_guidance: bool,
     ) -> list[dict]:
         """Build the model-facing prompt for one active Stage 4 scope."""
-        distribution_cards = self._distribution_cards_for_runtime(runtime)
-        loading_params = self._loading_params_for_runtime(runtime)
-        construct_scale_cards = self._construct_scale_cards_for_runtime(runtime)
-        prior_cards = self._prior_cards_for_runtime(runtime)
-        visible_distribution_cards = _visible_block_section(
-            policy,
-            "distribution_cards",
-            _filter_distribution_cards(distribution_cards, block),
-        )
-        visible_loading_params = _visible_block_section(
-            policy,
-            "loading_params",
-            _filter_loading_params(loading_params, block),
-        )
-        visible_construct_scale_cards = _visible_block_section(
-            policy,
-            "construct_scale_cards",
-            _filter_construct_scale_cards(construct_scale_cards, block),
-        )
-        visible_prior_cards = _visible_block_section(
-            policy,
-            "prior_cards",
-            _filter_prior_cards(prior_cards, block),
+        snapshot = self._scope_snapshot_for_block(
+            block=block,
+            plan=plan,
+            runtime=runtime,
+            policy=policy,
+            submission_example=submission_example,
+            include_prior_source_guidance=include_prior_source_guidance,
         )
         return [
             {
@@ -317,29 +500,7 @@ class Stage4Messages:
                 "role": "user",
                 "content": build_stage4_user_prompt(
                     question=self.question,
-                    model_topology=_filter_model_topology(self.model_topology, block),
-                    frontier_status=_format_plan_status(
-                        plan,
-                        runtime,
-                        block,
-                        causal_spec=self.causal_spec,
-                    ),
-                    block_id=block.id,
-                    block_kind=block.kind,
-                    block_label=block.label,
-                    block_instructions=policy.user_task,
-                    distribution_cards=visible_distribution_cards,
-                    loading_params=visible_loading_params,
-                    construct_scale_cards=visible_construct_scale_cards,
-                    prior_cards=visible_prior_cards,
-                    submission_example=_format_submission_example(
-                        handler=None,
-                        block=block,
-                        prior_cards=visible_prior_cards,
-                        fallback_submission_example=submission_example,
-                    ),
-                    latest_feedback=runtime.last_feedback or _default_stage4_feedback(),
-                    include_prior_source_guidance=include_prior_source_guidance,
+                    snapshot=snapshot,
                 ),
             },
         ]
@@ -472,93 +633,6 @@ class Stage4Session:
             search_queries=dict(self.search_queries),
             validation=self.accepted.validation,
         )
-
-
-def _build_stage4_tool_map(
-    session: Stage4Session,
-    *,
-    question: str,
-    enable_literature: bool,
-    enable_paraphrasing: bool,
-    n_paraphrases: int,
-    gmm_model: str | None,
-    max_tool_turns: int,
-) -> dict[str, Any]:
-    """Build the Stage 4 tool map for one reducer-owned session."""
-    from causal_ssm_agent.flows.stages.stage_tools import (
-        make_elicit_prior_gmm_tool,
-        make_search_tool,
-    )
-    from causal_ssm_agent.utils.openrouter_client import Tool
-
-    async def _execute_validate(*, model_json: str) -> str:
-        try:
-            data = json.loads(model_json)
-        except json.JSONDecodeError as exc:
-            return f"JSON parse error: {exc}"
-        return session.submit(data)
-
-    validate_tool = Tool(
-        name="validate_model",
-        description="Submit one active Stage 4 frontier block for validation.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "model_json": {
-                    "type": "string",
-                    "description": (
-                        "JSON object with exactly `block_id`, `block_kind`, and `proposal`. "
-                        "Submit only the current active Stage 4 block."
-                    ),
-                }
-            },
-            "required": ["model_json"],
-            "additionalProperties": False,
-        },
-        execute=_execute_validate,
-        stop_on_success=True,
-        success_output=None,
-    )
-
-    tool_map: dict[str, Any] = {"validate_model": validate_tool}
-    if enable_literature:
-        tool_map["search_literature"] = make_search_tool(session)
-    if enable_paraphrasing:
-        tool_map["elicit_prior_gmm"] = make_elicit_prior_gmm_tool(
-            question=question,
-            model_name=gmm_model or "",
-            n_paraphrases=n_paraphrases,
-            max_tool_turns=max_tool_turns,
-        )
-    return tool_map
-
-
-async def _run_stage4_turn(
-    session: Stage4Session,
-    generate: GenerateFn,
-    tool_map: dict[str, Any],
-) -> Stage4TurnOutcome:
-    """Run one Stage 4 outer turn and require a validate_model submission."""
-    turn = session.current_turn()
-    if turn is None:
-        raise ValueError("Stage 4 turn requested with no active block")
-
-    allowed_tools = [tool_map[name] for name in turn.allowed_tool_names if name in tool_map]
-    block_before = turn.block.id
-    session.begin_turn(block_before)
-    try:
-        await generate(turn.messages, allowed_tools, label=f"stage-4:{block_before}")
-    except Exception:
-        session.discard_turn()
-        raise
-    outcome = session.finish_turn(block_before)
-    if not outcome.validate_submitted:
-        raise ValueError(
-            f"Stage 4 block `{block_before}` did not submit `validate_model` before the turn ended"
-        )
-    return outcome
-
-
 def _summarize_names(names: list[str], *, limit: int = 8) -> str:
     """Render a compact preview of names."""
     if not names:
@@ -586,36 +660,26 @@ def _enabled_block_tool_names(
     return tuple(enabled)
 
 
-def _filter_distribution_cards(
-    distribution_cards: list[dict[str, Any]],
-    block: Stage4FrontierBlock,
+def _filter_cards(
+    items: list[dict[str, Any]],
+    key: str,
+    wanted_names: tuple[str, ...],
 ) -> list[dict[str, Any]]:
-    wanted = set(block.variable_names)
-    return [card for card in distribution_cards if card["variable"] in wanted]
+    """Filter a list of card dicts to those whose *key* is in *wanted_names*."""
+    wanted = set(wanted_names)
+    return [item for item in items if item[key] in wanted]
 
 
-def _filter_loading_params(
-    loading_params: list[dict[str, Any]],
-    block: Stage4FrontierBlock,
-) -> list[dict[str, Any]]:
-    wanted = set(block.parameter_names)
-    return [param for param in loading_params if param["name"] in wanted]
-
-
-def _filter_construct_scale_cards(
-    construct_scale_cards: list[dict[str, Any]],
-    block: Stage4FrontierBlock,
-) -> list[dict[str, Any]]:
-    wanted = set(block.construct_names)
-    return [card for card in construct_scale_cards if card["construct"] in wanted]
-
-
-def _filter_prior_cards(
-    prior_cards: list[dict[str, Any]],
-    block: Stage4FrontierBlock,
-) -> list[dict[str, Any]]:
-    wanted = set(block.parameter_names)
-    return [card for card in prior_cards if card["parameter"] in wanted]
+def _active_prior_parameter_names(runtime: Stage4Runtime) -> set[str] | None:
+    """Return the locked active prior surface, or ``None`` before model lock."""
+    model_spec = runtime.accepted.model_spec
+    if not isinstance(model_spec, dict):
+        return None
+    return {
+        str(parameter["name"])
+        for parameter in (model_spec.get("parameters") or [])
+        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
+    }
 
 
 def _filter_model_topology(
@@ -666,393 +730,42 @@ def _visible_block_section(
     return items
 
 
-def _default_stage4_feedback() -> str:
-    """Default feedback shown before the first submission for a block."""
-    return "No validator feedback yet. Submit the active block only."
-
-
-def _block_is_accepted(runtime: Stage4Runtime, block_id: str) -> bool:
-    """Whether a block is currently accepted in runtime state."""
-    return runtime.block_status.get(block_id) == "accepted"
-
-
-def _phase_for_block_kind(kind: str) -> str:
-    """Project one authored block kind onto the public Stage 4 phase labels."""
-    if kind == "indicator_decision":
-        return "model_decisions"
-    if kind == "global_review":
-        return "global_review"
-    if kind == "global_prior_review":
-        return "global_prior_review"
-    return "prior_blocks"
-
-
-def _set_block_cursor(
-    runtime: Stage4Runtime,
-    block: Stage4FrontierBlock,
-) -> None:
-    """Move the execution cursor onto one promptable Stage 4 block."""
-    runtime.cursor = Stage4BlockCursor(block_id=block.id)
-
-
-def _set_model_spec_lock_cursor(
-    runtime: Stage4Runtime,
+def _build_validation_packet_for_block(
     *,
-    reason: str,
-) -> None:
-    """Move the execution cursor into model-spec-lock pending state."""
-    runtime.cursor = Stage4ModelSpecLockPendingCursor(reason=reason)
-
-
-def _set_repair_barrier_cursor(
-    runtime: Stage4Runtime,
-    *,
-    reason: str,
-    scope_block_ids: tuple[str, ...],
-) -> None:
-    """Move the execution cursor into repair-barrier pending state."""
-    runtime.cursor = Stage4RepairBarrierCursor(
-        reason=reason,
-        scope_block_ids=scope_block_ids,
+    block: Stage4FrontierBlock | None,
+    status: Stage4ValidationStatus,
+    feedback: str,
+    validation: AssemblyValidation | None = None,
+    changed_parameters: tuple[str, ...] = (),
+    state_retained: bool = False,
+    retain_for_next_prompt: bool = True,
+    capture_stage_output: bool = False,
+) -> Stage4ValidationPacket:
+    """Build the typed validation packet owned by the reducer."""
+    return make_stage4_validation_packet(
+        status=status,
+        feedback=feedback,
+        validation=validation,
+        active_scope_id=None if block is None else block.id,
+        changed_parameters=changed_parameters,
+        state_retained=state_retained,
+        retain_for_next_prompt=retain_for_next_prompt,
+        capture_stage_output=capture_stage_output,
     )
-
-
-def _set_done_cursor(runtime: Stage4Runtime) -> None:
-    """Move the execution cursor to the terminal Stage 4 state."""
-    runtime.cursor = Stage4DoneCursor()
-
-
-def _scope_phase(
-    plan: Stage4Plan,
-    block_ids: tuple[str, ...],
-) -> str:
-    """Infer the public phase label for a structural repair scope."""
-    for block_id in block_ids:
-        block = plan.get_block(block_id)
-        if block is not None:
-            return _phase_for_block_kind(block.kind)
-    return "prior_blocks"
-
-
-def get_active_plan_block(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-) -> Stage4FrontierBlock | None:
-    """Return the current active authored block from explicit runtime state."""
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4BlockCursor):
-        return plan.get_block(cursor.block_id)
-    if isinstance(
-        cursor, (Stage4ModelSpecLockPendingCursor, Stage4RepairBarrierCursor, Stage4DoneCursor)
-    ):
-        return None
-    return None
-
-
-def get_active_prompt_block(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-) -> Stage4FrontierBlock | None:
-    """Return the current prompt block, including repair-scope prompt overrides."""
-    block = get_active_plan_block(plan, runtime)
-    if block is None:
-        return None
-    campaign = runtime.repair_campaign
-    if campaign is None:
-        return block
-    return campaign.prompt_blocks_by_id.get(block.id, block)
-
-
-def _pending_repair_campaign_block_ids(
-    campaign: Stage4RepairCampaignState,
-) -> tuple[str, ...]:
-    """Return the ordered pending block ids for an active repair campaign."""
-    return tuple(
-        block_id
-        for block_id in campaign.scope_block_ids
-        if block_id not in campaign.completed_block_ids
-    )
-
-
-def get_stage4_phase(
-    runtime: Stage4Runtime,
-    *,
-    plan: Stage4Plan | None = None,
-) -> str:
-    """Return the current Stage 4 runtime phase."""
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4DoneCursor):
-        return "done"
-    if isinstance(cursor, Stage4BlockCursor):
-        if plan is None:
-            raise ValueError("Stage 4 phase derivation for block cursors requires the plan")
-        block = plan.get_block(cursor.block_id)
-        if block is None:
-            raise ValueError(f"Unknown Stage 4 block id {cursor.block_id!r}")
-        return _phase_for_block_kind(block.kind)
-    if isinstance(cursor, Stage4ModelSpecLockPendingCursor):
-        return "model_decisions"
-    if isinstance(cursor, Stage4RepairBarrierCursor):
-        if plan is None:
-            raise ValueError("Stage 4 phase derivation for repair barriers requires the plan")
-        return _scope_phase(plan, cursor.scope_block_ids)
-    raise ValueError(f"Unknown Stage 4 cursor {cursor!r}")
-
-
-def project_stage4_graph(plan: Stage4Plan) -> dict[str, Any]:
-    """Project the static Stage 4 graph topology from the immutable plan.
-
-    Returns a JSON-serializable dict with ``nodes``, ``edges``, and ``phases``
-    suitable for the web UI's React Flow renderer. Repair routing is condensed:
-    the graph shows the repair barrier and whole-system prior review path
-    without expanding every possible reopened subset.
-    """
-    nodes: list[dict[str, str]] = []
-    edges: list[dict[str, str]] = []
-    prev_id: str | None = None
-
-    # Model blocks
-    for block in plan.model_blocks:
-        nodes.append(
-            {"id": block.id, "kind": block.kind, "label": block.label, "phase": "model_decisions"}
-        )
-        if prev_id is not None:
-            edges.append({"from": prev_id, "to": block.id, "kind": "forward"})
-        prev_id = block.id
-
-    # Synthetic lock node
-    lock_id = "__lock__"
-    nodes.append(
-        {
-            "id": lock_id,
-            "kind": "model_spec_lock",
-            "label": "Lock Model Spec",
-            "phase": "model_decisions",
-        }
-    )
-    if prev_id is not None:
-        edges.append({"from": prev_id, "to": lock_id, "kind": "phase_advance"})
-
-    # Review block
-    if plan.review_block is not None:
-        nodes.append(
-            {
-                "id": plan.review_block.id,
-                "kind": plan.review_block.kind,
-                "label": plan.review_block.label,
-                "phase": "global_review",
-            }
-        )
-        edges.append({"from": lock_id, "to": plan.review_block.id, "kind": "phase_advance"})
-        prev_id = plan.review_block.id
-    else:
-        prev_id = lock_id
-
-    # Prior blocks
-    for i, block in enumerate(plan.prior_blocks):
-        nodes.append(
-            {"id": block.id, "kind": block.kind, "label": block.label, "phase": "prior_blocks"}
-        )
-        if i == 0:
-            edges.append({"from": prev_id, "to": block.id, "kind": "phase_advance"})
-        else:
-            edges.append({"from": plan.prior_blocks[i - 1].id, "to": block.id, "kind": "forward"})
-
-    last_prior_id = plan.prior_blocks[-1].id if plan.prior_blocks else prev_id
-
-    # Prior review block (activated either directly from prior validation
-    # failures or from the repair barrier after a multi-block campaign).
-    if plan.prior_review_block is not None:
-        nodes.append(
-            {
-                "id": plan.prior_review_block.id,
-                "kind": plan.prior_review_block.kind,
-                "label": plan.prior_review_block.label,
-                "phase": "global_prior_review",
-            }
-        )
-        if last_prior_id is not None:
-            edges.append(
-                {
-                    "from": last_prior_id,
-                    "to": plan.prior_review_block.id,
-                    "kind": "repair_transition",
-                }
-            )
-
-    # Synthetic repair barrier node
-    repair_barrier_id = "__repair_barrier__"
-    nodes.append(
-        {
-            "id": repair_barrier_id,
-            "kind": "repair_barrier",
-            "label": "Validate Repair Scope",
-            "phase": "prior_blocks",
-        }
-    )
-    if plan.prior_blocks and last_prior_id is not None:
-        edges.append({"from": last_prior_id, "to": repair_barrier_id, "kind": "repair_transition"})
-    if plan.prior_review_block is not None:
-        edges.append(
-            {
-                "from": repair_barrier_id,
-                "to": plan.prior_review_block.id,
-                "kind": "repair_transition",
-            }
-        )
-
-    # Done node
-    done_id = "__done__"
-    nodes.append({"id": done_id, "kind": "done", "label": "Done", "phase": "done"})
-    edges.append({"from": last_prior_id, "to": done_id, "kind": "phase_advance"})
-    edges.append({"from": repair_barrier_id, "to": done_id, "kind": "repair_transition"})
-    if plan.prior_review_block is not None:
-        edges.append({"from": plan.prior_review_block.id, "to": done_id, "kind": "phase_advance"})
-
-    phases = [
-        {"id": "model_decisions", "label": "Model Decisions"},
-        {"id": "global_review", "label": "Global Review"},
-        {"id": "prior_blocks", "label": "Prior Elicitation"},
-        {"id": "global_prior_review", "label": "Prior Review"},
-        {"id": "done", "label": "Complete"},
-    ]
-
-    return {"nodes": nodes, "edges": edges, "phases": phases}
-
-
-def project_stage4_snapshot(plan: Stage4Plan, runtime: Stage4Runtime) -> dict[str, Any]:
-    """Project a JSON-serializable Stage 4 runtime snapshot for the web UI."""
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4BlockCursor):
-        cursor_dict: dict[str, Any] = {"kind": "block", "block_id": cursor.block_id}
-    elif isinstance(cursor, Stage4ModelSpecLockPendingCursor):
-        cursor_dict = {"kind": "model_spec_lock"}
-    elif isinstance(cursor, Stage4RepairBarrierCursor):
-        cursor_dict = {"kind": "repair_barrier", "scope_block_ids": list(cursor.scope_block_ids)}
-    elif isinstance(cursor, Stage4DoneCursor):
-        cursor_dict = {"kind": "done"}
-    else:
-        cursor_dict = {"kind": "unknown"}
-
-    campaign = runtime.repair_campaign
-    repair_dict: dict[str, Any] | None = None
-    if campaign is not None:
-        repair_dict = {
-            "scope_kind": campaign.scope_kind,
-            "scope_block_ids": list(campaign.scope_block_ids),
-            "completed_block_ids": list(campaign.completed_block_ids),
-        }
-
-    return {
-        "cursor": cursor_dict,
-        "block_status": dict(runtime.block_status),
-        "model_spec_locked": runtime.accepted.model_spec is not None,
-        "repair_campaign": repair_dict,
-        "phase": get_stage4_phase(runtime, plan=plan),
-    }
-
-
-def project_stage4_initial_state(causal_spec: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Build the initial Stage 4 graph and snapshot before agent startup work begins."""
-    skeleton = derive_deterministic_spec(causal_spec)
-    plan = build_stage4_plan(causal_spec, skeleton)
-    runtime = make_stage4_runtime(plan)
-    return project_stage4_graph(plan), project_stage4_snapshot(plan, runtime)
-
-
-def _next_pending_block(
-    blocks: tuple[Stage4FrontierBlock, ...],
-    runtime: Stage4Runtime,
-) -> Stage4FrontierBlock | None:
-    """Return the next pending block in deterministic order."""
-    for block in blocks:
-        if not _block_is_accepted(runtime, block.id):
-            return block
-    return None
-
-
-def _activate_model_phase(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Set runtime to the next pending model-decision block, if any."""
-    next_block = _next_pending_block(plan.model_blocks, runtime)
-    if next_block is None:
-        _set_model_spec_lock_cursor(
-            runtime,
-            reason="model decisions accepted; awaiting model_spec lock",
-        )
-        return
-    _set_block_cursor(runtime, next_block)
-
-
-def _activate_review_phase(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Set runtime to the compact global-review block, if pending."""
-    review_block = plan.review_block
-    if review_block is None or _block_is_accepted(runtime, review_block.id):
-        _activate_prior_phase(plan, runtime)
-        return
-    _set_block_cursor(runtime, review_block)
-
-
-def _activate_prior_phase(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Set runtime to the next pending prior block, or mark Stage 4 done."""
-    next_block = _next_pending_block(plan.prior_blocks, runtime)
-    if next_block is None:
-        _set_done_cursor(runtime)
-        return
-    _set_block_cursor(runtime, next_block)
-
-
-def _mark_blocks_reopened(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    block_ids: tuple[str, ...],
-) -> None:
-    """Move runtime back to one or more reopened blocks."""
-    if not block_ids:
-        return
-
-    blocks: list[Stage4FrontierBlock] = []
-    for block_id in block_ids:
-        block = plan.get_block(block_id)
-        if block is None:
-            raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
-        blocks.append(block)
-
-    if any(block.kind == "indicator_decision" for block in blocks) and (
-        plan.review_block is not None
-    ):
-        runtime.block_status[plan.review_block.id] = "pending"
-
-    for block_id in block_ids:
-        runtime.block_status[block_id] = "reopened"
-
-    active_block = blocks[0]
-    _set_block_cursor(runtime, active_block)
-
-
-def _advance_after_block_acceptance(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    block: Stage4FrontierBlock,
-) -> None:
-    """Advance runtime after a block has been accepted."""
-    if block.kind == "indicator_decision":
-        _activate_model_phase(plan, runtime)
-        return
-    if block.kind == "global_review":
-        _activate_prior_phase(plan, runtime)
-        return
-    if block.kind == "global_prior_review":
-        _set_done_cursor(runtime)
-        return
-    _activate_prior_phase(plan, runtime)
-
-
 def _count_accepted_blocks(
     blocks: tuple[Stage4FrontierBlock, ...],
     runtime: Stage4Runtime,
 ) -> int:
     """Count accepted blocks in a deterministic block family."""
     return sum(_block_is_accepted(runtime, block.id) for block in blocks)
+
+
+def _count_reachable_blocks(
+    blocks: tuple[Stage4FrontierBlock, ...],
+    runtime: Stage4Runtime,
+) -> int:
+    """Count non-inactive blocks in a deterministic block family."""
+    return sum(runtime.block_status.get(block.id) != "inactive" for block in blocks)
 
 
 def _format_plan_status(
@@ -1077,7 +790,11 @@ def _format_plan_status(
             )
             + "`"
         ),
-        f"- prior blocks accepted: `{_count_accepted_blocks(plan.prior_blocks, runtime)}/{len(plan.prior_blocks)}`",
+        (
+            "- prior blocks accepted: `"
+            f"{_count_accepted_blocks(plan.prior_blocks, runtime)}/"
+            f"{_count_reachable_blocks(plan.prior_blocks, runtime)}`"
+        ),
         (
             "- prior-system review: `"
             + (
@@ -1130,11 +847,6 @@ def _format_plan_status(
     return "\n".join(lines)
 
 
-def _clear_repair_campaign(runtime: Stage4Runtime) -> None:
-    """Clear any active structural repair campaign."""
-    runtime.repair_campaign = None
-
-
 def _format_repair_campaign_feedback(
     repair_plan: ResolvedRepairPlan,
     *,
@@ -1156,29 +868,6 @@ def _format_repair_campaign_feedback(
     return "\n".join(lines)
 
 
-def _merge_best_certificate(
-    current: PriorPathologyCertificate | None,
-    candidate: PriorPathologyCertificate | None,
-) -> PriorPathologyCertificate | None:
-    """Keep the best pathology certificate seen at the current repair scope."""
-    if current is None:
-        return candidate
-    if candidate is None:
-        return current
-    if current.kind != candidate.kind:
-        return candidate
-
-    current_secondary = (
-        current.secondary_score if current.secondary_score is not None else float("inf")
-    )
-    candidate_secondary = (
-        candidate.secondary_score if candidate.secondary_score is not None else float("inf")
-    )
-    current_key = (current.primary_score, current_secondary)
-    candidate_key = (candidate.primary_score, candidate_secondary)
-    return candidate if candidate_key < current_key else current
-
-
 def _parameter_names_for_blocks(
     blocks: tuple[Stage4FrontierBlock, ...],
 ) -> list[str]:
@@ -1192,161 +881,6 @@ def _parameter_names_for_blocks(
             seen.add(parameter_name)
             parameter_names.append(parameter_name)
     return parameter_names
-
-
-def _apply_repair_campaign_progress(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    *,
-    failure_family_key: tuple[Any, ...],
-    scope_kind: str,
-    scope_key: str,
-    scope_rank: int,
-    prompt_blocks: tuple[Stage4FrontierBlock, ...],
-    completed_block_ids: frozenset[str],
-    requires_barrier_validation: bool,
-    attempts_at_scope: int,
-    best_certificate: PriorPathologyCertificate | None,
-) -> None:
-    """Persist repair-campaign state and move the execution cursor accordingly."""
-    scope_block_ids = tuple(block.id for block in prompt_blocks)
-    runtime.repair_campaign = Stage4RepairCampaignState(
-        failure_family_key=failure_family_key,
-        scope_kind=scope_kind,
-        scope_key=scope_key,
-        scope_rank=scope_rank,
-        scope_block_ids=scope_block_ids,
-        prompt_blocks_by_id={block.id: block for block in prompt_blocks},
-        completed_block_ids=completed_block_ids,
-        requires_barrier_validation=requires_barrier_validation,
-        attempts_at_scope=attempts_at_scope,
-        best_certificate=best_certificate,
-    )
-    pending_block_ids = _pending_repair_campaign_block_ids(runtime.repair_campaign)
-    if not pending_block_ids:
-        if not requires_barrier_validation:
-            _clear_repair_campaign(runtime)
-            return
-        _set_repair_barrier_cursor(
-            runtime,
-            reason=f"repair barrier pending for `{scope_key}`",
-            scope_block_ids=scope_block_ids,
-        )
-        return
-
-    next_block = plan.get_block(pending_block_ids[0])
-    if next_block is None:
-        raise ValueError(f"Unknown Stage 4 block id {pending_block_ids[0]!r}")
-    _set_block_cursor(runtime, next_block)
-
-
-def _start_repair_campaign(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    repair_plan: ResolvedRepairPlan,
-    *,
-    accepted_block_id: str | None,
-) -> None:
-    """Start or widen one deterministic structural repair campaign."""
-    current = runtime.repair_campaign
-    attempts_at_scope = 1
-    best_certificate = repair_plan.pathology_certificate
-    if (
-        current is not None
-        and current.failure_family_key == repair_plan.failure_family
-        and current.scope_key == repair_plan.scope_key
-    ):
-        attempts_at_scope = current.attempts_at_scope + 1
-        best_certificate = _merge_best_certificate(
-            current.best_certificate,
-            repair_plan.pathology_certificate,
-        )
-
-    completed_block_ids = frozenset(
-        ()
-        if accepted_block_id is None or accepted_block_id not in repair_plan.block_ids
-        else (accepted_block_id,)
-    )
-
-    if (
-        any(
-            (block := plan.get_block(block_id)) is not None and block.kind == "indicator_decision"
-            for block_id in repair_plan.block_ids
-        )
-        and plan.review_block is not None
-    ):
-        runtime.block_status[plan.review_block.id] = "pending"
-
-    for block_id in repair_plan.block_ids:
-        if block_id == accepted_block_id:
-            continue
-        runtime.block_status[block_id] = "reopened"
-
-    _apply_repair_campaign_progress(
-        plan,
-        runtime,
-        failure_family_key=repair_plan.failure_family,
-        scope_kind=repair_plan.scope_kind,
-        scope_key=repair_plan.scope_key,
-        scope_rank=repair_plan.scope_rank,
-        prompt_blocks=repair_plan.prompt_blocks,
-        completed_block_ids=completed_block_ids,
-        requires_barrier_validation=repair_plan.requires_barrier_validation,
-        attempts_at_scope=attempts_at_scope,
-        best_certificate=best_certificate,
-    )
-
-
-def _advance_repair_campaign_after_acceptance(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    accepted_block_id: str,
-) -> bool:
-    """Advance the active repair campaign after one block is accepted."""
-    campaign = runtime.repair_campaign
-    pending_block_ids = () if campaign is None else _pending_repair_campaign_block_ids(campaign)
-    if campaign is None or accepted_block_id not in pending_block_ids:
-        return False
-
-    completed_block_ids = frozenset((*campaign.completed_block_ids, accepted_block_id))
-    if (
-        len(completed_block_ids) == len(campaign.scope_block_ids)
-        and not campaign.requires_barrier_validation
-    ):
-        _clear_repair_campaign(runtime)
-        accepted_block = plan.get_block(accepted_block_id)
-        if accepted_block is None:
-            raise ValueError(f"Unknown Stage 4 block id {accepted_block_id!r}")
-        _advance_after_block_acceptance(plan, runtime, accepted_block)
-        return True
-    _apply_repair_campaign_progress(
-        plan,
-        runtime,
-        failure_family_key=campaign.failure_family_key,
-        scope_kind=campaign.scope_kind,
-        scope_key=campaign.scope_key,
-        scope_rank=campaign.scope_rank,
-        prompt_blocks=tuple(
-            campaign.prompt_blocks_by_id[block_id] for block_id in campaign.scope_block_ids
-        ),
-        completed_block_ids=completed_block_ids,
-        requires_barrier_validation=campaign.requires_barrier_validation,
-        attempts_at_scope=campaign.attempts_at_scope,
-        best_certificate=campaign.best_certificate,
-    )
-    return True
-
-
-def _uses_repair_campaign(repair_plan: ResolvedRepairPlan) -> bool:
-    """Whether a reopened scope should be managed as a structural repair campaign."""
-    return repair_plan.scope_kind in {
-        "direct_writer_blocks",
-        "local_drift_motif",
-        "reciprocal_pair",
-        "scc_drift_subsystem",
-        "validator_scope",
-        "global_prior_review",
-    }
 
 
 def _validate_submission_envelope(
@@ -1528,87 +1062,40 @@ def _example_prior_payload(prior_card: dict[str, Any]) -> dict[str, Any]:
     constraint = str(prior_card.get("constraint") or "")
 
     if role == "ar_coefficient" or constraint == "unit_interval":
-        return {
-            "parameter": parameter,
-            "distribution": "Beta",
-            "params": {"alpha": 2.0, "beta": 2.0},
-            "sources": [],
-            "reasoning": "Example only: unit-interval persistence prior for the active AR parameter.",
-        }
-    if role == "fixed_effect":
-        return {
-            "parameter": parameter,
-            "distribution": "Normal",
-            "params": {"mu": 0.0, "sigma": 0.2},
-            "sources": [],
-            "reasoning": "Example only: conservative zero-centered lagged-effect prior for the active edge.",
-        }
-    if role == "initial_state_mean":
-        return {
-            "parameter": parameter,
-            "distribution": "Normal",
-            "params": {"mu": 0.0, "sigma": 1.0},
-            "sources": [],
-            "reasoning": (
-                "Example only: weakly informative latent-scale initial-state mean; do not copy "
-                "raw indicator means or log-means unless the construct is explicitly identified "
-                "on that observed scale."
-            ),
-        }
-    if role in {"residual_sd", "initial_state_sd", "static_state_sd"}:
-        return {
-            "parameter": parameter,
-            "distribution": "HalfNormal",
-            "params": {"sigma": 1.0},
-            "sources": [],
-            "reasoning": "Example only: positive scale prior for the active latent-variance parameter.",
-        }
-    if role == "loading":
-        if constraint == "negative":
-            return {
-                "parameter": parameter,
-                "distribution": "TruncatedNormal",
-                "params": {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0},
-                "sources": [],
-                "reasoning": "Example only: negative loading prior consistent with the locked indicator polarity.",
-            }
-        return {
-            "parameter": parameter,
-            "distribution": "HalfNormal",
-            "params": {"sigma": 1.0},
-            "sources": [],
-            "reasoning": "Example only: positive loading prior consistent with the locked indicator polarity.",
-        }
-    if role in {"correlation", "initial_state_correlation"} or constraint == "correlation":
-        return {
-            "parameter": parameter,
-            "distribution": "TruncatedNormal",
-            "params": {"mu": 0.0, "sigma": 0.3, "lower": -1.0, "upper": 1.0},
-            "sources": [],
-            "reasoning": "Example only: bounded correlation prior centered at zero.",
-        }
-    if constraint == "positive":
-        return {
-            "parameter": parameter,
-            "distribution": "HalfNormal",
-            "params": {"sigma": 1.0},
-            "sources": [],
-            "reasoning": "Example only: positive scale prior for the active parameter.",
-        }
-    if constraint == "negative":
-        return {
-            "parameter": parameter,
-            "distribution": "TruncatedNormal",
-            "params": {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0},
-            "sources": [],
-            "reasoning": "Example only: negative prior consistent with the active parameter constraint.",
-        }
+        dist, params, reason = "Beta", {"alpha": 2.0, "beta": 2.0}, "unit-interval persistence prior for the active AR parameter."
+    elif role == "fixed_effect":
+        dist, params, reason = "Normal", {"mu": 0.0, "sigma": 0.2}, "conservative zero-centered lagged-effect prior for the active edge."
+    elif role == "initial_state_mean":
+        dist, params, reason = "Normal", {"mu": 0.0, "sigma": 1.0}, (
+            "weakly informative latent-scale initial-state mean; do not copy "
+            "raw indicator means or log-means unless the construct is explicitly identified "
+            "on that observed scale."
+        )
+    elif role in {"residual_sd", "initial_state_sd", "static_state_sd", "measurement_error_sd"}:
+        dist, params, reason = "HalfNormal", {"sigma": 1.0}, "positive scale prior for the active variance or measurement-noise parameter."
+    elif role == "observation_hyperparameter_positive":
+        dist, params, reason = "Gamma", {"concentration": 5.0, "rate": 1.0}, "positive observation-family hyperparameter prior."
+    elif role == "observation_hyperparameter":
+        dist, params, reason = "Normal", {"mu": 0.0, "sigma": 1.0}, "real-valued observation-family hyperparameter prior."
+    elif role == "loading" and constraint == "negative":
+        dist, params, reason = "TruncatedNormal", {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0}, "negative loading prior consistent with the locked indicator polarity."
+    elif role == "loading":
+        dist, params, reason = "HalfNormal", {"sigma": 1.0}, "positive loading prior consistent with the locked indicator polarity."
+    elif role in {"correlation", "initial_state_correlation"} or constraint == "correlation":
+        dist, params, reason = "TruncatedNormal", {"mu": 0.0, "sigma": 0.3, "lower": -1.0, "upper": 1.0}, "bounded correlation prior centered at zero."
+    elif constraint == "positive":
+        dist, params, reason = "HalfNormal", {"sigma": 1.0}, "positive scale prior for the active parameter."
+    elif constraint == "negative":
+        dist, params, reason = "TruncatedNormal", {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0}, "negative prior consistent with the active parameter constraint."
+    else:
+        dist, params, reason = "Normal", {"mu": 0.0, "sigma": 1.0}, "weakly informative unconstrained prior for the active parameter."
+
     return {
         "parameter": parameter,
-        "distribution": "Normal",
-        "params": {"mu": 0.0, "sigma": 1.0},
+        "distribution": dist,
+        "params": params,
         "sources": [],
-        "reasoning": "Example only: weakly informative unconstrained prior for the active parameter.",
+        "reasoning": f"Example only: {reason}",
     }
 
 
@@ -1625,11 +1112,7 @@ def _prior_submission_example(
     return {
         "block_id": block.id,
         "block_kind": block.kind,
-        "proposal": {
-            "priors": {
-                parameter: prior_payload
-            }
-        },
+        "proposal": {"priors": {parameter: prior_payload}},
     }
 
 
@@ -1659,39 +1142,30 @@ def _prior_review_submission_example(
 
 
 def _format_submission_example(
-    handler: Stage4BlockHandler | None,
     block: Stage4FrontierBlock,
     *,
     prior_cards: list[dict[str, Any]] | None = None,
     fallback_submission_example: str | None = None,
 ) -> str:
     """Render a block-local `validate_model` example payload."""
-    if handler is not None and handler.kind == "indicator_decision":
+    if block.kind == "indicator_decision":
         example = _indicator_submission_example(block)
-    elif handler is not None and handler.kind == "global_review":
+    elif block.kind == "global_review":
         example = _global_review_submission_example(block)
-    elif handler is not None and handler.kind == "global_prior_review":
+    elif block.kind == "global_prior_review":
         example = _prior_review_submission_example(block, prior_cards=prior_cards or [])
+    elif block.kind in {
+        "measurement_prior",
+        "observation_prior",
+        "dynamics_prior",
+        "effect_prior",
+        "correlation_prior",
+    }:
+        example = _prior_submission_example(block, prior_cards=prior_cards or [])
+    elif fallback_submission_example is not None:
+        return fallback_submission_example
     else:
-        if block.kind == "indicator_decision":
-            example = _indicator_submission_example(block)
-        elif block.kind == "global_review":
-            example = _global_review_submission_example(block)
-        elif block.kind == "global_prior_review":
-            example = _prior_submission_example(block, prior_cards=prior_cards or [])
-            example["block_kind"] = "global_prior_review"
-            example["block_id"] = block.id
-        elif block.kind in {
-            "measurement_prior",
-            "dynamics_prior",
-            "effect_prior",
-            "correlation_prior",
-        }:
-            example = _prior_submission_example(block, prior_cards=prior_cards or [])
-        elif fallback_submission_example is not None:
-            return fallback_submission_example
-        else:
-            raise ValueError(f"Unsupported Stage 4 block kind {block.kind!r}")
+        raise ValueError(f"Unsupported Stage 4 block kind {block.kind!r}")
     return "```json\n" + json.dumps(example, indent=2) + "\n```"
 
 
@@ -1770,6 +1244,7 @@ def _make_stage4_accepted_transition(
     priors = normalized.get("priors")
     if block.kind in {
         "measurement_prior",
+        "observation_prior",
         "dynamics_prior",
         "effect_prior",
         "correlation_prior",
@@ -1810,18 +1285,134 @@ def _all_model_blocks_accepted(plan: Stage4Plan, runtime: Stage4Runtime) -> bool
     return all(_block_is_accepted(runtime, block.id) for block in plan.model_blocks)
 
 
-def _next_pending_after(
-    blocks: tuple[Stage4FrontierBlock, ...],
+
+
+def _make_stage4_block_accepted_event(
+    block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+    *,
+    stage_output: dict[str, Any] | None = None,
+) -> Stage4BlockAcceptedEvent:
+    """Build the explicit reducer event for one accepted block."""
+    distribution_choice = normalized.get("distribution_choice")
+    if not isinstance(distribution_choice, dict):
+        distribution_choice = None
+    return Stage4BlockAcceptedEvent(
+        block_id=block.id,
+        transition_payload=_make_stage4_accepted_transition(block, normalized),
+        distribution_choice=distribution_choice,
+        stage_output=stage_output,
+    )
+
+
+def _make_stage4_repair_planned_event(
+    repair_plan: ResolvedRepairPlan,
+    *,
+    accepted_block_event: Stage4BlockAcceptedEvent | None = None,
+) -> Stage4RepairPlannedEvent:
+    """Build the explicit reducer event for a routed repair plan."""
+    return Stage4RepairPlannedEvent(
+        repair_plan=repair_plan,
+        accepted_block_id=None if accepted_block_event is None else accepted_block_event.block_id,
+        accepted_transition_payload=(
+            None if accepted_block_event is None else accepted_block_event.transition_payload
+        ),
+        distribution_choice=(
+            None if accepted_block_event is None else accepted_block_event.distribution_choice
+        ),
+        stage_output=None if accepted_block_event is None else accepted_block_event.stage_output,
+    )
+
+
+def _apply_stage4_event(
+    plan: Stage4Plan,
     runtime: Stage4Runtime,
-    accepted_block_id: str,
-) -> Stage4FrontierBlock | None:
-    """Return the next pending block after accepting the given block."""
-    for block in blocks:
-        if block.id == accepted_block_id:
-            continue
-        if not _block_is_accepted(runtime, block.id):
-            return block
-    return None
+    event: Stage4ReducerEvent,
+) -> tuple[dict[str, Any], ...]:
+    """Apply one typed Stage 4 reducer event."""
+    if isinstance(event, Stage4AcceptedStatePersistedEvent):
+        _persist_stage4_stage_output(runtime, event.stage_output)
+        return ()
+
+    if isinstance(event, Stage4BlockAcceptedEvent):
+        if event.distribution_choice is not None:
+            runtime.decisions.distribution_choices[event.distribution_choice["variable"]] = (
+                event.distribution_choice
+            )
+        if event.stage_output is not None:
+            _persist_stage4_stage_output(runtime, event.stage_output)
+        runtime.block_status[event.block_id] = "accepted"
+        transitions = (
+            ()
+            if event.transition_payload is None
+            else (event.transition_payload,)
+        )
+        apply_stage4_block_acceptance(plan, runtime, event.block_id)
+        return transitions
+
+    if isinstance(event, Stage4RepairPlannedEvent):
+        if event.distribution_choice is not None:
+            runtime.decisions.distribution_choices[event.distribution_choice["variable"]] = (
+                event.distribution_choice
+            )
+        if event.stage_output is not None:
+            _persist_stage4_stage_output(runtime, event.stage_output)
+        if event.accepted_block_id is not None:
+            runtime.block_status[event.accepted_block_id] = "accepted"
+        transitions = list(
+            _make_stage4_reopened_transitions(
+                event.repair_plan,
+                accepted_block_id=event.accepted_block_id,
+            )
+        )
+        if event.accepted_transition_payload is not None:
+            transitions.insert(0, event.accepted_transition_payload)
+        apply_stage4_repair_plan(
+            plan,
+            runtime,
+            event.repair_plan,
+            accepted_block_id=event.accepted_block_id,
+        )
+        return tuple(transitions)
+
+    if isinstance(event, Stage4BarrierValidationPassedEvent):
+        apply_stage4_barrier_validation_success(plan, runtime)
+        packet = event.success_packet
+        if not event.success_packet.retain_for_next_prompt:
+            representative_block = plan.get_block(event.representative_block_id)
+            if representative_block is None:
+                raise ValueError(
+                    "Unknown Stage 4 representative block "
+                    f"{event.representative_block_id!r} after barrier validation"
+                )
+            packet = _build_validation_packet_for_block(
+                block=representative_block,
+                status="accepted",
+                feedback=_format_block_saved_feedback(
+                    representative_block,
+                    get_active_plan_block(plan, runtime),
+                ),
+                retain_for_next_prompt=True,
+                capture_stage_output=False,
+            )
+        runtime.last_validation_packet = (
+            packet if should_store_stage4_validation_packet(packet) else None
+        )
+        return ()
+
+    raise TypeError(f"Unsupported Stage 4 reducer event {event!r}")
+
+
+def _apply_stage4_events(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    events: tuple[Stage4ReducerEvent, ...],
+) -> tuple[dict[str, Any], ...]:
+    """Apply a sequence of typed Stage 4 reducer events."""
+    transitions: list[dict[str, Any]] = []
+    for event in events:
+        transitions.extend(_apply_stage4_event(plan, runtime, event))
+    return tuple(transitions)
 
 
 def _apply_stage4_step_result(
@@ -1830,50 +1421,13 @@ def _apply_stage4_step_result(
     result: Stage4StepResult,
 ) -> tuple[dict[str, Any], ...]:
     """Apply a reducer transition result in one place."""
-    transitions: list[dict[str, Any]] = []
-
-    if result.distribution_choice is not None:
-        choice = result.distribution_choice
-        runtime.decisions.distribution_choices[choice["variable"]] = choice
-
-    if result.persist_stage_output:
-        _persist_stage4_stage_output(runtime, result.stage_output)
-
-    if result.accepted_block_id is not None:
-        runtime.block_status[result.accepted_block_id] = "accepted"
-    if result.accepted_transition is not None:
-        transitions.append(result.accepted_transition)
-    if result.repair_plan is not None and result.repair_plan.block_ids:
-        transitions.extend(
-            _make_stage4_reopened_transitions(
-                result.repair_plan,
-                accepted_block_id=result.accepted_block_id,
-            )
-        )
-        if _uses_repair_campaign(result.repair_plan):
-            _start_repair_campaign(
-                plan,
-                runtime,
-                result.repair_plan,
-                accepted_block_id=result.accepted_block_id,
-            )
-        else:
-            _clear_repair_campaign(runtime)
-            _mark_blocks_reopened(plan, runtime, result.repair_plan.block_ids)
-    elif result.accepted_block_id is not None:
-        handled_by_campaign = _advance_repair_campaign_after_acceptance(
-            plan,
-            runtime,
-            result.accepted_block_id,
-        )
-        if not handled_by_campaign:
-            accepted_block = plan.get_block(result.accepted_block_id)
-            if accepted_block is None:
-                raise ValueError(f"Unknown Stage 4 block id {result.accepted_block_id!r}")
-            _advance_after_block_acceptance(plan, runtime, accepted_block)
-    if result.feedback is not None:
-        runtime.last_feedback = None if result.feedback == "VALID" else result.feedback
-    return tuple(transitions)
+    transitions = _apply_stage4_events(plan, runtime, result.events)
+    runtime.last_validation_packet = (
+        result.validation_packet
+        if should_store_stage4_validation_packet(result.validation_packet)
+        else None
+    )
+    return transitions
 
 
 def _apply_indicator_submission(
@@ -1886,15 +1440,354 @@ def _apply_indicator_submission(
 ) -> Stage4StepResult:
     """Apply one indicator-distribution decision."""
     del deps
-    return Stage4StepResult(
-        feedback=_format_block_saved_feedback(
-            active_block,
-            _next_pending_after(plan.model_blocks, runtime, active_block.id),
-        ),
-        accepted_block_id=active_block.id,
-        distribution_choice=normalized["distribution_choice"],
-        accepted_transition=_make_stage4_accepted_transition(active_block, normalized),
+    feedback = _format_block_saved_feedback(
+        active_block,
+        _next_pending_block(plan.model_blocks, runtime, skip_id=active_block.id),
     )
+    return Stage4StepResult(
+        validation_packet=_build_validation_packet_for_block(
+            block=active_block,
+            status="accepted",
+            feedback=feedback,
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
+        ),
+        events=(_make_stage4_block_accepted_event(active_block, normalized),),
+    )
+
+
+def _build_prior_campaign_context(
+    runtime: Stage4Runtime,
+    active_block: Stage4FrontierBlock,
+) -> _Stage4PriorCampaignContext:
+    """Project the active repair-campaign context for one prior submission."""
+    campaign = runtime.repair_campaign
+    pending_block_ids = () if campaign is None else _pending_repair_campaign_block_ids(campaign)
+    in_active_campaign = campaign is not None and active_block.id in pending_block_ids
+    final_campaign_block = (
+        in_active_campaign and campaign is not None and pending_block_ids == (active_block.id,)
+    )
+    return _Stage4PriorCampaignContext(
+        campaign=campaign,
+        pending_block_ids=pending_block_ids,
+        in_active_campaign=in_active_campaign,
+        final_campaign_block=final_campaign_block,
+    )
+
+
+def _ground_prior_submission(
+    *,
+    runtime: Stage4Runtime,
+    normalized: dict[str, Any],
+    deps: Stage4Deps,
+    campaign_context: _Stage4PriorCampaignContext,
+) -> _Stage4PriorSubmissionState:
+    """Ground one prior bundle against the current accepted Stage 4 state."""
+    grounding_result = deps.grounding_fn(
+        {"priors": normalized["priors"]},
+        deps.causal_spec,
+        current=runtime.accepted.as_current(),
+        data_for_model=deps.data_for_model,
+        indicator_audits=deps.indicator_audits,
+        skip_ppc=bool(
+            campaign_context.campaign is not None
+            and campaign_context.campaign.requires_barrier_validation
+        ),
+    )
+    stage_output = grounding_result.stage_output
+    validation = stage_output.get("validation") if stage_output else None
+    return _Stage4PriorSubmissionState(
+        stage_output=stage_output,
+        validation=validation,
+        validation_packet=grounding_result.validation_packet,
+        changed_parameters=tuple(normalized["priors"]),
+    )
+
+
+def _should_run_partial_drift_guard(
+    *,
+    active_block: Stage4FrontierBlock,
+    state: _Stage4PriorSubmissionState,
+) -> bool:
+    """Whether the reducer should run the local partial-drift advisory guard."""
+    return (
+        state.stage_output is not None
+        and state.validation is not None
+        and getattr(state.validation, "compile_ok", True)
+        and not getattr(state.validation, "pp_checked", False)
+        and active_block.kind in {"dynamics_prior", "effect_prior"}
+    )
+
+
+def _apply_prior_partial_drift_guard(
+    *,
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    active_block: Stage4FrontierBlock,
+    deps: Stage4Deps,
+    state: _Stage4PriorSubmissionState,
+) -> _Stage4PriorSubmissionState:
+    """Apply the local partial-drift guard for dynamics/effect prior blocks."""
+    from .stage4_repair import (
+        _classify_compile_failure_route,
+        _classify_prior_failure_blocks,
+    )
+
+    if not _should_run_partial_drift_guard(active_block=active_block, state=state):
+        return state
+
+    authored_priors = state.stage_output.get("authored_priors")
+    try:
+        if active_block.kind == "dynamics_prior":
+            partial_guard = validate_dynamics_block_partial_drift(
+                model_spec=runtime.accepted.model_spec,
+                authored_priors=authored_priors,
+                causal_spec=deps.causal_spec,
+                active_construct_names=active_block.construct_names,
+                active_parameter_names=active_block.parameter_names,
+            )
+        else:
+            partial_guard = validate_effect_block_partial_drift(
+                model_spec=runtime.accepted.model_spec,
+                authored_priors=authored_priors,
+                causal_spec=deps.causal_spec,
+                target_construct=str(active_block.payload.get("target_construct", "")),
+                active_parameter_names=active_block.parameter_names,
+            )
+    except Exception as exc:
+        feedback = f"COMPILE ERROR:\n{exc}"
+        return replace(
+            state,
+            stage_output=None,
+            validation=None,
+            validation_packet=_build_validation_packet_for_block(
+                block=active_block,
+                status="compile_error",
+                feedback=feedback,
+                changed_parameters=state.changed_parameters,
+                retain_for_next_prompt=True,
+                capture_stage_output=False,
+            ),
+            repair_plan=_classify_compile_failure_route(plan, active_block, str(exc)),
+        )
+
+    if partial_guard is None:
+        return state
+
+    assert state.validation is not None
+    partial_diagnostic, partial_feedback = partial_guard
+    validation = state.validation.__class__(
+        normalized_model_spec=state.validation.normalized_model_spec,
+        compile_ok=state.validation.compile_ok,
+        compile_error=state.validation.compile_error,
+        compiled_ssm=state.validation.compiled_ssm,
+        pp_checked=True,
+        pp_valid=False,
+        diagnostics=[partial_diagnostic],
+        pp_raw_samples=state.validation.pp_raw_samples,
+    )
+    return replace(
+        state,
+        stage_output=None,
+        validation=validation,
+        validation_packet=_build_validation_packet_for_block(
+            block=active_block,
+            status="partial_drift_failure",
+            feedback=partial_feedback,
+            validation=validation,
+            changed_parameters=state.changed_parameters,
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
+        ),
+        repair_plan=_classify_prior_failure_blocks(
+            plan,
+            active_block,
+            validation,
+            runtime,
+        ),
+    )
+
+
+def _classify_prior_submission_route(
+    *,
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    active_block: Stage4FrontierBlock,
+    state: _Stage4PriorSubmissionState,
+) -> _Stage4PriorSubmissionState:
+    """Classify compile and prior-predictive failures into repair routes."""
+    if state.repair_plan is not None:
+        return state
+    validation_route = classify_validation_outcome(
+        plan,
+        active_block,
+        state.validation,
+        runtime,
+        feedback=state.feedback,
+    )
+    if validation_route.repair_plan is not None:
+        return replace(
+            state,
+            repair_plan=validation_route.repair_plan,
+        )
+    return state
+
+
+def _build_repair_campaign_progress_feedback(
+    active_block: Stage4FrontierBlock,
+    campaign_context: _Stage4PriorCampaignContext,
+    plan: Stage4Plan,
+) -> str:
+    """Render reducer-owned repair-campaign progress feedback."""
+    campaign = campaign_context.campaign
+    assert campaign is not None
+    next_block_id = next(
+        (
+            block_id
+            for block_id in campaign_context.pending_block_ids
+            if block_id != active_block.id
+        ),
+        None,
+    )
+    next_block = (
+        None
+        if next_block_id is None
+        else campaign.prompt_blocks_by_id.get(next_block_id) or plan.get_block(next_block_id)
+    )
+    return (
+        "REPAIR CAMPAIGN PROGRESS:\n"
+        f"- kept `{active_block.id}` within `{campaign.scope_key}`\n"
+        + (
+            f"- next repair block: `{next_block.id}` ({next_block.kind})"
+            if next_block is not None
+            else "- barrier validation pending"
+        )
+    )
+
+
+def _build_campaign_progress_result(
+    *,
+    plan: Stage4Plan,
+    active_block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+    campaign_context: _Stage4PriorCampaignContext,
+    state: _Stage4PriorSubmissionState,
+) -> Stage4StepResult | None:
+    """Return the in-campaign progress update when barrier validation is deferred."""
+    campaign = campaign_context.campaign
+    if (
+        campaign is None
+        or not campaign_context.in_active_campaign
+        or not campaign.requires_barrier_validation
+        or state.repair_plan is not None
+    ):
+        return None
+
+    if not campaign_context.final_campaign_block:
+        feedback = _build_repair_campaign_progress_feedback(
+            active_block,
+            campaign_context,
+            plan,
+        )
+        return Stage4StepResult(
+            stage_output=state.stage_output,
+            validation_packet=_build_validation_packet_for_block(
+                block=active_block,
+                status="repair_campaign_progress",
+                feedback=feedback,
+                validation=state.validation,
+                changed_parameters=state.changed_parameters,
+                retain_for_next_prompt=True,
+                capture_stage_output=state.stage_output is not None,
+            ),
+            events=(_make_stage4_block_accepted_event(active_block, normalized, stage_output=state.stage_output),),
+        )
+
+    feedback = f"REPAIR CAMPAIGN READY FOR VALIDATION:\n- completed `{campaign.scope_key}`"
+    return Stage4StepResult(
+        stage_output=state.stage_output,
+        validation_packet=_build_validation_packet_for_block(
+            block=active_block,
+            status="repair_campaign_ready",
+            feedback=feedback,
+            validation=state.validation,
+            changed_parameters=state.changed_parameters,
+            retain_for_next_prompt=True,
+            capture_stage_output=state.stage_output is not None,
+        ),
+        events=(_make_stage4_block_accepted_event(active_block, normalized, stage_output=state.stage_output),),
+    )
+
+
+def _promote_multi_block_repair_feedback(
+    *,
+    active_block: Stage4FrontierBlock,
+    state: _Stage4PriorSubmissionState,
+    repair_decision: Stage4PriorRepairDecision,
+) -> _Stage4PriorSubmissionState:
+    """Rewrite packet feedback when a local failure widens into a repair campaign."""
+    repair_plan = repair_decision.repair_plan
+    if repair_plan is None or not repair_decision.promote_campaign_feedback:
+        return state
+
+    next_block_id = next(
+        (
+            block_id
+            for block_id in repair_plan.block_ids
+            if block_id != repair_decision.accepted_block_id
+        ),
+        None,
+    )
+    next_block = next(
+        (block for block in repair_plan.prompt_blocks if block.id == next_block_id),
+        None,
+    )
+    campaign_feedback = _format_repair_campaign_feedback(
+        repair_plan,
+        accepted_block_id=repair_decision.accepted_block_id,
+        next_block=next_block,
+    )
+    feedback = (
+        state.feedback + "\n\n" + campaign_feedback
+        if state.validation_packet.status == "partial_drift_failure"
+        else campaign_feedback
+    )
+    return replace(
+        state,
+        validation_packet=_build_validation_packet_for_block(
+            block=active_block,
+            status="repair_campaign_active",
+            feedback=feedback,
+            validation=state.validation,
+            changed_parameters=state.changed_parameters,
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
+        ),
+    )
+
+
+def _build_prior_submission_events(
+    *,
+    active_block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+    state: _Stage4PriorSubmissionState,
+    accepted_block_id: str | None,
+) -> tuple[Stage4ReducerEvent, ...]:
+    """Build reducer events for the finalized prior-submission outcome."""
+    accepted_event = (
+        None
+        if accepted_block_id is None
+        else _make_stage4_block_accepted_event(
+            active_block,
+            normalized,
+            stage_output=state.stage_output,
+        )
+    )
+    if state.repair_plan is not None:
+        return (_make_stage4_repair_planned_event(state.repair_plan, accepted_block_event=accepted_event),)
+    if accepted_event is not None:
+        return (accepted_event,)
+    return ()
 
 
 def _apply_prior_submission(
@@ -1906,186 +1799,55 @@ def _apply_prior_submission(
     deps: Stage4Deps,
 ) -> Stage4StepResult:
     """Apply one prior-authoring block and route failures back locally."""
-    from .stage4_repair import (
-        _classify_compile_failure_route,
-        _classify_prior_failure_blocks,
+    campaign_context = _build_prior_campaign_context(runtime, active_block)
+    state = _ground_prior_submission(
+        runtime=runtime,
+        normalized=normalized,
+        deps=deps,
+        campaign_context=campaign_context,
     )
+    state = _apply_prior_partial_drift_guard(
+        plan=plan,
+        runtime=runtime,
+        active_block=active_block,
+        deps=deps,
+        state=state,
+    )
+    state = _classify_prior_submission_route(
+        plan=plan,
+        runtime=runtime,
+        active_block=active_block,
+        state=state,
+    )
+    campaign_result = _build_campaign_progress_result(
+        plan=plan,
+        active_block=active_block,
+        normalized=normalized,
+        campaign_context=campaign_context,
+        state=state,
+    )
+    if campaign_result is not None:
+        return campaign_result
 
-    campaign = runtime.repair_campaign
-    pending_campaign_block_ids = (
-        () if campaign is None else _pending_repair_campaign_block_ids(campaign)
+    repair_decision = resolve_prior_repair_decision(
+        active_block=active_block,
+        repair_plan=state.repair_plan,
+        campaign=campaign_context.campaign,
+        stage_output_present=state.stage_output is not None,
     )
-    in_active_campaign = campaign is not None and active_block.id in pending_campaign_block_ids
-    final_campaign_block = (
-        in_active_campaign
-        and campaign is not None
-        and pending_campaign_block_ids == (active_block.id,)
+    state = _promote_multi_block_repair_feedback(
+        active_block=active_block,
+        state=state,
+        repair_decision=repair_decision,
     )
-
-    stage_output, feedback = deps.grounding_fn(
-        {"priors": normalized["priors"]},
-        deps.causal_spec,
-        current=runtime.accepted.as_current(),
-        data_for_model=deps.data_for_model,
-        indicator_audits=deps.indicator_audits,
-        skip_ppc=bool(campaign is not None and campaign.requires_barrier_validation),
-    )
-    validation = stage_output.get("validation") if stage_output else None
-    repair_plan: ResolvedRepairPlan | None = None
-    if (
-        stage_output is not None
-        and validation is not None
-        and getattr(validation, "compile_ok", True)
-        and not getattr(validation, "pp_checked", False)
-        and active_block.kind in {"dynamics_prior", "effect_prior"}
-    ):
-        authored_priors = stage_output.get("authored_priors")
-        try:
-            if active_block.kind == "dynamics_prior":
-                partial_guard = validate_dynamics_block_partial_drift(
-                    model_spec=runtime.accepted.model_spec,
-                    authored_priors=authored_priors,
-                    causal_spec=deps.causal_spec,
-                    active_construct_names=active_block.construct_names,
-                    active_parameter_names=active_block.parameter_names,
-                )
-            else:
-                partial_guard = validate_effect_block_partial_drift(
-                    model_spec=runtime.accepted.model_spec,
-                    authored_priors=authored_priors,
-                    causal_spec=deps.causal_spec,
-                    target_construct=str(active_block.payload.get("target_construct", "")),
-                    active_parameter_names=active_block.parameter_names,
-                )
-        except Exception as exc:
-            feedback = f"COMPILE ERROR:\n{exc}"
-            repair_plan = _classify_compile_failure_route(plan, active_block, str(exc))
-            stage_output = None
-        else:
-            if partial_guard is not None:
-                partial_diagnostic, partial_feedback = partial_guard
-                validation = validation.__class__(
-                    normalized_model_spec=validation.normalized_model_spec,
-                    compile_ok=validation.compile_ok,
-                    compile_error=validation.compile_error,
-                    compiled_ssm=validation.compiled_ssm,
-                    pp_checked=True,
-                    pp_valid=False,
-                    diagnostics=[partial_diagnostic],
-                    pp_raw_samples=validation.pp_raw_samples,
-                )
-                feedback = partial_feedback
-                repair_plan = _classify_prior_failure_blocks(
-                    plan,
-                    active_block,
-                    validation,
-                    runtime,
-                )
-                stage_output = None
-    if validation is not None and getattr(validation, "compile_ok", True) is False:
-        repair_plan = _classify_compile_failure_route(
-            plan,
-            active_block,
-            getattr(validation, "compile_error", None) or feedback,
-        )
-    elif repair_plan is not None:
-        pass
-    elif in_active_campaign and campaign is not None and campaign.requires_barrier_validation:
-        if not final_campaign_block:
-            next_block_id = next(
-                (
-                    block_id
-                    for block_id in pending_campaign_block_ids
-                    if block_id != active_block.id
-                ),
-                None,
-            )
-            next_block = (
-                None
-                if next_block_id is None
-                else campaign.prompt_blocks_by_id.get(next_block_id)
-                or plan.get_block(next_block_id)
-            )
-            return Stage4StepResult(
-                stage_output=stage_output,
-                feedback=(
-                    "REPAIR CAMPAIGN PROGRESS:\n"
-                    f"- kept `{active_block.id}` within `{campaign.scope_key}`\n"
-                    + (
-                        f"- next repair block: `{next_block.id}` ({next_block.kind})"
-                        if next_block is not None
-                        else "- barrier validation pending"
-                    )
-                ),
-                accepted_block_id=active_block.id,
-                persist_stage_output=stage_output is not None,
-                accepted_transition=_make_stage4_accepted_transition(active_block, normalized),
-            )
-        return Stage4StepResult(
-            stage_output=stage_output,
-            feedback=(f"REPAIR CAMPAIGN READY FOR VALIDATION:\n- completed `{campaign.scope_key}`"),
-            accepted_block_id=active_block.id,
-            persist_stage_output=stage_output is not None,
-            accepted_transition=_make_stage4_accepted_transition(active_block, normalized),
-        )
-    elif (
-        validation is not None
-        and getattr(validation, "pp_checked", False)
-        and getattr(validation, "pp_valid", True) is False
-    ):
-        repair_plan = _classify_prior_failure_blocks(
-            plan,
-            active_block,
-            validation,
-            runtime,
-        )
-
-    widening_scope = (
-        repair_plan is not None
-        and campaign is not None
-        and repair_plan.scope_rank > campaign.scope_rank
-        and active_block.id in repair_plan.block_ids
-    )
-    accepted_block_id = (
-        active_block.id
-        if stage_output is not None
-        and (
-            repair_plan is None
-            or active_block.id not in repair_plan.block_ids
-            or (len(repair_plan.block_ids) > 1 and not widening_scope)
-        )
-        else None
-    )
-
-    if repair_plan is not None and repair_plan.block_ids and len(repair_plan.block_ids) > 1:
-        next_block_id = next(
-            (block_id for block_id in repair_plan.block_ids if block_id != accepted_block_id),
-            None,
-        )
-        next_block = next(
-            (block for block in repair_plan.prompt_blocks if block.id == next_block_id),
-            None,
-        )
-        campaign_feedback = _format_repair_campaign_feedback(
-            repair_plan,
-            accepted_block_id=accepted_block_id,
-            next_block=next_block,
-        )
-        if feedback and feedback.startswith("PARTIAL DRIFT CHECK FAILED:"):
-            feedback = feedback + "\n\n" + campaign_feedback
-        else:
-            feedback = campaign_feedback
-
     return Stage4StepResult(
-        stage_output=stage_output,
-        feedback=feedback,
-        repair_plan=repair_plan,
-        accepted_block_id=accepted_block_id,
-        persist_stage_output=accepted_block_id is not None,
-        accepted_transition=(
-            None
-            if accepted_block_id is None
-            else _make_stage4_accepted_transition(active_block, normalized)
+        stage_output=state.stage_output,
+        validation_packet=state.validation_packet,
+        events=_build_prior_submission_events(
+            active_block=active_block,
+            normalized=normalized,
+            state=state,
+            accepted_block_id=repair_decision.accepted_block_id,
         ),
     )
 
@@ -2101,33 +1863,50 @@ def _apply_global_review_submission(
     """Apply the compact global-review checkpoint."""
     del deps
     if normalized["decision"] == "approve":
+        feedback = _format_block_saved_feedback(
+            active_block,
+            _next_pending_block(plan.prior_blocks, runtime),
+        )
         return Stage4StepResult(
-            feedback=_format_block_saved_feedback(
-                active_block,
-                _next_pending_block(plan.prior_blocks, runtime),
+            validation_packet=_build_validation_packet_for_block(
+                block=active_block,
+                status="accepted",
+                feedback=feedback,
+                retain_for_next_prompt=True,
+                capture_stage_output=False,
             ),
-            accepted_block_id=active_block.id,
-            accepted_transition=_make_stage4_accepted_transition(active_block, normalized),
+            events=(_make_stage4_block_accepted_event(active_block, normalized),),
         )
     reopen_block_ids = normalized["reopen_block_ids"]
+    feedback = (
+        "MODEL REVIEW REOPENED:\n"
+        f"- reopening {_summarize_names(list(reopen_block_ids))}\n"
+        f"- reason: {normalized['reasoning']}"
+    )
     return Stage4StepResult(
-        feedback=(
-            "MODEL REVIEW REOPENED:\n"
-            f"- reopening {_summarize_names(list(reopen_block_ids))}\n"
-            f"- reason: {normalized['reasoning']}"
+        validation_packet=_build_validation_packet_for_block(
+            block=active_block,
+            status="model_review_reopened",
+            feedback=feedback,
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
         ),
-        repair_plan=build_repair_plan(
-            plan,
-            ResolvedRepairScope(
-                scope_kind="global_review",
-                scope_rank=0,
-                scope_key=f"global_review:{'|'.join(reopen_block_ids)}",
-                reason=normalized["reasoning"],
-                failure_family=("global_review", active_block.id),
-                prompt_block_hints=reopen_block_ids,
+        events=(
+            _make_stage4_repair_planned_event(
+                build_repair_plan(
+                    plan,
+                    ResolvedRepairScope(
+                        scope_kind="global_review",
+                        scope_rank=0,
+                        scope_key=f"global_review:{'|'.join(reopen_block_ids)}",
+                        reason=normalized["reasoning"],
+                        failure_family=("global_review", active_block.id),
+                        prompt_block_hints=reopen_block_ids,
+                    ),
+                    prompt_block_ids=reopen_block_ids,
+                    requires_barrier_validation=False,
+                )
             ),
-            prompt_block_ids=reopen_block_ids,
-            requires_barrier_validation=False,
         ),
     )
 
@@ -2158,48 +1937,28 @@ _BLOCK_HANDLERS: dict[str, Stage4BlockHandler] = {
         normalize_submission=_normalize_indicator_submission,
         apply_submission=_apply_indicator_submission,
     ),
-    "measurement_prior": Stage4BlockHandler(
-        kind="measurement_prior",
-        prompt_policy=get_stage4_prompt_scope_policy("measurement_prior"),
-        normalize_submission=_normalize_prior_submission,
-        apply_submission=_apply_prior_submission,
-        include_prior_source_guidance=True,
-    ),
-    "dynamics_prior": Stage4BlockHandler(
-        kind="dynamics_prior",
-        prompt_policy=get_stage4_prompt_scope_policy("dynamics_prior"),
-        normalize_submission=_normalize_prior_submission,
-        apply_submission=_apply_prior_submission,
-        include_prior_source_guidance=True,
-    ),
-    "effect_prior": Stage4BlockHandler(
-        kind="effect_prior",
-        prompt_policy=get_stage4_prompt_scope_policy("effect_prior"),
-        normalize_submission=_normalize_prior_submission,
-        apply_submission=_apply_prior_submission,
-        include_prior_source_guidance=True,
-    ),
-    "correlation_prior": Stage4BlockHandler(
-        kind="correlation_prior",
-        prompt_policy=get_stage4_prompt_scope_policy("correlation_prior"),
-        normalize_submission=_normalize_prior_submission,
-        apply_submission=_apply_prior_submission,
-        include_prior_source_guidance=True,
-    ),
     "global_review": Stage4BlockHandler(
         kind="global_review",
         prompt_policy=get_stage4_prompt_scope_policy("global_review"),
         normalize_submission=_normalize_global_review_submission,
         apply_submission=_apply_global_review_submission,
     ),
-    "global_prior_review": Stage4BlockHandler(
-        kind="global_prior_review",
-        prompt_policy=get_stage4_prompt_scope_policy("global_prior_review"),
+}
+for _prior_kind in (
+    "measurement_prior",
+    "observation_prior",
+    "dynamics_prior",
+    "effect_prior",
+    "correlation_prior",
+    "global_prior_review",
+):
+    _BLOCK_HANDLERS[_prior_kind] = Stage4BlockHandler(
+        kind=_prior_kind,
+        prompt_policy=get_stage4_prompt_scope_policy(_prior_kind),
         normalize_submission=_normalize_prior_submission,
         apply_submission=_apply_prior_submission,
         include_prior_source_guidance=True,
-    ),
-}
+    )
 
 
 def get_stage4_block_handler(kind: str) -> Stage4BlockHandler:
@@ -2238,14 +1997,26 @@ def _compute_stage4_validate_step_with_transitions(
 
     proposal, error_feedback = _validate_submission_envelope(data, active_block)
     if error_feedback is not None:
-        runtime.last_feedback = error_feedback
+        runtime.last_validation_packet = _build_validation_packet_for_block(
+            block=active_block,
+            status="validation_error",
+            feedback=error_feedback,
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
+        )
         return None, error_feedback, ()
     assert proposal is not None
 
     handler = get_stage4_block_handler(active_block.kind)
     normalized, error_feedback = handler.normalize_submission(active_block, proposal)
     if error_feedback is not None:
-        runtime.last_feedback = error_feedback
+        runtime.last_validation_packet = _build_validation_packet_for_block(
+            block=active_block,
+            status="validation_error",
+            feedback=error_feedback,
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
+        )
         return None, error_feedback, ()
     assert normalized is not None
 
@@ -2284,13 +2055,19 @@ def _compute_stage4_validate_step_with_transitions(
         transitions.extend(_apply_stage4_step_result(plan, runtime, lock_result))
         if lock_result.repair_plan is None:
             _activate_review_phase(plan, runtime)
-        assert lock_result.feedback is not None
-        return lock_result.stage_output, lock_result.feedback, tuple(transitions)
+        return (
+            lock_result.stage_output,
+            render_stage4_validation_feedback(lock_result.validation_packet),
+            tuple(transitions),
+        )
 
-    if runtime.last_feedback is None and result.feedback is not None:
-        return result.stage_output, result.feedback, tuple(transitions)
-    assert runtime.last_feedback is not None or result.feedback is not None
-    return result.stage_output, runtime.last_feedback or result.feedback, tuple(transitions)
+    latest_packet = runtime.last_validation_packet or result.validation_packet
+    assert latest_packet is not None
+    return (
+        result.stage_output,
+        render_stage4_validation_feedback(latest_packet),
+        tuple(transitions),
+    )
 
 
 def compute_stage4_validate_step(
@@ -2318,50 +2095,70 @@ def _lock_stage4_model_spec(
     failed_block: Stage4FrontierBlock,
 ) -> Stage4StepResult:
     """Materialize and validate the locked model spec after model decisions."""
-    from .stage4_repair import _classify_compile_failure_route
-
     model_spec, errors = _build_model_spec_from_decisions(runtime.decisions, deps.skeleton)
     if model_spec is None:
         feedback = "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
         return Stage4StepResult(
-            feedback=feedback,
-            repair_plan=build_repair_plan(
-                plan,
-                ResolvedRepairScope(
-                    scope_kind="model_spec_lock",
-                    scope_rank=0,
-                    scope_key=f"model_spec_lock:{failed_block.id}",
-                    reason="locked model_spec could not be materialized",
-                    failure_family=("model_spec_lock", failed_block.id),
-                    prompt_block_hints=(failed_block.id,),
+            validation_packet=_build_validation_packet_for_block(
+                block=failed_block,
+                status="validation_error",
+                feedback=feedback,
+                retain_for_next_prompt=True,
+                capture_stage_output=False,
+            ),
+            events=(
+                _make_stage4_repair_planned_event(
+                    build_repair_plan(
+                        plan,
+                        ResolvedRepairScope(
+                            scope_kind="model_spec_lock",
+                            scope_rank=0,
+                            scope_key=f"model_spec_lock:{failed_block.id}",
+                            reason="locked model_spec could not be materialized",
+                            failure_family=("model_spec_lock", failed_block.id),
+                            prompt_block_hints=(failed_block.id,),
+                        ),
+                        prompt_block_ids=(failed_block.id,),
+                        requires_barrier_validation=False,
+                    )
                 ),
-                prompt_block_ids=(failed_block.id,),
-                requires_barrier_validation=False,
             ),
         )
 
-    stage_output, feedback = deps.grounding_fn(
+    grounding_result = deps.grounding_fn(
         {"model_spec": model_spec},
         deps.causal_spec,
         current=runtime.accepted.as_current(),
         data_for_model=deps.data_for_model,
         indicator_audits=deps.indicator_audits,
     )
+    stage_output = grounding_result.stage_output
+    feedback = grounding_result.feedback
     validation = stage_output.get("validation") if stage_output else None
-    if validation is not None and getattr(validation, "compile_ok", True) is False:
+    validation_route = classify_validation_outcome(
+        plan,
+        failed_block,
+        validation,
+        runtime,
+        feedback=feedback,
+        include_prior_predictive=False,
+    )
+    if validation_route.repair_plan is not None:
         return Stage4StepResult(
             stage_output=stage_output,
-            feedback=feedback,
-            repair_plan=_classify_compile_failure_route(
-                plan,
-                failed_block,
-                getattr(validation, "compile_error", None) or feedback,
+            validation_packet=grounding_result.validation_packet,
+            events=(
+                _make_stage4_repair_planned_event(validation_route.repair_plan),
             ),
         )
     return Stage4StepResult(
         stage_output=stage_output,
-        feedback=feedback,
-        persist_stage_output=stage_output is not None,
+        validation_packet=grounding_result.validation_packet,
+        events=(
+            ()
+            if stage_output is None
+            else (Stage4AcceptedStatePersistedEvent(stage_output=stage_output),)
+        ),
     )
 
 
@@ -2389,14 +2186,9 @@ def _finalize_repair_campaign_if_complete(
     validation_override: AssemblyValidation | None = None,
 ) -> tuple[dict[str, Any], ...]:
     """Validate a completed multi-block repair campaign at the campaign barrier."""
-    from causal_ssm_agent.flows.stages.stage4_assembly import (
+    from causal_ssm_agent.flows.stages.stage4.assembly import (
         format_validation_feedback,
         validate_assembly,
-    )
-
-    from .stage4_repair import (
-        _classify_compile_failure_route,
-        _classify_prior_failure_blocks,
     )
 
     campaign = runtime.repair_campaign
@@ -2426,169 +2218,70 @@ def _finalize_repair_campaign_if_complete(
         runtime.accepted.authored_priors,
         changed_params=changed_params,
     )
+    validation_route = classify_validation_outcome(
+        plan,
+        representative_block,
+        validation,
+        runtime,
+        feedback=feedback,
+    )
 
-    if not validation.compile_ok:
-        repair_plan = _classify_compile_failure_route(
-            plan,
-            representative_block,
-            validation.compile_error,
-        )
+    if validation_route.outcome == "compile_error":
         return _apply_stage4_step_result(
             plan,
             runtime,
             Stage4StepResult(
-                feedback=feedback,
-                repair_plan=repair_plan,
+                validation_packet=_build_validation_packet_for_block(
+                    block=representative_block,
+                    status="compile_error",
+                    feedback=feedback,
+                    validation=validation,
+                    changed_parameters=tuple(changed_params),
+                    retain_for_next_prompt=True,
+                    capture_stage_output=False,
+                ),
+                events=(_make_stage4_repair_planned_event(validation_route.repair_plan),),
             ),
         )
 
-    if validation.pp_checked and not validation.pp_valid:
-        repair_plan = _classify_prior_failure_blocks(
-            plan,
-            representative_block,
-            validation,
-            runtime,
-        )
+    if validation_route.outcome == "prior_predictive_failure":
         return _apply_stage4_step_result(
             plan,
             runtime,
             Stage4StepResult(
-                feedback=feedback,
-                repair_plan=repair_plan,
+                validation_packet=_build_validation_packet_for_block(
+                    block=representative_block,
+                    status="prior_predictive_failure",
+                    feedback=feedback,
+                    validation=validation,
+                    changed_parameters=tuple(changed_params),
+                    state_retained=True,
+                    retain_for_next_prompt=True,
+                    capture_stage_output=False,
+                ),
+                events=(_make_stage4_repair_planned_event(validation_route.repair_plan),),
             ),
         )
 
-    _clear_repair_campaign(runtime)
-    _activate_prior_phase(plan, runtime)
-    if feedback == "VALID":
-        next_block = get_active_plan_block(plan, runtime)
-        runtime.last_feedback = _format_block_saved_feedback(
-            representative_block,
-            next_block,
-        )
-    else:
-        runtime.last_feedback = feedback
-    return ()
-
-
-def make_stage4_runtime(plan: Stage4Plan) -> Stage4Runtime:
-    """Create the mutable runtime for a new Stage 4 plan execution."""
-    runtime = Stage4Runtime(
-        block_status={block.id: "pending" for block in plan.all_blocks},
+    success_packet = _build_validation_packet_for_block(
+        block=representative_block,
+        status="accepted",
+        feedback=feedback,
+        validation=validation,
+        changed_parameters=tuple(changed_params),
+        retain_for_next_prompt=feedback != "VALID",
+        capture_stage_output=True,
     )
-    if plan.model_blocks:
-        _set_block_cursor(runtime, plan.model_blocks[0])
-    else:
-        _set_model_spec_lock_cursor(
-            runtime,
-            reason="awaiting automatic model_spec lock",
-        )
-    if plan.prior_review_block is not None:
-        prior_review_id = plan.prior_review_block_id
-        assert prior_review_id is not None
-        runtime.block_status[prior_review_id] = "inactive"
-    return runtime
-
-
-def _plan_block_ids(plan: Stage4Plan) -> frozenset[str]:
-    """Return the full deterministic block-id set for one Stage 4 plan."""
-    return frozenset(block.id for block in plan.all_blocks)
-
-
-def _plan_prior_parameter_names(plan: Stage4Plan) -> frozenset[str]:
-    """Return the semantic prior-parameter inventory for one Stage 4 plan."""
-    return frozenset(
-        parameter_name for block in plan.prior_blocks for parameter_name in block.parameter_names
+    return _apply_stage4_events(
+        plan,
+        runtime,
+        (
+            Stage4BarrierValidationPassedEvent(
+                representative_block_id=representative_block.id,
+                success_packet=success_packet,
+            ),
+        ),
     )
-
-
-def _validate_stage4_runtime_checkpoint(
-    plan: Stage4Plan,
-    runtime: Any,
-) -> str | None:
-    """Return an incompatibility reason when a saved Stage 4 runtime cannot resume."""
-    if not isinstance(runtime, Stage4Runtime):
-        return "checkpoint payload is not a Stage4Runtime"
-
-    plan_block_ids = _plan_block_ids(plan)
-    if set(runtime.block_status) != plan_block_ids:
-        return "checkpoint block-status keys no longer match the Stage 4 plan"
-
-    authored_prior_names = set(runtime.accepted.authored_priors)
-    if not authored_prior_names.issubset(_plan_prior_parameter_names(plan)):
-        return "checkpoint authored priors no longer match the Stage 4 parameter inventory"
-
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4BlockCursor):
-        if cursor.block_id not in plan_block_ids:
-            return f"checkpoint cursor block `{cursor.block_id}` is not in the Stage 4 plan"
-    elif isinstance(cursor, Stage4RepairBarrierCursor):
-        if not cursor.scope_block_ids:
-            return "checkpoint repair barrier cursor has an empty scope"
-        if not set(cursor.scope_block_ids).issubset(plan_block_ids):
-            return "checkpoint repair barrier scope contains unknown Stage 4 blocks"
-    elif not isinstance(cursor, (Stage4ModelSpecLockPendingCursor, Stage4DoneCursor)):
-        return f"checkpoint cursor `{cursor!r}` is unsupported"
-
-    campaign = runtime.repair_campaign
-    if campaign is None:
-        if isinstance(cursor, Stage4RepairBarrierCursor):
-            return "checkpoint has a repair barrier cursor without an active repair campaign"
-    else:
-        scope_block_ids = set(campaign.scope_block_ids)
-        if not campaign.scope_block_ids:
-            return "checkpoint repair campaign has an empty scope"
-        if not scope_block_ids.issubset(plan_block_ids):
-            return "checkpoint repair campaign scope contains unknown Stage 4 blocks"
-        if set(campaign.completed_block_ids) - scope_block_ids:
-            return "checkpoint repair campaign marks completion outside its scope"
-        if set(campaign.prompt_blocks_by_id) != scope_block_ids:
-            return "checkpoint repair campaign prompt overrides do not match its scope"
-        for block_id, prompt_block in campaign.prompt_blocks_by_id.items():
-            if prompt_block.id != block_id:
-                return "checkpoint repair prompt override ids are inconsistent"
-        pending_block_ids = _pending_repair_campaign_block_ids(campaign)
-        if isinstance(cursor, Stage4RepairBarrierCursor):
-            if not campaign.requires_barrier_validation:
-                return (
-                    "checkpoint repair barrier cursor is incompatible with a non-barrier campaign"
-                )
-            if tuple(campaign.scope_block_ids) != cursor.scope_block_ids:
-                return "checkpoint repair barrier cursor scope disagrees with the repair campaign"
-            if pending_block_ids:
-                return "checkpoint repair barrier cursor still has pending repair blocks"
-        elif isinstance(cursor, Stage4BlockCursor):
-            if (
-                cursor.block_id in campaign.scope_block_ids
-                and cursor.block_id not in pending_block_ids
-            ):
-                return "checkpoint repair cursor points at a non-pending block"
-
-    if isinstance(cursor, Stage4DoneCursor) and (
-        runtime.accepted.model_spec is None or not runtime.accepted.authored_priors
-    ):
-        return "checkpoint marks Stage 4 done without a complete accepted result"
-    return None
-
-
-def _load_resumable_stage4_runtime(
-    plan: Stage4Plan,
-    *,
-    load_checkpoint: Callable[[], Stage4Runtime | None] | None,
-    clear_checkpoint: Callable[[], None] | None,
-) -> Stage4Runtime | None:
-    """Load a saved Stage 4 runtime if it is still compatible with the current plan."""
-    if load_checkpoint is None:
-        return None
-    runtime = load_checkpoint()
-    if runtime is None:
-        return None
-    incompatibility = _validate_stage4_runtime_checkpoint(plan, runtime)
-    if incompatibility is None:
-        return runtime
-    if clear_checkpoint is not None:
-        clear_checkpoint()
-    return None
 
 
 async def run_stage4(
@@ -2606,115 +2299,25 @@ async def run_stage4(
     load_checkpoint: Callable[[], Stage4Runtime | None] | None = None,
     save_checkpoint: Callable[[Stage4Runtime], None] | None = None,
     clear_checkpoint: Callable[[], None] | None = None,
-    on_state_change: Callable[[Stage4Plan, Stage4Runtime, tuple[dict[str, Any], ...]], None] | None = None,
+    on_state_change: Callable[[Stage4Plan, Stage4Runtime, tuple[dict[str, Any], ...]], None]
+    | None = None,
 ) -> Stage4Result:
     """Run the frontier-reduced Stage 4 flow sequentially."""
-    from causal_ssm_agent.flows.stages.stage_tools import stage4_grounding
+    from .stage4_agent_loop import run_stage4 as _run_stage4
 
-    skeleton = derive_deterministic_spec(causal_spec)
-    model_topology = build_model_topology(causal_spec)
-    distribution_cards = build_distribution_cards(causal_spec, indicator_audits, skeleton)
-    construct_scale_cards = build_construct_scale_cards(causal_spec, indicator_audits, skeleton)
-    prior_cards = build_prior_cards(causal_spec, skeleton)
-    plan = build_stage4_plan(causal_spec, skeleton)
-    msgs = Stage4Messages(
-        question=question,
-        causal_spec=causal_spec,
-        model_topology=model_topology,
-        distribution_cards=distribution_cards,
-        loading_params=skeleton.loading_params,
-        construct_scale_cards=construct_scale_cards,
-        prior_cards=prior_cards,
-        enable_literature=enable_literature,
-        enable_paraphrasing=enable_paraphrasing,
-    )
-    runtime = _load_resumable_stage4_runtime(
-        plan,
-        load_checkpoint=load_checkpoint,
-        clear_checkpoint=clear_checkpoint,
-    ) or make_stage4_runtime(plan)
-
-    # Compose save_checkpoint and on_state_change into a single persist callback
-    def _persist(rt: Stage4Runtime, transitions: tuple[dict[str, Any], ...]) -> None:
-        if save_checkpoint is not None:
-            save_checkpoint(rt)
-        if on_state_change is not None:
-            on_state_change(plan, rt, transitions)
-
-    persist_runtime = _persist if (save_checkpoint or on_state_change) else None
-
-    # Emit initial state before the prompt loop
-    if on_state_change is not None:
-        on_state_change(plan, runtime, ())
-
-    session = Stage4Session(
-        plan=plan,
-        prompt_context=msgs,
-        deps=Stage4Deps(
-            skeleton=skeleton,
-            causal_spec=causal_spec,
-            data_for_model=data_for_model,
-            indicator_audits=indicator_audits,
-            grounding_fn=stage4_grounding,
-        ),
-        runtime=runtime,
-        persist_runtime=persist_runtime,
-    )
-    tool_map = _build_stage4_tool_map(
-        session,
-        question=question,
+    return await _run_stage4(
+        causal_spec,
+        question,
+        data_for_model,
+        indicator_audits,
+        generate,
         enable_literature=enable_literature,
         enable_paraphrasing=enable_paraphrasing,
         n_paraphrases=n_paraphrases,
         gmm_model=gmm_model,
         max_tool_turns=max_tool_turns,
+        load_checkpoint=load_checkpoint,
+        save_checkpoint=save_checkpoint,
+        clear_checkpoint=clear_checkpoint,
+        on_state_change=on_state_change,
     )
-
-    deps = session.deps
-
-    if not plan.model_blocks and session.accepted.model_spec is None:
-        initial_model_spec, errors = _build_model_spec_from_decisions(runtime.decisions, skeleton)
-        if initial_model_spec is None:
-            raise ValueError(
-                "Stage 4 could not materialize an initial ModelSpec: " + "; ".join(errors)
-            )
-        stage_output, feedback = deps.grounding_fn(
-            {"model_spec": initial_model_spec},
-            deps.causal_spec,
-            current=session.accepted.as_current(),
-            data_for_model=deps.data_for_model,
-            indicator_audits=deps.indicator_audits,
-        )
-        validation = stage_output.get("validation") if stage_output else None
-        if validation is not None and getattr(validation, "compile_ok", True) is False:
-            raise ValueError(
-                f"Stage 4 could not lock the initial ModelSpec: {validation.compile_error}"
-            )
-        _persist_stage4_stage_output(session.runtime, stage_output)
-        session.runtime.last_feedback = None if feedback == "VALID" else feedback
-        _activate_review_phase(plan, session.runtime)
-        if persist_runtime is not None:
-            persist_runtime(session.runtime, ())
-
-    max_outer_turns = max(1, len(plan.all_blocks)) * 10
-    for _outer_turn in range(max_outer_turns):
-        if session.is_done():
-            break
-
-        turn = session.current_turn()
-        if turn is None:
-            raise ValueError(
-                f"Stage 4 stalled with no promptable execution cursor ({session.runtime.cursor!r})"
-            )
-        await _run_stage4_turn(session, generate, tool_map)
-    else:
-        raise ValueError(
-            "Stage 4 agentic flow exceeded the outer block-turn limit without converging"
-        )
-
-    if not session.is_done():
-        raise ValueError("Stage 4 agentic flow did not produce a valid model_spec + priors")
-
-    if clear_checkpoint is not None:
-        clear_checkpoint()
-    return session.result()

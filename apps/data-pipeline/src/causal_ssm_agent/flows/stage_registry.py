@@ -380,7 +380,7 @@ def _bind_stage1b(ctx: PipelineContext, states: dict) -> dict:
 
 
 def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
-    from .stages.stage2_extract import MAX_FREE_WINDOWS
+    from ..utils.config import get_config
 
     return {
         "question": ctx.question,
@@ -390,7 +390,7 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
         "max_windows": None
         if ctx.openrouter_access_mode in {"user", "local"}
         or os.environ.get("DEPLOYMENT_ENV") != "production"
-        else MAX_FREE_WINDOWS,
+        else get_config().stage2_workers.max_free_windows,
     }
 
 
@@ -492,7 +492,7 @@ def _coerce_override_stage1b(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _coerce_override_stage4(payload: dict[str, Any]) -> dict[str, Any]:
     """Accept a replay payload and keep only authored stage-4 fields."""
-    from .stages.stage4_assembly import coerce_stage4_override_payload
+    from .stages.stage4.assembly import coerce_stage4_override_payload
 
     return coerce_stage4_override_payload(payload)
 
@@ -503,10 +503,10 @@ def _materialize_override_stage1b(
     states: dict[str, dict],
 ) -> dict[str, Any]:
     """Materialize a stage-1b override via the same derived-field finalizer as normal runs."""
-    from . import dag
+    from .stages.stage1b.result import finalize_stage1b_result
 
     latent_model = ((states.get("stage-1a") or {}).get("result") or {}).get("latent_model")
-    return dag.finalize_stage1b_result(dict(editable), latent_model=latent_model)
+    return finalize_stage1b_result(dict(editable), latent_model=latent_model)
 
 
 def _materialize_override_stage4(
@@ -516,7 +516,7 @@ def _materialize_override_stage4(
 ) -> dict[str, Any]:
     """Prepare a stage-4 override via the same stage-owned finalizer as normal runs."""
     from .run_store import load_parquet
-    from .stages.stage4_assembly import materialize_stage4_result
+    from .stages.stage4.assembly import materialize_stage4_result
 
     stage1b_result = states["stage-1b"]["result"]
     stage2_result = states["stage-2"]["result"]
@@ -542,7 +542,7 @@ def _build_registry() -> dict[str, StageDefinition]:
     from dataclasses import replace
 
     from . import dag
-    from .stages.contracts import INTERACTIVE_STAGES, STAGE_CONTRACTS
+    from .stage_contracts import INTERACTIVE_STAGES, STAGE_CONTRACTS
 
     registry = {
         "stage-0": StageDefinition(

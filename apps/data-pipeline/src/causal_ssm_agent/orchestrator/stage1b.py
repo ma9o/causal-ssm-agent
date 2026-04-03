@@ -77,7 +77,8 @@ async def run_stage1b(
     Returns:
         Stage1bResult with measurement model, identifiability, and causal spec
     """
-    from causal_ssm_agent.flows.stages.stage_tools import make_stage_tool, stage1b_grounding
+    from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
+    from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
 
     msgs = Stage1bMessages(question, latent_model, chunks, dataset_summary)
 

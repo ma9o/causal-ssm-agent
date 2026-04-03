@@ -17,11 +17,12 @@ import polars as pl
 import pytest
 from benchmarks.problems.four_latent import FOUR_LATENT
 
-from causal_ssm_agent.flows.stages.stage1b_measurement import build_causal_spec
-from causal_ssm_agent.flows.stages.stage3_validation import (
+from causal_ssm_agent.flows.stages.stage1b.flow import build_causal_spec
+from causal_ssm_agent.flows.stages.stage3.flow import (
     validate_extraction,
 )
-from causal_ssm_agent.flows.stages.stage5_inference import fit_model, run_interventions
+from causal_ssm_agent.flows.stages.stage5b.fit import fit_model
+from causal_ssm_agent.flows.stages.stage6.interventions import run_interventions
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 from causal_ssm_agent.utils.causal_spec import get_all_treatments
 

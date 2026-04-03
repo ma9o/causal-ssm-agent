@@ -1154,7 +1154,7 @@ class TestDictMessagesToChat:
 
 class TestOpenRouterKeyContext:
     def test_llm_stage_task_uses_request_local_key_without_explicit_override(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.llm_stage_task import make_llm_stage_task
+        from causal_ssm_agent.flows.llm_stage_task import make_llm_stage_task
         from causal_ssm_agent.utils import openrouter_client
 
         class _FakeLLMStageContext:
@@ -1181,7 +1181,7 @@ class TestOpenRouterKeyContext:
             return {"api_key": openrouter_client.get_openrouter_api_key()}
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.llm_stage_task.LLMStageContext",
+            "causal_ssm_agent.flows.llm_stage_task.LLMStageContext",
             _FakeLLMStageContext,
         )
 
@@ -1199,7 +1199,7 @@ class TestOpenRouterKeyContext:
         assert result == {"api_key": "user-key"}
 
     def test_llm_stage_task_forwards_stage_max_tool_turns(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.llm_stage_task import make_llm_stage_task
+        from causal_ssm_agent.flows.llm_stage_task import make_llm_stage_task
 
         captured: dict[str, object] = {}
 
@@ -1229,7 +1229,7 @@ class TestOpenRouterKeyContext:
             return {"ok": True}
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.llm_stage_task.LLMStageContext",
+            "causal_ssm_agent.flows.llm_stage_task.LLMStageContext",
             _FakeLLMStageContext,
         )
 

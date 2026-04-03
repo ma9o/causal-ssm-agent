@@ -15,7 +15,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows.stages.stage0_tools import (
+from causal_ssm_agent.flows.stages.stage0.tools import (
     _safe_resolve,
     make_ingestion_tools,
 )
@@ -283,8 +283,8 @@ class TestIngestionTools:
 
 class TestFindRawInput:
     def test_finds_most_recent_text_file_regardless_of_extension(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0_ingest as mod
-        from causal_ssm_agent.flows.stages.stage0_ingest import _find_raw_input
+        import causal_ssm_agent.flows.stages.stage0.flow as mod
+        from causal_ssm_agent.flows.stages.stage0.flow import _find_raw_input
 
         workspace_dir = tmp_path / "test_workspace"
         workspace_dir.mkdir()
@@ -303,8 +303,8 @@ class TestFindRawInput:
         assert result.endswith("/notes.txt")
 
     def test_no_files_raises(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0_ingest as mod
-        from causal_ssm_agent.flows.stages.stage0_ingest import _find_raw_input
+        import causal_ssm_agent.flows.stages.stage0.flow as mod
+        from causal_ssm_agent.flows.stages.stage0.flow import _find_raw_input
 
         workspace_dir = tmp_path / "empty_workspace"
         workspace_dir.mkdir()
@@ -316,7 +316,7 @@ class TestFindRawInput:
 
 class TestPrepareRawInput:
     def test_extracts_zip_archives(self, tmp_path):
-        from causal_ssm_agent.flows.stages.stage0_ingest import _prepare_raw_input
+        from causal_ssm_agent.flows.stages.stage0.flow import _prepare_raw_input
 
         raw_zip = tmp_path / "input.zip"
         with zipfile.ZipFile(raw_zip, "w") as zf:
@@ -329,7 +329,7 @@ class TestPrepareRawInput:
         assert (prepared_dir / "nested" / "data.csv").read_text() == "date,value\n2024-01-01,1\n"
 
     def test_copies_non_archive_files(self, tmp_path):
-        from causal_ssm_agent.flows.stages.stage0_ingest import _prepare_raw_input
+        from causal_ssm_agent.flows.stages.stage0.flow import _prepare_raw_input
 
         raw_text = tmp_path / "input.txt"
         raw_text.write_text("line one\nline two\n")
@@ -353,8 +353,8 @@ class _MockSandboxContext:
 
 
 class TestRunAgenticIngestion:
-    def test_reprompts_for_submit_table_when_dataframe_exists(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0_ingest as mod
+    def test_returns_finalize_metadata_when_submit_table_is_called(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0.flow as mod
 
         csv_file = tmp_path / "data.csv"
         csv_file.write_text("timestamp,value,category\n2024-01-01,1.5,A\n2024-01-02,2.3,B\n")
@@ -366,16 +366,12 @@ class TestRunAgenticIngestion:
         async def generate(messages, tools, *_args, **_kwargs):
             calls.append([tool.name for tool in tools])
             tool_map = {tool.name: tool for tool in tools}
-
-            if "execute_python" in tool_map:
-                await tool_map["execute_python"](
-                    code=(
-                        'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")\n'
-                        'result_df = result_df.with_columns(pl.col("timestamp").str.to_datetime())'
-                    )
+            await tool_map["execute_python"](
+                code=(
+                    'result_df = pl.read_csv(Path(DATA_DIR) / "data.csv")\n'
+                    'result_df = result_df.with_columns(pl.col("timestamp").str.to_datetime())'
                 )
-                return ""
-
+            )
             await tool_map["submit_table"](
                 column_descriptions_json=json.dumps(
                     {
@@ -389,18 +385,15 @@ class TestRunAgenticIngestion:
 
         result = _run(mod.run_agentic_ingestion(tmp_path, generate))
 
-        assert calls == [
-            ["list_files", "read_file_sample", "execute_python", "submit_table"],
-            ["submit_table"],
-        ]
+        assert calls == [["list_files", "read_file_sample", "execute_python", "submit_table"]]
         assert result.column_descriptions == {
             "timestamp": "Timestamp of observation",
             "value": "Observed numeric value",
             "category": "Category label",
         }
 
-    def test_raises_when_agent_never_finalizes_dataframe(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0_ingest as mod
+    def test_returns_dataframe_when_agent_never_finalizes(self, tmp_path, monkeypatch):
+        import causal_ssm_agent.flows.stages.stage0.flow as mod
 
         csv_file = tmp_path / "data.csv"
         csv_file.write_text("timestamp,value\n2024-01-01,1.5\n")
@@ -418,8 +411,7 @@ class TestRunAgenticIngestion:
                 )
             return ""
 
-        with pytest.raises(
-            ValueError,
-            match="Ingestion agent produced a DataFrame but did not finalize it",
-        ):
-            _run(mod.run_agentic_ingestion(tmp_path, generate))
+        result = _run(mod.run_agentic_ingestion(tmp_path, generate))
+
+        assert result.dataframe.shape == (1, 2)
+        assert result.column_descriptions == {}

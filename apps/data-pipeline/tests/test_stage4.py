@@ -5,7 +5,7 @@ in their dedicated files:
 - test_prior_predictive.py (NaN/constraint/extreme checks, format functions)
 - test_prior_aggregation.py (simple/GMM aggregation)
 - test_get_default_prior.py (constraint→distribution mapping)
-Grounding helpers in ``stage_tools.py`` live in ``test_stage4_grounding.py``.
+Grounding helpers live in ``test_stage4_grounding.py``.
 This file tests Stage 4 prompt assembly, orchestration, prior predictive
 validation, failed parameter identification with causal_spec context, SSM prior
 conversion, and trial compilation.
@@ -25,8 +25,8 @@ import pytest
 
 import causal_ssm_agent.orchestrator.stage4 as stage4_module
 from causal_ssm_agent.flows import stage_registry
-from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
-from causal_ssm_agent.flows.stages.stage4_model import (
+from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+from causal_ssm_agent.flows.stages.stage4.flow import (
     _stage4_generate_config,
 )
 from causal_ssm_agent.models.prior_predictive import (
@@ -55,9 +55,15 @@ from causal_ssm_agent.orchestrator.stage4 import (
     project_stage4_snapshot,
     run_stage4,
 )
+from causal_ssm_agent.orchestrator.stage4_feedback import (
+    Stage4GroundingResult,
+    make_stage4_grounding_result,
+    make_stage4_validation_packet,
+)
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
+    build_prior_cards,
     build_stage4_plan,
     derive_deterministic_spec,
 )
@@ -145,7 +151,7 @@ def _make_runtime(
     phase: str | None = None,
     active_block_id: str | None = None,
     accepted: Stage4AcceptedState | None = None,
-    last_feedback: str | None = None,
+    last_validation_packet: Any = None,
 ) -> Stage4Runtime:
     """Build a Stage 4 runtime for focused unit tests."""
     runtime = make_stage4_runtime(plan)
@@ -163,7 +169,7 @@ def _make_runtime(
         )
     if accepted is not None:
         runtime.accepted = accepted
-    runtime.last_feedback = last_feedback
+    runtime.last_validation_packet = last_validation_packet
     return runtime
 
 
@@ -183,6 +189,32 @@ def _with_positive_indicator_polarity(spec: dict[str, Any]) -> dict[str, Any]:
         if isinstance(indicator, dict):
             indicator.setdefault("construct_polarity", "positive")
     return spec
+
+
+def _make_stub_grounding_result(stage_output: dict | None, feedback: str):
+    """Wrap test grounding payloads in the typed Stage 4 grounding result."""
+    validation = stage_output.get("validation") if isinstance(stage_output, dict) else None
+    if validation is not None and getattr(validation, "compile_ok", True) is False:
+        status = "compile_error"
+    elif (
+        validation is not None
+        and getattr(validation, "pp_checked", False)
+        and getattr(validation, "pp_valid", True) is False
+    ):
+        status = "prior_predictive_failure"
+    elif "missing priors" in feedback.lower():
+        status = "accepted_pending_priors"
+    else:
+        status = "accepted"
+    return make_stage4_grounding_result(
+        stage_output=stage_output,
+        status=status,
+        feedback=feedback,
+        validation=validation,
+        retain_for_next_prompt=feedback != "VALID",
+        capture_stage_output=stage_output is not None
+        and status in {"accepted", "accepted_pending_priors"},
+    )
 
 
 def test_project_stage4_graph_includes_repair_barrier_and_prior_review_route():
@@ -550,7 +582,16 @@ class TestStage4Messages:
             phase="prior_blocks",
             active_block_id=block.id,
             accepted=Stage4AcceptedState(
-                model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}]},
+                authored_priors={
+                    "beta_stress_sleep": {
+                        "parameter": "beta_stress_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "accepted prior",
+                    }
+                },
             ),
         )
         messages = msgs.messages_for_block(
@@ -626,7 +667,16 @@ class TestStage4Messages:
             phase="prior_blocks",
             active_block_id=block.id,
             accepted=Stage4AcceptedState(
-                model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
+                model_spec={"parameters": [{"name": "beta_stress_sleep"}]},
+                authored_priors={
+                    "beta_stress_sleep": {
+                        "parameter": "beta_stress_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "accepted prior",
+                    }
+                },
             ),
         )
         messages = msgs.messages_for_block(
@@ -638,10 +688,110 @@ class TestStage4Messages:
         user_content = messages[1]["content"]
 
         assert "### Parameter Prior Cards" in user_content
+        assert "#### Current Accepted Priors" in user_content
+        assert "Normal(mu=0.0, sigma=0.2)" in user_content
         assert "#### Fixed Effects" in user_content
         assert "| beta_stress_sleep | stress | sleep | lagged | 1.0 | yes | none |" in user_content
         assert "### Construct Scale Cards" in user_content
+        assert "## Scope Snapshot" in user_content
         assert '"block_kind": "effect_prior"' in user_content
+
+    def test_messages_for_scope_include_accepted_coupled_priors_outside_local_scope(self):
+        block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            construct_names=("stress", "sleep"),
+            parameter_names=("beta_stress_sleep",),
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                },
+                {
+                    "parameter": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "structural_context": {"construct": "stress"},
+                },
+            ],
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedState(
+                model_spec={
+                    "parameters": [
+                        {"name": "beta_stress_sleep"},
+                        {"name": "rho_stress"},
+                    ]
+                },
+                authored_priors={
+                    "beta_stress_sleep": {
+                        "parameter": "beta_stress_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "local accepted prior",
+                    },
+                    "rho_stress": {
+                        "parameter": "rho_stress",
+                        "distribution": "Beta",
+                        "params": {"alpha": 3.0, "beta": 2.0},
+                        "sources": [],
+                        "reasoning": "coupled accepted prior",
+                    },
+                },
+            ),
+            last_validation_packet=make_stage4_validation_packet(
+                status="prior_predictive_failure",
+                feedback="PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED",
+                validation=AssemblyValidation(
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    diagnostics=[
+                        PriorValidationResult(
+                            parameter="beta_stress_sleep",
+                            is_valid=False,
+                            code="scale_mismatch",
+                            origin="prior_predictive",
+                            issue="Effect prior mismatches the stress dynamics scale.",
+                            suggested_adjustment="Reconcile the effect prior with stress persistence.",
+                            related_parameters=["rho_stress"],
+                        )
+                    ],
+                ),
+                active_scope_id=block.id,
+            ),
+        )
+
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "Accepted Coupled Priors Outside This Edit Scope" in user_content
+        assert "Beta(alpha=3.0, beta=2.0)" in user_content
+        assert "`rho_stress`" in user_content
 
     def test_messages_for_dynamics_scope_include_budget_discipline(self):
         block = Stage4FrontierBlock(
@@ -1115,6 +1265,15 @@ class TestStage4Messages:
             kind="indicator_decision",
             label="Indicator decision",
             variable_names=("steps",),
+            payload={
+                "variable": "steps",
+                "dtype": "count",
+                "valid_distributions": ["negative_binomial", "poisson"],
+                "link_options": {
+                    "negative_binomial": ["log"],
+                    "poisson": ["log"],
+                },
+            },
         )
         measurement_block = Stage4FrontierBlock(
             id="measurement:activity",
@@ -1144,6 +1303,28 @@ class TestStage4Messages:
             data_for_model=pl.DataFrame(),
             indicator_audits={},
             stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail("grounding should not run"),
+            prior_cards=[
+                {
+                    "parameter": "lambda_steps_activity",
+                    "role": "loading",
+                    "constraint": "positive",
+                    "structural_context": {
+                        "construct": "activity",
+                        "indicator": "steps",
+                        "reference_indicator": "steps_ref",
+                    },
+                },
+                {
+                    "parameter": "beta_activity_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "activity",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                },
+            ],
             enable_literature=True,
             enable_paraphrasing=True,
         )
@@ -1186,7 +1367,7 @@ class TestStage4Messages:
 
 def test_stage4_generate_config_sets_stage4_timeout(monkeypatch):
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4_model.get_generate_config",
+        "causal_ssm_agent.flows.stages.stage4.flow.get_generate_config",
         lambda: GenerateConfig(
             max_tokens=65536,
             timeout=321,
@@ -1472,12 +1653,36 @@ def _make_stage4_deps(
     stage4_grounding_fn,
 ) -> Stage4Deps:
     """Build a Stage 4 reducer environment for tests."""
+    def _wrap_grounding(*args, **kwargs):
+        result = stage4_grounding_fn(*args, **kwargs)
+        if isinstance(result, Stage4GroundingResult):
+            return result
+        stage_output, feedback = result
+        validation = stage_output.get("validation") if isinstance(stage_output, dict) else None
+        status = (
+            "compile_error"
+            if validation is not None and getattr(validation, "compile_ok", True) is False
+            else "prior_predictive_failure"
+            if validation is not None
+            and getattr(validation, "pp_checked", False)
+            and getattr(validation, "pp_valid", True) is False
+            else "accepted"
+        )
+        return make_stage4_grounding_result(
+            stage_output=stage_output,
+            status=status,
+            feedback=feedback,
+            validation=validation,
+            retain_for_next_prompt=feedback != "VALID",
+            capture_stage_output=stage_output is not None and status == "accepted",
+        )
+
     return Stage4Deps(
         skeleton=skeleton,
         causal_spec=causal_spec,
         data_for_model=data_for_model,
         indicator_audits=indicator_audits,
-        grounding_fn=stage4_grounding_fn,
+        grounding_fn=_wrap_grounding,
     )
 
 
@@ -1556,11 +1761,22 @@ def _make_scripted_stage4_generate(
     visible_tools: list[list[str]],
 ):
     """Drive ``run_stage4()`` with scripted ``validate_model`` submissions only."""
+    turn_index = 0
 
     async def _generate(messages, tools, rewrite_messages=None, rewrite_tools=None, label=None):
-        del messages, rewrite_messages, rewrite_tools, label
-        submission = submissions[len(visited_blocks)]
-        visited_blocks.append(submission["block_id"])
+        nonlocal turn_index
+        del messages, rewrite_messages, rewrite_tools
+        block_id = None
+        if isinstance(label, str) and label.startswith("stage-4:"):
+            block_id = label.removeprefix("stage-4:")
+        if turn_index >= len(submissions):
+            raise AssertionError(
+                f"Unexpected extra Stage 4 turn at {block_id!r}; "
+                f"visited={visited_blocks}"
+            )
+        submission = submissions[turn_index]
+        turn_index += 1
+        visited_blocks.append(block_id or str(submission["block_id"]))
         visible_tools.append([tool.name for tool in tools])
         validate_tool = next(tool for tool in tools if tool.name == "validate_model")
         feedback = await validate_tool(model_json=json.dumps(submission))
@@ -1698,7 +1914,7 @@ class TestPriorPredictiveValidation:
 
     def test_build_validation_payload_from_assembly(self, simple_model_spec, simple_priors):
         """Shared Stage 4 assembly helpers return the expected payload shape."""
-        from causal_ssm_agent.flows.stages.stage4_assembly import (
+        from causal_ssm_agent.flows.stages.stage4.assembly import (
             build_validation_payload,
             validate_assembly,
         )
@@ -1722,7 +1938,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Final Stage 4 artifacts should carry non-fatal validation warnings."""
-        from causal_ssm_agent.flows.stages.stage4_assembly import (
+        from causal_ssm_agent.flows.stages.stage4.assembly import (
             AssemblyValidation,
             materialize_stage4_result,
         )
@@ -1751,7 +1967,7 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "causal_ssm_agent.flows.stages.stage4_assembly.compile_model_artifact",
+                "causal_ssm_agent.flows.stages.stage4.assembly.compile_model_artifact",
                 return_value={
                     "model_built": True,
                     "model_type": "test",
@@ -1783,7 +1999,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Stage 4 should compile once per validation attempt and pass that artifact through."""
-        from causal_ssm_agent.flows.stages.stage4_assembly import validate_assembly
+        from causal_ssm_agent.flows.stages.stage4.assembly import validate_assembly
 
         compiled_artifact = {"schema_version": 1}
         seen_compiled: list[dict] = []
@@ -1820,7 +2036,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Lagged DT/CT heuristics should surface as warnings, not compile errors."""
-        from causal_ssm_agent.flows.stages.stage4_assembly import validate_assembly
+        from causal_ssm_agent.flows.stages.stage4.assembly import validate_assembly
 
         compiled_artifact = {
             "schema_version": 1,
@@ -1834,7 +2050,7 @@ class TestPriorPredictiveValidation:
                 return_value=compiled_artifact,
             ),
             patch(
-                "causal_ssm_agent.flows.stages.stage4_assembly._collect_compile_diagnostics",
+                "causal_ssm_agent.flows.stages.stage4.assembly._collect_compile_diagnostics",
                 return_value=[
                     PriorValidationResult(
                         parameter="beta_stress_sleep",
@@ -1888,7 +2104,14 @@ class TestPriorPredictiveValidation:
 
         class _DummyBuilder:
             def sample_prior_predictive(self, samples: int = 500):
-                return {"drift_diag_pop": np.ones((samples, 1))}
+                return {
+                    "drift_diag_pop": np.ones((samples, 1)),
+                    "observations": np.random.default_rng(0).normal(
+                        loc=5.0,
+                        scale=1.5,
+                        size=(samples, 4, 1),
+                    ),
+                }
 
         runtime = SimpleNamespace(builder=_DummyBuilder())
 
@@ -3252,10 +3475,10 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     )
 
     def stub_stage4_grounding(*_args, **_kwargs):
-        return capture, "VALID"
+        return _make_stub_grounding_result(capture, "VALID")
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+        "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
         stub_stage4_grounding,
     )
 
@@ -3311,6 +3534,13 @@ class TestStage4Mechanics:
                     "sources": [],
                     "reasoning": "measurement prior",
                 },
+                "obs_ordered_base": {
+                    "parameter": "obs_ordered_base",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 1.0},
+                    "sources": [],
+                    "reasoning": "ordered-threshold location prior",
+                },
                 "sigma_activity": {
                     "parameter": "sigma_activity",
                     "distribution": "HalfNormal",
@@ -3334,6 +3564,7 @@ class TestStage4Mechanics:
                 },
             },
         )
+        stage4_module._activate_prior_phase(plan, runtime)
         block = plan.get_block("effects:sleep")
         assert block is not None
 
@@ -3401,7 +3632,8 @@ class TestStage4Mechanics:
 
         assert stage_output is None
         assert expected_feedback in feedback
-        assert runtime.last_feedback == feedback
+        assert runtime.last_validation_packet is not None
+        assert runtime.last_validation_packet.model_feedback == feedback
         assert runtime.decisions.distribution_choices == {}
         assert get_active_plan_block(plan, runtime).id == "indicator:steps"
 
@@ -3446,7 +3678,8 @@ class TestStage4Mechanics:
         assert feedback == "COMPILE ERROR:\nsteps support mismatch"
         assert get_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.block_status["indicator:steps"] == "reopened"
-        assert runtime.last_feedback == feedback
+        assert runtime.last_validation_packet is not None
+        assert runtime.last_validation_packet.model_feedback == feedback
         assert get_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.accepted.as_current() == {}
 
@@ -3536,6 +3769,13 @@ class TestStage4Mechanics:
                     "params": {"sigma": 0.4},
                     "sources": [],
                     "reasoning": "measurement prior",
+                },
+                "obs_ordered_base": {
+                    "parameter": "obs_ordered_base",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 1.0},
+                    "sources": [],
+                    "reasoning": "ordered-threshold location prior",
                 },
                 "sigma_activity": {
                     "parameter": "sigma_activity",
@@ -3683,13 +3923,13 @@ class TestStage4Mechanics:
             "validate_dynamics_block_partial_drift",
             lambda **_kwargs: (
                 PriorValidationResult(
-                    parameter="dynamics_stability",
+                    parameter="rho_sleep",
                     is_valid=False,
                     code="partial_dynamics_budget_exhausted",
                     origin="prior_predictive",
                     issue="The sleep row has no conservative damping headroom yet.",
                     suggested_adjustment="Tighten rho_sleep toward faster decay.",
-                    related_parameters=["rho_sleep", "sigma_sleep"],
+                    related_parameters=["sigma_sleep"],
                     failure_stage="latent_dynamics",
                     pathology_certificate=PriorPathologyCertificate(
                         kind="dynamics_stability",
@@ -3725,6 +3965,13 @@ class TestStage4Mechanics:
         assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
         assert "rho_sleep" not in runtime.accepted.authored_priors
         assert "sigma_sleep" not in runtime.accepted.authored_priors
+        assert runtime.last_validation_packet is not None
+        assert runtime.last_validation_packet.status == "partial_drift_failure"
+        assert runtime.last_validation_packet.failing_parameters == ("rho_sleep",)
+        assert runtime.last_validation_packet.coupled_parameters == ("sigma_sleep",)
+        assert runtime.last_validation_packet.diagnostic_codes == (
+            "partial_dynamics_budget_exhausted",
+        )
 
     def test_global_review_can_reopen_model_block_set(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
@@ -5046,7 +5293,7 @@ class TestStage4Mechanics:
 
         assert stage_output is None
         assert feedback == "VALIDATION ERRORS:\n- no active Stage 4 frontier block remains"
-        assert runtime.last_feedback is None
+        assert runtime.last_validation_packet is None
 
     def test_compute_stage4_validate_step_tracks_frontier_path_without_llm(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
@@ -5081,6 +5328,36 @@ class TestStage4Mechanics:
                             "params": {"sigma": 0.4},
                             "sources": [],
                             "reasoning": "initial measurement prior",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
                         }
                     }
                 },
@@ -5180,6 +5457,7 @@ class TestStage4Mechanics:
             "indicator:steps",
             "review:model_spec",
             "measurement:activity",
+            "observation:obs_ordered_base",
             "dynamics:activity",
             "dynamics:sleep",
             "dynamics:sleep",
@@ -5187,6 +5465,7 @@ class TestStage4Mechanics:
             "measurement:activity",
         ]
         expected_reopen_ids = [
+            None,
             None,
             None,
             None,
@@ -5218,6 +5497,15 @@ class TestStage4Mechanics:
                 priors.get("lambda_activity_vas_activity", {}).get("reasoning")
                 == "initial measurement prior"
             ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "obs_ordered_base" in priors:
                 return {
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
@@ -5325,6 +5613,7 @@ class TestStage4Mechanics:
         assert sorted(runtime.accepted.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "obs_ordered_base",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",
@@ -5363,6 +5652,21 @@ class TestStage4Mechanics:
                             "params": {"sigma": 0.25},
                             "sources": [],
                             "reasoning": "measurement prior",
+                        }
+                    }
+                },
+            },
+            {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
                         }
                     }
                 },
@@ -5427,28 +5731,34 @@ class TestStage4Mechanics:
             current = current or {}
             if "model_spec" in data:
                 model_spec = data["model_spec"]
-                return {
-                    "model_spec": model_spec,
-                    "validation": AssemblyValidation(
-                        normalized_model_spec=model_spec,
-                        compile_ok=True,
-                    ),
-                }, "MODEL STATE SAVED:\n- missing priors"
+                return _make_stub_grounding_result(
+                    {
+                        "model_spec": model_spec,
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=model_spec,
+                            compile_ok=True,
+                        ),
+                    },
+                    "MODEL STATE SAVED:\n- missing priors",
+                )
 
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
-            return {
-                "authored_priors": authored_priors,
-                "validation": AssemblyValidation(
-                    normalized_model_spec=current.get("model_spec"),
-                    compile_ok=True,
-                    pp_checked=len(authored_priors) == 5,
-                    pp_valid=True,
-                ),
-            }, "VALID"
+            return _make_stub_grounding_result(
+                {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=current.get("model_spec"),
+                        compile_ok=True,
+                        pp_checked=len(authored_priors) == 6,
+                        pp_valid=True,
+                    ),
+                },
+                "VALID",
+            )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
 
@@ -5472,6 +5782,7 @@ class TestStage4Mechanics:
             "indicator:steps",
             "review:model_spec",
             "measurement:activity",
+            "observation:obs_ordered_base",
             "dynamics:activity",
             "dynamics:sleep",
             "effects:sleep",
@@ -5484,6 +5795,7 @@ class TestStage4Mechanics:
         assert sorted(result.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "obs_ordered_base",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",
@@ -5522,6 +5834,21 @@ class TestStage4Mechanics:
                             "params": {"sigma": 0.25},
                             "sources": [],
                             "reasoning": "measurement prior",
+                        }
+                    }
+                },
+            },
+            "observation:obs_ordered_base": {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
                         }
                     }
                 },
@@ -5618,32 +5945,38 @@ class TestStage4Mechanics:
         }
         visited_blocks: list[str] = []
         visible_tools: list[list[str]] = []
-        final_prior_count = 8
+        final_prior_count = 9
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             current = current or {}
             if "model_spec" in data:
                 model_spec = data["model_spec"]
-                return {
-                    "model_spec": model_spec,
-                    "validation": AssemblyValidation(
-                        normalized_model_spec=model_spec,
-                        compile_ok=True,
-                    ),
-                }, "MODEL STATE SAVED:\n- missing priors"
+                return _make_stub_grounding_result(
+                    {
+                        "model_spec": model_spec,
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=model_spec,
+                            compile_ok=True,
+                        ),
+                    },
+                    "MODEL STATE SAVED:\n- missing priors",
+                )
 
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             pp_checked = len(authored_priors) == final_prior_count
-            return {
-                "authored_priors": authored_priors,
-                "validation": AssemblyValidation(
-                    normalized_model_spec=current.get("model_spec"),
-                    compile_ok=True,
-                    pp_checked=pp_checked,
-                    pp_valid=True,
-                ),
-            }, "VALID"
+            return _make_stub_grounding_result(
+                {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=current.get("model_spec"),
+                        compile_ok=True,
+                        pp_checked=pp_checked,
+                        pp_valid=True,
+                    ),
+                },
+                "VALID",
+            )
 
         def stub_validate_assembly(model_spec, authored_priors, *_args, **_kwargs):
             return AssemblyValidation(
@@ -5655,11 +5988,11 @@ class TestStage4Mechanics:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
@@ -5683,6 +6016,7 @@ class TestStage4Mechanics:
             "indicator:steps",
             "review:model_spec",
             "measurement:activity",
+            "observation:obs_ordered_base",
             "dynamics:activity",
             "dynamics:sleep",
             "dynamics:mood",
@@ -5694,6 +6028,7 @@ class TestStage4Mechanics:
             "beta_activity_mood",
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "obs_ordered_base",
             "rho_mood",
             "rho_sleep",
             "sigma_activity",
@@ -5713,6 +6048,21 @@ class TestStage4Mechanics:
                 "proposal": {
                     "decision": "approve",
                     "reasoning": "The deterministic model form is coherent.",
+                },
+            },
+            {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
+                        }
+                    }
                 },
             },
             {
@@ -5745,28 +6095,34 @@ class TestStage4Mechanics:
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             if "model_spec" in data:
                 model_spec_calls.append(data["model_spec"])
-                return {
-                    "model_spec": data["model_spec"],
-                    "validation": AssemblyValidation(
-                        normalized_model_spec=data["model_spec"],
-                        compile_ok=True,
-                    ),
-                }, "MODEL STATE SAVED:\n- missing priors"
+                return _make_stub_grounding_result(
+                    {
+                        "model_spec": data["model_spec"],
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=data["model_spec"],
+                            compile_ok=True,
+                        ),
+                    },
+                    "MODEL STATE SAVED:\n- missing priors",
+                )
 
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
-            return {
-                "authored_priors": authored_priors,
-                "validation": AssemblyValidation(
-                    normalized_model_spec=current.get("model_spec"),
-                    compile_ok=True,
-                    pp_checked=True,
-                    pp_valid=True,
-                ),
-            }, "VALID"
+            return _make_stub_grounding_result(
+                {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=current.get("model_spec"),
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=True,
+                    ),
+                },
+                "VALID",
+            )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
 
@@ -5787,9 +6143,13 @@ class TestStage4Mechanics:
         )
 
         assert len(model_spec_calls) == 1
-        assert visited_blocks == ["review:model_spec", "dynamics:sleep"]
-        assert visible_tools == [["validate_model"], ["validate_model"]]
-        assert sorted(result.authored_priors) == ["rho_sleep", "sigma_sleep"]
+        assert visited_blocks == [
+            "review:model_spec",
+            "observation:obs_ordered_base",
+            "dynamics:sleep",
+        ]
+        assert visible_tools == [["validate_model"], ["validate_model"], ["validate_model"]]
+        assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_run_stage4_tracks_submission_when_feedback_repeats(self, monkeypatch):
         causal_spec = _make_stage4_no_model_block_spec()
@@ -5800,6 +6160,21 @@ class TestStage4Mechanics:
                 "proposal": {
                     "decision": "approve",
                     "reasoning": "The deterministic model form is coherent.",
+                },
+            },
+            {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
+                        }
+                    }
                 },
             },
             {
@@ -5877,50 +6252,71 @@ class TestStage4Mechanics:
             nonlocal prior_attempts
             current = current or {}
             if "model_spec" in data:
-                return {
-                    "model_spec": data["model_spec"],
-                    "validation": AssemblyValidation(
-                        normalized_model_spec=data["model_spec"],
-                        compile_ok=True,
-                    ),
-                }, "MODEL STATE SAVED:\n- missing priors"
+                return _make_stub_grounding_result(
+                    {
+                        "model_spec": data["model_spec"],
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=data["model_spec"],
+                            compile_ok=True,
+                        ),
+                    },
+                    "MODEL STATE SAVED:\n- missing priors",
+                )
 
-            prior_attempts += 1
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
+            if "obs_ordered_base" in data["priors"]:
+                return _make_stub_grounding_result(
+                    {
+                        "authored_priors": authored_priors,
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=current.get("model_spec"),
+                            compile_ok=True,
+                        ),
+                    },
+                    "MODEL STATE SAVED:\n- missing priors",
+                )
+
+            prior_attempts += 1
             if prior_attempts < 3:
-                return {
+                return _make_stub_grounding_result(
+                    {
+                        "authored_priors": authored_priors,
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=current.get("model_spec"),
+                            compile_ok=True,
+                            pp_checked=True,
+                            pp_valid=False,
+                            diagnostics=[
+                                PriorValidationResult(
+                                    parameter="rho_sleep",
+                                    is_valid=False,
+                                    code=f"local_prior_adjustment_{prior_attempts}",
+                                    origin="prior_predictive",
+                                    issue="Sleep persistence prior still needs adjustment",
+                                    suggested_adjustment="Tighten the active dynamics prior",
+                                )
+                            ],
+                        ),
+                    },
+                    "PRIOR PREDICTIVE FEEDBACK:\n- still failing",
+                )
+
+            return _make_stub_grounding_result(
+                {
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=current.get("model_spec"),
                         compile_ok=True,
                         pp_checked=True,
-                        pp_valid=False,
-                        diagnostics=[
-                            PriorValidationResult(
-                                parameter="rho_sleep",
-                                is_valid=False,
-                                code=f"local_prior_adjustment_{prior_attempts}",
-                                origin="prior_predictive",
-                                issue="Sleep persistence prior still needs adjustment",
-                                suggested_adjustment="Tighten the active dynamics prior",
-                            )
-                        ],
+                        pp_valid=True,
                     ),
-                }, "PRIOR PREDICTIVE FEEDBACK:\n- still failing"
-
-            return {
-                "authored_priors": authored_priors,
-                "validation": AssemblyValidation(
-                    normalized_model_spec=current.get("model_spec"),
-                    compile_ok=True,
-                    pp_checked=True,
-                    pp_valid=True,
-                ),
-            }, "VALID"
+                },
+                "VALID",
+            )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
 
@@ -5943,12 +6339,13 @@ class TestStage4Mechanics:
         assert prior_attempts == 3
         assert visited_blocks == [
             "review:model_spec",
+            "observation:obs_ordered_base",
             "dynamics:sleep",
             "dynamics:sleep",
             "dynamics:sleep",
         ]
         assert visible_tools == [["validate_model"]] * len(submissions)
-        assert sorted(result.authored_priors) == ["rho_sleep", "sigma_sleep"]
+        assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_run_stage4_resumes_from_runtime_checkpoint(self, monkeypatch):
         causal_spec = _make_stage4_no_model_block_spec()
@@ -5958,6 +6355,21 @@ class TestStage4Mechanics:
             "proposal": {
                 "decision": "approve",
                 "reasoning": "The deterministic model form is coherent.",
+            },
+        }
+        observation_submission = {
+            "block_id": "observation:obs_ordered_base",
+            "block_kind": "observation_prior",
+            "proposal": {
+                "priors": {
+                    "obs_ordered_base": {
+                        "parameter": "obs_ordered_base",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 1.0},
+                        "sources": [],
+                        "reasoning": "ordered-threshold location prior",
+                    }
+                }
             },
         }
         dynamics_submission = {
@@ -5998,28 +6410,34 @@ class TestStage4Mechanics:
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             if "model_spec" in data:
-                return {
-                    "model_spec": data["model_spec"],
-                    "validation": AssemblyValidation(
-                        normalized_model_spec=data["model_spec"],
-                        compile_ok=True,
-                    ),
-                }, "MODEL STATE SAVED:\n- missing priors"
+                return _make_stub_grounding_result(
+                    {
+                        "model_spec": data["model_spec"],
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=data["model_spec"],
+                            compile_ok=True,
+                        ),
+                    },
+                    "MODEL STATE SAVED:\n- missing priors",
+                )
 
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
-            return {
-                "authored_priors": authored_priors,
-                "validation": AssemblyValidation(
-                    normalized_model_spec=current.get("model_spec"),
-                    compile_ok=True,
-                    pp_checked=True,
-                    pp_valid=True,
-                ),
-            }, "VALID"
+            return _make_stub_grounding_result(
+                {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=current.get("model_spec"),
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=True,
+                    ),
+                },
+                "VALID",
+            )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
 
@@ -6057,7 +6475,7 @@ class TestStage4Mechanics:
             )
 
         assert saved_runtime is not None
-        assert first_run_blocks == ["review:model_spec", "dynamics:sleep"]
+        assert first_run_blocks == ["review:model_spec", "observation:obs_ordered_base"]
 
         async def resume_from_dynamics(
             messages,
@@ -6070,9 +6488,13 @@ class TestStage4Mechanics:
             assert label is not None and label.startswith("stage-4:")
             block_id = label.removeprefix("stage-4:")
             second_run_blocks.append(block_id)
-            assert block_id == "dynamics:sleep"
             validate_tool = next(tool for tool in tools if tool.name == "validate_model")
-            feedback = await validate_tool(model_json=json.dumps(dynamics_submission))
+            submission = (
+                observation_submission
+                if block_id == "observation:obs_ordered_base"
+                else dynamics_submission
+            )
+            feedback = await validate_tool(model_json=json.dumps(submission))
             assert isinstance(feedback, str)
             assert not feedback.startswith("VALIDATION ERRORS:")
             return ""
@@ -6092,9 +6514,9 @@ class TestStage4Mechanics:
             )
         )
 
-        assert second_run_blocks == ["dynamics:sleep"]
+        assert second_run_blocks == ["observation:obs_ordered_base", "dynamics:sleep"]
         assert clear_calls == 1
-        assert sorted(result.authored_priors) == ["rho_sleep", "sigma_sleep"]
+        assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_run_stage4_discards_invalid_runtime_checkpoint(self, monkeypatch):
         causal_spec = _make_stage4_no_model_block_spec()
@@ -6103,28 +6525,34 @@ class TestStage4Mechanics:
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             if "model_spec" in data:
-                return {
-                    "model_spec": data["model_spec"],
-                    "validation": AssemblyValidation(
-                        normalized_model_spec=data["model_spec"],
-                        compile_ok=True,
-                    ),
-                }, "MODEL STATE SAVED:\n- missing priors"
+                return _make_stub_grounding_result(
+                    {
+                        "model_spec": data["model_spec"],
+                        "validation": AssemblyValidation(
+                            normalized_model_spec=data["model_spec"],
+                            compile_ok=True,
+                        ),
+                    },
+                    "MODEL STATE SAVED:\n- missing priors",
+                )
 
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
-            return {
-                "authored_priors": authored_priors,
-                "validation": AssemblyValidation(
-                    normalized_model_spec=current.get("model_spec"),
-                    compile_ok=True,
-                    pp_checked=True,
-                    pp_valid=True,
-                ),
-            }, "VALID"
+            return _make_stub_grounding_result(
+                {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=current.get("model_spec"),
+                        compile_ok=True,
+                        pp_checked=True,
+                        pp_valid=True,
+                    ),
+                },
+                "VALID",
+            )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.stage4_grounding",
+            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
 
@@ -6135,6 +6563,21 @@ class TestStage4Mechanics:
                 "proposal": {
                     "decision": "approve",
                     "reasoning": "The deterministic model form is coherent.",
+                },
+            },
+            "observation:obs_ordered_base": {
+                "block_id": "observation:obs_ordered_base",
+                "block_kind": "observation_prior",
+                "proposal": {
+                    "priors": {
+                        "obs_ordered_base": {
+                            "parameter": "obs_ordered_base",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "sources": [],
+                            "reasoning": "ordered-threshold location prior",
+                        }
+                    }
                 },
             },
             "dynamics:sleep": {
@@ -6180,8 +6623,12 @@ class TestStage4Mechanics:
         )
 
         assert cleared == [True, True]
-        assert visited_blocks == ["review:model_spec", "dynamics:sleep"]
-        assert sorted(result.authored_priors) == ["rho_sleep", "sigma_sleep"]
+        assert visited_blocks == [
+            "review:model_spec",
+            "observation:obs_ordered_base",
+            "dynamics:sleep",
+        ]
+        assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
         from causal_ssm_agent.utils.openrouter_client import Tool
@@ -6315,6 +6762,7 @@ class TestStage4Mechanics:
             "indicator:steps",
             "review:model_spec",
             "measurement:activity",
+            "observation:obs_ordered_base",
             "dynamics:activity",
             "dynamics:sleep",
             "dynamics:sleep",
@@ -6353,6 +6801,15 @@ class TestStage4Mechanics:
                 priors.get("lambda_activity_vas_activity", {}).get("reasoning")
                 == "initial measurement prior"
             ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "obs_ordered_base" in priors:
                 return {
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
@@ -6436,6 +6893,7 @@ class TestStage4Mechanics:
             stage4_grounding_fn=stub_stage4_grounding,
             model_topology={},
             loading_params=skeleton.loading_params,
+            prior_cards=build_prior_cards(causal_spec, skeleton),
         )
 
         async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
@@ -6520,6 +6978,7 @@ class TestStage4Mechanics:
             "BLOCK ACCEPTED:\n- saved `review:model_spec`\n- next block: `measurement:activity` (measurement_prior)",
             "MODEL STATE SAVED:\n- missing priors",
             "MODEL STATE SAVED:\n- missing priors",
+            "MODEL STATE SAVED:\n- missing priors",
             "COMPILE ERROR:\nrho_sleep interval instability",
             "MODEL STATE SAVED:\n- missing priors",
             "PRIOR PREDICTIVE CHECKS FAILED",
@@ -6542,6 +7001,7 @@ class TestStage4Mechanics:
         assert sorted(runtime.accepted.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "obs_ordered_base",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",

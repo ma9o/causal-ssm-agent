@@ -1,6 +1,6 @@
 """Stage 1a: Latent Model Proposal (Prefect wrapper)."""
 
-from causal_ssm_agent.flows.stages.llm_stage_task import make_llm_stage_task
+from causal_ssm_agent.flows.llm_stage_task import make_llm_stage_task
 from causal_ssm_agent.orchestrator.stage1a import run_stage1a
 from causal_ssm_agent.utils.config import get_config
 

@@ -261,8 +261,8 @@ def finalize_stage(
     Combines the former ``_web_payload`` + ``_stage_state`` +
     ``_finalize_stage_state`` into a single call.
     """
-    from .stages import persist_web_result
-    from .stages.contracts import STAGE_CONTRACTS, StageId
+    from .stage_contracts import STAGE_CONTRACTS, StageId
+    from .stage_persistence import persist_web_result
 
     stage_contract = contract or STAGE_CONTRACTS[cast("StageId", stage_id)]
     contract_fields = set(stage_contract.model_fields.keys())

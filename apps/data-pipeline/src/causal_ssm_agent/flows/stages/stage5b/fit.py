@@ -1,8 +1,4 @@
-"""Stage 5: Bayesian inference and intervention analysis.
-
-Fits the SSM model and runs counterfactual interventions to
-estimate treatment effects, ranked by effect size.
-"""
+"""Stage 5b: Bayesian inference and diagnostics."""
 
 import time
 from typing import Any
@@ -11,10 +7,9 @@ import jax.numpy as jnp
 import polars as pl
 from prefect import task
 
-from causal_ssm_agent.models.ssm.inference import FittedArtifact
 from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, prepare_model_runtime
 
-from .. import get_prefect_logger
+from ... import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 
@@ -339,61 +334,3 @@ def run_ppc(fitted_result: dict) -> dict:
     except (ValueError, RuntimeError, ArithmeticError, FloatingPointError):
         logger.exception("PPC check failed after %.1fs", _elapsed_seconds(t0))
         return {"checked": False, "per_variable_warnings": []}
-
-
-@task(result_serializer="json")
-def run_interventions(
-    fitted_artifact: FittedArtifact,
-    treatments: list[str],
-    outcome: str,
-    causal_spec: dict | None = None,
-) -> list[dict]:
-    """Run do-operator interventions and rank treatments by effect size.
-
-    For each treatment, applies do(treatment = baseline + 1) and measures
-    the change in the outcome variable at steady state.
-
-    Args:
-        fitted_artifact: Persisted fitted inference artifact
-        treatments: List of treatment construct names
-        outcome: Name of the outcome variable
-        causal_spec: Optional CausalSpec with identifiability status
-
-    Returns:
-        List of intervention results, sorted by |effect_size| descending
-    """
-    from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
-
-    logger.info(
-        "Running interventions: treatments=%d outcome=%s fitted=%s",
-        len(treatments),
-        outcome or "unknown",
-        fitted_artifact.result is not None,
-    )
-
-    # If model not fitted, return skeleton results
-    if fitted_artifact.result is None or fitted_artifact.builder is None:
-        return [{"treatment": t} for t in treatments]
-
-    builder = fitted_artifact.builder
-    result = fitted_artifact.result
-    samples = result.get_samples()
-    spec = builder._spec
-
-    latent_names = spec.latent_names
-    if latent_names is None:
-        latent_names = spec.manifest_names or []
-
-    manifest_names = spec.manifest_names or []
-
-    results = compute_interventions(
-        samples=samples,
-        treatments=treatments,
-        outcome=outcome,
-        latent_names=latent_names,
-        causal_spec=causal_spec,
-        manifest_names=manifest_names,
-        times=fitted_artifact.times,
-    )
-    logger.info("Interventions complete: ranked_treatments=%d", len(results))
-    return results

@@ -1,22 +1,21 @@
-"""Tests for Stage 4 grounding helpers in ``stage_tools.py``.
+"""Tests for Stage 4 grounding helpers.
 
 This file owns the direct grounding call paths:
 - ``stage4_grounding`` validation, merge, and feedback behavior
 """
 
 import asyncio
-import json
 
 import pytest
 
-from causal_ssm_agent.flows.stages.stage4_assembly import format_prior_proposal_errors
-from causal_ssm_agent.flows.stages.stage_tools import (
-    make_search_tool,
-    make_stage_tool,
+from causal_ssm_agent.flows.stages.stage4.assembly import format_prior_proposal_errors
+from causal_ssm_agent.flows.stages.stage4.grounding import (
     should_capture_stage4_output,
     stage4_grounding,
 )
+from causal_ssm_agent.flows.stages.stage4.tools import make_search_tool
 from causal_ssm_agent.orchestrator.stage4 import Stage4Runtime
+from causal_ssm_agent.orchestrator.stage4_feedback import make_stage4_grounding_result
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -162,6 +161,12 @@ def _make_priors(model_spec: dict) -> dict[str, dict]:
     return priors
 
 
+def _run_stage4_grounding(*args, **kwargs):
+    """Preserve the historical test helper shape while Stage 4 now returns typed results."""
+    result = stage4_grounding(*args, **kwargs)
+    return result.stage_output, result.feedback
+
+
 @pytest.fixture
 def causal_spec():
     return _make_causal_spec()
@@ -187,7 +192,7 @@ class TestStage4GroundingSchemaValidation:
 
     def test_invalid_prior_distribution_returns_error(self, causal_spec, model_spec):
         """Unknown prior family should fail schema validation immediately."""
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {
                 "priors": {
                     "beta_stress_sleep": {
@@ -232,7 +237,7 @@ class TestStage4GroundingMissingState:
 
     def test_priors_without_model_spec_returns_compile_error(self, causal_spec, priors):
         """Priors without model_spec in current state should fail with guidance."""
-        _output, feedback = stage4_grounding(
+        _output, feedback = _run_stage4_grounding(
             {"priors": {"beta_stress_sleep": priors["beta_stress_sleep"]}},
             causal_spec,
             current=None,
@@ -262,7 +267,7 @@ class TestStage4GroundingStateMerging:
             "sources": [],
             "reasoning": "Updated based on evidence",
         }
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {"priors": {"beta_stress_sleep": new_beta}},
             causal_spec,
             current=current,
@@ -280,7 +285,7 @@ class TestStage4GroundingStateMerging:
         old_spec = {**model_spec, "extra_field": "old"}
         current = {"model_spec": old_spec}
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {"model_spec": model_spec},
             causal_spec,
             current=current,
@@ -295,11 +300,18 @@ class TestStage4GroundingCompileOwnership:
     """Grounding should surface compile and global validation failures clearly."""
 
     def test_compile_failure_surfaces_in_grounding(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(
-            model_spec, priors, data_for_model, indicator_audits, causal_spec
+            model_spec,
+            priors,
+            data_for_model,
+            indicator_audits,
+            causal_spec,
+            *,
+            skip_ppc=False,
         ):
+            del skip_ppc
             return AssemblyValidation(
                 normalized_model_spec=model_spec,
                 compile_ok=False,
@@ -307,7 +319,7 @@ class TestStage4GroundingCompileOwnership:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
@@ -322,7 +334,7 @@ class TestStage4GroundingCompileOwnership:
                 }
             },
         }
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             data,
             causal_spec={},
             current={"model_spec": {"likelihoods": [], "parameters": []}},
@@ -337,7 +349,7 @@ class TestStage4GroundingCompileOwnership:
         assert "Resubmit only the fields you changed" in feedback
 
     def test_grounding_defaults_skip_ppc_false(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
         calls: list[bool] = []
 
@@ -358,11 +370,11 @@ class TestStage4GroundingCompileOwnership:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {
                 "model_spec": {
                     "likelihoods": [],
@@ -389,7 +401,7 @@ class TestStage4GroundingCompileOwnership:
     ):
         current = {"model_spec": model_spec, "authored_priors": dict(priors)}
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {
                 "priors": {
                     "rho_stress": {
@@ -422,7 +434,7 @@ class TestStage4GroundingCompileOwnership:
         assert "bogus_param" in feedback
 
     def test_non_fatal_modeling_warnings_are_returned_without_rejecting_state(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
         from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
         validation = AssemblyValidation(
@@ -459,7 +471,7 @@ class TestStage4GroundingCompileOwnership:
             return validation
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
@@ -478,7 +490,7 @@ class TestStage4GroundingCompileOwnership:
             }
         }
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {"priors": priors},
             causal_spec={},
             current=current,
@@ -492,7 +504,7 @@ class TestStage4GroundingCompileOwnership:
         assert "weekly" in feedback
 
     def test_rejected_compile_does_not_overwrite_last_accepted_capture(self):
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
         accepted_state = {
             "model_spec": {
@@ -532,29 +544,51 @@ class TestStage4GroundingCompileOwnership:
         }
         responses = iter(
             [
-                (
-                    accepted_state,
-                    "MODEL STATE SAVED:\n- missing priors for 1 parameters: `rho_mood`",
+                make_stage4_grounding_result(
+                    stage_output=accepted_state,
+                    status="accepted_pending_priors",
+                    feedback="MODEL STATE SAVED:\n- missing priors for 1 parameters: `rho_mood`",
+                    validation=accepted_state["validation"],
+                    capture_stage_output=True,
                 ),
-                (rejected_state, "COMPILE ERROR:\nsupport mismatch"),
+                make_stage4_grounding_result(
+                    stage_output=rejected_state,
+                    status="compile_error",
+                    feedback="COMPILE ERROR:\nsupport mismatch",
+                    validation=rejected_state["validation"],
+                    capture_stage_output=False,
+                ),
             ]
         )
-
-        tool, capture = make_stage_tool(
-            name="validate_model",
-            description="test",
-            param_name="model_json",
-            param_description="test payload",
-            compute_fn=lambda _data: next(responses),
-            capture_when=should_capture_stage4_output,
-        )
-
-        asyncio.run(tool(model_json=json.dumps({"step": 1})))
+        capture: dict = {}
+        first = next(responses)
+        if should_capture_stage4_output(first) and first.stage_output is not None:
+            capture.update(first.stage_output)
         first_capture = dict(capture)
-        asyncio.run(tool(model_json=json.dumps({"step": 2})))
+
+        second = next(responses)
+        if should_capture_stage4_output(second) and second.stage_output is not None:
+            capture.update(second.stage_output)
 
         assert capture == first_capture
         assert capture["model_spec"]["likelihoods"][0]["distribution"] == "gaussian"
+
+    def test_capture_uses_explicit_status_not_feedback_prefixes(self):
+        accepted = make_stage4_grounding_result(
+            stage_output={"model_spec": {"parameters": []}},
+            status="accepted_pending_priors",
+            feedback="COMPILE ERROR:\nthis text is intentionally misleading",
+            capture_stage_output=True,
+        )
+        rejected = make_stage4_grounding_result(
+            stage_output={"model_spec": {"parameters": ["bad"]}},
+            status="compile_error",
+            feedback="MODEL STATE SAVED:\nthis text is intentionally misleading",
+            capture_stage_output=False,
+        )
+
+        assert should_capture_stage4_output(accepted) is True
+        assert should_capture_stage4_output(rejected) is False
 
     def test_schema_error_keeps_valid_priors_and_model_state(self):
         current = {
@@ -587,7 +621,7 @@ class TestStage4GroundingCompileOwnership:
             },
         }
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             data, causal_spec={}, current=current, data_for_model=None
         )
 
@@ -605,7 +639,7 @@ class TestStage4SearchTool:
             return f"RESULT for {query}"
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage_tools.search_literature",
+            "causal_ssm_agent.flows.stages.stage4.tools.search_literature",
             stub_search_literature,
         )
 
@@ -636,7 +670,7 @@ class TestStage4SearchTool:
         }
 
     def test_model_spec_can_be_saved_before_all_priors_arrive(self, monkeypatch, model_spec):
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(model_spec, *_args, **_kwargs):
             return AssemblyValidation(
@@ -645,11 +679,11 @@ class TestStage4SearchTool:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {"model_spec": model_spec},
             causal_spec={},
             current=None,
@@ -663,7 +697,7 @@ class TestStage4SearchTool:
         assert "missing priors" in feedback
 
     def test_model_spec_lock_does_not_require_default_initial_state_priors(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
         model_spec = {
             "likelihoods": [
@@ -703,11 +737,11 @@ class TestStage4SearchTool:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {"model_spec": model_spec},
             causal_spec={},
             current=None,
@@ -719,7 +753,7 @@ class TestStage4SearchTool:
         assert "missing priors for 1 parameters: `rho_mood`" in feedback
 
     def test_rejects_mixed_model_and_prior_updates(self):
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {
                 "model_spec": {"likelihoods": [], "parameters": []},
                 "priors": {
@@ -744,7 +778,7 @@ class TestStage4SearchTool:
 
 class TestStage4GroundingBatches:
     def test_accepts_large_prior_batches(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(model_spec, *_args, **_kwargs):
             return AssemblyValidation(
@@ -754,7 +788,7 @@ class TestStage4GroundingBatches:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
@@ -782,7 +816,7 @@ class TestStage4GroundingBatches:
             for idx in range(9)
         }
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {"priors": priors},
             causal_spec={},
             current=current,
@@ -813,7 +847,7 @@ class TestStage4GroundingBatches:
             },
         }
 
-        output, feedback = stage4_grounding(
+        output, feedback = _run_stage4_grounding(
             {"priors": dict(current["authored_priors"])},
             causal_spec={},
             current=current,
@@ -825,7 +859,7 @@ class TestStage4GroundingBatches:
         assert "`rho_mood`" in feedback
 
     def test_global_validation_failure_produces_correct_feedback(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4_assembly import (
+        from causal_ssm_agent.flows.stages.stage4.assembly import (
             AssemblyValidation,
             build_validation_payload,
         )
