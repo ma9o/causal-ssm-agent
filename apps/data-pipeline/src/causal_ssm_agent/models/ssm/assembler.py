@@ -84,6 +84,22 @@ class SSMAssembler:
                 (i, j) for i in range(spec.n_latent, spec.n_manifest) for j in range(spec.n_latent)
             ]
 
+        # Manifest variance: diagonal Cholesky template with optional sparse free positions
+        if isinstance(spec.manifest_var, jnp.ndarray) and spec.manifest_var_mask is not None:
+            self.manifest_var_mode = "template"
+            self.manifest_var_template = jnp.array(spec.manifest_var)
+            self.manifest_var_free_positions: list[int] = [
+                idx for idx in range(spec.n_manifest) if bool(spec.manifest_var_mask[idx])
+            ]
+        elif isinstance(spec.manifest_var, jnp.ndarray):
+            self.manifest_var_mode = "fixed"
+            self.manifest_var_template = jnp.array(spec.manifest_var)
+            self.manifest_var_free_positions = []
+        else:
+            self.manifest_var_mode = "diag"
+            self.manifest_var_template = jnp.zeros((spec.n_manifest, spec.n_manifest))
+            self.manifest_var_free_positions = list(range(spec.n_manifest))
+
     def assemble_drift(
         self, drift_diag_pop: jnp.ndarray, drift_offdiag_pop: jnp.ndarray
     ) -> jnp.ndarray:
@@ -139,3 +155,11 @@ class SSMAssembler:
             for idx, (i, j) in enumerate(self.lambda_free_positions):
                 lam = lam.at[i, j].set(free_loadings[idx])
         return lam
+
+    def assemble_manifest_chol(self, free_diag: jnp.ndarray | None = None) -> jnp.ndarray:
+        """Build manifest-noise Cholesky from a template and sparse free diagonal."""
+        manifest_chol = self.manifest_var_template
+        if free_diag is not None and len(self.manifest_var_free_positions) > 0:
+            for idx, manifest_idx in enumerate(self.manifest_var_free_positions):
+                manifest_chol = manifest_chol.at[manifest_idx, manifest_idx].set(free_diag[idx])
+        return manifest_chol
