@@ -4,12 +4,18 @@ import {
   LandingPageView,
   MAX_FILE_SIZE,
 } from "@/components/landing/landing-page-view";
+import { AccessibleWorkspacesRail } from "@/components/pipeline/accessible-workspaces-rail";
 import { apiFetch } from "@/lib/api/client";
+import {
+  getAccessibleWorkspaces,
+  getAccessibleWorkspacesQueryKey,
+} from "@/lib/api/workspaces";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { initiateOpenRouterAuth } from "@/lib/auth";
 import { useAuth } from "@/lib/hooks/use-auth";
 import { generateAnonymousWorkspaceId } from "@/lib/workspace-id";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import prettyBytes from "pretty-bytes";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,6 +28,13 @@ export default function LandingPage() {
 
   const auth = useAuth();
   const launchIdRef = useRef<string | null>(null);
+  const accessibleWorkspacesQuery = useQuery({
+    queryKey: getAccessibleWorkspacesQueryKey(auth.access?.authScope ?? "pending"),
+    queryFn: getAccessibleWorkspaces,
+    enabled: auth.access !== null,
+    staleTime: 30_000,
+    retry: false,
+  });
 
   useEffect(() => {
     if (isMockMode() && !sessionStorage.getItem("mock-landed")) {
@@ -107,25 +120,31 @@ export default function LandingPage() {
     await initiateOpenRouterAuth(`${window.location.origin}/auth/callback`);
   };
 
-
   return (
-    <LandingPageView
-      access={auth.access}
-      noAccess={auth.noAccess}
-      onSignOut={() => void auth.signOut()}
-      onOpenRouterAuth={handleOpenRouterAuth}
-      question={question}
-      onQuestionChange={(q) => {
-        setQuestion(q);
-        if (error) setError(null);
-      }}
-      file={file}
-      onFileSelect={handleFileSelect}
-      onFileRemove={() => setFile(null)}
-      isSubmitting={isSubmitting}
-      submitDisabled={isSubmitting || !question.trim() || !file || auth.noAccess}
-      onSubmit={handleSubmit}
-      error={error}
-    />
+    <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
+      <LandingPageView
+        access={auth.access}
+        noAccess={auth.noAccess}
+        onSignOut={() => void auth.signOut()}
+        onOpenRouterAuth={handleOpenRouterAuth}
+        question={question}
+        onQuestionChange={(q) => {
+          setQuestion(q);
+          if (error) setError(null);
+        }}
+        file={file}
+        onFileSelect={handleFileSelect}
+        onFileRemove={() => setFile(null)}
+        isSubmitting={isSubmitting}
+        submitDisabled={isSubmitting || !question.trim() || !file || auth.noAccess}
+        onSubmit={handleSubmit}
+        error={error}
+      />
+      <AccessibleWorkspacesRail
+        data={accessibleWorkspacesQuery.data}
+        error={accessibleWorkspacesQuery.error?.message ?? null}
+        isLoading={auth.access === null || accessibleWorkspacesQuery.isLoading}
+      />
+    </div>
   );
 }

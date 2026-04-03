@@ -1,15 +1,10 @@
 "use client";
 
 import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
-import { AccessibleWorkspacesRail } from "@/components/pipeline/accessible-workspaces-rail";
 import {
   getAnalysisManifest,
   getAnalysisManifestQueryKey,
 } from "@/lib/api/analysis";
-import {
-  getAccessibleWorkspaces,
-  getAccessibleWorkspacesQueryKey,
-} from "@/lib/api/workspaces";
 import { hasStoppedStage } from "@/lib/hooks/pipeline-progress";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
@@ -39,12 +34,6 @@ export default function AnalysisPage({
     retry: false,
   });
   const manifest = manifestQuery.data;
-  const accessibleWorkspacesQuery = useQuery({
-    queryKey: getAccessibleWorkspacesQueryKey(),
-    queryFn: getAccessibleWorkspaces,
-    staleTime: 30_000,
-    retry: false,
-  });
   const manifestError = useMemo(() => {
     if (manifest) {
       return null;
@@ -120,15 +109,5 @@ export default function AnalysisPage({
     />
   );
 
-  return (
-    <div className="xl:grid xl:grid-cols-[minmax(0,1fr)_22rem] xl:items-start">
-      {mainContent}
-      <AccessibleWorkspacesRail
-        currentWorkspaceId={workspaceId}
-        data={accessibleWorkspacesQuery.data}
-        error={accessibleWorkspacesQuery.error?.message ?? null}
-        isLoading={accessibleWorkspacesQuery.isLoading}
-      />
-    </div>
-  );
+  return mainContent;
 }
