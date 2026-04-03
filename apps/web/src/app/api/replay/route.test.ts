@@ -7,7 +7,8 @@ vi.mock("@/lib/workspace-access", () => ({
   })),
 }));
 
-vi.mock("@/lib/server/openrouter-access", () => ({
+vi.mock("@/lib/server/openrouter-access", async (importOriginal) => ({
+  ...await importOriginal(),
   resolveOpenRouterAccess: vi.fn(),
 }));
 
@@ -51,8 +52,8 @@ describe("POST /api/replay", () => {
 
   it("returns 409 when another run is already active for the workspace", async () => {
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
-      mode: "trial",
-      apiKey: "trial-key",
+      mode: "anonymous",
+      apiKey: "anonymous-key",
       creditStatus: "available",
     });
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
@@ -98,11 +99,11 @@ describe("POST /api/replay", () => {
 
   it("cancels the current flow run before starting the replay", async () => {
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
-      mode: "trial",
-      apiKey: "trial-key",
+      mode: "anonymous",
+      apiKey: "anonymous-key",
       creditStatus: "available",
     });
-    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-1");
+    vi.mocked(createByokSecretRef).mockResolvedValue("anonymous-ref-1");
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
       status: "claimed",
       reservationId: "slot-1",
@@ -208,8 +209,8 @@ describe("POST /api/replay", () => {
         stage_overrides: {
           "stage-1a": { latent_model: { constructs: [] } },
         },
-        openrouter_access_mode: "trial",
-        openrouter_secret_ref: "trial-ref-1",
+        openrouter_access_mode: "anonymous",
+        openrouter_secret_ref: "anonymous-ref-1",
       },
     });
     expect(createBody.idempotency_key).toMatch(/^replay:user-123:stage-1a:[0-9a-f]{64}$/);
@@ -219,11 +220,11 @@ describe("POST /api/replay", () => {
 
   it("skips cancellation when the tracked flow run is already terminal", async () => {
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
-      mode: "trial",
-      apiKey: "trial-key",
+      mode: "anonymous",
+      apiKey: "anonymous-key",
       creditStatus: "available",
     });
-    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-2");
+    vi.mocked(createByokSecretRef).mockResolvedValue("anonymous-ref-2");
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
       status: "claimed",
       reservationId: "slot-2",
@@ -262,8 +263,8 @@ describe("POST /api/replay", () => {
     const createCall = fetchMock.mock.calls[3]?.[1] as { body?: string };
     expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
       parameters: {
-        openrouter_access_mode: "trial",
-        openrouter_secret_ref: "trial-ref-2",
+        openrouter_access_mode: "anonymous",
+        openrouter_secret_ref: "anonymous-ref-2",
       },
     });
     expect(fetchMock).not.toHaveBeenCalledWith(
@@ -274,11 +275,11 @@ describe("POST /api/replay", () => {
 
   it("drops stale resume bounds from the previous run before creating the replay", async () => {
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
-      mode: "trial",
-      apiKey: "trial-key",
+      mode: "anonymous",
+      apiKey: "anonymous-key",
       creditStatus: "available",
     });
-    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-3");
+    vi.mocked(createByokSecretRef).mockResolvedValue("anonymous-ref-3");
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
       status: "claimed",
       reservationId: "slot-3",
@@ -355,8 +356,8 @@ describe("POST /api/replay", () => {
           "stage-1a": { latent_model: { constructs: ["existing"] } },
           "stage-4": { model_spec: { nodes: [] }, authored_priors: {}, resolved_priors: [] },
         },
-        openrouter_access_mode: "trial",
-        openrouter_secret_ref: "trial-ref-3",
+        openrouter_access_mode: "anonymous",
+        openrouter_secret_ref: "anonymous-ref-3",
       },
     });
   });
@@ -365,6 +366,7 @@ describe("POST /api/replay", () => {
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
       mode: "user",
       apiKey: "user-key",
+      userId: "or-user-123",
     });
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
       status: "claimed",
@@ -380,7 +382,7 @@ describe("POST /api/replay", () => {
           parameters: {
             workspace_id: "user-123",
             query: "Why?",
-            openrouter_access_mode: "trial",
+            openrouter_access_mode: "anonymous",
             openrouter_secret_ref: "stale-openrouter-ref",
           },
           state: { type: "COMPLETED", name: "Completed" },
@@ -426,11 +428,11 @@ describe("POST /api/replay", () => {
 
   it("retries retryable Prefect API responses during replay creation", async () => {
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
-      mode: "trial",
-      apiKey: "trial-key",
+      mode: "anonymous",
+      apiKey: "anonymous-key",
       creditStatus: "available",
     });
-    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-5");
+    vi.mocked(createByokSecretRef).mockResolvedValue("anonymous-ref-5");
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
       status: "claimed",
       reservationId: "slot-5",
@@ -480,19 +482,19 @@ describe("POST /api/replay", () => {
     const createCall = fetchMock.mock.calls[4]?.[1] as { body?: string };
     expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
       parameters: {
-        openrouter_access_mode: "trial",
-        openrouter_secret_ref: "trial-ref-5",
+        openrouter_access_mode: "anonymous",
+        openrouter_secret_ref: "anonymous-ref-5",
       },
     });
   });
 
   it("falls back to the latest tagged workspace run when no rootFlowRunId is provided", async () => {
     vi.mocked(resolveOpenRouterAccess).mockResolvedValue({
-      mode: "trial",
-      apiKey: "trial-key",
+      mode: "anonymous",
+      apiKey: "anonymous-key",
       creditStatus: "available",
     });
-    vi.mocked(createByokSecretRef).mockResolvedValue("trial-ref-6");
+    vi.mocked(createByokSecretRef).mockResolvedValue("anonymous-ref-6");
     vi.mocked(claimWorkspaceRunSlot).mockResolvedValue({
       status: "claimed",
       reservationId: "slot-6",
@@ -555,8 +557,8 @@ describe("POST /api/replay", () => {
     const createCall = fetchMock.mock.calls[4]?.[1] as { body?: string };
     expect(JSON.parse(createCall.body ?? "{}")).toMatchObject({
       parameters: {
-        openrouter_access_mode: "trial",
-        openrouter_secret_ref: "trial-ref-6",
+        openrouter_access_mode: "anonymous",
+        openrouter_secret_ref: "anonymous-ref-6",
       },
     });
   });
