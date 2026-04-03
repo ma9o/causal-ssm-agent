@@ -636,12 +636,12 @@ def prior_predictive(
         Dict of prior predictive samples
     """
     from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
-        sample_prior_predictive_from_priors,
+        sample_prior_predictive_from_runtime,
     )
 
-    return sample_prior_predictive_from_priors(
+    return sample_prior_predictive_from_runtime(
         model.spec,
-        model.priors,
+        model.get_prior_runtime_bundle(),
         times,
         num_samples=num_samples,
         seed=seed,

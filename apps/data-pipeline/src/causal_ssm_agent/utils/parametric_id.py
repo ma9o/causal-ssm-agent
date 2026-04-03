@@ -36,7 +36,6 @@ from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.parameterization import (
     SiteRuntimeBundle,
     assemble_deterministics_from_registry,
-    build_prior_runtime_state,
     build_site_registry,
     build_site_runtime_bundle,
     sample_prior_unconstrained,
@@ -732,7 +731,7 @@ def output_sensitivity_analysis(
     # 1. Reuse topology-dependent registry metadata and rebuild only prior values.
     P = context.flat_dim
     scalar_names = context.scalar_names
-    prior_state = build_prior_runtime_state(context.registry, model.priors)
+    prior_state = model.get_prior_runtime_bundle().prior_state
 
     # 3. Sample from prior (Jacobian draws + larger batch for prior std)
     prior_z, rng_key = sample_prior_unconstrained(
@@ -1047,7 +1046,7 @@ def profile_likelihood(
     # 1. Reuse topology-dependent registry/evaluator state; rebuild only priors.
     D = context.flat_dim
     param_names = context.param_names
-    prior_state = build_prior_runtime_state(context.registry, model.priors)
+    prior_state = model.get_prior_runtime_bundle().prior_state
 
     def neg_log_post(z, ps):
         val = -(context.log_lik_fn(z, observations, times) + context.log_prior_unc_fn(z, ps))
@@ -1237,8 +1236,9 @@ def sbc_check(
 
     # Build registry-based runtime (no model tracing needed).
     # The log_lik_fn is compiled once and reused across all replicates.
-    site_runtime = build_site_runtime_bundle(model.spec, model._assembler)
-    prior_state = build_prior_runtime_state(site_runtime.registry, model.priors)
+    prior_runtime = model.get_prior_runtime_bundle()
+    site_runtime = prior_runtime.site_runtime
+    prior_state = prior_runtime.prior_state
     backend = model.make_likelihood_backend()
     log_lik_fn, _ = _build_runtime_eval_fns_from_registry(
         model.spec,

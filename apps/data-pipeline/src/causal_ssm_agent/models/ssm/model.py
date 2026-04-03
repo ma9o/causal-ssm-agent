@@ -38,6 +38,11 @@ from causal_ssm_agent.models.ssm.covariance_utils import (
     stabilize_covariance_for_cholesky,
 )
 from causal_ssm_agent.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
+from causal_ssm_agent.models.ssm.parameterization import (
+    PriorRuntimeBundle,
+    build_prior_runtime_bundle,
+    build_site_prior_distribution,
+)
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
@@ -380,6 +385,7 @@ class SSMModel:
         self,
         spec: SSMSpec,
         priors: SSMPriors | None = None,
+        prior_runtime_bundle: PriorRuntimeBundle | None = None,
         n_particles: int = 200,
         pf_seed: int = 0,
         likelihood: Literal["particle", "kalman"] = "particle",
@@ -402,6 +408,12 @@ class SSMModel:
         self._assembler = SSMAssembler(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
+        self._prior_runtime_bundle = prior_runtime_bundle
+        self._prior_site_index = (
+            {site.name: site for site in prior_runtime_bundle.registry}
+            if prior_runtime_bundle is not None
+            else None
+        )
 
     def get_cached_artifact(self, cache_key: tuple[Any, ...], factory) -> Any:
         """Construct an artifact once per model instance and reuse it afterwards."""
@@ -420,6 +432,24 @@ class SSMModel:
             if not (isinstance(key, tuple) and key and key[0] == "backend")
         }
 
+    def get_prior_runtime_bundle(self) -> PriorRuntimeBundle:
+        """Return canonical prior runtime state for this model instance."""
+        if self._prior_runtime_bundle is None:
+            self._prior_runtime_bundle = build_prior_runtime_bundle(self.spec, self.priors)
+            self._prior_site_index = {
+                site.name: site for site in self._prior_runtime_bundle.registry
+            }
+        return self._prior_runtime_bundle
+
+    def _prior_distribution(self, site_name: str) -> dist.Distribution:
+        """Resolve a sample-site prior from canonical runtime semantics."""
+        runtime = self.get_prior_runtime_bundle()
+        assert self._prior_site_index is not None
+        site = self._prior_site_index.get(site_name)
+        if site is None:
+            raise ValueError(f"Prior runtime bundle has no site named {site_name!r}")
+        return build_site_prior_distribution(site, runtime.prior_state[site_name])
+
     def _sample_drift(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample drift matrix with stability constraints."""
         n = spec.n_latent
@@ -432,14 +462,14 @@ class SSMModel:
 
         drift_diag_pop = numpyro.sample(
             "drift_diag_pop",
-            _make_prior_batch(self.priors.drift_diag, n),
+            self._prior_distribution("drift_diag_pop"),
         )
 
         if n_offdiag > 0:
             drift_offdiag_pop = jnp.asarray(
                 numpyro.sample(
                     "drift_offdiag_pop",
-                    _make_prior_batch(self.priors.drift_offdiag, n_offdiag),
+                    self._prior_distribution("drift_offdiag_pop"),
                 )
             )
         else:
@@ -473,7 +503,7 @@ class SSMModel:
 
         diff_diag_pop = numpyro.sample(
             "diffusion_diag_pop",
-            dist.HalfNormal(jnp.asarray(self.priors.diffusion_diag["sigma"])).expand((n,)),
+            self._prior_distribution("diffusion_diag_pop"),
         )
 
         diff_lower = None
@@ -483,7 +513,7 @@ class SSMModel:
                 diff_lower = jnp.asarray(
                     numpyro.sample(
                         "diffusion_lower",
-                        _make_prior_batch(self.priors.diffusion_offdiag, n_lower),
+                        self._prior_distribution("diffusion_lower"),
                     )
                 )
 
@@ -497,14 +527,12 @@ class SSMModel:
         if spec.cint is None:
             return None
 
-        n = spec.n_latent
-
         if isinstance(spec.cint, jnp.ndarray):
             return spec.cint
 
         cint = numpyro.sample(
             "cint_pop",
-            _make_prior_dist(self.priors.cint).expand((n,)),
+            self._prior_distribution("cint_pop"),
         )
 
         numpyro.deterministic("cint", cint)
@@ -530,7 +558,7 @@ class SSMModel:
             free_loadings = jnp.asarray(
                 numpyro.sample(
                     "lambda_free",
-                    _make_prior_batch(self.priors.lambda_free, n_free),
+                    self._prior_distribution("lambda_free"),
                 )
             )
 
@@ -550,7 +578,7 @@ class SSMModel:
         else:
             manifest_means = numpyro.sample(
                 "manifest_means",
-                _make_prior_dist(self.priors.manifest_means).expand((n_m,)),
+                self._prior_distribution("manifest_means"),
             )
 
         # Variance (Cholesky)
@@ -561,7 +589,7 @@ class SSMModel:
             if n_free > 0:
                 var_diag = numpyro.sample(
                     "manifest_var_diag",
-                    dist.HalfNormal(self.priors.manifest_var_diag["sigma"]).expand((n_free,)),
+                    self._prior_distribution("manifest_var_diag"),
                 )
                 manifest_chol = self._assembler.assemble_manifest_chol(var_diag)
             else:
@@ -572,15 +600,13 @@ class SSMModel:
 
     def _sample_t0_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample initial state parameters."""
-        n_l = spec.n_latent
-
         # Means
         if isinstance(spec.t0_means, jnp.ndarray):
             t0_means = spec.t0_means
         else:
             t0_means = numpyro.sample(
                 "t0_means_pop",
-                _make_prior_dist(self.priors.t0_means).expand((n_l,)),
+                self._prior_distribution("t0_means_pop"),
             )
 
         # Variance (Cholesky)
@@ -589,7 +615,7 @@ class SSMModel:
         else:
             var_diag = numpyro.sample(
                 "t0_var_diag",
-                dist.HalfNormal(self.priors.t0_var_diag["sigma"]).expand((n_l,)),
+                self._prior_distribution("t0_var_diag"),
             )
             t0_corr = None
             if spec.t0_var != "diag":
@@ -597,7 +623,7 @@ class SSMModel:
                 if n_corr > 0:
                     t0_corr = numpyro.sample(
                         "t0_var_lower",
-                        _make_prior_dist(self.priors.t0_var_offdiag).expand((n_corr,)),
+                        self._prior_distribution("t0_var_lower"),
                     )
             t0_cov_raw = self._assembler.assemble_t0_cov(var_diag, t0_corr)
             t0_cov, min_eig = stabilize_covariance_for_cholesky(
@@ -661,22 +687,22 @@ class SSMModel:
         if DistributionFamily.STUDENT_T in manifest_dist_set:
             sampled_values["obs_df"] = numpyro.sample(
                 "obs_df",
-                _make_prior_dist(self.priors.obs_df),
+                self._prior_distribution("obs_df"),
             )
         if DistributionFamily.GAMMA in manifest_dist_set:
             sampled_values["obs_shape"] = numpyro.sample(
                 "obs_shape",
-                _make_prior_dist(self.priors.obs_shape),
+                self._prior_distribution("obs_shape"),
             )
         if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
             sampled_values["obs_r"] = numpyro.sample(
                 "obs_r",
-                _make_prior_dist(self.priors.obs_r),
+                self._prior_distribution("obs_r"),
             )
         if DistributionFamily.BETA in manifest_dist_set:
             sampled_values["obs_concentration"] = numpyro.sample(
                 "obs_concentration",
-                _make_prior_dist(self.priors.obs_concentration),
+                self._prior_distribution("obs_concentration"),
             )
 
         if spec.manifest_level_counts is not None:
@@ -692,31 +718,31 @@ class SSMModel:
             if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
                 sampled_values["obs_ordered_base"] = numpyro.sample(
                     "obs_ordered_base",
-                    _make_prior_dist(self.priors.obs_ordered_base).expand((spec.n_manifest,)),
+                    self._prior_distribution("obs_ordered_base"),
                 )
                 if max_cutpoints > 1:
                     sampled_values["obs_ordered_gaps"] = numpyro.sample(
                         "obs_ordered_gaps",
-                        _make_prior_dist(self.priors.obs_ordered_gaps).expand(
-                            (spec.n_manifest, max_cutpoints - 1)
-                        ),
+                        self._prior_distribution("obs_ordered_gaps"),
                     )
 
             if DistributionFamily.CATEGORICAL in manifest_dist_set:
-                cat_shape = (spec.n_manifest, max_cutpoints)
                 sampled_values["obs_cat_intercepts"] = numpyro.sample(
                     "obs_cat_intercepts",
-                    _make_prior_dist(self.priors.obs_cat_intercepts).expand(cat_shape),
+                    self._prior_distribution("obs_cat_intercepts"),
                 )
                 sampled_values["obs_cat_slopes"] = numpyro.sample(
                     "obs_cat_slopes",
-                    _make_prior_dist(self.priors.obs_cat_slopes).expand(cat_shape),
+                    self._prior_distribution("obs_cat_slopes"),
                 )
 
         from causal_ssm_agent.models.likelihoods.graph_analysis import has_student_t_diffusion
 
         if has_student_t_diffusion(spec):
-            sampled_values["proc_df"] = numpyro.sample("proc_df", dist.Gamma(5.0, 1.0))
+            sampled_values["proc_df"] = numpyro.sample(
+                "proc_df",
+                self._prior_distribution("proc_df"),
+            )
 
         return assemble_sampled_extra_params(spec, sampled_values)
 

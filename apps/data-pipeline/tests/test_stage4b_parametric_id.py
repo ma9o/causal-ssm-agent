@@ -636,7 +636,10 @@ class TestStage4bInferenceStructurePayload:
                 }
             },
         )
-        monkeypatch.setattr("causal_ssm_agent.flows.dag.load_parquet", lambda _path: pl.DataFrame())
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4b.flow.load_parquet",
+            lambda _path: pl.DataFrame(),
+        )
 
         result = stage4b({}, {"_data_for_model_path": "unused"})
 

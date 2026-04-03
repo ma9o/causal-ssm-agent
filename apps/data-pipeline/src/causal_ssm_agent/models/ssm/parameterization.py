@@ -1494,93 +1494,61 @@ def load_prior_runtime_bundle(
 
 
 # ---------------------------------------------------------------------------
-# SSMPriors reconstruction from compiled prior semantics
+# Runtime prior distributions from canonical prior semantics
 # ---------------------------------------------------------------------------
 
 
-def _to_prior_value(arr: jnp.ndarray):
-    """Convert a JAX array to an SSMPriors-compatible value.
-
-    - 0-d arrays → Python float
-    - 1-d arrays where all elements are equal → Python float (scalar prior)
-    - 1-d arrays with varying elements → Python float list
-    """
+def build_site_prior_distribution(
+    site: SiteDescriptor,
+    params: dict[str, jnp.ndarray],
+) -> dist.Distribution:
+    """Build a NumPyro distribution directly from canonical prior-state params."""
     import numpy as np
 
-    arr = np.asarray(arr)
-    if arr.ndim == 0:
-        return float(arr)
-    values = arr.ravel()
-    if values.size == 1 or np.all(values == values[0]):
-        return float(values[0])
-    return [float(v) for v in values]
+    family_values = np.asarray(params["family"], dtype=int).ravel()
+    family = int(family_values[0]) if family_values.size else 0
+    if family_values.size and not np.all(family_values == family):
+        raise ValueError(f"Mixed prior families within site {site.name!r} are unsupported")
 
+    if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
+        runtime_kind = get_real_runtime_kind_from_index(family)
+        if runtime_kind == PriorRuntimeKind.NORMAL:
+            return dist.Normal(loc=params["loc"], scale=params["scale"])
+        if runtime_kind == PriorRuntimeKind.TRUNCATED_NORMAL:
+            return dist.TruncatedNormal(
+                loc=params["loc"],
+                scale=params["scale"],
+                low=params.get("low"),
+                high=params.get("high"),
+            )
+        if runtime_kind == PriorRuntimeKind.UNIFORM:
+            return dist.Uniform(
+                low=params.get("low"),
+                high=params.get("high"),
+            )
+        raise ValueError(
+            f"Unsupported canonical real prior runtime kind {runtime_kind!r} for site {site.name!r}"
+        )
 
-def reconstruct_ssm_priors(
-    registry: list[SiteDescriptor],
-    prior_state: PriorRuntimeState,
-) -> SSMPriors:
-    """Reconstruct an ``SSMPriors`` from the compiled prior semantics.
+    if site.support == SupportClass.POSITIVE:
+        runtime_kind = get_positive_runtime_kind_from_index(family)
+        if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
+            return dist.HalfNormal(scale=params["scale"])
+        if runtime_kind == PriorRuntimeKind.GAMMA:
+            return dist.Gamma(
+                concentration=params["concentration"],
+                rate=params["rate"],
+            )
+        if runtime_kind == PriorRuntimeKind.LOG_NORMAL:
+            return dist.LogNormal(
+                loc=params["loc"],
+                scale=params["scale"],
+            )
+        if runtime_kind == PriorRuntimeKind.EXPONENTIAL:
+            return dist.Exponential(rate=params["rate"])
+        raise ValueError(
+            f"Unsupported canonical positive prior runtime kind {runtime_kind!r} "
+            f"for site {site.name!r}"
+        )
 
-    This is the inverse of ``build_prior_runtime_state``: it maps canonical
-    prior parameters back to the ``SSMPriors`` dict-based format that
-    ``SSMModel.__init__`` expects.
-
-    Only sites without an ``SSMPriors`` field (currently things like ``proc_df``)
-    are skipped.
-    """
-    import numpy as np
-
-    from causal_ssm_agent.models.ssm.model import SSMPriors as SSMPriorsClass
-
-    kwargs: dict[str, dict] = {}
-
-    for site in registry:
-        priors_field = site.priors_field
-        if priors_field is None:
-            continue  # likelihood extra, not in SSMPriors
-
-        params = prior_state[site.name]
-
-        if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
-            family_values = np.asarray(params["family"], dtype=int).ravel()
-            family = int(family_values[0]) if family_values.size else 0
-            runtime_kind = get_real_runtime_kind_from_index(family)
-            prior_kwargs = {
-                "mu": _to_prior_value(params["loc"]),
-                "sigma": _to_prior_value(params["scale"]),
-            }
-            if "low" in params and "high" in params:
-                prior_kwargs["lower"] = _to_prior_value(params["low"])
-                prior_kwargs["upper"] = _to_prior_value(params["high"])
-            if runtime_kind != PriorRuntimeKind.NORMAL:
-                prior_kwargs["family"] = family
-            kwargs[priors_field] = prior_kwargs
-
-        elif site.support == SupportClass.POSITIVE:
-            family_values = np.asarray(params["family"], dtype=int).ravel()
-            family = int(family_values[0]) if family_values.size else 0
-            runtime_kind = get_positive_runtime_kind_from_index(family)
-            if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
-                kwargs[priors_field] = {"sigma": _to_prior_value(params["scale"])}
-            elif runtime_kind == PriorRuntimeKind.GAMMA:
-                kwargs[priors_field] = {
-                    "family": family,
-                    "concentration": _to_prior_value(params["concentration"]),
-                    "rate": _to_prior_value(params["rate"]),
-                }
-            elif runtime_kind == PriorRuntimeKind.LOG_NORMAL:
-                kwargs[priors_field] = {
-                    "family": family,
-                    "loc": _to_prior_value(params["loc"]),
-                    "sigma": _to_prior_value(params["scale"]),
-                }
-            elif runtime_kind == PriorRuntimeKind.EXPONENTIAL:
-                kwargs[priors_field] = {
-                    "family": family,
-                    "rate": _to_prior_value(params["rate"]),
-                }
-            else:
-                raise ValueError(f"Unknown POSITIVE family index {family}")
-
-    return SSMPriorsClass(**kwargs)
+    raise ValueError(f"Unsupported support class {site.support!r} for site {site.name!r}")
