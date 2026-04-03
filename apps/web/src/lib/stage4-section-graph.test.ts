@@ -41,6 +41,12 @@ describe("stage4-section-graph", () => {
         { id: "indicator:x", kind: "indicator_decision", label: "X", phase: "model_decisions" },
         { id: "__lock__", kind: "model_spec_lock", label: "Lock", phase: "model_decisions" },
         { id: "review:model_spec", kind: "global_review", label: "Review", phase: "global_review" },
+        {
+          id: "observation:sleep_sigma",
+          kind: "observation_prior",
+          label: "Sleep observation sigma",
+          phase: "prior_blocks",
+        },
         { id: "effects:y", kind: "effect_prior", label: "Effects", phase: "prior_blocks" },
         { id: "__repair_barrier__", kind: "repair_barrier", label: "Repair", phase: "prior_blocks" },
         {
@@ -54,7 +60,8 @@ describe("stage4-section-graph", () => {
       edges: [
         { from: "indicator:x", to: "__lock__", kind: "phase_advance" },
         { from: "__lock__", to: "review:model_spec", kind: "phase_advance" },
-        { from: "review:model_spec", to: "effects:y", kind: "phase_advance" },
+        { from: "review:model_spec", to: "observation:sleep_sigma", kind: "phase_advance" },
+        { from: "observation:sleep_sigma", to: "effects:y", kind: "forward" },
         { from: "effects:y", to: "__repair_barrier__", kind: "repair_transition" },
         { from: "effects:y", to: "review:prior_system", kind: "repair_transition" },
         { from: "__repair_barrier__", to: "review:prior_system", kind: "repair_transition" },
@@ -67,7 +74,8 @@ describe("stage4-section-graph", () => {
 
     expect(deriveStage4SectionEdges(graph)).toEqual([
       { from: "model_decisions", to: "global_review", kind: "phase_advance" },
-      { from: "global_review", to: "effect_prior", kind: "phase_advance" },
+      { from: "global_review", to: "measurement_prior", kind: "phase_advance" },
+      { from: "measurement_prior", to: "effect_prior", kind: "forward" },
       { from: "effect_prior", to: "repair_barrier", kind: "repair_transition" },
       { from: "effect_prior", to: "global_prior_review", kind: "repair_transition" },
       { from: "effect_prior", to: "done", kind: "phase_advance" },

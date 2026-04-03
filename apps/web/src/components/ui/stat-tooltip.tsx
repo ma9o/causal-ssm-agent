@@ -13,8 +13,8 @@ export function StatTooltip({ explanation }: { explanation: string }) {
           className="h-3.5 w-3.5 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
         />
       </TooltipTrigger>
-      <TooltipContent>
-        <span className="max-w-xs text-xs leading-relaxed">{explanation}</span>
+      <TooltipContent className="max-w-xl items-start whitespace-normal">
+        <span className="text-xs leading-relaxed break-words">{explanation}</span>
       </TooltipContent>
     </Tooltip>
   );
