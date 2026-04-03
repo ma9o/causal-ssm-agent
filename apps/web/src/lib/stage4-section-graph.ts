@@ -50,8 +50,9 @@ export const STAGE4_SECTION_ORDER: Array<{
   },
   {
     id: "measurement_prior",
-    label: "Measurement Priors",
-    tooltip: "Sets priors on measurement parameters that link latent constructs to observed indicators.",
+    label: "Measurement & Observation Priors",
+    tooltip:
+      "Sets priors on measurement parameters and observation-level likelihood hyperparameters tied to observed indicators.",
   },
   {
     id: "dynamics_prior",
@@ -359,6 +360,7 @@ export function getStage4SectionId(kind: string): Stage4SectionId {
     case "global_review":
       return "global_review";
     case "measurement_prior":
+    case "observation_prior":
       return "measurement_prior";
     case "dynamics_prior":
       return "dynamics_prior";

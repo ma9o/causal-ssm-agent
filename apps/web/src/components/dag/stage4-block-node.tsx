@@ -16,6 +16,7 @@ export interface Stage4NodeStatusItem {
   isActive?: boolean;
   inRepairScope?: boolean;
   detailText?: string;
+  tooltipDetailText?: string;
 }
 
 export interface Stage4BlockNodeData {
@@ -36,11 +37,12 @@ export interface Stage4BlockNodeData {
 }
 
 function getDotTooltipDescription(item: Stage4NodeStatusItem): string {
-  if (item.isActive && item.detailText) {
-    return item.inRepairScope ? `Repair in progress. ${item.detailText}` : `In progress. ${item.detailText}`;
+  const detailText = item.tooltipDetailText ?? item.detailText;
+  if (item.isActive && detailText) {
+    return item.inRepairScope ? `Repair in progress. ${detailText}` : `In progress. ${detailText}`;
   }
-  if (item.detailText) {
-    return item.detailText;
+  if (detailText) {
+    return detailText;
   }
   if (item.isActive) {
     return item.inRepairScope
@@ -164,10 +166,12 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
                     getDotClass(item),
                   )}
                 />
-                <TooltipContent>
-                  <div className="max-w-xs text-xs">
-                    <p className="font-medium">{item.label}</p>
-                    <p className="text-background/80">{getDotTooltipDescription(item)}</p>
+                <TooltipContent className="max-w-xl items-start whitespace-normal">
+                  <div className="text-xs">
+                    <p className="font-medium break-words">{item.label}</p>
+                    <p className="text-background/80 break-words leading-relaxed">
+                      {getDotTooltipDescription(item)}
+                    </p>
                   </div>
                 </TooltipContent>
               </Tooltip>
