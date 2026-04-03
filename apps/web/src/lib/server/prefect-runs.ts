@@ -5,6 +5,7 @@ import {
   deleteByokSecretRef,
 } from "@/lib/server/byok-secret-store";
 import {
+  noAccessMessage,
   resolveOpenRouterAccess,
   type RunnableOpenRouterAccess,
   type RunnableOpenRouterAccessMode,
@@ -39,7 +40,7 @@ export type PreparedWorkspaceRunLaunch =
       status: "ready";
       reservationId: string;
       openrouterAccessMode: RunnableOpenRouterAccessMode;
-      openrouterSecretRef: string;
+      openrouterSecretRef: string | null;
     };
 
 export type WorkspaceRootFlowRunLaunchRequest = {
@@ -244,18 +245,16 @@ export async function requireRunnableOpenRouterAccess(): Promise<RunnableOpenRou
     return access;
   }
 
-  if (access.reason === "trial_exhausted") {
-    throw new PrefectRunError(
-      402,
-      "Trial credits exhausted. Sign in with OpenRouter to continue.",
-    );
-  }
-  throw new PrefectRunError(402, "No OpenRouter access is configured.");
+  throw new PrefectRunError(402, noAccessMessage(access.reason));
 }
 
 export async function createOpenRouterSecretRefForAccess(
   access: RunnableOpenRouterAccess,
-): Promise<string> {
+): Promise<string | null> {
+  if (access.mode === "local") {
+    return null;
+  }
+
   try {
     return await createByokSecretRef(access.apiKey);
   } catch {
@@ -358,7 +357,7 @@ export async function launchWorkspaceRootFlowRun({
           parameters: {
             ...parameters,
             openrouter_access_mode: launch.openrouterAccessMode,
-            openrouter_secret_ref: openrouterSecretRef,
+            ...(openrouterSecretRef ? { openrouter_secret_ref: openrouterSecretRef } : {}),
           },
         }),
         cache: "no-store",

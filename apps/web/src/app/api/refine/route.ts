@@ -14,7 +14,7 @@ import { NextResponse } from "next/server";
 
 import { getToolServerUrl } from "@/lib/runtime-urls";
 import { buildRefinementContextMessages } from "@/lib/server/refinement-prompts";
-import { resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
+import { noAccessMessage, resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
 import { readData } from "@/lib/storage";
 import {
   type RefinementMessageMetadata,
@@ -278,11 +278,7 @@ async function readToolErrorMessage(response: Response): Promise<string> {
 export async function POST(req: Request) {
   const access = await resolveOpenRouterAccess();
   if (access.mode === "none") {
-    const error =
-      access.reason === "trial_exhausted"
-        ? "Trial credits exhausted. Sign in with OpenRouter to continue."
-        : "No OpenRouter access is configured.";
-    return NextResponse.json({ error }, { status: 402 });
+    return NextResponse.json({ error: noAccessMessage(access.reason) }, { status: 402 });
   }
 
   const { messages, workspaceId, stageId, pendingStagePatch } = await req.json();
