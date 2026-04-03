@@ -32,6 +32,7 @@ export interface Stage4BlockNodeData {
   reopenedCount?: number;
   statusItems?: Stage4NodeStatusItem[];
   detailLabel?: string;
+  detailTooltipText?: string;
   tooltipText?: string;
   minHeight?: number;
 }
@@ -108,6 +109,9 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
   const isActive = d.isActive ?? false;
   const acceptedCount = d.acceptedCount ?? 0;
   const totalCount = d.totalCount ?? 0;
+  const detailLabel = d.detailLabel ? (
+    <div className="truncate pt-0.5 text-[11px] text-muted-foreground">{d.detailLabel}</div>
+  ) : null;
 
   return (
     <div
@@ -134,10 +138,19 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
               <div className="truncate text-[13px] font-semibold leading-tight text-foreground">
                 {d.label}
               </div>
-              {d.detailLabel && (
-                <div className="truncate pt-0.5 text-[11px] text-muted-foreground">
-                  {d.detailLabel}
-                </div>
+              {d.detailTooltipText && d.detailTooltipText !== d.detailLabel ? (
+                <Tooltip>
+                  <TooltipTrigger render={<span />} className="pointer-events-auto block cursor-help">
+                    {detailLabel}
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xl items-start whitespace-normal">
+                    <div className="text-xs text-background/80 break-words leading-relaxed">
+                      {d.detailTooltipText}
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
+              ) : (
+                detailLabel
               )}
             </div>
           </div>
