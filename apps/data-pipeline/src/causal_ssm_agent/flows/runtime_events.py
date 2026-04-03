@@ -211,6 +211,22 @@ def emit_stage4_snapshot_event(
     )
 
 
+def emit_stage4_block_transition_event(
+    resource_run_id: str,
+    *,
+    transition: dict[str, Any],
+) -> None:
+    """Emit one Stage 4 dot-level transition event for replayable UI history."""
+    emit_event(
+        event=f"{STAGE4_EVENT_PREFIX}.block_transition",
+        resource={
+            "prefect.resource.id": f"prefect.flow-run.{resource_run_id}",
+            "prefect.resource.name": resource_run_id,
+        },
+        payload={"stage_id": "stage-4", "type": "block_transition", **transition},
+    )
+
+
 __all__ = [
     "STAGE2_EVENT_PREFIX",
     "STAGE4_EVENT_PREFIX",
@@ -220,6 +236,7 @@ __all__ = [
     "emit_stage2_snapshot_event",
     "emit_stage2_worker_event",
     "emit_stage4_graph_event",
+    "emit_stage4_block_transition_event",
     "emit_stage4_snapshot_event",
     "emit_stage_progress_event",
 ]

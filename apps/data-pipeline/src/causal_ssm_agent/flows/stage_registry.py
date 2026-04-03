@@ -49,6 +49,28 @@ OpenRouterAccessMode = Literal["user", "trial"]
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _emit_stage4_initial_replay_state(inputs: dict[str, Any]) -> None:
+    """Emit the initial Stage 4 graph/snapshot before heavy startup work."""
+    from causal_ssm_agent.orchestrator.stage4 import project_stage4_initial_state
+
+    from .runtime_events import (
+        emit_stage4_graph_event,
+        emit_stage4_snapshot_event,
+    )
+
+    root_run_id = inputs["root_run_id"]
+    if not isinstance(root_run_id, str) or not root_run_id:
+        raise ValueError("Stage 4 initial replay emission requires a non-empty root_run_id")
+
+    stage1b = inputs["stage1b"]
+    if not isinstance(stage1b, dict) or not isinstance(stage1b.get("causal_spec"), dict):
+        raise ValueError("Stage 4 initial replay emission requires stage1b.causal_spec")
+
+    graph, snapshot = project_stage4_initial_state(stage1b["causal_spec"])
+    emit_stage4_graph_event(root_run_id, graph=graph)
+    emit_stage4_snapshot_event(root_run_id, snapshot=snapshot)
+
+
 @dataclass(frozen=True)
 class PipelineContext:
     """Non-stage runtime values threaded through the pipeline."""
@@ -139,6 +161,8 @@ async def run_stage_flow(
         )
     else:
         inputs = defn.bind_inputs(ctx, stage_states)
+        if defn.stage_id == "stage-4":
+            _emit_stage4_initial_replay_state(inputs)
         with use_openrouter_api_key(ctx.openrouter_api_key):
             result = defn.runner(**inputs)
             if inspect.isawaitable(result):
@@ -363,7 +387,9 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
         "stage0": states["stage-0"]["result"],
         "stage1b": states["stage-1b"]["result"],
         "root_run_id": ctx.prefect_run_id,
-        "max_windows": None if ctx.openrouter_access_mode == "user" or os.environ.get("DEPLOYMENT_ENV") != "production" else MAX_FREE_WINDOWS,
+        "max_windows": None
+        if ctx.openrouter_access_mode == "user" or os.environ.get("DEPLOYMENT_ENV") != "production"
+        else MAX_FREE_WINDOWS,
     }
 
 
@@ -503,6 +529,8 @@ def _materialize_override_stage4(
         causal_spec=stage1b_result["causal_spec"],
         llm_trace=authored.get("llm_trace"),
     )
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage registry
 # ═══════════════════════════════════════════════════════════════════════════════

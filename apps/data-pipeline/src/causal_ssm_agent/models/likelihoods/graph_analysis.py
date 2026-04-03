@@ -321,12 +321,18 @@ def kalman_block_profile_indices(spec: SSMSpec, partition: RBPartition) -> list[
                 indices.append(offset + k)
         offset += m
 
-    # --- manifest_var_diag: shape (m,), index k → manifest k ---
+    # --- manifest_var_diag: sparse per-manifest free positions ---
     if isinstance(spec.manifest_var, str):
         for k in range(m):
             if k in obs_kalman_set:
                 indices.append(offset + k)
         offset += m
+    elif spec.manifest_var_mask is not None:
+        for k in range(m):
+            if spec.manifest_var_mask[k]:
+                if k in obs_kalman_set:
+                    indices.append(offset)
+                offset += 1
 
     # --- t0_means_pop: shape (n,), index k → latent k ---
     if isinstance(spec.t0_means, str) and spec.t0_means == "free":

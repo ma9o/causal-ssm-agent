@@ -16,6 +16,7 @@ from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrou
 from .. import get_prefect_logger
 from ..runtime_events import (
     emit_nested_stage_running_event,
+    emit_stage4_block_transition_event,
     emit_stage4_graph_event,
     emit_stage4_snapshot_event,
 )
@@ -89,10 +90,12 @@ async def stage4_agentic_flow(
                 max_tool_turns=s4.max_tool_turns,
             )
 
-            def _on_state_change(plan, runtime):  # type: ignore[no-untyped-def]
+            def _on_state_change(plan, runtime, transitions):  # type: ignore[no-untyped-def]
                 if root_run_id:
                     graph = project_stage4_graph(plan)
                     emit_stage4_graph_event(root_run_id, graph=graph)
+                    for transition in transitions:
+                        emit_stage4_block_transition_event(root_run_id, transition=transition)
                     snapshot = project_stage4_snapshot(plan, runtime)
                     emit_stage4_snapshot_event(root_run_id, snapshot=snapshot)
 

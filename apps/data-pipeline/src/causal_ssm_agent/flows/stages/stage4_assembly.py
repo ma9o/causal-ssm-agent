@@ -55,6 +55,8 @@ def validate_assembly(
     data_for_model: pl.DataFrame | None,
     indicator_audits: dict[str, dict[str, Any]] | None,
     causal_spec: dict | None,
+    *,
+    skip_ppc: bool = False,
 ) -> AssemblyValidation:
     """Validate stage 4 assembly: compile check + prior predictive.
 
@@ -63,7 +65,8 @@ def validate_assembly(
 
     Steps:
         1. Compile check: trial compile (no priors) or real compile (with priors)
-        2. Prior predictive validation (only when authored priors + data_for_model present)
+        2. Prior predictive validation (only when authored priors + data_for_model present
+           and skip_ppc is False)
 
     Returns:
         AssemblyValidation with structured results.
@@ -92,7 +95,7 @@ def validate_assembly(
         compiled_ssm = None
         compile_diagnostics = []
 
-    if authored_priors and data_for_model is not None:
+    if authored_priors and data_for_model is not None and not skip_ppc:
         from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
 
         is_valid, results, raw_samples = validate_prior_predictive(
