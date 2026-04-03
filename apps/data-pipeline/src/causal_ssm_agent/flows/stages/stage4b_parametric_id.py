@@ -186,6 +186,7 @@ def parametric_id_task(
             sa_result = output_sensitivity_analysis(
                 ssm_model,
                 times,
+                observations=observations,
                 n_draws=8,
                 seed=42,
                 sweep_context=sweep_context,
@@ -223,11 +224,18 @@ def parametric_id_task(
         except Exception:
             logger.debug("Inference-structure profile filtering failed", exc_info=True)
 
-        profile_indices = _select_profile_indices_from_sensitivity(
-            sensitivity_payload,
-            scalar_names=getattr(sweep_context, "scalar_names", None),
-            default_indices=kalman_indices,
-        )
+        if runtime.inference_structure.likelihood_path == "particle":
+            logger.info(
+                "Stage 4b: skipping profile likelihood on particle-only path; "
+                "sensitivity analysis is the terminal diagnostic"
+            )
+            profile_indices = []
+        else:
+            profile_indices = _select_profile_indices_from_sensitivity(
+                sensitivity_payload,
+                scalar_names=getattr(sweep_context, "scalar_names", None),
+                default_indices=kalman_indices,
+            )
 
         profile_summary = None
         per_param = None

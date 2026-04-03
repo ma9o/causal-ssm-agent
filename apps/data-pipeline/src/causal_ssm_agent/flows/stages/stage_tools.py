@@ -154,6 +154,8 @@ def stage4_grounding(
     current: dict | None = None,
     data_for_model: Any = None,
     indicator_audits: dict[str, dict[str, Any]] | None = None,
+    *,
+    skip_ppc: bool = False,
 ) -> tuple[dict | None, str]:
     """Ground stage 4 proposals: validate, compile, optionally run prior predictive.
 
@@ -168,7 +170,7 @@ def stage4_grounding(
     Checks (applied in order):
     1. Schema + domain validation for any submitted fields
     2. Compile (default priors if none available, real priors otherwise)
-    3. Prior predictive (only when real priors + data_for_model present)
+    3. Prior predictive (only when real priors + data_for_model present and skip_ppc is False)
     """
     from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
 
@@ -243,6 +245,7 @@ def stage4_grounding(
         data_for_model,
         indicator_audits,
         causal_spec,
+        skip_ppc=skip_ppc,
     )
 
     if new_model_spec is not None and validation.normalized_model_spec is not None:
@@ -310,9 +313,14 @@ def should_capture_stage4_output(stage_output: dict | None, feedback: str) -> bo
 
 def _required_prior_names(model_spec: dict | None) -> list[str]:
     """Return the parameter names that still need priors."""
+    optional_roles = {"initial_state_mean", "initial_state_sd"}
     names: list[str] = []
     for parameter in (model_spec or {}).get("parameters") or []:
-        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str):
+        if not isinstance(parameter, dict):
+            continue
+        if parameter.get("role") in optional_roles:
+            continue
+        if isinstance(parameter.get("name"), str):
             names.append(parameter["name"])
     return names
 
