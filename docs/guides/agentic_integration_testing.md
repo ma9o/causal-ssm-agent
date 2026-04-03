@@ -33,7 +33,6 @@ data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
 │   ├── input/             # Raw uploaded files for stage 0
 │   ├── query.txt          # Materialized research question
-│   ├── session.json       # Per-workspace run lineage metadata
 │   └── run/               # Persisted stage JSON + artifacts
 ├── DEFAULT/               # Tracked mock fixture workspace
 ├── DOCTOLIB/              # Tracked mock fixture workspace
