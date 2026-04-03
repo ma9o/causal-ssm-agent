@@ -521,67 +521,50 @@ def _check_scale_plausibility(
                     n_unstable += 1
                     unstable_indices.append(int(i))
                     continue
-            except Exception:
-                logger.debug("Prior draw %d unstable (Lyapunov solver failed)", i, exc_info=True)
+            except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+                logger.info("Prior draw %d unstable (Lyapunov solver failed): %s", i, exc)
                 n_unstable += 1
                 unstable_indices.append(int(i))
                 continue
 
-            implied_obs = np.asarray(lam @ sigma_inf @ lam.T)
-            if manifest_cov_samples is not None:
-                mcov = (
-                    manifest_cov_samples[i]
-                    if manifest_cov_samples.ndim == 3
-                    else manifest_cov_samples
+        n_draws = len(idx)
+        if n_unstable > n_draws * 0.8:
+            raise RuntimeError(
+                f"Prior predictive: {n_unstable}/{n_draws} draws unstable — likely a model specification bug"
+            )
+
+        if n_unstable > n_draws * 0.5:
+            sorted_unstable_indices = sorted(unstable_indices)
+            repair_scope = _infer_dynamics_repair_scope(
+                drift_samples,
+                sorted_unstable_indices,
+                compiled_ssm=compiled_ssm,
+                causal_spec=causal_spec,
+            )
+            related_parameters, supporting_codes = _supporting_compile_context(
+                compiled_ssm,
+                construct_names=list(repair_scope.construct_names) if repair_scope else None,
+            )
+            results.append(
+                _pp_result(
+                    parameter="dynamics_stability",
+                    is_valid=False,
+                    code="dynamics_stability",
+                    issue=(
+                        f"Unstable dynamics: {n_unstable}/{n_draws} prior draws have "
+                        f"unstable drift (Lyapunov solver failed)"
+                    ),
+                    suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                    related_parameters=related_parameters,
+                    supporting_codes=supporting_codes,
+                    repair_scope=repair_scope,
+                    failure_stage="latent_dynamics",
+                    failing_draw_indices=sorted_unstable_indices,
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="dynamics_stability",
+                        primary_score=n_unstable / max(1, n_draws),
+                    ),
                 )
-                implied_obs = implied_obs + np.asarray(mcov)
-
-            implied_std = np.sqrt(np.maximum(np.diag(implied_obs), 0))
-            implied_stds_list.append(implied_std)
-
-        except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
-            logger.info("Prior draw %d unstable (Lyapunov solver failed): %s", i, exc)
-            n_unstable += 1
-            unstable_indices.append(int(i))
-            continue
-
-    n_draws = len(idx)
-    if n_unstable > n_draws * 0.8:
-        raise RuntimeError(
-            f"Prior predictive: {n_unstable}/{n_draws} draws unstable — likely a model specification bug"
-        )
-
-    if n_unstable > n_draws * 0.5:
-        sorted_unstable_indices = sorted(unstable_indices)
-        repair_scope = _infer_dynamics_repair_scope(
-            drift_samples,
-            sorted_unstable_indices,
-            compiled_ssm=compiled_ssm,
-            causal_spec=causal_spec,
-        )
-        related_parameters, supporting_codes = _supporting_compile_context(
-            compiled_ssm,
-            construct_names=list(repair_scope.construct_names) if repair_scope else None,
-        )
-        results.append(
-            _pp_result(
-                parameter="dynamics_stability",
-                is_valid=False,
-                code="dynamics_stability",
-                issue=(
-                    f"Unstable dynamics: {n_unstable}/{n_draws} prior draws have "
-                    f"unstable drift (Lyapunov solver failed)"
-                ),
-                suggested_adjustment="Tighten drift_diag prior toward more negative values",
-                related_parameters=related_parameters,
-                supporting_codes=supporting_codes,
-                repair_scope=repair_scope,
-                failure_stage="latent_dynamics",
-                failing_draw_indices=sorted_unstable_indices,
-                pathology_certificate=PriorPathologyCertificate(
-                    kind="dynamics_stability",
-                    primary_score=n_unstable / max(1, n_draws),
-                ),
             )
 
     mask = np.asarray(observation_mask, dtype=bool) if observation_mask is not None else None

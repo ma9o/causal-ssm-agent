@@ -411,7 +411,7 @@ class TestScalePlausibilityDiagnostics:
 
     def test_unstable_dynamics_emits_stage_and_certificate(self):
         samples = {
-            "drift": jnp.asarray([[[0.1]], [[0.2]], [[0.3]]], dtype=jnp.float32),
+            "drift": jnp.asarray([[[0.1]], [[0.2]], [[-1.0]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32),
             "observations": jnp.asarray(
                 [
@@ -442,10 +442,49 @@ class TestScalePlausibilityDiagnostics:
         result = results[0]
         assert result.code == "dynamics_stability"
         assert result.failure_stage == "latent_dynamics"
-        assert result.failing_draw_indices == [0, 1, 2]
+        assert result.failing_draw_indices == [0, 1]
         assert result.pathology_certificate is not None
         assert result.pathology_certificate.kind == "dynamics_stability"
-        assert result.pathology_certificate.primary_score == pytest.approx(1.0)
+        assert result.pathology_certificate.primary_score == pytest.approx(2 / 3)
+
+    def test_overwhelmingly_unstable_dynamics_raise_runtime_error(self, monkeypatch):
+        samples = {
+            "drift": jnp.asarray([[[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]]], dtype=jnp.float32),
+            "diffusion": jnp.asarray([[[0.1]], [[0.1]], [[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32),
+            "observations": jnp.asarray(
+                [
+                    [[0.0]],
+                    [[0.0]],
+                    [[0.0]],
+                    [[0.0]],
+                    [[0.0]],
+                ],
+                dtype=jnp.float32,
+            ),
+            "observations_mask": jnp.asarray(
+                [
+                    [[True]],
+                    [[True]],
+                    [[True]],
+                    [[True]],
+                    [[True]],
+                ],
+                dtype=bool,
+            ),
+        }
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.discretization.solve_lyapunov",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("solver failed")),
+        )
+
+        with pytest.raises(RuntimeError, match="draws unstable"):
+            _check_scale_plausibility(
+                samples,
+                data_stats={},
+                manifest_names=["dummy_manifest"],
+                n_subsample=5,
+            )
 
     def test_nuisance_site_skipped(self):
         results = [PriorValidationResult(parameter="cint_pop", is_valid=False, issue="something")]
