@@ -35,6 +35,8 @@ class ComposedLikelihood:
         particle_backend: ParticleLikelihood for the non-Gaussian sub-block.
     """
 
+    checkpoint_loglik = True
+
     def __init__(self, partition: RBPartition, kalman_backend, particle_backend):
         self.partition = partition
         self.kalman_backend = kalman_backend

@@ -52,6 +52,8 @@ class KalmanLikelihood:
         n_manifest: Number of manifest indicators
     """
 
+    checkpoint_loglik = False
+
     def __init__(self, n_latent: int, n_manifest: int):
         self.n_latent = n_latent
         self.n_manifest = n_manifest

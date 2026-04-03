@@ -91,6 +91,8 @@ def _assemble_deterministics(
 class _DummyLikelihoodBackend:
     """Dummy backend for model replay — returns zero log-likelihood."""
 
+    checkpoint_loglik = False
+
     def compute_log_likelihood(self, *_args, **_kwargs):
         return jnp.array(0.0)
 
@@ -352,9 +354,7 @@ def _build_eval_fns(
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
         return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
 
-    # Checkpoint: recompute PF intermediates during backward pass instead of
-    # storing them. Trades ~2x compute for O(1) memory in time-series length.
-    log_lik_fn = jax.checkpoint(_log_lik_fn)
+    log_lik_fn = jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
 
     def log_prior_unc_fn(z):
         """Log-prior in unconstrained space: log p(T(z)) + log|J(z)|."""
@@ -407,7 +407,7 @@ def _build_runtime_eval_fns_from_registry(
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
         return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
 
-    log_lik_fn = jax.checkpoint(_log_lik_fn)
+    log_lik_fn = jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
 
     def log_prior_unc_fn(z, prior_state):
         return log_prior_unconstrained(z, unravel_fn, registry, prior_state)

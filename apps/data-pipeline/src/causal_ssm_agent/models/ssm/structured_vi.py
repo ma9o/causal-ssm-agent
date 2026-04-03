@@ -232,6 +232,8 @@ class StructuredVILikelihood:
     jointly with model parameters.
     """
 
+    checkpoint_loglik = False
+
     def __init__(
         self,
         n_latent: int,
