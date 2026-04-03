@@ -437,14 +437,14 @@ def _ppc_student_t(
 def _ppc_poisson(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    rate = jnp.exp(jnp.clip(loc, -20.0, 20.0))
+    rate = jnp.exp(loc)
     return jax.random.poisson(key, rate).astype(jnp.float32)
 
 
 def _ppc_gamma_log(
     loc, key, _std, _df, shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    mean = jnp.exp(jnp.clip(loc, -20.0, 20.0))
+    mean = jnp.exp(loc)
     scale = jnp.maximum(mean / jnp.maximum(shape, 1e-8), 1e-8)
     return jax.random.gamma(key, shape) * scale
 
@@ -472,7 +472,7 @@ def _ppc_bernoulli_probit(
 def _ppc_negative_binomial(
     loc, key, _std, _df, _shape, r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    mu = jnp.exp(jnp.clip(loc, -20.0, 20.0))
+    mu = jnp.exp(loc)
     key_gamma, key_poisson = jax.random.split(key)
     gamma_draw = jax.random.gamma(key_gamma, r) * mu / jnp.maximum(r, 1e-8)
     return jax.random.poisson(

@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import jax.random as random
 
 from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
-from causal_ssm_agent.models.posterior_predictive import simulate_posterior_predictive
+from causal_ssm_agent.models.predictive_simulation import simulate_predictive_observations
 from causal_ssm_agent.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
@@ -95,7 +95,7 @@ def sample_prior_predictive_from_runtime(
     samples.update(constrained_samples)
     samples.update(deterministic_samples)
     samples.update(extra_params)
-    observations, observations_mask = simulate_posterior_predictive(
+    observations, observations_mask = simulate_predictive_observations(
         samples,
         times,
         diffusion_dist=spec.diffusion_dist,
@@ -108,6 +108,7 @@ def sample_prior_predictive_from_runtime(
         observation_mask=observation_mask,
         n_subsample=num_samples,
         rng_seed=seed,
+        manifest_names=list(spec.manifest_names),
         return_mask=True,
     )
     samples["observations"] = observations
