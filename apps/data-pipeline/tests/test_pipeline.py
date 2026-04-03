@@ -327,6 +327,99 @@ def test_run_stage_flow_rejects_override_without_materialization_policy():
         asyncio.run(stage_registry.run_stage_flow(defn, ctx, {}))
 
 
+def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypatch):
+    events: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.orchestrator.stage4.project_stage4_initial_state",
+        lambda _causal_spec: (
+            {"nodes": [{"id": "indicator:x"}], "edges": [], "phases": []},
+            {
+                "cursor": {"kind": "block", "block_id": "indicator:x"},
+                "block_status": {"indicator:x": "pending"},
+                "model_spec_locked": False,
+                "repair_campaign": None,
+                "phase": "model_decisions",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.runtime_events.emit_stage4_graph_event",
+        lambda root_run_id, *, graph: events.append(("graph", root_run_id, graph)),
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.runtime_events.emit_stage4_snapshot_event",
+        lambda root_run_id, *, snapshot: events.append(("snapshot", root_run_id, snapshot)),
+    )
+    monkeypatch.setattr(
+        stage_registry,
+        "finalize_stage",
+        lambda stage_id, result, workspace_id, extras=None, contract=None: {
+            "stage_id": stage_id,
+            "workspace_id": workspace_id,
+            "result": result,
+            "extras": extras,
+            "contract": contract,
+            "web": {"outcome": "success"},
+        },
+    )
+
+    async def _runner(**_inputs):
+        events.append(("runner", _inputs["root_run_id"]))
+        return {"ok": True}
+
+    defn = stage_registry.StageDefinition(
+        stage_id="stage-4",
+        depends_on=frozenset(),
+        contract=stage_registry.get_stage_registry()["stage-4"].contract,
+        bind_inputs=lambda _ctx, _states: {
+            "question": "why",
+            "stage1b": {
+                "causal_spec": {
+                    "latent": {"constructs": []},
+                    "measurement": {"model_clock": "1d", "indicators": []},
+                    "estimation": {"state_order": [], "edges": [], "induced_dependencies": []},
+                }
+            },
+            "stage2": {"_data_for_model_path": "ignored"},
+            "stage3": {"indicators": {}, "dataset_issues": [], "is_valid": True},
+            "enable_literature": True,
+            "workspace_id": "workspace",
+            "root_run_id": "root-run-123",
+        },
+        runner=_runner,
+    )
+    ctx = stage_registry.PipelineContext(
+        workspace_id="workspace",
+        prefect_run_id="root-run-123",
+        question="why",
+        lit_enabled=True,
+        inference_method=None,
+        supported_overrides={},
+        openrouter_api_key=None,
+        openrouter_access_mode=None,
+    )
+
+    stage_state = asyncio.run(stage_registry.run_stage_flow(defn, ctx, {}))
+
+    assert stage_state["result"] == {"ok": True}
+    assert events == [
+        ("graph", "root-run-123", {"nodes": [{"id": "indicator:x"}], "edges": [], "phases": []}),
+        (
+            "snapshot",
+            "root-run-123",
+            {
+                "cursor": {"kind": "block", "block_id": "indicator:x"},
+                "block_status": {"indicator:x": "pending"},
+                "model_spec_locked": False,
+                "repair_campaign": None,
+                "phase": "model_decisions",
+            },
+        ),
+        ("runner", "root-run-123"),
+    ]
+
+
 def test_pipeline_consumes_byok_secret_ref_once_and_threads_key(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)

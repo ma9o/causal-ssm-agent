@@ -300,6 +300,87 @@ class TestBuilderPriorConversion:
         assert ssm_priors.t0_var_offdiag["lower"] == [-1.0]
         assert ssm_priors.t0_var_offdiag["upper"] == [1.0]
 
+    def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
+        """Authored initial-state priors should compile to the t0 mean/diag sites."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "sleep",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "t0_mean_mood",
+                    "role": "initial_state_mean",
+                    "constraint": "none",
+                    "description": "",
+                },
+                {
+                    "name": "t0_mean_sleep",
+                    "role": "initial_state_mean",
+                    "constraint": "none",
+                    "description": "",
+                },
+                {
+                    "name": "t0_sd_mood",
+                    "role": "initial_state_sd",
+                    "constraint": "positive",
+                    "description": "",
+                },
+                {
+                    "name": "t0_sd_sleep",
+                    "role": "initial_state_sd",
+                    "constraint": "positive",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "t0_mean_mood": {
+                "distribution": "Normal",
+                "params": {"mu": 0.1, "sigma": 0.2},
+            },
+            "t0_mean_sleep": {
+                "distribution": "Normal",
+                "params": {"mu": -0.3, "sigma": 0.4},
+            },
+            "t0_sd_mood": {
+                "distribution": "HalfNormal",
+                "params": {"sigma": 0.7},
+            },
+            "t0_sd_sleep": {
+                "distribution": "HalfNormal",
+                "params": {"sigma": 0.9},
+            },
+        }
+        ssm_spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["mood", "sleep"],
+            manifest_names=["mood", "sleep"],
+            t0_means="free",
+            t0_var="diag",
+        )
+
+        ssm_priors, index_maps, _diagnostics = compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+
+        assert ssm_priors.t0_means["mu"] == [0.1, -0.3]
+        assert ssm_priors.t0_means["sigma"] == [0.2, 0.4]
+        assert ssm_priors.t0_var_diag["sigma"] == [0.7, 0.9]
+        assert index_maps[6]["t0_mean_mood"] == ("t0_means", 0)
+        assert index_maps[6]["t0_mean_sleep"] == ("t0_means", 1)
+        assert index_maps[7]["t0_sd_mood"] == ("t0_var_diag", 0)
+        assert index_maps[7]["t0_sd_sleep"] == ("t0_var_diag", 1)
+
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         """Filtered initial-state pairs should not leave holes in prior arrays."""
         model_spec = {

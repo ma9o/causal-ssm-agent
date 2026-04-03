@@ -22,6 +22,8 @@ import pytest
 from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, SSMSpec
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
+pytestmark = pytest.mark.slow
+
 
 def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
     """Build a well-identified 2-latent, 2-manifest Gaussian SSM."""
@@ -408,6 +410,92 @@ class TestOutputSensitivity:
         assert n_non_id > 0, (
             "Non-identified model should flag some parameters, all are identifiable"
         )
+
+    def test_output_sensitivity_counts_only_observed_outputs_when_masked(self):
+        """Missing observations should be excluded from the sensitivity output count."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
+        times = jnp.linspace(0, 6, 4)
+        observations = jnp.array([[0.0], [1.0], [jnp.nan], [2.0]], dtype=jnp.float32)
+
+        result = output_sensitivity_analysis(
+            model,
+            times,
+            observations=observations,
+            n_draws=2,
+            seed=7,
+        )
+
+        assert result.n_observations == 2 * 3
+
+    def test_output_sensitivity_exposes_interpretable_parameter_names(self):
+        """Sensitivity rows should carry semantic names resolved from bindings or spec metadata."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.eye(1),
+            manifest_means=None,
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            latent_names=["mood"],
+            manifest_names=["heart_rate"],
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.5, "sigma": 0.3},
+            diffusion_diag={"sigma": 0.3},
+            manifest_var_diag={"sigma": 0.3},
+            t0_means={"mu": 0.0, "sigma": 1.0},
+            t0_var_diag={"sigma": 1.0},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+        model.parameter_bindings = [
+            {"site_name": "drift_diag_pop", "flat_index": 0, "parameter": "rho_mood"}
+        ]
+
+        result = output_sensitivity_analysis(
+            model,
+            jnp.arange(8, dtype=jnp.float32),
+            n_draws=2,
+            seed=11,
+        )
+
+        names_by_parameter = {
+            entry["parameter"]: entry["interpretable_parameter"] for entry in result.per_parameter
+        }
+        assert names_by_parameter["drift_diag_pop"] == "rho_mood"
+        assert names_by_parameter["diffusion_diag_pop"] == "sigma_mood"
+        assert names_by_parameter["manifest_var_diag"] == "obs_sd_heart_rate"
+        assert names_by_parameter["t0_means_pop"] == "t0_mean_mood"
+
+    def test_manifest_var_alias_uses_sparse_free_positions(self):
+        """Sparse manifest-noise sites should resolve to the correct manifest channel."""
+        from causal_ssm_agent.utils.parametric_id import _fallback_interpretable_parameter_name
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["mood", "stress"],
+            manifest_names=["heart_rate", "sleep_quality"],
+            lambda_mat=jnp.eye(2),
+            manifest_var=jnp.diag(jnp.array([0.3, 0.0], dtype=jnp.float32)),
+            manifest_var_mask=jnp.array([False, True]),
+        )
+        model = SSMModel(spec, SSMPriors(), likelihood="kalman")
+
+        alias = _fallback_interpretable_parameter_name(
+            spec,
+            "manifest_var_diag",
+            0,
+            assembler=model._assembler,
+        )
+
+        assert alias == "obs_sd_sleep_quality"
 
 
 class TestProfileLikelihood:

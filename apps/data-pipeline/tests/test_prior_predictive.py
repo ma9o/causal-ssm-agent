@@ -367,16 +367,74 @@ class TestCheckLaggedResponsePlausibility:
 
 
 class TestScalePlausibilityDiagnostics:
+    def test_observation_samples_drive_scale_check_when_available(self):
+        samples = {
+            "drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
+            "diffusion": jnp.asarray([[[0.1]]], dtype=jnp.float32),
+            "observations": jnp.asarray(
+                [[[0.0], [300.0], [600.0], [900.0]]],
+                dtype=jnp.float32,
+            ),
+            "observations_mask": jnp.asarray(
+                [[[True], [True], [True], [True]]],
+                dtype=bool,
+            ),
+        }
+
+        results = _check_scale_plausibility(
+            samples,
+            data_stats={"monthly_eveningness_activity_timing": {"std": 1.0}},
+            manifest_names=["monthly_eveningness_activity_timing"],
+            n_subsample=1,
+        )
+
+        assert len(results) == 1
+        assert results[0].code == "scale_mismatch"
+        assert results[0].parameter == "scale_monthly_eveningness_activity_timing"
+
+    def test_missing_observations_emits_harness_error(self):
+        samples = {
+            "drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
+            "diffusion": jnp.asarray([[[0.1]]], dtype=jnp.float32),
+        }
+
+        results = _check_scale_plausibility(
+            samples,
+            data_stats={"monthly_eveningness_activity_timing": {"std": 1.0}},
+            manifest_names=["monthly_eveningness_activity_timing"],
+            n_subsample=1,
+        )
+
+        assert len(results) == 1
+        assert results[0].code == "prior_predictive_missing_observations"
+        assert results[0].failure_stage == "observation_sample"
+
     def test_unstable_dynamics_emits_stage_and_certificate(self):
         samples = {
             "drift": jnp.asarray([[[0.1]], [[0.2]], [[0.3]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32),
+            "observations": jnp.asarray(
+                [
+                    [[0.0]],
+                    [[0.0]],
+                    [[0.0]],
+                ],
+                dtype=jnp.float32,
+            ),
+            "observations_mask": jnp.asarray(
+                [
+                    [[True]],
+                    [[True]],
+                    [[True]],
+                ],
+                dtype=bool,
+            ),
         }
 
         results = _check_scale_plausibility(
             samples,
             data_stats={},
-            manifest_names=[],
+            manifest_names=["dummy_manifest"],
             n_subsample=3,
         )
 

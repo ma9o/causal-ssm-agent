@@ -195,7 +195,9 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
     worker_events: list[dict[str, object]] = []
     snapshot_events: list[dict[str, object]] = []
 
-    monkeypatch.setattr(stage2_extract, "get_run_logger", lambda: logging.getLogger("stage2-events"))
+    monkeypatch.setattr(
+        stage2_extract, "get_run_logger", lambda: logging.getLogger("stage2-events")
+    )
     monkeypatch.setattr(
         config_mod,
         "get_config",
@@ -431,7 +433,9 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
         ),
     )
 
-    future_ok = _FakeFuture({"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"})
+    future_ok = _FakeFuture(
+        {"dataframe": [{"indicator": "a"}], "n_extractions": 2, "status": "completed"}
+    )
     future_fail = _FakeFuture(error=RuntimeError("timeout"))
 
     def fake_map(chunk_texts, **_kwargs):
@@ -508,7 +512,13 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
     assert rows == [{"indicator": "a"}]
     assert statuses == [
         {"worker_id": 0, "status": "completed", "n_extractions": 2, "n_windows": 1},
-        {"worker_id": 1, "status": "failed", "n_extractions": 0, "n_windows": 1, "error": "timeout"},
+        {
+            "worker_id": 1,
+            "status": "failed",
+            "n_extractions": 0,
+            "n_windows": 1,
+            "error": "timeout",
+        },
     ]
     assert n_total == 2
     assert sampled_trace is None

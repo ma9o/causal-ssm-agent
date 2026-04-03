@@ -202,6 +202,139 @@ class TestDeriveDeterministicSpec:
         sigma_params = [p for p in skeleton.parameters if p["role"] == "residual_sd"]
         assert len(sigma_params) == 2
 
+    def test_compiler_derived_initial_state_params_are_exposed(self):
+        """Compiler-owned initial-state priors should appear in the Stage 4 inventory."""
+        skeleton = derive_deterministic_spec(_simple_spec())
+        parameter_names = {parameter["name"] for parameter in skeleton.parameters}
+        assert {"t0_mean_stress", "t0_sd_stress", "t0_mean_sleep", "t0_sd_sleep"} <= parameter_names
+
+    def test_stage4_inventory_matches_compiler_public_prior_rows(self):
+        """Stage 4 should expose exactly the compiler's public prior rows."""
+        from causal_ssm_agent.models.ssm_compiler import (
+            compile_ssm_artifact,
+            resolve_prior_proposals,
+        )
+
+        spec = _simple_spec()
+        skeleton = derive_deterministic_spec(spec)
+        compiled_ssm = compile_ssm_artifact(
+            {
+                "likelihoods": [
+                    {
+                        "variable": "pss_score",
+                        "distribution": "gaussian",
+                        "link": "identity",
+                        "reasoning": "Continuous score",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "gaussian",
+                        "link": "identity",
+                        "reasoning": "Continuous score",
+                    },
+                ],
+                "parameters": [
+                    {
+                        "name": "rho_sleep",
+                        "role": "ar_coefficient",
+                        "constraint": "unit_interval",
+                        "description": "AR(1) discrete-time persistence for sleep",
+                    },
+                    {
+                        "name": "beta_stress_sleep",
+                        "role": "fixed_effect",
+                        "constraint": "none",
+                        "description": "Effect of stress on sleep",
+                    },
+                    {
+                        "name": "sigma_stress",
+                        "role": "residual_sd",
+                        "constraint": "positive",
+                        "description": "Residual/innovation SD for stress",
+                    },
+                    {
+                        "name": "sigma_sleep",
+                        "role": "residual_sd",
+                        "constraint": "positive",
+                        "description": "Residual/innovation SD for sleep",
+                    },
+                ],
+            },
+            {},
+            causal_spec=spec,
+        )
+
+        compiler_parameter_names = {
+            row["parameter"] for row in resolve_prior_proposals(compiled_ssm, authored_priors={})
+        }
+
+        assert compiler_parameter_names == set(skeleton.final_parameter_names)
+
+    def test_observation_defaults_stay_compiler_only(self):
+        """Likelihood-extra defaults such as obs_r should stay hidden from Stage 4."""
+        from causal_ssm_agent.models.ssm_compiler import (
+            compile_ssm_artifact,
+            resolve_prior_proposals,
+        )
+
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "activity",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                },
+            ],
+            edges=[],
+            indicators=[
+                {
+                    "name": "steps",
+                    "construct_name": "activity",
+                    "measurement_dtype": "count",
+                    "how_to_measure": "Count steps",
+                    "aggregation": "sum",
+                }
+            ],
+        )
+        skeleton = derive_deterministic_spec(spec)
+        compiled_ssm = compile_ssm_artifact(
+            {
+                "likelihoods": [
+                    {
+                        "variable": "steps",
+                        "distribution": "negative_binomial",
+                        "link": "log",
+                        "reasoning": "Count outcome with overdispersion support",
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "rho_activity",
+                        "role": "ar_coefficient",
+                        "constraint": "unit_interval",
+                        "description": "AR(1) discrete-time persistence for activity",
+                    },
+                    {
+                        "name": "sigma_activity",
+                        "role": "residual_sd",
+                        "constraint": "positive",
+                        "description": "Residual/innovation SD for activity",
+                    },
+                ],
+            },
+            {},
+            causal_spec=spec,
+        )
+
+        compiler_parameter_names = {
+            row["parameter"] for row in resolve_prior_proposals(compiled_ssm, authored_priors={})
+        }
+
+        assert all(not name.startswith("obs_") for name in compiler_parameter_names)
+        assert all(not name.startswith("obs_") for name in skeleton.final_parameter_names)
+        assert "obs_r" not in compiler_parameter_names
+
     def test_multi_indicator_loadings(self):
         """Multi-indicator constructs should get loading params for non-reference indicators."""
         spec = _make_causal_spec(
@@ -535,7 +668,12 @@ class TestStage4Plan:
         assert plan.prior_review_block.kind == "global_prior_review"
         assert "review:prior_system" in {block.id for block in plan.all_blocks}
         assert [block.kind for block in plan.prior_blocks] == ["dynamics_prior"]
-        assert set(plan.prior_blocks[0].parameter_names) == {"rho_activity", "sigma_activity"}
+        assert set(plan.prior_blocks[0].parameter_names) == {
+            "rho_activity",
+            "sigma_activity",
+            "t0_mean_activity",
+            "t0_sd_activity",
+        }
 
     def test_plan_groups_effect_priors_by_target_construct(self):
         spec = _make_causal_spec(
@@ -827,5 +965,13 @@ class TestStage4PromptScopePolicy:
 
         assert policy.user_task.startswith("Review the full accepted prior system")
         assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
-        assert policy.parameter_guidance_prefixes == ("lambda", "rho", "sigma", "beta", "cor")
+        assert policy.parameter_guidance_prefixes == (
+            "lambda",
+            "rho",
+            "sigma",
+            "beta",
+            "cor",
+            "t0_mean",
+            "t0_sd",
+        )
         assert policy.allowed_tool_names == ("validate_model",)

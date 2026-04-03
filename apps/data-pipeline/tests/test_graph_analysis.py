@@ -304,6 +304,32 @@ class TestKalmanBlockProfileIndices:
         assert 13 not in indices
         assert 14 not in indices
 
+    def test_respects_sparse_manifest_variance_mask(self):
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift=jnp.diag(jnp.array([-0.5, -0.5])),
+            diffusion="diag",
+            cint=None,
+            manifest_means=None,
+            manifest_var=jnp.diag(jnp.array([0.3, 0.0])),
+            manifest_var_mask=np.array([False, True]),
+            t0_means=jnp.zeros(2),
+            t0_var=jnp.eye(2),
+        )
+        partition = RBPartition(
+            kalman_idx=np.array([1]),
+            particle_idx=np.array([0]),
+            obs_kalman_idx=np.array([1]),
+            obs_particle_idx=np.array([0]),
+        )
+
+        indices = kalman_block_profile_indices(spec, partition)
+
+        assert 1 in indices
+        assert 2 in indices
+
     def test_nongaussian_obs_prevents_kalman(self):
         """Gaussian diffusion but Poisson observation → variable goes to PF."""
         spec = _make_spec(

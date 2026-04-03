@@ -51,6 +51,7 @@ from causal_ssm_agent.orchestrator.stage4 import (
     get_stage4_phase,
     make_stage4_runtime,
     project_stage4_graph,
+    project_stage4_initial_state,
     project_stage4_snapshot,
     run_stage4,
 )
@@ -255,6 +256,135 @@ def test_project_stage4_snapshot_serializes_repair_barrier_cursor_scope():
         "kind": "repair_barrier",
         "scope_block_ids": ["effects:sleep", "effects:stress"],
     }
+
+
+def test_project_stage4_initial_state_matches_initial_plan_runtime():
+    causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
+    del skeleton, _data_for_model
+
+    graph, snapshot = project_stage4_initial_state(causal_spec)
+
+    assert graph == project_stage4_graph(plan)
+    assert snapshot == project_stage4_snapshot(plan, runtime)
+
+
+def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block():
+    causal_spec = _with_positive_indicator_polarity(
+        {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "chronotype",
+                        "role": "exogenous",
+                        "temporal_status": "time_invariant",
+                    },
+                    {
+                        "name": "sleep_quality",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                        "is_outcome": True,
+                    },
+                ],
+                "edges": [
+                    {"cause": "chronotype", "effect": "sleep_quality", "lagged": False},
+                ],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "monthly_eveningness_activity_timing",
+                        "construct_name": "chronotype",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "observation_window": "1mo",
+                    },
+                    {
+                        "name": "sleep_quality_search_count",
+                        "construct_name": "sleep_quality",
+                        "measurement_dtype": "count",
+                        "aggregation": "sum",
+                    },
+                ],
+            },
+            "estimation": {
+                "state_order": ["chronotype", "sleep_quality"],
+                "edges": [
+                    {"cause": "chronotype", "effect": "sleep_quality", "lagged": False},
+                ],
+                "induced_dependencies": [],
+            },
+        }
+    )
+    skeleton = derive_deterministic_spec(causal_spec)
+    plan = build_stage4_plan(causal_spec, skeleton)
+    runtime = make_stage4_runtime(plan)
+    active_block = plan.get_block("dynamics:sleep_quality")
+    assert active_block is not None
+
+    repair_plan = _classify_prior_failure_blocks(
+        plan,
+        active_block,
+        AssemblyValidation(
+            normalized_model_spec={"likelihoods": [], "parameters": []},
+            compile_ok=True,
+            pp_checked=True,
+            pp_valid=False,
+            diagnostics=[
+                PriorValidationResult(
+                    parameter="scale_monthly_eveningness_activity_timing",
+                    is_valid=False,
+                    code="scale_mismatch",
+                    origin="prior_predictive",
+                    issue="Scale mismatch for monthly_eveningness_activity_timing",
+                    suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+                )
+            ],
+        ),
+        runtime,
+    )
+
+    assert repair_plan.scope_kind == "direct_writer_blocks"
+    assert repair_plan.block_ids == ("dynamics:chronotype",)
+    assert (
+        repair_plan.reason
+        == "Scale mismatch for monthly_eveningness_activity_timing Suggested fix: "
+        "Adjust diffusion/drift priors to match data scale"
+    )
+
+
+def test_prior_failure_classification_raises_without_concrete_reason():
+    causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
+    del causal_spec, skeleton
+    active_block = plan.get_block("dynamics:sleep")
+    assert active_block is not None
+
+    with pytest.raises(
+        ValueError,
+        match="requires a concrete reason",
+    ):
+        _classify_prior_failure_blocks(
+            plan,
+            active_block,
+            AssemblyValidation(
+                normalized_model_spec={"likelihoods": [], "parameters": []},
+                compile_ok=True,
+                pp_checked=True,
+                pp_valid=False,
+                diagnostics=[
+                    PriorValidationResult(
+                        parameter="rho_sleep",
+                        is_valid=False,
+                        code="unspecified",
+                        origin="prior_predictive",
+                        issue=None,
+                        suggested_adjustment=None,
+                        related_parameters=["rho_sleep"],
+                    )
+                ],
+            ),
+            runtime,
+        )
 
 
 # --- Prompt assembly tests ---
@@ -3320,6 +3450,68 @@ class TestStage4Mechanics:
         assert get_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.accepted.as_current() == {}
 
+    def test_compute_stage4_validate_step_emits_indicator_last_state_transitions(self):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+
+        indicator_payload = {
+            "block_id": "indicator:steps",
+            "block_kind": "indicator_decision",
+            "proposal": {
+                "variable": "steps",
+                "distribution": "poisson",
+                "link": "log",
+                "reasoning": "Step counts are nonnegative integers.",
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            assert current == {}
+            assert "model_spec" in data
+            model_spec = data["model_spec"]
+            return {
+                "validation": AssemblyValidation(
+                    normalized_model_spec=model_spec,
+                    compile_ok=False,
+                    compile_error="steps support mismatch",
+                )
+            }, "COMPILE ERROR:\nsteps support mismatch"
+
+        stage_output, feedback, transitions = (
+            stage4_module._compute_stage4_validate_step_with_transitions(
+                indicator_payload,
+                plan=plan,
+                runtime=runtime,
+                deps=_make_stage4_deps(
+                    causal_spec=causal_spec,
+                    skeleton=skeleton,
+                    data_for_model=data_for_model,
+                    indicator_audits={},
+                    stage4_grounding_fn=stub_stage4_grounding,
+                ),
+            )
+        )
+
+        assert stage_output is not None
+        assert feedback == "COMPILE ERROR:\nsteps support mismatch"
+        assert transitions == (
+            {
+                "block_id": "indicator:steps",
+                "status": "accepted",
+                "detail_kind": "indicator_choice",
+                "variable": "steps",
+                "distribution": "poisson",
+                "link": "log",
+                "reasoning": "Step counts are nonnegative integers.",
+            },
+            {
+                "block_id": "indicator:steps",
+                "status": "reopened",
+                "detail_kind": "revision",
+                "reason": "steps support mismatch",
+                "scope_kind": "compile_local",
+            },
+        )
+
     def test_compute_stage4_validate_step_keeps_effect_block_when_only_budget_is_tight(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
         runtime.decisions.distribution_choices["steps"] = {
@@ -3853,6 +4045,248 @@ class TestStage4Mechanics:
         assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
         assert "cor0_activity_sleep" in runtime.accepted.authored_priors
         assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
+
+    def test_compute_stage4_validate_step_emits_prior_and_revision_last_state_transitions(self):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        _set_runtime_block(plan, runtime, "correlation:cor0_activity_sleep")
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "lambda_sleep_quality_sleep"},
+                    {"name": "rho_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "cor0_activity_sleep"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+                "beta_activity_sleep": {"distribution": "Normal"},
+            },
+        )
+        correlation_payload = {
+            "block_id": "correlation:cor0_activity_sleep",
+            "block_kind": "correlation_prior",
+            "proposal": {
+                "priors": {
+                    "cor0_activity_sleep": {
+                        "parameter": "cor0_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2, "lower": -1.0, "upper": 1.0},
+                        "sources": [],
+                        "reasoning": "correlation prior",
+                    }
+                }
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    diagnostics=[
+                        PriorValidationResult(
+                            parameter="prior_predictive",
+                            is_valid=False,
+                            code="prior_predictive_nonfinite_samples",
+                            origin="prior_predictive",
+                            issue="NaN/Inf detected in sample sites: observations",
+                            suggested_adjustment="Check for degenerate priors",
+                        ),
+                        PriorValidationResult(
+                            parameter="dynamics_stability",
+                            is_valid=False,
+                            code="dynamics_stability",
+                            origin="prior_predictive",
+                            issue="Unstable dynamics: 32/50 prior draws have unstable drift",
+                            suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                            repair_scope=PriorRepairScope(
+                                kind="dynamics_scc",
+                                construct_names=["sleep"],
+                            ),
+                        ),
+                    ],
+                ),
+            }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+
+        stage_output, feedback, transitions = (
+            stage4_module._compute_stage4_validate_step_with_transitions(
+                correlation_payload,
+                plan=plan,
+                runtime=runtime,
+                deps=_make_stage4_deps(
+                    causal_spec=causal_spec,
+                    skeleton=skeleton,
+                    data_for_model=pl.DataFrame(),
+                    indicator_audits={},
+                    stage4_grounding_fn=stub_stage4_grounding,
+                ),
+            )
+        )
+
+        assert stage_output is not None
+        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert transitions[0] == {
+            "block_id": "correlation:cor0_activity_sleep",
+            "status": "accepted",
+            "detail_kind": "prior_bundle",
+            "parameter_names": ["cor0_activity_sleep"],
+            "priors": [
+                {
+                    "parameter": "cor0_activity_sleep",
+                    "distribution": "Normal",
+                    "params": {
+                        "mu": 0.0,
+                        "sigma": 0.2,
+                        "lower": -1.0,
+                        "upper": 1.0,
+                    },
+                    "reasoning": "correlation prior",
+                }
+            ],
+        }
+        assert transitions[1]["block_id"] == "dynamics:sleep"
+        assert transitions[1]["status"] == "reopened"
+        assert transitions[1]["detail_kind"] == "revision"
+        assert transitions[1]["scope_kind"] == "validator_scope"
+        assert (
+            transitions[1]["reason"]
+            == "Unstable dynamics: 32/50 prior draws have unstable drift Suggested "
+            "fix: Tighten drift_diag prior toward more negative values"
+        )
+
+    def test_compute_stage4_validate_step_emits_accepted_transition_for_barrier_campaign_repair(
+        self,
+    ):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        repair_block = plan.get_block("correlation:cor0_activity_sleep")
+        next_block = plan.get_block("effects:sleep")
+        assert repair_block is not None
+        assert next_block is not None
+        _set_runtime_block(plan, runtime, repair_block.id)
+        runtime.block_status[repair_block.id] = "reopened"
+        runtime.block_status[next_block.id] = "reopened"
+        runtime.repair_campaign = stage4_module.Stage4RepairCampaignState(
+            failure_family_key=(("prior_predictive_nonfinite_samples",), (), ("activity", "sleep")),
+            scope_kind="validator_scope",
+            scope_key="validator_scope:sleep",
+            scope_rank=0,
+            scope_block_ids=(repair_block.id, next_block.id),
+            prompt_blocks_by_id={
+                repair_block.id: repair_block,
+                next_block.id: next_block,
+            },
+            completed_block_ids=frozenset(),
+            requires_barrier_validation=True,
+            attempts_at_scope=1,
+            best_certificate=None,
+        )
+        repair_payload = {
+            "block_id": repair_block.id,
+            "block_kind": "correlation_prior",
+            "proposal": {
+                "priors": {
+                    "cor0_activity_sleep": {
+                        "parameter": "cor0_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.15, "lower": -1.0, "upper": 1.0},
+                        "sources": [],
+                        "reasoning": "repair tightened the correlation prior",
+                    }
+                }
+            },
+        }
+
+        seen_skip_ppc: list[bool] = []
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            seen_skip_ppc.append(_kwargs["skip_ppc"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=False,
+                ),
+            }, "VALID"
+
+        stage_output, feedback, transitions = (
+            stage4_module._compute_stage4_validate_step_with_transitions(
+                repair_payload,
+                plan=plan,
+                runtime=runtime,
+                deps=_make_stage4_deps(
+                    causal_spec=causal_spec,
+                    skeleton=skeleton,
+                    data_for_model=pl.DataFrame(),
+                    indicator_audits={},
+                    stage4_grounding_fn=stub_stage4_grounding,
+                ),
+            )
+        )
+
+        assert stage_output is not None
+        assert feedback.startswith("REPAIR CAMPAIGN PROGRESS:\n")
+        assert seen_skip_ppc == [True]
+        assert transitions == (
+            {
+                "block_id": "correlation:cor0_activity_sleep",
+                "status": "accepted",
+                "detail_kind": "prior_bundle",
+                "parameter_names": ["cor0_activity_sleep"],
+                "priors": [
+                    {
+                        "parameter": "cor0_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {
+                            "mu": 0.0,
+                            "sigma": 0.15,
+                            "lower": -1.0,
+                            "upper": 1.0,
+                        },
+                        "reasoning": "repair tightened the correlation prior",
+                    }
+                ],
+            },
+        )
+        assert runtime.block_status[repair_block.id] == "accepted"
+        assert runtime.repair_campaign is not None
+        assert runtime.repair_campaign.completed_block_ids == frozenset((repair_block.id,))
+        assert get_active_plan_block(plan, runtime).id == next_block.id
 
     def test_compute_stage4_validate_step_synthesizes_bounded_repair_bundle_from_supporting_diagnostics(
         self,

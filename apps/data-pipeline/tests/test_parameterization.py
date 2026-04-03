@@ -114,6 +114,26 @@ class TestSiteRegistry:
                 f"registry={site.shape}, trace={site_info[site.name]['shape']}"
             )
 
+    def test_registry_shapes_match_trace_partial_manifest_variance_mask(self):
+        """Masked manifest variance exposes only free diagonal entries as a site."""
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            manifest_var=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
+            manifest_var_mask=np.array([False, True]),
+        )
+        model = SSMModel(spec, likelihood="kalman")
+        registry = build_site_registry(spec)
+        backend = model.make_likelihood_backend()
+        T = 10
+        obs = jnp.zeros((T, spec.n_manifest))
+        times = jnp.linspace(0, 1, T)
+        site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
+
+        verify_registry_matches_trace(registry, site_info)
+        manifest_site = next(site for site in registry if site.name == "manifest_var_diag")
+        assert manifest_site.shape == (1,)
+
     def test_fixed_drift_excludes_drift_sites(self):
         """When drift is a fixed array, no drift sites appear."""
         spec = SSMSpec(
@@ -288,6 +308,29 @@ class TestDeterministicAssembly:
         assert jnp.allclose(det["t0_means"], jnp.broadcast_to(spec.t0_means, (3, 2)))
         expected_t0_cov = spec.t0_var @ spec.t0_var.T
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
+
+    def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
+        """Registry assembly respects mixed fixed/free manifest-noise diagonals."""
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            manifest_var=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
+            manifest_var_mask=np.array([False, True]),
+        )
+        registry = build_site_registry(spec)
+        samples = {
+            "drift_diag_pop": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_offdiag_pop": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "diffusion_diag_pop": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
+            "diffusion_lower": jnp.array([[0.25]], dtype=jnp.float32),
+            "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
+            "manifest_var_diag": jnp.array([[0.9]], dtype=jnp.float32),
+            "t0_means_pop": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
+            "t0_var_diag": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
+        }
+
+        det = assemble_deterministics_from_registry(samples, spec, registry)
+        assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.16, 0.81])))
 
     def test_assemble_deterministics_from_registry_initial_state_correlations(self):
         """Initial-state off-diagonal samples are interpreted as correlations."""

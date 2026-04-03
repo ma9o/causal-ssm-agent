@@ -89,7 +89,9 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
 
 
 def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch):
-    spec = SimpleNamespace(latent_names=["screen_time", "sleep_quality"], manifest_names=["sleep_obs"])
+    spec = SimpleNamespace(
+        latent_names=["screen_time", "sleep_quality"], manifest_names=["sleep_obs"]
+    )
     fitted_artifact = SimpleNamespace(
         builder=SimpleNamespace(_spec=spec),
         observation_support=None,
@@ -115,11 +117,11 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
     monkeypatch.setattr(
         tool_server,
         "_load_runtime_stage_result",
-        lambda _workspace_id, stage_id: {
-            "_data_for_model_path": "/tmp/stage2.parquet"
-        }
-        if stage_id == "stage-2"
-        else {"_fitted_result_path": "/tmp/stage5b.pkl"},
+        lambda _workspace_id, stage_id: (
+            {"_data_for_model_path": "/tmp/stage2.parquet"}
+            if stage_id == "stage-2"
+            else {"_fitted_result_path": "/tmp/stage5b.pkl"}
+        ),
     )
     monkeypatch.setattr(tool_server, "load_pickle", lambda _path: fitted_artifact)
     monkeypatch.setattr(tool_server, "load_parquet", lambda _path: object())
@@ -127,7 +129,9 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
     monkeypatch.setattr(tool_server, "get_outcome_name", lambda _spec: "sleep_quality")
     monkeypatch.setattr(tool_server, "get_estimable_treatments", lambda _spec: ["screen_time"])
 
-    def fake_prepare_model_runtime(*, data_for_model, builder, compiled_ssm=None, sampler_config=None):
+    def fake_prepare_model_runtime(
+        *, data_for_model, builder, compiled_ssm=None, sampler_config=None
+    ):
         del data_for_model, compiled_ssm, sampler_config
         captured["builder"] = builder
         return rebuilt_runtime
