@@ -1,6 +1,7 @@
 import asyncio
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import cloudpickle
 import jax.numpy as jnp
@@ -170,10 +171,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     _reset_stage_registry(monkeypatch)
 
 
-def test_production_registry_offloads_stage4_to_modal(monkeypatch):
-    pytest.importorskip("modal")
-    from causal_ssm_agent.flows import modal_runners
-
+def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
     _reset_stage_registry(monkeypatch)
     monkeypatch.setenv("DEPLOYMENT_ENV", "production")
 
@@ -209,12 +207,28 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
             "root_run_id": root_run_id,
         }
 
-    monkeypatch.setattr(modal_runners, "modal_stage4_runner", fake_stage4_runner)
+    fake_modal_runners = ModuleType("causal_ssm_agent.flows.modal_runners")
+    fake_modal_runners.modal_stage4_runner = fake_stage4_runner
+    fake_modal_runners.modal_stage5b_runner = lambda *_args, **_kwargs: None
+    fake_modal_runners.persist_noop = lambda _result, _workspace_id: None
+    monkeypatch.setitem(sys.modules, "causal_ssm_agent.flows.modal_runners", fake_modal_runners)
     monkeypatch.setattr(dag, "stage4", fake_local_stage4)
 
     registry = stage_registry.get_stage_registry()
 
     with openrouter_client.use_openrouter_api_key("user-key"):
+        user_result = asyncio.run(
+            registry["stage-4"].runner(
+                question="why",
+                stage1b={},
+                stage2={},
+                stage3={},
+                enable_literature=True,
+                workspace_id="workspace-user",
+                openrouter_access_mode="user",
+                root_run_id="root-run-user",
+            )
+        )
         local_result = asyncio.run(
             registry["stage-4"].runner(
                 question="why",
@@ -223,7 +237,7 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
                 stage3={},
                 enable_literature=True,
                 workspace_id="workspace-local",
-                openrouter_access_mode="user",
+                openrouter_access_mode="local",
                 root_run_id="root-run-local",
             )
         )
@@ -240,6 +254,12 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
         )
     )
 
+    assert user_result == {
+        "runner": "modal",
+        "workspace_id": "workspace-user",
+        "openrouter_api_key": "user-key",
+        "root_run_id": "root-run-user",
+    }
     assert local_result == {
         "runner": "local",
         "workspace_id": "workspace-local",
@@ -254,10 +274,10 @@ def test_production_registry_offloads_stage4_to_modal(monkeypatch):
     }
 
 
-def test_stage2_binding_uses_access_mode_for_free_window_limit():
+def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
     from causal_ssm_agent.flows.stages.stage2_extract import MAX_FREE_WINDOWS
 
-    stage2 = stage_registry.get_stage_registry()["stage-2"]
+    monkeypatch.setenv("DEPLOYMENT_ENV", "production")
     states = {
         "stage-0": {"result": {}},
         "stage-1b": {"result": {}},
@@ -272,22 +292,34 @@ def test_stage2_binding_uses_access_mode_for_free_window_limit():
         openrouter_api_key="user-key",
         openrouter_access_mode="user",
     )
-    trial_ctx = stage_registry.PipelineContext(
-        workspace_id="workspace-trial",
-        prefect_run_id="run-trial",
+    anonymous_ctx = stage_registry.PipelineContext(
+        workspace_id="workspace-anonymous",
+        prefect_run_id="run-anonymous",
         question="why",
         lit_enabled=True,
         inference_method=None,
         supported_overrides={},
-        openrouter_api_key="trial-key",
-        openrouter_access_mode="trial",
+        openrouter_api_key="anonymous-key",
+        openrouter_access_mode="anonymous",
+    )
+    local_ctx = stage_registry.PipelineContext(
+        workspace_id="workspace-local",
+        prefect_run_id="run-local",
+        question="why",
+        lit_enabled=True,
+        inference_method=None,
+        supported_overrides={},
+        openrouter_api_key=None,
+        openrouter_access_mode="local",
     )
 
-    user_inputs = stage2.bind_inputs(user_ctx, states)
-    trial_inputs = stage2.bind_inputs(trial_ctx, states)
+    user_inputs = stage_registry._bind_stage2(user_ctx, states)
+    anonymous_inputs = stage_registry._bind_stage2(anonymous_ctx, states)
+    local_inputs = stage_registry._bind_stage2(local_ctx, states)
 
     assert user_inputs["max_windows"] is None
-    assert trial_inputs["max_windows"] == MAX_FREE_WINDOWS
+    assert anonymous_inputs["max_windows"] == MAX_FREE_WINDOWS
+    assert local_inputs["max_windows"] is None
 
 
 def test_interactive_overrideable_stages_declare_materialization_policy():
@@ -420,87 +452,122 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
     ]
 
 
-def test_pipeline_consumes_byok_secret_ref_once_and_threads_key(monkeypatch, tmp_path):
+def _stub_stage0_result():
+    return {
+        "outcome": "success",
+        "source_label": "stub",
+        "n_records": 1,
+        "n_columns": 2,
+        "date_range": {"start": "2024-01-01", "end": "2024-01-01"},
+        "sample": [],
+        "column_descriptions": [
+            {"name": "timestamp", "description": "ts"},
+            {"name": "value", "description": "val"},
+        ],
+        "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
+        "_column_descriptions": {},
+    }
+
+
+def _stub_stage1a_result():
+    return {
+        "latent_model": {
+            "constructs": [
+                {
+                    "name": "travel",
+                    "description": "Travel exposure",
+                    "role": "exogenous",
+                    "is_outcome": False,
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "sleep_quality",
+                    "description": "Observed sleep quality",
+                    "role": "endogenous",
+                    "is_outcome": True,
+                    "temporal_status": "time_varying",
+                },
+            ],
+            "edges": [
+                {
+                    "cause": "travel",
+                    "effect": "sleep_quality",
+                    "description": "Travel affects sleep quality",
+                    "lagged": True,
+                }
+            ],
+        },
+        "outcome_name": "sleep_quality",
+        "treatments": ["travel"],
+    }
+
+
+@pytest.mark.parametrize(
+    "access_mode, expected_key, extra_setup",
+    [
+        pytest.param("user", "user-key", "byok", id="user-byok"),
+        pytest.param("local", "local-key", "env", id="local-env"),
+    ],
+)
+def test_pipeline_threads_openrouter_key_by_access_mode(
+    monkeypatch, tmp_path, access_mode, expected_key, extra_setup,
+):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
-    monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
-        _stub_config,
-    )
+    monkeypatch.setattr("causal_ssm_agent.utils.config.get_config", _stub_config)
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
+
+    pipeline_kwargs: dict = {
+        "query": "why is this happening?",
+        "end_stage": "stage-1a",
+        "openrouter_access_mode": access_mode,
+    }
+
+    if extra_setup == "byok":
+        monkeypatch.setattr(
+            pipeline,
+            "consume_byok_secret_ref",
+            lambda ref: "user-key" if ref == "ref-123" else None,
+        )
+        pipeline_kwargs["openrouter_secret_ref"] = "ref-123"
+    else:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "local-key")
 
     seen: list[tuple[str, str | None]] = []
 
     async def stage0(workspace_id: str) -> dict:
         seen.append(("stage0", openrouter_client.get_openrouter_api_key()))
-        return {
-            "outcome": "success",
-            "source_label": "stub",
-            "n_records": 1,
-            "n_columns": 2,
-            "date_range": {"start": "2024-01-01", "end": "2024-01-01"},
-            "sample": [],
-            "column_descriptions": [
-                {"name": "timestamp", "description": "ts"},
-                {"name": "value", "description": "val"},
-            ],
-            "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
-            "_column_descriptions": {},
-        }
+        return _stub_stage0_result()
 
     async def stage1a(question: str) -> dict:
         seen.append(("stage1a", openrouter_client.get_openrouter_api_key()))
-        return {
-            "latent_model": {
-                "constructs": [
-                    {
-                        "name": "travel",
-                        "description": "Travel exposure",
-                        "role": "exogenous",
-                        "is_outcome": False,
-                        "temporal_status": "time_varying",
-                    },
-                    {
-                        "name": "sleep_quality",
-                        "description": "Observed sleep quality",
-                        "role": "endogenous",
-                        "is_outcome": True,
-                        "temporal_status": "time_varying",
-                    },
-                ],
-                "edges": [
-                    {
-                        "cause": "travel",
-                        "effect": "sleep_quality",
-                        "description": "Travel affects sleep quality",
-                        "lagged": True,
-                    }
-                ],
-            },
-            "outcome_name": "sleep_quality",
-            "treatments": ["travel"],
-        }
+        return _stub_stage1a_result()
 
     monkeypatch.setattr(dag, "stage0", stage0)
     monkeypatch.setattr(dag, "stage1a", stage1a)
-    monkeypatch.setattr(
-        pipeline,
-        "consume_byok_secret_ref",
-        lambda ref: "user-key" if ref == "ref-123" else None,
-    )
     _reset_stage_registry(monkeypatch)
 
-    result = asyncio.run(
-        pipeline.causal_inference_pipeline(
-            query="why is this happening?",
-            end_stage="stage-1a",
-            openrouter_access_mode="user",
-            openrouter_secret_ref="ref-123",
-        )
-    )
+    result = asyncio.run(pipeline.causal_inference_pipeline(**pipeline_kwargs))
 
     assert result["final_stage"] == "stage-1a"
-    assert seen == [("stage0", "user-key"), ("stage1a", "user-key")]
+    assert seen == [("stage0", expected_key), ("stage1a", expected_key)]
+
+
+@pytest.mark.parametrize("access_mode", [None, "local"])
+def test_production_pipeline_requires_explicit_production_access_mode(monkeypatch, access_mode):
+    monkeypatch.setenv("DEPLOYMENT_ENV", "production")
+
+    with pytest.raises(
+        ValueError,
+        match="Production runs must set openrouter_access_mode to 'anonymous' or 'user'",
+    ):
+        asyncio.run(
+            pipeline.causal_inference_pipeline(
+                query="why is this happening?",
+                end_stage="stage-1a",
+                openrouter_access_mode=access_mode,
+            )
+        )
 
 
 def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch, tmp_path):

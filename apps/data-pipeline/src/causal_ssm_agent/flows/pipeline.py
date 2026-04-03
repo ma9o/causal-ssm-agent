@@ -6,6 +6,7 @@ can provide edited payloads for selected stages, and the pipeline skips those
 stage computations while re-running downstream stages from the override point.
 """
 
+import os
 import time
 from inspect import isawaitable
 from pathlib import Path
@@ -168,15 +169,23 @@ async def causal_inference_pipeline(
             loaded from existing artifacts in data/{workspace_id}/run/.
         end_stage: Final stage to execute in this run. Useful for stage-specific
             development replays such as rerunning only stage 2.
-        openrouter_access_mode: Effective OpenRouter access mode ("user" or "trial")
-            resolved by the web server for web-launched runs.
+        openrouter_access_mode: Effective OpenRouter access mode ("anonymous",
+            "user", or "local") resolved by the web server for web-launched runs.
         openrouter_secret_ref: Single-use encrypted OpenRouter key ref created by
-            the web server for web-launched runs.
+            the web server for production web-launched runs.
     """
+    if os.environ.get("DEPLOYMENT_ENV") == "production" and openrouter_access_mode not in {
+        "anonymous",
+        "user",
+    }:
+        raise ValueError(
+            "Production runs must set openrouter_access_mode to 'anonymous' or 'user'"
+        )
+
     openrouter_api_key: str | None = None
     if openrouter_secret_ref:
-        if openrouter_access_mode not in {"user", "trial"}:
-            raise ValueError("openrouter_access_mode must be 'user' or 'trial'")
+        if openrouter_access_mode not in {"user", "anonymous"}:
+            raise ValueError("openrouter_access_mode must be 'user' or 'anonymous'")
         openrouter_api_key = consume_byok_secret_ref(openrouter_secret_ref)
         if openrouter_api_key is None:
             raise ValueError("Invalid or expired OpenRouter secret reference")
@@ -184,8 +193,10 @@ async def causal_inference_pipeline(
             "Resolved %s OpenRouter API key from secret ref",
             openrouter_access_mode,
         )
+    elif openrouter_access_mode == "local":
+        logger.info("Using local OpenRouter credentials from the environment")
     elif openrouter_access_mode is not None:
-        raise ValueError("openrouter_access_mode requires openrouter_secret_ref")
+        raise ValueError("openrouter_secret_ref is required for 'user' and 'anonymous' modes")
 
     from causal_ssm_agent.flows.stage_registry import (
         PipelineContext,
@@ -231,10 +242,11 @@ async def causal_inference_pipeline(
     )
 
     logger.info(
-        "Pipeline starting: workspace_id=%s source=%s inference_method=%s literature=%s "
-        "start_stage=%s end_stage=%s stage_overrides=%s",
+        "Pipeline starting: workspace_id=%s source=%s access_mode=%s inference_method=%s "
+        "literature=%s start_stage=%s end_stage=%s stage_overrides=%s",
         workspace_id,
         "raw text" if query else "resume/no-query",
+        openrouter_access_mode or "implicit/default",
         inference_method or "config default",
         lit_enabled,
         effective_start_stage,

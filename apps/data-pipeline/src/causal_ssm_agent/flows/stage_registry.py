@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
 logger = get_prefect_logger(__name__)
-OpenRouterAccessMode = Literal["user", "trial"]
+OpenRouterAccessMode = Literal["user", "anonymous", "local"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -388,7 +388,8 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
         "stage1b": states["stage-1b"]["result"],
         "root_run_id": ctx.prefect_run_id,
         "max_windows": None
-        if ctx.openrouter_access_mode == "user" or os.environ.get("DEPLOYMENT_ENV") != "production"
+        if ctx.openrouter_access_mode in {"user", "local"}
+        or os.environ.get("DEPLOYMENT_ENV") != "production"
         else MAX_FREE_WINDOWS,
     }
 
@@ -663,7 +664,8 @@ def _build_registry() -> dict[str, StageDefinition]:
                 "via StageOverrideAdapter"
             )
 
-    # In production, offload stages 4 and 5b to Modal
+    # In production, offload stages 4 and 5b to Modal.
+    # Only explicit local mode keeps stage 4 in-process.
     if os.environ.get("DEPLOYMENT_ENV") == "production":
         from . import dag
         from .modal_runners import (
@@ -682,7 +684,7 @@ def _build_registry() -> dict[str, StageDefinition]:
             openrouter_access_mode: OpenRouterAccessMode | None,
             root_run_id: str | None,
         ) -> dict:
-            if openrouter_access_mode == "user":
+            if openrouter_access_mode == "local":
                 return await dag.stage4(
                     question,
                     stage1b,
