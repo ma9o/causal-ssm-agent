@@ -14,8 +14,6 @@ All backend processes that might touch BYOK replay/refinement paths must source 
 same root `.env` as the web app so `APP_SECRET` is available everywhere, not just
 in Next.js.
 
-### 1. Start the stack
-
 ```bash
 bun run integration:start
 ```
@@ -27,12 +25,6 @@ wait for the `Stack ready` banner before proceeding.
 
 To tear down the stack, kill the script (`Ctrl+C`, or `kill <pid>` if
 backgrounded). All child processes are cleaned up automatically.
-
-### 2. Check the running app with Next.js devtools MCP
-
-- `nextjs_index(port=3000)` to discover the server
-- `get_errors` to confirm there are no current runtime/build errors
-- `get_routes` to confirm the route surface you expect
 
 ## Workspace Layout
 
