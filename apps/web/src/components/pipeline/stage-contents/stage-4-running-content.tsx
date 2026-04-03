@@ -9,6 +9,7 @@ import {
   STAGE4_DONE_NODE_ID,
   STAGE4_LOCK_NODE_ID,
   STAGE4_REPAIR_BARRIER_NODE_ID,
+  type Stage4BlockLastState,
   type Stage4Graph,
   type Stage4Snapshot,
   useStage4Graph,
@@ -62,9 +63,75 @@ const edgeTypes: EdgeTypes = {
   stage4Section: Stage4SectionEdge,
 };
 
+function formatStage4Value(value: unknown): string {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return String(value);
+    if (value === 0) return "0";
+    const magnitude = Math.abs(value);
+    if (magnitude >= 1000 || magnitude < 0.001) return value.toPrecision(2);
+    return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+  }
+  if (Array.isArray(value)) {
+    const preview = value.slice(0, 3).map((item) => formatStage4Value(item)).join(", ");
+    return `[${preview}${value.length > 3 ? ", ..." : ""}]`;
+  }
+  if (value === null) return "null";
+  if (value === undefined) return "";
+  return String(value);
+}
+
+function formatStage4DistributionCall(
+  distribution?: string,
+  params?: Record<string, unknown>,
+): string {
+  if (!distribution) return "";
+  if (!params || Object.keys(params).length === 0) return distribution;
+  const entries = Object.entries(params).slice(0, 3);
+  const rendered = entries.map(([key, value]) => `${key}=${formatStage4Value(value)}`).join(", ");
+  const suffix = Object.keys(params).length > 3 ? ", ..." : "";
+  return `${distribution}(${rendered}${suffix})`;
+}
+
+function formatStage4LastBlockStateDetail(lastState: Stage4BlockLastState | undefined): string {
+  if (!lastState) return "";
+  switch (lastState.detail_kind) {
+    case "revision":
+      return lastState.reason ?? "";
+    case "review_approval":
+      return lastState.reasoning ?? "";
+    case "indicator_choice": {
+      const head =
+        lastState.distribution && lastState.link
+          ? `${lastState.distribution} with ${lastState.link} link`
+          : lastState.distribution ?? "";
+      if (!head) return lastState.reasoning ?? "";
+      return lastState.reasoning ? `${head}. ${lastState.reasoning}` : head;
+    }
+    case "prior_bundle": {
+      const priors = lastState.priors ?? [];
+      if (priors.length === 0) return "";
+      const single = priors.length === 1;
+      const preview = priors
+        .slice(0, 2)
+        .map((prior) => {
+          const call = formatStage4DistributionCall(prior.distribution, prior.params);
+          return single ? call : `${prior.parameter} ~ ${call}`;
+        })
+        .filter((value) => value.length > 0)
+        .join("; ");
+      if (!preview) return "";
+      return priors.length > 2 ? `${preview}; +${priors.length - 2} more` : preview;
+    }
+    default:
+      return "";
+  }
+}
+
 function buildSectionSummaries(
   graph: Stage4Graph | null,
   snapshot: Stage4Snapshot | null,
+  lastBlockStateById: Record<string, Stage4BlockLastState>,
 ): Stage4SectionSummary[] {
   if (!graph) return [];
 
@@ -97,6 +164,7 @@ function buildSectionSummaries(
       status: (snapshot?.block_status[node.id] ?? "pending") as Stage4BlockStatus,
       isActive: node.id === currentNodeId,
       inRepairScope: repairScopeIds.has(node.id),
+      detailText: formatStage4LastBlockStateDetail(lastBlockStateById[node.id]),
     }));
 
     const totalCount = logicalNodes.length;
@@ -108,6 +176,8 @@ function buildSectionSummaries(
       statusItems.find((item) => item.status === "reopened") ??
       statusItems.find((item) => item.status === "pending") ??
       statusItems[0];
+    const acceptedTailItem = [...statusItems].reverse().find((item) => item.status === "accepted");
+    const activeStatusItem = statusItems.find((item) => item.id === activeNode?.id);
 
     let status: Stage4BlockStatus = "pending";
     if (activeInSection) {
@@ -145,11 +215,13 @@ function buildSectionSummaries(
           : "";
     } else if (activeInSection && activeNode) {
       displayLabel = activeNode.label;
+      detailLabel = activeStatusItem?.detailText ?? "";
     } else if (status === "accepted" && totalCount > 0) {
       displayLabel = logicalNodes[logicalNodes.length - 1]?.label ?? section.label;
+      detailLabel = acceptedTailItem?.detailText ?? "";
     } else if (reopenedCount > 0 && nextOpenItem) {
       displayLabel = nextOpenItem.label;
-      detailLabel = `${reopenedCount} reopened`;
+      detailLabel = nextOpenItem.detailText ?? `${reopenedCount} reopened`;
     } else if (nextOpenItem) {
       displayLabel = nextOpenItem.label;
     } else if (optionalAbsent) {
@@ -258,11 +330,16 @@ function layoutSectionGraph(
 export function Stage4RunningView({
   graph,
   snapshot,
+  lastBlockStateById = {},
 }: {
   graph: Stage4Graph | null;
   snapshot: Stage4Snapshot | null;
+  lastBlockStateById?: Record<string, Stage4BlockLastState>;
 }) {
-  const sections = useMemo(() => buildSectionSummaries(graph, snapshot), [graph, snapshot]);
+  const sections = useMemo(
+    () => buildSectionSummaries(graph, snapshot, lastBlockStateById),
+    [graph, lastBlockStateById, snapshot],
+  );
   const sectionEdges = useMemo(() => deriveStage4SectionEdges(graph), [graph]);
   const baseLayout = useMemo(
     () => layoutSectionGraph(sections, sectionEdges, snapshot),
@@ -402,10 +479,16 @@ export default function Stage4RunningContent({
   stageStatus: StageRunStatus;
   stageRun?: AnalysisStageRun | null;
 }) {
-  const { graph, snapshot } = useStage4Graph(
+  const { graph, snapshot, lastBlockStateById } = useStage4Graph(
     workspaceId,
     stageStatus,
     stageRun?.ownerRootFlowRunId ?? null,
   );
-  return <Stage4RunningView graph={graph} snapshot={snapshot} />;
+  return (
+    <Stage4RunningView
+      graph={graph}
+      snapshot={snapshot}
+      lastBlockStateById={lastBlockStateById}
+    />
+  );
 }

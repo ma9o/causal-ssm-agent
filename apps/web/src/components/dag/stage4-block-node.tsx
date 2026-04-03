@@ -15,6 +15,7 @@ export interface Stage4NodeStatusItem {
   status: Stage4BlockStatus;
   isActive?: boolean;
   inRepairScope?: boolean;
+  detailText?: string;
 }
 
 export interface Stage4BlockNodeData {
@@ -32,6 +33,31 @@ export interface Stage4BlockNodeData {
   detailLabel?: string;
   tooltipText?: string;
   minHeight?: number;
+}
+
+function getDotTooltipDescription(item: Stage4NodeStatusItem): string {
+  if (item.isActive && item.detailText) {
+    return item.inRepairScope ? `Repair in progress. ${item.detailText}` : `In progress. ${item.detailText}`;
+  }
+  if (item.detailText) {
+    return item.detailText;
+  }
+  if (item.isActive) {
+    return item.inRepairScope
+      ? "Currently being repaired in this campaign."
+      : "Currently in progress.";
+  }
+
+  switch (item.status) {
+    case "accepted":
+      return "Accepted.";
+    case "reopened":
+      return item.inRepairScope ? "Reopened in the current repair campaign." : "Reopened for repair.";
+    case "inactive":
+      return "Not required for this plan.";
+    default:
+      return item.inRepairScope ? "Queued in the current repair campaign." : "Queued in this section.";
+  }
 }
 
 function getFrameClass(status: Stage4BlockStatus | undefined, isActive: boolean): string {
@@ -80,7 +106,6 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
   const isActive = d.isActive ?? false;
   const acceptedCount = d.acceptedCount ?? 0;
   const totalCount = d.totalCount ?? 0;
-  const reopenedCount = d.reopenedCount ?? 0;
 
   return (
     <div
@@ -132,13 +157,19 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
               <Tooltip key={item.id}>
                 <TooltipTrigger
                   render={<span />}
+                  aria-label={`${item.label}: ${getDotTooltipDescription(item)}`}
                   className={cn(
-                    "h-2.5 cursor-default rounded-full transition-all",
+                    "nodrag nopan pointer-events-auto inline-block shrink-0 h-2.5 cursor-default rounded-full transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
                     item.isActive ? "w-5" : "w-2.5",
                     getDotClass(item),
                   )}
                 />
-                <TooltipContent>{item.label}</TooltipContent>
+                <TooltipContent>
+                  <div className="max-w-xs text-xs">
+                    <p className="font-medium">{item.label}</p>
+                    <p className="text-background/80">{getDotTooltipDescription(item)}</p>
+                  </div>
+                </TooltipContent>
               </Tooltip>
             ))}
           </div>

@@ -12,6 +12,7 @@ import type { StageRunStatus } from "./use-run-events";
 
 export type { Stage4Graph, Stage4Snapshot };
 export type {
+  Stage4BlockLastState,
   Stage4GraphNode,
   Stage4GraphEdge,
   Stage4GraphPhase,
@@ -50,5 +51,6 @@ export function useStage4Graph(
   return {
     graph: data?.graph && data.graph.nodes.length > 0 ? data.graph : null,
     snapshot: data?.snapshot ?? null,
+    lastBlockStateById: data?.lastBlockStateById ?? {},
   };
 }

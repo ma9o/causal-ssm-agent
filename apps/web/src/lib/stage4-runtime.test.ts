@@ -48,6 +48,7 @@ describe("stage4-runtime", () => {
         repair_campaign: snapshotRecord.payload.repair_campaign,
         phase: snapshotRecord.payload.phase,
       },
+      lastBlockStateById: {},
     });
   });
 
@@ -65,5 +66,31 @@ describe("stage4-runtime", () => {
 
     expect(next.snapshot?.phase).toBe("done");
     expect(next.graph).toBeNull();
+    expect(next.lastBlockStateById).toEqual({});
+  });
+
+  it("stores the last dot state for block transition events", () => {
+    const next = applyStage4Event(EMPTY_STAGE4_REPLAY_STATE, {
+      type: "block_transition",
+      transition: {
+        block_id: "indicator:x",
+        status: "accepted",
+        detail_kind: "indicator_choice",
+        variable: "x",
+        distribution: "poisson",
+        link: "log",
+        reasoning: "Count outcome.",
+      },
+    });
+
+    expect(next.lastBlockStateById["indicator:x"]).toEqual({
+      block_id: "indicator:x",
+      status: "accepted",
+      detail_kind: "indicator_choice",
+      variable: "x",
+      distribution: "poisson",
+      link: "log",
+      reasoning: "Count outcome.",
+    });
   });
 });

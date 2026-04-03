@@ -47,6 +47,27 @@ export interface Stage4Snapshot {
   phase: string;
 }
 
+export interface Stage4TransitionPrior {
+  parameter: string;
+  distribution?: string;
+  params?: Record<string, unknown>;
+  reasoning?: string;
+}
+
+export interface Stage4BlockLastState {
+  block_id: string;
+  status: "accepted" | "reopened";
+  detail_kind: "indicator_choice" | "prior_bundle" | "review_approval" | "revision";
+  variable?: string;
+  distribution?: string;
+  link?: string;
+  reasoning?: string;
+  parameter_names?: string[];
+  priors?: Stage4TransitionPrior[];
+  reason?: string;
+  scope_kind?: string;
+}
+
 export interface PrefectStage4EventRecord {
   event?: string | null;
   occurred?: string | null;
@@ -55,16 +76,19 @@ export interface PrefectStage4EventRecord {
 
 export type Stage4Event =
   | { type: "graph"; graph: Stage4Graph }
-  | { type: "snapshot"; snapshot: Stage4Snapshot };
+  | { type: "snapshot"; snapshot: Stage4Snapshot }
+  | { type: "block_transition"; transition: Stage4BlockLastState };
 
 export interface Stage4ReplayState {
   graph: Stage4Graph | null;
   snapshot: Stage4Snapshot | null;
+  lastBlockStateById: Record<string, Stage4BlockLastState>;
 }
 
 export const EMPTY_STAGE4_REPLAY_STATE: Stage4ReplayState = {
   graph: null,
   snapshot: null,
+  lastBlockStateById: {},
 };
 
 export function getStage4StateQueryKey(workspaceId: string, rootFlowRunId: string | null) {
@@ -106,6 +130,45 @@ export function parseStage4Event(
     };
   }
 
+  if (
+    payload.type === "block_transition" &&
+    typeof payload.block_id === "string" &&
+    (payload.status === "accepted" || payload.status === "reopened")
+  ) {
+    return {
+      type: "block_transition",
+      transition: {
+        block_id: payload.block_id,
+        status: payload.status,
+        detail_kind: (payload.detail_kind as Stage4BlockLastState["detail_kind"]) ?? "revision",
+        variable: typeof payload.variable === "string" ? payload.variable : undefined,
+        distribution: typeof payload.distribution === "string" ? payload.distribution : undefined,
+        link: typeof payload.link === "string" ? payload.link : undefined,
+        reasoning: typeof payload.reasoning === "string" ? payload.reasoning : undefined,
+        parameter_names: Array.isArray(payload.parameter_names)
+          ? payload.parameter_names.filter((value): value is string => typeof value === "string")
+          : undefined,
+        priors: Array.isArray(payload.priors)
+          ? payload.priors
+              .filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
+              .map((prior) => ({
+                parameter: String(prior.parameter ?? ""),
+                distribution:
+                  typeof prior.distribution === "string" ? prior.distribution : undefined,
+                params:
+                  prior.params && typeof prior.params === "object"
+                    ? (prior.params as Record<string, unknown>)
+                    : undefined,
+                reasoning: typeof prior.reasoning === "string" ? prior.reasoning : undefined,
+              }))
+              .filter((prior) => prior.parameter.length > 0)
+          : undefined,
+        reason: typeof payload.reason === "string" ? payload.reason : undefined,
+        scope_kind: typeof payload.scope_kind === "string" ? payload.scope_kind : undefined,
+      },
+    };
+  }
+
   return null;
 }
 
@@ -117,7 +180,16 @@ export function applyStage4Event(
   if (event.type === "graph") {
     return { ...next, graph: event.graph };
   }
-  return { ...next, snapshot: event.snapshot };
+  if (event.type === "snapshot") {
+    return { ...next, snapshot: event.snapshot };
+  }
+  return {
+    ...next,
+    lastBlockStateById: {
+      ...next.lastBlockStateById,
+      [event.transition.block_id]: event.transition,
+    },
+  };
 }
 
 export function reduceStage4Events(events: readonly PrefectStage4EventRecord[]): Stage4ReplayState {
