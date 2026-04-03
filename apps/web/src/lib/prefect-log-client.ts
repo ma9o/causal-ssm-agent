@@ -117,7 +117,9 @@ async function fetchPrefectLogPage(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(buildPrefectLogFilterBody(flowRunIds, offset, limit, timeWindow)),
   });
-  if (!res.ok) return [];
+  if (!res.ok) {
+    throw new Error(`Prefect log fetch failed: ${res.status} ${res.statusText}`);
+  }
   return res.json();
 }
 

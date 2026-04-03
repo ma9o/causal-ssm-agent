@@ -35,8 +35,8 @@ export function useElkLayout(
           setResult({ ...layoutResult, key: currentKey });
         }
       })
-      .catch(() => {
-        // Layout computation failed — keep previous result
+      .catch((err: unknown) => {
+        console.warn("ELK layout computation failed:", err);
       });
   }, [inputKey, constructs, causalEdges, indicators]);
 

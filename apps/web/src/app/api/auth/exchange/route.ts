@@ -45,9 +45,16 @@ export async function POST(request: Request) {
     });
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
+      const text = await res.text();
+      let body: Record<string, unknown>;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        console.error("Non-JSON auth exchange response:", text.slice(0, 500));
+        body = {};
+      }
       return NextResponse.json(
-        { error: body.error?.message || "Failed to exchange code" },
+        { error: (body.error as Record<string, unknown>)?.message || "Failed to exchange code" },
         { status: res.status },
       );
     }
@@ -65,7 +72,8 @@ export async function POST(request: Request) {
     await writeOpenRouterSession(createOpenRouterSession(key, user_id));
     await clearAuthorizedWorkspaceIds();
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (e) {
+    console.error("Auth code exchange failed:", e);
     return NextResponse.json({ error: "Failed to exchange code" }, { status: 500 });
   }
 }

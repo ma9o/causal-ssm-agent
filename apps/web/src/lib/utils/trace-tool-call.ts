@@ -46,7 +46,8 @@ export function normalizeTraceToolCall(
       toolName,
       input: JSON.parse(rawArguments),
     };
-  } catch {
+  } catch (err) {
+    console.warn("Failed to parse tool call arguments:", err);
     return {
       toolCallId,
       toolName,

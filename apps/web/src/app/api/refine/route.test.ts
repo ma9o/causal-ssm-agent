@@ -44,9 +44,13 @@ vi.mock("@/lib/runtime-urls", () => ({
   getToolServerUrl: vi.fn(() => "http://tools.example"),
 }));
 
-vi.mock("@/lib/storage", () => ({
-  readData: vi.fn().mockResolvedValue(JSON.stringify({ llm_trace: baseTrace })),
-}));
+vi.mock("@/lib/storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/storage")>();
+  return {
+    ...actual,
+    readData: vi.fn().mockResolvedValue(JSON.stringify({ llm_trace: baseTrace })),
+  };
+});
 
 vi.mock("@openrouter/ai-sdk-provider", () => ({
   createOpenRouter: vi.fn(() => vi.fn((model: string) => `model:${model}`)),
@@ -72,7 +76,7 @@ describe("POST /api/refine", () => {
       if (path.endsWith("/stage-6.json") || path.endsWith("/stage-1a.json")) {
         return JSON.stringify({ llm_trace: baseTrace });
       }
-      throw new Error(`ENOENT: ${path}`);
+      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: "ENOENT" });
     });
   });
 
@@ -417,7 +421,7 @@ describe("POST /api/refine", () => {
           },
         });
       }
-      throw new Error(`ENOENT: ${path}`);
+      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: "ENOENT" });
     });
 
     streamTextMock.mockImplementation(({ messages }) => ({

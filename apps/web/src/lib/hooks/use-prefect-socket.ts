@@ -85,8 +85,8 @@ export function usePrefectSocketSubscription<TMessage extends PrefectSocketEnvel
         }
 
         handleMessage(message, ws);
-      } catch {
-        // Ignore parse errors
+      } catch (err) {
+        console.warn("WebSocket message parse failed:", err);
       }
     };
 
