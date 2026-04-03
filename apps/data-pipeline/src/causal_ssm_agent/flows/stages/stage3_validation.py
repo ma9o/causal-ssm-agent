@@ -791,8 +791,8 @@ def _build_indicator_context(
     try:
         _var = values.var()
         variance = float(_var) if _var is not None else None
-    except Exception:
-        pass
+    except (ValueError, ZeroDivisionError, ArithmeticError):
+        logger.info("Variance calculation failed for indicator %s", ind_name, exc_info=True)
 
     ind_meta = indicator_lookup.get(ind_name, {})
     dtype = ind_meta.get("measurement_dtype")

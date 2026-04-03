@@ -46,7 +46,6 @@ def hmc_step(rng_key, z, log_target_val_and_grad, step_size, chol_mass, n_leapfr
 
     # Current value and gradient
     log_pi, grad = log_target_val_and_grad(z)
-    grad = jnp.nan_to_num(grad, nan=0.0, posinf=0.0, neginf=0.0)
 
     # Sample momentum: p ~ N(0, M) where M = L L^T
     u = random.normal(noise_key, (D,))
@@ -62,7 +61,6 @@ def hmc_step(rng_key, z, log_target_val_and_grad, step_size, chol_mass, n_leapfr
         z_i = z_i + step_size * jla.cho_solve((chol_mass, True), p_i)
         # Evaluate gradient at new position
         _, grad_i = log_target_val_and_grad(z_i)
-        grad_i = jnp.nan_to_num(grad_i, nan=0.0, posinf=0.0, neginf=0.0)
         # Full momentum step
         p_i = p_i + step_size * grad_i
         return (z_i, p_i), None
@@ -74,7 +72,6 @@ def hmc_step(rng_key, z, log_target_val_and_grad, step_size, chol_mass, n_leapfr
 
     # Final gradient and half-step momentum
     log_pi_prop, grad_prop = log_target_val_and_grad(z_prop)
-    grad_prop = jnp.nan_to_num(grad_prop, nan=0.0, posinf=0.0, neginf=0.0)
     p_prop = p_prop + 0.5 * step_size * grad_prop
 
     # Kinetic energy: K(p) = 0.5 * p^T M^{-1} p = 0.5 * ||L^{-1} p||^2

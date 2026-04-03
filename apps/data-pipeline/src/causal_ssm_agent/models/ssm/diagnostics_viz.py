@@ -244,8 +244,11 @@ def compute_posterior_pairs(
             if "diverging" in extra:
                 div_flat = extra["diverging"].reshape(-1)
                 div_mask = [bool(v) for v in div_flat[::step]]
-        except Exception:
-            logger.warning("Divergence mask extraction failed", exc_info=True)
+        except (AttributeError, ValueError, RuntimeError):
+            logger.warning(
+                "Divergence mask extraction failed; pair plots will not show divergent transitions",
+                exc_info=True,
+            )
 
     pairs: list[dict[str, Any]] = []
     for i in range(len(scalars)):

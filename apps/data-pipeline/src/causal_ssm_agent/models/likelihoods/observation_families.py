@@ -151,13 +151,13 @@ def _get_kernels():
 
 def _coerce_distribution_family(
     dist: DistributionFamily | str,
-) -> DistributionFamily | None:
+) -> DistributionFamily:
     if isinstance(dist, DistributionFamily):
         return dist
     try:
         return DistributionFamily(dist)
     except ValueError:
-        return None
+        raise ValueError(f"Unknown distribution family: {dist!r}")
 
 
 def _link_key(link: LinkFunction | str) -> str:
@@ -883,7 +883,7 @@ def _coerce_link_function(
     try:
         return LinkFunction(link)
     except ValueError:
-        return None
+        raise ValueError(f"Unknown link function: {link!r}")
 
 
 def supported_distribution_families() -> frozenset[DistributionFamily]:
@@ -896,8 +896,6 @@ def get_family_spec(
 ) -> ObservationFamilySpec | None:
     """Look up an observation-family spec, accepting enums or serialized strings."""
     family = _coerce_distribution_family(dist)
-    if family is None:
-        return None
     return FAMILY_REGISTRY.get(family)
 
 
@@ -908,9 +906,6 @@ def get_posterior_predictive_switch_index(
 ) -> int:
     """Resolve the lax.switch branch index for posterior predictive sampling."""
     family = _coerce_distribution_family(dist)
-    if family is None:
-        return 0
-
     spec = FAMILY_REGISTRY[family]
     default_index = _POSTERIOR_PREDICTIVE_SWITCH_INDEX[(family, spec.default_link)]
     link_fn = _coerce_link_function(link)

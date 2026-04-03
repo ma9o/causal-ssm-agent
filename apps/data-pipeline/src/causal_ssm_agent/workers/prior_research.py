@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+import httpx
 import numpy as np
 
 from causal_ssm_agent.flows import get_prefect_logger
@@ -114,8 +115,8 @@ async def search_parameter_literature(
             )
         return sources
 
-    except Exception:
-        logger.warning("Exa search failed; continuing without search results", exc_info=True)
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Exa search failed; continuing without search results: %s", exc)
         return []
 
 
@@ -219,8 +220,12 @@ async def _elicit_single_paraphrase(
             sigma=sigma,
             reasoning=prior_data.get("reasoning", ""),
         )
-    except Exception:
-        logger.debug("Failed to parse prior elicitation response for paraphrase %d", paraphrase_id)
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Failed to parse prior elicitation response for paraphrase %d: %s",
+            paraphrase_id,
+            exc,
+        )
         return None
 
 
@@ -291,8 +296,8 @@ def _aggregate_gmm(
                 best_bic = bic
                 best_gmm = gmm
                 best_k = k
-        except Exception:
-            logger.debug("GMM fitting failed for k=%d", k)
+        except (ValueError, RuntimeError, np.linalg.LinAlgError) as exc:
+            logger.warning("GMM fitting failed for k=%d: %s", k, exc)
             continue
 
     if best_gmm is None or best_k == 1:

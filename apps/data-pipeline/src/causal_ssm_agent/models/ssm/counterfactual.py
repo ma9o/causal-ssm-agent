@@ -533,7 +533,7 @@ def compute_interventions(
                             manifest_effects[name] = loading_val * mean_effect
                     if manifest_effects:
                         entry["manifest_effects"] = manifest_effects
-            except Exception:
+            except (ValueError, RuntimeError, FloatingPointError):
                 logger.warning(
                     "Forward simulation failed for '%s'; temporal effects unavailable",
                     treatment_name,

@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from prefect import get_run_logger
+from prefect.exceptions import MissingContextError
 
 
 class _PrefectAwareLogger:
@@ -17,7 +18,7 @@ class _PrefectAwareLogger:
     def _active(self) -> logging.Logger:
         try:
             return get_run_logger()
-        except Exception:
+        except MissingContextError:
             return self._fallback
 
     def __getattr__(self, name: str) -> Any:

@@ -21,6 +21,7 @@ import jax.random as random
 from jax import lax, vmap
 from pydantic import BaseModel, Field
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.likelihoods.emissions import build_predictive_observation_sampler
 from causal_ssm_agent.models.likelihoods.kernels import (
     build_composite_observation_kernel,
@@ -41,6 +42,8 @@ from causal_ssm_agent.models.ssm.covariance_utils import (
     stable_cholesky,
 )
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+
+logger = get_prefect_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # PPC models
@@ -204,7 +207,7 @@ def _slice_extra_params_for_indices(
                     sliced[key] = value[idx]
                     continue
             except TypeError:
-                pass
+                logger.warning("Unexpected type for extra parameter %r during slicing", key)
         sliced[key] = value
     return sliced
 

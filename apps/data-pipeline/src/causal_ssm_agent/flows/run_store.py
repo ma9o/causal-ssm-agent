@@ -157,6 +157,7 @@ def _list_stage4_checkpoint_paths(workspace_id: str) -> list[str]:
     try:
         checkpoint_dir = _stage4_checkpoint_dir(workspace_id, create=False)
     except FileNotFoundError:
+        # Directory doesn't exist yet — no checkpoints saved.
         return []
     indexed_paths: list[tuple[int, str]] = []
     for path in storage.listdir(checkpoint_dir):
@@ -201,10 +202,7 @@ def _unwrap_persisted_result(raw: Any) -> Any:
     if isinstance(raw, dict) and "result" in raw:
         raw = raw["result"]
     if isinstance(raw, str):
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return raw
+        return json.loads(raw)
     return raw
 
 

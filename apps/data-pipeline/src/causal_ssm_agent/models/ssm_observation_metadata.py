@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import polars as pl
 
+from causal_ssm_agent.flows import get_prefect_logger
+
+logger = get_prefect_logger(__name__)
+
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
@@ -441,6 +445,9 @@ def extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
             try:
                 values = series.to_numpy(dtype=np.float64, na_value=np.nan)
             except TypeError:
+                logger.info(
+                    "to_numpy() does not accept dtype/na_value for column %r; falling back", column
+                )
                 values = series.to_numpy()
         else:
             values = np.asarray(series)

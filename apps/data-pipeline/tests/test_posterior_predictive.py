@@ -3,6 +3,7 @@
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
+import pytest
 
 import causal_ssm_agent.models.posterior_predictive as posterior_predictive_module
 from causal_ssm_agent.models.likelihoods.observation_families import (
@@ -102,11 +103,10 @@ class TestForwardSimulation:
             emission_slot_indices=np.array([[-1], [-1], [0]], dtype=np.int32),
         )
 
-    def test_switch_index_unknown_dist_falls_back_to_gaussian(self):
-        """Unknown distribution family falls back to Gaussian."""
-        idx = get_posterior_predictive_switch_index("nonexistent_distribution")
-        gaussian_idx = get_posterior_predictive_switch_index("gaussian")
-        assert idx == gaussian_idx
+    def test_switch_index_unknown_dist_raises(self):
+        """Unknown distribution family raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown distribution family"):
+            get_posterior_predictive_switch_index("nonexistent_distribution")
 
     def test_forward_simulate_shape(self):
         """Output shape is (n_subsample, T, n_manifest)."""

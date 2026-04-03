@@ -66,6 +66,7 @@ def _pp_result(
 def _artifact_compile_diagnostics(compiled_ssm: dict | None) -> list[PriorValidationResult]:
     """Return typed compile diagnostics attached to a compiled artifact."""
     if compiled_ssm is None:
+        logger.debug("No compiled SSM artifact; skipping compile diagnostics")
         return []
 
     diagnostics = compiled_ssm.get("compile_diagnostics") or []
@@ -184,6 +185,7 @@ def _infer_dynamics_repair_scope(
 ) -> PriorRepairScope | None:
     """Bound global drift instability to the smallest SCC-level repair scope."""
     if not unstable_indices or compiled_ssm is None or causal_spec is None:
+        logger.debug("Skipping dynamics repair-scope attribution (missing inputs)")
         return None
 
     from causal_ssm_agent.models.ssm_compiler import deserialize_ssm_spec
@@ -193,8 +195,10 @@ def _infer_dynamics_repair_scope(
         if not isinstance(spec_payload, dict):
             return None
         ssm_spec = deserialize_ssm_spec(spec_payload)
-    except Exception:
-        logger.debug("Skipping dynamics repair-scope attribution (invalid compiled spec)")
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Skipping dynamics repair-scope attribution (invalid compiled spec): %s", exc
+        )
         return None
 
     latent_names = list(ssm_spec.latent_names or [])
@@ -523,38 +527,61 @@ def _check_scale_plausibility(
                 unstable_indices.append(int(i))
                 continue
 
-        if n_unstable > len(idx) * 0.5:
-            sorted_unstable_indices = sorted(unstable_indices)
-            repair_scope = _infer_dynamics_repair_scope(
-                drift_samples,
-                sorted_unstable_indices,
-                compiled_ssm=compiled_ssm,
-                causal_spec=causal_spec,
-            )
-            related_parameters, supporting_codes = _supporting_compile_context(
-                compiled_ssm,
-                construct_names=list(repair_scope.construct_names) if repair_scope else None,
-            )
-            results.append(
-                _pp_result(
-                    parameter="dynamics_stability",
-                    is_valid=False,
-                    code="dynamics_stability",
-                    issue=(
-                        f"Unstable dynamics: {n_unstable}/{len(idx)} prior draws have "
-                        f"unstable drift (Lyapunov solver failed)"
-                    ),
-                    suggested_adjustment="Tighten drift_diag prior toward more negative values",
-                    related_parameters=related_parameters,
-                    supporting_codes=supporting_codes,
-                    repair_scope=repair_scope,
-                    failure_stage="latent_dynamics",
-                    failing_draw_indices=sorted_unstable_indices,
-                    pathology_certificate=PriorPathologyCertificate(
-                        kind="dynamics_stability",
-                        primary_score=n_unstable / max(1, len(idx)),
-                    ),
+            implied_obs = np.asarray(lam @ sigma_inf @ lam.T)
+            if manifest_cov_samples is not None:
+                mcov = (
+                    manifest_cov_samples[i]
+                    if manifest_cov_samples.ndim == 3
+                    else manifest_cov_samples
                 )
+                implied_obs = implied_obs + np.asarray(mcov)
+
+            implied_std = np.sqrt(np.maximum(np.diag(implied_obs), 0))
+            implied_stds_list.append(implied_std)
+
+        except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+            logger.info("Prior draw %d unstable (Lyapunov solver failed): %s", i, exc)
+            n_unstable += 1
+            unstable_indices.append(int(i))
+            continue
+
+    n_draws = len(idx)
+    if n_unstable > n_draws * 0.8:
+        raise RuntimeError(
+            f"Prior predictive: {n_unstable}/{n_draws} draws unstable — likely a model specification bug"
+        )
+
+    if n_unstable > n_draws * 0.5:
+        sorted_unstable_indices = sorted(unstable_indices)
+        repair_scope = _infer_dynamics_repair_scope(
+            drift_samples,
+            sorted_unstable_indices,
+            compiled_ssm=compiled_ssm,
+            causal_spec=causal_spec,
+        )
+        related_parameters, supporting_codes = _supporting_compile_context(
+            compiled_ssm,
+            construct_names=list(repair_scope.construct_names) if repair_scope else None,
+        )
+        results.append(
+            _pp_result(
+                parameter="dynamics_stability",
+                is_valid=False,
+                code="dynamics_stability",
+                issue=(
+                    f"Unstable dynamics: {n_unstable}/{n_draws} prior draws have "
+                    f"unstable drift (Lyapunov solver failed)"
+                ),
+                suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                related_parameters=related_parameters,
+                supporting_codes=supporting_codes,
+                repair_scope=repair_scope,
+                failure_stage="latent_dynamics",
+                failing_draw_indices=sorted_unstable_indices,
+                pathology_certificate=PriorPathologyCertificate(
+                    kind="dynamics_stability",
+                    primary_score=n_unstable / max(1, n_draws),
+                ),
             )
 
     mask = np.asarray(observation_mask, dtype=bool) if observation_mask is not None else None
@@ -627,6 +654,7 @@ def _check_lagged_response_plausibility(
     single off-diagonal drift mean as the edge timescale.
     """
     if compiled_ssm is None or causal_spec is None or "drift" not in samples:
+        logger.debug("Skipping lagged-response plausibility check (missing inputs)")
         return []
 
     from causal_ssm_agent.models.ssm_compiler import deserialize_ssm_spec
@@ -638,8 +666,10 @@ def _check_lagged_response_plausibility(
         if not isinstance(spec_payload, dict):
             return []
         ssm_spec = deserialize_ssm_spec(spec_payload)
-    except Exception:
-        logger.debug("Skipping lagged-response plausibility check (invalid compiled spec)")
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.warning(
+            "Skipping lagged-response plausibility check (invalid compiled spec): %s", exc
+        )
         return []
 
     latent_names = list(ssm_spec.latent_names or [])
@@ -653,8 +683,10 @@ def _check_lagged_response_plausibility(
     latent_index = {name: idx for idx, name in enumerate(latent_names)}
     try:
         edges = get_estimation_edges(causal_spec)
-    except Exception:
-        logger.debug("Skipping lagged-response plausibility check (invalid estimation edges)")
+    except (ValueError, KeyError, TypeError) as exc:
+        logger.info(
+            "Skipping lagged-response plausibility check (invalid estimation edges): %s", exc
+        )
         return []
 
     lagged_edges = [

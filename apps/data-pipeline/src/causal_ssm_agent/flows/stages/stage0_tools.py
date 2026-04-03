@@ -205,8 +205,9 @@ class ModalCodeSandbox:
             sf = self._sandbox.open("/tmp/status.json", "r")
             status: dict = json.loads(sf.read())
             sf.close()
-        except Exception:
-            # Runner crashed before writing status (OOM, timeout, …).
+        except Exception as exc:
+            # Runner crashed before writing status (OOM, timeout, ...).
+            logger.warning("Code execution runner crashed (%s: %s)", type(exc).__name__, exc)
             output = ""
             if stdout:
                 output += stdout

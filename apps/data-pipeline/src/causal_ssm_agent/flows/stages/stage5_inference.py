@@ -209,13 +209,6 @@ def fit_model(
             "error": "SSM implementation not available",
             "duration_seconds": _elapsed_seconds(t0),
         }
-    except Exception as e:
-        logger.exception("Model fitting failed")
-        return {
-            "fitted": False,
-            "error": str(e),
-            "duration_seconds": _elapsed_seconds(t0),
-        }
 
 
 @task(task_run_name="power-scaling-sensitivity", persist_result=False)
@@ -276,7 +269,7 @@ def run_power_scaling(fitted_result: dict) -> dict:
             "psis_k_hat": ps_result.psis_k_hat,
         }
 
-    except Exception as e:
+    except (ValueError, RuntimeError, ArithmeticError, FloatingPointError) as e:
         logger.exception("Power-scaling check failed after %.1fs", _elapsed_seconds(t0))
         return {"checked": False, "error": str(e)}
 
@@ -343,7 +336,7 @@ def run_ppc(fitted_result: dict) -> dict:
 
         return ppc_result.model_dump(mode="json")
 
-    except Exception:
+    except (ValueError, RuntimeError, ArithmeticError, FloatingPointError):
         logger.exception("PPC check failed after %.1fs", _elapsed_seconds(t0))
         return {"checked": False, "per_variable_warnings": []}
 
