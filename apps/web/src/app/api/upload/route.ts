@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { writeBinary, ensureDir } from "@/lib/storage";
+import { deleteData, ensureDir, writeBinary } from "@/lib/storage";
 import { finalizeWorkspaceCreate, requireWorkspaceAccess } from "@/lib/workspace-access";
 
 export async function POST(request: Request) {
@@ -34,8 +34,21 @@ export async function POST(request: Request) {
 
   const buffer = Buffer.from(await file.arrayBuffer());
   await writeBinary(relativePath, buffer);
-  if (creationPending) {
-    await finalizeWorkspaceCreate(normalizedWorkspaceId);
+  try {
+    if (creationPending) {
+      await finalizeWorkspaceCreate(normalizedWorkspaceId);
+    }
+  } catch (e) {
+    try {
+      await deleteData(relativePath);
+    } catch (cleanupError) {
+      console.error(`Failed to roll back upload for '${normalizedWorkspaceId}':`, cleanupError);
+    }
+    console.error(`Failed to finalize workspace '${normalizedWorkspaceId}':`, e);
+    return NextResponse.json(
+      { error: "Failed to finalize workspace creation" },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ path: relativePath });
