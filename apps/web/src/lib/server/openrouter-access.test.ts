@@ -51,7 +51,11 @@ describe("openrouter-access", () => {
       mode: "local",
       apiKey: "local-key",
     });
-    expect(toAccessStatus(access)).toEqual({ mode: "local", canRun: true });
+    expect(toAccessStatus(access)).toEqual({
+      authScope: "local",
+      mode: "local",
+      canRun: true,
+    });
   });
 
   it("uses user mode in production when a BYOK session exists", async () => {
@@ -70,7 +74,11 @@ describe("openrouter-access", () => {
       apiKey: "user-key",
       userId: "or-user-123",
     });
-    expect(toAccessStatus(access)).toEqual({ mode: "user", canRun: true });
+    expect(toAccessStatus(access)).toEqual({
+      authScope: "user:or-user-123",
+      mode: "user",
+      canRun: true,
+    });
   });
 
   it("uses anonymous mode in production when only the shared key is available", async () => {
@@ -92,6 +100,7 @@ describe("openrouter-access", () => {
       creditStatus: "available",
     });
     expect(toAccessStatus(access)).toEqual({
+      authScope: "anonymous",
       mode: "anonymous",
       canRun: true,
       creditStatus: "available",

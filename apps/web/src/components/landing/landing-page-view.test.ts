@@ -4,11 +4,18 @@ import { canOfferOpenRouterSignIn } from "./landing-page-view";
 
 describe("canOfferOpenRouterSignIn", () => {
   it("hides OpenRouter sign-in in local mode", () => {
-    expect(canOfferOpenRouterSignIn({ mode: "local", canRun: true })).toBe(false);
+    expect(
+      canOfferOpenRouterSignIn({
+        authScope: "local",
+        mode: "local",
+        canRun: true,
+      }),
+    ).toBe(false);
   });
 
   it("hides OpenRouter sign-in when local mode is misconfigured", () => {
     const access: AccessStatus = {
+      authScope: "none:local_missing_key",
       mode: "none",
       canRun: false,
       reason: "local_missing_key",
@@ -18,6 +25,7 @@ describe("canOfferOpenRouterSignIn", () => {
 
   it("shows OpenRouter sign-in for anonymous mode", () => {
     const access: AccessStatus = {
+      authScope: "anonymous",
       mode: "anonymous",
       canRun: true,
       creditStatus: "available",
