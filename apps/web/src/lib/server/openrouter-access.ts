@@ -90,7 +90,8 @@ async function getTrialCreditStatus(apiKey: string): Promise<TrialCreditStatus> 
     const creditStatus: TrialCreditStatus = totalCredits > totalUsage ? "available" : "exhausted";
     creditsCache = { creditStatus, ts: Date.now(), cacheKey };
     return creditStatus;
-  } catch {
+  } catch (e) {
+    console.warn("Failed to fetch OpenRouter credit status:", e);
     return "unknown";
   }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadStageResult } from "@/lib/stage-result-loader";
-import { readData } from "@/lib/storage";
+import { isStorageNotFoundError, readData } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 export async function GET(
@@ -34,7 +34,13 @@ export async function GET(
         { status: 500 },
       );
     }
-  } catch {
-    return NextResponse.json({ error: `No data for ${stage}` }, { status: 404 });
+  } catch (e: unknown) {
+    if (isStorageNotFoundError(e)) {
+      return NextResponse.json({ error: `No data for ${stage}` }, { status: 404 });
+    }
+    return NextResponse.json(
+      { error: `Failed to read ${stage}: ${e instanceof Error ? e.message : String(e)}` },
+      { status: 500 },
+    );
   }
 }

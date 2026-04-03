@@ -20,7 +20,7 @@ import {
 } from "@/lib/stage-runtime";
 import { getStageLogScopePolicy } from "@/lib/stage-observability";
 import { prefectFetch } from "@/lib/server/prefect-runs";
-import { readData } from "@/lib/storage";
+import { isStorageNotFoundError, readData } from "@/lib/storage";
 import { STAGES, type StageId } from "@causal-ssm/api-types";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
 
@@ -141,33 +141,37 @@ function summarizeStageExecutions(
   ) as Partial<Record<StageId, StageExecutionSummary>>;
 }
 
-async function prefectGetJson<T>(path: string): Promise<T | null> {
+type PrefectResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; status: number; statusText: string };
+
+async function prefectGetJson<T>(path: string): Promise<PrefectResult<T>> {
   const response = await prefectFetch(`${PREFECT_API}${path}`, { cache: "no-store" });
-  if (!response.ok) return null;
-  return response.json();
+  if (!response.ok) return { ok: false, status: response.status, statusText: response.statusText };
+  return { ok: true, data: await response.json() };
 }
 
-async function prefectPostJson<T>(path: string, body: unknown): Promise<T | null> {
+async function prefectPostJson<T>(path: string, body: unknown): Promise<PrefectResult<T>> {
   const response = await prefectFetch(`${PREFECT_API}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     cache: "no-store",
   });
-  if (!response.ok) return null;
-  return response.json();
+  if (!response.ok) return { ok: false, status: response.status, statusText: response.statusText };
+  return { ok: true, data: await response.json() };
 }
 
 async function fetchWorkspaceRootFlowRunIds(workspaceId: string): Promise<string[]> {
-  const flowRuns =
-    (await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
-      flow_runs: {
-        tags: { all_: [getWorkspaceRunTag(workspaceId)] },
-        parent_task_run_id: { is_null_: true },
-      },
-      sort: "START_TIME_DESC",
-      limit: 200,
-    })) ?? [];
+  const result = await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
+    flow_runs: {
+      tags: { all_: [getWorkspaceRunTag(workspaceId)] },
+      parent_task_run_id: { is_null_: true },
+    },
+    sort: "START_TIME_DESC",
+    limit: 200,
+  });
+  const flowRuns = result.ok ? result.data : [];
 
   return flowRuns.map((flowRun) => flowRun.id);
 }
@@ -177,8 +181,11 @@ async function readWorkspaceQuestion(workspaceId: string): Promise<string | unde
     const text = await readData(`${workspaceId}/query.txt`);
     const trimmed = text.trim();
     return trimmed || undefined;
-  } catch {
-    return undefined;
+  } catch (e: unknown) {
+    if (isStorageNotFoundError(e)) {
+      return undefined;
+    }
+    throw e;
   }
 }
 
@@ -187,7 +194,8 @@ async function fetchRootFlowRunLineage(
 ): Promise<RootFlowRunLineageEntry[]> {
   return Promise.all(
     rootFlowRunIds.map(async (rootFlowRunId) => {
-      const flowRun = await prefectGetJson<PrefectFlowRun>(`/flow_runs/${rootFlowRunId}`);
+      const result = await prefectGetJson<PrefectFlowRun>(`/flow_runs/${rootFlowRunId}`);
+      const flowRun = result.ok ? result.data : null;
       return {
         rootFlowRunId,
         startStage: getFlowRunStartStage(flowRun?.parameters),
@@ -239,7 +247,7 @@ async function fetchPrefectEventsForRootFlowRun(
   eventPrefix: string,
   limit = 5000,
 ): Promise<PrefectEvent[]> {
-  const page = await prefectPostJson<PrefectEventPage>("/events/filter", {
+  const result = await prefectPostJson<PrefectEventPage>("/events/filter", {
     filter: {
       event: { prefix: [eventPrefix] },
       resource: { id: [`prefect.flow-run.${rootFlowRunId}`] },
@@ -248,7 +256,7 @@ async function fetchPrefectEventsForRootFlowRun(
     limit,
   });
 
-  return page?.events ?? [];
+  return (result.ok ? result.data.events : undefined) ?? [];
 }
 
 export async function buildStage4ReplayState(rootFlowRunId: string): Promise<Stage4ReplayState> {
@@ -273,12 +281,12 @@ export async function resolveStageLogScopeFlowRunIds(
     return [stageSubflowRunId];
   }
 
-  const childFlowRuns =
-    (await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
-      flow_runs: { parent_flow_run_id: { any_: [stageSubflowRunId] } },
-      sort: "START_TIME_ASC",
-      limit: 50,
-    })) ?? [];
+  const childResult = await prefectPostJson<PrefectFlowRun[]>("/flow_runs/filter", {
+    flow_runs: { parent_flow_run_id: { any_: [stageSubflowRunId] } },
+    sort: "START_TIME_ASC",
+    limit: 50,
+  });
+  const childFlowRuns = childResult.ok ? childResult.data : [];
 
   return [...new Set([stageSubflowRunId, ...childFlowRuns.map((flowRun) => flowRun.id)])];
 }

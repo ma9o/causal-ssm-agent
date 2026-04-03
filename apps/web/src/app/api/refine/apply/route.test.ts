@@ -11,9 +11,13 @@ vi.mock("@/lib/runtime-urls", () => ({
   getToolServerUrl: vi.fn(() => "http://tools.example"),
 }));
 
-vi.mock("@/lib/storage", () => ({
-  readData: vi.fn(),
-}));
+vi.mock("@/lib/storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/storage")>();
+  return {
+    ...actual,
+    readData: vi.fn(),
+  };
+});
 
 import { readData } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";

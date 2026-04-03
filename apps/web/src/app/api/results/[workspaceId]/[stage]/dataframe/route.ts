@@ -1,4 +1,4 @@
-import { readBinary } from "@/lib/storage";
+import { isStorageNotFoundError, readBinary } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 
 /**
@@ -40,8 +40,10 @@ export async function GET(
           "Cache-Control": "private, max-age=3600",
         },
       });
-    } catch {
-      // Try next filename
+    } catch (e) {
+      if (!isStorageNotFoundError(e)) {
+        throw e;
+      }
     }
   }
 

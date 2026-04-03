@@ -60,8 +60,14 @@ function parseStoredStagePayload(raw: string): unknown {
 
   try {
     parsed = JSON.parse(raw);
-  } catch {
-    parsed = JSON.parse(normalizeNonFiniteJsonTokens(raw));
+  } catch (parseError) {
+    try {
+      parsed = JSON.parse(normalizeNonFiniteJsonTokens(raw));
+    } catch (normalizeError) {
+      throw new Error(
+        `Failed to parse stage result JSON: ${normalizeError instanceof Error ? normalizeError.message : String(normalizeError)}`,
+      );
+    }
   }
 
   if (!parsed?.metadata || typeof parsed.result !== "string") {
@@ -70,8 +76,14 @@ function parseStoredStagePayload(raw: string): unknown {
 
   try {
     return JSON.parse(parsed.result);
-  } catch {
-    return JSON.parse(normalizeNonFiniteJsonTokens(parsed.result));
+  } catch (parseError) {
+    try {
+      return JSON.parse(normalizeNonFiniteJsonTokens(parsed.result));
+    } catch (normalizeError) {
+      throw new Error(
+        `Failed to parse stage result JSON: ${normalizeError instanceof Error ? normalizeError.message : String(normalizeError)}`,
+      );
+    }
   }
 }
 
