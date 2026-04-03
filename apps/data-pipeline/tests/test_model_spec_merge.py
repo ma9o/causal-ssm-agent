@@ -193,6 +193,31 @@ class TestValidateModelSpecDict:
         assert spec is not None
         assert spec.parameters[0].constraint == ParameterConstraint.NEGATIVE
 
+    def test_initial_state_mean_role_accepts_none_constraint(self):
+        d = _valid_spec_dict()
+        d["parameters"][0] = {
+            "name": "t0_mean_mood",
+            "role": "initial_state_mean",
+            "constraint": "none",
+            "description": "Initial state mean for mood",
+        }
+        spec, errors = validate_model_spec_dict(d)
+        assert errors == []
+        assert spec is not None
+        assert spec.parameters[0].constraint == ParameterConstraint.NONE
+
+    def test_initial_state_sd_role_requires_positive_constraint(self):
+        d = _valid_spec_dict()
+        d["parameters"][0] = {
+            "name": "t0_sd_mood",
+            "role": "initial_state_sd",
+            "constraint": "none",
+            "description": "Initial state SD for mood",
+        }
+        spec, errors = validate_model_spec_dict(d)
+        assert spec is None
+        assert any("expected 'positive'" in e for e in errors)
+
 
 # =============================================================================
 # merge_decisions_to_spec

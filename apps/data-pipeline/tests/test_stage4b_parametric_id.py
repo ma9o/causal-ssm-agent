@@ -17,6 +17,8 @@ from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
+pytestmark = pytest.mark.slow
+
 
 def _support_runtime() -> ObservationSupportRuntime:
     return ObservationSupportRuntime(
@@ -216,6 +218,7 @@ class TestStage4bInferenceStructurePayload:
                 self.per_parameter = [
                     {
                         "parameter": "drift_offdiag_pop[0]",
+                        "interpretable_parameter": "beta_g1_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
                         "sv_status": "fail",
@@ -225,6 +228,7 @@ class TestStage4bInferenceStructurePayload:
                     },
                     {
                         "parameter": "lambda_free",
+                        "interpretable_parameter": "lambda_free",
                         "sensitivity_norm": 0.1,
                         "effective_sv": 1e-5,
                         "sv_status": "warn",
@@ -340,6 +344,7 @@ class TestStage4bInferenceStructurePayload:
                 self.per_parameter = [
                     {
                         "parameter": "diffusion_diag_pop[0]",
+                        "interpretable_parameter": "sigma_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
                         "sv_status": "fail",
@@ -349,6 +354,7 @@ class TestStage4bInferenceStructurePayload:
                     },
                     {
                         "parameter": "drift_diag_pop[0]",
+                        "interpretable_parameter": "rho_g0",
                         "sensitivity_norm": 0.1,
                         "effective_sv": 1e-5,
                         "sv_status": "warn",
@@ -431,6 +437,7 @@ class TestStage4bInferenceStructurePayload:
                 self.per_parameter = [
                     {
                         "parameter": "diffusion_diag_pop[0]",
+                        "interpretable_parameter": "sigma_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
                         "sv_status": "fail",
@@ -440,6 +447,7 @@ class TestStage4bInferenceStructurePayload:
                     },
                     {
                         "parameter": "drift_offdiag_pop[0]",
+                        "interpretable_parameter": "beta_g1_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
                         "sv_status": "fail",
@@ -449,6 +457,7 @@ class TestStage4bInferenceStructurePayload:
                     },
                     {
                         "parameter": "lambda_free",
+                        "interpretable_parameter": "lambda_free",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
                         "sv_status": "fail",
@@ -524,6 +533,89 @@ class TestStage4bInferenceStructurePayload:
         assert captured["profile_indices"] == [2]
         assert [entry["name"] for entry in pid["per_param_classification"]] == ["lambda_free"]
         assert pid["threshold"] == pytest.approx(1.92)
+
+    def test_skips_profile_likelihood_on_particle_only_path(self, monkeypatch):
+        spec = _make_separable_spec()
+        model = _make_model(spec)
+        runtime = SimpleNamespace(
+            builder=SimpleNamespace(_model=model),
+            observations=jnp.zeros((4, spec.n_manifest)),
+            times=jnp.arange(4.0),
+            inference_structure=plan_inference_structure(
+                spec,
+                observation_support=_support_runtime(),
+            ),
+        )
+
+        class StubTRule:
+            satisfies = True
+            n_free_params = 4
+            n_moments = 8
+
+            def print_report(self):
+                return None
+
+            def model_dump(self):
+                return {
+                    "satisfies": self.satisfies,
+                    "n_free_params": self.n_free_params,
+                    "n_moments": self.n_moments,
+                }
+
+        class StubSensitivityResult:
+            def __init__(self):
+                self.singular_values = [1.0, 0.1]
+                self.condition_number = 10.0
+                self.per_parameter = [
+                    {
+                        "parameter": "lambda_free",
+                        "interpretable_parameter": "lambda_free",
+                        "sensitivity_norm": 0.01,
+                        "effective_sv": 1e-8,
+                        "sv_status": "fail",
+                        "normalized_effective_sv": 1e-8,
+                        "normalized_sv_status": "fail",
+                        "identifiable": False,
+                    }
+                ]
+                self.n_draws = 8
+                self.n_observations = 8
+                self.n_parameters = 1
+
+            def print_report(self):
+                return None
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            lambda **_: runtime,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            lambda *_args, **_kwargs: StubTRule(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            lambda *_args, **_kwargs: SimpleNamespace(scalar_names=["lambda_free"]),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            lambda *_args, **_kwargs: StubSensitivityResult(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            lambda *_args, **_kwargs: pytest.fail(
+                "profile_likelihood should be skipped on particle-only paths"
+            ),
+        )
+
+        result = parametric_id_task.fn(
+            data_for_model=pl.DataFrame(),
+        )
+
+        pid = result["parametric_id"]
+        assert pid["per_param_classification"] is None
+        assert pid["threshold"] is None
+        assert pid["summary"]["weak_params"] == ["lambda_free"]
 
     def test_stage4b_demotes_t_rule_failure_to_warning(self, monkeypatch):
         monkeypatch.setattr(

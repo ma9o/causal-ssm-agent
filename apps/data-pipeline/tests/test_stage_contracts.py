@@ -266,7 +266,9 @@ def valid_stage_payloads() -> dict[str, dict]:
     }
 
 
-def test_persist_web_result_normalizes_nonfinite_numbers(tmp_path, monkeypatch, valid_stage_payloads):
+def test_persist_web_result_normalizes_nonfinite_numbers(
+    tmp_path, monkeypatch, valid_stage_payloads
+):
     from causal_ssm_agent.flows.stages import persist as persist_module
 
     captured: dict[str, str] = {}

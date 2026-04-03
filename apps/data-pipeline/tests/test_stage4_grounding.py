@@ -61,6 +61,7 @@ def _make_causal_spec() -> dict:
                     "name": "pss_score",
                     "construct_name": "stress",
                     "measurement_dtype": "continuous",
+                    "construct_polarity": "positive",
                     "how_to_measure": "PSS score",
                     "aggregation": "mean",
                 },
@@ -68,6 +69,7 @@ def _make_causal_spec() -> dict:
                     "name": "sleep_quality",
                     "construct_name": "sleep",
                     "measurement_dtype": "continuous",
+                    "construct_polarity": "positive",
                     "how_to_measure": "Sleep quality rating",
                     "aggregation": "mean",
                 },
@@ -333,6 +335,54 @@ class TestStage4GroundingCompileOwnership:
         assert "COMPILE ERROR" in feedback
         assert "dimension mismatch" in feedback
         assert "Resubmit only the fields you changed" in feedback
+
+    def test_grounding_defaults_skip_ppc_false(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+
+        calls: list[bool] = []
+
+        def stub_validate_assembly(
+            model_spec,
+            priors,
+            data_for_model,
+            indicator_audits,
+            causal_spec,
+            *,
+            skip_ppc=False,
+        ):
+            del priors, data_for_model, indicator_audits, causal_spec
+            calls.append(skip_ppc)
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+
+        output, feedback = stage4_grounding(
+            {
+                "model_spec": {
+                    "likelihoods": [],
+                    "parameters": [
+                        {
+                            "name": "rho_outcome",
+                            "role": "ar_coefficient",
+                            "constraint": "unit_interval",
+                        }
+                    ],
+                }
+            },
+            causal_spec={},
+            current=None,
+            data_for_model=None,
+        )
+
+        assert output is not None
+        assert "missing priors" in feedback
+        assert calls == [False]
 
     def test_compile_feedback_aggregates_independent_prior_errors(
         self, causal_spec, model_spec, priors
@@ -611,6 +661,62 @@ class TestStage4SearchTool:
         assert output["validation"].compile_ok is True
         assert "MODEL STATE SAVED" in feedback
         assert "missing priors" in feedback
+
+    def test_model_spec_lock_does_not_require_default_initial_state_priors(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4_assembly import AssemblyValidation
+
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "continuous",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "Persistence for mood",
+                },
+                {
+                    "name": "t0_mean_mood",
+                    "role": "initial_state_mean",
+                    "constraint": "none",
+                    "description": "Initial-state mean for mood",
+                },
+                {
+                    "name": "t0_sd_mood",
+                    "role": "initial_state_sd",
+                    "constraint": "positive",
+                    "description": "Initial-state SD for mood",
+                },
+            ],
+        }
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4_assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+
+        output, feedback = stage4_grounding(
+            {"model_spec": model_spec},
+            causal_spec={},
+            current=None,
+            data_for_model=None,
+        )
+
+        assert output is not None
+        assert output["validation"].compile_ok is True
+        assert "missing priors for 1 parameters: `rho_mood`" in feedback
 
     def test_rejects_mixed_model_and_prior_updates(self):
         output, feedback = stage4_grounding(

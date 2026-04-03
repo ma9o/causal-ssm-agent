@@ -97,6 +97,7 @@ def _make_causal_spec_dict() -> dict:
                 {
                     "name": "x1",
                     "construct_name": "X",
+                    "construct_polarity": "positive",
                     "how_to_measure": "measure x",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -104,6 +105,7 @@ def _make_causal_spec_dict() -> dict:
                 {
                     "name": "x2",
                     "construct_name": "X",
+                    "construct_polarity": "positive",
                     "how_to_measure": "measure x alt",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -111,6 +113,7 @@ def _make_causal_spec_dict() -> dict:
                 {
                     "name": "y1",
                     "construct_name": "Y",
+                    "construct_polarity": "positive",
                     "how_to_measure": "measure y",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -118,6 +121,7 @@ def _make_causal_spec_dict() -> dict:
                 {
                     "name": "z1",
                     "construct_name": "Z",
+                    "construct_polarity": "positive",
                     "how_to_measure": "measure z",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -453,6 +457,112 @@ class TestBuilderMasks:
         assert spec.t0_var == "free"
         assert spec.t0_correlation_mask is not None
         np.testing.assert_array_equal(spec.t0_correlation_mask, expected_mask)
+
+    def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
+        """Single-indicator constructs get fixed zero manifest noise in the compiled spec."""
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from causal_ssm_agent.orchestrator.schemas_model import (
+            DistributionFamily,
+            LikelihoodSpec,
+            LinkFunction,
+            ModelSpec,
+            ParameterConstraint,
+            ParameterRole,
+            ParameterSpec,
+        )
+
+        causal_spec = _make_causal_spec_dict()
+        model_spec = ModelSpec(
+            likelihoods=[
+                LikelihoodSpec(
+                    variable="x1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="x2",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="y1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="z1",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+            ],
+            parameters=[
+                ParameterSpec(
+                    name="rho_X",
+                    role=ParameterRole.AR_COEFFICIENT,
+                    constraint=ParameterConstraint.UNIT_INTERVAL,
+                    description="AR for X",
+                ),
+                ParameterSpec(
+                    name="rho_Y",
+                    role=ParameterRole.AR_COEFFICIENT,
+                    constraint=ParameterConstraint.UNIT_INTERVAL,
+                    description="AR for Y",
+                ),
+                ParameterSpec(
+                    name="rho_Z",
+                    role=ParameterRole.AR_COEFFICIENT,
+                    constraint=ParameterConstraint.UNIT_INTERVAL,
+                    description="AR for Z",
+                ),
+                ParameterSpec(
+                    name="beta_X_Y",
+                    role=ParameterRole.FIXED_EFFECT,
+                    constraint=ParameterConstraint.NONE,
+                    description="X causes Y",
+                ),
+                ParameterSpec(
+                    name="beta_Y_Z",
+                    role=ParameterRole.FIXED_EFFECT,
+                    constraint=ParameterConstraint.NONE,
+                    description="Y causes Z",
+                ),
+                ParameterSpec(
+                    name="sigma_X",
+                    role=ParameterRole.RESIDUAL_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="residual sd X",
+                ),
+                ParameterSpec(
+                    name="sigma_Y",
+                    role=ParameterRole.RESIDUAL_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="residual sd Y",
+                ),
+                ParameterSpec(
+                    name="sigma_Z",
+                    role=ParameterRole.RESIDUAL_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="residual sd Z",
+                ),
+                ParameterSpec(
+                    name="lambda_x2_X",
+                    role=ParameterRole.LOADING,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="loading",
+                ),
+            ],
+        )
+
+        spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
+
+        assert isinstance(spec.manifest_var, jnp.ndarray)
+        assert spec.manifest_var_mask is not None
+        np.testing.assert_array_equal(spec.manifest_var_mask, np.array([True, True, False, False]))
+        np.testing.assert_allclose(np.asarray(spec.manifest_var), np.zeros((4, 4)))
 
     def test_translate_spec_rejects_duplicate_initial_state_correlation_pairs(self):
         """Different parameter names may not target the same initial-state pair."""
