@@ -46,6 +46,7 @@ eval = [
     "inspect-ai>=0.3.162",
 ]
 dev = [
+    "nbconvert>=7.16.6",
     "pytest>=9.0.2",
     "pytest-instafail>=0.5.0",
     "pytest-timeout>=2.3.1",
