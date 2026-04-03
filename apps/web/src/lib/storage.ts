@@ -13,7 +13,7 @@
  *   R2_PREFIX=data              // key prefix inside bucket (default: "data")
  */
 
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 const isRemote = process.env.DEPLOYMENT_ENV === "production";
@@ -129,6 +129,24 @@ export async function writeBinary(relativePath: string, data: Buffer): Promise<v
 }
 
 /**
+ * Delete a storage object or file.
+ */
+export async function deleteData(relativePath: string): Promise<void> {
+  if (isRemote) {
+    const { DeleteObjectCommand } = await import("@aws-sdk/client-s3");
+    await getS3().send(
+      new DeleteObjectCommand({
+        Bucket: BUCKET,
+        Key: r2Key(relativePath),
+      }),
+    );
+    return;
+  }
+
+  await rm(resolve(LOCAL_DATA_DIR, relativePath), { force: true });
+}
+
+/**
  * Ensure a directory exists. No-op for R2 (directories are implicit).
  */
 export async function ensureDir(relativePath: string): Promise<void> {
@@ -163,4 +181,16 @@ export async function prefixExists(relativePrefix: string): Promise<boolean> {
  */
 export function localResolve(relativePath: string): string {
   return resolve(join(LOCAL_DATA_DIR, relativePath));
+}
+
+export function isStorageNotFoundError(error: unknown): boolean {
+  if (error instanceof Error) {
+    if ("code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+      return true;
+    }
+    if (error.name === "NoSuchKey") {
+      return true;
+    }
+  }
+  return false;
 }
