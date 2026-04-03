@@ -41,6 +41,7 @@ interface Stage4SectionSummary {
   tooltip: string;
   displayLabel: string;
   detailLabel: string;
+  detailTooltipLabel: string;
   status: Stage4BlockStatus;
   isActive: boolean;
   totalCount: number;
@@ -227,6 +228,7 @@ function buildSectionSummaries(
 
     let displayLabel = section.label;
     let detailLabel = "";
+    let detailTooltipLabel = "";
 
     if (section.id === "done") {
       displayLabel = snapshot?.cursor.kind === "done" ? "Stage 4 complete" : "Awaiting completion";
@@ -239,19 +241,24 @@ function buildSectionSummaries(
         snapshot?.cursor.kind === "repair_barrier"
           ? `${repairScopeIds.size} repaired block${repairScopeIds.size === 1 ? "" : "s"} ready`
           : "";
+      detailTooltipLabel = detailLabel;
     } else if (activeInSection && activeNode) {
       displayLabel = activeNode.label;
       detailLabel = activeStatusItem?.detailText ?? "";
+      detailTooltipLabel = activeStatusItem?.tooltipDetailText ?? "";
     } else if (status === "accepted" && totalCount > 0) {
       displayLabel = logicalNodes[logicalNodes.length - 1]?.label ?? section.label;
       detailLabel = acceptedTailItem?.detailText ?? "";
+      detailTooltipLabel = acceptedTailItem?.tooltipDetailText ?? "";
     } else if (reopenedCount > 0 && nextOpenItem) {
       displayLabel = nextOpenItem.label;
       detailLabel = nextOpenItem.detailText ?? `${reopenedCount} reopened`;
+      detailTooltipLabel = nextOpenItem.tooltipDetailText ?? detailLabel;
     } else if (nextOpenItem) {
       displayLabel = nextOpenItem.label;
     } else if (optionalAbsent) {
       detailLabel = "Not required for this plan";
+      detailTooltipLabel = detailLabel;
     }
 
     return {
@@ -260,6 +267,7 @@ function buildSectionSummaries(
       tooltip: section.tooltip,
       displayLabel,
       detailLabel,
+      detailTooltipLabel,
       status,
       isActive: activeInSection,
       totalCount,
@@ -292,6 +300,7 @@ function layoutSectionGraph(
       reopenedCount: section.reopenedCount,
       statusItems: section.statusItems,
       detailLabel: section.detailLabel,
+      detailTooltipText: section.detailTooltipLabel,
       tooltipText: section.tooltip,
     } satisfies Stage4BlockNodeData,
   }));
