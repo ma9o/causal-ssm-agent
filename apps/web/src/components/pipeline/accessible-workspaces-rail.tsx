@@ -2,7 +2,6 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AccessibleWorkspaceEntry, AccessibleWorkspaceList, AccessibleWorkspaceSource } from "@/lib/server/workspace-ownership";
-import { cn } from "@/lib/utils";
 import { Database, FolderClock, FolderKanban, FolderOpen } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
@@ -42,12 +41,10 @@ function groupBySources(workspaces: AccessibleWorkspaceEntry[]): Map<AccessibleW
 }
 
 export function AccessibleWorkspacesRail({
-  currentWorkspaceId,
   data,
   error,
   isLoading,
 }: {
-  currentWorkspaceId: string;
   data?: AccessibleWorkspaceList;
   error?: string | null;
   isLoading: boolean;
@@ -112,25 +109,16 @@ export function AccessibleWorkspacesRail({
                   </div>
                   <div className="space-y-2">
                     {workspaces.map((workspace) => {
-                      const isCurrent = workspace.workspaceId === currentWorkspaceId;
                       return (
                         <Link
                           key={`${source}:${workspace.workspaceId}`}
                           href={workspace.href}
-                          className={cn(
-                            "block rounded-2xl border bg-background/85 px-3 py-3 transition-colors hover:bg-background",
-                            isCurrent && "border-foreground/50 bg-background shadow-sm",
-                          )}
+                          className="block rounded-2xl border bg-background/85 px-3 py-3 transition-colors hover:bg-background"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <p className="font-mono text-xs font-semibold tracking-[0.16em] text-foreground">
                               {workspace.workspaceId}
                             </p>
-                            {isCurrent && (
-                              <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                                Current
-                              </span>
-                            )}
                           </div>
                           <p className="mt-1 text-sm leading-5 text-muted-foreground">
                             {workspace.question ?? "Question not available yet."}
