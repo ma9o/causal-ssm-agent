@@ -61,10 +61,11 @@ _DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM = 160
 
 
 @dataclass(frozen=True)
-class SupportObservationGroupBatch:
-    """One batch of anchored interval-summary windows with the same state length."""
+class SupportObservationWindowBatch:
+    """Compiled anchored interval-summary windows padded to a common state length."""
 
-    state_len: int
+    max_state_len: int
+    state_lens: jnp.ndarray
     anchor_indices: jnp.ndarray
     start_indices: jnp.ndarray
     mask_full: jnp.ndarray
@@ -94,24 +95,28 @@ def _batched_spd_solve(mats: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
     return jax.vmap(lambda mat, b: jla.solve(mat, b, assume_a="pos"))(mats, rhs)
 
 
-def _build_ieks_system(
+def _solve_spd_from_cholesky(chol: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
+    """Solve A x = rhs given a lower-triangular Cholesky factor A = L L^T."""
+    y = jla.solve_triangular(chol, rhs, lower=True)
+    return jla.solve_triangular(chol.T, y, lower=False)
+
+
+def _build_prior_tridiagonal_system(
     Ad: jnp.ndarray,
     Qd: jnp.ndarray,
     cd: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    J_t: jnp.ndarray,
-    tilde_y: jnp.ndarray,
     jitter: float = 1e-6,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Assemble the block-tridiagonal IEKS normal equations."""
-    T, D = J_t.shape[:2]
-    eye = jnp.eye(D, dtype=J_t.dtype)
+    """Assemble the latent-prior contribution for the IEKS tridiagonal system."""
+    T, D = Ad.shape[:2]
+    eye = jnp.eye(D, dtype=Ad.dtype)
 
-    diag_blocks = J_t
-    rhs = tilde_y
-    lower = jnp.zeros((T, D, D), dtype=J_t.dtype)
-    upper = jnp.zeros((T, D, D), dtype=J_t.dtype)
+    diag_blocks = jnp.zeros((T, D, D), dtype=Ad.dtype)
+    rhs = jnp.zeros((T, D), dtype=Ad.dtype)
+    lower = jnp.zeros((T, D, D), dtype=Ad.dtype)
+    upper = jnp.zeros((T, D, D), dtype=Ad.dtype)
 
     prior_mean = Ad[0] @ init_mean + cd[0]
     prior_cov = _symmetrize_psd(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
@@ -139,85 +144,79 @@ def _build_ieks_system(
     return lower, _symmetrize_psd(diag_blocks, jitter=jitter), upper, rhs
 
 
+def _build_ieks_system(
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    J_t: jnp.ndarray,
+    tilde_y: jnp.ndarray,
+    jitter: float = 1e-6,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Assemble the block-tridiagonal IEKS normal equations."""
+    lower, prior_diag, upper, prior_rhs = _build_prior_tridiagonal_system(
+        Ad,
+        Qd,
+        cd,
+        init_mean,
+        init_cov,
+        jitter=jitter,
+    )
+    diag_blocks = prior_diag + J_t
+    rhs = prior_rhs + tilde_y
+    return lower, _symmetrize_psd(diag_blocks, jitter=jitter), upper, rhs
+
+
 def _solve_block_tridiagonal(
     lower: jnp.ndarray,
     diag: jnp.ndarray,
     upper: jnp.ndarray,
     rhs: jnp.ndarray,
 ) -> jnp.ndarray:
-    """Solve a block-tridiagonal linear system via recursive cyclic reduction."""
+    """Solve a block-tridiagonal linear system via block Thomas elimination."""
     n = diag.shape[0]
     if n == 1:
         base_diag = _symmetrize_psd(diag[0], jitter=1e-6)
         return jla.solve(base_diag, rhs[0], assume_a="pos")[None]
 
-    D = diag.shape[-1]
-    keep_np = np.arange(0, n, 2)
-    odd_np = np.arange(1, n, 2)
-    keep = jnp.asarray(keep_np)
-    odd = jnp.asarray(odd_np)
+    diag0 = _symmetrize_psd(diag[0], jitter=1e-6)
+    chol0 = jnp.linalg.cholesky(diag0)
+    rhs0 = rhs[0]
 
-    diag_keep = diag[keep]
-    rhs_keep = rhs[keep]
-    lower_keep = jnp.zeros_like(diag_keep)
-    upper_keep = jnp.zeros_like(diag_keep)
+    def _forward_step(carry, inputs):
+        chol_prev, rhs_prev = carry
+        lower_i, diag_i, upper_prev, rhs_i = inputs
+        solve_prev_upper = _solve_spd_from_cholesky(chol_prev, upper_prev)
+        solve_prev_rhs = _solve_spd_from_cholesky(chol_prev, rhs_prev)
+        schur = diag_i - lower_i @ solve_prev_upper
+        rhs_tilde_i = rhs_i - lower_i @ solve_prev_rhs
+        chol_i = jnp.linalg.cholesky(_symmetrize_psd(schur, jitter=1e-6))
+        return (chol_i, rhs_tilde_i), (chol_i, rhs_tilde_i)
 
-    if keep_np.size > 1:
-        left_rows = keep_np[1:]
-        left_neighbors = left_rows - 1
-        left_rhs = jnp.concatenate(
-            [
-                upper[left_neighbors],
-                lower[left_neighbors],
-                rhs[left_neighbors][..., None],
-            ],
-            axis=-1,
-        )
-        left_sol = _batched_spd_solve(diag[left_neighbors], left_rhs)
-        left_to_upper = left_sol[:, :, :D]
-        left_to_lower = left_sol[:, :, D : 2 * D]
-        left_to_rhs = left_sol[:, :, 2 * D :].squeeze(-1)
-        lower_i = lower[left_rows]
-        diag_keep = diag_keep.at[1:].add(-lower_i @ left_to_upper)
-        lower_keep = lower_keep.at[1:].set(-lower_i @ left_to_lower)
-        rhs_keep = rhs_keep.at[1:].add(-jnp.einsum("tij,tj->ti", lower_i, left_to_rhs))
-
-    if np.any(keep_np + 1 < n):
-        right_rows = keep_np[keep_np + 1 < n]
-        right_neighbors = right_rows + 1
-        right_rhs = jnp.concatenate(
-            [
-                lower[right_neighbors],
-                upper[right_neighbors],
-                rhs[right_neighbors][..., None],
-            ],
-            axis=-1,
-        )
-        right_sol = _batched_spd_solve(diag[right_neighbors], right_rhs)
-        right_to_lower = right_sol[:, :, :D]
-        right_to_upper = right_sol[:, :, D : 2 * D]
-        right_to_rhs = right_sol[:, :, 2 * D :].squeeze(-1)
-        upper_i = upper[right_rows]
-        n_right = right_rows.size
-        diag_keep = diag_keep.at[:n_right].add(-upper_i @ right_to_lower)
-        upper_keep = upper_keep.at[:n_right].set(-upper_i @ right_to_upper)
-        rhs_keep = rhs_keep.at[:n_right].add(-jnp.einsum("tij,tj->ti", upper_i, right_to_rhs))
-
-    diag_keep = _symmetrize_psd(diag_keep, jitter=1e-6)
-    x_keep = _solve_block_tridiagonal(lower_keep, diag_keep, upper_keep, rhs_keep)
-
-    solution = jnp.zeros((n, D), dtype=rhs.dtype).at[keep].set(x_keep)
-    if odd_np.size == 0:
-        return solution
-
-    right_neighbors = np.minimum(odd_np + 1, n - 1)
-    rhs_odd = (
-        rhs[odd]
-        - jnp.einsum("tij,tj->ti", lower[odd], solution[odd - 1])
-        - jnp.einsum("tij,tj->ti", upper[odd], solution[jnp.asarray(right_neighbors)])
+    (_, _), (chol_rest, rhs_rest) = jax.lax.scan(
+        _forward_step,
+        (chol0, rhs0),
+        (lower[1:], diag[1:], upper[:-1], rhs[1:]),
     )
-    x_odd = _batched_spd_solve(_symmetrize_psd(diag[odd], jitter=1e-6), rhs_odd)
-    return solution.at[odd].set(x_odd)
+    chol_diag = jnp.concatenate([chol0[None], chol_rest], axis=0)
+    rhs_tilde = jnp.concatenate([rhs0[None], rhs_rest], axis=0)
+
+    x_last = _solve_spd_from_cholesky(chol_diag[-1], rhs_tilde[-1])
+
+    def _backward_step(x_next, inputs):
+        chol_i, upper_i, rhs_i = inputs
+        rhs_eff = rhs_i - upper_i @ x_next
+        x_i = _solve_spd_from_cholesky(chol_i, rhs_eff)
+        return x_i, x_i
+
+    _, x_rest = jax.lax.scan(
+        _backward_step,
+        x_last,
+        (chol_diag[:-1], upper[:-1], rhs_tilde[:-1]),
+        reverse=True,
+    )
+    return jnp.concatenate([x_rest, x_last[None]], axis=0)
 
 
 def _build_prior_banded_system(
@@ -275,28 +274,45 @@ def _factor_block_banded_cholesky(
     chol_diag = jnp.zeros_like(diag)
     lower = jnp.zeros_like(upper)
 
-    for i in range(T):
+    def _factor_step(i, state):
+        chol_diag_state, lower_state = state
         schur = diag[i]
-        k_start = max(0, i - bandwidth)
-        for k in range(k_start, i):
-            l_ik = lower[i - k - 1, i]
-            schur = schur - l_ik @ l_ik.T
+
+        for offset in range(1, bandwidth + 1):
+            schur = jax.lax.cond(
+                i >= offset,
+                lambda s, off=offset: s - lower_state[off - 1, i] @ lower_state[off - 1, i].T,
+                lambda s: s,
+                schur,
+            )
 
         l_ii = jnp.linalg.cholesky(_symmetrize_psd(schur, jitter=jitter))
-        chol_diag = chol_diag.at[i].set(l_ii)
+        chol_diag_state = chol_diag_state.at[i].set(l_ii)
 
-        for j in range(i + 1, min(T, i + bandwidth + 1)):
-            schur_off = upper[j - i - 1, i].T
-            kk_start = max(0, i - bandwidth, j - bandwidth)
-            for k in range(kk_start, i):
-                l_jk = lower[j - k - 1, j]
-                l_ik = lower[i - k - 1, i]
-                schur_off = schur_off - l_jk @ l_ik.T
+        def _update_lower_for_offset(lower_curr, offset_j: int):
+            def _compute(curr_lower):
+                schur_off = upper[offset_j - 1, i].T
+                for offset_k in range(1, bandwidth + 1):
+                    cross_offset = offset_j + offset_k - 1
+                    schur_off = jax.lax.cond(
+                        (i >= offset_k) & (cross_offset < bandwidth),
+                        lambda s, off_k=offset_k, cross=cross_offset: (
+                            s - curr_lower[cross, i + offset_j] @ curr_lower[off_k - 1, i].T
+                        ),
+                        lambda s: s,
+                        schur_off,
+                    )
+                l_ji = jla.solve_triangular(l_ii, schur_off.T, lower=True).T
+                return curr_lower.at[offset_j - 1, i + offset_j].set(l_ji)
 
-            l_ji = jla.solve_triangular(l_ii, schur_off.T, lower=True).T
-            lower = lower.at[j - i - 1, j].set(l_ji)
+            return jax.lax.cond(i + offset_j < T, _compute, lambda x: x, lower_curr)
 
-    return chol_diag, lower
+        for offset_j in range(1, bandwidth + 1):
+            lower_state = _update_lower_for_offset(lower_state, offset_j)
+
+        return chol_diag_state, lower_state
+
+    return jax.lax.fori_loop(0, T, _factor_step, (chol_diag, lower))
 
 
 def _solve_block_banded_from_cholesky(
@@ -309,21 +325,35 @@ def _solve_block_banded_from_cholesky(
     bandwidth = lower.shape[0]
     y = jnp.zeros_like(rhs)
 
-    for i in range(T):
+    def _forward_step(i, y_state):
         res = rhs[i]
-        k_start = max(0, i - bandwidth)
-        for k in range(k_start, i):
-            res = res - lower[i - k - 1, i] @ y[k]
-        y = y.at[i].set(jla.solve_triangular(chol_diag[i], res, lower=True))
+        for offset in range(1, bandwidth + 1):
+            res = jax.lax.cond(
+                i >= offset,
+                lambda r, off=offset: r - lower[off - 1, i] @ y_state[i - off],
+                lambda r: r,
+                res,
+            )
+        y_i = jla.solve_triangular(chol_diag[i], res, lower=True)
+        return y_state.at[i].set(y_i)
 
+    y = jax.lax.fori_loop(0, T, _forward_step, y)
     x = jnp.zeros_like(rhs)
-    for i in range(T - 1, -1, -1):
-        res = y[i]
-        for j in range(i + 1, min(T, i + bandwidth + 1)):
-            res = res - lower[j - i - 1, j].T @ x[j]
-        x = x.at[i].set(jla.solve_triangular(chol_diag[i].T, res, lower=False))
 
-    return x
+    def _backward_step(rev_idx, x_state):
+        i = T - 1 - rev_idx
+        res = y[i]
+        for offset in range(1, bandwidth + 1):
+            res = jax.lax.cond(
+                i + offset < T,
+                lambda r, off=offset: r - lower[off - 1, i + off].T @ x_state[i + off],
+                lambda r: r,
+                res,
+            )
+        x_i = jla.solve_triangular(chol_diag[i].T, res, lower=False)
+        return x_state.at[i].set(x_i)
+
+    return jax.lax.fori_loop(0, T, _backward_step, x)
 
 
 def _block_banded_logdet(chol_diag: jnp.ndarray) -> jnp.ndarray:
@@ -333,8 +363,8 @@ def _block_banded_logdet(chol_diag: jnp.ndarray) -> jnp.ndarray:
 
 def _infer_support_groups(
     observation_support: ObservationSupportRuntime,
-) -> tuple[tuple[SupportObservationGroupBatch, ...], int]:
-    """Compile anchored non-point observation windows into block groups."""
+) -> tuple[SupportObservationWindowBatch, int]:
+    """Compile anchored non-point observation windows into a padded window table."""
     support_kind_codes = np.asarray(get_support_kind_codes(observation_support))
     prev_coeffs = np.asarray(observation_support.interval_prev_coeffs)
     curr_coeffs = np.asarray(observation_support.interval_curr_coeffs)
@@ -343,10 +373,11 @@ def _infer_support_groups(
     T, n_manifest = emission_slots.shape
     tol = 1e-10
 
-    grouped_windows: dict[
-        int, list[tuple[int, int, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]]
-    ] = {}
+    compiled_windows: list[
+        tuple[int, int, int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+    ] = []
     max_bandwidth = 1 if T > 1 else 0
+    max_state_len = 1
     for anchor_idx in range(T):
         manifests = [
             manifest_idx
@@ -390,33 +421,61 @@ def _infer_support_groups(
                 start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
             ]
         state_len = anchor_idx - start_idx + 1
-        grouped_windows.setdefault(state_len, []).append(
+        max_state_len = max(max_state_len, state_len)
+        compiled_windows.append(
             (
+                state_len,
                 anchor_idx,
                 start_idx,
-                jnp.asarray(mask_full),
-                jnp.asarray(group_prev),
-                jnp.asarray(group_curr),
-                jnp.asarray(group_weights),
+                mask_full,
+                group_prev,
+                group_curr,
+                group_weights,
             )
         )
 
-    batches: list[SupportObservationGroupBatch] = []
-    for state_len in sorted(grouped_windows):
-        windows = grouped_windows[state_len]
-        batches.append(
-            SupportObservationGroupBatch(
-                state_len=state_len,
-                anchor_indices=jnp.asarray([window[0] for window in windows], dtype=jnp.int32),
-                start_indices=jnp.asarray([window[1] for window in windows], dtype=jnp.int32),
-                mask_full=jnp.stack([window[2] for window in windows], axis=0),
-                prev_coeffs=jnp.stack([window[3] for window in windows], axis=0),
-                curr_coeffs=jnp.stack([window[4] for window in windows], axis=0),
-                weights=jnp.stack([window[5] for window in windows], axis=0),
-            )
-        )
+    n_windows = len(compiled_windows)
+    max_segment_len = max_state_len - 1
+    state_lens = np.zeros((n_windows,), dtype=np.int32)
+    anchor_indices = np.zeros((n_windows,), dtype=np.int32)
+    start_indices = np.zeros((n_windows,), dtype=np.int32)
+    mask_full = np.zeros((n_windows, n_manifest), dtype=np.float32)
+    padded_prev = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float32)
+    padded_curr = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float32)
+    padded_weights = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float32)
 
-    return tuple(batches), max_bandwidth
+    for window_idx, (
+        state_len,
+        anchor_idx,
+        start_idx,
+        mask_window,
+        prev_window,
+        curr_window,
+        weights_window,
+    ) in enumerate(compiled_windows):
+        segment_len = state_len - 1
+        state_lens[window_idx] = state_len
+        anchor_indices[window_idx] = anchor_idx
+        start_indices[window_idx] = start_idx
+        mask_full[window_idx] = mask_window
+        if segment_len > 0:
+            padded_prev[window_idx, :segment_len] = prev_window
+            padded_curr[window_idx, :segment_len] = curr_window
+            padded_weights[window_idx, :segment_len] = weights_window
+
+    return (
+        SupportObservationWindowBatch(
+            max_state_len=max_state_len,
+            state_lens=jnp.asarray(state_lens, dtype=jnp.int32),
+            anchor_indices=jnp.asarray(anchor_indices, dtype=jnp.int32),
+            start_indices=jnp.asarray(start_indices, dtype=jnp.int32),
+            mask_full=jnp.asarray(mask_full),
+            prev_coeffs=jnp.asarray(padded_prev),
+            curr_coeffs=jnp.asarray(padded_curr),
+            weights=jnp.asarray(padded_weights),
+        ),
+        max_bandwidth,
+    )
 
 
 def _ieks_smooth(
@@ -465,6 +524,13 @@ def _ieks_smooth(
 
     cd_scan = cd if cd is not None else jnp.zeros((T, D))
     obs_mask_float = obs_mask.astype(jnp.float32)
+    prior_lower, prior_diag, prior_upper, prior_rhs = _build_prior_tridiagonal_system(
+        Ad,
+        Qd,
+        cd_scan,
+        init_mean,
+        init_cov,
+    )
 
     def _ieks_body(_, z_est):
         """Single IEKS iteration: linearize emissions and solve the normal equations."""
@@ -475,18 +541,11 @@ def _ieks_smooth(
 
         with jax.named_scope("laplace_em/ieks_build_system"):
             tilde_y = jax.vmap(lambda J, z, g: J @ z + g)(J_t, z_est, grads)
-            lower, diag, upper, rhs = _build_ieks_system(
-                Ad,
-                Qd,
-                cd_scan,
-                init_mean,
-                init_cov,
-                J_t,
-                tilde_y,
-            )
+            diag = prior_diag + J_t
+            rhs = prior_rhs + tilde_y
 
         with jax.named_scope("laplace_em/ieks_solve_system"):
-            return _solve_block_tridiagonal(lower, diag, upper, rhs)
+            return _solve_block_tridiagonal(prior_lower, diag, prior_upper, rhs)
 
     with jax.named_scope("laplace_em/ieks_iterations"):
         z_est = jax.lax.fori_loop(0, n_ieks_iters, _ieks_body, z_est)
@@ -677,9 +736,9 @@ def _assemble_support_aware_observation_system(
     d: jnp.ndarray,
     R: jnp.ndarray,
     obs_kernel,
-    mean_log_prob_fn,
-    observation_support: ObservationSupportRuntime,
-    support_groups: tuple[SupportObservationGroupBatch, ...],
+    support_windows: SupportObservationWindowBatch,
+    point_like_mask: jnp.ndarray,
+    window_derivatives,
     bandwidth: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Assemble exact Newton observation terms in block-banded form."""
@@ -688,9 +747,6 @@ def _assemble_support_aware_observation_system(
     upper = jnp.zeros((bandwidth, T, D, D), dtype=z_est.dtype)
     rhs = jnp.zeros((T, D), dtype=z_est.dtype)
 
-    support_kind_codes = get_support_kind_codes(observation_support)
-    summary_operator_codes = get_summary_operator_codes(observation_support)
-    point_like_mask = get_point_like_mask(support_kind_codes, z_est.dtype)
     point_mask = obs_mask.astype(z_est.dtype) * point_like_mask[None, :]
 
     local_grads, local_hess = jax.vmap(
@@ -700,116 +756,198 @@ def _assemble_support_aware_observation_system(
     rhs = rhs + jax.vmap(lambda j_t, z_t, g_t: j_t @ z_t + g_t)(local_hess, z_est, local_grads)
 
     clean_obs = jnp.nan_to_num(observations, nan=0.0)
-    n_manifest = observations.shape[1]
+    max_state_len = support_windows.max_state_len
+    if support_windows.state_lens.shape[0] == 0:
+        return diag, upper, rhs
 
-    for group_batch in support_groups:
-        state_len = group_batch.state_len
-        start_indices = group_batch.start_indices
-        anchor_indices = group_batch.anchor_indices
-        mask_full = group_batch.mask_full.astype(z_est.dtype)
-        prev_coeffs = group_batch.prev_coeffs.astype(z_est.dtype)
-        curr_coeffs = group_batch.curr_coeffs.astype(z_est.dtype)
-        weights = group_batch.weights.astype(z_est.dtype)
+    padded_z = jnp.pad(z_est, ((0, max_state_len - 1), (0, 0)))
 
-        def _extract_segment(start_idx, *, _state_len: int = state_len):
-            return jax.lax.dynamic_slice(z_est, (start_idx, 0), (_state_len, D))
+    def _extract_segment(start_idx):
+        return jax.lax.dynamic_slice(padded_z, (start_idx, 0), (max_state_len, D))
 
-        segment_states = jax.vmap(_extract_segment)(start_indices)
-        segment_flat = segment_states.reshape(segment_states.shape[0], -1)
-        anchor_obs = clean_obs[anchor_indices]
+    segment_states = jax.vmap(_extract_segment)(support_windows.start_indices)
+    segment_flat = segment_states.reshape(segment_states.shape[0], -1)
+    anchor_obs = clean_obs[support_windows.anchor_indices]
+    grad_flat, hess_flat = window_derivatives(
+        segment_flat,
+        support_windows.state_lens,
+        support_windows.mask_full.astype(z_est.dtype),
+        support_windows.prev_coeffs.astype(z_est.dtype),
+        support_windows.curr_coeffs.astype(z_est.dtype),
+        support_windows.weights.astype(z_est.dtype),
+        anchor_obs,
+        H,
+        d,
+        R,
+    )
+    info_flat = -0.5 * (hess_flat + jnp.swapaxes(hess_flat, -1, -2))
+    info_blocks = info_flat.reshape(-1, max_state_len, D, max_state_len, D).transpose(0, 1, 3, 2, 4)
+    taylor_rhs = (jnp.einsum("gij,gj->gi", info_flat, segment_flat) + grad_flat).reshape(
+        -1, max_state_len, D
+    )
 
-        def _window_log_prob_single(
-            segment_flat_single: jnp.ndarray,
-            mask_full_single: jnp.ndarray,
-            prev_coeffs_single: jnp.ndarray,
-            curr_coeffs_single: jnp.ndarray,
-            weights_single: jnp.ndarray,
-            anchor_obs_single: jnp.ndarray,
-            *,
-            _state_len: int = state_len,
-        ) -> jnp.ndarray:
-            states = segment_flat_single.reshape(_state_len, D)
-            responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d))(states)
+    local_positions = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
+    time_indices = jnp.clip(
+        support_windows.start_indices[:, None] + local_positions[None, :],
+        0,
+        T - 1,
+    )
+    valid_diag = local_positions[None, :] < support_windows.state_lens[:, None]
+    diag_updates = info_blocks[:, jnp.arange(max_state_len), jnp.arange(max_state_len)]
+    diag = diag.at[time_indices.reshape(-1)].add(
+        (diag_updates * valid_diag[..., None, None]).reshape(-1, D, D)
+    )
+    rhs = rhs.at[time_indices.reshape(-1)].add((taylor_rhs * valid_diag[..., None]).reshape(-1, D))
 
-            if _state_len == 1:
-                obs_sum = responses[-1]
-                obs_sumsq = responses[-1] ** 2
-                obs_weight = mask_full_single
-            else:
-                zeros = jnp.zeros((n_manifest, 1), dtype=responses.dtype)
-
-                def _scan_step(carry, inputs):
-                    response_prev, accum_sum, accum_sumsq, accum_weight = carry
-                    response_t, prev_coeff_t, curr_coeff_t, weight_t = inputs
-                    obs_sum, obs_sumsq, obs_weight = accumulate_support_statistics(
-                        response_prev,
-                        accum_sum,
-                        accum_sumsq,
-                        accum_weight,
-                        response_t,
-                        prev_coeff_t,
-                        curr_coeff_t,
-                        weight_t,
-                    )
-                    return (response_t, obs_sum, obs_sumsq, obs_weight), None
-
-                final_carry, _ = jax.lax.scan(
-                    _scan_step,
-                    (responses[0], zeros, zeros, zeros),
-                    (
-                        responses[1:],
-                        prev_coeffs_single[..., None],
-                        curr_coeffs_single[..., None],
-                        weights_single[..., None],
-                    ),
-                )
-                _response_last, obs_sum, obs_sumsq, obs_weight = final_carry
-                obs_sum = obs_sum.squeeze(-1)
-                obs_sumsq = obs_sumsq.squeeze(-1)
-                obs_weight = obs_weight.squeeze(-1)
-
-            expected_mean = expected_observation_mean(
-                responses[-1],
-                obs_sum,
-                obs_sumsq,
-                obs_weight,
-                summary_operator_codes,
-            )
-            return mean_log_prob_fn(anchor_obs_single, expected_mean, R, mask_full_single)
-
-        window_grad = jax.grad(_window_log_prob_single)
-        window_hessian = jax.hessian(_window_log_prob_single)
-        grad_flat = jax.vmap(window_grad)(
-            segment_flat,
-            mask_full,
-            prev_coeffs,
-            curr_coeffs,
-            weights,
-            anchor_obs,
+    if bandwidth > 0:
+        local_i = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
+        local_j = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
+        grid_i = jnp.broadcast_to(local_i[None, :, None], (segment_flat.shape[0], max_state_len, max_state_len))
+        grid_j = jnp.broadcast_to(local_j[None, None, :], (segment_flat.shape[0], max_state_len, max_state_len))
+        upper_offsets = grid_j - grid_i - 1
+        valid_upper = (
+            (grid_j > grid_i)
+            & (grid_i < support_windows.state_lens[:, None, None])
+            & (grid_j < support_windows.state_lens[:, None, None])
         )
-        hess_flat = jax.vmap(window_hessian)(
-            segment_flat,
-            mask_full,
-            prev_coeffs,
-            curr_coeffs,
-            weights,
-            anchor_obs,
+        upper_times = jnp.clip(
+            support_windows.start_indices[:, None, None] + grid_i,
+            0,
+            T - 1,
         )
-        info_flat = -0.5 * (hess_flat + jnp.swapaxes(hess_flat, -1, -2))
-        info_blocks = info_flat.reshape(-1, state_len, D, state_len, D).transpose(0, 1, 3, 2, 4)
-        taylor_rhs = (jnp.einsum("gij,gj->gi", info_flat, segment_flat) + grad_flat).reshape(
-            -1, state_len, D
+        safe_offsets = jnp.clip(upper_offsets, 0, bandwidth - 1)
+        upper = upper.at[safe_offsets.reshape(-1), upper_times.reshape(-1)].add(
+            (info_blocks * valid_upper[..., None, None]).reshape(-1, D, D)
         )
-
-        for local_i in range(state_len):
-            time_i = start_indices + local_i
-            diag = diag.at[time_i].add(info_blocks[:, local_i, local_i])
-            rhs = rhs.at[time_i].add(taylor_rhs[:, local_i])
-            for local_j in range(local_i + 1, state_len):
-                offset = local_j - local_i
-                upper = upper.at[offset - 1, time_i].add(info_blocks[:, local_i, local_j])
 
     return diag, upper, rhs
+
+
+def _make_support_window_derivatives(
+    *,
+    max_state_len: int,
+    n_latent: int,
+    n_manifest: int,
+    summary_operator_codes: jnp.ndarray,
+    obs_kernel,
+    mean_log_prob_fn,
+):
+    """Build one exact window grad/Hessian evaluator for padded support windows."""
+
+    def _window_log_prob_single(
+        segment_flat_single: jnp.ndarray,
+        state_len_single: jnp.ndarray,
+        mask_full_single: jnp.ndarray,
+        prev_coeffs_single: jnp.ndarray,
+        curr_coeffs_single: jnp.ndarray,
+        weights_single: jnp.ndarray,
+        anchor_obs_single: jnp.ndarray,
+        H: jnp.ndarray,
+        d: jnp.ndarray,
+        R: jnp.ndarray,
+    ) -> jnp.ndarray:
+        states = segment_flat_single.reshape(max_state_len, n_latent)
+        responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d))(states)
+        last_response = jax.lax.dynamic_index_in_dim(
+            responses,
+            jnp.maximum(state_len_single - 1, 0),
+            axis=0,
+            keepdims=False,
+        )
+
+        def _single_step_window(_):
+            return last_response, last_response**2, mask_full_single
+
+        def _multi_step_window(_):
+            zeros = jnp.zeros((n_manifest, 1), dtype=responses.dtype)
+
+            def _scan_step(carry, inputs):
+                response_prev, accum_sum, accum_sumsq, accum_weight = carry
+                response_t, prev_coeff_t, curr_coeff_t, weight_t = inputs
+                obs_sum, obs_sumsq, obs_weight = accumulate_support_statistics(
+                    response_prev,
+                    accum_sum,
+                    accum_sumsq,
+                    accum_weight,
+                    response_t,
+                    prev_coeff_t,
+                    curr_coeff_t,
+                    weight_t,
+                )
+                return (response_t, obs_sum, obs_sumsq, obs_weight), None
+
+            final_carry, _ = jax.lax.scan(
+                _scan_step,
+                (responses[0], zeros, zeros, zeros),
+                (
+                    responses[1:],
+                    prev_coeffs_single[..., None],
+                    curr_coeffs_single[..., None],
+                    weights_single[..., None],
+                ),
+            )
+            _response_last, obs_sum, obs_sumsq, obs_weight = final_carry
+            return obs_sum.squeeze(-1), obs_sumsq.squeeze(-1), obs_weight.squeeze(-1)
+
+        obs_sum, obs_sumsq, obs_weight = jax.lax.cond(
+            state_len_single == 1,
+            _single_step_window,
+            _multi_step_window,
+            operand=None,
+        )
+
+        expected_mean = expected_observation_mean(
+            last_response,
+            obs_sum,
+            obs_sumsq,
+            obs_weight,
+            summary_operator_codes,
+        )
+        return mean_log_prob_fn(anchor_obs_single, expected_mean, R, mask_full_single)
+
+    window_grad = jax.grad(_window_log_prob_single)
+    window_hessian = jax.hessian(_window_log_prob_single)
+
+    def _batched_window_derivatives(
+        segment_flat: jnp.ndarray,
+        state_lens: jnp.ndarray,
+        mask_full: jnp.ndarray,
+        prev_coeffs: jnp.ndarray,
+        curr_coeffs: jnp.ndarray,
+        weights: jnp.ndarray,
+        anchor_obs: jnp.ndarray,
+        H: jnp.ndarray,
+        d: jnp.ndarray,
+        R: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        in_axes = (0, 0, 0, 0, 0, 0, 0, None, None, None)
+        grad_flat = jax.vmap(window_grad, in_axes=in_axes)(
+            segment_flat,
+            state_lens,
+            mask_full,
+            prev_coeffs,
+            curr_coeffs,
+            weights,
+            anchor_obs,
+            H,
+            d,
+            R,
+        )
+        hess_flat = jax.vmap(window_hessian, in_axes=in_axes)(
+            segment_flat,
+            state_lens,
+            mask_full,
+            prev_coeffs,
+            curr_coeffs,
+            weights,
+            anchor_obs,
+            H,
+            d,
+            R,
+        )
+        return grad_flat, hess_flat
+
+    return _batched_window_derivatives
 
 
 def _support_aware_ieks_log_lik(
@@ -826,56 +964,62 @@ def _support_aware_ieks_log_lik(
     obs_kernel,
     mean_log_prob_fn,
     observation_support: ObservationSupportRuntime,
-    support_groups: tuple[SupportObservationGroupBatch, ...],
+    support_windows: SupportObservationWindowBatch,
     bandwidth: int,
     n_ieks_iters: int,
 ) -> jnp.ndarray:
     """Sparse/banded support-aware IEKS + Laplace approximation."""
     T, D = observations.shape[0], init_mean.shape[0]
+    prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
+        Ad,
+        Qd,
+        cd,
+        init_mean,
+        init_cov,
+        bandwidth,
+    )
+    summary_operator_codes = get_summary_operator_codes(observation_support)
+    point_like_mask = get_point_like_mask(
+        get_support_kind_codes(observation_support), observations.dtype
+    )
+    window_derivatives = _make_support_window_derivatives(
+        max_state_len=support_windows.max_state_len,
+        n_latent=D,
+        n_manifest=observations.shape[1],
+        summary_operator_codes=summary_operator_codes,
+        obs_kernel=obs_kernel,
+        mean_log_prob_fn=mean_log_prob_fn,
+    )
 
     z_est = jnp.broadcast_to(init_mean, (T, D)).copy()
+
+    def _newton_step(_idx, z_curr):
+        with jax.named_scope("laplace_em/support_aware_observation_system"):
+            obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
+                z_curr,
+                observations,
+                obs_mask,
+                H,
+                d,
+                R,
+                obs_kernel,
+                support_windows,
+                point_like_mask,
+                window_derivatives,
+                bandwidth,
+            )
+        system_diag = prior_diag + obs_diag
+        system_upper = prior_upper + obs_upper
+        system_rhs = prior_rhs + obs_rhs
+        with jax.named_scope("laplace_em/support_aware_solve"):
+            chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
+            return _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+
     with jax.named_scope("laplace_em/support_aware_newton"):
-        for _ in range(max(n_ieks_iters, 1)):
-            with jax.named_scope("laplace_em/support_aware_prior_system"):
-                prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
-                    Ad,
-                    Qd,
-                    cd,
-                    init_mean,
-                    init_cov,
-                    bandwidth,
-                )
-            with jax.named_scope("laplace_em/support_aware_observation_system"):
-                obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
-                    z_est,
-                    observations,
-                    obs_mask,
-                    H,
-                    d,
-                    R,
-                    obs_kernel,
-                    mean_log_prob_fn,
-                    observation_support,
-                    support_groups,
-                    bandwidth,
-                )
-            system_diag = prior_diag + obs_diag
-            system_upper = prior_upper + obs_upper
-            system_rhs = prior_rhs + obs_rhs
-            with jax.named_scope("laplace_em/support_aware_solve"):
-                chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
-                z_est = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+        z_est = jax.lax.fori_loop(0, max(n_ieks_iters, 1), _newton_step, z_est)
 
     with jax.named_scope("laplace_em/support_aware_final_hessian"):
-        prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
-            Ad,
-            Qd,
-            cd,
-            init_mean,
-            init_cov,
-            bandwidth,
-        )
-        obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
+        obs_diag, obs_upper, _obs_rhs = _assemble_support_aware_observation_system(
             z_est,
             observations,
             obs_mask,
@@ -883,14 +1027,13 @@ def _support_aware_ieks_log_lik(
             d,
             R,
             obs_kernel,
-            mean_log_prob_fn,
-            observation_support,
-            support_groups,
+            support_windows,
+            point_like_mask,
+            window_derivatives,
             bandwidth,
         )
         system_diag = prior_diag + obs_diag
         system_upper = prior_upper + obs_upper
-        system_rhs = prior_rhs + obs_rhs
         chol_diag, _lower = _factor_block_banded_cholesky(system_diag, system_upper)
 
     flat_dim = T * D
@@ -1004,6 +1147,8 @@ class LaplaceLikelihood:
     observation models (e.g., channel 0 Gaussian, channel 1 Poisson).
     """
 
+    checkpoint_loglik = False
+
     def __init__(
         self,
         n_latent: int,
@@ -1023,11 +1168,20 @@ class LaplaceLikelihood:
             observation_support is not None
             and observation_support.requires_interval_summary_handling
         ):
-            self._support_groups, self._support_bandwidth = _infer_support_groups(
+            self._support_windows, self._support_bandwidth = _infer_support_groups(
                 observation_support
             )
         else:
-            self._support_groups = ()
+            self._support_windows = SupportObservationWindowBatch(
+                max_state_len=1,
+                state_lens=jnp.zeros((0,), dtype=jnp.int32),
+                anchor_indices=jnp.zeros((0,), dtype=jnp.int32),
+                start_indices=jnp.zeros((0,), dtype=jnp.int32),
+                mask_full=jnp.zeros((0, n_manifest), dtype=jnp.float32),
+                prev_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float32),
+                curr_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float32),
+                weights=jnp.zeros((0, 0, n_manifest), dtype=jnp.float32),
+            )
             self._support_bandwidth = 1 if n_latent > 0 else 0
 
     def compute_log_likelihood(
@@ -1115,12 +1269,12 @@ class LaplaceLikelihood:
                     initial_state.mean,
                     initial_state.cov,
                     obs_kernel,
-                    measurement_semantics.mean_log_prob_fn,
-                    self.observation_support,
-                    self._support_groups,
-                    self._support_bandwidth,
-                    self.n_ieks_iters,
-                )
+                        measurement_semantics.mean_log_prob_fn,
+                        self.observation_support,
+                        self._support_windows,
+                        self._support_bandwidth,
+                        self.n_ieks_iters,
+                    )
 
         with jax.named_scope("laplace_em/ieks_backend"):
             _, log_lik = _ieks_smooth(
