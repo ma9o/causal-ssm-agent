@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { writeBinary, ensureDir } from "@/lib/storage";
-import { requireWorkspaceAccess } from "@/lib/workspace-access";
+import { finalizeWorkspaceCreate, requireWorkspaceAccess } from "@/lib/workspace-access";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -18,9 +18,13 @@ export async function POST(request: Request) {
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }
-  const { workspaceId: normalizedWorkspaceId } = workspaceAccess;
+  const {
+    workspaceId: normalizedWorkspaceId,
+    creationPending,
+  } = workspaceAccess;
 
-  const safeFileName = file.name.split("/").at(-1)?.split("\\").at(-1) ?? "";
+  const rawFileName = typeof file.name === "string" ? file.name : "";
+  const safeFileName = rawFileName.split("/").at(-1)?.split("\\").at(-1) ?? "";
   if (!safeFileName) {
     return NextResponse.json({ error: "Invalid file name" }, { status: 400 });
   }
@@ -30,6 +34,9 @@ export async function POST(request: Request) {
 
   const buffer = Buffer.from(await file.arrayBuffer());
   await writeBinary(relativePath, buffer);
+  if (creationPending) {
+    await finalizeWorkspaceCreate(normalizedWorkspaceId);
+  }
 
   return NextResponse.json({ path: relativePath });
 }

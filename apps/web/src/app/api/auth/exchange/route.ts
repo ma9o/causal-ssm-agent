@@ -4,8 +4,20 @@ import {
   hasOpenRouterSessionSecret,
   writeOpenRouterSession,
 } from "@/lib/server/openrouter-session";
+import { authorizeWorkspacesForOpenRouterUser } from "@/lib/server/workspace-ownership";
+import {
+  clearAuthorizedWorkspaceIds,
+  readAuthorizedWorkspaceIds,
+} from "@/lib/server/workspace-session";
 
 export async function POST(request: Request) {
+  if (process.env.DEPLOYMENT_ENV !== "production") {
+    return NextResponse.json(
+      { error: "OpenRouter sign-in is only available in production." },
+      { status: 403 },
+    );
+  }
+
   const { code, code_verifier } = await request.json();
 
   if (!code) {
@@ -40,8 +52,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const { key } = await res.json();
-    await writeOpenRouterSession(createOpenRouterSession(key));
+    const { key, user_id } = await res.json();
+    if (typeof key !== "string" || typeof user_id !== "string") {
+      return NextResponse.json(
+        { error: "OpenRouter did not return a usable account session." },
+        { status: 502 },
+      );
+    }
+
+    const sessionWorkspaceIds = await readAuthorizedWorkspaceIds();
+    await authorizeWorkspacesForOpenRouterUser(user_id, sessionWorkspaceIds);
+    await writeOpenRouterSession(createOpenRouterSession(key, user_id));
+    await clearAuthorizedWorkspaceIds();
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Failed to exchange code" }, { status: 500 });

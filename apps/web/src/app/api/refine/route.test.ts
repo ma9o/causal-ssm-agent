@@ -36,6 +36,7 @@ vi.mock("@/lib/server/openrouter-access", () => ({
   resolveOpenRouterAccess: vi.fn().mockResolvedValue({
     mode: "user",
     apiKey: "test-key",
+    userId: "or-user-123",
   }),
 }));
 
