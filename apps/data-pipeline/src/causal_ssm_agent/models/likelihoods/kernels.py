@@ -142,7 +142,7 @@ def _response_probit(eta: jnp.ndarray) -> jnp.ndarray:
 
 
 def _response_inverse(eta: jnp.ndarray) -> jnp.ndarray:
-    return 1.0 / jnp.clip(eta, 1e-6)
+    return 1.0 / jnp.clip(eta, min=1e-6)
 
 
 _RESPONSE_FNS: dict[LinkFunction, Callable] = {
@@ -593,6 +593,7 @@ def build_composite_observation_kernel(
     dists: list[DistributionFamily],
     links: list[LinkFunction],
     extra_params: dict | None = None,
+    manifest_cov: jnp.ndarray | None = None,
 ) -> ObservationKernel:
     """Build an ObservationKernel that handles per-channel heterogeneous distributions.
 
@@ -606,6 +607,8 @@ def build_composite_observation_kernel(
         dists: Per-channel distribution families (length n_manifest).
         links: Per-channel link functions (length n_manifest).
         extra_params: Sampled hyperparameters (obs_df, obs_shape, etc.).
+        manifest_cov: Measurement noise covariance matrix for Gaussian / Student-t
+            subgroups inside a heterogeneous manifest family layout.
     """
     n_manifest = len(dists)
     if n_manifest != len(links):
@@ -613,7 +616,12 @@ def build_composite_observation_kernel(
 
     # Fast path: all channels homogeneous → standard kernel
     if len(set(zip(dists, links))) == 1:
-        return build_observation_kernel(dists[0], links[0], extra_params)
+        return build_observation_kernel(
+            dists[0],
+            links[0],
+            extra_params,
+            manifest_cov=manifest_cov,
+        )
 
     # Group channels by (dist, link)
     from collections import defaultdict
@@ -629,6 +637,11 @@ def build_composite_observation_kernel(
             dist,
             link,
             _slice_observation_extra_params(extra_params, ch_indices),
+            manifest_cov=(
+                manifest_cov[jnp.ix_(jnp.asarray(ch_indices), jnp.asarray(ch_indices))]
+                if manifest_cov is not None
+                else None
+            ),
         )
         group_kernels.append((ch_indices, kernel))
 
@@ -727,7 +740,12 @@ def compile_measurement_semantics(
             manifest_cov=manifest_cov,
         )
     else:
-        obs_kernel = build_composite_observation_kernel(dists, links, extra_params)
+        obs_kernel = build_composite_observation_kernel(
+            dists,
+            links,
+            extra_params,
+            manifest_cov=manifest_cov,
+        )
 
     observation_operator = compile_observation_operator(observation_support)
     mean_log_prob_fn = None
