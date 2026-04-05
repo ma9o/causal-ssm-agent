@@ -24,6 +24,7 @@ from causal_ssm_agent.models.predictive_simulation import (
     simulate_predictive_observations,
 )
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 
 
 def _make_samples(
@@ -81,6 +82,107 @@ def _make_samples(
     if with_cint:
         cint_draws = jnp.zeros((n_draws, n_latent))
         samples["cint"] = cint_draws
+
+    return samples
+
+
+def _complex_mixed_family_config() -> tuple[list[str], list[str], list[int], list[str]]:
+    manifest_dists = [
+        "gaussian",
+        "bernoulli",
+        "poisson",
+        "student_t",
+        "gamma",
+        "beta",
+        "ordered_logistic",
+        "categorical",
+        "negative_binomial",
+        "gaussian",
+    ]
+    manifest_links = [
+        LinkFunction.IDENTITY.value,
+        LinkFunction.LOGIT.value,
+        LinkFunction.LOG.value,
+        LinkFunction.IDENTITY.value,
+        LinkFunction.LOG.value,
+        LinkFunction.LOGIT.value,
+        LinkFunction.CUMULATIVE_LOGIT.value,
+        LinkFunction.SOFTMAX.value,
+        LinkFunction.LOG.value,
+        LinkFunction.IDENTITY.value,
+    ]
+    manifest_level_counts = [0, 0, 0, 0, 0, 0, 4, 4, 0, 0]
+    manifest_names = [
+        "stress_cont",
+        "adherence_flag",
+        "steps_count",
+        "fatigue_t",
+        "screen_gap",
+        "sleep_efficiency",
+        "symptom_severity",
+        "coping_style",
+        "rumination_count",
+        "focus_cont",
+    ]
+    return manifest_dists, manifest_links, manifest_level_counts, manifest_names
+
+
+def _make_complex_mixed_samples(
+    *,
+    n_draws: int = 12,
+    n_latent: int = 4,
+    seed: int = 0,
+) -> dict[str, jnp.ndarray]:
+    samples = _make_samples(
+        n_draws=n_draws,
+        n_latent=n_latent,
+        n_manifest=10,
+        seed=seed,
+        drift_diag=-0.35,
+        diff_sd=0.2,
+        obs_sd=0.15,
+        with_cint=True,
+    )
+    samples["lambda"] = jnp.array(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.3, 0.4, 0.0, 0.0],
+            [0.0, 0.8, 0.0, 0.0],
+            [0.2, 0.6, 0.0, 0.0],
+            [0.0, 0.0, 0.9, 0.0],
+            [0.0, 0.0, 0.5, 0.3],
+            [0.0, 0.0, 0.7, 0.0],
+            [0.0, 0.2, 0.5, 0.0],
+            [0.0, 0.0, 0.0, 0.9],
+            [0.1, 0.0, 0.2, 0.8],
+        ],
+        dtype=jnp.float32,
+    )
+    samples["manifest_cov"] = jnp.diag(
+        jnp.array([0.12, 0.08, 0.1, 0.18, 0.1, 0.05, 0.08, 0.08, 0.11, 0.12], dtype=jnp.float32)
+        ** 2
+    )
+    samples["t0_cov"] = jnp.eye(n_latent, dtype=jnp.float32) * 0.25
+    samples["manifest_means"] = jnp.broadcast_to(
+        jnp.array([0.0, -0.3, 0.4, 0.0, -0.2, 0.0, 0.0, 0.1, 0.2, -0.1], dtype=jnp.float32),
+        (n_draws, 10),
+    )
+    samples["obs_df"] = jnp.full((n_draws,), 6.0, dtype=jnp.float32)
+    samples["obs_shape"] = jnp.full((n_draws,), 3.0, dtype=jnp.float32)
+    samples["obs_r"] = jnp.full((n_draws,), 8.0, dtype=jnp.float32)
+    samples["obs_concentration"] = jnp.full((n_draws,), 14.0, dtype=jnp.float32)
+
+    ordered_cutpoints = jnp.zeros((10, 3), dtype=jnp.float32)
+    ordered_cutpoints = ordered_cutpoints.at[6].set(jnp.array([-1.2, 0.0, 1.1], dtype=jnp.float32))
+    samples["obs_ordered_cutpoints"] = ordered_cutpoints
+
+    cat_intercepts = jnp.zeros((10, 3), dtype=jnp.float32)
+    cat_intercepts = cat_intercepts.at[7].set(jnp.array([0.8, -0.1, -0.6], dtype=jnp.float32))
+    samples["obs_cat_intercepts"] = cat_intercepts
+
+    cat_slopes = jnp.zeros((10, 3), dtype=jnp.float32)
+    cat_slopes = cat_slopes.at[7].set(jnp.array([0.5, -0.2, -0.4], dtype=jnp.float32))
+    samples["obs_cat_slopes"] = cat_slopes
 
     return samples
 
@@ -236,6 +338,36 @@ class TestForwardSimulation:
 
         assert y_sim.shape == (3, 3, 3)
         assert jnp.all(jnp.isfinite(y_sim))
+
+    def test_forward_simulate_large_mixed_family_model(self):
+        """A richer mixed-family model should stay finite and respect channel support."""
+        manifest_dists, manifest_links, manifest_level_counts, _manifest_names = (
+            _complex_mixed_family_config()
+        )
+        samples = _make_complex_mixed_samples()
+        times = jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32)
+
+        y_sim = simulate_predictive_observations(
+            samples=samples,
+            times=times,
+            manifest_dists=manifest_dists,
+            manifest_links=manifest_links,
+            manifest_level_counts=manifest_level_counts,
+            n_subsample=8,
+            rng_seed=3,
+        )
+
+        assert y_sim.shape == (8, 12, 10)
+        assert bool(jnp.isfinite(y_sim).all())
+        assert bool(((y_sim[:, :, 1] == 0) | (y_sim[:, :, 1] == 1)).all())
+        assert bool((y_sim[:, :, 2] >= 0).all())
+        assert bool((jnp.mod(y_sim[:, :, 2], 1.0) == 0).all())
+        assert bool((y_sim[:, :, 4] > 0).all())
+        assert bool(((y_sim[:, :, 5] >= 0) & (y_sim[:, :, 5] <= 1)).all())
+        assert bool(((y_sim[:, :, 6] >= 0) & (y_sim[:, :, 6] <= 3)).all())
+        assert bool(((y_sim[:, :, 7] >= 0) & (y_sim[:, :, 7] <= 3)).all())
+        assert bool((y_sim[:, :, 8] >= 0).all())
+        assert bool((jnp.mod(y_sim[:, :, 8], 1.0) == 0).all())
 
     def test_forward_simulate_poisson(self):
         """Poisson noise family produces non-negative observations."""
@@ -605,27 +737,41 @@ class TestRunPPC:
     """Integration test for run_posterior_predictive_checks."""
 
     def test_basic_run(self):
-        """Full PPC pipeline runs without errors."""
-        T, n_latent, n_manifest = 30, 2, 2
-        samples = _make_samples(n_draws=20, n_latent=n_latent, n_manifest=n_manifest)
-        times = jnp.arange(T, dtype=float)
-
-        key = random.PRNGKey(7)
-        observations = random.normal(key, (T, n_manifest))
-        manifest_names = ["x", "y"]
+        """Full PPC pipeline runs on a richer mixed-family synthetic model."""
+        manifest_dists, manifest_links, manifest_level_counts, manifest_names = (
+            _complex_mixed_family_config()
+        )
+        samples = _make_complex_mixed_samples(seed=7)
+        times = jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32)
+        reference_y = simulate_predictive_observations(
+            samples=samples,
+            times=times,
+            manifest_dists=manifest_dists,
+            manifest_links=manifest_links,
+            manifest_level_counts=manifest_level_counts,
+            n_subsample=8,
+            rng_seed=11,
+        )
+        observations = reference_y[3]
 
         result = run_posterior_predictive_checks(
             samples=samples,
             observations=observations,
             times=times,
             manifest_names=manifest_names,
+            manifest_dists=manifest_dists,
+            manifest_links=manifest_links,
+            manifest_level_counts=manifest_level_counts,
             n_subsample=20,
         )
 
         assert isinstance(result, PPCResult)
         assert result.checked is True
-        assert result.n_subsample == 20
+        assert result.n_subsample == 12
         assert isinstance(result.per_variable_warnings, list)
+        assert len(result.overlays) == len(manifest_names)
+        assert {overlay.variable for overlay in result.overlays} == set(manifest_names)
+        assert len(result.test_stats) >= len(manifest_names) * 2
 
 
 # =============================================================================
