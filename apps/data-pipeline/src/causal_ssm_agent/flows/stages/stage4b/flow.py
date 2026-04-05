@@ -182,7 +182,10 @@ def parametric_id_task(
         # Sensitivity analysis: structural check (sufficient for local identifiability)
         sensitivity_payload = None
         try:
-            from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+            from causal_ssm_agent.utils.parametric_id import (
+                OutputSensitivityUnsupportedError,
+                output_sensitivity_analysis,
+            )
 
             sa_result = output_sensitivity_analysis(
                 ssm_model,
@@ -201,6 +204,8 @@ def parametric_id_task(
                 "n_observations": sa_result.n_observations,
                 "n_parameters": sa_result.n_parameters,
             }
+        except OutputSensitivityUnsupportedError as exc:
+            logger.info("Sensitivity analysis unavailable for this Stage 4b model: %s", exc)
         except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
             logger.warning(
                 "Sensitivity analysis failed, continuing with profile likelihood: %s", exc

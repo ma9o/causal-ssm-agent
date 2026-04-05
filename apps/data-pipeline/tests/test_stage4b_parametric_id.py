@@ -617,6 +617,71 @@ class TestStage4bInferenceStructurePayload:
         assert pid["threshold"] is None
         assert pid["summary"]["weak_params"] == ["lambda_free"]
 
+    def test_unsupported_sensitivity_screen_does_not_emit_false_weak_params(self, monkeypatch):
+        from causal_ssm_agent.utils.parametric_id import OutputSensitivityUnsupportedError
+
+        spec = _make_separable_spec()
+        model = _make_model(spec)
+        runtime = SimpleNamespace(
+            builder=SimpleNamespace(_model=model),
+            observations=jnp.zeros((4, spec.n_manifest)),
+            times=jnp.arange(4.0),
+            inference_structure=plan_inference_structure(
+                spec,
+                observation_support=_support_runtime(),
+            ),
+        )
+
+        class StubTRule:
+            satisfies = True
+            n_free_params = 4
+            n_moments = 8
+
+            def print_report(self):
+                return None
+
+            def model_dump(self):
+                return {
+                    "satisfies": self.satisfies,
+                    "n_free_params": self.n_free_params,
+                    "n_moments": self.n_moments,
+                }
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            lambda **_: runtime,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            lambda *_args, **_kwargs: StubTRule(),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            lambda *_args, **_kwargs: SimpleNamespace(scalar_names=["lambda_free"]),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                OutputSensitivityUnsupportedError("unsupported")
+            ),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            lambda *_args, **_kwargs: pytest.fail(
+                "profile_likelihood should be skipped on particle-only paths"
+            ),
+        )
+
+        result = parametric_id_task.fn(
+            data_for_model=pl.DataFrame(),
+        )
+
+        pid = result["parametric_id"]
+        assert pid["sensitivity_analysis"] is None
+        assert pid["per_param_classification"] is None
+        assert pid["threshold"] is None
+        assert pid["summary"]["weak_params"] == []
+
     def test_stage4b_demotes_t_rule_failure_to_warning(self, monkeypatch):
         monkeypatch.setattr(
             "causal_ssm_agent.flows.stages.stage4b.flow.stage4b_parametric_id_flow",
