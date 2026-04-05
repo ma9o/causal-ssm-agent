@@ -19,13 +19,17 @@ The latent states must be integrated out. For SSMs with T timesteps and n latent
 Every inference method makes three design choices:
 
 - **Axis A** — how to handle the latent-state integral (marginalize, augment, or Gibbs)
-- **Axis B** — how to compute the marginal likelihood when marginalizing (Kalman, IEKS, PF, learned)
+- **Axis B** — what state-side objective drives parameter inference within the marginalize path (exact likelihood, approximate likelihood, stochastic estimate, or variational surrogate)
 - **Axis C** — how to explore the parameter posterior (MCMC, VI, SMC)
 
-These axes are conceptually distinct but not independent. Two dependencies structure the design space:
+These axes are conceptually distinct but not independent. In this repo, the main dependency is:
 
-1. **A → C**: Augment and Gibbs both force C = MCMC. Augment creates an O(n\_latent × T)-dimensional sampling problem where VI and SMC are impractical (VI discards the exactness that motivates augmentation; SMC suffers weight degeneracy in high dimensions). Gibbs requires *sampling* from conditionals — replacing sampling with VI gives variational EM (a different algorithm class), and running SMC within each Gibbs sweep is better described as SMC². **Only Marginalize opens all three C options**, because it reduces the problem to inference on θ alone.
-2. **B → C**: Within Marginalize, the likelihood computation method determines gradient quality, which constrains which parameter methods are viable. This is the binding constraint for the structural routing described below.
+1. **B → C**: Within Marginalize, the state-side objective determines gradient quality and therefore which outer parameter methods are a good fit. This is the binding constraint for the structural routing described below.
+
+Two interpretation notes matter:
+
+1. **These axes are a routing map, not an impossibility theorem.** The implementation only auto-routes within the Marginalize family. `nuts_da` and `pgas` are exposed as explicit user overrides. The broader literature also contains variational and SMC-style approximations over latent-state trajectories; this document is describing the methods implemented here, not the full space of possible SSM algorithms[^archer2015] [^krishnan2017].
+2. **PF-backed targets and MCMC need care.** Exact particle-MCMC and pseudo-marginal constructions exist[^andrieu2010], but they are different algorithm families from naively differentiating through a particle-filter-estimated target with HMC/NUTS. The routing guidance below is about the latter engineering choice.
 
 ### Axis A: State-Parameter Coupling
 
@@ -37,16 +41,17 @@ How to deal with the nested integral over latent states.
 | **Augment** | Treat x\_{1:T} as parameters. Sample (theta, x\_{1:T}) jointly via NUTS on the augmented space. No filter needed. | nuts\_da |
 | **Gibbs** | Alternate between p(x\|theta,y) via conditional SMC and p(theta\|x,y) via HMC. Each conditional avoids the hard integral. | pgas |
 
-### Axis B: Marginal Likelihood Computation
+### Axis B: State-Side Objective Within the Marginalize Path
 
-When marginalizing (Axis A = Marginalize), how is p(y|theta) computed? The computation method determines gradient properties for parameter inference. This axis does not apply to Augment (no filter) or Gibbs (avoids the marginal likelihood entirely via conditional decomposition).
+When marginalizing (Axis A = Marginalize), parameter inference is driven by an exact marginal likelihood, an approximation to that likelihood, or a surrogate objective over latent trajectories. This axis does not apply to Augment (the joint target is sampled directly) and only applies indirectly to Gibbs methods such as PGAS, which alternate conditional updates instead of evaluating p(y|theta) as a single black-box objective.
 
-| Computation | Mechanism | Resulting gradients | Structural requirement | Methods |
-|-------------|-----------|-------------------|----------------------|---------|
-| **Closed-form** | Kalman filter | Exact, smooth | All emissions Gaussian + identity link + Gaussian diffusion | nuts, svi, tempered\_smc, hessmc2 |
-| **Deterministic approx** | IEKS + Laplace | Smooth, approximate | Twice-differentiable emission log-density + linear dynamics | laplace\_em |
-| **Stochastic estimate** | Bootstrap / RB particle filter | Noisy, stochastic | Universal (any model) | nuts, svi, tempered\_smc, hessmc2 |
-| **Learned estimate** | Neural proposal PF or backward variational family | Lower variance, still stochastic (DPF) or variational bound (structured\_vi) | Universal (needs training phase) | dpf, structured\_vi |
+| Objective class | Mechanism | Resulting gradients | Structural requirement | Methods |
+|-----------------|-----------|-------------------|----------------------|---------|
+| **Closed-form marginal likelihood** | Kalman filter | Exact, smooth | All emissions Gaussian + identity link + Gaussian diffusion | nuts, svi, tempered\_smc, hessmc2 |
+| **Deterministic approximate marginal likelihood** | IEKS + Laplace | Smooth, approximate | Twice-differentiable emission log-density + linear dynamics | laplace\_em |
+| **Stochastic marginal-likelihood estimate** | Bootstrap / RB particle filter | Noisy, stochastic | Universal (any model) | nuts, svi, tempered\_smc, hessmc2 |
+| **Learned stochastic estimate** | Neural proposal particle filter | Lower variance, still stochastic | Universal (needs training phase) | dpf |
+| **Variational surrogate objective** | Backward-factored variational smoother ELBO | Biased surrogate; optimized by Monte Carlo gradients | Universal | structured\_vi |
 
 Two critical observations:
 
@@ -64,38 +69,39 @@ Given the state handling from Axes A+B, how to explore the parameter posterior p
 | **VI** (SVI) | No (variational bound) | Yes -- SGD is designed for noise | No | svi |
 | **SMC** (tempered, HessMC2) | Yes | Yes -- population-based | Yes | tempered\_smc, hessmc2, laplace\_em, structured\_vi, dpf |
 
-### The B → C Constraint
+### The B → C Routing Constraint
 
-Axis B determines gradient quality, which constrains which Axis C methods are viable:
+Axis B determines target smoothness and estimator noise, which strongly influences which Axis C methods are a good engineering choice in this codebase:
 
-| Likelihood (B) | Gradient quality | Viable parameter methods (C) |
-|----------------|-----------------|------------------------------|
-| **Closed-form** (Kalman) | Exact, smooth | All — MCMC is optimal (smooth target, exact gradients) |
-| **Deterministic approx** (IEKS) | Smooth, approximate | MCMC and SMC both work. SMC preferred when multimodality is a concern |
-| **Stochastic** (PF) | Noisy, discontinuous (resampling) | **MCMC inadvisable** — leapfrog divergences from resampling discontinuities. VI and SMC preferred |
-| **Learned** (DPF, structured VI) | Lower variance, still stochastic | Same as stochastic — MCMC still inadvisable |
+| State-side objective (B) | Gradient quality | Routing guidance for parameter methods (C) |
+|--------------------------|-----------------|--------------------------------------------|
+| **Closed-form** (Kalman) | Exact, smooth | All are feasible; HMC/NUTS is the structural default |
+| **Deterministic approx** (IEKS/Laplace) | Smooth, approximate | MCMC, VI, and SMC are all conceivable; this repo currently pairs it with tempered SMC |
+| **Stochastic** (PF / RBPF) | Noisy, estimator-dependent | The router prefers VI or SMC. PMCMC remains theoretically valid, but it is a different construction from autodiff-HMC on the PF target[^andrieu2010] |
+| **Learned stochastic** (DPF) | Lower variance, still stochastic | Same practical guidance as PF-backed targets |
+| **Variational surrogate** (structured VI) | Surrogate objective, not an exact likelihood | Interpreted here as an inner approximation paired with an outer SMC sampler |
 
-Combined with the A → C constraint (Augment and Gibbs force MCMC), this fully determines the viable methods. The structural routing reduces to: (1) default to Marginalize, (2) determine B from model structure, (3) select the best viable C given B. Augment and Gibbs are user overrides for specific needs, not structural routing targets.
+These are routing rules for this implementation, not universal impossibility results. The structural routing reduces to: (1) default to Marginalize, (2) determine the state-side objective from model structure, (3) choose the best supported outer engine given that objective. Augment and Gibbs remain user overrides for specific needs, not structural routing targets.
 
 ## Method Taxonomy
 
 The nine methods mapped to all three axes:
 
-| Method | A: Coupling | B: Likelihood computation | C: Param method | Key advantage |
+| Method | A: Coupling | B: State-side objective | C: Param method | Key advantage |
 |--------|------------|--------------------------|----------------|---------------|
 | `nuts` | Marginalize | Closed-form (Kalman) or stochastic (PF) | MCMC | Gold standard when gradients are smooth |
 | `svi` | Marginalize | Closed-form (Kalman) or stochastic (PF) | VI | Fast, tolerates PF noise |
 | `tempered_smc` | Marginalize | Closed-form (Kalman) or stochastic (PF) | SMC | Multimodal, robust to noise |
 | `hessmc2` | Marginalize | Closed-form (Kalman) or stochastic (PF) | SMC (Hessian) | Curvature-adapted proposals |
 | `laplace_em` | Marginalize | Deterministic approx (IEKS) | SMC | Avoids PF entirely for non-Gaussian |
-| `structured_vi` | Marginalize | Learned (backward variational family) | SMC | Trajectory-aware state uncertainty |
-| `dpf` | Marginalize | Learned (neural PF) | SMC | Lower-variance PF proposals |
-| `nuts_da` | Augment | N/A (no filter) | MCMC | Simple "just run NUTS", no filter tuning |
-| `pgas` | Gibbs | N/A (Gibbs conditional; CSMC samples states, not likelihood) | MCMC | Exact despite PF; gradient-free state updates |
+| `structured_vi` | Marginalize | Variational surrogate (backward variational family) | SMC | Trajectory-aware state uncertainty |
+| `dpf` | Marginalize | Learned stochastic estimate (neural PF) | SMC | Lower-variance PF proposals |
+| `nuts_da` | Augment | Joint augmented target (no marginal-likelihood backend) | MCMC | Simple "just run NUTS", no filter tuning |
+| `pgas` | Gibbs | Blocked state/parameter conditionals (CSMC + parameter MCMC) | MCMC | Exact despite PF; gradient-free state updates |
 
 ## Structural Routing
 
-The structural routing operates within A = Marginalize. (Augment and Gibbs force C = MCMC and are user overrides; see below.) The routing follows directly from the axis dependencies: determine B from model structure, then select C via the B → C constraint.
+The structural routing implemented today operates on a restricted surface: it auto-selects within A = Marginalize, while `nuts_da` and `pgas` are explicit user overrides. The routing follows directly from the state-side objective: determine that objective from model structure, then select the best supported outer engine via the B → C guidance above.
 
 ### User Overrides
 
@@ -108,7 +114,7 @@ The structural routing picks the best default within A = Marginalize. Users can 
 | Fast exploration, any model | `svi` | C → VI | Fastest wall-clock, good for model iteration |
 | Highly anisotropic posterior | `hessmc2` | C → SMC (Hessian) | Full Hessian proposals adapt to curvature |
 | PF with severe particle degeneracy | `dpf` | B → Learned | Learned proposals reduce weight variance |
-| Trajectory-aware state uncertainty | `structured_vi` | B → Learned | Backward-factored family captures temporal correlations |
+| Trajectory-aware state uncertainty | `structured_vi` | B → Variational surrogate | Backward-factored family captures temporal correlations |
 
 ## First-Pass Rao-Blackwellization
 
@@ -140,9 +146,9 @@ NumPyro's No-U-Turn Sampler[^hoffman2014] [^betancourt2017]. Uses `init_to_media
 
 **Axis position:** Marginalize + Closed-form (Kalman) + MCMC.
 
-**When to use:** Kalman-eligible models (the structural default). The smooth, deterministic Kalman log-likelihood gives clean gradients. Also works with PF likelihood but may produce divergences from resampling discontinuities.
+**When to use:** Kalman-eligible models (the structural default). The smooth, deterministic Kalman log-likelihood gives clean gradients. PF-backed use is available, but it is not the default routing path.
 
-**Limitations:** Single mode. Requires differentiable log-likelihood. PF gradient noise causes divergences.
+**Limitations:** Single mode. Requires a smooth target. Particle-estimated targets can destabilize leapfrog integration unless you switch to a particle-MCMC construction instead[^andrieu2010].
 
 ### SVI
 
@@ -172,7 +178,7 @@ SMC sampler with gradient-based change-of-variables L-kernels[^murphy2025]. Prop
 
 ### Laplace-EM
 
-Iterated Extended Kalman Smoother (IEKS) finds a local MAP latent trajectory[^bell1994], then a Laplace approximation provides the marginal likelihood. The outer loop uses tempered SMC for parameter inference.
+Iterated Extended Kalman Smoother (IEKS) finds a local MAP latent trajectory[^bell1994], then a Laplace approximation provides the marginal likelihood. In the current implementation, the historical method name `laplace_em` refers to this IEKS/Laplace inner objective paired with a tempered SMC outer loop; it is not a classical outer EM optimizer.
 
 **Axis position:** Marginalize + Deterministic approx (IEKS) + SMC.
 
@@ -196,7 +202,7 @@ So the current design keeps custom backends as the primary path. A Dynamax adapt
 
 Variational inference with a structured time-series posterior[^archer2015] [^krishnan2017]. The implementation uses a backward-factored Gaussian family, q(z\_{1:T} | phi) = q(z\_T) prod q(z\_t | z\_{t+1}), to capture temporal correlations that standard mean-field guides cannot. Can be initialized from Laplace-EM output.
 
-**Axis position:** Marginalize + Learned estimate (backward variational family) + SMC. Unlike DPF which learns a PF proposal and uses the normalizing constant as the likelihood estimate, structured\_vi learns an approximation to the full state posterior and uses the ELBO as a surrogate for the marginal likelihood.
+**Axis position:** Marginalize + Variational surrogate + SMC. Unlike DPF, which still uses a particle-filter normalizing-constant estimate, `structured_vi` uses an ELBO-like inner objective as a surrogate for the marginal likelihood.
 
 **When to use:** When SVI's mean-field assumption is too restrictive and you need trajectory-aware uncertainty.
 
@@ -204,7 +210,7 @@ Variational inference with a structured time-series posterior[^archer2015] [^kri
 
 Learns a neural proposal network q\_phi(z\_t | z\_{t-1}, y\_t) in the spirit of differentiable particle filters[^jonschkowski2018], trained with a variational SMC objective[^naesseth2018]. At inference time, the learned proposal replaces the bootstrap prior proposal.
 
-**Axis position:** Marginalize + Learned estimate (neural PF) + SMC.
+**Axis position:** Marginalize + Learned stochastic estimate (neural PF) + SMC.
 
 **When to use:** When the bootstrap proposal is a poor match for the filtering distribution (high-dimensional latent states, informative observations causing particle degeneracy).
 
@@ -212,7 +218,7 @@ Learns a neural proposal network q\_phi(z\_t | z\_{t-1}, y\_t) in the spirit of 
 
 Data augmentation MCMC[^tanner1987]: augments the parameter space with all latent states eta\_{0:T} and samples the joint posterior p(theta, eta\_{0:T} | y\_{1:T}) using NUTS. Supports centered and non-centered parameterizations with optional SVI + Kalman smoother warmstart.
 
-**Axis position:** Augment + N/A + MCMC.
+**Axis position:** Augment + joint augmented target + MCMC.
 
 **When to use:** Moderate T (up to ~500 timesteps), Gaussian observations, and you want the simplicity of "just run NUTS" without choosing a likelihood backend.
 
@@ -222,7 +228,7 @@ Data augmentation MCMC[^tanner1987]: augments the parameter space with all laten
 
 Particle Gibbs with Ancestor Sampling[^lindsten2014]. Gibbs-alternates between trajectory sampling (CSMC with gradient-informed proposals) and parameter updates (block HMC/MALA with preconditioned mass matrix).
 
-**Axis position:** Gibbs + N/A (CSMC samples states, not likelihood) + MCMC.
+**Axis position:** Gibbs + blocked state/parameter conditionals + MCMC.
 
 **When to use:** Non-Gaussian observation models where you want exact posterior samples. The Gibbs structure means the parameter conditional p(theta|x,y) is cheap to evaluate (no marginal likelihood needed), sidestepping PF gradient noise entirely.
 

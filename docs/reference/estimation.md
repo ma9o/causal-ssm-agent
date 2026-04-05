@@ -4,7 +4,7 @@ This document describes what `SSMModel.model()` computes when the [compilation p
 
 **Reader map:**
 
-- **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how likelihoods are computed via Kalman or particle filtering.
+- **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how the runtime builds state-side objectives ranging from exact Kalman likelihoods to particle-based or approximate inner targets.
 - **Section 4** is runtime: the library stack (JAX / NumPyro / cuthbert) and the data flow from compiled artifact through fitting to `InferenceResult`.
 
 ## 1. CT-SDE Formulation
@@ -60,9 +60,11 @@ For a time series with T observations and potentially irregular intervals, the d
 
 **Note on `edge_lag_days`:** The per-edge lag in days, computed during [spec translation in the compilation pipeline](compilation.md#stage-1-spec-translation-ssmspectranslationpy), is used by prior compilation to scale DT-to-CT effects consistently with the discretization interval.
 
-## 3. Likelihood Computation
+## 3. State-Side Objectives
 
-Both likelihood backends compute log p(y | theta) and inject it into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density.
+The default marginalization backends implement a shared `compute_log_likelihood()` protocol and inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. Method-specific routines such as `laplace_em`, `structured_vi`, and `dpf` replace that inner objective with a Laplace approximation, a variational surrogate, or a learned particle filter while keeping the same high-level fit interface. The routing details live in [inference-routing.md](inference-routing.md).
+
+### Default marginalization backends
 
 ### Kalman backend
 
@@ -81,6 +83,18 @@ Universal sequential Monte Carlo backend for arbitrary noise families and nonlin
 **Complexity:** O(T n P) where P is the particle count.
 
 **Automatic RBPF upgrade:** When dynamics are Gaussian but observations are non-Gaussian, the particle filter automatically delegates to Rao-Blackwell callbacks. Particles carry Kalman sufficient statistics instead of point samples, giving the usual Rao-Blackwellized variance reduction[^doucet2000].
+
+### Composed backend
+
+When first-pass Rao-Blackwellization finds a decoupled linear-Gaussian sub-block, the runtime composes an exact Kalman backend for that sub-block with a particle backend for the remainder. The resulting objective is still a marginal likelihood over theta, but it mixes exact and stochastic state elimination inside one target.
+
+### Method-specific inner objectives
+
+Some methods do not use the generic `models/likelihoods` package as their inner objective:
+
+- **`laplace_em`** uses IEKS plus a Laplace approximation to build a smooth approximate marginal likelihood.
+- **`structured_vi`** uses a backward-factored variational smoother ELBO as a surrogate objective over latent trajectories.
+- **`dpf`** trains a proposal network, then uses a learned particle-filter likelihood estimate.
 
 ### Missing data handling
 
@@ -107,7 +121,7 @@ flowchart LR
     E --> F["InferenceResult"]
 ```
 
-A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-ssm_compilerpy) arrives from the compilation pipeline. `build_compiled_ssm_builder()` deserializes it into a live `SSMModel`. Inside the NumPyro model function, `SSMModel.model()` samples from priors, discretizes CT → DT (§2), runs the Kalman or particle likelihood (§3), and injects it via `numpyro.factor("log_likelihood", ll)`. `inference.fit()` returns an `InferenceResult` with posterior samples and diagnostics.
+A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-ssm_compilerpy) arrives from the compilation pipeline. `build_compiled_ssm_builder()` deserializes it into a live `SSMModel`. Inside the NumPyro model function, `SSMModel.model()` samples from priors, discretizes CT → DT (§2), delegates the state-side objective (§3), and injects it via `numpyro.factor("log_likelihood", ll)` when the active method uses a marginal-likelihood target. `inference.fit()` returns an `InferenceResult` with posterior samples and diagnostics.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [Stage 6](../pipeline/06-intervention-analysis.md).
 
