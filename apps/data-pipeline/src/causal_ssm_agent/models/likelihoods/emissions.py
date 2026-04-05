@@ -206,7 +206,10 @@ def emission_log_prob_gamma(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
     eta = H @ z_t + d
     mean = jnp.exp(eta)
     scale = mean / shape
-    log_probs = jax.scipy.stats.gamma.logpdf(y_t, shape, scale=scale)
+    # Clamp y_t away from 0 so gamma.logpdf doesn't produce -inf/+inf from
+    # log(0), which causes NaN gradients via JAX autodiff even when masked.
+    safe_y = jnp.maximum(y_t, NUMERICAL_EPSILON)
+    log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
@@ -246,7 +249,10 @@ def emission_log_prob_beta(y_t, z_t, H, d, _R, obs_mask_t, concentration=10.0):
     mean = jax.nn.sigmoid(eta)
     alpha = mean * concentration
     beta_ = (1.0 - mean) * concentration
-    log_probs = jax.scipy.stats.beta.logpdf(y_t, alpha, beta_)
+    # Clamp y_t into (0, 1) so beta.logpdf doesn't produce -inf from log(0)
+    # or log(1-0), which causes NaN gradients via JAX autodiff even when masked.
+    safe_y = jnp.clip(y_t, NUMERICAL_EPSILON, 1.0 - NUMERICAL_EPSILON)
+    log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
@@ -309,7 +315,8 @@ def emission_log_prob_gamma_inverse(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
     eta = H @ z_t + d
     mean = 1.0 / jnp.clip(eta, ETA_CLIP_MIN, None)
     scale = mean / shape
-    log_probs = jax.scipy.stats.gamma.logpdf(y_t, shape, scale=scale)
+    safe_y = jnp.maximum(y_t, NUMERICAL_EPSILON)
+    log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
@@ -324,7 +331,8 @@ def emission_log_prob_beta_probit(y_t, z_t, H, d, _R, obs_mask_t, concentration=
     mean = jnp.clip(mean, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
     alpha = mean * concentration
     beta_ = (1.0 - mean) * concentration
-    log_probs = jax.scipy.stats.beta.logpdf(y_t, alpha, beta_)
+    safe_y = jnp.clip(y_t, NUMERICAL_EPSILON, 1.0 - NUMERICAL_EPSILON)
+    log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
@@ -562,7 +570,8 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
         shape = extra_params.get("obs_shape", 1.0)
         safe_mean = jnp.maximum(mean_t, NUMERICAL_EPSILON)
         scale = safe_mean / shape
-        log_probs = jax.scipy.stats.gamma.logpdf(y_t, shape, scale=scale)
+        safe_y = jnp.maximum(y_t, NUMERICAL_EPSILON)
+        log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
         return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
     def bernoulli(y_t, mean_t, _R, obs_mask_t):
@@ -587,7 +596,8 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
         clipped_mean = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
         alpha = clipped_mean * concentration
         beta_ = (1.0 - clipped_mean) * concentration
-        log_probs = jax.scipy.stats.beta.logpdf(y_t, alpha, beta_)
+        safe_y = jnp.clip(y_t, NUMERICAL_EPSILON, 1.0 - NUMERICAL_EPSILON)
+        log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
         return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
     mean_log_prob_fns = {
