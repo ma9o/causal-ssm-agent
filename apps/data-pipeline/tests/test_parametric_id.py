@@ -17,10 +17,12 @@ from unittest.mock import patch
 
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 import pytest
 
 from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, SSMSpec
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 pytestmark = pytest.mark.slow
 
@@ -73,6 +75,66 @@ def _make_nonidentified_model():
         manifest_var_diag={"sigma": 0.5},
     )
     return SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+
+
+def _make_interval_support_runtime(
+    manifest_names: list[str],
+    *,
+    summary_operators: list[str] | None = None,
+) -> ObservationSupportRuntime:
+    n_manifest = len(manifest_names)
+    if summary_operators is None:
+        summary_operators = ["sum"] * n_manifest
+    if len(summary_operators) != n_manifest:
+        raise ValueError("summary_operators must align with manifest_names")
+
+    return ObservationSupportRuntime(
+        anchor_times=np.array([0.0, 1.0, 2.0]),
+        manifest_names=manifest_names,
+        support_kinds=["interval"] * n_manifest,
+        summary_operators=summary_operators,
+        anchor_policies=["end"] * n_manifest,
+        observation_windows=["1d"] * n_manifest,
+        support_start_times=np.array(
+            [
+                [np.nan] * n_manifest,
+                [0.0] * n_manifest,
+                [1.0] * n_manifest,
+            ],
+        ),
+        support_end_times=np.array(
+            [
+                [np.nan] * n_manifest,
+                [1.0] * n_manifest,
+                [2.0] * n_manifest,
+            ],
+        ),
+        interval_prev_coeffs=np.array(
+            [
+                [[0.0]] * n_manifest,
+                [[0.5]] * n_manifest,
+                [[0.5]] * n_manifest,
+            ],
+        ),
+        interval_curr_coeffs=np.array(
+            [
+                [[0.0]] * n_manifest,
+                [[0.5]] * n_manifest,
+                [[0.5]] * n_manifest,
+            ],
+        ),
+        interval_weights=np.array(
+            [
+                [[0.0]] * n_manifest,
+                [[1.0]] * n_manifest,
+                [[1.0]] * n_manifest,
+            ],
+        ),
+        emission_slot_indices=np.array(
+            [[-1] * n_manifest, [0] * n_manifest, [0] * n_manifest],
+            dtype=np.int32,
+        ),
+    )
 
 
 class TestTRule:
@@ -410,6 +472,268 @@ class TestOutputSensitivity:
         assert n_non_id > 0, (
             "Non-identified model should flag some parameters, all are identifiable"
         )
+
+    def test_mixed_family_interval_observation_models_produce_finite_sensitivity(self):
+        """Stage 4b should handle mixed-family interval summaries on the observation scale."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=2,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.ones((2, 1), dtype=jnp.float32),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[
+                DistributionFamily.NEGATIVE_BINOMIAL,
+                DistributionFamily.GAUSSIAN,
+            ],
+            manifest_links=[
+                LinkFunction.LOG,
+                LinkFunction.IDENTITY,
+            ],
+            manifest_names=["count_sum", "score_mean"],
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.4, "sigma": 0.1},
+            diffusion_diag={"sigma": 0.15},
+            manifest_var_diag={"sigma": 0.2},
+            obs_r={"concentration": 4.0, "rate": 1.0},
+            t0_means={"mu": 0.1, "sigma": 0.2},
+            t0_var_diag={"sigma": 0.2},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="particle")
+        model.observation_support = _make_interval_support_runtime(
+            spec.manifest_names,
+            summary_operators=["sum", "mean"],
+        )
+        times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+        observations = jnp.array(
+            [
+                [jnp.nan, jnp.nan],
+                [3.0, 0.2],
+                [2.0, 0.4],
+            ],
+            dtype=jnp.float32,
+        )
+
+        result = output_sensitivity_analysis(
+            model,
+            times,
+            observations=observations,
+            n_draws=3,
+            seed=3,
+        )
+
+        assert result.n_draws >= 1
+        assert result.n_observations == 8
+        assert len(result.singular_values) > 0
+        assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
+        assert jnp.isfinite(result.condition_number)
+
+    def test_discrete_point_observation_models_produce_finite_sensitivity(self):
+        """Point-like ordered-logistic and categorical channels should be supported."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=2,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.ones((2, 1), dtype=jnp.float32),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[
+                DistributionFamily.ORDERED_LOGISTIC,
+                DistributionFamily.CATEGORICAL,
+            ],
+            manifest_links=[
+                LinkFunction.CUMULATIVE_LOGIT,
+                LinkFunction.SOFTMAX,
+            ],
+            manifest_level_counts=[3, 3],
+            manifest_names=["sleep_level", "activity_type"],
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.5, "sigma": 0.1},
+            diffusion_diag={"sigma": 0.15},
+            manifest_var_diag={"sigma": 0.2},
+            obs_ordered_base={"mu": 0.0, "sigma": 0.5},
+            obs_ordered_gaps={"sigma": 0.3},
+            obs_cat_intercepts={"mu": 0.0, "sigma": 0.4},
+            obs_cat_slopes={"mu": 0.0, "sigma": 0.3},
+            t0_means={"mu": 0.0, "sigma": 0.2},
+            t0_var_diag={"sigma": 0.2},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="particle")
+        times = jnp.arange(6, dtype=jnp.float32)
+        observations = jnp.array(
+            [
+                [0.0, 1.0],
+                [1.0, 2.0],
+                [2.0, 0.0],
+                [1.0, 1.0],
+                [0.0, 2.0],
+                [1.0, 1.0],
+            ],
+            dtype=jnp.float32,
+        )
+
+        result = output_sensitivity_analysis(
+            model,
+            times,
+            observations=observations,
+            n_draws=2,
+            seed=5,
+        )
+
+        assert result.n_draws >= 1
+        assert result.n_observations == 2 * times.shape[0] * spec.n_manifest
+        assert len(result.singular_values) > 0
+        assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
+        assert jnp.isfinite(result.condition_number)
+
+    def test_interval_std_observation_models_produce_finite_sensitivity(self):
+        """Interval-summary standard-deviation channels should produce finite sensitivities."""
+        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.ones((1, 1), dtype=jnp.float32),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_names=["score_std"],
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.4, "sigma": 0.1},
+            diffusion_diag={"sigma": 0.1},
+            manifest_var_diag={"sigma": 0.2},
+            t0_means={"mu": 0.1, "sigma": 0.2},
+            t0_var_diag={"sigma": 0.2},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+        model.observation_support = _make_interval_support_runtime(
+            spec.manifest_names,
+            summary_operators=["std"],
+        )
+        times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+        observations = jnp.array(
+            [
+                [jnp.nan],
+                [0.4],
+                [0.6],
+            ],
+            dtype=jnp.float32,
+        )
+
+        result = output_sensitivity_analysis(
+            model,
+            times,
+            observations=observations,
+            n_draws=2,
+            seed=7,
+        )
+
+        assert result.n_draws >= 1
+        assert result.n_observations == 4
+        assert len(result.singular_values) > 0
+        assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
+        assert jnp.isfinite(result.condition_number)
+
+    def test_interval_discrete_observation_models_raise_unsupported_error(self):
+        """Interval summaries over discrete families should fail explicitly."""
+        from causal_ssm_agent.utils.parametric_id import (
+            OutputSensitivityUnsupportedError,
+            output_sensitivity_analysis,
+        )
+
+        spec = SSMSpec(
+            n_latent=1,
+            n_manifest=1,
+            drift="free",
+            diffusion="diag",
+            lambda_mat=jnp.ones((1, 1), dtype=jnp.float32),
+            manifest_var="diag",
+            t0_means="free",
+            t0_var="diag",
+            manifest_dist=DistributionFamily.ORDERED_LOGISTIC,
+            manifest_link=LinkFunction.CUMULATIVE_LOGIT,
+            manifest_level_counts=[3],
+            manifest_names=["sleep_level"],
+        )
+        priors = SSMPriors(
+            drift_diag={"mu": -0.5, "sigma": 0.1},
+            diffusion_diag={"sigma": 0.15},
+            manifest_var_diag={"sigma": 0.2},
+            obs_ordered_base={"mu": 0.0, "sigma": 0.5},
+            obs_ordered_gaps={"sigma": 0.3},
+            t0_means={"mu": 0.0, "sigma": 0.2},
+            t0_var_diag={"sigma": 0.2},
+        )
+        model = SSMModel(spec, priors, n_particles=50, likelihood="particle")
+        model.observation_support = _make_interval_support_runtime(
+            spec.manifest_names,
+            summary_operators=["mean"],
+        )
+
+        with pytest.raises(OutputSensitivityUnsupportedError, match="mean-parameter likelihood"):
+            output_sensitivity_analysis(
+                model,
+                jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32),
+                observations=jnp.array([[jnp.nan], [1.0], [2.0]], dtype=jnp.float32),
+                n_draws=2,
+                seed=9,
+            )
+
+    def test_skips_nonfinite_prior_draws_instead_of_poisoning_median(self, monkeypatch):
+        """One bad Jacobian draw should not turn the whole sensitivity result into NaN."""
+        from causal_ssm_agent.utils import parametric_id as pid
+
+        model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
+        times = jnp.arange(6, dtype=jnp.float32)
+        context = pid.get_stage4b_sweep_context(model)
+        real_jacobian = context.jacobian_fn
+
+        def fake_jacobian(z_flat, time_grid):
+            if z_flat[0] < 0:
+                return jnp.full((2 * time_grid.shape[0], context.flat_dim), jnp.nan)
+            return real_jacobian(z_flat, time_grid)
+
+        object.__setattr__(context, "jacobian_fn", fake_jacobian)
+
+        def fake_sample_prior_unconstrained(rng_key, registry, prior_state, n_samples):
+            draws = jnp.ones((n_samples, context.flat_dim), dtype=jnp.float32)
+            if n_samples >= 2:
+                draws = draws.at[1, 0].set(-1.0)
+            return draws, rng_key
+
+        monkeypatch.setattr(
+            pid,
+            "sample_prior_unconstrained",
+            fake_sample_prior_unconstrained,
+        )
+
+        result = pid.output_sensitivity_analysis(
+            model,
+            times,
+            n_draws=2,
+            seed=13,
+            sweep_context=context,
+        )
+
+        assert result.n_draws == 1
+        assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
+        assert jnp.isfinite(result.condition_number)
 
     def test_output_sensitivity_counts_only_observed_outputs_when_masked(self):
         """Missing observations should be excluded from the sensitivity output count."""

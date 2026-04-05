@@ -25,12 +25,13 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.optimize
+import jax.scipy.stats as jstats
 import numpy as np
 from jax import lax
 from pydantic import BaseModel
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON
+from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON, PROB_CLIP_MIN
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler, lower_triangle_positions
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.parameterization import (
@@ -149,10 +150,23 @@ def _stage4b_context_key(model: SSMModel) -> tuple[str, ...]:
     spec_fingerprint = hashlib.sha1(
         json.dumps(spec_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+    observation_support = getattr(model, "observation_support", None)
+    support_payload = (
+        None
+        if observation_support is None
+        else {
+            field_name: _normalize_sweep_cache_value(field_value)
+            for field_name, field_value in vars(observation_support).items()
+        }
+    )
+    support_fingerprint = hashlib.sha1(
+        json.dumps(support_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     pf_key = tuple(str(int(v)) for v in np.asarray(model.pf_key).reshape(-1))
     return (
         "stage4b-sweep",
         spec_fingerprint,
+        support_fingerprint,
         str(model.likelihood),
         str(model.n_particles),
         "reparam:none",
@@ -184,12 +198,13 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
     )
 
     def _predict(z_flat, times):
-        return _predict_moments(
+        return _predict_observation_moments(
             z_flat,
             site_runtime.unravel_fn,
             site_runtime.transforms,
             model.spec,
             times,
+            observation_support=getattr(model, "observation_support", None),
             registry=site_runtime.registry,
         )
 
@@ -466,27 +481,419 @@ def _chi_squared_uniformity_pvalue(ranks: jnp.ndarray, max_rank: int, n_bins: in
 # ---------------------------------------------------------------------------
 
 
-def _predict_moments(z_flat, unravel_fn, transforms, spec, times, *, registry=None):
-    """Predicted observation means and variances from unconstrained params.
-
-    Runs Kalman prediction equations (no data update) to propagate state
-    mean and covariance through time. Returns a flat vector of
-    [means_flat, variances_flat] suitable for Jacobian computation.
-
-    Captures both mean-dependent identifiability (drift, lambda, intercepts)
-    and variance-dependent identifiability (diffusion, observation noise).
-    Fully deterministic and JAX-differentiable.
-    """
+def _assemble_sensitivity_measurement_state(
+    z_flat,
+    unravel_fn,
+    transforms,
+    spec,
+    *,
+    registry=None,
+):
+    """Assemble deterministic matrices and observation hyperparameters for one draw."""
     if registry is None:
         registry = build_site_registry(spec)
     unc_dict = unravel_fn(z_flat)
     con_dict = {name: transforms[name](unc_dict[name]) for name in unc_dict}
 
-    # Assemble matrices from constrained parameters (batch dim = 1)
     batched = {k: v[None, ...] for k, v in con_dict.items()}
     det = assemble_deterministics_from_registry(batched, spec, registry)
     det = {k: v[0] for k, v in det.items()}
+    from causal_ssm_agent.models.ssm.model import assemble_sampled_extra_params
 
+    extra_params = assemble_sampled_extra_params(spec, con_dict)
+    return det, extra_params
+
+
+def _response_latent_variance_diag(
+    eta_mean: jnp.ndarray,
+    eta_cov: jnp.ndarray,
+    response_mean: jnp.ndarray,
+    *,
+    obs_kernel,
+    manifest_dists,
+    manifest_links,
+) -> jnp.ndarray:
+    """Approximate latent-induced variance on the observation-mean scale."""
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+
+    unsupported_response_families = {
+        DistributionFamily.ORDERED_LOGISTIC,
+        DistributionFamily.CATEGORICAL,
+    }
+    if not any(dist in unsupported_response_families for dist in manifest_dists):
+        eta_var_diag = jnp.maximum(jnp.diag(eta_cov), 0.0)
+        deriv = []
+        for idx, link in enumerate(manifest_links):
+            eta_j = eta_mean[idx]
+            mean_j = response_mean[idx]
+            if link == LinkFunction.IDENTITY:
+                deriv.append(jnp.asarray(1.0, dtype=eta_mean.dtype))
+            elif link == LinkFunction.LOG:
+                deriv.append(mean_j)
+            elif link == LinkFunction.LOGIT:
+                deriv.append(mean_j * (1.0 - mean_j))
+            elif link == LinkFunction.PROBIT:
+                deriv.append(jstats.norm.pdf(eta_j))
+            elif link == LinkFunction.INVERSE:
+                clipped_eta = jnp.clip(eta_j, min=1e-6)
+                deriv.append(
+                    jnp.where(eta_j > 1e-6, -1.0 / (clipped_eta**2), 0.0).astype(eta_mean.dtype)
+                )
+            else:
+                raise OutputSensitivityUnsupportedError(
+                    f"output sensitivity does not support link={link.value!r}"
+                )
+        deriv_vec = jnp.stack(deriv)
+        return jnp.square(deriv_vec) * eta_var_diag
+
+    response_jacobian = jax.jacfwd(obs_kernel.response_fn)(eta_mean)
+    response_cov = response_jacobian @ eta_cov @ response_jacobian.T
+    return jnp.maximum(jnp.diag(response_cov), 0.0)
+
+
+def _extra_param_at(
+    extra_params: dict,
+    key: str,
+    index: int,
+    default: float,
+) -> jnp.ndarray:
+    """Return one scalar observation hyperparameter, broadcasting shared values."""
+    value = extra_params.get(key, default)
+    value_arr = jnp.asarray(value)
+    if value_arr.ndim == 0:
+        return value_arr
+    return value_arr[index]
+
+
+def _point_observation_noise_var_diag(
+    eta_mean: jnp.ndarray,
+    response_mean: jnp.ndarray,
+    *,
+    manifest_dists,
+    manifest_cov: jnp.ndarray,
+    extra_params: dict,
+    allow_discrete_mean_space: bool,
+) -> jnp.ndarray:
+    """Return diagonal observation noise variances on the emitted observation scale."""
+    from causal_ssm_agent.models.likelihoods.emissions import (
+        categorical_moments,
+        ordered_logistic_moments,
+    )
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    variances = []
+    for idx, dist in enumerate(manifest_dists):
+        mean_j = response_mean[idx]
+        eta_j = eta_mean[idx]
+        if dist in {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}:
+            variances.append(manifest_cov[idx, idx])
+        elif dist == DistributionFamily.POISSON:
+            variances.append(jnp.maximum(mean_j, NUMERICAL_EPSILON))
+        elif dist == DistributionFamily.GAMMA:
+            shape = _extra_param_at(extra_params, "obs_shape", idx, 1.0)
+            mu = jnp.maximum(mean_j, NUMERICAL_EPSILON)
+            variances.append(mu**2 / jnp.maximum(shape, NUMERICAL_EPSILON))
+        elif dist == DistributionFamily.BERNOULLI:
+            p = jnp.clip(mean_j, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
+            variances.append(p * (1.0 - p))
+        elif dist == DistributionFamily.NEGATIVE_BINOMIAL:
+            r = _extra_param_at(extra_params, "obs_r", idx, 5.0)
+            mu = jnp.maximum(mean_j, NUMERICAL_EPSILON)
+            variances.append(mu + mu**2 / jnp.maximum(r, NUMERICAL_EPSILON))
+        elif dist == DistributionFamily.BETA:
+            concentration = _extra_param_at(extra_params, "obs_concentration", idx, 10.0)
+            p = jnp.clip(mean_j, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
+            variances.append(p * (1.0 - p) / (jnp.maximum(concentration, NUMERICAL_EPSILON) + 1.0))
+        elif dist == DistributionFamily.ORDERED_LOGISTIC:
+            if not allow_discrete_mean_space:
+                raise OutputSensitivityUnsupportedError(
+                    "interval-summary sensitivity is not defined for ordered_logistic observations"
+                )
+            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[idx : idx + 1]
+            cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])[idx : idx + 1]
+            _mean, variance = ordered_logistic_moments(
+                jnp.asarray([eta_j]),
+                cutpoints,
+                level_counts,
+            )
+            variances.append(jnp.maximum(variance[0], NUMERICAL_EPSILON))
+        elif dist == DistributionFamily.CATEGORICAL:
+            if not allow_discrete_mean_space:
+                raise OutputSensitivityUnsupportedError(
+                    "interval-summary sensitivity is not defined for categorical observations"
+                )
+            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[idx : idx + 1]
+            intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])[idx : idx + 1]
+            slopes = jnp.asarray(extra_params["obs_cat_slopes"])[idx : idx + 1]
+            _mean, variance = categorical_moments(
+                jnp.asarray([eta_j]),
+                intercepts,
+                slopes,
+                level_counts,
+            )
+            variances.append(jnp.maximum(variance[0], NUMERICAL_EPSILON))
+        else:
+            raise OutputSensitivityUnsupportedError(
+                f"output sensitivity does not support manifest_dist={dist.value!r}"
+            )
+
+    return jnp.stack(variances)
+
+
+def _select_support_slot(stat: jnp.ndarray, emission_slot_indices: jnp.ndarray) -> jnp.ndarray:
+    """Gather one accumulator statistic from the active interval slot."""
+    safe_indices = jnp.clip(emission_slot_indices, 0, stat.shape[-1] - 1)
+    selected = jnp.take_along_axis(
+        stat,
+        jnp.expand_dims(safe_indices, axis=-1),
+        axis=-1,
+    ).squeeze(-1)
+    valid = emission_slot_indices >= 0
+    return jnp.where(valid, selected, jnp.zeros_like(selected))
+
+
+def _reset_support_stat(
+    stat: jnp.ndarray,
+    emission_slot_indices: jnp.ndarray,
+    emit_mask: jnp.ndarray,
+) -> jnp.ndarray:
+    """Reset one accumulator statistic after an interval-summary emission."""
+    safe_indices = jnp.clip(emission_slot_indices, 0, stat.shape[-1] - 1)
+    slot_ids = jnp.arange(stat.shape[-1], dtype=safe_indices.dtype)
+    while slot_ids.ndim < stat.ndim:
+        slot_ids = slot_ids.reshape((1,) * (stat.ndim - 1) + (-1,))
+    reset_mask = jnp.expand_dims(emit_mask > 0.5, axis=-1) & (
+        slot_ids == jnp.expand_dims(safe_indices, axis=-1)
+    )
+    return jnp.where(reset_mask, jnp.zeros_like(stat), stat)
+
+
+def _project_response_moments(
+    response_means: jnp.ndarray,
+    response_vars: jnp.ndarray,
+    observation_operator,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Project response-space first/second moments into emitted observation moments.
+
+    The latent variance projection uses a diagonal approximation in time and a
+    Gaussian moment closure for the squared-response statistics that feed the
+    ``std`` summary operator.
+    """
+    from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+        _COUNT_OPERATOR_CODE,
+        _MEAN_OPERATOR_CODE,
+        _STD_OPERATOR_CODE,
+        _SUM_OPERATOR_CODE,
+    )
+
+    dtype = response_means.dtype
+    if not observation_operator.requires_interval_summary_handling:
+        return (
+            response_means,
+            response_vars,
+            jnp.ones_like(response_means, dtype=dtype),
+        )
+
+    support = observation_operator.observation_support
+    assert support is not None
+    assert observation_operator.summary_operator_codes is not None
+    assert observation_operator.prev_coeffs is not None
+    assert observation_operator.curr_coeffs is not None
+    assert observation_operator.interval_weights is not None
+    assert observation_operator.emission_slots is not None
+
+    T, n_manifest = response_means.shape
+    point_like_mask = observation_operator.point_like_mask(dtype)
+    interval_summary_mask = observation_operator.interval_summary_mask(dtype)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+    summary_codes = observation_operator.summary_operator_codes
+    semantic_mask_0 = point_like_mask + interval_summary_mask * (emission_slots[0] >= 0).astype(dtype)
+
+    if T == 1:
+        return response_means, response_vars, semantic_mask_0[None, :]
+
+    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=dtype)
+    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=dtype)
+    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=dtype)
+    zeros = observation_operator.empty_accumulators(dtype)
+    full_obs_mask = jnp.ones((n_manifest,), dtype=dtype)
+
+    def _second_stats(mean_t: jnp.ndarray, var_t: jnp.ndarray):
+        second_mean = mean_t**2 + var_t
+        second_var = jnp.maximum(2.0 * var_t**2 + 4.0 * mean_t**2 * var_t, 0.0)
+        cov = 2.0 * mean_t * var_t
+        return second_mean, second_var, cov
+
+    weight_zeros = observation_operator.empty_accumulators(dtype)
+
+    def _scan_step_with_weight(carry, inputs):
+        (
+            response_prev,
+            response_var_prev,
+            accum_sum_mean,
+            accum_sum_var,
+            accum_sumsq_mean,
+            accum_sumsq_var,
+            accum_sum_sumsq_cov,
+            accum_weight,
+        ) = carry
+        response_t, response_var_t, prev_coeff_t, curr_coeff_t, weight_t, emission_slots_t = inputs
+
+        response_prev_exp = jnp.expand_dims(response_prev, axis=-1)
+        response_prev_var_exp = jnp.expand_dims(response_var_prev, axis=-1)
+        response_t_exp = jnp.expand_dims(response_t, axis=-1)
+        response_t_var_exp = jnp.expand_dims(response_var_t, axis=-1)
+
+        prev_second_mean, prev_second_var, prev_cov = _second_stats(response_prev, response_var_prev)
+        curr_second_mean, curr_second_var, curr_cov = _second_stats(response_t, response_var_t)
+
+        obs_sum_mean = accum_sum_mean + prev_coeff_t * response_prev_exp + curr_coeff_t * response_t_exp
+        obs_sum_var = (
+            accum_sum_var
+            + prev_coeff_t**2 * response_prev_var_exp
+            + curr_coeff_t**2 * response_t_var_exp
+        )
+        obs_sumsq_mean = (
+            accum_sumsq_mean
+            + prev_coeff_t * jnp.expand_dims(prev_second_mean, axis=-1)
+            + curr_coeff_t * jnp.expand_dims(curr_second_mean, axis=-1)
+        )
+        obs_sumsq_var = (
+            accum_sumsq_var
+            + prev_coeff_t**2 * jnp.expand_dims(prev_second_var, axis=-1)
+            + curr_coeff_t**2 * jnp.expand_dims(curr_second_var, axis=-1)
+        )
+        obs_sum_sumsq_cov = (
+            accum_sum_sumsq_cov
+            + prev_coeff_t**2 * jnp.expand_dims(prev_cov, axis=-1)
+            + curr_coeff_t**2 * jnp.expand_dims(curr_cov, axis=-1)
+        )
+        obs_weight = accum_weight + weight_t
+
+        selected_sum_mean = _select_support_slot(obs_sum_mean, emission_slots_t)
+        selected_sum_var = _select_support_slot(obs_sum_var, emission_slots_t)
+        selected_sumsq_mean = _select_support_slot(obs_sumsq_mean, emission_slots_t)
+        selected_sumsq_var = _select_support_slot(obs_sumsq_var, emission_slots_t)
+        selected_sum_sumsq_cov = _select_support_slot(obs_sum_sumsq_cov, emission_slots_t)
+        selected_weight = _select_support_slot(obs_weight, emission_slots_t)
+        safe_weight = jnp.maximum(selected_weight, NUMERICAL_EPSILON)
+        window_mean = selected_sum_mean / safe_weight
+        window_mean_var = selected_sum_var / (safe_weight**2)
+        window_second_mean = selected_sumsq_mean / safe_weight
+        std_arg = jnp.maximum(window_second_mean - window_mean**2, NUMERICAL_EPSILON)
+        std_mean = jnp.sqrt(std_arg)
+        d_std_d_sum = -window_mean / (std_mean * safe_weight)
+        d_std_d_sumsq = 1.0 / (2.0 * std_mean * safe_weight)
+        std_var = (
+            d_std_d_sum**2 * selected_sum_var
+            + d_std_d_sumsq**2 * selected_sumsq_var
+            + 2.0 * d_std_d_sum * d_std_d_sumsq * selected_sum_sumsq_cov
+        )
+        std_var = jnp.maximum(std_var, 0.0)
+
+        expected_mean = response_t
+        latent_var = response_var_t
+        sum_like = jnp.logical_or(
+            summary_codes == _SUM_OPERATOR_CODE,
+            summary_codes == _COUNT_OPERATOR_CODE,
+        )
+        expected_mean = jnp.where(sum_like, selected_sum_mean, expected_mean)
+        latent_var = jnp.where(sum_like, selected_sum_var, latent_var)
+        expected_mean = jnp.where(summary_codes == _MEAN_OPERATOR_CODE, window_mean, expected_mean)
+        latent_var = jnp.where(summary_codes == _MEAN_OPERATOR_CODE, window_mean_var, latent_var)
+        expected_mean = jnp.where(summary_codes == _STD_OPERATOR_CODE, std_mean, expected_mean)
+        latent_var = jnp.where(summary_codes == _STD_OPERATOR_CODE, std_var, latent_var)
+
+        emitted_interval_summary_mask = (
+            full_obs_mask * interval_summary_mask * (emission_slots_t >= 0).astype(dtype)
+        )
+        semantic_mask = point_like_mask + emitted_interval_summary_mask
+
+        next_sum_mean = _reset_support_stat(obs_sum_mean, emission_slots_t, emitted_interval_summary_mask)
+        next_sum_var = _reset_support_stat(obs_sum_var, emission_slots_t, emitted_interval_summary_mask)
+        next_sumsq_mean = _reset_support_stat(obs_sumsq_mean, emission_slots_t, emitted_interval_summary_mask)
+        next_sumsq_var = _reset_support_stat(obs_sumsq_var, emission_slots_t, emitted_interval_summary_mask)
+        next_sum_sumsq_cov = _reset_support_stat(
+            obs_sum_sumsq_cov,
+            emission_slots_t,
+            emitted_interval_summary_mask,
+        )
+        next_weight = _reset_support_stat(obs_weight, emission_slots_t, emitted_interval_summary_mask)
+
+        return (
+            response_t,
+            response_var_t,
+            next_sum_mean,
+            next_sum_var,
+            next_sumsq_mean,
+            next_sumsq_var,
+            next_sum_sumsq_cov,
+            next_weight,
+        ), (
+            expected_mean,
+            latent_var,
+            semantic_mask,
+        )
+
+    _, (expected_rest, latent_var_rest, semantic_mask_rest) = lax.scan(
+        _scan_step_with_weight,
+        (
+            response_means[0],
+            response_vars[0],
+            zeros,
+            zeros,
+            zeros,
+            zeros,
+            zeros,
+            weight_zeros,
+        ),
+        (
+            response_means[1:],
+            response_vars[1:],
+            prev_coeffs[1:],
+            curr_coeffs[1:],
+            interval_weights[1:],
+            emission_slots[1:],
+        ),
+    )
+
+    return (
+        jnp.concatenate([response_means[0][None, :], expected_rest], axis=0),
+        jnp.concatenate([response_vars[0][None, :], latent_var_rest], axis=0),
+        jnp.concatenate([semantic_mask_0[None, :], semantic_mask_rest], axis=0),
+    )
+
+
+def _build_sensitivity_measurement_semantics(
+    spec,
+    *,
+    manifest_cov: jnp.ndarray,
+    extra_params: dict,
+    observation_support,
+):
+    """Compile measurement semantics for the observation-space sensitivity map."""
+    from causal_ssm_agent.models.likelihoods.kernels import compile_measurement_semantics
+
+    return compile_measurement_semantics(
+        manifest_dist=spec.manifest_dist,
+        manifest_cov=manifest_cov,
+        extra_params=extra_params or None,
+        manifest_dists=spec.manifest_dists,
+        manifest_link=spec.manifest_link,
+        manifest_links=spec.manifest_links,
+        observation_support=observation_support,
+    )
+
+
+def _predict_observation_components(
+    det: dict[str, jnp.ndarray],
+    extra_params: dict,
+    spec,
+    times: jnp.ndarray,
+    *,
+    observation_support=None,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Predict emitted observation means plus latent and observation-noise variances."""
     n_l, n_m = spec.n_latent, spec.n_manifest
 
     drift = det.get("drift", jnp.zeros((n_l, n_l)))
@@ -495,48 +902,151 @@ def _predict_moments(z_flat, unravel_fn, transforms, spec, times, *, registry=No
     t0_means = det.get("t0_means", jnp.zeros(n_l))
     t0_cov = det.get("t0_cov", jnp.eye(n_l))
     manifest_cov = det.get("manifest_cov", jnp.eye(n_m))
+    manifest_means = det.get("manifest_means", jnp.zeros(n_m))
 
-    # Lambda: may be in det (free) or fixed in spec
     lambda_val = det.get("lambda")
     if lambda_val is None:
         lambda_val = (
             spec.lambda_mat if isinstance(spec.lambda_mat, jnp.ndarray) else jnp.eye(n_m, n_l)
         )
 
-    # Always provide cint for JAX-traceability
     cint = det.get("cint", jnp.zeros(n_l))
+    measurement_semantics = _build_sensitivity_measurement_semantics(
+        spec,
+        manifest_cov=manifest_cov,
+        extra_params=extra_params,
+        observation_support=observation_support,
+    )
+    obs_kernel = measurement_semantics.obs_kernel
+    observation_operator = measurement_semantics.observation_operator
 
-    # Discretize CT → DT
+    def _point_moments(x_mean: jnp.ndarray, state_cov: jnp.ndarray):
+        eta_mean = lambda_val @ x_mean + manifest_means
+        eta_cov = lambda_val @ state_cov @ lambda_val.T
+        response_mean = obs_kernel.response_fn(eta_mean)
+        response_latent_var = _response_latent_variance_diag(
+            eta_mean,
+            eta_cov,
+            response_mean,
+            obs_kernel=obs_kernel,
+            manifest_dists=measurement_semantics.manifest_dists,
+            manifest_links=measurement_semantics.manifest_links,
+        )
+        point_obs_noise_var = _point_observation_noise_var_diag(
+            eta_mean,
+            response_mean,
+            manifest_dists=measurement_semantics.manifest_dists,
+            manifest_cov=manifest_cov,
+            extra_params=extra_params,
+            allow_discrete_mean_space=True,
+        )
+        return eta_mean, response_mean, response_latent_var, point_obs_noise_var
+
     dt_array = jnp.diff(times)
     Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
 
-    # Initial observation statistics
-    x_0 = t0_means
-    P_0 = t0_cov
-    y_mean_0 = lambda_val @ x_0
-    y_var_0 = jnp.diag(lambda_val @ P_0 @ lambda_val.T + manifest_cov)
+    _eta_mean_0, response_mean_0, response_latent_var_0, point_obs_noise_var_0 = _point_moments(
+        t0_means,
+        t0_cov,
+    )
 
-    # Propagate state mean and covariance through time
     def scan_fn(carry, inputs):
         x_m, P = carry
         Ad_t, Qd_t, cd_t = inputs
 
-        # State prediction
         x_m_next = Ad_t @ x_m + cd_t
         P_next = Ad_t @ P @ Ad_t.T + Qd_t
+        return (x_m_next, P_next), _point_moments(x_m_next, P_next)
 
-        # Observation statistics
-        y_m = lambda_val @ x_m_next
-        y_v = jnp.diag(lambda_val @ P_next @ lambda_val.T + manifest_cov)
+    _, (
+        _eta_means_rest,
+        response_means_rest,
+        response_latent_vars_rest,
+        point_obs_noise_vars_rest,
+    ) = lax.scan(
+        scan_fn,
+        (t0_means, t0_cov),
+        (Ad, Qd, cd),
+    )
 
-        return (x_m_next, P_next), (y_m, y_v)
+    response_means = jnp.concatenate([response_mean_0[None, :], response_means_rest], axis=0)
+    response_latent_vars = jnp.concatenate(
+        [response_latent_var_0[None, :], response_latent_vars_rest],
+        axis=0,
+    )
+    point_obs_noise_vars = jnp.concatenate(
+        [point_obs_noise_var_0[None, :], point_obs_noise_vars_rest],
+        axis=0,
+    )
 
-    _, (y_means_rest, y_vars_rest) = lax.scan(scan_fn, (x_0, P_0), (Ad, Qd, cd))
+    emitted_means, emitted_latent_vars, semantic_mask = _project_response_moments(
+        response_means,
+        response_latent_vars,
+        observation_operator,
+    )
 
-    y_means = jnp.concatenate([y_mean_0[None, :], y_means_rest], axis=0)
-    y_vars = jnp.concatenate([y_var_0[None, :], y_vars_rest], axis=0)
+    if observation_operator.requires_interval_summary_handling:
+        point_like_mask = jnp.broadcast_to(
+            observation_operator.point_like_mask(emitted_means.dtype),
+            emitted_means.shape,
+        )
+        interval_emission_mask = jnp.maximum(semantic_mask - point_like_mask, 0.0)
+        summary_obs_noise_vars = jax.vmap(
+            lambda mean_t: _point_observation_noise_var_diag(
+                mean_t,
+                mean_t,
+                manifest_dists=measurement_semantics.manifest_dists,
+                manifest_cov=manifest_cov,
+                extra_params=extra_params,
+                allow_discrete_mean_space=False,
+            )
+        )(emitted_means)
+        emitted_obs_noise_vars = (
+            point_obs_noise_vars * point_like_mask
+            + summary_obs_noise_vars * interval_emission_mask
+        )
+    else:
+        emitted_obs_noise_vars = point_obs_noise_vars
+        semantic_mask = jnp.ones_like(emitted_means, dtype=emitted_means.dtype)
 
-    return jnp.concatenate([y_means.reshape(-1), y_vars.reshape(-1)])
+    return emitted_means, emitted_latent_vars, emitted_obs_noise_vars, semantic_mask
+
+
+def _predict_observation_moments(
+    z_flat,
+    unravel_fn,
+    transforms,
+    spec,
+    times,
+    *,
+    observation_support=None,
+    registry=None,
+):
+    """Predicted observation-space means and variances from unconstrained params.
+
+    Runs the latent Kalman prediction equations, maps latent predictors through
+    the configured observation families and interval-summary semantics, and
+    returns a flat vector of [means_flat, variances_flat] suitable for Jacobian
+    computation.
+    """
+    det, extra_params = _assemble_sensitivity_measurement_state(
+        z_flat,
+        unravel_fn,
+        transforms,
+        spec,
+        registry=registry,
+    )
+    emitted_means, emitted_latent_vars, emitted_obs_noise_vars, _semantic_mask = (
+        _predict_observation_components(
+            det,
+            extra_params,
+            spec,
+            times,
+            observation_support=observation_support,
+        )
+    )
+    total_emitted_var = emitted_latent_vars + emitted_obs_noise_vars
+    return jnp.concatenate([emitted_means.reshape(-1), total_emitted_var.reshape(-1)])
 
 
 @dataclass
@@ -572,12 +1082,45 @@ class OutputSensitivityResult:
         logger.info("\n%s", "\n".join(lines))
 
 
-def _build_sensitivity_output_mask(observations: jnp.ndarray | None) -> np.ndarray | None:
-    """Return a row mask that keeps only actually observed mean/variance outputs."""
-    if observations is None:
+class OutputSensitivityUnsupportedError(ValueError):
+    """Raised when the observation-space Stage 4b map is not valid for a model."""
+
+
+def _observation_semantic_mask(
+    spec: SSMSpec,
+    times: jnp.ndarray,
+    observation_support,
+) -> np.ndarray | None:
+    """Return the support-aware emission mask aligned to the model time grid."""
+    from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+        compile_observation_operator,
+    )
+
+    observation_operator = compile_observation_operator(observation_support)
+    if not observation_operator.requires_interval_summary_handling:
         return None
 
-    obs_mask = ~np.isnan(np.asarray(observations))
+    _, semantic_mask = observation_operator.project_response_trajectory(
+        jnp.zeros((times.shape[0], spec.n_manifest), dtype=jnp.float32)
+    )
+    return np.asarray(semantic_mask > 0.5)
+
+
+def _build_sensitivity_output_mask(
+    observations: jnp.ndarray | None,
+    *,
+    semantic_mask: np.ndarray | None = None,
+) -> np.ndarray | None:
+    """Return a row mask that keeps only semantically emitted observed outputs."""
+    if observations is None and semantic_mask is None:
+        return None
+
+    if observations is None:
+        obs_mask = np.asarray(semantic_mask, dtype=bool)
+    else:
+        obs_mask = ~np.isnan(np.asarray(observations))
+        if semantic_mask is not None:
+            obs_mask = obs_mask & np.asarray(semantic_mask, dtype=bool)
     flat_mask = obs_mask.reshape(-1)
     return np.concatenate([flat_mask, flat_mask])
 
@@ -591,6 +1134,39 @@ def _spectral_svd_from_gram(S: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     singular_values = jnp.sqrt(eigvals[order])
     right_singular_vectors = eigvecs[:, order]
     return singular_values, right_singular_vectors
+
+
+def _validate_output_sensitivity_supported(model: SSMModel) -> None:
+    """Validate preconditions for the observation-space sensitivity map."""
+    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+
+    observation_support = getattr(model, "observation_support", None)
+    if observation_support is None or not observation_support.requires_interval_summary_handling:
+        return
+
+    manifest_dists = model.spec.manifest_dists or [model.spec.manifest_dist] * model.spec.n_manifest
+    manifest_names = _axis_names(
+        model.spec.manifest_names,
+        expected=model.spec.n_manifest,
+        prefix="manifest",
+    )
+    unsupported_interval_families = {
+        DistributionFamily.ORDERED_LOGISTIC,
+        DistributionFamily.CATEGORICAL,
+    }
+    unsupported_manifests = [
+        manifest_names[idx]
+        for idx, (support_kind, dist) in enumerate(
+            zip(observation_support.support_kinds, manifest_dists, strict=False)
+        )
+        if support_kind == "interval" and dist in unsupported_interval_families
+    ]
+    if unsupported_manifests:
+        unsupported = ", ".join(unsupported_manifests)
+        raise OutputSensitivityUnsupportedError(
+            "interval-summary sensitivity requires observation families with a "
+            f"mean-parameter likelihood; unsupported interval manifests: {unsupported}"
+        )
 
 
 def _split_scalar_parameter_name(parameter: str) -> tuple[str, int]:
@@ -723,6 +1299,7 @@ def output_sensitivity_analysis(
     Returns:
         OutputSensitivityResult with SVD spectrum and per-parameter flags
     """
+    _validate_output_sensitivity_supported(model)
     rng_key = random.PRNGKey(seed)
     T_obs = times.shape[0]
     context = sweep_context or get_stage4b_sweep_context(model)
@@ -732,6 +1309,11 @@ def output_sensitivity_analysis(
     P = context.flat_dim
     scalar_names = context.scalar_names
     prior_state = model.get_prior_runtime_bundle().prior_state
+    semantic_mask = _observation_semantic_mask(
+        context.spec,
+        times,
+        getattr(model, "observation_support", None),
+    )
 
     # 3. Sample from prior (Jacobian draws + larger batch for prior std)
     prior_z, rng_key = sample_prior_unconstrained(
@@ -751,21 +1333,28 @@ def output_sensitivity_analysis(
     # Guard against degenerate priors (zero std)
     prior_std = jnp.maximum(prior_std, NUMERICAL_EPSILON)
 
-    output_mask = _build_sensitivity_output_mask(observations)
+    output_mask = _build_sensitivity_output_mask(observations, semantic_mask=semantic_mask)
     N_out = int(output_mask.sum()) if output_mask is not None else 2 * T_obs * n_manifest
 
-    # Helper to extract manifest_cov for a given parameter vector
+    # Helper to extract family-aware observation noise scales for a given parameter vector
     def _get_obs_noise_scales(z_0):
-        unc_dict = context.unravel_fn(z_0)
-        con_dict = {name: context.transforms[name](unc_dict[name]) for name in unc_dict}
-        batched = {k: v[None, ...] for k, v in con_dict.items()}
-        det = assemble_deterministics_from_registry(batched, context.spec, context.registry)
-        det = {k: v[0] for k, v in det.items()}
-        manifest_cov = det.get("manifest_cov", jnp.eye(n_manifest))
-        obs_sd = jnp.sqrt(jnp.diag(manifest_cov))
-        # Row scales: obs noise SD for mean rows, obs noise variance for var rows
-        mean_scales = jnp.tile(obs_sd, T_obs)
-        var_scales = jnp.tile(obs_sd**2, T_obs)
+        det, extra_params = _assemble_sensitivity_measurement_state(
+            z_0,
+            context.unravel_fn,
+            context.transforms,
+            context.spec,
+            registry=context.registry,
+        )
+        _projected_means, _latent_vars, obs_noise_var, _semantic = _predict_observation_components(
+            det,
+            extra_params,
+            context.spec,
+            times,
+            observation_support=getattr(model, "observation_support", None),
+        )
+        obs_noise_sd = jnp.sqrt(jnp.maximum(obs_noise_var, NUMERICAL_EPSILON))
+        mean_scales = obs_noise_sd.reshape(-1)
+        var_scales = jnp.maximum(obs_noise_var.reshape(-1), NUMERICAL_EPSILON)
         return jnp.concatenate([mean_scales, var_scales])
 
     # Helper to compute per-parameter effective SVs from V matrix and sv vector
@@ -785,17 +1374,25 @@ def output_sensitivity_analysis(
     all_col_norms = []
     all_effective_sv = []
     all_norm_effective_sv = []  # normalized effective SVs
+    skipped_nonfinite_draws = 0
 
     for i in range(n_draws):
         z_0 = prior_z[i]
         S = context.jacobian_fn(z_0, times)  # (N_out, P) sensitivity matrix
         if output_mask is not None:
             S = S[output_mask]
+        if not bool(jnp.all(jnp.isfinite(S))):
+            skipped_nonfinite_draws += 1
+            continue
 
         # --- Raw SVD ---
         sv, V = _spectral_svd_from_gram(S)
+        col_norms = jnp.linalg.norm(S, axis=0)
+        if not bool(jnp.all(jnp.isfinite(sv))) or not bool(jnp.all(jnp.isfinite(col_norms))):
+            skipped_nonfinite_draws += 1
+            continue
         all_sv.append(sv)
-        all_col_norms.append(jnp.linalg.norm(S, axis=0))
+        all_col_norms.append(col_norms)
         all_effective_sv.append(_per_param_effective_sv(V, sv))
 
         # --- Normalized SVD ---
@@ -804,9 +1401,32 @@ def output_sensitivity_analysis(
         if output_mask is not None:
             row_scales = row_scales[output_mask]
         row_scales = jnp.maximum(row_scales, NUMERICAL_EPSILON)
+        if not bool(jnp.all(jnp.isfinite(row_scales))):
+            skipped_nonfinite_draws += 1
+            all_sv.pop()
+            all_col_norms.pop()
+            all_effective_sv.pop()
+            continue
         S_norm = (prior_std[None, :] / row_scales[:, None]) * S
         sv_n, V_n = _spectral_svd_from_gram(S_norm)
+        if not bool(jnp.all(jnp.isfinite(S_norm))) or not bool(jnp.all(jnp.isfinite(sv_n))):
+            skipped_nonfinite_draws += 1
+            all_sv.pop()
+            all_col_norms.pop()
+            all_effective_sv.pop()
+            continue
         all_norm_effective_sv.append(_per_param_effective_sv(V_n, sv_n))
+
+    if not all_sv:
+        raise RuntimeError(
+            "output sensitivity analysis produced no finite prior draws after screening"
+        )
+    if skipped_nonfinite_draws:
+        logger.warning(
+            "Output sensitivity analysis skipped %d/%d non-finite prior draws",
+            skipped_nonfinite_draws,
+            n_draws,
+        )
 
     sv_matrix = jnp.stack(all_sv)  # (n_draws, rank)
     col_norm_matrix = jnp.stack(all_col_norms)  # (n_draws, P)
@@ -866,7 +1486,7 @@ def output_sensitivity_analysis(
         singular_values=[float(v) for v in median_sv],
         condition_number=condition_number,
         per_parameter=per_param,
-        n_draws=n_draws,
+        n_draws=len(all_sv),
         n_observations=N_out,
         n_parameters=P,
     )
