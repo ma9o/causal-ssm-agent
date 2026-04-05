@@ -365,13 +365,14 @@ def _infer_support_groups(
     observation_support: ObservationSupportRuntime,
 ) -> tuple[SupportObservationWindowBatch, int]:
     """Compile anchored non-point observation windows into a padded window table."""
+    anchor_times = np.asarray(observation_support.anchor_times)
     support_kind_codes = np.asarray(get_support_kind_codes(observation_support))
+    support_start_times = np.asarray(observation_support.support_start_times)
     prev_coeffs = np.asarray(observation_support.interval_prev_coeffs)
     curr_coeffs = np.asarray(observation_support.interval_curr_coeffs)
     weights = np.asarray(observation_support.interval_weights)
     emission_slots = np.asarray(observation_support.emission_slot_indices)
     T, n_manifest = emission_slots.shape
-    tol = 1e-10
 
     compiled_windows: list[
         tuple[int, int, int, np.ndarray, np.ndarray, np.ndarray, np.ndarray]
@@ -388,17 +389,20 @@ def _infer_support_groups(
         if not manifests:
             continue
 
+        manifest_windows: list[tuple[int, int, int]] = []
         start_idx = anchor_idx
         for manifest_idx in manifests:
             slot_idx = int(emission_slots[anchor_idx, manifest_idx])
-            active_steps = np.where(
-                np.abs(prev_coeffs[: anchor_idx + 1, manifest_idx, slot_idx])
-                + np.abs(curr_coeffs[: anchor_idx + 1, manifest_idx, slot_idx])
-                + np.abs(weights[: anchor_idx + 1, manifest_idx, slot_idx])
-                > tol
-            )[0]
-            if active_steps.size > 0:
-                start_idx = min(start_idx, int(active_steps.min()) - 1)
+            support_start = float(support_start_times[anchor_idx, manifest_idx])
+            if not np.isfinite(support_start):
+                raise ValueError(
+                    "Support-aware Laplace requires finite support_start metadata "
+                    f"for emitted interval observation manifest={manifest_idx} anchor_idx={anchor_idx}."
+                )
+            local_start_idx = int(np.searchsorted(anchor_times, support_start, side="right") - 1)
+            local_start_idx = max(local_start_idx, 0)
+            start_idx = min(start_idx, local_start_idx)
+            manifest_windows.append((manifest_idx, slot_idx, local_start_idx))
 
         start_idx = max(start_idx, 0)
         max_bandwidth = max(max_bandwidth, anchor_idx - start_idx)
@@ -409,16 +413,25 @@ def _infer_support_groups(
         group_prev = np.zeros((segment_len, n_manifest), dtype=np.float32)
         group_curr = np.zeros((segment_len, n_manifest), dtype=np.float32)
         group_weights = np.zeros((segment_len, n_manifest), dtype=np.float32)
-        for manifest_idx in manifests:
-            slot_idx = int(emission_slots[anchor_idx, manifest_idx])
-            group_prev[:, manifest_idx] = prev_coeffs[
-                start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
+        for manifest_idx, slot_idx, local_start_idx in manifest_windows:
+            offset = local_start_idx - start_idx
+            local_segment_len = anchor_idx - local_start_idx
+            if local_segment_len <= 0:
+                continue
+            group_prev[offset : offset + local_segment_len, manifest_idx] = prev_coeffs[
+                local_start_idx + 1 : anchor_idx + 1,
+                manifest_idx,
+                slot_idx,
             ]
-            group_curr[:, manifest_idx] = curr_coeffs[
-                start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
+            group_curr[offset : offset + local_segment_len, manifest_idx] = curr_coeffs[
+                local_start_idx + 1 : anchor_idx + 1,
+                manifest_idx,
+                slot_idx,
             ]
-            group_weights[:, manifest_idx] = weights[
-                start_idx + 1 : anchor_idx + 1, manifest_idx, slot_idx
+            group_weights[offset : offset + local_segment_len, manifest_idx] = weights[
+                local_start_idx + 1 : anchor_idx + 1,
+                manifest_idx,
+                slot_idx,
             ]
         state_len = anchor_idx - start_idx + 1
         max_state_len = max(max_state_len, state_len)
@@ -1116,12 +1129,30 @@ def _dense_support_laplace_log_lik(
 
     z_flat = z_init.reshape(-1)
     with jax.named_scope("laplace_em/dense_support_newton"):
+        best_z = z_flat
+        best_neg = _neg_log_prob(z_flat)
         for _ in range(max(n_newton_iters, 1)):
             grad = jax.grad(_neg_log_prob)(z_flat)
             hess = jax.hessian(_neg_log_prob)(z_flat)
             hess = 0.5 * (hess + hess.T) + 1e-4 * eye
             step = jla.solve(hess, grad, assume_a="sym")
-            z_flat = z_flat - 0.5 * step
+            # Backtracking: halve the step until the objective improves or
+            # the step is too small.  Prevents the Newton iterate from
+            # overshooting into numerically unstable regions.
+            alpha = 1.0
+            for _bt in range(6):
+                z_cand = z_flat - alpha * step
+                neg_cand = _neg_log_prob(z_cand)
+                improved = jnp.isfinite(neg_cand) & (neg_cand < best_neg + 1.0)
+                z_flat = jnp.where(improved, z_cand, z_flat)
+                best_neg = jnp.where(improved, neg_cand, best_neg)
+                alpha *= 0.5
+            best_z = jnp.where(
+                jnp.isfinite(best_neg) & (best_neg <= _neg_log_prob(best_z)),
+                z_flat,
+                best_z,
+            )
+        z_flat = best_z
 
     with jax.named_scope("laplace_em/dense_support_curvature"):
         mode_log_joint = _joint_log_prob(z_flat)

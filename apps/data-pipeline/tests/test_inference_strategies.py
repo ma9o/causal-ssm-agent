@@ -55,6 +55,7 @@ from causal_ssm_agent.models.ssm.laplace_em import (
     _build_ieks_system,
     _dense_support_laplace_log_lik,
     _ieks_smooth,
+    _infer_support_groups,
     _should_use_dense_support_laplace,
     _solve_block_tridiagonal,
 )
@@ -613,6 +614,28 @@ class TestStructuredVISupportAware:
 
 
 class TestLaplaceSupportAware:
+    def test_infer_support_groups_ignores_reused_slot_history(self):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0]),
+            manifest_names=["avg_signal"],
+            support_kinds=["interval"],
+            observation_windows=["1d"],
+            support_start_times=np.array([[np.nan], [0.0], [np.nan], [2.0], [np.nan], [4.0]]),
+            support_end_times=np.array([[np.nan], [1.0], [np.nan], [3.0], [np.nan], [5.0]]),
+            interval_prev_coeffs=np.array([[0.0], [0.5], [0.0], [0.5], [0.0], [0.5]]),
+            interval_curr_coeffs=np.array([[0.0], [0.5], [0.0], [0.5], [0.0], [0.5]]),
+            interval_weights=np.array([[0.0], [1.0], [0.0], [1.0], [0.0], [1.0]]),
+            emission_slot_indices=np.array([[-1], [0], [-1], [0], [-1], [0]], dtype=np.int32),
+        )
+
+        windows, bandwidth = _infer_support_groups(support)
+
+        np.testing.assert_array_equal(np.asarray(windows.anchor_indices), np.array([1, 3, 5]))
+        np.testing.assert_array_equal(np.asarray(windows.start_indices), np.array([0, 2, 4]))
+        np.testing.assert_array_equal(np.asarray(windows.state_lens), np.array([2, 2, 2]))
+        assert windows.max_state_len == 2
+        assert bandwidth == 1
+
     def test_dense_support_path_threshold_matches_smallgolden_regime(self):
         assert _should_use_dense_support_laplace(n_time=10, n_latent=12) is True
         assert _should_use_dense_support_laplace(n_time=20, n_latent=12) is False
