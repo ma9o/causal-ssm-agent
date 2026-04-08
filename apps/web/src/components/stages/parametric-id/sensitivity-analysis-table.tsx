@@ -41,7 +41,7 @@ const columns = [
     header: () => (
       <HeaderWithTooltip
         label="Sensitivity"
-        tooltip="Output sensitivity norm: the L2 norm of the Jacobian column for this parameter. Measures how much predicted observations change when this parameter is perturbed. Higher values indicate stronger identifiability from data."
+        tooltip="Output sensitivity norm: the L2 norm of the Jacobian column for this parameter. Measures how much the emitted-observation moment summary changes when this parameter is perturbed. Higher values indicate stronger identifiability from data."
       />
     ),
     cell: (info) => formatNumber(info.getValue(), 4),
@@ -86,7 +86,7 @@ export function SensitivityAnalysisTable({
         <CardContent className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 py-3 text-sm">
           <span className="inline-flex items-center gap-1.5 font-medium">
             Sensitivity Analysis
-            <StatTooltip explanation="Output sensitivity analysis checks structural identifiability by computing how predicted observations change with each parameter. Uses the Jacobian of the forward model evaluated at multiple prior draws, then SVD to detect aliased parameter directions." />
+            <StatTooltip explanation="Output sensitivity analysis checks structural identifiability by computing how the emitted-observation moment summary changes with each parameter. Uses the Jacobian of means, same-row covariance entries, and adjacent-row lagged cross-covariance entries evaluated at multiple prior draws, then SVD to detect aliased parameter directions." />
           </span>
 
           <span className="inline-flex items-center gap-1 text-muted-foreground">

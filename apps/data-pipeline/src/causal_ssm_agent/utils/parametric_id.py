@@ -48,6 +48,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     build_site_runtime_bundle,
     sample_prior_unconstrained,
 )
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -342,7 +343,7 @@ def simulate_ssm(
     rng_key: jnp.ndarray,
     cint: jnp.ndarray | None = None,
     manifest_means: jnp.ndarray | None = None,
-    manifest_dist: str = "gaussian",
+    manifest_dists: list[DistributionFamily | str] | None = None,
 ) -> jnp.ndarray:
     """Generate synthetic observations from constrained SSM parameters.
 
@@ -360,7 +361,8 @@ def simulate_ssm(
         rng_key: JAX PRNG key
         cint: (n_latent,) continuous intercept (optional)
         manifest_means: (n_manifest,) manifest intercepts (optional)
-        manifest_dist: observation noise family ("gaussian" or "poisson")
+        manifest_dists: per-channel observation families. Currently supports
+            Gaussian and Poisson channels.
 
     Returns:
         observations: (T, n_manifest) simulated data
@@ -386,19 +388,59 @@ def simulate_ssm(
     if manifest_means is None:
         manifest_means = jnp.zeros(n_manifest)
 
+    resolved_manifest_dists = (
+        [
+            dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+            for dist in manifest_dists
+        ]
+        if manifest_dists is not None
+        else [DistributionFamily.GAUSSIAN] * n_manifest
+    )
+    if len(resolved_manifest_dists) != n_manifest:
+        raise ValueError(
+            "manifest_dists length must match n_manifest: "
+            f"{len(resolved_manifest_dists)} vs {n_manifest}"
+        )
+    unsupported_manifest_dists = sorted(
+        {
+            dist.value
+            for dist in resolved_manifest_dists
+            if dist not in {DistributionFamily.GAUSSIAN, DistributionFamily.POISSON}
+        }
+    )
+    if unsupported_manifest_dists:
+        raise ValueError(
+            "simulate_ssm only supports gaussian/poisson manifest_dists. "
+            f"Got {unsupported_manifest_dists}."
+        )
+    poisson_mask = [dist == DistributionFamily.POISSON for dist in resolved_manifest_dists]
+    poisson_mask_array = jnp.asarray(poisson_mask, dtype=bool)
+    all_gaussian = not any(poisson_mask)
+
     # Sample initial state
     rng_key, init_key = random.split(rng_key)
     t0_chol_safe = jnp.linalg.cholesky(t0_cov + jnp.eye(n_latent) * CHOL_JITTER)
     x_0 = t0_means + t0_chol_safe @ random.normal(init_key, (n_latent,))
 
+    if all_gaussian:
+        manifest_chol_safe = jnp.linalg.cholesky(manifest_cov + jnp.eye(n_manifest) * CHOL_JITTER)
+
+        def _sample_observation(key: jnp.ndarray, mean: jnp.ndarray) -> jnp.ndarray:
+            return mean + manifest_chol_safe @ random.normal(key, (n_manifest,))
+
+    else:
+        manifest_sd = jnp.sqrt(jnp.maximum(jnp.diag(manifest_cov), CHOL_JITTER))
+
+        def _sample_observation(key: jnp.ndarray, mean: jnp.ndarray) -> jnp.ndarray:
+            gaussian_key, poisson_key = random.split(key)
+            gaussian_obs = mean + manifest_sd * random.normal(gaussian_key, (n_manifest,))
+            poisson_obs = random.poisson(poisson_key, jax.nn.softplus(mean)).astype(jnp.float32)
+            return jnp.where(poisson_mask_array, poisson_obs, gaussian_obs)
+
     # First observation from x_0
     rng_key, obs_key = random.split(rng_key)
     mu_0 = lambda_mat @ x_0 + manifest_means
-    if manifest_dist == "poisson":
-        y_0 = random.poisson(obs_key, jax.nn.softplus(mu_0)).astype(jnp.float32)
-    else:
-        manifest_chol_safe = jnp.linalg.cholesky(manifest_cov + jnp.eye(n_manifest) * CHOL_JITTER)
-        y_0 = mu_0 + manifest_chol_safe @ random.normal(obs_key, (n_manifest,))
+    y_0 = _sample_observation(obs_key, mu_0)
 
     # Scan over remaining timesteps
     def scan_fn(carry, inputs):
@@ -414,10 +456,7 @@ def simulate_ssm(
 
         # Observation
         mu_t = lambda_mat @ x_t + manifest_means
-        if manifest_dist == "poisson":
-            y_t = random.poisson(obs_key, jax.nn.softplus(mu_t)).astype(jnp.float32)
-        else:
-            y_t = mu_t + manifest_chol_safe @ random.normal(obs_key, (n_manifest,))
+        y_t = _sample_observation(obs_key, mu_t)
 
         return (x_t, rng), y_t
 
@@ -448,11 +487,6 @@ def _simulate_from_params(con_dict, spec, times, rng_key, *, registry=None):
     )
     det = {k: v[0] for k, v in det.items()}
     n_l, n_m = spec.n_latent, spec.n_manifest
-    if len(set(spec.manifest_dists)) != 1:
-        raise ValueError(
-            "simulate_ssm only supports homogeneous manifest_dists. "
-            f"Got {spec.manifest_dists}."
-        )
     return simulate_ssm(
         drift=det.get("drift", jnp.zeros((n_l, n_l))),
         diffusion_chol=det.get("diffusion", jnp.eye(n_l)),
@@ -465,7 +499,7 @@ def _simulate_from_params(con_dict, spec, times, rng_key, *, registry=None):
         times=times,
         rng_key=rng_key,
         cint=det.get("cint"),
-        manifest_dist=spec.manifest_dists[0].value,
+        manifest_dists=[dist.value for dist in spec.manifest_dists],
     )
 
 
@@ -560,6 +594,59 @@ def _response_latent_variance_diag(
     return jnp.maximum(jnp.diag(response_cov), 0.0)
 
 
+def _symmetrize_covariance(cov: jnp.ndarray) -> jnp.ndarray:
+    """Numerically symmetrize one covariance-like matrix."""
+    return 0.5 * (cov + cov.T)
+
+
+def _response_latent_covariance(
+    eta_mean: jnp.ndarray,
+    eta_cov: jnp.ndarray,
+    *,
+    obs_kernel,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Approximate response-scale covariance and Jacobian at one predictor mean."""
+    response_jacobian = jax.jacfwd(obs_kernel.response_fn)(eta_mean)
+    response_cov = response_jacobian @ eta_cov @ response_jacobian.T
+    response_cov = _symmetrize_covariance(response_cov)
+    diag_idx = jnp.diag_indices(response_cov.shape[0])
+    response_cov = response_cov.at[diag_idx].set(jnp.maximum(jnp.diag(response_cov), 0.0))
+    return response_cov, response_jacobian
+
+
+def _observation_noise_variance_arguments(
+    eta_mean: jnp.ndarray,
+    response_mean: jnp.ndarray,
+    *,
+    manifest_dists,
+) -> jnp.ndarray:
+    """Build the per-channel input vector expected by ``obs_kernel.variance_fn``."""
+    variance_args = []
+    for idx, dist in enumerate(manifest_dists):
+        if dist in {
+            DistributionFamily.ORDERED_LOGISTIC,
+            DistributionFamily.CATEGORICAL,
+        }:
+            variance_args.append(eta_mean[idx])
+        else:
+            variance_args.append(response_mean[idx])
+    return jnp.stack(variance_args)
+
+
+def _observation_noise_covariance(
+    variance_args: jnp.ndarray,
+    *,
+    obs_kernel,
+) -> jnp.ndarray:
+    """Return one same-row observation-noise covariance matrix."""
+    observation_noise_cov = _symmetrize_covariance(obs_kernel.variance_fn(variance_args))
+    diag_idx = jnp.diag_indices(observation_noise_cov.shape[0])
+    observation_noise_cov = observation_noise_cov.at[diag_idx].set(
+        jnp.maximum(jnp.diag(observation_noise_cov), NUMERICAL_EPSILON)
+    )
+    return observation_noise_cov
+
+
 def _extra_param_at(
     extra_params: dict,
     key: str,
@@ -618,7 +705,9 @@ def _point_observation_noise_var_diag(
                 raise OutputSensitivityUnsupportedError(
                     "interval-summary sensitivity is not defined for ordered_logistic observations"
                 )
-            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[idx : idx + 1]
+            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[
+                idx : idx + 1
+            ]
             cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])[idx : idx + 1]
             _mean, variance = ordered_logistic_moments(
                 jnp.asarray([eta_j]),
@@ -631,7 +720,9 @@ def _point_observation_noise_var_diag(
                 raise OutputSensitivityUnsupportedError(
                     "interval-summary sensitivity is not defined for categorical observations"
                 )
-            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[idx : idx + 1]
+            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[
+                idx : idx + 1
+            ]
             intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])[idx : idx + 1]
             slopes = jnp.asarray(extra_params["obs_cat_slopes"])[idx : idx + 1]
             _mean, variance = categorical_moments(
@@ -716,7 +807,9 @@ def _project_response_moments(
     interval_summary_mask = observation_operator.interval_summary_mask(dtype)
     emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
     summary_codes = observation_operator.summary_operator_codes
-    semantic_mask_0 = point_like_mask + interval_summary_mask * (emission_slots[0] >= 0).astype(dtype)
+    semantic_mask_0 = point_like_mask + interval_summary_mask * (emission_slots[0] >= 0).astype(
+        dtype
+    )
 
     if T == 1:
         return response_means, response_vars, semantic_mask_0[None, :]
@@ -753,10 +846,14 @@ def _project_response_moments(
         response_t_exp = jnp.expand_dims(response_t, axis=-1)
         response_t_var_exp = jnp.expand_dims(response_var_t, axis=-1)
 
-        prev_second_mean, prev_second_var, prev_cov = _second_stats(response_prev, response_var_prev)
+        prev_second_mean, prev_second_var, prev_cov = _second_stats(
+            response_prev, response_var_prev
+        )
         curr_second_mean, curr_second_var, curr_cov = _second_stats(response_t, response_var_t)
 
-        obs_sum_mean = accum_sum_mean + prev_coeff_t * response_prev_exp + curr_coeff_t * response_t_exp
+        obs_sum_mean = (
+            accum_sum_mean + prev_coeff_t * response_prev_exp + curr_coeff_t * response_t_exp
+        )
         obs_sum_var = (
             accum_sum_var
             + prev_coeff_t**2 * response_prev_var_exp
@@ -818,16 +915,26 @@ def _project_response_moments(
         )
         semantic_mask = point_like_mask + emitted_interval_summary_mask
 
-        next_sum_mean = _reset_support_stat(obs_sum_mean, emission_slots_t, emitted_interval_summary_mask)
-        next_sum_var = _reset_support_stat(obs_sum_var, emission_slots_t, emitted_interval_summary_mask)
-        next_sumsq_mean = _reset_support_stat(obs_sumsq_mean, emission_slots_t, emitted_interval_summary_mask)
-        next_sumsq_var = _reset_support_stat(obs_sumsq_var, emission_slots_t, emitted_interval_summary_mask)
+        next_sum_mean = _reset_support_stat(
+            obs_sum_mean, emission_slots_t, emitted_interval_summary_mask
+        )
+        next_sum_var = _reset_support_stat(
+            obs_sum_var, emission_slots_t, emitted_interval_summary_mask
+        )
+        next_sumsq_mean = _reset_support_stat(
+            obs_sumsq_mean, emission_slots_t, emitted_interval_summary_mask
+        )
+        next_sumsq_var = _reset_support_stat(
+            obs_sumsq_var, emission_slots_t, emitted_interval_summary_mask
+        )
         next_sum_sumsq_cov = _reset_support_stat(
             obs_sum_sumsq_cov,
             emission_slots_t,
             emitted_interval_summary_mask,
         )
-        next_weight = _reset_support_stat(obs_weight, emission_slots_t, emitted_interval_summary_mask)
+        next_weight = _reset_support_stat(
+            obs_weight, emission_slots_t, emitted_interval_summary_mask
+        )
 
         return (
             response_t,
@@ -873,6 +980,342 @@ def _project_response_moments(
     )
 
 
+def _response_second_moment_loading(
+    response_means: jnp.ndarray,
+    response_state_loading: jnp.ndarray,
+) -> jnp.ndarray:
+    """Linearized loading for squared-response deviations."""
+    return 2.0 * jnp.expand_dims(response_means, axis=-1) * response_state_loading
+
+
+def _support_accumulator_response_map(coeffs: jnp.ndarray) -> jnp.ndarray:
+    """Map one response vector into flattened manifest-slot accumulators."""
+    eye = jnp.eye(coeffs.shape[0], dtype=coeffs.dtype)
+    return (jnp.expand_dims(coeffs, axis=-1) * jnp.expand_dims(eye, axis=1)).reshape(
+        coeffs.shape[0] * coeffs.shape[1],
+        coeffs.shape[0],
+    )
+
+
+def _support_selection_matrix(
+    emission_slot_indices: jnp.ndarray,
+    *,
+    n_slots: int,
+    dtype: jnp.dtype,
+) -> jnp.ndarray:
+    """Select one active slot per manifest from flattened accumulator state."""
+    eye = jnp.eye(emission_slot_indices.shape[0], dtype=dtype)
+    safe_indices = jnp.clip(emission_slot_indices, 0, n_slots - 1)
+    slot_one_hot = (
+        jax.nn.one_hot(safe_indices, n_slots, dtype=dtype)
+        * (emission_slot_indices >= 0).astype(dtype)[:, None]
+    )
+    return (jnp.expand_dims(eye, axis=2) * jnp.expand_dims(slot_one_hot, axis=1)).reshape(
+        emission_slot_indices.shape[0],
+        emission_slot_indices.shape[0] * n_slots,
+    )
+
+
+def _point_response_covariances(
+    response_state_loadings: jnp.ndarray,
+    state_covs: jnp.ndarray,
+    transitions: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Return same-row and lag-1 response covariances without building T x T blocks."""
+    same_covs = jax.vmap(lambda loading_t, state_cov_t: loading_t @ state_cov_t @ loading_t.T)(
+        response_state_loadings, state_covs
+    )
+    if response_state_loadings.shape[0] <= 1:
+        return same_covs, jnp.zeros(
+            (0, response_state_loadings.shape[1], response_state_loadings.shape[1]),
+            dtype=response_state_loadings.dtype,
+        )
+
+    lag1_state_covs = jax.vmap(lambda transition_t, state_cov_prev: transition_t @ state_cov_prev)(
+        transitions, state_covs[:-1]
+    )
+    lag1_covs = jax.vmap(
+        lambda loading_t, lag1_state_cov_t, loading_prev: (
+            loading_t @ lag1_state_cov_t @ loading_prev.T
+        )
+    )(response_state_loadings[1:], lag1_state_covs, response_state_loadings[:-1])
+    return same_covs, lag1_covs
+
+
+def _support_response_covariances(
+    response_means: jnp.ndarray,
+    response_state_loadings: jnp.ndarray,
+    *,
+    t0_cov: jnp.ndarray,
+    transitions: jnp.ndarray,
+    process_covs: jnp.ndarray,
+    observation_operator,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Project support-aware same-row and lag-1 covariances with a local scan."""
+    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+        _COUNT_OPERATOR_CODE,
+        _MEAN_OPERATOR_CODE,
+        _STD_OPERATOR_CODE,
+        _SUM_OPERATOR_CODE,
+    )
+
+    emitted_means, semantic_mask = observation_operator.project_response_trajectory(response_means)
+    n_timepoints, n_manifest = response_means.shape
+    dtype = response_means.dtype
+
+    same_cov_0 = response_state_loadings[0] @ t0_cov @ response_state_loadings[0].T
+    if n_timepoints <= 1:
+        same_pair_mask = jnp.expand_dims(semantic_mask, axis=2) * jnp.expand_dims(
+            semantic_mask, axis=1
+        )
+        return (
+            emitted_means,
+            same_cov_0[None, :, :] * same_pair_mask,
+            jnp.zeros((0, n_manifest, n_manifest), dtype=dtype),
+            semantic_mask,
+        )
+
+    assert observation_operator.summary_operator_codes is not None
+    assert observation_operator.prev_coeffs is not None
+    assert observation_operator.curr_coeffs is not None
+    assert observation_operator.interval_weights is not None
+    assert observation_operator.emission_slots is not None
+
+    interval_mask = observation_operator.interval_summary_mask(dtype)
+    summary_codes = observation_operator.summary_operator_codes
+    transformed_interval_mask = interval_mask * (
+        (summary_codes == _SUM_OPERATOR_CODE)
+        | (summary_codes == _COUNT_OPERATOR_CODE)
+        | (summary_codes == _MEAN_OPERATOR_CODE)
+        | (summary_codes == _STD_OPERATOR_CODE)
+    ).astype(dtype)
+    direct_response_mask = 1.0 - transformed_interval_mask
+    direct_response_diag = jnp.diag(direct_response_mask)
+
+    n_latent = int(t0_cov.shape[0])
+    n_slots = observation_operator.max_active_windows
+    accum_dim = n_manifest * n_slots
+
+    second_loadings = jax.vmap(_response_second_moment_loading)(
+        response_means,
+        response_state_loadings,
+    )
+    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=dtype)
+    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=dtype)
+    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=dtype)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+    eye_latent = jnp.eye(n_latent, dtype=dtype)
+    eye_accum = jnp.eye(accum_dim, dtype=dtype)
+    zeros_accum = observation_operator.empty_accumulators(dtype)
+    zeros_accum_cov = jnp.zeros((accum_dim, accum_dim), dtype=dtype)
+    zeros_latent_accum = jnp.zeros((n_latent, accum_dim), dtype=dtype)
+    p_aug_0 = jnp.block(
+        [
+            [t0_cov, zeros_latent_accum, zeros_latent_accum],
+            [zeros_latent_accum.T, zeros_accum_cov, zeros_accum_cov],
+            [zeros_latent_accum.T, zeros_accum_cov, zeros_accum_cov],
+        ]
+    )
+    y0 = jnp.concatenate(
+        [
+            response_state_loadings[0],
+            jnp.zeros((n_manifest, accum_dim), dtype=dtype),
+            jnp.zeros((n_manifest, accum_dim), dtype=dtype),
+        ],
+        axis=1,
+    )
+    cross_prev_0 = p_aug_0 @ y0.T
+
+    def _scan_step(carry, inputs):
+        accum_sum_mean_prev, accum_sumsq_mean_prev, accum_weight_prev, p_aug_prev, cross_prev = (
+            carry
+        )
+        (
+            response_mean_prev,
+            response_mean_t,
+            response_loading_prev,
+            response_loading_t,
+            second_loading_prev,
+            second_loading_t,
+            transition_t,
+            process_cov_t,
+            prev_coeff_t,
+            curr_coeff_t,
+            weight_t,
+            emission_slots_t,
+        ) = inputs
+
+        obs_sum_mean = (
+            accum_sum_mean_prev
+            + prev_coeff_t * jnp.expand_dims(response_mean_prev, axis=-1)
+            + curr_coeff_t * jnp.expand_dims(response_mean_t, axis=-1)
+        )
+        obs_sumsq_mean = (
+            accum_sumsq_mean_prev
+            + prev_coeff_t * jnp.expand_dims(response_mean_prev**2, axis=-1)
+            + curr_coeff_t * jnp.expand_dims(response_mean_t**2, axis=-1)
+        )
+        obs_weight = accum_weight_prev + weight_t
+
+        selected_sum_mean = _select_support_slot(obs_sum_mean, emission_slots_t)
+        selected_sumsq_mean = _select_support_slot(obs_sumsq_mean, emission_slots_t)
+        selected_weight = _select_support_slot(obs_weight, emission_slots_t)
+        safe_weight = jnp.maximum(selected_weight, NUMERICAL_EPSILON)
+        window_mean = selected_sum_mean / safe_weight
+        window_second_mean = selected_sumsq_mean / safe_weight
+        std_arg = jnp.maximum(window_second_mean - window_mean**2, NUMERICAL_EPSILON)
+        std_mean = jnp.sqrt(std_arg)
+        d_std_d_sum = -window_mean / (std_mean * safe_weight)
+        d_std_d_sumsq = 1.0 / (2.0 * std_mean * safe_weight)
+
+        alpha_sum = jnp.where(
+            (summary_codes == _SUM_OPERATOR_CODE) | (summary_codes == _COUNT_OPERATOR_CODE),
+            1.0,
+            0.0,
+        )
+        alpha_sum = jnp.where(summary_codes == _MEAN_OPERATOR_CODE, 1.0 / safe_weight, alpha_sum)
+        alpha_sum = jnp.where(summary_codes == _STD_OPERATOR_CODE, d_std_d_sum, alpha_sum)
+        alpha_sumsq = jnp.where(summary_codes == _STD_OPERATOR_CODE, d_std_d_sumsq, 0.0)
+
+        select_matrix = _support_selection_matrix(
+            emission_slots_t,
+            n_slots=n_slots,
+            dtype=dtype,
+        )
+        prev_response_map = _support_accumulator_response_map(prev_coeff_t)
+        curr_response_map = _support_accumulator_response_map(curr_coeff_t)
+        curr_response_to_prev_x = response_loading_t @ transition_t
+        curr_second_to_prev_x = second_loading_t @ transition_t
+        sum_prev_x = (
+            prev_response_map @ response_loading_prev + curr_response_map @ curr_response_to_prev_x
+        )
+        sumsq_prev_x = (
+            prev_response_map @ second_loading_prev + curr_response_map @ curr_second_to_prev_x
+        )
+        sum_noise = curr_response_map @ response_loading_t
+        sumsq_noise = curr_response_map @ second_loading_t
+
+        emitted_interval_summary_mask = interval_mask * (emission_slots_t >= 0).astype(dtype)
+        keep_mask = _reset_support_stat(
+            jnp.ones((n_manifest, n_slots), dtype=dtype),
+            emission_slots_t,
+            emitted_interval_summary_mask,
+        ).reshape(-1)
+        keep_rows = jnp.expand_dims(keep_mask, axis=-1)
+        identity_kept = keep_rows * eye_accum
+        sum_select = jnp.expand_dims(alpha_sum, axis=1) * select_matrix
+        sumsq_select = jnp.expand_dims(alpha_sumsq, axis=1) * select_matrix
+
+        y_prev_x = (
+            direct_response_diag @ curr_response_to_prev_x
+            + sum_select @ sum_prev_x
+            + sumsq_select @ sumsq_prev_x
+        )
+        y_noise = (
+            direct_response_diag @ response_loading_t
+            + sum_select @ sum_noise
+            + sumsq_select @ sumsq_noise
+        )
+        y_t = jnp.concatenate([y_prev_x, sum_select, sumsq_select], axis=1)
+
+        f_t = jnp.block(
+            [
+                [
+                    transition_t,
+                    jnp.zeros((n_latent, accum_dim), dtype=dtype),
+                    jnp.zeros((n_latent, accum_dim), dtype=dtype),
+                ],
+                [
+                    keep_rows * sum_prev_x,
+                    identity_kept,
+                    jnp.zeros((accum_dim, accum_dim), dtype=dtype),
+                ],
+                [
+                    keep_rows * sumsq_prev_x,
+                    jnp.zeros((accum_dim, accum_dim), dtype=dtype),
+                    identity_kept,
+                ],
+            ]
+        )
+        g_t = jnp.concatenate(
+            [
+                eye_latent,
+                keep_rows * sum_noise,
+                keep_rows * sumsq_noise,
+            ],
+            axis=0,
+        )
+
+        same_cov_t = y_t @ p_aug_prev @ y_t.T + y_noise @ process_cov_t @ y_noise.T
+        lag1_cov_t = y_t @ cross_prev
+        p_aug_t = f_t @ p_aug_prev @ f_t.T + g_t @ process_cov_t @ g_t.T
+        cross_t = f_t @ p_aug_prev @ y_t.T + g_t @ process_cov_t @ y_noise.T
+
+        next_accum_sum_mean = _reset_support_stat(
+            obs_sum_mean,
+            emission_slots_t,
+            emitted_interval_summary_mask,
+        )
+        next_accum_sumsq_mean = _reset_support_stat(
+            obs_sumsq_mean,
+            emission_slots_t,
+            emitted_interval_summary_mask,
+        )
+        next_accum_weight = _reset_support_stat(
+            obs_weight,
+            emission_slots_t,
+            emitted_interval_summary_mask,
+        )
+
+        return (
+            next_accum_sum_mean,
+            next_accum_sumsq_mean,
+            next_accum_weight,
+            p_aug_t,
+            cross_t,
+        ), (
+            same_cov_t,
+            lag1_cov_t,
+        )
+
+    _, (same_covs_rest, lag1_covs) = lax.scan(
+        _scan_step,
+        (
+            zeros_accum,
+            zeros_accum,
+            zeros_accum,
+            p_aug_0,
+            cross_prev_0,
+        ),
+        (
+            response_means[:-1],
+            response_means[1:],
+            response_state_loadings[:-1],
+            response_state_loadings[1:],
+            second_loadings[:-1],
+            second_loadings[1:],
+            transitions,
+            process_covs,
+            prev_coeffs[1:],
+            curr_coeffs[1:],
+            interval_weights[1:],
+            emission_slots[1:],
+        ),
+    )
+
+    same_covs = jnp.concatenate([same_cov_0[None, :, :], same_covs_rest], axis=0)
+    same_pair_mask = jnp.expand_dims(semantic_mask, axis=2) * jnp.expand_dims(semantic_mask, axis=1)
+    lag1_pair_mask = jnp.expand_dims(semantic_mask[1:], axis=2) * jnp.expand_dims(
+        semantic_mask[:-1], axis=1
+    )
+    return (
+        emitted_means,
+        same_covs * same_pair_mask,
+        lag1_covs * lag1_pair_mask,
+        semantic_mask,
+    )
+
+
 def _build_sensitivity_measurement_semantics(
     spec,
     *,
@@ -892,6 +1335,112 @@ def _build_sensitivity_measurement_semantics(
     )
 
 
+def _flatten_time_block_covariance(cov_blocks: jnp.ndarray) -> jnp.ndarray:
+    """Flatten ``(T, T, M, M)`` covariance blocks to ``(T*M, T*M)`` order."""
+    return cov_blocks.transpose(0, 2, 1, 3).reshape(
+        cov_blocks.shape[0] * cov_blocks.shape[2],
+        cov_blocks.shape[1] * cov_blocks.shape[3],
+    )
+
+
+def _unflatten_time_block_covariance(
+    cov_flat: jnp.ndarray,
+    *,
+    n_timepoints: int,
+    n_manifest: int,
+) -> jnp.ndarray:
+    """Restore ``(T, T, M, M)`` covariance blocks from flattened form."""
+    return cov_flat.reshape(n_timepoints, n_manifest, n_timepoints, n_manifest).transpose(
+        0, 2, 1, 3
+    )
+
+
+def _build_state_cross_covariance_blocks(
+    state_covs: jnp.ndarray,
+    transitions: jnp.ndarray,
+) -> jnp.ndarray:
+    """Build all pairwise latent-state covariance blocks from one-step transitions."""
+    n_timepoints = int(state_covs.shape[0])
+    blocks: list[list[jnp.ndarray | None]] = [[None] * n_timepoints for _ in range(n_timepoints)]
+
+    for time_idx in range(n_timepoints):
+        blocks[time_idx][time_idx] = state_covs[time_idx]
+
+    for time_idx in range(1, n_timepoints):
+        transition = transitions[time_idx - 1]
+        prev_row = blocks[time_idx - 1]
+        for past_idx in range(time_idx):
+            prev_block = prev_row[past_idx]
+            assert prev_block is not None
+            block = transition @ prev_block
+            blocks[time_idx][past_idx] = block
+            blocks[past_idx][time_idx] = block.T
+
+    filled_blocks: list[list[jnp.ndarray]] = []
+    for row in blocks:
+        filled_row: list[jnp.ndarray] = []
+        for block in row:
+            assert block is not None
+            filled_row.append(block)
+        filled_blocks.append(filled_row)
+
+    return jnp.stack(
+        [jnp.stack(row, axis=0) for row in filled_blocks],
+        axis=0,
+    )
+
+
+def _project_response_covariance_blocks(
+    response_means: jnp.ndarray,
+    response_cov_blocks: jnp.ndarray,
+    observation_operator,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Project response-trajectory covariance through the support operator."""
+    emitted_means, semantic_mask = observation_operator.project_response_trajectory(response_means)
+    n_timepoints, n_manifest = response_means.shape
+
+    if observation_operator.requires_interval_summary_handling:
+        response_cov_flat = _flatten_time_block_covariance(response_cov_blocks)
+
+        def _project_flat(response_flat: jnp.ndarray) -> jnp.ndarray:
+            projected, _ = observation_operator.project_response_trajectory(
+                response_flat.reshape(n_timepoints, n_manifest)
+            )
+            return projected.reshape(-1)
+
+        emission_jacobian = jax.jacfwd(_project_flat)(response_means.reshape(-1))
+        emitted_cov_flat = emission_jacobian @ response_cov_flat @ emission_jacobian.T
+        emitted_cov_blocks = _unflatten_time_block_covariance(
+            emitted_cov_flat,
+            n_timepoints=n_timepoints,
+            n_manifest=n_manifest,
+        )
+    else:
+        emitted_cov_blocks = response_cov_blocks
+
+    same_covs = jnp.stack(
+        [emitted_cov_blocks[time_idx, time_idx] for time_idx in range(n_timepoints)],
+        axis=0,
+    )
+    if n_timepoints > 1:
+        lag1_covs = jnp.stack(
+            [emitted_cov_blocks[time_idx, time_idx - 1] for time_idx in range(1, n_timepoints)],
+            axis=0,
+        )
+    else:
+        lag1_covs = jnp.zeros((0, n_manifest, n_manifest), dtype=response_means.dtype)
+
+    same_pair_mask = jnp.expand_dims(semantic_mask, axis=2) * jnp.expand_dims(semantic_mask, axis=1)
+    same_covs = same_covs * same_pair_mask
+    if n_timepoints > 1:
+        lag1_pair_mask = jnp.expand_dims(semantic_mask[1:], axis=2) * jnp.expand_dims(
+            semantic_mask[:-1], axis=1
+        )
+        lag1_covs = lag1_covs * lag1_pair_mask
+
+    return emitted_means, same_covs, lag1_covs, semantic_mask
+
+
 def _predict_observation_components(
     det: dict[str, jnp.ndarray],
     extra_params: dict,
@@ -899,8 +1448,8 @@ def _predict_observation_components(
     times: jnp.ndarray,
     *,
     observation_support=None,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Predict emitted observation means plus latent and observation-noise variances."""
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Predict emitted-observation mean, covariance, lagged covariance, noise scale, and mask."""
     n_l, n_m = spec.n_latent, spec.n_manifest
 
     drift = det.get("drift", jnp.zeros((n_l, n_l)))
@@ -931,31 +1480,33 @@ def _predict_observation_components(
         eta_mean = lambda_val @ x_mean + manifest_means
         eta_cov = lambda_val @ state_cov @ lambda_val.T
         response_mean = obs_kernel.response_fn(eta_mean)
-        response_latent_var = _response_latent_variance_diag(
+        _, response_jacobian = _response_latent_covariance(
             eta_mean,
             eta_cov,
-            response_mean,
             obs_kernel=obs_kernel,
-            manifest_dists=measurement_semantics.manifest_dists,
-            manifest_links=measurement_semantics.manifest_links,
         )
-        point_obs_noise_var = _point_observation_noise_var_diag(
+        response_state_loading = response_jacobian @ lambda_val
+        point_noise_variance_args = _observation_noise_variance_arguments(
             eta_mean,
             response_mean,
             manifest_dists=measurement_semantics.manifest_dists,
-            manifest_cov=manifest_cov,
-            extra_params=extra_params,
-            allow_discrete_mean_space=True,
         )
-        return eta_mean, response_mean, response_latent_var, point_obs_noise_var
+        return (
+            eta_mean,
+            response_mean,
+            response_state_loading,
+            point_noise_variance_args,
+        )
 
     dt_array = jnp.diff(times)
     Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
 
-    _eta_mean_0, response_mean_0, response_latent_var_0, point_obs_noise_var_0 = _point_moments(
-        t0_means,
-        t0_cov,
-    )
+    (
+        _eta_mean_0,
+        response_mean_0,
+        response_state_loading_0,
+        point_noise_variance_args_0,
+    ) = _point_moments(t0_means, t0_cov)
 
     def scan_fn(carry, inputs):
         x_m, P = carry
@@ -963,13 +1514,29 @@ def _predict_observation_components(
 
         x_m_next = Ad_t @ x_m + cd_t
         P_next = Ad_t @ P @ Ad_t.T + Qd_t
-        return (x_m_next, P_next), _point_moments(x_m_next, P_next)
+        (
+            eta_mean_next,
+            response_mean_next,
+            response_state_loading_next,
+            point_noise_variance_args_next,
+        ) = _point_moments(x_m_next, P_next)
+        return (x_m_next, P_next), (
+            eta_mean_next,
+            response_mean_next,
+            response_state_loading_next,
+            P_next,
+            point_noise_variance_args_next,
+        )
 
-    _, (
-        _eta_means_rest,
-        response_means_rest,
-        response_latent_vars_rest,
-        point_obs_noise_vars_rest,
+    (
+        _,
+        (
+            _eta_means_rest,
+            response_means_rest,
+            response_state_loadings_rest,
+            state_covs_rest,
+            point_noise_variance_args_rest,
+        ),
     ) = lax.scan(
         scan_fn,
         (t0_means, t0_cov),
@@ -977,20 +1544,35 @@ def _predict_observation_components(
     )
 
     response_means = jnp.concatenate([response_mean_0[None, :], response_means_rest], axis=0)
-    response_latent_vars = jnp.concatenate(
-        [response_latent_var_0[None, :], response_latent_vars_rest],
+    response_state_loadings = jnp.concatenate(
+        [response_state_loading_0[None, :, :], response_state_loadings_rest],
         axis=0,
     )
-    point_obs_noise_vars = jnp.concatenate(
-        [point_obs_noise_var_0[None, :], point_obs_noise_vars_rest],
+    state_covs = jnp.concatenate([t0_cov[None, :, :], state_covs_rest], axis=0)
+    point_noise_variance_args = jnp.concatenate(
+        [point_noise_variance_args_0[None, :], point_noise_variance_args_rest],
         axis=0,
     )
 
-    emitted_means, emitted_latent_vars, semantic_mask = _project_response_moments(
-        response_means,
-        response_latent_vars,
-        observation_operator,
-    )
+    if observation_operator.requires_interval_summary_handling:
+        emitted_means, emitted_same_covs, emitted_lag1_covs, semantic_mask = (
+            _support_response_covariances(
+                response_means,
+                response_state_loadings,
+                t0_cov=t0_cov,
+                transitions=Ad,
+                process_covs=Qd,
+                observation_operator=observation_operator,
+            )
+        )
+    else:
+        emitted_means = response_means
+        emitted_same_covs, emitted_lag1_covs = _point_response_covariances(
+            response_state_loadings,
+            state_covs,
+            Ad,
+        )
+        semantic_mask = jnp.ones_like(emitted_means, dtype=emitted_means.dtype)
 
     if observation_operator.requires_interval_summary_handling:
         point_like_mask = jnp.broadcast_to(
@@ -998,25 +1580,63 @@ def _predict_observation_components(
             emitted_means.shape,
         )
         interval_emission_mask = jnp.maximum(semantic_mask - point_like_mask, 0.0)
-        summary_obs_noise_vars = jax.vmap(
-            lambda mean_t: _point_observation_noise_var_diag(
-                mean_t,
-                mean_t,
-                manifest_dists=measurement_semantics.manifest_dists,
-                manifest_cov=manifest_cov,
-                extra_params=extra_params,
-                allow_discrete_mean_space=False,
-            )
-        )(emitted_means)
-        emitted_obs_noise_vars = (
-            point_obs_noise_vars * point_like_mask
-            + summary_obs_noise_vars * interval_emission_mask
+        emitted_noise_variance_args = (
+            point_noise_variance_args * point_like_mask + emitted_means * interval_emission_mask
         )
     else:
-        emitted_obs_noise_vars = point_obs_noise_vars
+        emitted_noise_variance_args = point_noise_variance_args
         semantic_mask = jnp.ones_like(emitted_means, dtype=emitted_means.dtype)
+    emitted_obs_noise_covs = jax.vmap(
+        lambda variance_args_t: _observation_noise_covariance(
+            variance_args_t,
+            obs_kernel=obs_kernel,
+        )
+    )(emitted_noise_variance_args)
+    same_pair_mask = jnp.expand_dims(semantic_mask, axis=2) * jnp.expand_dims(semantic_mask, axis=1)
+    emitted_same_covs = emitted_same_covs + emitted_obs_noise_covs * same_pair_mask
+    emitted_obs_noise_vars = jnp.diagonal(emitted_obs_noise_covs, axis1=1, axis2=2) * semantic_mask
+    emitted_obs_noise_sd = jnp.sqrt(jnp.maximum(emitted_obs_noise_vars, NUMERICAL_EPSILON))
 
-    return emitted_means, emitted_latent_vars, emitted_obs_noise_vars, semantic_mask
+    return (
+        emitted_means,
+        emitted_same_covs,
+        emitted_lag1_covs,
+        emitted_obs_noise_sd,
+        semantic_mask,
+    )
+
+
+def _flatten_lower_triangular(mats: jnp.ndarray) -> jnp.ndarray:
+    """Flatten the lower triangle of a stack of symmetric matrices."""
+    tri_i, tri_j = np.tril_indices(int(mats.shape[-1]))
+    return mats[:, tri_i, tri_j].reshape(-1)
+
+
+def _flatten_observation_moment_summary(
+    means: jnp.ndarray,
+    same_covs: jnp.ndarray,
+    lag1_covs: jnp.ndarray,
+) -> jnp.ndarray:
+    """Flatten emitted-observation moments into one feature vector."""
+    mean_features = means.reshape(-1)
+    same_cov_features = _flatten_lower_triangular(same_covs)
+    lag_cov_features = lag1_covs.reshape(-1)
+    return jnp.concatenate([mean_features, same_cov_features, lag_cov_features])
+
+
+def _moment_summary_row_scales(obs_noise_sd: jnp.ndarray) -> jnp.ndarray:
+    """Observation-scale normalization factors aligned to the moment-summary layout."""
+    mean_scales = obs_noise_sd.reshape(-1)
+    same_cov_scales = _flatten_lower_triangular(
+        jnp.expand_dims(obs_noise_sd, axis=2) * jnp.expand_dims(obs_noise_sd, axis=1)
+    )
+    if obs_noise_sd.shape[0] <= 1:
+        lag_cov_scales = jnp.zeros((0,), dtype=obs_noise_sd.dtype)
+    else:
+        lag_cov_scales = (
+            jnp.expand_dims(obs_noise_sd[1:], axis=2) * jnp.expand_dims(obs_noise_sd[:-1], axis=1)
+        ).reshape(-1)
+    return jnp.concatenate([mean_scales, same_cov_scales, lag_cov_scales])
 
 
 def _predict_observation_moments(
@@ -1029,11 +1649,12 @@ def _predict_observation_moments(
     observation_support=None,
     registry=None,
 ):
-    """Predicted observation-space means and variances from unconstrained params.
+    """Predicted observation-space moment summary from unconstrained params.
 
     Runs the latent Kalman prediction equations, maps latent predictors through
     the configured observation families and interval-summary semantics, and
-    returns a flat vector of [means_flat, variances_flat] suitable for Jacobian
+    returns a flat vector of emitted means, same-row covariance entries, and
+    adjacent-row lagged cross-covariance entries suitable for Jacobian
     computation.
     """
     det, extra_params = _assemble_sensitivity_measurement_state(
@@ -1043,7 +1664,7 @@ def _predict_observation_moments(
         spec,
         registry=registry,
     )
-    emitted_means, emitted_latent_vars, emitted_obs_noise_vars, _semantic_mask = (
+    emitted_means, emitted_same_covs, emitted_lag1_covs, _emitted_obs_noise_sd, _semantic_mask = (
         _predict_observation_components(
             det,
             extra_params,
@@ -1052,8 +1673,11 @@ def _predict_observation_moments(
             observation_support=observation_support,
         )
     )
-    total_emitted_var = emitted_latent_vars + emitted_obs_noise_vars
-    return jnp.concatenate([emitted_means.reshape(-1), total_emitted_var.reshape(-1)])
+    return _flatten_observation_moment_summary(
+        emitted_means,
+        emitted_same_covs,
+        emitted_lag1_covs,
+    )
 
 
 @dataclass
@@ -1061,16 +1685,17 @@ class OutputSensitivityResult:
     """Results from output sensitivity analysis (pre-inference identifiability).
 
     Structural identifiability check via the Jacobian of the forward model's
-    predicted means and variances. A full-rank sensitivity matrix indicates
-    all parameters are locally identifiable. Near-zero singular values
-    indicate parameter combinations that observations cannot distinguish.
+    emitted-observation moment summary. A full-rank sensitivity matrix
+    indicates all parameters are locally identifiable. Near-zero singular
+    values indicate parameter combinations that observations cannot
+    distinguish.
     """
 
     singular_values: list[float]  # median SVD spectrum across draws (descending)
     condition_number: float  # median max_sv / min_sv
     per_parameter: list[dict]  # [{parameter, sensitivity_norm, identifiable}]
     n_draws: int
-    n_observations: int  # output dimension (2 * T * D)
+    n_observations: int  # retained moment-feature dimension after masking
     n_parameters: int  # number of scalar free parameters
 
     def print_report(self) -> None:
@@ -1118,7 +1743,7 @@ def _build_sensitivity_output_mask(
     *,
     semantic_mask: np.ndarray | None = None,
 ) -> np.ndarray | None:
-    """Return a row mask that keeps only semantically emitted observed outputs."""
+    """Return a feature mask aligned to the emitted-observation moment summary."""
     if observations is None and semantic_mask is None:
         return None
 
@@ -1128,8 +1753,14 @@ def _build_sensitivity_output_mask(
         obs_mask = ~np.isnan(np.asarray(observations))
         if semantic_mask is not None:
             obs_mask = obs_mask & np.asarray(semantic_mask, dtype=bool)
-    flat_mask = obs_mask.reshape(-1)
-    return np.concatenate([flat_mask, flat_mask])
+    mean_mask = obs_mask.reshape(-1)
+    tri_i, tri_j = np.tril_indices(obs_mask.shape[1])
+    same_cov_mask = (obs_mask[:, :, None] & obs_mask[:, None, :])[:, tri_i, tri_j].reshape(-1)
+    if obs_mask.shape[0] <= 1:
+        lag_cov_mask = np.zeros((0,), dtype=bool)
+    else:
+        lag_cov_mask = (obs_mask[1:, :, None] & obs_mask[:-1, None, :]).reshape(-1)
+    return np.concatenate([mean_mask, same_cov_mask, lag_cov_mask])
 
 
 def _spectral_svd_from_gram(S: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -1224,8 +1855,9 @@ def _fallback_interpretable_parameter_name(
     latent_names = _axis_names(spec.latent_names, expected=spec.n_latent, prefix="latent")
     manifest_names = _axis_names(spec.manifest_names, expected=spec.n_manifest, prefix="manifest")
 
-    if site_name == "drift_diag_pop" and flat_index < len(latent_names):
-        return f"rho_{latent_names[flat_index]}"
+    if site_name == "drift_diag_pop" and flat_index < len(assembler.drift_diag_positions):
+        latent_idx = assembler.drift_diag_positions[flat_index]
+        return f"rho_{latent_names[latent_idx]}"
     if site_name == "drift_offdiag_pop" and flat_index < len(assembler.offdiag_positions):
         effect_idx, cause_idx = assembler.offdiag_positions[flat_index]
         return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
@@ -1236,18 +1868,21 @@ def _fallback_interpretable_parameter_name(
         if flat_index < len(positions):
             row, col = positions[flat_index]
             return f"cor_{latent_names[col]}_{latent_names[row]}"
-    if site_name == "cint_pop" and flat_index < len(latent_names):
-        return f"cint_{latent_names[flat_index]}"
+    if site_name == "cint_pop" and flat_index < len(assembler.cint_free_positions):
+        latent_idx = assembler.cint_free_positions[flat_index]
+        return f"cint_{latent_names[latent_idx]}"
     if site_name == "lambda_free" and flat_index < len(assembler.lambda_free_positions):
         manifest_idx, latent_idx = assembler.lambda_free_positions[flat_index]
         return f"lambda_{manifest_names[manifest_idx]}_{latent_names[latent_idx]}"
-    if site_name == "manifest_means" and flat_index < len(manifest_names):
-        return f"manifest_mean_{manifest_names[flat_index]}"
+    if site_name == "manifest_means" and flat_index < len(assembler.manifest_means_free_positions):
+        manifest_idx = assembler.manifest_means_free_positions[flat_index]
+        return f"manifest_mean_{manifest_names[manifest_idx]}"
     if site_name == "manifest_var_diag" and flat_index < len(assembler.manifest_var_free_positions):
         manifest_idx = assembler.manifest_var_free_positions[flat_index]
         return f"obs_sd_{manifest_names[manifest_idx]}"
-    if site_name == "t0_means_pop" and flat_index < len(latent_names):
-        return f"t0_mean_{latent_names[flat_index]}"
+    if site_name == "t0_means_pop" and flat_index < len(assembler.t0_means_free_positions):
+        latent_idx = assembler.t0_means_free_positions[flat_index]
+        return f"t0_mean_{latent_names[latent_idx]}"
     if site_name == "t0_var_diag" and flat_index < len(latent_names):
         return f"t0_sd_{latent_names[flat_index]}"
     if site_name == "t0_var_lower" and flat_index < len(assembler.t0_correlation_positions):
@@ -1292,9 +1927,10 @@ def output_sensitivity_analysis(
     """Pre-inference parametric identifiability via output sensitivity analysis.
 
     Computes the sensitivity matrix S[i,j] = dy_i / dtheta_j for the forward
-    model's predicted observation means and variances (Kalman prediction
-    equations without data update), then performs SVD to detect structurally
-    non-identifiable parameter directions.
+    model's emitted-observation moment summary: means, same-row covariance
+    entries, and adjacent-row lagged cross-covariance entries. The Jacobian is
+    evaluated without data updates, then analyzed via SVD to detect
+    structurally non-identifiable parameter directions.
 
     Args:
         model: SSMModel instance
@@ -1307,9 +1943,7 @@ def output_sensitivity_analysis(
     """
     _validate_output_sensitivity_supported(model)
     rng_key = random.PRNGKey(seed)
-    T_obs = times.shape[0]
     context = sweep_context or get_stage4b_sweep_context(model)
-    n_manifest = context.spec.n_manifest
 
     # 1. Reuse topology-dependent registry metadata and rebuild only prior values.
     P = context.flat_dim
@@ -1340,7 +1974,10 @@ def output_sensitivity_analysis(
     prior_std = jnp.maximum(prior_std, NUMERICAL_EPSILON)
 
     output_mask = _build_sensitivity_output_mask(observations, semantic_mask=semantic_mask)
-    N_out = int(output_mask.sum()) if output_mask is not None else 2 * T_obs * n_manifest
+    if output_mask is None:
+        N_out = int(context.predict_moments_fn(prior_z[0], times).shape[0])
+    else:
+        N_out = int(output_mask.sum())
 
     # Helper to extract family-aware observation noise scales for a given parameter vector
     def _get_obs_noise_scales(z_0):
@@ -1351,17 +1988,16 @@ def output_sensitivity_analysis(
             context.spec,
             registry=context.registry,
         )
-        _projected_means, _latent_vars, obs_noise_var, _semantic = _predict_observation_components(
-            det,
-            extra_params,
-            context.spec,
-            times,
-            observation_support=getattr(model, "observation_support", None),
+        _projected_means, _same_covs, _lag1_covs, obs_noise_sd, _semantic = (
+            _predict_observation_components(
+                det,
+                extra_params,
+                context.spec,
+                times,
+                observation_support=getattr(model, "observation_support", None),
+            )
         )
-        obs_noise_sd = jnp.sqrt(jnp.maximum(obs_noise_var, NUMERICAL_EPSILON))
-        mean_scales = obs_noise_sd.reshape(-1)
-        var_scales = jnp.maximum(obs_noise_var.reshape(-1), NUMERICAL_EPSILON)
-        return jnp.concatenate([mean_scales, var_scales])
+        return _moment_summary_row_scales(obs_noise_sd)
 
     # Helper to compute per-parameter effective SVs from V matrix and sv vector
     def _per_param_effective_sv(V, sv):
@@ -1944,7 +2580,7 @@ def sbc_check(
                 for name in param_names:
                     if name in samples:
                         unc = site_runtime.transforms[name].inv(samples[name][i])
-                        parts.append(unc.reshape(-1))
+                        parts.append(jnp.asarray(unc).reshape(-1))
                 if parts:
                     post_z_list.append(jnp.concatenate(parts))
 

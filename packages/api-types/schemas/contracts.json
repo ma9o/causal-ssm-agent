@@ -2357,7 +2357,7 @@
       "type": "object"
     },
     "SensitivityAnalysisResult": {
-      "description": "Output sensitivity analysis result (pre-inference identifiability).\n\nStructural identifiability check via the Jacobian of the forward model's\npredicted observation means and variances. Near-zero singular values\nindicate parameter combinations that observations cannot distinguish.",
+      "description": "Output sensitivity analysis result (pre-inference identifiability).\n\nStructural identifiability check via the Jacobian of the forward model's\nemitted-observation moment summary. Near-zero singular values indicate\nparameter combinations that observations cannot distinguish.",
       "properties": {
         "singular_values": {
           "items": {

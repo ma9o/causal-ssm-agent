@@ -211,8 +211,8 @@ class SensitivityAnalysisResult(BaseModel):
     """Output sensitivity analysis result (pre-inference identifiability).
 
     Structural identifiability check via the Jacobian of the forward model's
-    predicted observation means and variances. Near-zero singular values
-    indicate parameter combinations that observations cannot distinguish.
+    emitted-observation moment summary. Near-zero singular values indicate
+    parameter combinations that observations cannot distinguish.
     """
 
     singular_values: list[float]
