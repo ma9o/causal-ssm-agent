@@ -19,6 +19,6 @@
   "devDependencies": {
     "@causal-ssm/typescript-config": "workspace:*",
     "json-schema-to-typescript": "^15.0.4",
-    "typescript": "^5"
+    "typescript": "^6"
   }
 }
