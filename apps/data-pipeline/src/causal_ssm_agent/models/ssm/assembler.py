@@ -44,16 +44,10 @@ class SSMAssembler:
 
         # Drift: pre-compute off-diagonal positions from mask
         self.offdiag_positions: list[tuple[int, int]] = []
-        if spec.drift_mask is not None:
-            for i in range(spec.n_latent):
-                for j in range(spec.n_latent):
-                    if i != j and spec.drift_mask[i, j]:
-                        self.offdiag_positions.append((i, j))
-        else:
-            for i in range(spec.n_latent):
-                for j in range(spec.n_latent):
-                    if i != j:
-                        self.offdiag_positions.append((i, j))
+        for i in range(spec.n_latent):
+            for j in range(spec.n_latent):
+                if i != j and spec.drift_mask[i, j]:
+                    self.offdiag_positions.append((i, j))
 
         self.ti_mask: jnp.ndarray | None = (
             jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
@@ -64,7 +58,7 @@ class SSMAssembler:
         )
 
         # Lambda: pre-compute mode, template, and free positions
-        if isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is not None:
+        if isinstance(spec.lambda_mat, jnp.ndarray):
             self.lambda_mode = "template"
             self.lambda_template = jnp.array(spec.lambda_mat)
             self.lambda_free_positions: list[tuple[int, int]] = [
@@ -73,10 +67,6 @@ class SSMAssembler:
                 for j in range(spec.n_latent)
                 if spec.lambda_mask[i, j]
             ]
-        elif isinstance(spec.lambda_mat, jnp.ndarray):
-            self.lambda_mode = "fixed"
-            self.lambda_template = jnp.array(spec.lambda_mat)
-            self.lambda_free_positions = []
         else:
             self.lambda_mode = "legacy"
             self.lambda_template = jnp.eye(spec.n_manifest, spec.n_latent)

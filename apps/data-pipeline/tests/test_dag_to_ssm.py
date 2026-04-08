@@ -22,6 +22,8 @@ from causal_ssm_agent.models.ssm.model import (
     SSMSpec,
     _make_prior_batch,
     _make_prior_dist,
+    full_drift_mask,
+    zero_loading_mask,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -41,11 +43,11 @@ def _make_3latent_spec(
     return SSMSpec(
         n_latent=n_l,
         n_manifest=n_m,
+        drift_mask=drift_mask if drift_mask is not None else full_drift_mask(n_l),
+        lambda_mask=lambda_mask if lambda_mask is not None else zero_loading_mask(n_m, n_l),
         drift="free",
         diffusion="diag",
         lambda_mat=lambda_mat,
-        drift_mask=drift_mask,
-        lambda_mask=lambda_mask,
         latent_names=["X", "Y", "Z"],
         manifest_names=["x1", "x2", "y1", "z1"],
     )
@@ -185,8 +187,8 @@ class TestDriftMask:
         assert float(drift[2, 1]) != 0.0  # Y→Z edge
 
     def test_no_mask_fully_free(self):
-        """Without mask, all off-diagonal entries are free."""
-        spec = _make_3latent_spec(drift_mask=None)
+        """Default drift mask expands to a fully free drift structure."""
+        spec = _make_3latent_spec()
         model = SSMModel(spec)
 
         rng = random.PRNGKey(0)
@@ -205,6 +207,7 @@ class TestDriftMask:
         spec = SSMSpec(
             n_latent=1,
             n_manifest=1,
+            lambda_mask=zero_loading_mask(1, 1),
             drift="free",
             drift_mask=mask,
             lambda_mat=jnp.eye(1),
@@ -262,9 +265,9 @@ class TestLambdaMask:
         assert float(lam[1, 0]) != 0.0  # Free loading was sampled
 
     def test_lambda_no_mask_returns_fixed(self):
-        """Array lambda_mat without mask is returned as-is."""
+        """Array lambda_mat with default zero free-mask is returned as-is."""
         lambda_mat = jnp.eye(4, 3)
-        spec = _make_3latent_spec(lambda_mat=lambda_mat, lambda_mask=None)
+        spec = _make_3latent_spec(lambda_mat=lambda_mat)
         model = SSMModel(spec)
 
         rng = random.PRNGKey(0)
@@ -321,6 +324,7 @@ class TestPerElementPriors:
         spec = SSMSpec(
             n_latent=2,
             n_manifest=2,
+            lambda_mask=zero_loading_mask(2, 2),
             drift="free",
             drift_mask=mask,
             lambda_mat=jnp.eye(2),
@@ -389,15 +393,165 @@ class TestBuilderMasks:
         assert not lambda_mask[0, 0]  # x1→X is fixed
         assert not lambda_mask[2, 1]  # y1→Y is fixed
 
-    def test_no_causal_spec_no_masks(self):
-        """Without causal_spec, masks are None."""
+    def test_no_causal_spec_materializes_explicit_default_masks(self):
+        """Without causal_spec, structural defaults are still explicit."""
         from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
 
         drift_mask, _lambda_mat, lambda_mask, _edge_lag_days = build_masks_from_causal_spec(
             None, ["x1"], 1, 1, causal_spec=None
         )
-        assert drift_mask is None
-        assert lambda_mask is None
+        np.testing.assert_array_equal(drift_mask, np.array([[True]]))
+        np.testing.assert_array_equal(lambda_mask, np.array([[False]]))
+
+    def test_ssm_spec_rejects_explicit_none_masks(self):
+        """Structural masks are required on SSMSpec."""
+        with pytest.raises(ValueError, match="drift_mask must have shape"):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift="free",
+                diffusion="diag",
+                lambda_mat=jnp.eye(4, 3),
+                drift_mask=None,
+                lambda_mask=zero_loading_mask(4, 3),
+                latent_names=["X", "Y", "Z"],
+                manifest_names=["x1", "x2", "y1", "z1"],
+            )
+
+        with pytest.raises(ValueError, match="lambda_mask must have shape"):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift="free",
+                diffusion="diag",
+                lambda_mat=jnp.eye(4, 3),
+                drift_mask=full_drift_mask(3),
+                lambda_mask=None,
+                latent_names=["X", "Y", "Z"],
+                manifest_names=["x1", "x2", "y1", "z1"],
+            )
+
+    def test_ssm_spec_rejects_invalid_mask_shapes(self):
+        """Structural masks must match the latent/manifest dimensions."""
+        with pytest.raises(ValueError, match=r"drift_mask must have shape \(3, 3\)"):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift="free",
+                diffusion="diag",
+                lambda_mat=jnp.eye(4, 3),
+                drift_mask=np.ones((2, 2), dtype=bool),
+                lambda_mask=zero_loading_mask(4, 3),
+                latent_names=["X", "Y", "Z"],
+                manifest_names=["x1", "x2", "y1", "z1"],
+            )
+
+        with pytest.raises(ValueError, match=r"lambda_mask must have shape \(4, 3\)"):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift="free",
+                diffusion="diag",
+                lambda_mat=jnp.eye(4, 3),
+                drift_mask=full_drift_mask(3),
+                lambda_mask=np.ones((4, 4), dtype=bool),
+                latent_names=["X", "Y", "Z"],
+                manifest_names=["x1", "x2", "y1", "z1"],
+            )
+
+    def test_ssm_spec_rejects_mismatched_family_metadata_lengths(self):
+        """Per-variable metadata lists must match the declared dimensions."""
+        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+
+        with pytest.raises(ValueError, match="diffusion_dists length must match n_latent"):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift_mask=full_drift_mask(3),
+                lambda_mask=zero_loading_mask(4, 3),
+                diffusion_dists=[DistributionFamily.GAUSSIAN] * 2,
+            )
+
+        with pytest.raises(ValueError, match="manifest_dists length must match n_manifest"):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift_mask=full_drift_mask(3),
+                lambda_mask=zero_loading_mask(4, 3),
+                manifest_dists=[DistributionFamily.GAUSSIAN] * 3,
+            )
+
+        with pytest.raises(ValueError, match="manifest_links length must match n_manifest"):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift_mask=full_drift_mask(3),
+                lambda_mask=zero_loading_mask(4, 3),
+                manifest_dists=[DistributionFamily.GAUSSIAN] * 4,
+                manifest_links=[LinkFunction.IDENTITY] * 3,
+            )
+
+        with pytest.raises(
+            ValueError, match="manifest_level_counts length must match n_manifest"
+        ):
+            SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift_mask=full_drift_mask(3),
+                lambda_mask=zero_loading_mask(4, 3),
+                manifest_level_counts=[0, 0, 0],
+            )
+
+    def test_builder_rejects_direct_ssm_spec_plus_causal_spec(self):
+        """Direct specs may not carry a causal graph unless already translated."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        causal_spec = _make_causal_spec_dict()
+        builder = SSMModelBuilder(
+            ssm_spec=SSMSpec(
+                n_latent=3,
+                n_manifest=4,
+                drift_mask=full_drift_mask(3),
+                lambda_mask=zero_loading_mask(4, 3),
+                drift="free",
+                diffusion="diag",
+                lambda_mat=jnp.eye(4, 3),
+                latent_names=["X", "Y", "Z"],
+                manifest_names=["x1", "x2", "y1", "z1"],
+            ),
+            causal_spec=causal_spec,
+        )
+        X = pl.DataFrame(
+            {
+                "time": list(range(5)),
+                "x1": [1.0] * 5,
+                "x2": [2.0] * 5,
+                "y1": [3.0] * 5,
+                "z1": [4.0] * 5,
+            }
+        )
+
+        with pytest.raises(ValueError, match="Do not pass causal_spec alongside a direct SSMSpec"):
+            builder.build_model(X)
+
+    def test_builder_rejects_autodetect_when_causal_spec_present(self):
+        """Auto-detected specs may not bypass causal-structure translation."""
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+
+        causal_spec = _make_causal_spec_dict()
+        builder = SSMModelBuilder(causal_spec=causal_spec)
+        X = pl.DataFrame(
+            {
+                "time": list(range(5)),
+                "x1": [1.0] * 5,
+                "x2": [2.0] * 5,
+                "y1": [3.0] * 5,
+                "z1": [4.0] * 5,
+            }
+        )
+
+        with pytest.raises(ValueError, match="Cannot auto-detect an SSMSpec when causal_spec is provided"):
+            builder.build_model(X)
 
     def test_translate_spec_builds_sparse_initial_state_correlation_mask(self):
         """Only authored initial-state correlations should become free t0 pairs."""
@@ -787,6 +941,7 @@ class TestParametricIdMasks:
         spec = SSMSpec(
             n_latent=3,
             n_manifest=3,
+            lambda_mask=zero_loading_mask(3, 3),
             drift="free",
             drift_mask=mask,
             lambda_mat=jnp.eye(3),
@@ -813,6 +968,7 @@ class TestParametricIdMasks:
         spec = SSMSpec(
             n_latent=2,
             n_manifest=3,
+            drift_mask=full_drift_mask(2),
             lambda_mat=lambda_mat,
             lambda_mask=lambda_mask,
             drift="free",

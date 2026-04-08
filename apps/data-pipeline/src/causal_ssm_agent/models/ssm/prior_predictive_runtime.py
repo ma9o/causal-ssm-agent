@@ -31,8 +31,7 @@ if TYPE_CHECKING:
 
 def _ensure_discrete_metadata(spec: SSMSpec) -> None:
     """Require hydrated level counts before sampling discrete emissions."""
-    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
-    needs_levels = any_family_needs_level_metadata(manifest_dists)
+    needs_levels = any_family_needs_level_metadata(spec.manifest_dists)
     if needs_levels and spec.manifest_level_counts is None:
         raise ValueError(
             "Prior predictive for ordered/categorical emissions requires hydrated "
@@ -100,9 +99,7 @@ def sample_prior_predictive_from_runtime(
     observations, observations_mask = simulate_predictive_observations(
         samples,
         times,
-        diffusion_dist=spec.diffusion_dist,
         diffusion_dists=spec.diffusion_dists,
-        manifest_dist=spec.manifest_dist,
         manifest_dists=spec.manifest_dists,
         manifest_links=spec.manifest_links,
         manifest_level_counts=spec.manifest_level_counts,

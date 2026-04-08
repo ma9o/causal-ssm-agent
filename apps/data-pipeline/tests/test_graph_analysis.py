@@ -22,6 +22,7 @@ from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+from tests.ssm_test_utils import make_ssm_spec
 
 # =============================================================================
 # Helper
@@ -36,7 +37,7 @@ def _make_spec(**kwargs) -> SSMSpec:
         "lambda_mat": jnp.eye(2),
     }
     defaults.update(kwargs)
-    return SSMSpec(**defaults)
+    return make_ssm_spec(**defaults)
 
 
 # =============================================================================
@@ -501,7 +502,7 @@ class TestKalmanBlockProfileIndices:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            manifest_link=LinkFunction.LOG,
+            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
         partition = analyze_first_pass_rb(spec)
 
@@ -658,16 +659,16 @@ class TestSelectDefaultMethod:
     def test_poisson_obs_routes_to_laplace_em(self):
         """Poisson observations → laplace_em."""
         spec = _make_spec(
-            manifest_dist=DistributionFamily.POISSON,
-            manifest_link=LinkFunction.LOG,
+            manifest_dists=[DistributionFamily.POISSON, DistributionFamily.POISSON],
+            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
         assert select_default_method(spec) == "laplace_em"
 
     def test_explicit_kalman_override_routes_to_nuts(self):
         """Explicit likelihood override should drive auto routing to nuts."""
         spec = _make_spec(
-            manifest_dist=DistributionFamily.POISSON,
-            manifest_link=LinkFunction.LOG,
+            manifest_dists=[DistributionFamily.POISSON, DistributionFamily.POISSON],
+            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
         assert select_default_method(spec, likelihood="kalman") == "nuts"
 
@@ -754,7 +755,7 @@ class TestPlanInferenceStructure:
     def test_student_t_diffusion_routes_to_laplace_em(self):
         """Student-t diffusion noise → laplace_em."""
         spec = _make_spec(
-            diffusion_dist=DistributionFamily.STUDENT_T,
+            diffusion_dists=[DistributionFamily.STUDENT_T, DistributionFamily.STUDENT_T],
         )
         assert select_default_method(spec) == "laplace_em"
 
@@ -769,39 +770,42 @@ class TestPlanInferenceStructure:
     def test_gaussian_with_log_link_routes_to_laplace_em(self):
         """Gaussian noise but log link → non-Kalman → laplace_em."""
         spec = _make_spec(
-            manifest_link=LinkFunction.LOG,
+            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
         assert select_default_method(spec) == "laplace_em"
 
     def test_bernoulli_routes_to_laplace_em(self):
         """Bernoulli observations → laplace_em."""
         spec = _make_spec(
-            manifest_dist=DistributionFamily.BERNOULLI,
-            manifest_link=LinkFunction.LOGIT,
+            manifest_dists=[DistributionFamily.BERNOULLI, DistributionFamily.BERNOULLI],
+            manifest_links=[LinkFunction.LOGIT, LinkFunction.LOGIT],
         )
         assert select_default_method(spec) == "laplace_em"
 
     def test_gamma_routes_to_laplace_em(self):
         """Gamma observations → laplace_em."""
         spec = _make_spec(
-            manifest_dist=DistributionFamily.GAMMA,
-            manifest_link=LinkFunction.LOG,
+            manifest_dists=[DistributionFamily.GAMMA, DistributionFamily.GAMMA],
+            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
         assert select_default_method(spec) == "laplace_em"
 
     def test_negative_binomial_routes_to_laplace_em(self):
         """Negative binomial observations → laplace_em."""
         spec = _make_spec(
-            manifest_dist=DistributionFamily.NEGATIVE_BINOMIAL,
-            manifest_link=LinkFunction.LOG,
+            manifest_dists=[
+                DistributionFamily.NEGATIVE_BINOMIAL,
+                DistributionFamily.NEGATIVE_BINOMIAL,
+            ],
+            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
         assert select_default_method(spec) == "laplace_em"
 
     def test_beta_routes_to_laplace_em(self):
         """Beta observations → laplace_em."""
         spec = _make_spec(
-            manifest_dist=DistributionFamily.BETA,
-            manifest_link=LinkFunction.LOGIT,
+            manifest_dists=[DistributionFamily.BETA, DistributionFamily.BETA],
+            manifest_links=[LinkFunction.LOGIT, LinkFunction.LOGIT],
         )
         assert select_default_method(spec) == "laplace_em"
 

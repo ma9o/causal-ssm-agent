@@ -53,14 +53,8 @@ class RBPartition:
 
 
 def get_per_variable_diffusion(spec: SSMSpec) -> list[DistributionFamily]:
-    """Resolve per-variable diffusion noise families.
-
-    If spec.diffusion_dists is set, return it directly.
-    Otherwise broadcast spec.diffusion_dist to all latent variables.
-    """
-    if spec.diffusion_dists is not None:
-        return list(spec.diffusion_dists)
-    return [spec.diffusion_dist] * spec.n_latent
+    """Return the canonical per-variable diffusion noise families."""
+    return list(spec.diffusion_dists)
 
 
 def has_student_t_diffusion(spec: SSMSpec) -> bool:
@@ -74,37 +68,33 @@ def get_per_channel_links(spec: SSMSpec) -> list[LinkFunction]:
     """Resolve per-channel link functions.
 
     If spec.manifest_links is set, return it directly.
-    Otherwise broadcast spec.manifest_link to all manifest channels.
+    Otherwise use the default link for each channel's observation family.
     """
+    from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+        resolve_manifest_families_and_links,
+    )
+
     if spec.manifest_links is not None:
         return list(spec.manifest_links)
-    return [spec.manifest_link] * spec.n_manifest
+    _, links = resolve_manifest_families_and_links(
+        get_per_channel_manifest(spec),
+    )
+    return links
 
 
 def get_per_channel_manifest(spec: SSMSpec) -> list[DistributionFamily]:
-    """Resolve per-channel observation noise families.
-
-    If spec.manifest_dists is set, return it directly.
-    Otherwise broadcast spec.manifest_dist to all manifest channels.
-    """
-    if spec.manifest_dists is not None:
-        return list(spec.manifest_dists)
-    return [spec.manifest_dist] * spec.n_manifest
+    """Return the canonical per-channel observation noise families."""
+    return list(spec.manifest_dists)
 
 
 def compute_drift_sparsity(spec: SSMSpec) -> np.ndarray:
     """Compute (n, n) boolean mask of potential nonzero drift entries.
 
-    - drift_mask set -> use it directly (DAG-constrained)
-    - drift="free", no mask -> all True (any entry could be nonzero)
+    - drift="free" -> explicit structural mask
     - fixed array -> True where abs(value) > 0
     """
-    if spec.drift_mask is not None:
-        return np.asarray(spec.drift_mask)
-    n = spec.n_latent
     if isinstance(spec.drift, str):
-        # "free" — all entries could be nonzero
-        return np.ones((n, n), dtype=bool)
+        return np.asarray(spec.drift_mask)
     arr = np.array(spec.drift)
     return np.abs(arr) > 0
 
@@ -112,12 +102,8 @@ def compute_drift_sparsity(spec: SSMSpec) -> np.ndarray:
 def compute_obs_dependency(spec: SSMSpec) -> np.ndarray:
     """Compute (m, n) boolean mask of observation-to-latent dependencies.
 
-    When lambda_mask is set, combines fixed nonzeros from lambda_mat
-    with free positions from the mask.
-
     - lambda_mat="free" -> all True (any obs could depend on any latent)
-    - fixed array + lambda_mask -> fixed nonzero | mask
-    - fixed array, no mask -> True where abs(value) > 0
+    - fixed array -> fixed nonzero | free-loading mask
     """
     m, n = spec.n_manifest, spec.n_latent
     if isinstance(spec.lambda_mat, str):
@@ -125,9 +111,7 @@ def compute_obs_dependency(spec: SSMSpec) -> np.ndarray:
         return np.ones((m, n), dtype=bool)
     arr = np.array(spec.lambda_mat)
     fixed_nonzero = np.abs(arr) > 0
-    if spec.lambda_mask is not None:
-        return fixed_nonzero | np.asarray(spec.lambda_mask)
-    return fixed_nonzero
+    return fixed_nonzero | np.asarray(spec.lambda_mask)
 
 
 def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:
@@ -252,16 +236,10 @@ def kalman_block_profile_indices(spec: SSMSpec, partition: RBPartition) -> list[
         # --- drift_offdiag_pop: shape (n_offdiag,) ---
         # Reconstruct offdiag_positions exactly as SSMModel._sample_drift does
         offdiag_positions: list[tuple[int, int]] = []
-        if spec.drift_mask is not None:
-            for i in range(n):
-                for j in range(n):
-                    if i != j and spec.drift_mask[i, j]:
-                        offdiag_positions.append((i, j))
-        else:
-            for i in range(n):
-                for j in range(n):
-                    if i != j:
-                        offdiag_positions.append((i, j))
+        for i in range(n):
+            for j in range(n):
+                if i != j and spec.drift_mask[i, j]:
+                    offdiag_positions.append((i, j))
 
         for idx, (i, j) in enumerate(offdiag_positions):
             if i in kalman_set and j in kalman_set:
@@ -305,7 +283,7 @@ def kalman_block_profile_indices(spec: SSMSpec, partition: RBPartition) -> list[
                         indices.append(offset + idx)
                     idx += 1
             offset += n_free
-    elif not isinstance(spec.lambda_mat, str) and spec.lambda_mask is not None:
+    elif not isinstance(spec.lambda_mat, str):
         # Template+mask mode
         for i in range(m):
             for j in range(n):

@@ -14,6 +14,8 @@ from causal_ssm_agent.models.ssm import (
     SSMPriors,
     SSMSpec,
     fit,
+    full_drift_mask,
+    zero_loading_mask,
 )
 from causal_ssm_agent.models.ssm.inference.structure import (
     InferenceStructurePlan,
@@ -147,12 +149,26 @@ class SSMModelBuilder:
             The constructed SSMModel
         """
         # Determine specification
+        if self._ssm_spec is not None and self._causal_spec is not None:
+            raise ValueError(
+                "Do not pass causal_spec alongside a direct SSMSpec. "
+                "Compile from ModelSpec + CausalSpec or use a compiled artifact so "
+                "the causal structure is encoded explicitly in the spec masks."
+            )
         if self._ssm_spec is None and self._model_spec is None:
+            if self._causal_spec is not None:
+                raise ValueError(
+                    "Cannot auto-detect an SSMSpec when causal_spec is provided. "
+                    "Pass ModelSpec + CausalSpec or a compiled Stage 4 artifact so "
+                    "drift/loading masks come from the retained causal structure."
+                )
             # Auto-detect from data
             manifest_cols = default_manifest_columns(X)
             spec = SSMSpec(
                 n_latent=len(manifest_cols),
                 n_manifest=len(manifest_cols),
+                drift_mask=full_drift_mask(len(manifest_cols)),
+                lambda_mask=zero_loading_mask(len(manifest_cols), len(manifest_cols)),
                 lambda_mat=jnp.eye(len(manifest_cols)),
             )
             spec, priors, _bindings, _diagnostics = compile_ssm_inputs(
@@ -308,8 +324,7 @@ class SSMModelBuilder:
             sample_prior_predictive_from_runtime,
         )
 
-        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
-        needs_hydration = any_family_needs_level_metadata(manifest_dists)
+        needs_hydration = any_family_needs_level_metadata(spec.manifest_dists)
         if needs_hydration and spec.manifest_level_counts is None:
             raise ValueError(
                 "Prior predictive for ordered/categorical emissions requires hydrated "

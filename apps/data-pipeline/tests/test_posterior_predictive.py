@@ -249,7 +249,7 @@ class TestForwardSimulation:
         y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
-            manifest_dist="gaussian",
+            manifest_dists=["gaussian"],
             observation_support=self._window_average_support(),
             observation_mask=obs_mask,
             n_subsample=1,
@@ -375,7 +375,7 @@ class TestForwardSimulation:
         times = jnp.arange(15, dtype=float)
 
         y_sim = simulate_predictive_observations(
-            samples=samples, times=times, manifest_dist="poisson", n_subsample=10
+            samples=samples, times=times, manifest_dists=["poisson", "poisson"], n_subsample=10
         )
 
         assert y_sim.shape == (10, 15, 2)
@@ -406,7 +406,10 @@ class TestForwardSimulation:
         times = jnp.arange(15, dtype=float)
 
         y_sim = simulate_predictive_observations(
-            samples=samples, times=times, manifest_dist="student_t", n_subsample=10
+            samples=samples,
+            times=times,
+            manifest_dists=["student_t", "student_t"],
+            n_subsample=10,
         )
 
         assert y_sim.shape == (10, 15, 2)
@@ -419,7 +422,7 @@ class TestForwardSimulation:
         times = jnp.arange(15, dtype=float)
 
         y_sim = simulate_predictive_observations(
-            samples=samples, times=times, manifest_dist="gamma", n_subsample=10
+            samples=samples, times=times, manifest_dists=["gamma", "gamma"], n_subsample=10
         )
 
         assert y_sim.shape == (10, 15, 2)
@@ -442,7 +445,7 @@ class TestForwardSimulation:
             simulate_predictive_observations(
                 samples=samples,
                 times=times,
-                manifest_dist="gamma",
+                manifest_dists=["gamma"],
                 manifest_names=["monthly_eveningness_activity_timing"],
                 n_subsample=1,
                 rng_seed=0,
@@ -457,7 +460,7 @@ class TestForwardSimulation:
         y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
-            manifest_dist="ordered_logistic",
+            manifest_dists=["ordered_logistic", "ordered_logistic"],
             manifest_level_counts=[3, 4],
             n_subsample=10,
         )
@@ -477,7 +480,7 @@ class TestForwardSimulation:
         y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
-            manifest_dist="categorical",
+            manifest_dists=["categorical", "categorical"],
             manifest_level_counts=[3, 3],
             n_subsample=10,
         )
@@ -668,7 +671,7 @@ class TestLinkFunctionSimulation:
         y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
-            manifest_dist="bernoulli",
+            manifest_dists=["bernoulli", "bernoulli"],
             manifest_links=["probit", "probit"],
             n_subsample=10,
         )
@@ -687,7 +690,7 @@ class TestLinkFunctionSimulation:
         y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
-            manifest_dist="gamma",
+            manifest_dists=["gamma", "gamma"],
             manifest_links=["inverse", "inverse"],
             n_subsample=10,
         )
@@ -704,7 +707,7 @@ class TestLinkFunctionSimulation:
         y_sim = simulate_predictive_observations(
             samples=samples,
             times=times,
-            manifest_dist="beta",
+            manifest_dists=["beta", "beta"],
             manifest_links=["probit", "probit"],
             n_subsample=10,
         )

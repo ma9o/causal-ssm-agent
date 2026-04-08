@@ -181,8 +181,6 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
         return ssm_spec.n_latent
 
     if attr == "drift_offdiag":
-        if ssm_spec.drift_mask is None:
-            return ssm_spec.n_latent * (ssm_spec.n_latent - 1)
         count = 0
         for effect_idx in range(ssm_spec.n_latent):
             for cause_idx in range(ssm_spec.n_latent):
@@ -191,8 +189,6 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
         return count
 
     if attr == "lambda_free":
-        if ssm_spec.lambda_mask is None:
-            return None
         return int(np.asarray(ssm_spec.lambda_mask).sum())
 
     if attr == "manifest_var_diag":

@@ -9,7 +9,7 @@ from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
 )
-from causal_ssm_agent.models.ssm.model import SSMSpec
+from causal_ssm_agent.models.ssm.model import SSMSpec, full_drift_mask, zero_loading_mask
 from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import (
@@ -99,10 +99,15 @@ def build_masks_from_causal_spec(
     n_manifest: int,
     *,
     causal_spec: dict | None,
-) -> tuple[np.ndarray | None, jnp.ndarray, np.ndarray | None, dict[tuple[int, int], float]]:
+) -> tuple[np.ndarray, jnp.ndarray, np.ndarray, dict[tuple[int, int], float]]:
     """Build drift/lambda masks and edge lag metadata from the causal structure."""
     if causal_spec is None or latent_names is None:
-        return None, jnp.eye(n_manifest, n_latent), None, {}
+        return (
+            full_drift_mask(n_latent),
+            jnp.eye(n_manifest, n_latent),
+            zero_loading_mask(n_manifest, n_latent),
+            {},
+        )
 
     try:
         edges = get_estimation_edges(causal_spec)
@@ -357,18 +362,7 @@ def translate_spec(
     if causal_spec is not None and layout_failed:
         raise SpecTranslationError(errors)
 
-    manifest_dist = DistributionFamily.GAUSSIAN
-    for dist in manifest_dists:
-        if dist != DistributionFamily.GAUSSIAN:
-            manifest_dist = dist
-            break
-
     manifest_links: list[LinkFunction] = [likelihood.link for likelihood in model_spec.likelihoods]
-    manifest_link = LinkFunction.IDENTITY
-    for link in manifest_links:
-        if link != LinkFunction.IDENTITY:
-            manifest_link = link
-            break
 
     try:
         drift_mask, lambda_mat, lambda_mask, edge_lag_days = build_masks_from_causal_spec(
@@ -380,9 +374,9 @@ def translate_spec(
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
-        drift_mask = None
+        drift_mask = full_drift_mask(n_latent)
         lambda_mat = jnp.eye(n_manifest, n_latent)
-        lambda_mask = None
+        lambda_mask = zero_loading_mask(n_manifest, n_latent)
         edge_lag_days = {}
 
     manifest_var, manifest_var_mask = build_manifest_variance_from_causal_spec(
@@ -420,12 +414,11 @@ def translate_spec(
         lambda_mat=lambda_mat,
         drift="free",
         diffusion=diffusion_mode,
+        diffusion_dists=[DistributionFamily.GAUSSIAN] * n_latent,
         cint="free",
         manifest_means=None,
         manifest_var=manifest_var,
-        manifest_dist=manifest_dist,
         manifest_dists=manifest_dists,
-        manifest_link=manifest_link,
         manifest_links=manifest_links,
         manifest_level_counts=manifest_level_counts,
         t0_means="free",

@@ -20,16 +20,17 @@ import jax.random as random
 import numpy as np
 import pytest
 
-from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+from tests.ssm_test_utils import make_ssm_spec
 
 pytestmark = pytest.mark.slow
 
 
 def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
     """Build a well-identified 2-latent, 2-manifest Gaussian SSM."""
-    spec = SSMSpec(
+    spec = make_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
         drift="free",
@@ -54,7 +55,7 @@ def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
 
 def _make_nonidentified_model():
     """Build a non-identified model: 2 latent, 1 manifest -> rank deficient."""
-    spec = SSMSpec(
+    spec = make_ssm_spec(
         n_latent=2,
         n_manifest=1,
         drift="free",
@@ -144,7 +145,7 @@ class TestTRule:
         """Well-identified 2L/2M model should pass t-rule with time series."""
         from causal_ssm_agent.utils.parametric_id import check_t_rule
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             drift="free",
@@ -166,7 +167,7 @@ class TestTRule:
         from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         # 3 latent, 2 manifest: lots of drift params relative to cross-sectional moments
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=3,
             n_manifest=2,
             drift="free",
@@ -186,7 +187,7 @@ class TestTRule:
         """Same model passes when T is large enough (autocovariance helps)."""
         from causal_ssm_agent.utils.parametric_id import check_t_rule
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=3,
             n_manifest=2,
             drift="free",
@@ -206,7 +207,7 @@ class TestTRule:
         """Fixed lambda should contribute 0 free params."""
         from causal_ssm_agent.utils.parametric_id import count_free_params
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=3,
             drift="free",
@@ -223,7 +224,7 @@ class TestTRule:
         """Free lambda with n_m > n_l should have (n_m - n_l) * n_l free entries."""
         from causal_ssm_agent.utils.parametric_id import count_free_params
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=4,
             drift="free",
@@ -241,7 +242,7 @@ class TestTRule:
         """Drift should have n_l diagonal + n_l*(n_l-1) off-diagonal."""
         from causal_ssm_agent.utils.parametric_id import count_free_params
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=3,
             n_manifest=3,
             drift="free",
@@ -259,7 +260,7 @@ class TestTRule:
         """Student-t manifest noise should add obs_df parameter."""
         from causal_ssm_agent.utils.parametric_id import count_free_params
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             drift="free",
@@ -268,7 +269,7 @@ class TestTRule:
             manifest_var="diag",
             t0_means="free",
             t0_var="diag",
-            manifest_dist=DistributionFamily.STUDENT_T,
+            manifest_dists=[DistributionFamily.STUDENT_T],
         )
         counts = count_free_params(spec)
         assert counts.get("obs_df") == 1
@@ -277,7 +278,7 @@ class TestTRule:
         """Per-channel manifest_dists should contribute registry-defined noise sites."""
         from causal_ssm_agent.utils.parametric_id import count_free_params
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=2,
             drift="free",
@@ -286,7 +287,6 @@ class TestTRule:
             manifest_var="diag",
             t0_means="free",
             t0_var="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
             manifest_dists=[
                 DistributionFamily.GAUSSIAN,
                 DistributionFamily.STUDENT_T,
@@ -418,7 +418,7 @@ class TestOutputSensitivity:
         from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
 
         # 1D model (3 free params: drift_diag, diffusion_diag, manifest_var_diag)
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -477,7 +477,7 @@ class TestOutputSensitivity:
         """Stage 4b should handle mixed-family interval summaries on the observation scale."""
         from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=2,
             drift="free",
@@ -486,7 +486,6 @@ class TestOutputSensitivity:
             manifest_var="diag",
             t0_means="free",
             t0_var="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
             manifest_dists=[
                 DistributionFamily.NEGATIVE_BINOMIAL,
                 DistributionFamily.GAUSSIAN,
@@ -538,7 +537,7 @@ class TestOutputSensitivity:
         """Point-like ordered-logistic and categorical channels should be supported."""
         from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=2,
             drift="free",
@@ -547,7 +546,6 @@ class TestOutputSensitivity:
             manifest_var="diag",
             t0_means="free",
             t0_var="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
             manifest_dists=[
                 DistributionFamily.ORDERED_LOGISTIC,
                 DistributionFamily.CATEGORICAL,
@@ -602,7 +600,7 @@ class TestOutputSensitivity:
         """Interval-summary standard-deviation channels should produce finite sensitivities."""
         from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             drift="free",
@@ -611,7 +609,7 @@ class TestOutputSensitivity:
             manifest_var="diag",
             t0_means="free",
             t0_var="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
             manifest_names=["score_std"],
         )
         priors = SSMPriors(
@@ -657,7 +655,7 @@ class TestOutputSensitivity:
             output_sensitivity_analysis,
         )
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             drift="free",
@@ -666,8 +664,8 @@ class TestOutputSensitivity:
             manifest_var="diag",
             t0_means="free",
             t0_var="diag",
-            manifest_dist=DistributionFamily.ORDERED_LOGISTIC,
-            manifest_link=LinkFunction.CUMULATIVE_LOGIT,
+            manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
+            manifest_links=[LinkFunction.CUMULATIVE_LOGIT],
             manifest_level_counts=[3],
             manifest_names=["sleep_level"],
         )
@@ -757,7 +755,7 @@ class TestOutputSensitivity:
         """Sensitivity rows should carry semantic names resolved from bindings or spec metadata."""
         from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             drift="free",
@@ -801,7 +799,7 @@ class TestOutputSensitivity:
         """Sparse manifest-noise sites should resolve to the correct manifest channel."""
         from causal_ssm_agent.utils.parametric_id import _fallback_interpretable_parameter_name
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
@@ -1035,7 +1033,7 @@ class TestSBCCheck:
         """Well-identified 1D LGSS with enough replicates should have uniform ranks."""
         from causal_ssm_agent.utils.parametric_id import sbc_check
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1173,7 +1171,7 @@ class TestSimulateSSMRecovery:
             rng_key=random.PRNGKey(42),
         )
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=n_latent,
             n_manifest=n_manifest,
             lambda_mat=lambda_mat,

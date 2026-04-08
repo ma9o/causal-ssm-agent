@@ -12,7 +12,13 @@ from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
 from causal_ssm_agent.models.ssm.inference.utils import _discover_sites
-from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.model import (
+    SSMModel,
+    SSMPriors,
+    SSMSpec,
+    full_drift_mask,
+    zero_loading_mask,
+)
 from causal_ssm_agent.models.ssm.parameterization import (
     SupportClass,
     assemble_deterministics_from_registry,
@@ -38,10 +44,19 @@ from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 # ---------------------------------------------------------------------------
 
 
+def _make_spec(**kwargs) -> SSMSpec:
+    """Build an SSMSpec with explicit default masks."""
+    n_latent = int(kwargs.get("n_latent", 2))
+    n_manifest = int(kwargs.get("n_manifest", 2))
+    kwargs.setdefault("drift_mask", full_drift_mask(n_latent))
+    kwargs.setdefault("lambda_mask", zero_loading_mask(n_manifest, n_latent))
+    return SSMSpec(**kwargs)
+
+
 @pytest.fixture
 def simple_spec():
     """Minimal 2-latent, 2-manifest Gaussian SSM."""
-    return SSMSpec(n_latent=2, n_manifest=2)
+    return _make_spec(n_latent=2, n_manifest=2)
 
 
 @pytest.fixture
@@ -57,7 +72,7 @@ def dag_spec():
     drift_mask = np.array([[True, False], [True, True]])  # (0,1) edge blocked
     lambda_mask = np.array([[True, False], [False, True]])
     lambda_template = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-    return SSMSpec(
+    return _make_spec(
         n_latent=2,
         n_manifest=2,
         drift_mask=drift_mask,
@@ -117,7 +132,7 @@ class TestSiteRegistry:
 
     def test_registry_shapes_match_trace_partial_manifest_variance_mask(self):
         """Masked manifest variance exposes only free diagonal entries as a site."""
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             manifest_var=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
@@ -137,7 +152,7 @@ class TestSiteRegistry:
 
     def test_fixed_drift_excludes_drift_sites(self):
         """When drift is a fixed array, no drift sites appear."""
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
@@ -149,7 +164,7 @@ class TestSiteRegistry:
 
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
-        spec = SSMSpec(n_latent=2, n_manifest=2, diffusion="diag")
+        spec = _make_spec(n_latent=2, n_manifest=2, diffusion="diag")
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_pop" in names
@@ -157,7 +172,7 @@ class TestSiteRegistry:
 
     def test_free_diffusion_includes_lower(self):
         """Free diffusion includes lower-triangle sites."""
-        spec = SSMSpec(n_latent=2, n_manifest=2, diffusion="free")
+        spec = _make_spec(n_latent=2, n_manifest=2, diffusion="free")
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_pop" in names
@@ -167,7 +182,7 @@ class TestSiteRegistry:
         """Initial-state correlation sites should only exist for authored pairs."""
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 0] = True
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=3,
             n_manifest=2,
             t0_var="free",
@@ -190,7 +205,7 @@ class TestSiteRegistry:
 
     def test_mixed_diffusion_includes_proc_df_site(self):
         """Any student-t latent in diffusion_dists should expose proc_df."""
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=1,
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
@@ -200,7 +215,7 @@ class TestSiteRegistry:
 
     def test_mixed_diffusion_sampling_emits_proc_df(self):
         """The traced model should sample proc_df when diffusion_dists include student_t."""
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=1,
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
@@ -288,7 +303,7 @@ class TestDeterministicAssembly:
 
     def test_assemble_deterministics_from_registry_fixed_fallbacks(self):
         """Fixed spec matrices are broadcast without any sampled sites."""
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             drift=jnp.array([[-0.4, 0.1], [0.0, -0.2]], dtype=jnp.float32),
@@ -312,7 +327,7 @@ class TestDeterministicAssembly:
 
     def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
         """Registry assembly respects mixed fixed/free manifest-noise diagonals."""
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             manifest_var=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
@@ -337,7 +352,7 @@ class TestDeterministicAssembly:
         """Initial-state off-diagonal samples are interpreted as correlations."""
         mask = np.zeros((2, 2), dtype=bool)
         mask[1, 0] = True
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             t0_var="free",
@@ -369,7 +384,7 @@ class TestDeterministicAssembly:
         mask[1, 0] = True
         mask[2, 0] = True
         mask[2, 1] = True
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=3,
             n_manifest=3,
             t0_var="free",
@@ -717,7 +732,7 @@ class TestSerialization:
 class TestCanonicalRuntimePriors:
     def test_loaded_runtime_preserves_per_element_priors(self):
         """Compiled prior semantics preserve vector-valued site parameters exactly."""
-        spec = SSMSpec(n_latent=3, n_manifest=3)
+        spec = _make_spec(n_latent=3, n_manifest=3)
         priors = SSMPriors(
             drift_diag={"mu": [-0.5, -0.3, -0.7], "sigma": [1.0, 0.5, 0.8]},
         )
@@ -882,7 +897,7 @@ class TestCompiledArtifactIntegration:
             serialize_ssm_spec,
         )
 
-        spec = SSMSpec(
+        spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),

@@ -30,6 +30,7 @@ from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
 from causal_ssm_agent.models.ssm_compiler import serialize_ssm_spec
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+from tests.ssm_test_utils import make_ssm_spec
 
 # =============================================================================
 # _check_nan_inf
@@ -296,7 +297,7 @@ class TestGetFailedParameters:
 
 class TestCheckLaggedResponsePlausibility:
     def test_infer_dynamics_repair_scope_localizes_unstable_scc(self):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["activity", "sleep"],
@@ -331,7 +332,7 @@ class TestCheckLaggedResponsePlausibility:
         assert scope.construct_names == ["sleep"]
 
     def test_near_zero_one_lag_response_yields_warning(self):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
@@ -567,7 +568,7 @@ class TestComputeDataStats:
 
 
 def _complex_mixed_runtime_spec() -> SSMSpec:
-    return SSMSpec(
+    return make_ssm_spec(
         n_latent=4,
         n_manifest=10,
         drift=jnp.array(
@@ -692,12 +693,12 @@ class TestCompiledPriorPredictiveRuntime:
 
     def test_ordered_likelihood_requires_hydrated_level_counts(self):
         """Discrete emissions fail clearly until hydration provides level counts."""
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1, dtype=jnp.float32),
             diffusion="diag",
-            manifest_dist=DistributionFamily.ORDERED_LOGISTIC,
+            manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
         )
         semantics = compile_prior_semantics(spec, SSMPriors())
 
@@ -716,7 +717,7 @@ class TestCompiledPriorPredictiveRuntime:
         mask[1, 0] = True
         mask[2, 0] = True
         mask[2, 1] = True
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=3,
             n_manifest=3,
             lambda_mat=jnp.eye(3, dtype=jnp.float32),

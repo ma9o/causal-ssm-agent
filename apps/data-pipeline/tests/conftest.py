@@ -13,7 +13,7 @@ import jax.numpy as jnp
 import jax.random as random
 import pytest
 
-from causal_ssm_agent.models.ssm import SSMSpec
+from causal_ssm_agent.models.ssm import SSMSpec, full_drift_mask, zero_loading_mask
 from causal_ssm_agent.orchestrator.schemas import (
     Construct,
     Indicator,
@@ -252,6 +252,8 @@ def lgss_data():
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
+        drift_mask=full_drift_mask(n_latent),
+        lambda_mask=zero_loading_mask(n_manifest, n_latent),
         lambda_mat=jnp.eye(n_manifest, n_latent),
         manifest_means=jnp.zeros(n_manifest),
         diffusion="diag",

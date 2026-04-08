@@ -312,11 +312,7 @@ def run_ppc(fitted_result: dict) -> dict:
             observations=runtime.observations,
             times=runtime.times,
             manifest_names=runtime.manifest_names,
-            diffusion_dist=spec.diffusion_dist,
             diffusion_dists=spec.diffusion_dists,
-            manifest_dist=spec.manifest_dist.value
-            if hasattr(spec.manifest_dist, "value")
-            else str(spec.manifest_dist),
             manifest_dists=spec.manifest_dists,
             manifest_links=spec.manifest_links,
             manifest_level_counts=spec.manifest_level_counts,

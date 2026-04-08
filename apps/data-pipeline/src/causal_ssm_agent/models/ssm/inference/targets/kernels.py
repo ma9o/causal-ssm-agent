@@ -704,12 +704,10 @@ def build_composite_observation_kernel(
 
 
 def compile_measurement_semantics(
-    manifest_dist: DistributionFamily | str,
+    manifest_dists: list[DistributionFamily | str],
     *,
     manifest_cov: jnp.ndarray | None = None,
     extra_params: dict | None = None,
-    manifest_dists: list[DistributionFamily | str] | None = None,
-    manifest_link: LinkFunction | str | None = None,
     manifest_links: list[LinkFunction | str | None] | None = None,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> MeasurementSemantics:
@@ -721,20 +719,20 @@ def compile_measurement_semantics(
         compile_observation_operator,
     )
 
-    if manifest_cov is not None:
-        n_manifest = int(manifest_cov.shape[0])
-    elif manifest_dists is not None:
-        n_manifest = len(manifest_dists)
-    elif observation_support is not None:
-        n_manifest = len(observation_support.support_kinds)
-    else:
-        n_manifest = 1
+    n_manifest = len(manifest_dists)
+    if manifest_cov is not None and int(manifest_cov.shape[0]) != n_manifest:
+        raise ValueError(
+            "manifest_cov width must match manifest_dists length: "
+            f"{int(manifest_cov.shape[0])} vs {n_manifest}"
+        )
+    if observation_support is not None and len(observation_support.support_kinds) != n_manifest:
+        raise ValueError(
+            "observation_support width must match manifest_dists length: "
+            f"{len(observation_support.support_kinds)} vs {n_manifest}"
+        )
 
     dists, links = resolve_manifest_families_and_links(
-        manifest_dist,
-        n_manifest,
-        manifest_dists=manifest_dists,
-        manifest_link=manifest_link,
+        manifest_dists,
         manifest_links=manifest_links,
     )
     if len(set(zip(dists, links))) == 1:

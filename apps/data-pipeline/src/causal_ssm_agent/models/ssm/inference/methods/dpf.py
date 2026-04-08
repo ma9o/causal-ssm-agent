@@ -48,6 +48,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     project_response_trajectory,
     support_observation_log_prob,
 )
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 logger = get_prefect_logger(__name__)
 
@@ -58,8 +59,6 @@ if TYPE_CHECKING:
         InitialStateParams,
         MeasurementParams,
     )
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
 # ---------------------------------------------------------------------------
 # Proposal network: Equinox MLP-parameterized Gaussian
 # ---------------------------------------------------------------------------
@@ -475,8 +474,8 @@ def _simulate_from_prior(
     H,
     d_meas,
     R,
-    manifest_dist="gaussian",
-    manifest_link="identity",
+    manifest_dists,
+    manifest_links=None,
     extra_params=None,
     time_intervals=None,
     observation_support=None,
@@ -492,7 +491,6 @@ def _simulate_from_prior(
         init_mean: (D,)
         init_cov: (D, D)
     """
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
     k1, k2, k3, k4, k5 = random.split(rng_key, 5)
 
@@ -537,24 +535,26 @@ def _simulate_from_prior(
         z_all = z0[None]
 
     measurement_semantics = compile_measurement_semantics(
-        DistributionFamily(manifest_dist),
+        manifest_dists,
         manifest_cov=R,
         extra_params=extra_params,
-        manifest_link=LinkFunction(manifest_link),
+        manifest_links=manifest_links,
         observation_support=observation_support,
     )
     obs_kernel = measurement_semantics.obs_kernel
     responses = jax.vmap(lambda z_t: obs_kernel.response_fn(H @ z_t + d_meas))(z_all)
     try:
         predictive_sampler = build_predictive_observation_sampler(
-            manifest_dist=manifest_dist,
+            manifest_dists,
             manifest_cov=R,
-            manifest_link=manifest_link,
+            manifest_links=manifest_links,
             extra_params=extra_params,
         )
     except ValueError as exc:
+        supported_manifest_dists = ", ".join(str(dist) for dist in manifest_dists)
         raise NotImplementedError(
-            f"Support-aware DPF proposal training does not support '{manifest_dist}'."
+            "Support-aware DPF proposal training does not support manifest_dists="
+            f"{supported_manifest_dists!r}."
         ) from exc
 
     if obs_mask_template is None:
@@ -574,8 +574,8 @@ def _train_proposal(
     H,
     d_meas,
     R,
-    manifest_dist="gaussian",
-    manifest_link="identity",
+    manifest_dists,
+    manifest_links=None,
     extra_params=None,
     observation_support=None,
     time_intervals=None,
@@ -593,8 +593,8 @@ def _train_proposal(
         D_latent: latent dimension
         n_manifest: observation dimension
         H, d_meas, R: measurement model
-        manifest_dist: emission type (DistributionFamily enum or string)
-        manifest_link: link function (LinkFunction enum or string)
+        manifest_dists: per-channel observation families
+        manifest_links: per-channel link functions
         extra_params: emission hyperparameters
         n_train_seqs: number of training sequences
         n_train_steps: gradient steps
@@ -608,8 +608,6 @@ def _train_proposal(
     """
     import optax
 
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
     rng_key = random.PRNGKey(seed)
 
     # Initialize proposal network
@@ -621,10 +619,10 @@ def _train_proposal(
     data_keys = random.split(data_key, n_train_seqs)
 
     measurement_semantics = compile_measurement_semantics(
-        DistributionFamily(manifest_dist),
+        manifest_dists,
         manifest_cov=R,
         extra_params=extra_params,
-        manifest_link=LinkFunction(manifest_link),
+        manifest_links=manifest_links,
         observation_support=observation_support,
     )
     obs_kernel = measurement_semantics.obs_kernel
@@ -643,8 +641,8 @@ def _train_proposal(
             H=H,
             d_meas=d_meas,
             R=R,
-            manifest_dist=manifest_dist,
-            manifest_link=manifest_link,
+            manifest_dists=manifest_dists,
+            manifest_links=manifest_links,
             extra_params=extra_params,
             time_intervals=time_intervals,
             observation_support=observation_support,
@@ -758,8 +756,8 @@ class DPFLikelihood:
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dist: DistributionFamily | str = "gaussian",
-        manifest_link: LinkFunction | str = "identity",
+        manifest_dists: list[DistributionFamily | str] | None = None,
+        manifest_links: list[LinkFunction | str | None] | None = None,
         n_particles: int = 100,
         proposal_net: ProposalNetwork | None = None,
         rng_key: jax.Array | None = None,
@@ -767,8 +765,15 @@ class DPFLikelihood:
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
-        self.manifest_dist = manifest_dist
-        self.manifest_link = manifest_link
+        self.manifest_dists = (
+            [
+                dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+                for dist in manifest_dists
+            ]
+            if manifest_dists is not None
+            else [DistributionFamily.GAUSSIAN] * n_manifest
+        )
+        self.manifest_links = manifest_links
         self.n_particles = n_particles
         self.proposal_net = proposal_net
         self.rng_key = rng_key if rng_key is not None else random.PRNGKey(0)
@@ -799,10 +804,10 @@ class DPFLikelihood:
             cd = jnp.zeros((T, n))
 
         measurement_semantics = compile_measurement_semantics(
-            self.manifest_dist,
+            self.manifest_dists,
             manifest_cov=measurement_params.manifest_cov,
             extra_params=extra_params,
-            manifest_link=self.manifest_link,
+            manifest_links=self.manifest_links,
             observation_support=self.observation_support,
         )
         obs_kernel = measurement_semantics.obs_kernel
@@ -902,6 +907,13 @@ def fit_dpf(
 
     rng_key = random.PRNGKey(seed)
     spec = model.spec
+    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+        get_per_channel_links,
+        get_per_channel_manifest,
+    )
+
+    manifest_dists = get_per_channel_manifest(spec)
+    manifest_links = get_per_channel_links(spec)
 
     # Phase 1: Train proposal network
     # Extract measurement model from spec
@@ -940,8 +952,8 @@ def fit_dpf(
         H=H_train,
         d_meas=d_train,
         R=R_train,
-        manifest_dist=spec.manifest_dist,
-        manifest_link=spec.manifest_link,
+        manifest_dists=manifest_dists,
+        manifest_links=manifest_links,
         observation_support=observation_support,
         time_intervals=train_time_intervals,
         obs_mask_template=train_obs_mask,
@@ -963,8 +975,8 @@ def fit_dpf(
         backend = DPFLikelihood(
             n_latent=spec.n_latent,
             n_manifest=spec.n_manifest,
-            manifest_dist=spec.manifest_dist,
-            manifest_link=spec.manifest_link,
+            manifest_dists=manifest_dists,
+            manifest_links=manifest_links,
             n_particles=n_pf_particles,
             proposal_net=proposal_net,
             rng_key=dpf_key,

@@ -128,74 +128,72 @@ def build_prior_index_maps(
                 f"{parameter.name!r} not in {sorted(latent_idx_map)}"
             )
 
-    if ssm_spec.drift_mask is not None:
-        positions: list[tuple[int, int]] = []
-        for effect_idx in range(ssm_spec.n_latent):
-            for cause_idx in range(ssm_spec.n_latent):
-                if effect_idx != cause_idx and ssm_spec.drift_mask[effect_idx, cause_idx]:
-                    positions.append((effect_idx, cause_idx))
+    positions: list[tuple[int, int]] = []
+    for effect_idx in range(ssm_spec.n_latent):
+        for cause_idx in range(ssm_spec.n_latent):
+            if effect_idx != cause_idx and ssm_spec.drift_mask[effect_idx, cause_idx]:
+                positions.append((effect_idx, cause_idx))
 
-        for parameter in spec_obj.parameters:
-            if parameter.role != ParameterRole.FIXED_EFFECT:
+    for parameter in spec_obj.parameters:
+        if parameter.role != ParameterRole.FIXED_EFFECT:
+            continue
+        compound = parameter.name.removeprefix("beta_")
+        result = split_compound_name(compound, latent_name_set, latent_name_set)
+        if result is None:
+            message = (
+                "Could not parse FIXED_EFFECT parameter "
+                f"{parameter.name!r} into (cause, effect) from known latents {sorted(latent_name_set)}"
+            )
+            if strict_structure:
+                errors.append(message)
                 continue
-            compound = parameter.name.removeprefix("beta_")
-            result = split_compound_name(compound, latent_name_set, latent_name_set)
-            if result is None:
-                message = (
-                    "Could not parse FIXED_EFFECT parameter "
-                    f"{parameter.name!r} into (cause, effect) from known latents {sorted(latent_name_set)}"
-                )
-                if strict_structure:
-                    errors.append(message)
-                    continue
-                logger.warning("%s", message)
-                continue
-            cause_name, effect_name = result
-            position = (latent_idx_map[effect_name], latent_idx_map[cause_name])
-            if position in positions:
-                offdiag_index[parameter.name] = ("drift_offdiag", positions.index(position))
-            elif strict_structure:
-                errors.append(
-                    "FIXED_EFFECT parameter does not correspond to an edge in causal_spec: "
-                    f"{parameter.name!r}"
-                )
+            logger.warning("%s", message)
+            continue
+        cause_name, effect_name = result
+        position = (latent_idx_map[effect_name], latent_idx_map[cause_name])
+        if position in positions:
+            offdiag_index[parameter.name] = ("drift_offdiag", positions.index(position))
+        elif strict_structure:
+            errors.append(
+                "FIXED_EFFECT parameter does not correspond to an edge in causal_spec: "
+                f"{parameter.name!r}"
+            )
 
-    if ssm_spec.lambda_mask is not None:
-        manifest_names = ssm_spec.manifest_names or []
-        manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
-        manifest_name_set = set(manifest_idx_map)
+    manifest_names = ssm_spec.manifest_names or []
+    manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
+    manifest_name_set = set(manifest_idx_map)
 
-        positions: list[tuple[int, int]] = []
-        for manifest_idx in range(ssm_spec.n_manifest):
-            for latent_idx in range(ssm_spec.n_latent):
-                if ssm_spec.lambda_mask[manifest_idx, latent_idx]:
-                    positions.append((manifest_idx, latent_idx))
+    positions = []
+    for manifest_idx in range(ssm_spec.n_manifest):
+        for latent_idx in range(ssm_spec.n_latent):
+            if ssm_spec.lambda_mask[manifest_idx, latent_idx]:
+                positions.append((manifest_idx, latent_idx))
 
-        for parameter in spec_obj.parameters:
-            if parameter.role != ParameterRole.LOADING:
+    for parameter in spec_obj.parameters:
+        if parameter.role != ParameterRole.LOADING:
+            continue
+        compound = parameter.name.removeprefix("lambda_")
+        result = split_compound_name(compound, manifest_name_set, latent_name_set)
+        if result is None:
+            message = (
+                "Could not parse LOADING parameter "
+                f"{parameter.name!r} into (indicator, construct) from known manifests "
+                f"{sorted(manifest_name_set)} / latents {sorted(latent_name_set)}"
+            )
+            if strict_structure:
+                errors.append(message)
                 continue
-            compound = parameter.name.removeprefix("lambda_")
-            result = split_compound_name(compound, manifest_name_set, latent_name_set)
-            if result is None:
-                message = (
-                    "Could not parse LOADING parameter "
-                    f"{parameter.name!r} into (indicator, construct) from known manifests "
-                    f"{sorted(manifest_name_set)} / latents {sorted(latent_name_set)}"
-                )
-                if strict_structure:
-                    errors.append(message)
-                    continue
-                logger.warning("%s", message)
-                continue
-            indicator_name, construct_name = result
-            position = (manifest_idx_map[indicator_name], latent_idx_map[construct_name])
-            if position in positions:
-                lambda_index[parameter.name] = ("lambda_free", positions.index(position))
-            elif strict_structure:
-                errors.append(
-                    "LOADING parameter does not correspond to a free loading in causal_spec: "
-                    f"{parameter.name!r}"
-                )
+            logger.warning("%s", message)
+            continue
+        indicator_name, construct_name = result
+        position = (manifest_idx_map[indicator_name], latent_idx_map[construct_name])
+        if position in positions:
+            lambda_index[parameter.name] = ("lambda_free", positions.index(position))
+        elif strict_structure:
+            errors.append(
+                "LOADING parameter does not correspond to a free loading in causal_spec: "
+                f"{parameter.name!r}"
+            )
 
     manifest_names = ssm_spec.manifest_names or []
     manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
@@ -235,8 +233,7 @@ def build_prior_index_maps(
             manifest_var_index[parameter.name] = ("manifest_var_diag", flat_idx)
 
     available_observation_sites: set[str] = set()
-    manifest_dists = ssm_spec.manifest_dists or [ssm_spec.manifest_dist] * ssm_spec.n_manifest
-    manifest_dist_set = set(manifest_dists)
+    manifest_dist_set = set(ssm_spec.manifest_dists)
     if DistributionFamily.STUDENT_T in manifest_dist_set:
         available_observation_sites.add("obs_df")
     if DistributionFamily.GAMMA in manifest_dist_set:

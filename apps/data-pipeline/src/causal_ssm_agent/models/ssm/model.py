@@ -15,12 +15,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
 from causal_ssm_agent.distributions import (
@@ -70,23 +69,48 @@ def _nan_safe_ll_bwd(is_finite, g):
 _nan_safe_ll.defvjp(_nan_safe_ll_fwd, _nan_safe_ll_bwd)
 
 
+def full_drift_mask(n_latent: int) -> np.ndarray:
+    """Return the fully free structural support mask for a drift matrix."""
+    return np.ones((n_latent, n_latent), dtype=bool)
+
+
+def zero_loading_mask(n_manifest: int, n_latent: int) -> np.ndarray:
+    """Return the zero free-loading mask for a fixed loading template."""
+    return np.zeros((n_manifest, n_latent), dtype=bool)
+
+
 @dataclass
 class SSMSpec:
     """Specification for a state-space model.
 
-    Matrix naming convention:
-    - drift: n_latent x n_latent continuous-time auto/cross effects
-    - DIFFUSION: n_latent x n_latent process noise (Cholesky)
-    - CINT: n_latent x 1 continuous intercept
-    - LAMBDA: n_manifest x n_latent factor loadings
-    - MANIFESTMEANS: n_manifest x 1 manifest intercepts
-    - MANIFESTVAR: n_manifest x n_manifest measurement error (Cholesky)
-    - T0MEANS: n_latent x 1 initial state means
-    - T0VAR: n_latent x n_latent initial state variance (Cholesky)
+    Matrices:
+    - drift (A): n_latent x n_latent continuous-time auto/cross effects
+    - diffusion (G): n_latent x n_latent process noise (Cholesky)
+    - cint (c): n_latent x 1 continuous intercept
+    - lambda_mat (Λ): n_manifest x n_latent factor loadings
+    - manifest_means (μ): n_manifest x 1 manifest intercepts
+    - manifest_var (L_R): n_manifest x n_manifest measurement-error Cholesky factor
+    - t0_means (η₀): n_latent x 1 initial state means
+    - t0_var (P₀): n_latent x n_latent initial state variance (Cholesky)
+
+    Distributions:
+    - diffusion_dists (Nₛ): per-latent process noise family
+    - manifest_dists (Fᵢ): per-channel observation family
+    - manifest_links (gᵢ): per-channel link
+    - hᵢ: extra observation parameters required by Fᵢ (for example df, shape, r, concentration, cutpoints, or categorical logits)
+
+    State:       dη(t) = (A η(t) + c) dt + G dNₛ(t)
+                 η(0) ~ N(t0_means, t0_var t0_varᵀ)
+
+    Linear pred: ξᵢ(t) = (Λ η(t) + μ)ᵢ
+    Mean param:  mᵢ(t) = gᵢ⁻¹(ξᵢ(t))
+    Emission:    yᵢ(t) ~ Fᵢ(mᵢ(t); hᵢ, (L_R L_Rᵀ)ᵢᵢ)
     """
 
     n_latent: int
     n_manifest: int
+    drift_mask: np.ndarray
+    lambda_mask: np.ndarray
 
     # Fixed or "free" specification for each matrix
     # If a matrix, use those fixed values; if "free", estimate
@@ -99,24 +123,18 @@ class SSMSpec:
     t0_means: jnp.ndarray | Literal["free"] = "free"
     t0_var: jnp.ndarray | Literal["free", "diag"] = "free"
 
-    # Distribution families for observation and process noise
-    diffusion_dist: DistributionFamily = DistributionFamily.GAUSSIAN
-    manifest_dist: DistributionFamily = DistributionFamily.GAUSSIAN
+    # Per-variable diffusion noise families.
+    diffusion_dists: list[DistributionFamily] = field(default_factory=list)
 
-    # Per-variable diffusion noise (overrides scalar diffusion_dist if set)
-    diffusion_dists: list[DistributionFamily] | None = None
-
-    # Per-channel observation noise (overrides scalar manifest_dist if set)
-    manifest_dists: list[DistributionFamily] | None = None
+    # Per-channel observation noise families.
+    manifest_dists: list[DistributionFamily] = field(default_factory=list)
 
     # Per-channel number of encoded levels for discrete emissions.
     # Non-discrete channels use 0.
     manifest_level_counts: list[int] | None = None
 
-    # Link function (scalar fallback for all channels)
-    manifest_link: LinkFunction = LinkFunction.IDENTITY
-
-    # Per-channel link functions (overrides scalar manifest_link if set)
+    # Per-channel link functions. When omitted, each channel uses the
+    # default link for its observation family.
     manifest_links: list[LinkFunction] | None = None
 
     # Toggle first-pass (unconditional, model-level) Rao-Blackwellization
@@ -129,11 +147,6 @@ class SSMSpec:
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
 
-    # DAG-constrained masks (None = fully free, backward compat)
-    # drift_mask: (n_latent, n_latent) bool — True where drift entry is free
-    drift_mask: np.ndarray | None = None
-    # lambda_mask: (n_manifest, n_latent) bool — True where loading is free to sample
-    lambda_mask: np.ndarray | None = None
     # manifest_var_mask: (n_manifest,) bool — True where measurement SD is free
     # to sample on the diagonal of manifest_var. When None, manifest_var follows
     # its global mode ("diag"/"free" = all free, fixed ndarray = all fixed).
@@ -141,11 +154,70 @@ class SSMSpec:
 
     # t0_correlation_mask: (n_latent, n_latent) bool — True on lower-triangle
     # positions where an authored initial-state correlation parameter exists.
+    # When None, `t0_var` controls whether all or none are free.
     t0_correlation_mask: np.ndarray | None = None
 
     # Time-invariant latent mask: (n_latent,) bool — True for quasi-constant latents.
     # These get near-zero drift diagonal and near-zero diffusion, so η_i(t) ≈ η_i(0).
+    # When None, no latent is treated as quasi-constant.
     time_invariant_mask: np.ndarray | None = None
+
+    def _coerce_drift_mask(self, mask: np.ndarray) -> np.ndarray:
+        mask_array = np.asarray(mask, dtype=bool)
+        if mask_array.shape != (self.n_latent, self.n_latent):
+            raise ValueError(
+                "drift_mask must have shape "
+                f"({self.n_latent}, {self.n_latent}), got {mask_array.shape}"
+            )
+        return mask_array
+
+    def _coerce_lambda_mask(self, mask: np.ndarray) -> np.ndarray:
+        mask_array = np.asarray(mask, dtype=bool)
+        if mask_array.shape != (self.n_manifest, self.n_latent):
+            raise ValueError(
+                "lambda_mask must have shape "
+                f"({self.n_manifest}, {self.n_latent}), got {mask_array.shape}"
+            )
+        return mask_array
+
+    def __post_init__(self) -> None:
+        """Validate structural masks and canonicalize per-channel family metadata."""
+        self.drift_mask = self._coerce_drift_mask(self.drift_mask)
+        self.lambda_mask = self._coerce_lambda_mask(self.lambda_mask)
+
+        if self.diffusion_dists:
+            self.diffusion_dists = [DistributionFamily(dist) for dist in self.diffusion_dists]
+        else:
+            self.diffusion_dists = [DistributionFamily.GAUSSIAN] * self.n_latent
+        if len(self.diffusion_dists) != self.n_latent:
+            raise ValueError(
+                "diffusion_dists length must match n_latent: "
+                f"{len(self.diffusion_dists)} vs {self.n_latent}"
+            )
+
+        if self.manifest_dists:
+            self.manifest_dists = [DistributionFamily(dist) for dist in self.manifest_dists]
+        else:
+            self.manifest_dists = [DistributionFamily.GAUSSIAN] * self.n_manifest
+        if len(self.manifest_dists) != self.n_manifest:
+            raise ValueError(
+                "manifest_dists length must match n_manifest: "
+                f"{len(self.manifest_dists)} vs {self.n_manifest}"
+            )
+
+        if self.manifest_links is not None:
+            self.manifest_links = [LinkFunction(link) for link in self.manifest_links]
+            if len(self.manifest_links) != self.n_manifest:
+                raise ValueError(
+                    "manifest_links length must match n_manifest: "
+                    f"{len(self.manifest_links)} vs {self.n_manifest}"
+                )
+
+        if self.manifest_level_counts is not None and len(self.manifest_level_counts) != self.n_manifest:
+            raise ValueError(
+                "manifest_level_counts length must match n_manifest: "
+                f"{len(self.manifest_level_counts)} vs {self.n_manifest}"
+            )
 
 
 @dataclass
@@ -224,8 +296,7 @@ def assemble_sampled_extra_params(
 ) -> dict[str, jnp.ndarray]:
     """Assemble likelihood hyperparameters and derived observation metadata."""
     extra_params: dict[str, jnp.ndarray] = {}
-    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
-    manifest_dist_set = set(manifest_dists)
+    manifest_dist_set = set(spec.manifest_dists)
 
     scalar_keys = (
         "obs_df",
@@ -552,8 +623,8 @@ class SSMModel:
         2. Fixed: return template as-is (no sampling).
         3. Legacy: identity + extra rows filled with sampled loadings.
         """
-        # Fully fixed (array with no mask): return as-is
-        if isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is None:
+        # Fully fixed (array with no free-loading positions): return as-is
+        if isinstance(spec.lambda_mat, jnp.ndarray) and not bool(np.asarray(spec.lambda_mask).any()):
             return spec.lambda_mat
 
         asm = self._assembler
@@ -687,8 +758,7 @@ class SSMModel:
     def _sample_likelihood_extra_params(self, spec: SSMSpec) -> dict[str, jnp.ndarray]:
         """Sample likelihood hyperparameters and assemble backend-ready extras."""
         sampled_values: dict[str, jnp.ndarray] = {}
-        manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
-        manifest_dist_set = set(manifest_dists)
+        manifest_dist_set = set(spec.manifest_dists)
 
         if DistributionFamily.STUDENT_T in manifest_dist_set:
             sampled_values["obs_df"] = numpyro.sample(
@@ -916,17 +986,7 @@ def make_likelihood_backend(
 
         particle_diffs = [per_var[int(i)] for i in partition.particle_idx]
 
-        pf_manifest_dist = spec.manifest_dist
-        for k in partition.obs_particle_idx:
-            if per_obs[int(k)] != DistributionFamily.GAUSSIAN:
-                pf_manifest_dist = per_obs[int(k)]
-                break
-
-        pf_manifest_link = spec.manifest_link
-        for k in partition.obs_particle_idx:
-            if per_links[int(k)] != LinkFunction.IDENTITY:
-                pf_manifest_link = per_links[int(k)]
-                break
+        particle_obs_dists = [per_obs[int(k)] for k in partition.obs_particle_idx]
 
         return ComposedLikelihood(
             partition=partition,
@@ -939,10 +999,10 @@ def make_likelihood_backend(
                 n_manifest=n_obs_p,
                 n_particles=n_particles,
                 rng_key=pf_key,
-                manifest_dist=pf_manifest_dist,
+                manifest_dists=particle_obs_dists,
                 diffusion_dist=particle_diffs,
                 block_rb=spec.second_pass_rb,
-                manifest_link=pf_manifest_link,
+                manifest_links=[per_links[int(k)] for k in partition.obs_particle_idx],
                 observation_support=None,
             ),
         )
@@ -955,12 +1015,12 @@ def make_likelihood_backend(
         n_manifest=spec.n_manifest,
         n_particles=n_particles,
         rng_key=pf_key,
-        manifest_dist=spec.manifest_dist,
+        manifest_dists=per_obs,
         diffusion_dist=per_var,
         block_rb=False
         if observation_support is not None
         and observation_support.requires_interval_summary_handling
         else spec.second_pass_rb,
-        manifest_link=spec.manifest_link,
+        manifest_links=per_links,
         observation_support=observation_support,
     )

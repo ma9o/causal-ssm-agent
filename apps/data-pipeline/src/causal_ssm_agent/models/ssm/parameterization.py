@@ -359,21 +359,20 @@ def build_site_registry(
             )
         )
 
-    if not (isinstance(spec.lambda_mat, jnp.ndarray) and spec.lambda_mask is None):
-        n_free = len(assembler.lambda_free_positions)
-        if n_free > 0:
-            sites.append(
-                _site(
-                    "lambda_free",
-                    (n_free,),
-                    SupportClass.REAL,
-                    "lambda",
-                    SiteKind.LOADING,
-                    deterministic_name="lambda",
-                    fixed_spec_field="lambda_mat",
-                    priors_field="lambda_free",
-                )
+    n_free = len(assembler.lambda_free_positions)
+    if n_free > 0:
+        sites.append(
+            _site(
+                "lambda_free",
+                (n_free,),
+                SupportClass.REAL,
+                "lambda",
+                SiteKind.LOADING,
+                deterministic_name="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             )
+        )
 
     if spec.manifest_means is not None and not isinstance(spec.manifest_means, jnp.ndarray):
         sites.append(
@@ -450,8 +449,7 @@ def build_site_registry(
 
     # -- Likelihood extra-parameter sites -----------------------------------
 
-    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * n_m
-    manifest_dist_set = set(manifest_dists)
+    manifest_dist_set = set(spec.manifest_dists)
 
     if DistributionFamily.STUDENT_T in manifest_dist_set:
         sites.append(

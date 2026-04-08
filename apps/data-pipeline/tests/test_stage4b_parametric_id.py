@@ -16,6 +16,7 @@ from causal_ssm_agent.models.ssm.inference.structure import (
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+from tests.ssm_test_utils import make_ssm_spec
 
 pytestmark = pytest.mark.slow
 
@@ -44,7 +45,7 @@ def _make_model(spec: SSMSpec, observation_support=None):
 
 
 def _make_separable_spec(first_pass_rb: bool = True) -> SSMSpec:
-    return SSMSpec(
+    return make_ssm_spec(
         n_latent=3,
         n_manifest=3,
         drift=jnp.diag(jnp.array([-0.5, -0.5, -0.5])),
@@ -83,7 +84,7 @@ class TestStage4bInferenceStructurePayload:
             ),
             (
                 "no_executable_partition",
-                lambda: SSMSpec(
+                lambda: make_ssm_spec(
                     n_latent=2,
                     n_manifest=2,
                     drift=jnp.diag(jnp.array([-0.5, -0.3])),

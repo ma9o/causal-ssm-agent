@@ -178,28 +178,30 @@ def _run_block_rbpf(
     observations,
     time_intervals,
     diffusion_dists,
-    manifest_dist="gaussian",
+    manifest_dists=None,
     n_particles=200,
     rng_key=None,
     extra_params=None,
-    manifest_link=None,
+    manifest_links=None,
 ):
     """Run block RBPF with per-variable diffusion dists."""
     from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
-    if manifest_link is None:
-        manifest_link = _canonical_link(manifest_dist)
+    if manifest_dists is None:
+        manifest_dists = ["gaussian"] * meas_params.lambda_mat.shape[0]
+    if manifest_links is None:
+        manifest_links = [_canonical_link(dist) for dist in manifest_dists]
 
     backend = ParticleLikelihood(
         n_latent=init.mean.shape[0],
         n_manifest=meas_params.lambda_mat.shape[0],
         n_particles=n_particles,
         rng_key=rng_key,
-        manifest_dist=manifest_dist,
+        manifest_dists=manifest_dists,
         diffusion_dist=diffusion_dists,
-        manifest_link=manifest_link,
+        manifest_links=manifest_links,
     )
     return backend.compute_log_likelihood(
         ct_params,
@@ -217,27 +219,29 @@ def _run_full_rbpf(
     init,
     observations,
     time_intervals,
-    manifest_dist="gaussian",
+    manifest_dists=None,
     n_particles=200,
     rng_key=None,
-    manifest_link=None,
+    manifest_links=None,
 ):
     """Run full RBPF (all Gaussian)."""
     from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
-    if manifest_link is None:
-        manifest_link = _canonical_link(manifest_dist)
+    if manifest_dists is None:
+        manifest_dists = ["gaussian"] * meas_params.lambda_mat.shape[0]
+    if manifest_links is None:
+        manifest_links = [_canonical_link(dist) for dist in manifest_dists]
 
     backend = ParticleLikelihood(
         n_latent=init.mean.shape[0],
         n_manifest=meas_params.lambda_mat.shape[0],
         n_particles=n_particles,
         rng_key=rng_key,
-        manifest_dist=manifest_dist,
+        manifest_dists=manifest_dists,
         diffusion_dist="gaussian",
-        manifest_link=manifest_link,
+        manifest_links=manifest_links,
     )
     return backend.compute_log_likelihood(
         ct_params,
@@ -254,20 +258,22 @@ def _run_bootstrap_pf(
     init,
     observations,
     time_intervals,
-    manifest_dist="gaussian",
+    manifest_dists=None,
     diffusion_dist="student_t",
     n_particles=200,
     rng_key=None,
     extra_params=None,
-    manifest_link=None,
+    manifest_links=None,
 ):
     """Run bootstrap PF (all sampled)."""
     from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
-    if manifest_link is None:
-        manifest_link = _canonical_link(manifest_dist)
+    if manifest_dists is None:
+        manifest_dists = ["gaussian"] * meas_params.lambda_mat.shape[0]
+    if manifest_links is None:
+        manifest_links = [_canonical_link(dist) for dist in manifest_dists]
 
     ep = {"proc_df": 100.0}
     if extra_params:
@@ -278,9 +284,9 @@ def _run_bootstrap_pf(
         n_manifest=meas_params.lambda_mat.shape[0],
         n_particles=n_particles,
         rng_key=rng_key,
-        manifest_dist=manifest_dist,
+        manifest_dists=manifest_dists,
         diffusion_dist=diffusion_dist,
-        manifest_link=manifest_link,
+        manifest_links=manifest_links,
     )
     return backend.compute_log_likelihood(
         ct_params,
@@ -757,7 +763,7 @@ class TestParameterRecovery:
                 n_manifest=n,
                 n_particles=50,
                 rng_key=random.PRNGKey(0),
-                manifest_dist="gaussian",
+                manifest_dists=["gaussian"] * n,
                 diffusion_dist="student_t",
             )
             ll = backend.compute_log_likelihood(
@@ -827,7 +833,7 @@ class TestParameterRecovery:
                 n_manifest=n,
                 n_particles=100,
                 rng_key=random.PRNGKey(0),
-                manifest_dist="gaussian",
+                manifest_dists=["gaussian"] * n,
                 diffusion_dist=["gaussian", "student_t"],
             )
             ll = backend.compute_log_likelihood(
@@ -902,7 +908,7 @@ class TestParameterRecovery:
                 n_manifest=n,
                 n_particles=100,
                 rng_key=random.PRNGKey(0),
-                manifest_dist="gaussian",
+                manifest_dists=["gaussian"] * n,
                 diffusion_dist=["gaussian", "student_t"],
             )
             ll = backend.compute_log_likelihood(
@@ -973,7 +979,7 @@ class TestParameterRecovery:
                 n_manifest=n,
                 n_particles=200,
                 rng_key=random.PRNGKey(0),
-                manifest_dist="gaussian",
+                manifest_dists=["gaussian"] * n,
                 diffusion_dist=["gaussian", "student_t", "student_t"],
             )
             ll = backend.compute_log_likelihood(
@@ -1038,7 +1044,7 @@ class TestParameterRecovery:
                 diffusion_dists=["gaussian", "student_t"],
                 n_particles=200,
                 rng_key=random.PRNGKey(42),
-                manifest_dist="poisson",
+                manifest_dists=["poisson", "poisson"],
                 extra_params={"proc_df": 100.0},
             )
 

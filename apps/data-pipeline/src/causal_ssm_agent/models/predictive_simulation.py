@@ -136,17 +136,13 @@ def _simulate_latent_trajectory(
 
 
 def _build_response_kernel(
-    manifest_dist: str,
-    manifest_dists: list[str] | None,
+    manifest_dists: list[str],
     manifest_links: list[str] | None,
-    n_manifest: int,
     extra_params: dict | None,
 ):
     """Build the response-space observation kernel for one posterior draw."""
     dists, links = resolve_manifest_families_and_links(
-        manifest_dist,
-        n_manifest,
-        manifest_dists=manifest_dists,
+        manifest_dists,
         manifest_links=manifest_links,
     )
     if len(set(zip(dists, links))) == 1:
@@ -213,16 +209,13 @@ def _apply_observation_mask(
 def _raise_if_log_link_mean_overflow(
     linear_predictors: jnp.ndarray,
     *,
-    manifest_dist: str,
-    manifest_dists: list[str] | None,
+    manifest_dists: list[str],
     manifest_links: list[str] | None,
     manifest_names: list[str] | None,
 ) -> None:
     """Fail fast when a log-link predictive mean would overflow before sampling."""
     _dists, links = resolve_manifest_families_and_links(
-        manifest_dist,
-        int(linear_predictors.shape[2]),
-        manifest_dists=manifest_dists,
+        manifest_dists,
         manifest_links=manifest_links,
     )
     log_link_mask = np.asarray([link == LinkFunction.LOG for link in links], dtype=bool)
@@ -261,8 +254,7 @@ def _sample_observations_for_draw(
     linear_predictors: jnp.ndarray,
     rng_key: jax.Array,
     *,
-    manifest_dist: str,
-    manifest_dists: list[str] | None,
+    manifest_dists: list[str],
     manifest_links: list[str] | None,
     point_sampler,
     interval_summary_sampler,
@@ -282,12 +274,9 @@ def _sample_observations_for_draw(
         )
         return _apply_observation_mask(point_samples, None, observation_mask), effective_mask
 
-    n_manifest = linear_predictors.shape[1]
     response_kernel = _build_response_kernel(
-        manifest_dist,
         manifest_dists,
         manifest_links,
-        n_manifest,
         extra_params,
     )
     responses = jax.vmap(response_kernel.response_fn)(linear_predictors)
@@ -316,9 +305,7 @@ def _sample_observations_for_draw(
 def simulate_predictive_observations(
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
-    diffusion_dist: DistributionFamily | str = "gaussian",
     diffusion_dists: list[DistributionFamily | str] | None = None,
-    manifest_dist: str = "gaussian",
     manifest_dists: list[str] | None = None,
     manifest_links: list[str] | None = None,
     manifest_level_counts: list[int] | None = None,
@@ -359,6 +346,7 @@ def simulate_predictive_observations(
         raise ValueError(
             f"manifest_names must have length {n_manifest}, got {len(resolved_manifest_names)}"
         )
+    resolved_manifest_dists = manifest_dists or ["gaussian"] * n_manifest
 
     if manifest_means_draws is not None:
         manifest_means_sub = _broadcast_draw_param(manifest_means_draws, n_use, indices)
@@ -383,17 +371,16 @@ def simulate_predictive_observations(
 
     n_timepoints = int(times.shape[0])
     transition_dt_array = jnp.maximum(jnp.diff(times), MIN_DT)
+    resolved_diffusion_dists = diffusion_dists or ["gaussian"] * drift_sub.shape[-1]
     transition_semantics = compile_transition_semantics(
-        diffusion_dists or diffusion_dist, drift_sub.shape[-1]
+        resolved_diffusion_dists, drift_sub.shape[-1]
     )
 
     rng = jax.random.PRNGKey(rng_seed)
     draw_keys = jax.random.split(rng, n_use)
 
     resolved_dists, _resolved_links = resolve_manifest_families_and_links(
-        manifest_dist,
-        n_manifest,
-        manifest_dists=manifest_dists,
+        resolved_manifest_dists,
         manifest_links=manifest_links,
     )
     observation_operator = compile_observation_operator(observation_support)
@@ -466,8 +453,7 @@ def simulate_predictive_observations(
     linear_predictors_sub = vmap(_simulate_linear_predictors_for_draw)(jnp.arange(n_use))
     _raise_if_log_link_mean_overflow(
         linear_predictors_sub,
-        manifest_dist=manifest_dist,
-        manifest_dists=manifest_dists,
+        manifest_dists=resolved_manifest_dists,
         manifest_links=manifest_links,
         manifest_names=resolved_manifest_names,
     )
@@ -475,9 +461,8 @@ def simulate_predictive_observations(
     def sim_one(i):
         extra_params = _draw_extra_params(i)
         point_sampler = build_predictive_observation_sampler(
-            manifest_dist=manifest_dist,
+            resolved_manifest_dists,
             manifest_cov=manifest_cov_sub[i],
-            manifest_dists=manifest_dists,
             manifest_links=manifest_links,
             extra_params=extra_params,
         )
@@ -486,12 +471,9 @@ def simulate_predictive_observations(
             interval_summary_indices = list(observation_operator.interval_summary_indices)
             interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
             interval_summary_sampler = build_predictive_observation_sampler(
-                manifest_dist=manifest_dist,
+                [point_sampler.manifest_dists[idx] for idx in interval_summary_indices],
                 manifest_cov=manifest_cov_sub[i][
                     jnp.ix_(interval_summary_idx, interval_summary_idx)
-                ],
-                manifest_dists=[
-                    point_sampler.manifest_dists[idx] for idx in interval_summary_indices
                 ],
                 manifest_links=(
                     [manifest_links[idx] for idx in interval_summary_indices]
@@ -505,8 +487,7 @@ def simulate_predictive_observations(
         return _sample_observations_for_draw(
             linear_predictors=linear_predictors_sub[i],
             rng_key=draw_keys[i],
-            manifest_dist=manifest_dist,
-            manifest_dists=manifest_dists,
+            manifest_dists=resolved_manifest_dists,
             manifest_links=manifest_links,
             point_sampler=point_sampler,
             interval_summary_sampler=interval_summary_sampler,

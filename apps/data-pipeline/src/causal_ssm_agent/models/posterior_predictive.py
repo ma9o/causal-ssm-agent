@@ -443,9 +443,7 @@ def run_posterior_predictive_checks(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     manifest_names: list[str],
-    diffusion_dist: DistributionFamily | str = "gaussian",
     diffusion_dists: list[DistributionFamily | str] | None = None,
-    manifest_dist: str = "gaussian",
     manifest_dists: list[str] | None = None,
     manifest_links: list[str] | None = None,
     manifest_level_counts: list[int] | None = None,
@@ -461,10 +459,8 @@ def run_posterior_predictive_checks(
         observations: (T, n_manifest) observed data
         times: (T,) observation times
         manifest_names: list of manifest variable names
-        diffusion_dist: scalar process-noise family (fallback)
-        diffusion_dists: per-latent process-noise families (overrides diffusion_dist)
-        manifest_dist: scalar observation noise family (fallback)
-        manifest_dists: per-channel noise families (overrides manifest_dist)
+        diffusion_dists: per-latent process-noise families
+        manifest_dists: per-channel noise families
         manifest_links: per-channel link function strings
         manifest_level_counts: per-channel encoded category counts
         observation_support: optional compiled interval-summary semantics
@@ -478,9 +474,7 @@ def run_posterior_predictive_checks(
     y_sim = simulate_predictive_observations(
         samples=samples,
         times=times,
-        diffusion_dist=diffusion_dist,
         diffusion_dists=diffusion_dists,
-        manifest_dist=manifest_dist,
         manifest_dists=manifest_dists,
         manifest_links=manifest_links,
         manifest_level_counts=manifest_level_counts,
