@@ -15,7 +15,7 @@ from typing import Any
 from prefect import flow
 from prefect.artifacts import create_markdown_artifact
 
-from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows import get_current_flow_run_id, get_prefect_logger
 from causal_ssm_agent.flows.runtime_events import emit_stage_progress_event
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.byok_secret_store import consume_byok_secret_ref
@@ -174,7 +174,21 @@ async def causal_inference_pipeline(
         openrouter_secret_ref: Single-use encrypted OpenRouter key ref created by
             the web server for production web-launched runs.
     """
-    if os.environ.get("DEPLOYMENT_ENV") == "production" and openrouter_access_mode not in {
+    from causal_ssm_agent.flows.stage_registry import OpenRouterAccessMode
+
+    resolved_openrouter_access_mode: OpenRouterAccessMode | None
+    if openrouter_access_mode == "user":
+        resolved_openrouter_access_mode = "user"
+    elif openrouter_access_mode == "anonymous":
+        resolved_openrouter_access_mode = "anonymous"
+    elif openrouter_access_mode == "local":
+        resolved_openrouter_access_mode = "local"
+    elif openrouter_access_mode is None:
+        resolved_openrouter_access_mode = None
+    else:
+        raise ValueError("openrouter_access_mode must be one of 'anonymous', 'user', or 'local'")
+
+    if os.environ.get("DEPLOYMENT_ENV") == "production" and resolved_openrouter_access_mode not in {
         "anonymous",
         "user",
     }:
@@ -182,18 +196,18 @@ async def causal_inference_pipeline(
 
     openrouter_api_key: str | None = None
     if openrouter_secret_ref:
-        if openrouter_access_mode not in {"user", "anonymous"}:
+        if resolved_openrouter_access_mode not in {"user", "anonymous"}:
             raise ValueError("openrouter_access_mode must be 'user' or 'anonymous'")
         openrouter_api_key = consume_byok_secret_ref(openrouter_secret_ref)
         if openrouter_api_key is None:
             raise ValueError("Invalid or expired OpenRouter secret reference")
         logger.info(
             "Resolved %s OpenRouter API key from secret ref",
-            openrouter_access_mode,
+            resolved_openrouter_access_mode,
         )
-    elif openrouter_access_mode == "local":
+    elif resolved_openrouter_access_mode == "local":
         logger.info("Using local OpenRouter credentials from the environment")
-    elif openrouter_access_mode is not None:
+    elif resolved_openrouter_access_mode is not None:
         raise ValueError("openrouter_secret_ref is required for 'user' and 'anonymous' modes")
 
     from causal_ssm_agent.flows.stage_registry import (
@@ -244,7 +258,7 @@ async def causal_inference_pipeline(
         "literature=%s start_stage=%s end_stage=%s stage_overrides=%s",
         workspace_id,
         "raw text" if query else "resume/no-query",
-        openrouter_access_mode or "implicit/default",
+        resolved_openrouter_access_mode or "implicit/default",
         inference_method or "config default",
         lit_enabled,
         effective_start_stage,
@@ -254,9 +268,7 @@ async def causal_inference_pipeline(
     if question:
         logger.info("Question preview: %s", _preview(question))
 
-    from prefect.context import get_run_context
-
-    prefect_run_id = str(get_run_context().flow_run.id)
+    prefect_run_id = get_current_flow_run_id()
 
     # Ensure the run directory exists
     storage.makedirs(runs_dir(workspace_id))
@@ -269,7 +281,7 @@ async def causal_inference_pipeline(
         inference_method=inference_method,
         supported_overrides=supported_overrides,
         openrouter_api_key=openrouter_api_key,
-        openrouter_access_mode=openrouter_access_mode,
+        openrouter_access_mode=resolved_openrouter_access_mode,
     )
 
     stage_states: dict[str, dict[str, Any]] = {}

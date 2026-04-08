@@ -4,7 +4,7 @@ import asyncio
 import json
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -18,6 +18,8 @@ from causal_ssm_agent.utils.openrouter_client import (
 )
 
 logger = get_prefect_logger(__name__)
+
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 
 DEFAULT_MAX_TOOL_LOOP_TURNS = 40
 WARN_TOOL_LOOP_TURNS = 10
@@ -158,10 +160,25 @@ def get_generate_config() -> GenerateConfig:
     from causal_ssm_agent.utils.config import get_config
 
     llm = get_config().llm
+    reasoning_effort: ReasoningEffort | None
+    if llm.reasoning_effort == "none":
+        reasoning_effort = "none"
+    elif llm.reasoning_effort == "minimal":
+        reasoning_effort = "minimal"
+    elif llm.reasoning_effort == "low":
+        reasoning_effort = "low"
+    elif llm.reasoning_effort == "medium":
+        reasoning_effort = "medium"
+    elif llm.reasoning_effort == "high":
+        reasoning_effort = "high"
+    elif llm.reasoning_effort == "xhigh":
+        reasoning_effort = "xhigh"
+    else:
+        reasoning_effort = None
     return GenerateConfig(
         max_tokens=llm.max_tokens,
         timeout=llm.timeout,
-        reasoning_effort=llm.reasoning_effort,
+        reasoning_effort=reasoning_effort,
     )
 
 

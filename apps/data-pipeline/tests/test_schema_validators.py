@@ -3,11 +3,23 @@
 Covers: validate_latent_model, validate_measurement_model, validate_causal_spec.
 """
 
+from typing import Any
+
 from causal_ssm_agent.orchestrator.schemas import (
+    LatentModel,
     validate_causal_spec,
     validate_latent_model,
     validate_measurement_model,
 )
+
+
+def _invalid_dict_payload(value: object) -> Any:
+    return value
+
+
+def _require_latent_model(model: LatentModel | None) -> LatentModel:
+    assert model is not None
+    return model
 
 
 def _valid_latent_data():
@@ -71,7 +83,7 @@ class TestValidateLatentModel:
         assert errors == []
 
     def test_not_dict_returns_error(self):
-        model, errors = validate_latent_model("not a dict")
+        model, errors = validate_latent_model(_invalid_dict_payload("not a dict"))
         assert model is None
         assert len(errors) == 1
         assert "dictionary" in errors[0].lower()
@@ -136,19 +148,25 @@ class TestValidateLatentModel:
 class TestValidateMeasurementModel:
     def test_valid_model_returns_model(self):
         latent, _ = validate_latent_model(_valid_latent_data())
-        model, errors = validate_measurement_model(_valid_measurement_data(), latent)
+        model, errors = validate_measurement_model(
+            _valid_measurement_data(), _require_latent_model(latent)
+        )
         assert model is not None
         assert errors == []
 
     def test_not_dict_returns_error(self):
         latent, _ = validate_latent_model(_valid_latent_data())
-        model, errors = validate_measurement_model("not a dict", latent)
+        model, errors = validate_measurement_model(
+            _invalid_dict_payload("not a dict"), _require_latent_model(latent)
+        )
         assert model is None
         assert len(errors) == 1
 
     def test_indicators_not_list(self):
         latent, _ = validate_latent_model(_valid_latent_data())
-        model, errors = validate_measurement_model({"indicators": "bad"}, latent)
+        model, errors = validate_measurement_model(
+            {"indicators": "bad"}, _require_latent_model(latent)
+        )
         assert model is None
         assert any("list" in e.lower() for e in errors)
 
@@ -156,21 +174,21 @@ class TestValidateMeasurementModel:
         latent, _ = validate_latent_model(_valid_latent_data())
         data = _valid_measurement_data()
         data["indicators"].append(data["indicators"][0].copy())
-        model, errors = validate_measurement_model(data, latent)
+        model, errors = validate_measurement_model(data, _require_latent_model(latent))
         assert model is None
         assert any("duplicate" in e.lower() for e in errors)
 
     def test_indicator_not_dict(self):
         latent, _ = validate_latent_model(_valid_latent_data())
         data = {"indicators": [42]}
-        model, errors = validate_measurement_model(data, latent)
+        model, errors = validate_measurement_model(data, _require_latent_model(latent))
         assert model is None
         assert any("dictionary" in e.lower() for e in errors)
 
     def test_invalid_indicator_schema(self):
         latent, _ = validate_latent_model(_valid_latent_data())
         data = {"indicators": [{"name": "bad"}]}  # missing required fields
-        model, errors = validate_measurement_model(data, latent)
+        model, errors = validate_measurement_model(data, _require_latent_model(latent))
         assert model is None
         assert len(errors) > 0
 

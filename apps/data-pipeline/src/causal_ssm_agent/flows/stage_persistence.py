@@ -42,8 +42,10 @@ def persist_validated_web_result(stage_id: str, data: dict, workspace_id: str) -
     storage.write_text(path, json.dumps(payload, allow_nan=False))
 
     logger.debug("Persisted %s result to %s", stage_id, path)
-    level, summary = model.summarize()
-    logger.log(level, summary)
+    summarize = getattr(model, "summarize", None)
+    if callable(summarize):
+        level, summary = summarize()
+        logger.log(level, summary)
     return payload
 
 

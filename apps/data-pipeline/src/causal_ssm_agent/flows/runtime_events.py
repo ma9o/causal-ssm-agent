@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from prefect.context import get_run_context
 from prefect.events import emit_event
+
+from causal_ssm_agent.flows import get_current_flow_run_id
 
 STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage"
 STAGE2_EVENT_PREFIX = "causal-ssm.stage2"
@@ -90,7 +91,7 @@ def emit_nested_stage_running_event(
     *,
     log_flow_run_ids: list[str] | None = None,
 ) -> str:
-    stage_subflow_run_id = str(get_run_context().flow_run.id)
+    stage_subflow_run_id = get_current_flow_run_id()
     emit_stage_progress_event(
         root_run_id,
         stage_id,

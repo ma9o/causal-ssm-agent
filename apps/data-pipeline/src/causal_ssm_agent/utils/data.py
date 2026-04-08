@@ -98,7 +98,7 @@ def bucket_by_clock(
     return result
 
 
-def observation_row_schema() -> dict[str, pl.DataType]:
+def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
     """Schema for canonical long-format observation rows."""
     return dict(OBSERVATION_ROW_SCHEMA)
 

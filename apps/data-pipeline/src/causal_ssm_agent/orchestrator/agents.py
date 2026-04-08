@@ -10,7 +10,7 @@ import asyncio
 from causal_ssm_agent.utils.config import get_config  # also loads .env
 from causal_ssm_agent.utils.llm import make_generate_fn
 
-from .schemas import CausalSpec, LatentModel, MeasurementModel
+from .schemas import CausalSpec, EstimationSpec, LatentModel, MeasurementModel
 from .stage1a import run_stage1a
 from .stage1b import run_stage1b
 
@@ -155,6 +155,6 @@ def build_causal_spec(
             if identifiability_status
             else None
         ),
-        estimation=estimation,
+        estimation=EstimationSpec.model_validate(estimation) if estimation is not None else None,
     )
     return causal_spec.model_dump()

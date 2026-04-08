@@ -31,7 +31,10 @@ def _derive_local_secret(root_secret: str, scope: str) -> str:
 
 def _seed_byok_ref(tmp_path, ref: str, payload: str, *, expires_at_ms: int) -> None:
     db_path = tmp_path / "byok-secret-store.db"
-    connection = libsql.connect(str(db_path))
+    connect = getattr(libsql, "connect", None)
+    if connect is None:
+        raise RuntimeError("libsql.connect is unavailable in the test environment")
+    connection = connect(str(db_path))
     connection.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {BYOK_SECRET_TABLE} (

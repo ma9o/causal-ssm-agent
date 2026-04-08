@@ -16,6 +16,7 @@ from .stage4_events import (
 )
 from .stage4_feedback import (
     Stage4ValidationPacket,
+    Stage4ValidationStatus,
     make_stage4_validation_packet,
     render_stage4_validation_feedback,
     should_store_stage4_validation_packet,
@@ -125,7 +126,7 @@ def _summarize_names(names: list[str], *, limit: int = 8) -> str:
 def _build_validation_packet_for_block(
     *,
     block: Stage4FrontierBlock | None,
-    status: str,
+    status: Stage4ValidationStatus,
     feedback: str,
     validation: AssemblyValidation | None = None,
     changed_parameters: tuple[str, ...] = (),
@@ -532,7 +533,8 @@ def _apply_prior_partial_drift_guard(
     if not _should_run_partial_drift_guard(active_block=active_block, state=state):
         return state
 
-    authored_priors = state.stage_output.get("authored_priors")
+    stage_output = state.stage_output or {}
+    authored_priors = stage_output.get("authored_priors")
     try:
         if active_block.kind == "dynamics_prior":
             partial_guard = validate_dynamics_block_partial_drift(
@@ -1241,6 +1243,7 @@ def _finalize_repair_campaign_if_complete(
     )
 
     if validation_route.outcome == "compile_error":
+        assert validation_route.repair_plan is not None
         return _apply_stage4_step_result(
             plan,
             runtime,
@@ -1259,6 +1262,7 @@ def _finalize_repair_campaign_if_complete(
         )
 
     if validation_route.outcome == "prior_predictive_failure":
+        assert validation_route.repair_plan is not None
         return _apply_stage4_step_result(
             plan,
             runtime,

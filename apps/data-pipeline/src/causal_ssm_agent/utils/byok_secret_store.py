@@ -92,9 +92,12 @@ def _decrypt_api_key(payload: str) -> str:
     return plaintext.decode("utf-8")
 
 
-def _connect() -> libsql.Connection:
+def _connect():
     auth_token = _get_auth_token()
-    connection = libsql.connect(
+    connect_fn = getattr(libsql, "connect", None)
+    if connect_fn is None:
+        raise RuntimeError("libsql.connect is unavailable in the current environment")
+    connection = connect_fn(
         _resolve_database(),
         **({"auth_token": auth_token} if auth_token else {}),
     )

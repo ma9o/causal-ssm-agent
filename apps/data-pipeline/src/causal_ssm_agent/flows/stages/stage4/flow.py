@@ -36,7 +36,7 @@ def _stage4_generate_config() -> GenerateConfig:
         max_tokens=None,
         timeout=180,
         reasoning_effort=base.reasoning_effort,
-        max_tool_output=None,
+        max_tool_output=base.max_tool_output,
     )
 
 
@@ -88,7 +88,7 @@ async def stage4_agentic_flow(
                 max_tool_turns=s4.max_tool_turns,
             )
 
-            def _on_state_change(plan, runtime, transitions):  # type: ignore[no-untyped-def]
+            def _on_state_change(plan, runtime, transitions):
                 if root_run_id:
                     graph = project_stage4_graph(plan)
                     emit_stage4_graph_event(root_run_id, graph=graph)

@@ -7,6 +7,7 @@ Covers: parse_json_response, _validate_json_and_format, attach_trace,
 import asyncio
 import json
 import logging
+from typing import Any, cast
 
 import pytest
 
@@ -22,6 +23,12 @@ from causal_ssm_agent.utils.llm import (
 )
 from causal_ssm_agent.workers.schemas import validate_worker_output
 from tests.helpers import _run
+
+
+def _require_mapping(value: object) -> dict[str, Any]:
+    assert isinstance(value, dict)
+    return {str(key): item for key, item in value.items()}
+
 
 # =============================================================================
 # parse_json_response
@@ -907,16 +914,17 @@ class TestOpenRouterClient:
             lambda _api_key=None: slow_client,
         )
 
+        timeout_seconds = cast("Any", 0.01)
         with pytest.raises(TimeoutError, match=r"call_model timed out after 0\.01s"):
             _run(
                 openrouter_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
-                    config=openrouter_client.GenerateConfig(timeout=0.01),
+                    config=openrouter_client.GenerateConfig(timeout=timeout_seconds),
                 )
             )
 
-        assert seen["kwargs"]["timeout"] == 0.01
+        assert _require_mapping(seen["kwargs"])["timeout"] == 0.01
 
     def test_call_model_logs_completion_tool_calls_and_reasoning(self, monkeypatch, caplog):
         from causal_ssm_agent.utils import openrouter_client
@@ -961,7 +969,7 @@ class TestOpenRouterClient:
                 )
             )
 
-        assert seen["kwargs"]["model"] == "test-model"
+        assert _require_mapping(seen["kwargs"])["model"] == "test-model"
         assert "call_model completion:\nfinal answer" in caplog.text
         assert '"name": "validate_extractions"' in caplog.text
         assert "call_model reasoning:\nthought process" in caplog.text
@@ -998,7 +1006,9 @@ class TestOpenRouterClient:
                 )
             )
 
-        assert seen["kwargs"]["messages"] == [{"role": "user", "content": "hello"}]
+        assert _require_mapping(seen["kwargs"])["messages"] == [
+            {"role": "user", "content": "hello"}
+        ]
         assert "call_model completion:\nunlabeled completion" in caplog.text
 
     def test_call_model_strips_repo_openrouter_prefix(self, monkeypatch):
@@ -1032,7 +1042,7 @@ class TestOpenRouterClient:
             )
         )
 
-        assert seen["kwargs"]["model"] == "anthropic/claude-sonnet-4"
+        assert _require_mapping(seen["kwargs"])["model"] == "anthropic/claude-sonnet-4"
 
     def test_call_model_uses_request_local_openrouter_key(self, monkeypatch):
         from causal_ssm_agent.utils import openrouter_client
@@ -1068,7 +1078,7 @@ class TestOpenRouterClient:
             )
 
         assert seen["api_key"] == "user-key"
-        assert seen["kwargs"]["model"] == "test-model"
+        assert _require_mapping(seen["kwargs"])["model"] == "test-model"
 
     def test_call_model_uses_reasoning_config_in_extra_body(self, monkeypatch):
         from causal_ssm_agent.utils import openrouter_client
@@ -1101,7 +1111,7 @@ class TestOpenRouterClient:
             )
         )
 
-        assert seen["kwargs"]["extra_body"] == {
+        assert _require_mapping(seen["kwargs"])["extra_body"] == {
             "provider": {"sort": "throughput"},
             "reasoning": {"effort": "high"},
         }
@@ -1245,4 +1255,4 @@ class TestOpenRouterKeyContext:
         result = _run(task())
 
         assert result == {"ok": True}
-        assert captured["make_generate_kwargs"]["max_tool_turns"] == 77
+        assert _require_mapping(captured["make_generate_kwargs"])["max_tool_turns"] == 77

@@ -11,6 +11,7 @@ import re
 import traceback
 import zipfile
 from pathlib import Path
+from typing import Any, cast
 
 import polars as pl
 import pytest
@@ -136,7 +137,7 @@ class TestIngestionTools:
 
     def _make_tools(self, extract_dir):
         sandbox = _MockSandbox(extract_dir)
-        return make_ingestion_tools(extract_dir, sandbox)
+        return make_ingestion_tools(extract_dir, cast("Any", sandbox))
 
     def test_list_files(self, sample_archive):
         tools, _ = self._make_tools(sample_archive)
