@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from causal_ssm_agent.models.ssm.assembler import SSMAssembler
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
@@ -87,27 +87,21 @@ def get_per_channel_manifest(spec: SSMSpec) -> list[DistributionFamily]:
     return list(spec.manifest_dists)
 
 
-def compute_drift_sparsity(spec: SSMSpec) -> np.ndarray:
+def compute_drift_sparsity(structure_runtime: SSMStructureRuntime) -> np.ndarray:
     """Compute (n, n) boolean mask of potential nonzero drift entries.
 
     Potential nonzeros are the union of fixed nonzero template entries and
     free entries marked in the compiled drift mask.
     """
-    arr = np.array(spec.drift)
-    fixed_nonzero = np.abs(arr) > 0
-    drift_free = np.asarray(spec.drift_offdiag_mask).copy()
-    np.fill_diagonal(drift_free, np.asarray(spec.drift_diag_mask))
-    return fixed_nonzero | drift_free
+    return np.asarray(structure_runtime.drift_support_mask())
 
 
-def compute_obs_dependency(spec: SSMSpec) -> np.ndarray:
+def compute_obs_dependency(structure_runtime: SSMStructureRuntime) -> np.ndarray:
     """Compute (m, n) boolean mask of observation-to-latent dependencies.
 
     Combines the fixed loading template with the explicit free-loading mask.
     """
-    arr = np.array(spec.lambda_mat)
-    fixed_nonzero = np.abs(arr) > 0
-    return fixed_nonzero | np.asarray(spec.lambda_mask)
+    return np.asarray(structure_runtime.loading_support_mask())
 
 
 def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:
@@ -126,8 +120,9 @@ def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:
 
     n = spec.n_latent
 
-    drift_mask = compute_drift_sparsity(spec)
-    obs_dep = compute_obs_dependency(spec)
+    structure_runtime = SSMStructureRuntime(spec)
+    drift_mask = compute_drift_sparsity(structure_runtime)
+    obs_dep = compute_obs_dependency(structure_runtime)
     per_var = get_per_variable_diffusion(spec)
     per_obs = get_per_channel_manifest(spec)
     per_links = get_per_channel_links(spec)
@@ -205,7 +200,11 @@ def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:
     )
 
 
-def kalman_block_profile_indices(spec: SSMSpec, partition: RBPartition) -> list[int]:
+def kalman_block_profile_indices(
+    partition: RBPartition,
+    *,
+    structure_runtime: SSMStructureRuntime,
+) -> list[int]:
     """Return flat parameter vector indices that belong to the Kalman block.
 
     Only these indices should be profiled in the parametric identifiability
@@ -215,75 +214,69 @@ def kalman_block_profile_indices(spec: SSMSpec, partition: RBPartition) -> list[
     Mirrors the NumPyro site layout from SSMModel._sample_* methods exactly.
     """
 
-    assembler = SSMAssembler(spec)
     kalman_set = {int(i) for i in partition.kalman_idx}
     obs_kalman_set = {int(i) for i in partition.obs_kalman_idx}
-    n = spec.n_latent
-    m = spec.n_manifest
     indices: list[int] = []
     offset = 0
 
     # --- drift_diag_pop: shape (n,), index k → latent k ---
-    for dense_idx, latent_idx in enumerate(assembler.drift_diag_positions):
+    for dense_idx, latent_idx in enumerate(structure_runtime.drift_diag_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.drift_diag_positions)
+    offset += structure_runtime.n_drift_diag
 
-    for idx, (i, j) in enumerate(assembler.offdiag_positions):
+    for idx, (i, j) in enumerate(structure_runtime.offdiag_positions):
         if i in kalman_set and j in kalman_set:
             indices.append(offset + idx)
-    offset += len(assembler.offdiag_positions)
+    offset += structure_runtime.n_drift_offdiag
 
-    for dense_idx, latent_idx in enumerate(assembler.diffusion_diag_positions):
+    for dense_idx, latent_idx in enumerate(structure_runtime.diffusion_diag_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.diffusion_diag_positions)
+    offset += structure_runtime.n_diffusion_diag
 
-    for dense_idx, (row, col) in enumerate(assembler.diffusion_lower_positions):
+    for dense_idx, (row, col) in enumerate(structure_runtime.diffusion_lower_positions):
         if row in kalman_set and col in kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.diffusion_lower_positions)
+    offset += structure_runtime.n_diffusion_lower
 
     # --- cint_pop: sparse free continuous intercept entries ---
-    for dense_idx, latent_idx in enumerate(assembler.cint_free_positions):
+    for dense_idx, latent_idx in enumerate(structure_runtime.cint_free_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.cint_free_positions)
+    offset += structure_runtime.n_cint
 
     # --- lambda_free: iterate the canonical free-loading mask ---
-    for i in range(m):
-        for j in range(n):
-            if spec.lambda_mask[i, j]:
-                if i in obs_kalman_set and j in kalman_set:
-                    indices.append(offset)
-                offset += 1
-
+    for dense_idx, (manifest_idx, latent_idx) in enumerate(structure_runtime.lambda_free_positions):
+        if manifest_idx in obs_kalman_set and latent_idx in kalman_set:
+            indices.append(offset + dense_idx)
+    offset += structure_runtime.n_lambda_free
     # --- manifest_means: sparse free manifest intercept entries ---
-    for dense_idx, manifest_idx in enumerate(assembler.manifest_means_free_positions):
+    for dense_idx, manifest_idx in enumerate(structure_runtime.manifest_means_free_positions):
         if manifest_idx in obs_kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.manifest_means_free_positions)
+    offset += structure_runtime.n_manifest_means
 
-    for dense_idx, manifest_idx in enumerate(assembler.manifest_var_free_positions):
+    for dense_idx, manifest_idx in enumerate(structure_runtime.manifest_var_free_positions):
         if manifest_idx in obs_kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.manifest_var_free_positions)
+    offset += structure_runtime.n_manifest_var_diag
 
     # --- t0_means_pop: sparse free initial-state mean entries ---
-    for dense_idx, latent_idx in enumerate(assembler.t0_means_free_positions):
+    for dense_idx, latent_idx in enumerate(structure_runtime.t0_means_free_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.t0_means_free_positions)
+    offset += structure_runtime.n_t0_means
 
-    for dense_idx, latent_idx in enumerate(assembler.t0_diag_free_positions):
+    for dense_idx, latent_idx in enumerate(structure_runtime.t0_diag_free_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.t0_diag_free_positions)
+    offset += structure_runtime.n_t0_diag
 
-    for dense_idx, (row, col) in enumerate(assembler.t0_correlation_positions):
+    for dense_idx, (row, col) in enumerate(structure_runtime.t0_correlation_positions):
         if row in kalman_set and col in kalman_set:
             indices.append(offset + dense_idx)
-    offset += len(assembler.t0_correlation_positions)
+    offset += structure_runtime.n_t0_correlation
 
     # Noise family hyperparams (obs_df, proc_df, etc.) are global scalars —
     # include only if the entire model is Kalman-tractable.

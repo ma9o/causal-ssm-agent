@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
+from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, full_vector_mask
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
@@ -92,6 +93,89 @@ def _make_nonidentified_model():
         manifest_var_diag={"sigma": 0.5},
     )
     return SSMModel(spec, priors, n_particles=50, likelihood="kalman")
+
+
+def _make_mixed_family_interval_oracle_model() -> SSMModel:
+    """Build a GOLDEN-like mixed-family CT-SSM with a locally identifiable free block."""
+    manifest_names = [
+        "late_activity_count",
+        "wake_latency_hours",
+        "mood_score",
+    ]
+    spec = make_ssm_spec(
+        n_latent=2,
+        n_manifest=3,
+        drift_diag_mask=np.array([True, True], dtype=bool),
+        drift_offdiag_mask=np.array([[False, False], [True, False]], dtype=bool),
+        cint_mask=np.array([False, False], dtype=bool),
+        cint=jnp.zeros(2),
+        lambda_mat=jnp.array(
+            [
+                [1.0, 0.0],
+                [0.0, 1.0],
+                [0.4, 0.6],
+            ],
+            dtype=jnp.float32,
+        ),
+        lambda_mask=np.zeros((3, 2), dtype=bool),
+        latent_names=["sleep_drive", "stress"],
+        manifest_names=manifest_names,
+        manifest_dists=[
+            DistributionFamily.NEGATIVE_BINOMIAL,
+            DistributionFamily.GAMMA,
+            DistributionFamily.GAUSSIAN,
+        ],
+        manifest_links=[
+            LinkFunction.LOG,
+            LinkFunction.LOG,
+            LinkFunction.IDENTITY,
+        ],
+        manifest_chol_diag_mask=np.array([False, False, False], dtype=bool),
+        manifest_chol=jnp.diag(jnp.array([0.12, 0.1, 0.15], dtype=jnp.float32)),
+        t0_means_mask=np.array([False, False], dtype=bool),
+        t0_means=jnp.zeros(2),
+        t0_chol_diag_mask=np.array([False, False], dtype=bool),
+        t0_correlation_mask=np.zeros((2, 2), dtype=bool),
+        t0_chol=jnp.eye(2),
+        **diagonal_diffusion_kwargs(2),
+    )
+    priors = SSMPriors(
+        drift_diag={"mu": -0.6, "sigma": 0.15},
+        drift_offdiag={"mu": 0.0, "sigma": 0.12},
+        diffusion_diag={"sigma": 0.2},
+        obs_r={"concentration": 6.0, "rate": 2.0},
+        obs_shape={"concentration": 8.0, "rate": 2.0},
+    )
+    model = SSMModel(spec, priors, n_particles=50, likelihood="particle")
+    model.observation_support = _make_interval_support_runtime(
+        manifest_names,
+        summary_operators=["sum", "mean", "mean"],
+    )
+    return model
+
+
+def _finite_difference_jacobian(
+    predict_fn,
+    z_flat: jnp.ndarray,
+    *,
+    rel_step: float = 1e-4,
+) -> np.ndarray:
+    """Approximate the Stage 4b moment Jacobian with central differences."""
+    z_np = np.asarray(z_flat, dtype=np.float64)
+    base = np.asarray(predict_fn(jnp.asarray(z_np, dtype=z_flat.dtype)), dtype=np.float64)
+    jacobian = np.empty((base.size, z_np.size), dtype=np.float64)
+
+    for idx in range(z_np.size):
+        step = rel_step * max(1.0, abs(float(z_np[idx])))
+        z_plus = z_np.copy()
+        z_minus = z_np.copy()
+        z_plus[idx] += step
+        z_minus[idx] -= step
+        f_plus = np.asarray(predict_fn(jnp.asarray(z_plus, dtype=z_flat.dtype)), dtype=np.float64)
+        f_minus = np.asarray(predict_fn(jnp.asarray(z_minus, dtype=z_flat.dtype)), dtype=np.float64)
+        jacobian[:, idx] = (f_plus - f_minus) / (2.0 * step)
+
+    return jacobian
 
 
 def _make_interval_support_runtime(
@@ -375,6 +459,38 @@ class TestSimulateSSM:
 
 class TestOutputSensitivity:
     """Test output sensitivity analysis."""
+
+    def test_stage4b_jacobian_matches_finite_difference_on_identifiable_mixed_family_model(self):
+        """A GOLDEN-like mixed-family interval model should match a finite-difference Jacobian."""
+        from causal_ssm_agent.utils import parametric_id as pid
+
+        model = _make_mixed_family_interval_oracle_model()
+        context = pid.get_stage4b_sweep_context(model)
+        times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+        unconstrained = context.unravel_fn(jnp.zeros(context.flat_dim, dtype=jnp.float32))
+        unconstrained["diffusion_diag_pop"] = jnp.array([0.25, 0.1], dtype=jnp.float32)
+        unconstrained["drift_diag_pop"] = jnp.array([-0.75, -0.55], dtype=jnp.float32)
+        unconstrained["drift_offdiag_pop"] = jnp.array([0.08], dtype=jnp.float32)
+        unconstrained["obs_r"] = jnp.array(0.9, dtype=jnp.float32)
+        unconstrained["obs_shape"] = jnp.array(1.1, dtype=jnp.float32)
+        z_flat, _ = ravel_pytree(unconstrained)
+
+        def predict_fn(z):
+            return context.predict_moments_fn(z, times)
+
+        analytic_jacobian = np.asarray(context.jacobian_fn(z_flat, times))
+        finite_difference = _finite_difference_jacobian(predict_fn, z_flat)
+
+        assert np.all(np.isfinite(np.asarray(predict_fn(z_flat))))
+        assert np.all(np.isfinite(analytic_jacobian))
+        assert analytic_jacobian.shape == finite_difference.shape
+        assert np.linalg.matrix_rank(analytic_jacobian) == analytic_jacobian.shape[1]
+        np.testing.assert_allclose(
+            analytic_jacobian,
+            finite_difference,
+            atol=2e-3,
+            rtol=2e-2,
+        )
 
     def test_stage4b_sweep_context_reuses_cached_topology_bundle(self):
         """Identical topology should reuse one cached Stage 4b sweep context."""
@@ -799,7 +915,7 @@ class TestOutputSensitivity:
             spec,
             "manifest_var_diag",
             0,
-            assembler=model._assembler,
+            structure_runtime=model._structure_runtime,
         )
 
         assert alias == "obs_sd_sleep_quality"

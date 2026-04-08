@@ -9,6 +9,7 @@ import pytest
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     compile_observation_operator,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from causal_ssm_agent.utils.parametric_id import (
@@ -171,6 +172,7 @@ def test_predict_observation_components_keeps_point_interval_same_row_covariance
             {},
             spec,
             jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32),
+            structure_runtime=SSMStructureRuntime(spec),
             observation_support=observation_support,
         )
     )

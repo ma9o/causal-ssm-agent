@@ -1,9 +1,14 @@
-"""Pure-JAX matrix assembly for SSM parameters.
+"""Pure-JAX structural runtime for assembled SSM parameters.
 
-Single source of truth for building SSM matrices (drift, diffusion, lambda)
-from raw parameter arrays. Used by both:
-- SSMModel._sample_* (numpyro model, single sample)
-- _assemble_deterministics (vmap over particles)
+Single source of truth for compiled matrix structure after ``SSMSpec``
+translation. It owns:
+- Fixed numeric templates
+- Canonical free-entry positions and flat-index lookups
+- Matrix/vector assembly from sampled free values
+
+Used by both:
+- ``SSMModel._sample_*`` for single-sample NumPyro execution
+- deterministic reconstruction utilities that ``vmap`` over draws
 """
 
 from __future__ import annotations
@@ -31,11 +36,12 @@ def lower_triangle_positions(
     return positions
 
 
-class SSMAssembler:
-    """Pure-JAX functions to build SSM matrices from raw parameter arrays.
+class SSMStructureRuntime:
+    """Canonical runtime structure derived once from ``SSMSpec``.
 
-    Pre-computes position lists and masks from SSMSpec so that assembly
-    functions are self-contained closures suitable for jax.vmap.
+    Downstream runtime consumers should read templates, free-entry positions,
+    and flat-index mappings from this object rather than re-deriving them from
+    raw mask/template fields on ``SSMSpec``.
     """
 
     def __init__(self, spec: SSMSpec) -> None:
@@ -46,6 +52,9 @@ class SSMAssembler:
         self.drift_diag_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.drift_diag_mask[idx])
         ]
+        self.drift_diag_index = {
+            latent_idx: flat_idx for flat_idx, latent_idx in enumerate(self.drift_diag_positions)
+        }
 
         # Drift: pre-compute off-diagonal positions from mask
         self.offdiag_positions: list[tuple[int, int]] = []
@@ -53,6 +62,9 @@ class SSMAssembler:
             for j in range(spec.n_latent):
                 if i != j and spec.drift_offdiag_mask[i, j]:
                     self.offdiag_positions.append((i, j))
+        self.offdiag_index = {
+            position: flat_idx for flat_idx, position in enumerate(self.offdiag_positions)
+        }
 
         self.ti_mask: jnp.ndarray | None = (
             jnp.array(spec.time_invariant_mask) if spec.time_invariant_mask is not None else None
@@ -61,20 +73,30 @@ class SSMAssembler:
         self.cint_free_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.cint_mask[idx])
         ]
-        self.diffusion_template = jnp.array(spec.diffusion_chol)
+        self.cint_free_index = {
+            latent_idx: flat_idx for flat_idx, latent_idx in enumerate(self.cint_free_positions)
+        }
+        self.diffusion_chol_template = jnp.array(spec.diffusion_chol)
         self.diffusion_diag_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.diffusion_chol_mask[idx, idx])
         ]
+        self.diffusion_diag_index = {
+            latent_idx: flat_idx
+            for flat_idx, latent_idx in enumerate(self.diffusion_diag_positions)
+        }
         self.diffusion_lower_positions: list[tuple[int, int]] = [
             (row, col)
             for row in range(spec.n_latent)
             for col in range(row)
             if bool(spec.diffusion_chol_mask[row, col])
         ]
+        self.diffusion_lower_index = {
+            position: flat_idx for flat_idx, position in enumerate(self.diffusion_lower_positions)
+        }
 
         # Lambda: explicit template plus free-loading mask
         if isinstance(spec.lambda_mat, str):
-            raise ValueError("SSMAssembler requires a canonical loading template.")
+            raise ValueError("SSMStructureRuntime requires a canonical loading template.")
         self.lambda_template = jnp.array(spec.lambda_mat)
         self.lambda_free_positions: list[tuple[int, int]] = [
             (i, j)
@@ -82,41 +104,92 @@ class SSMAssembler:
             for j in range(spec.n_latent)
             if spec.lambda_mask[i, j]
         ]
+        self.lambda_free_index = {
+            position: flat_idx for flat_idx, position in enumerate(self.lambda_free_positions)
+        }
         self.manifest_means_template = jnp.array(spec.manifest_means)
         self.manifest_means_free_positions: list[int] = [
             idx for idx in range(spec.n_manifest) if bool(spec.manifest_means_mask[idx])
         ]
+        self.manifest_means_free_index = {
+            manifest_idx: flat_idx
+            for flat_idx, manifest_idx in enumerate(self.manifest_means_free_positions)
+        }
 
         # Manifest variance: explicit template plus sparse free diagonal positions.
-        self.manifest_var_template = jnp.array(spec.manifest_chol)
+        self.manifest_chol_template = jnp.array(spec.manifest_chol)
         self.manifest_var_free_positions: list[int] = [
             idx for idx in range(spec.n_manifest) if bool(spec.manifest_chol_diag_mask[idx])
         ]
+        self.manifest_var_free_index = {
+            manifest_idx: flat_idx
+            for flat_idx, manifest_idx in enumerate(self.manifest_var_free_positions)
+        }
 
         self.t0_means_template = jnp.array(spec.t0_means)
         self.t0_means_free_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.t0_means_mask[idx])
         ]
+        self.t0_means_free_index = {
+            latent_idx: flat_idx for flat_idx, latent_idx in enumerate(self.t0_means_free_positions)
+        }
 
         # Initial-state covariance: explicit template plus free diagonal/correlation masks.
-        self.t0_var_template = jnp.array(spec.t0_chol)
+        self.t0_chol_template = jnp.array(spec.t0_chol)
         self.t0_diag_free_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.t0_chol_diag_mask[idx])
         ]
+        self.t0_diag_free_index = {
+            latent_idx: flat_idx for flat_idx, latent_idx in enumerate(self.t0_diag_free_positions)
+        }
         self.t0_correlation_positions = lower_triangle_positions(
             spec.n_latent,
             spec.t0_correlation_mask,
         )
-        t0_cov_template = self.t0_var_template @ self.t0_var_template.T
-        self.t0_base_std = jnp.sqrt(jnp.clip(jnp.diag(t0_cov_template), a_min=0.0))
+        self.t0_correlation_index = {
+            position: flat_idx for flat_idx, position in enumerate(self.t0_correlation_positions)
+        }
+        self.n_drift_diag = len(self.drift_diag_positions)
+        self.n_drift_offdiag = len(self.offdiag_positions)
+        self.n_cint = len(self.cint_free_positions)
+        self.n_diffusion_diag = len(self.diffusion_diag_positions)
+        self.n_diffusion_lower = len(self.diffusion_lower_positions)
+        self.n_lambda_free = len(self.lambda_free_positions)
+        self.n_manifest_means = len(self.manifest_means_free_positions)
+        self.n_manifest_var_diag = len(self.manifest_var_free_positions)
+        self.n_t0_means = len(self.t0_means_free_positions)
+        self.n_t0_diag = len(self.t0_diag_free_positions)
+        self.n_t0_correlation = len(self.t0_correlation_positions)
+
+        self.manifest_cov_template = self.manifest_chol_template @ self.manifest_chol_template.T
+        self.t0_cov_template = self.t0_chol_template @ self.t0_chol_template.T
+        self.t0_base_std = jnp.sqrt(jnp.clip(jnp.diag(self.t0_cov_template), a_min=0.0))
         denom = self.t0_base_std[:, None] * self.t0_base_std[None, :]
         self.t0_base_corr = jnp.where(
             denom > 0,
-            t0_cov_template / denom,
-            jnp.eye(spec.n_latent, dtype=t0_cov_template.dtype),
+            self.t0_cov_template / denom,
+            jnp.eye(spec.n_latent, dtype=self.t0_cov_template.dtype),
         )
         self.t0_base_corr = 0.5 * (self.t0_base_corr + self.t0_base_corr.T)
         self.t0_base_corr = self.t0_base_corr.at[jnp.diag_indices(spec.n_latent)].set(1.0)
+
+    def drift_support_mask(self) -> jnp.ndarray:
+        """Return potential nonzero drift support from fixed template and free entries."""
+        fixed_nonzero = jnp.abs(self.drift_template) > 0
+        free = jnp.zeros_like(fixed_nonzero, dtype=bool)
+        for latent_idx in self.drift_diag_positions:
+            free = free.at[latent_idx, latent_idx].set(True)
+        for row, col in self.offdiag_positions:
+            free = free.at[row, col].set(True)
+        return fixed_nonzero | free
+
+    def loading_support_mask(self) -> jnp.ndarray:
+        """Return potential nonzero loading support from fixed template and free entries."""
+        fixed_nonzero = jnp.abs(self.lambda_template) > 0
+        free = jnp.zeros_like(fixed_nonzero, dtype=bool)
+        for manifest_idx, latent_idx in self.lambda_free_positions:
+            free = free.at[manifest_idx, latent_idx].set(True)
+        return fixed_nonzero | free
 
     def assemble_drift(
         self,
@@ -143,7 +216,7 @@ class SSMAssembler:
         diff_lower: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Build diffusion Cholesky from a template and sparse free entries."""
-        diffusion = self.diffusion_template
+        diffusion = self.diffusion_chol_template
         if diff_diag is not None:
             for idx, latent_idx in enumerate(self.diffusion_diag_positions):
                 diffusion = diffusion.at[latent_idx, latent_idx].set(diff_diag[idx])
@@ -200,7 +273,7 @@ class SSMAssembler:
 
     def assemble_manifest_chol(self, free_diag: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build manifest-noise Cholesky from a template and sparse free diagonal."""
-        manifest_chol = self.manifest_var_template
+        manifest_chol = self.manifest_chol_template
         if free_diag is not None and len(self.manifest_var_free_positions) > 0:
             for idx, manifest_idx in enumerate(self.manifest_var_free_positions):
                 manifest_chol = manifest_chol.at[manifest_idx, manifest_idx].set(free_diag[idx])

@@ -554,6 +554,7 @@ def _try_smoother(
     """Try running Kalman smoother with estimated parameters."""
     spec = ssm_model.spec
     n_l = spec.n_latent
+    structure_runtime = ssm_model._structure_runtime
 
     try:
         drift = det_values["drift"]
@@ -566,7 +567,10 @@ def _try_smoother(
         cint = det_values.get("cint")
 
         # Get manifest means (prefer SVI estimate over spec default)
-        manifest_means_val = det_values.get("manifest_means", spec.manifest_means)
+        manifest_means_val = det_values.get(
+            "manifest_means",
+            structure_runtime.manifest_means_template,
+        )
 
         time_intervals = jnp.diff(times, prepend=times[0])
         time_intervals = jnp.maximum(time_intervals, MIN_DT)

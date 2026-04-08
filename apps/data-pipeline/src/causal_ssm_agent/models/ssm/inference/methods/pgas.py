@@ -23,7 +23,7 @@ Upgrades:
 from __future__ import annotations
 
 import functools
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -60,10 +60,14 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 )
 from causal_ssm_agent.models.ssm.inference.utils import (
     _assemble_deterministics,
+    _deterministics_to_likelihood_inputs,
     _discover_sites,
     extract_constrained_samples,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+
+if TYPE_CHECKING:
+    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 logger = get_prefect_logger(__name__)
 
@@ -169,50 +173,36 @@ def _transition_log_prob(x_curr, x_prev, Ad_t, chol_t, cd_t):
     return MultivariateNormal(mean, scale_tril=chol_t).log_prob(x_curr)
 
 
-# ---------------------------------------------------------------------------
-# Helper: extract all SSM matrices from det dict + spec fallbacks
-# ---------------------------------------------------------------------------
-
-
-def _extract_matrices(det, con, spec):
-    """Extract SSM matrices from _assemble_deterministics output + spec fallbacks."""
-    n_l, n_m = spec.n_latent, spec.n_manifest
-
-    drift = det["drift"][0]
-    diff_chol = det["diffusion"][0]
-    diff_cov = diff_chol @ diff_chol.T
-
-    lambda_mat = (
-        det["lambda"][0]
-        if "lambda" in det
-        else spec.lambda_mat
-        if isinstance(spec.lambda_mat, jnp.ndarray)
-        else jnp.eye(n_m, n_l)
-    )
-    manifest_cov = (
-        det["manifest_cov"][0]
-        if "manifest_cov" in det
-        else spec.manifest_chol @ spec.manifest_chol.T
-    )
-    manifest_means = con.get("manifest_means", spec.manifest_means)
-    t0_mean = (
-        det["t0_means"][0]
-        if "t0_means" in det
-        else spec.t0_means
-    )
-    t0_cov = det["t0_cov"][0] if "t0_cov" in det else spec.t0_chol @ spec.t0_chol.T
-    cint = det["cint"][0] if "cint" in det else spec.cint
-
-    return drift, diff_cov, cint, lambda_mat, manifest_means, manifest_cov, t0_mean, t0_cov
-
-
-def _params_to_matrices(z_unc, unravel_fn, transforms, spec):
+def _params_to_matrices(
+    z_unc,
+    unravel_fn,
+    transforms,
+    spec,
+    *,
+    structure_runtime: SSMStructureRuntime,
+):
     """Convert unconstrained flat vector to SSM matrices."""
     unc = unravel_fn(z_unc)
     con = {name: transforms[name](unc[name]) for name in unc}
     samples_1 = {name: con[name][None] for name in con}
-    det = _assemble_deterministics(samples_1, spec)
-    return _extract_matrices(det, con, spec)
+    det = _assemble_deterministics(
+        samples_1,
+        spec,
+        structure_runtime=structure_runtime,
+    )
+    ct_params, measurement_params, initial_state = _deterministics_to_likelihood_inputs(
+        {name: value[0] for name, value in det.items()}
+    )
+    return (
+        ct_params.drift,
+        ct_params.diffusion_cov,
+        ct_params.cint,
+        measurement_params.lambda_mat,
+        measurement_params.manifest_means,
+        measurement_params.manifest_cov,
+        initial_state.mean,
+        initial_state.cov,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -815,6 +805,8 @@ def _traj_log_post(
     transforms,
     spec,
     adapter,
+    *,
+    structure_runtime: SSMStructureRuntime,
     measurement_semantics=None,
     observation_support=None,
 ):
@@ -840,10 +832,22 @@ def _traj_log_post(
 
     # 2. Assemble matrices
     samples_1 = {name: con[name][None] for name in con}
-    det = _assemble_deterministics(samples_1, spec)
-    drift, diff_cov, cint, lambda_mat, manifest_means, manifest_cov, t0_mean, t0_cov = (
-        _extract_matrices(det, con, spec)
+    det = _assemble_deterministics(
+        samples_1,
+        spec,
+        structure_runtime=structure_runtime,
     )
+    ct_params, measurement_params, initial_state = _deterministics_to_likelihood_inputs(
+        {name: value[0] for name, value in det.items()}
+    )
+    drift = ct_params.drift
+    diff_cov = ct_params.diffusion_cov
+    cint = ct_params.cint
+    lambda_mat = measurement_params.lambda_mat
+    manifest_means = measurement_params.manifest_means
+    manifest_cov = measurement_params.manifest_cov
+    t0_mean = initial_state.mean
+    t0_cov = initial_state.cov
 
     # 3. Log p(x_1 | theta)
     chol_t0 = jla.cholesky(t0_cov + jitter_l, lower=True)
@@ -1126,8 +1130,9 @@ def fit_pgas(
             transforms,
             model.spec,
             adapter,
-            support_measurement_semantics,
-            observation_support,
+            structure_runtime=model._structure_runtime,
+            measurement_semantics=support_measurement_semantics,
+            observation_support=observation_support,
         )
 
     # JIT'd HMC step for full-vector updates (non-block mode)
@@ -1203,7 +1208,13 @@ def fit_pgas(
 
     # 7. Initialize trajectory from current parameters
     drift, diff_cov, cint, lambda_mat, manifest_means, manifest_cov, t0_mean, t0_cov = (
-        _params_to_matrices(theta_unc, unravel_fn, transforms, model.spec)
+        _params_to_matrices(
+            theta_unc,
+            unravel_fn,
+            transforms,
+            model.spec,
+            structure_runtime=model._structure_runtime,
+        )
     )
 
     rng_key, sim_key = random.split(rng_key)
@@ -1235,7 +1246,13 @@ def fit_pgas(
     for n in range(n_outer):
         # --- Step A: CSMC sweep (sample trajectory given theta) ---
         drift, diff_cov, cint, lambda_mat, manifest_means, manifest_cov, t0_mean, t0_cov = (
-            _params_to_matrices(theta_unc, unravel_fn, transforms, model.spec)
+            _params_to_matrices(
+                theta_unc,
+                unravel_fn,
+                transforms,
+                model.spec,
+                structure_runtime=model._structure_runtime,
+            )
         )
 
         Ad, Qd, cd = discretize_system_batched(drift, diff_cov, cint, dt_array)

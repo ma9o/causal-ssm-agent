@@ -28,7 +28,6 @@ from causal_ssm_agent.distributions import (
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
-from causal_ssm_agent.models.ssm.assembler import SSMAssembler
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -48,6 +47,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     build_prior_runtime_bundle,
     build_site_prior_distribution,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
@@ -230,8 +230,7 @@ class SSMSpec:
         mask_array = np.asarray(mask, dtype=bool)
         if mask_array.shape != (self.n_latent,):
             raise ValueError(
-                "drift_diag_mask must have shape "
-                f"({self.n_latent},), got {mask_array.shape}"
+                f"drift_diag_mask must have shape ({self.n_latent},), got {mask_array.shape}"
             )
         return mask_array
 
@@ -668,7 +667,7 @@ class SSMModel:
         self.n_particles = n_particles
         self.pf_key = jax.random.PRNGKey(pf_seed)
         self.likelihood = likelihood
-        self._assembler = SSMAssembler(spec)
+        self._structure_runtime = SSMStructureRuntime(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
         self.parameter_bindings: list[dict[str, Any]] = []
@@ -718,12 +717,12 @@ class SSMModel:
         """Sample drift matrix with stability constraints."""
         n = spec.n_latent
 
-        asm = self._assembler
-        n_diag = len(asm.drift_diag_positions)
-        n_offdiag = len(asm.offdiag_positions)
+        structure_runtime = self._structure_runtime
+        n_diag = structure_runtime.n_drift_diag
+        n_offdiag = structure_runtime.n_drift_offdiag
 
         if n_diag == 0 and n_offdiag == 0:
-            return spec.drift
+            return structure_runtime.drift_template
 
         if n_diag > 0:
             drift_diag_pop = _sample_prior_array(
@@ -741,7 +740,7 @@ class SSMModel:
         else:
             drift_offdiag_pop = None
 
-        drift = asm.assemble_drift(drift_diag_pop, drift_offdiag_pop)
+        drift = structure_runtime.assemble_drift(drift_diag_pop, drift_offdiag_pop)
 
         # Stability guard: penalise drift matrices whose max real eigenvalue
         # approaches zero (i.e. the system is near-unstable).  Only needed
@@ -760,13 +759,13 @@ class SSMModel:
         numpyro.deterministic("drift", drift)
         return drift
 
-    def _sample_diffusion(self, spec: SSMSpec) -> jnp.ndarray:
+    def _sample_diffusion(self, _spec: SSMSpec) -> jnp.ndarray:
         """Sample diffusion matrix (lower Cholesky)."""
-        assembler = self._assembler
-        n_diag = len(assembler.diffusion_diag_positions)
-        n_lower = len(assembler.diffusion_lower_positions)
+        structure_runtime = self._structure_runtime
+        n_diag = structure_runtime.n_diffusion_diag
+        n_lower = structure_runtime.n_diffusion_lower
         if n_diag == 0 and n_lower == 0:
-            return spec.diffusion_chol
+            return structure_runtime.diffusion_chol_template
 
         diff_diag_pop = None
         if n_diag > 0:
@@ -782,41 +781,38 @@ class SSMModel:
                 self._prior_distribution("diffusion_lower"),
             )
 
-        diffusion = assembler.assemble_diffusion(diff_diag_pop, diff_lower)
+        diffusion = structure_runtime.assemble_diffusion(diff_diag_pop, diff_lower)
 
         numpyro.deterministic("diffusion", diffusion)
         return diffusion
 
-    def _sample_cint(self, spec: SSMSpec) -> jnp.ndarray | None:
+    def _sample_cint(self, _spec: SSMSpec) -> jnp.ndarray | None:
         """Sample continuous intercept."""
-        n_free = len(self._assembler.cint_free_positions)
+        n_free = self._structure_runtime.n_cint
         if n_free == 0:
-            return spec.cint
+            return self._structure_runtime.cint_template
 
         cint_free = _sample_prior_array(
             "cint_pop",
             self._prior_distribution("cint_pop"),
         )
-        cint = self._assembler.assemble_cint(cint_free)
+        cint = self._structure_runtime.assemble_cint(cint_free)
 
         numpyro.deterministic("cint", cint)
         return cint
 
-    def _sample_lambda(self, spec: SSMSpec) -> jnp.ndarray:
+    def _sample_lambda(self, _spec: SSMSpec) -> jnp.ndarray:
         """Sample factor loading matrix (shared across subjects).
 
-        Two modes (determined by SSMAssembler from spec):
+        Two modes (determined by SSMStructureRuntime from spec):
         1. Template+mask: sample free loadings at masked positions.
         2. Fixed: return template as-is (no sampling).
         """
         # Fully fixed (array with no free-loading positions): return as-is
-        if isinstance(spec.lambda_mat, jnp.ndarray) and not bool(
-            np.asarray(spec.lambda_mask).any()
-        ):
-            return spec.lambda_mat
-
-        asm = self._assembler
-        n_free = len(asm.lambda_free_positions)
+        structure_runtime = self._structure_runtime
+        if structure_runtime.n_lambda_free == 0:
+            return structure_runtime.lambda_template
+        n_free = structure_runtime.n_lambda_free
 
         free_loadings = None
         if n_free > 0:
@@ -825,56 +821,56 @@ class SSMModel:
                 self._prior_distribution("lambda_free"),
             )
 
-        lambda_mat = asm.assemble_lambda(free_loadings)
+        lambda_mat = structure_runtime.assemble_lambda(free_loadings)
         numpyro.deterministic("lambda", lambda_mat)
         return lambda_mat
 
-    def _sample_manifest_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _sample_manifest_params(self, _spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample manifest means and variance (shared across subjects)."""
         # Means
-        n_means_free = len(self._assembler.manifest_means_free_positions)
+        n_means_free = self._structure_runtime.n_manifest_means
         if n_means_free == 0:
-            manifest_means = spec.manifest_means
+            manifest_means = self._structure_runtime.manifest_means_template
         else:
             manifest_means_free = _sample_prior_array(
                 "manifest_means",
                 self._prior_distribution("manifest_means"),
             )
-            manifest_means = self._assembler.assemble_manifest_means(manifest_means_free)
+            manifest_means = self._structure_runtime.assemble_manifest_means(manifest_means_free)
 
         # Variance (Cholesky)
-        n_free = len(self._assembler.manifest_var_free_positions)
+        n_free = self._structure_runtime.n_manifest_var_diag
         if n_free == 0:
-            manifest_chol = spec.manifest_chol
+            manifest_chol = self._structure_runtime.manifest_chol_template
         else:
             var_diag = _sample_prior_array(
                 "manifest_var_diag",
                 self._prior_distribution("manifest_var_diag"),
             )
-            manifest_chol = self._assembler.assemble_manifest_chol(var_diag)
+            manifest_chol = self._structure_runtime.assemble_manifest_chol(var_diag)
 
         numpyro.deterministic("manifest_cov", manifest_chol @ manifest_chol.T)
         return jnp.asarray(manifest_means), jnp.asarray(manifest_chol)
 
-    def _sample_t0_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _sample_t0_params(self, _spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample initial state parameters."""
         # Means
-        n_means_free = len(self._assembler.t0_means_free_positions)
+        n_means_free = self._structure_runtime.n_t0_means
         if n_means_free == 0:
-            t0_means = spec.t0_means
+            t0_means = self._structure_runtime.t0_means_template
         else:
             t0_means_free = _sample_prior_array(
                 "t0_means_pop",
                 self._prior_distribution("t0_means_pop"),
             )
-            t0_means = self._assembler.assemble_t0_means(t0_means_free)
+            t0_means = self._structure_runtime.assemble_t0_means(t0_means_free)
 
         # Variance (Cholesky)
-        assembler = self._assembler
-        n_diag = len(assembler.t0_diag_free_positions)
-        n_corr = len(assembler.t0_correlation_positions)
+        structure_runtime = self._structure_runtime
+        n_diag = structure_runtime.n_t0_diag
+        n_corr = structure_runtime.n_t0_correlation
         if n_diag == 0 and n_corr == 0:
-            t0_chol = spec.t0_chol
+            t0_chol = structure_runtime.t0_chol_template
         else:
             var_diag = None
             if n_diag > 0:
@@ -888,7 +884,7 @@ class SSMModel:
                     "t0_var_lower",
                     self._prior_distribution("t0_var_lower"),
                 )
-            t0_cov_raw = assembler.assemble_t0_cov(var_diag, t0_corr)
+            t0_cov_raw = structure_runtime.assemble_t0_cov(var_diag, t0_corr)
             t0_cov, min_eig = stabilize_covariance_for_cholesky(
                 t0_cov_raw,
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,

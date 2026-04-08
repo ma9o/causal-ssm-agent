@@ -20,6 +20,7 @@ from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
     kalman_block_profile_indices,
 )
 from causal_ssm_agent.models.ssm.model import SSMSpec, full_diagonal_mask
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from tests.ssm_test_utils import combined_drift_mask, make_ssm_spec
@@ -107,7 +108,7 @@ class TestComputeDriftSparsity:
     def test_free_drift_all_nonzero(self):
         """Free drift → all entries could be nonzero."""
         spec = _make_spec()
-        mask = compute_drift_sparsity(spec)
+        mask = compute_drift_sparsity(SSMStructureRuntime(spec))
         assert mask.shape == (2, 2)
         assert mask.all()
 
@@ -115,14 +116,14 @@ class TestComputeDriftSparsity:
         """drift_mask is used directly when set."""
         dm = np.array([[True, False], [True, True]])
         spec = _make_spec(drift_mask=dm)
-        mask = compute_drift_sparsity(spec)
+        mask = compute_drift_sparsity(SSMStructureRuntime(spec))
         np.testing.assert_array_equal(mask, combined_drift_mask(spec))
 
     def test_fixed_drift_sparsity(self):
         """Fixed drift matrix: nonzero entries detected."""
         A = jnp.array([[0.5, 0.0], [0.3, -0.2]])
         spec = _make_spec(drift=A)
-        mask = compute_drift_sparsity(spec)
+        mask = compute_drift_sparsity(SSMStructureRuntime(spec))
         expected = np.array([[True, False], [True, True]])
         np.testing.assert_array_equal(mask, expected)
 
@@ -139,7 +140,7 @@ class TestComputeObsDependency:
             lambda_mat=jnp.zeros((2, 2)),
             lambda_mask=np.ones((2, 2), dtype=bool),
         )
-        dep = compute_obs_dependency(spec)
+        dep = compute_obs_dependency(SSMStructureRuntime(spec))
         assert dep.shape == (2, 2)
         assert dep.all()
 
@@ -147,7 +148,7 @@ class TestComputeObsDependency:
         """Fixed lambda: detect nonzero entries."""
         H = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.5, 0.5]])
         spec = _make_spec(n_manifest=3, lambda_mat=H)
-        dep = compute_obs_dependency(spec)
+        dep = compute_obs_dependency(SSMStructureRuntime(spec))
         expected = np.array([[True, False], [False, True], [True, True]])
         np.testing.assert_array_equal(dep, expected)
 
@@ -156,7 +157,7 @@ class TestComputeObsDependency:
         H = jnp.array([[1.0, 0.0], [0.0, 0.0]])
         lm = np.array([[False, True], [True, False]])
         spec = _make_spec(lambda_mat=H, lambda_mask=lm)
-        dep = compute_obs_dependency(spec)
+        dep = compute_obs_dependency(SSMStructureRuntime(spec))
         # Fixed: (0,0)=True; Mask: (0,1)=True, (1,0)=True
         expected = np.array([[True, True], [True, False]])
         np.testing.assert_array_equal(dep, expected)
@@ -275,7 +276,9 @@ class TestKalmanBlockProfileIndices:
             obs_particle_idx=np.array([1]),
         )
 
-        indices = kalman_block_profile_indices(spec, partition)
+        indices = kalman_block_profile_indices(
+            partition, structure_runtime=SSMStructureRuntime(spec)
+        )
 
         assert 13 in indices
 
@@ -298,7 +301,9 @@ class TestKalmanBlockProfileIndices:
             obs_particle_idx=np.array([1]),
         )
 
-        indices = kalman_block_profile_indices(spec, partition)
+        indices = kalman_block_profile_indices(
+            partition, structure_runtime=SSMStructureRuntime(spec)
+        )
 
         assert indices.count(12) == 1
         assert 13 not in indices
@@ -324,7 +329,9 @@ class TestKalmanBlockProfileIndices:
             obs_particle_idx=np.array([0]),
         )
 
-        indices = kalman_block_profile_indices(spec, partition)
+        indices = kalman_block_profile_indices(
+            partition, structure_runtime=SSMStructureRuntime(spec)
+        )
 
         assert 1 in indices
         assert 2 in indices
