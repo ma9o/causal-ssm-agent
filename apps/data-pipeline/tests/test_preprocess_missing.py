@@ -5,7 +5,7 @@ Covers: NaN handling, mask creation, variance inflation for missing entries.
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.likelihoods.base import (
+from causal_ssm_agent.models.ssm.inference.targets.base import (
     MISSING_DATA_LARGE_VAR,
     preprocess_missing_data,
 )

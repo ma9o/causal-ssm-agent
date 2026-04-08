@@ -9,7 +9,7 @@ import pytest
 
 from causal_ssm_agent.flows.dag import stage4b
 from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task
-from causal_ssm_agent.models.ssm.inference_structure import (
+from causal_ssm_agent.models.ssm.inference.structure import (
     build_inference_structure_payload,
     plan_inference_structure,
 )
@@ -287,7 +287,7 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.likelihoods.graph_analysis.kalman_block_profile_indices",
+            "causal_ssm_agent.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
             lambda *_args, **_kwargs: [0, 1],
         )
         monkeypatch.setattr(
@@ -517,7 +517,7 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.likelihoods.graph_analysis.kalman_block_profile_indices",
+            "causal_ssm_agent.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
             lambda *_args, **_kwargs: [2],
         )
         monkeypatch.setattr(

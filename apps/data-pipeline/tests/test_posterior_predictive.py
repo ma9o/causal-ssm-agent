@@ -6,9 +6,6 @@ import numpy as np
 import pytest
 
 import causal_ssm_agent.models.predictive_simulation as predictive_simulation_module
-from causal_ssm_agent.models.likelihoods.observation_families import (
-    get_posterior_predictive_switch_index,
-)
 from causal_ssm_agent.models.posterior_predictive import (
     PPCResult,
     _check_calibration,
@@ -22,6 +19,9 @@ from causal_ssm_agent.models.posterior_predictive import (
 from causal_ssm_agent.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
     simulate_predictive_observations,
+)
+from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    get_posterior_predictive_switch_index,
 )
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction

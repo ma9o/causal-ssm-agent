@@ -21,7 +21,7 @@ from causal_ssm_agent.models.posterior_predictive import (  # noqa: TC001
     PPCTestStat,
     PPCWarning,
 )
-from causal_ssm_agent.models.ssm.schemas_inference import (  # noqa: TC001
+from causal_ssm_agent.models.ssm.inference.schemas import (  # noqa: TC001
     InferenceStructureResult,
     LOODiagnostics,
     MCMCDiagnostics,

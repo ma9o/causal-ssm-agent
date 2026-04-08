@@ -13,7 +13,7 @@ from typing import Literal, get_args
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.schemas_inference import AggregationFunction, MeasurementDtype
+from causal_ssm_agent.models.ssm.inference.schemas import AggregationFunction, MeasurementDtype
 from causal_ssm_agent.utils.observation_semantics import (
     AnchorPolicy,
     IndicatorObservationSemantics,

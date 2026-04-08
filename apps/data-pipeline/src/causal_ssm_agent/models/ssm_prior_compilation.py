@@ -7,7 +7,7 @@ from typing import Any
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.models.likelihoods.base import NUMERICAL_EPSILON
+from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
 from causal_ssm_agent.models.ssm_compilation_common import (
     SAMPLE_SITE_FOR_PRIOR_FIELD,

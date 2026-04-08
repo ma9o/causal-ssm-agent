@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import pytest
 
-from causal_ssm_agent.models.likelihoods.emissions import (
+from causal_ssm_agent.models.ssm.inference.targets.emissions import (
     emission_log_prob_bernoulli,
     emission_log_prob_bernoulli_probit,
     emission_log_prob_beta,

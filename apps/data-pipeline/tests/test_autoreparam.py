@@ -634,7 +634,10 @@ class TestAutoReparamSSM:
         """Replay-based extraction should drop internal reparam auxiliaries."""
         from jax.flatten_util import ravel_pytree
 
-        from causal_ssm_agent.models.ssm.utils import _discover_sites, extract_constrained_samples
+        from causal_ssm_agent.models.ssm.inference.utils import (
+            _discover_sites,
+            extract_constrained_samples,
+        )
 
         model = self._make_simple_ssm()
         strategy = AutoReparam(centered=0.0)

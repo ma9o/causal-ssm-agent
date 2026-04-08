@@ -15,7 +15,7 @@ from causal_ssm_agent.models.ssm import (
     SSMSpec,
     fit,
 )
-from causal_ssm_agent.models.ssm.inference_structure import (
+from causal_ssm_agent.models.ssm.inference.structure import (
     InferenceStructurePlan,
     plan_inference_structure,
 )
@@ -300,7 +300,7 @@ class SSMModelBuilder:
             else:
                 raise ValueError("Cannot sample prior predictive without an SSM specification")
 
-        from causal_ssm_agent.models.likelihoods.observation_families import (
+        from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
             any_family_needs_level_metadata,
         )
         from causal_ssm_agent.models.ssm.prior_predictive_runtime import (

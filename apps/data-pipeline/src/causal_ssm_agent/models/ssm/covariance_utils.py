@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
+from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
 
 INITIAL_STATE_COV_MIN_EIGENVALUE = 1e-6
 

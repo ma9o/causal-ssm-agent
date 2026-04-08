@@ -7,7 +7,9 @@ resolution, and the main analyze_first_pass_rb decomposition logic.
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.models.likelihoods.graph_analysis import (
+from causal_ssm_agent.models.ssm.inference import select_default_method
+from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
+from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
     RBPartition,
     analyze_first_pass_rb,
     compute_drift_sparsity,
@@ -17,8 +19,6 @@ from causal_ssm_agent.models.likelihoods.graph_analysis import (
     get_per_variable_diffusion,
     kalman_block_profile_indices,
 )
-from causal_ssm_agent.models.ssm.inference import select_default_method
-from causal_ssm_agent.models.ssm.inference_structure import plan_inference_structure
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction

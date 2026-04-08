@@ -28,29 +28,13 @@ import pytest
 from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
-from causal_ssm_agent.models.likelihoods.base import (
-    CTParams,
-    InitialStateParams,
-    MeasurementParams,
-)
-from causal_ssm_agent.models.likelihoods.emissions import get_mean_param_log_prob_fn
-from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
-from causal_ssm_agent.models.likelihoods.kernels import (
-    build_observation_kernel,
-    compile_measurement_semantics,
-)
-from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood, SSMAdapter
-from causal_ssm_agent.models.likelihoods.trajectory_observations import (
-    compile_observation_operator,
-    expected_observation_mean,
-    trajectory_observation_log_probs,
-)
 from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, SSMSpec, fit
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.dpf import DPFLikelihood, ProposalNetwork
 from causal_ssm_agent.models.ssm.inference import _apply_reparam, _eval_model
-from causal_ssm_agent.models.ssm.laplace_em import (
+from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
+from causal_ssm_agent.models.ssm.inference.methods.dpf import DPFLikelihood, ProposalNetwork
+from causal_ssm_agent.models.ssm.inference.methods.laplace_em import (
     LaplaceLikelihood,
     _build_ieks_system,
     _dense_support_laplace_log_lik,
@@ -59,11 +43,27 @@ from causal_ssm_agent.models.ssm.laplace_em import (
     _should_use_dense_support_laplace,
     _solve_block_tridiagonal,
 )
-from causal_ssm_agent.models.ssm.nuts_da import _da_model
-from causal_ssm_agent.models.ssm.pgas import _csmc_sweep_support_aware
-from causal_ssm_agent.models.ssm.structured_vi import StructuredVILikelihood
-from causal_ssm_agent.models.ssm.tempered_core import run_tempered_smc
-from causal_ssm_agent.models.ssm.utils import _build_eval_fns, _discover_sites
+from causal_ssm_agent.models.ssm.inference.methods.nuts_da import _da_model
+from causal_ssm_agent.models.ssm.inference.methods.pgas import _csmc_sweep_support_aware
+from causal_ssm_agent.models.ssm.inference.methods.structured_vi import StructuredVILikelihood
+from causal_ssm_agent.models.ssm.inference.targets.base import (
+    CTParams,
+    InitialStateParams,
+    MeasurementParams,
+)
+from causal_ssm_agent.models.ssm.inference.targets.emissions import get_mean_param_log_prob_fn
+from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
+from causal_ssm_agent.models.ssm.inference.targets.kernels import (
+    build_observation_kernel,
+    compile_measurement_semantics,
+)
+from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood, SSMAdapter
+from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    compile_observation_operator,
+    expected_observation_mean,
+    trajectory_observation_log_probs,
+)
+from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discover_sites
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 
@@ -688,11 +688,11 @@ class TestLaplaceSupportAware:
             return jnp.array(-2.0, dtype=jnp.float32)
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.laplace_em._dense_support_laplace_log_lik",
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._dense_support_laplace_log_lik",
             _fake_dense,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.laplace_em._support_aware_ieks_log_lik",
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._support_aware_ieks_log_lik",
             _fake_banded,
         )
 
@@ -1694,11 +1694,11 @@ class TestInferenceCaching:
             }
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.tempered_core._build_tempered_smc_bundle",
+            "causal_ssm_agent.models.ssm.inference.engines.tempered_smc._build_tempered_smc_bundle",
             fake_bundle,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.tempered_core.extract_constrained_samples",
+            "causal_ssm_agent.models.ssm.inference.engines.tempered_smc.extract_constrained_samples",
             lambda *_args, **_kwargs: {"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
         )
 
@@ -1971,7 +1971,7 @@ class TestAutoMethodConfigRouting:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.laplace_em.fit_laplace_em",
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em.fit_laplace_em",
             fake_fit_laplace_em,
         )
 
@@ -1999,7 +1999,7 @@ class TestAutoMethodConfigRouting:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.laplace_em.fit_laplace_em",
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em.fit_laplace_em",
             fake_fit_laplace_em,
         )
 
@@ -2010,8 +2010,8 @@ class TestAutoMethodConfigRouting:
     @pytest.mark.parametrize(
         ("method", "target"),
         [
-            ("dpf", "causal_ssm_agent.models.ssm.dpf.fit_dpf"),
-            ("pgas", "causal_ssm_agent.models.ssm.pgas.fit_pgas"),
+            ("dpf", "causal_ssm_agent.models.ssm.inference.methods.dpf.fit_dpf"),
+            ("pgas", "causal_ssm_agent.models.ssm.inference.methods.pgas.fit_pgas"),
         ],
     )
     def test_non_point_support_allows_particle_trajectory_methods(
@@ -2070,7 +2070,7 @@ class TestAutoMethodConfigRouting:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.laplace_em.fit_laplace_em",
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em.fit_laplace_em",
             fake_fit_laplace_em,
         )
 
@@ -2124,7 +2124,7 @@ class TestHessMC2Proposals:
 
     def test_rw_proposal_is_x_plus_eps_z(self, particle_state):
         """RW: x_new = x + eps * z (Eq 28)."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _propose_rw
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_rw
 
         s = particle_state
         x_new, v, v_half, chol_M, _ss = _propose_rw(
@@ -2138,7 +2138,7 @@ class TestHessMC2Proposals:
 
     def test_fo_proposal_uses_gradient(self, particle_state):
         """FO/MALA: v_half = 0.5*eps*grad + z, x_new = x + eps*v_half (Eq 30-33)."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo
 
         s = particle_state
         x_new, v, v_half, _chol_M, _ss = _propose_fo(
@@ -2152,7 +2152,7 @@ class TestHessMC2Proposals:
 
     def test_fo_reduces_to_rw_when_grad_is_zero(self, particle_state):
         """With zero gradient, FO should behave like RW."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo, _propose_rw
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo, _propose_rw
 
         s = particle_state
         zero_grad = jnp.zeros(s["D"])
@@ -2166,7 +2166,7 @@ class TestHessMC2Proposals:
 
     def test_so_proposal_uses_hessian_when_psd(self, particle_state):
         """SO: with negative definite Hessian, uses full mass matrix M = -H."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _propose_so
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_so
 
         s = particle_state
         x_new, _v, _v_half, chol_M, ss = _propose_so(
@@ -2185,7 +2185,7 @@ class TestHessMC2Proposals:
 
     def test_so_falls_back_to_fo_when_not_psd(self, particle_state):
         """SO: with non-negative-definite Hessian, falls back to FO."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo, _propose_so
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo, _propose_so
 
         s = particle_state
         # Hessian with positive eigenvalue -> -H not PSD
@@ -2216,7 +2216,7 @@ class TestHessMC2ReverseMomentum:
 
     def test_rw_reverse_is_identity(self, reverse_state):
         """RW reverse: v_new = v_half (symmetric)."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _reverse_rw
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _reverse_rw
 
         s = reverse_state
         v_new, _chol_M, _ss = _reverse_rw(
@@ -2226,7 +2226,7 @@ class TestHessMC2ReverseMomentum:
 
     def test_fo_reverse_applies_gradient_kick(self, reverse_state):
         """FO reverse: v_new = 0.5*eps*grad_new + v_half (Eq 34)."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _reverse_fo
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _reverse_fo
 
         s = reverse_state
         v_new, _chol_M, _ss = _reverse_fo(
@@ -2241,7 +2241,7 @@ class TestHessMC2Weights:
 
     def test_cov_density_is_finite(self):
         """CoV log-density should be finite for reasonable inputs."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _log_cov_density
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _log_cov_density
 
         v = jnp.array([0.5, -0.3])
         chol_M = jnp.eye(2)
@@ -2252,7 +2252,7 @@ class TestHessMC2Weights:
 
     def test_cov_density_higher_for_smaller_v(self):
         """Closer to mode (v=0) should give higher density."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _log_cov_density
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _log_cov_density
 
         chol_M = jnp.eye(3)
         eps = 0.1
@@ -2263,7 +2263,7 @@ class TestHessMC2Weights:
 
     def test_weight_update_no_change_gives_zero_correction(self):
         """If proposal doesn't move and forward == reverse, weight unchanged."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
 
         D = 2
         logw_old = jnp.array(-1.0)
@@ -2279,7 +2279,7 @@ class TestHessMC2Weights:
 
     def test_weight_increases_when_posterior_improves(self):
         """Moving to higher posterior should increase the weight."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
 
         D = 2
         logw_old = jnp.array(0.0)
@@ -2297,7 +2297,7 @@ class TestHessMC2Weights:
 
     def test_weight_neginf_for_invalid_posterior(self):
         """Non-finite posterior should give -inf weight."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
 
         D = 2
         lw = _compute_weight(
@@ -2320,7 +2320,7 @@ class TestHessMC2VmapBatching:
 
     def test_propose_fo_batch(self):
         """Vmapped FO proposal should give same result as sequential."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _propose_fo
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo
 
         N, D = 4, 3
         key = random.PRNGKey(0)
@@ -2339,7 +2339,7 @@ class TestHessMC2VmapBatching:
 
     def test_weight_batch(self):
         """Vmapped weight computation should match sequential."""
-        from causal_ssm_agent.models.ssm.hessmc2 import _compute_weight
+        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
 
         N, D = 4, 3
         key = random.PRNGKey(42)

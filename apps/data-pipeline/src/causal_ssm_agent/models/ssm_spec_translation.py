@@ -6,7 +6,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.models.likelihoods.observation_families import supported_distribution_families
+from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    supported_distribution_families,
+)
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours

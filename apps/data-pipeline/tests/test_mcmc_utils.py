@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from causal_ssm_agent.models.ssm.mcmc_utils import (
+from causal_ssm_agent.models.ssm.inference.engines.mcmc_utils import (
     compute_weighted_chol_mass,
     dual_averaging_init,
     dual_averaging_update,

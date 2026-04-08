@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import polars as pl
 
 from causal_ssm_agent.flows.stages.stage5b import fit as stage5_inference
-from causal_ssm_agent.models.ssm.inference_structure import (
+from causal_ssm_agent.models.ssm.inference.structure import (
     FirstPassRBPlan,
     InferenceStructurePlan,
 )
