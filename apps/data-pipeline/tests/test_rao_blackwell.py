@@ -6,7 +6,7 @@ Covers: Gauss-Hermite quadrature, unscented sigma points,
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.likelihoods.rao_blackwell import (
+from causal_ssm_agent.models.ssm.inference.targets.rao_blackwell import (
     _gauss_hermite_1d,
     _kalman_predict,
     _kalman_update_gaussian,

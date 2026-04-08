@@ -20,8 +20,8 @@ import jax.numpy as jnp
 from jax import vmap
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER
 from causal_ssm_agent.models.ssm.discretization import discretize_system
+from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
 
 logger = get_prefect_logger(__name__)
 
@@ -367,8 +367,8 @@ def approximate_abducted_state(
     Falls back to a least-squares inversion of the contemporaneous observation
     model at the evidence boundary.
     """
-    from causal_ssm_agent.models.ssm.nuts_da import _try_smoother
-    from causal_ssm_agent.models.ssm.utils import _assemble_single_deterministics
+    from causal_ssm_agent.models.ssm.inference.methods.nuts_da import _try_smoother
+    from causal_ssm_agent.models.ssm.inference.utils import _assemble_single_deterministics
 
     posterior_means = {name: jnp.mean(value, axis=0) for name, value in samples.items()}
     det_values = _assemble_single_deterministics(posterior_means, spec)

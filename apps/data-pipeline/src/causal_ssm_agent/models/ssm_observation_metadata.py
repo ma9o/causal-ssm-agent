@@ -458,7 +458,7 @@ def extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
 
 def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpec:
     """Infer per-channel discrete level counts from encoded wide data."""
-    from causal_ssm_agent.models.likelihoods.observation_families import (
+    from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
         any_family_needs_level_metadata,
         get_family_spec,
     )
@@ -524,7 +524,7 @@ def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpe
 
 def validate_observation_support(spec: SSMSpec, X: Any) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
-    from causal_ssm_agent.models.likelihoods.observation_families import get_family_spec
+    from causal_ssm_agent.models.ssm.inference.targets.observation_families import get_family_spec
 
     manifest_cols, manifest_dists = resolve_manifest_metadata(spec, X)
 

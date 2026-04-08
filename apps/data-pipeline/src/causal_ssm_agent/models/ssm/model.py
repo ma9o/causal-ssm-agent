@@ -29,13 +29,19 @@ from causal_ssm_agent.distributions import (
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
-from causal_ssm_agent.models.likelihoods.base import CTParams, InitialStateParams, MeasurementParams
-from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stabilize_covariance_for_cholesky,
+)
+from causal_ssm_agent.models.ssm.inference.targets.base import (
+    CTParams,
+    InitialStateParams,
+    MeasurementParams,
+)
+from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    any_family_needs_level_metadata,
 )
 from causal_ssm_agent.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
 from causal_ssm_agent.models.ssm.parameterization import (
@@ -69,7 +75,7 @@ class SSMSpec:
     """Specification for a state-space model.
 
     Matrix naming convention:
-    - DRIFT: n_latent x n_latent continuous-time auto/cross effects
+    - drift: n_latent x n_latent continuous-time auto/cross effects
     - DIFFUSION: n_latent x n_latent process noise (Cholesky)
     - CINT: n_latent x 1 continuous intercept
     - LAMBDA: n_manifest x n_latent factor loadings
@@ -736,7 +742,9 @@ class SSMModel:
                     self._prior_distribution("obs_cat_slopes"),
                 )
 
-        from causal_ssm_agent.models.likelihoods.graph_analysis import has_student_t_diffusion
+        from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+            has_student_t_diffusion,
+        )
 
         if has_student_t_diffusion(spec):
             sampled_values["proc_df"] = numpyro.sample(
@@ -820,11 +828,11 @@ def _build_laplace_backend(
     n_ieks_iters: int,
     observation_support: ObservationSupportRuntime | None = None,
 ):
-    from causal_ssm_agent.models.likelihoods.graph_analysis import (
+    from causal_ssm_agent.models.ssm.inference.methods.laplace_em import LaplaceLikelihood
+    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
         get_per_channel_links,
         get_per_channel_manifest,
     )
-    from causal_ssm_agent.models.ssm.laplace_em import LaplaceLikelihood
 
     return LaplaceLikelihood(
         n_latent=spec.n_latent,
@@ -865,7 +873,7 @@ def make_likelihood_backend(
     if pf_key is None:
         pf_key = jax.random.PRNGKey(0)
 
-    from causal_ssm_agent.models.ssm.inference_structure import plan_inference_structure
+    from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
 
     inference_structure = plan_inference_structure(
         spec,
@@ -874,7 +882,7 @@ def make_likelihood_backend(
     )
 
     if inference_structure.likelihood_path == "kalman":
-        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
 
         return KalmanLikelihood(
             n_latent=spec.n_latent,
@@ -882,7 +890,7 @@ def make_likelihood_backend(
         )
 
     # Resolve per-variable distributions for ParticleLikelihood
-    from causal_ssm_agent.models.likelihoods.graph_analysis import (
+    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
         get_per_channel_links,
         get_per_channel_manifest,
         get_per_variable_diffusion,
@@ -893,9 +901,9 @@ def make_likelihood_backend(
     per_links = get_per_channel_links(spec)
 
     if inference_structure.likelihood_path == "composed":
-        from causal_ssm_agent.models.likelihoods.composed import ComposedLikelihood
-        from causal_ssm_agent.models.likelihoods.kalman import KalmanLikelihood
-        from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+        from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
+        from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
+        from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
         partition = inference_structure.first_pass_rb.partition
         if partition is None:
@@ -940,7 +948,7 @@ def make_likelihood_backend(
         )
 
     # Fallthrough: full particle filter
-    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
     return ParticleLikelihood(
         n_latent=spec.n_latent,

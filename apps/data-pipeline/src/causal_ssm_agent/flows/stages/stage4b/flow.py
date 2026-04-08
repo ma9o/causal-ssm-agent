@@ -127,7 +127,7 @@ def parametric_id_task(
     """
     import jax.numpy as jnp
 
-    from causal_ssm_agent.models.ssm.inference_structure import (
+    from causal_ssm_agent.models.ssm.inference.structure import (
         build_inference_structure_payload,
     )
     from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
@@ -215,7 +215,7 @@ def parametric_id_task(
         # composed likelihood path is actually available in the prepared runtime.
         kalman_indices = None
         try:
-            from causal_ssm_agent.models.likelihoods.graph_analysis import (
+            from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
                 kalman_block_profile_indices,
             )
 

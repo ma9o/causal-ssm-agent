@@ -7,7 +7,7 @@ Covers: correct index shape, valid index range, weight concentration,
 import jax
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.likelihoods.particle import _systematic_resampling
+from causal_ssm_agent.models.ssm.inference.targets.particle import _systematic_resampling
 
 
 class TestSystematicResampling:

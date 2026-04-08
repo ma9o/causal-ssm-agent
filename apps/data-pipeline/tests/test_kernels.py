@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from causal_ssm_agent.models.likelihoods.kernels import (
+from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
     build_transition_kernel,
 )

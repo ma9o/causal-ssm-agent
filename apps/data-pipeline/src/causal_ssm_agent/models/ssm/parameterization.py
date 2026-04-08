@@ -549,7 +549,7 @@ def build_site_registry(
                 )
             )
 
-    from causal_ssm_agent.models.likelihoods.graph_analysis import has_student_t_diffusion
+    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
 
     if has_student_t_diffusion(spec):
         sites.append(_site("proc_df", (), SupportClass.POSITIVE, "likelihood", SiteKind.PROC_DF))

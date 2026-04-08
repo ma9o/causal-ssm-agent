@@ -7,19 +7,19 @@ import numpyro.distributions as dist
 import pytest
 from numpyro.infer import MCMC, NUTS
 
-from causal_ssm_agent.models.ssm.diagnostics_viz import (
+from causal_ssm_agent.models.ssm.inference import InferenceResult
+from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
-from causal_ssm_agent.models.ssm.diagnostics_viz import (
+from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
     build_rank_histograms as _build_rank_histograms,
 )
-from causal_ssm_agent.models.ssm.diagnostics_viz import (
+from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
     build_trace_data as _build_trace_data,
 )
-from causal_ssm_agent.models.ssm.diagnostics_viz import (
+from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
     param_marginal as _param_marginal,
 )
-from causal_ssm_agent.models.ssm.inference import InferenceResult
 
 numpyro.set_host_device_count(2)
 

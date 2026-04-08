@@ -31,18 +31,22 @@ from jax import lax
 from pydantic import BaseModel
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.likelihoods.base import CHOL_JITTER, NUMERICAL_EPSILON, PROB_CLIP_MIN
 from causal_ssm_agent.models.ssm.assembler import SSMAssembler, lower_triangle_positions
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.inference.targets.base import (
+    CHOL_JITTER,
+    NUMERICAL_EPSILON,
+    PROB_CLIP_MIN,
+)
+from causal_ssm_agent.models.ssm.inference.utils import (
+    _build_runtime_eval_fns_from_registry,
+)
 from causal_ssm_agent.models.ssm.parameterization import (
     SiteRuntimeBundle,
     assemble_deterministics_from_registry,
     build_site_registry,
     build_site_runtime_bundle,
     sample_prior_unconstrained,
-)
-from causal_ssm_agent.models.ssm.utils import (
-    _build_runtime_eval_fns_from_registry,
 )
 
 if TYPE_CHECKING:
@@ -575,7 +579,7 @@ def _point_observation_noise_var_diag(
     allow_discrete_mean_space: bool,
 ) -> jnp.ndarray:
     """Return diagonal observation noise variances on the emitted observation scale."""
-    from causal_ssm_agent.models.likelihoods.emissions import (
+    from causal_ssm_agent.models.ssm.inference.targets.emissions import (
         categorical_moments,
         ordered_logistic_moments,
     )
@@ -679,7 +683,7 @@ def _project_response_moments(
     Gaussian moment closure for the squared-response statistics that feed the
     ``std`` summary operator.
     """
-    from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
         _COUNT_OPERATOR_CODE,
         _MEAN_OPERATOR_CODE,
         _STD_OPERATOR_CODE,
@@ -872,7 +876,7 @@ def _build_sensitivity_measurement_semantics(
     observation_support,
 ):
     """Compile measurement semantics for the observation-space sensitivity map."""
-    from causal_ssm_agent.models.likelihoods.kernels import compile_measurement_semantics
+    from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
 
     return compile_measurement_semantics(
         manifest_dist=spec.manifest_dist,
@@ -1092,7 +1096,7 @@ def _observation_semantic_mask(
     observation_support,
 ) -> np.ndarray | None:
     """Return the support-aware emission mask aligned to the model time grid."""
-    from causal_ssm_agent.models.likelihoods.trajectory_observations import (
+    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
         compile_observation_operator,
     )
 

@@ -18,12 +18,12 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
-from causal_ssm_agent.models.likelihoods.base import (
+from causal_ssm_agent.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from causal_ssm_agent.models.likelihoods.block_rb import (
+from causal_ssm_agent.models.ssm.inference.targets.block_rb import (
     extract_obs_subblocks,
     extract_subblocks,
     partition_indices,
@@ -185,7 +185,7 @@ def _run_block_rbpf(
     manifest_link=None,
 ):
     """Run block RBPF with per-variable diffusion dists."""
-    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -223,7 +223,7 @@ def _run_full_rbpf(
     manifest_link=None,
 ):
     """Run full RBPF (all Gaussian)."""
-    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -262,7 +262,7 @@ def _run_bootstrap_pf(
     manifest_link=None,
 ):
     """Run bootstrap PF (all sampled)."""
-    from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -750,7 +750,7 @@ class TestParameterRecovery:
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -820,7 +820,7 @@ class TestParameterRecovery:
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -895,7 +895,7 @@ class TestParameterRecovery:
             drift = drift.at[1, 0].set(drift_offdiag[1])
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -965,7 +965,7 @@ class TestParameterRecovery:
             drift = jnp.diag(-jnp.abs(drift_diag))
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from causal_ssm_agent.models.likelihoods.particle import ParticleLikelihood
+            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
             # 1G + 2S: variable 0 is Gaussian, variables 1,2 are sampled
             backend = ParticleLikelihood(

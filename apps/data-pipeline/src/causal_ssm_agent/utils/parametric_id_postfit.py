@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import jax.random as random
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.models.ssm.utils import (
+from causal_ssm_agent.models.ssm.inference.utils import (
     _build_eval_fns,
     _discover_sites,
 )

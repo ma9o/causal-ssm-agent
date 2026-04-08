@@ -12,8 +12,10 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from causal_ssm_agent.models.likelihoods.observation_families import any_family_needs_level_metadata
 from causal_ssm_agent.models.predictive_simulation import simulate_predictive_observations
+from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    any_family_needs_level_metadata,
+)
 from causal_ssm_agent.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,

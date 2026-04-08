@@ -11,26 +11,28 @@ import numpy as np
 from jax import lax, vmap
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.likelihoods.emissions import build_predictive_observation_sampler
-from causal_ssm_agent.models.likelihoods.kernels import (
-    build_composite_observation_kernel,
-    build_observation_kernel,
-    build_transition_kernel,
-    compile_transition_semantics,
-)
-from causal_ssm_agent.models.likelihoods.observation_families import (
-    any_family_needs_level_metadata,
-    resolve_manifest_families_and_links,
-)
-from causal_ssm_agent.models.likelihoods.trajectory_observations import (
-    compile_observation_operator,
-)
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stable_cholesky,
 )
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.inference.targets.emissions import (
+    build_predictive_observation_sampler,
+)
+from causal_ssm_agent.models.ssm.inference.targets.kernels import (
+    build_composite_observation_kernel,
+    build_observation_kernel,
+    build_transition_kernel,
+    compile_transition_semantics,
+)
+from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    any_family_needs_level_metadata,
+    resolve_manifest_families_and_links,
+)
+from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    compile_observation_operator,
+)
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 
 if TYPE_CHECKING:
