@@ -1,61 +1,100 @@
 """Tests for Stage 5 inference task logging and orchestration."""
 
 import logging
-from types import SimpleNamespace
 
 import jax.numpy as jnp
+import numpy as np
 import polars as pl
 
 from causal_ssm_agent.flows.stages.stage5b import fit as stage5_inference
+from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.inference.structure import (
     FirstPassRBPlan,
     InferenceStructurePlan,
 )
-from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime
+from causal_ssm_agent.models.ssm.model import SSMModel
+from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, SSMModelBuilder
+from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from tests.ssm_test_utils import make_ssm_spec
 
 
-class _FakeResult:
-    method = "laplace_em"
-
+class _FakeResult(InferenceResult):
     def __init__(self) -> None:
+        self.method = "laplace_em"
         self.diagnostics = {}
-
-    def get_mcmc_diagnostics(self):
-        return None
-
-    def get_svi_diagnostics(self):
-        return None
+        self._samples = {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
 
     def get_smc_diagnostics(self):
         return {"n_levels": 3}
 
-    def get_loo_diagnostics(self, *, model_fn, observations, times):
+    def get_loo_diagnostics(
+        self,
+        model_fn=None,
+        observations: jnp.ndarray | None = None,
+        times: jnp.ndarray | None = None,
+    ):
         return {"elpd_loo": -12.3}
 
-    def get_posterior_marginals(self):
+    def get_posterior_marginals(self, n_bins: int = 50):
+        del n_bins
         return [{"parameter": "theta"}]
 
-    def get_posterior_pairs(self):
+    def get_posterior_pairs(self, max_params: int = 6, max_samples: int = 200):
+        del max_params, max_samples
         return []
 
-    def get_samples(self):
-        return {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
 
-
-class _FakeBuilder:
+class _FakeBuilder(SSMModelBuilder):
     def __init__(self, result: _FakeResult) -> None:
+        super().__init__()
         self._result = result
-
-        def _model(*_args, **_kwargs):
-            return None
-
-        self._model = SimpleNamespace(
-            model=_model,
-            make_likelihood_backend=lambda: "particle-backend",
+        self._model = SSMModel(
+            make_ssm_spec(
+                n_latent=1,
+                n_manifest=2,
+                latent_names=["sleep_state"],
+                manifest_names=["sleep_avg", "energy"],
+            )
         )
 
-    def fit_prepared(self, observations, times):
-        return self._result
+    def fit_prepared(
+        self, observations: jnp.ndarray, times: jnp.ndarray, **_kwargs
+    ) -> InferenceResult:
+        result = self._result
+        assert result is not None
+        return result
+
+
+def _make_observation_support_runtime() -> ObservationSupportRuntime:
+    return ObservationSupportRuntime(
+        anchor_times=np.array([0.0, 1.5]),
+        manifest_names=["sleep_avg", "energy"],
+        support_kinds=["interval", "point"],
+        summary_operators=["mean", None],
+        anchor_policies=["end", "end"],
+        observation_windows=["1d", None],
+        support_start_times=np.array([[np.nan, np.nan], [0.0, np.nan]]),
+        support_end_times=np.array([[np.nan, np.nan], [1.5, np.nan]]),
+        interval_prev_coeffs=np.array(
+            [
+                [[0.0, 0.0], [0.0, 0.0]],
+                [[0.5, 0.0], [0.0, 0.0]],
+            ]
+        ),
+        interval_curr_coeffs=np.array(
+            [
+                [[0.0, 0.0], [0.0, 0.0]],
+                [[0.5, 0.0], [0.0, 0.0]],
+            ]
+        ),
+        interval_weights=np.array(
+            [
+                [[0.0, 0.0], [0.0, 0.0]],
+                [[1.0, 0.0], [0.0, 0.0]],
+            ]
+        ),
+        emission_slot_indices=np.array([[-1, -1], [0, -1]]),
+    )
 
 
 def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
@@ -69,11 +108,7 @@ def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
             }
         ),
         observation_data=None,
-        observation_support=SimpleNamespace(
-            requires_interval_summary_handling=True,
-            interval_summary_manifest_names=["sleep_avg"],
-            max_active_windows=2,
-        ),
+        observation_support=_make_observation_support_runtime(),
         inference_structure=InferenceStructurePlan(
             likelihood_path="particle",
             auto_method="laplace_em",

@@ -150,7 +150,9 @@ class SiteRuntimeBundle:
     def constrain(self, z: jnp.ndarray) -> dict[str, jnp.ndarray]:
         """Map one unconstrained parameter vector to constrained site values."""
         unconstrained = self.unravel_fn(z)
-        return {name: self.transforms[name](unconstrained[name]) for name in unconstrained}
+        return {
+            name: jnp.asarray(self.transforms[name](unconstrained[name])) for name in unconstrained
+        }
 
     def constrain_batched(self, z_samples: jnp.ndarray) -> dict[str, jnp.ndarray]:
         """Map a batch of unconstrained draws to constrained site samples."""
@@ -284,15 +286,16 @@ def build_site_registry(
         assembler = Asm(spec)
 
     sites: list[SiteDescriptor] = []
-    n_l, n_m = spec.n_latent, spec.n_manifest
+    n_m = spec.n_manifest
 
     # -- Core parameter sites (mirroring SSMModel._sample_* methods) --------
 
-    if not isinstance(spec.drift, jnp.ndarray):
+    n_drift_diag = len(assembler.drift_diag_positions)
+    if n_drift_diag > 0:
         sites.append(
             _site(
                 "drift_diag_pop",
-                (n_l,),
+                (n_drift_diag,),
                 SupportClass.REAL,
                 "drift",
                 SiteKind.DRIFT_DIAG,
@@ -301,55 +304,56 @@ def build_site_registry(
                 priors_field="drift_diag",
             )
         )
-        n_offdiag = len(assembler.offdiag_positions)
-        if n_offdiag > 0:
-            sites.append(
-                _site(
-                    "drift_offdiag_pop",
-                    (n_offdiag,),
-                    SupportClass.REAL,
-                    "drift",
-                    SiteKind.DRIFT_OFFDIAG,
-                    deterministic_name="drift",
-                    fixed_spec_field="drift",
-                    priors_field="drift_offdiag",
-                )
+    n_offdiag = len(assembler.offdiag_positions)
+    if n_offdiag > 0:
+        sites.append(
+            _site(
+                "drift_offdiag_pop",
+                (n_offdiag,),
+                SupportClass.REAL,
+                "drift",
+                SiteKind.DRIFT_OFFDIAG,
+                deterministic_name="drift",
+                fixed_spec_field="drift",
+                priors_field="drift_offdiag",
             )
+        )
 
-    if not isinstance(spec.diffusion, jnp.ndarray):
+    n_diff_diag = len(assembler.diffusion_diag_positions)
+    if n_diff_diag > 0:
         sites.append(
             _site(
                 "diffusion_diag_pop",
-                (n_l,),
+                (n_diff_diag,),
                 SupportClass.POSITIVE,
                 "diffusion",
                 SiteKind.DIFFUSION_DIAG,
                 deterministic_name="diffusion",
-                fixed_spec_field="diffusion",
+                fixed_spec_field="diffusion_chol",
                 priors_field="diffusion_diag",
             )
         )
-        if spec.diffusion != "diag":
-            n_lower = n_l * (n_l - 1) // 2
-            if n_lower > 0:
-                sites.append(
-                    _site(
-                        "diffusion_lower",
-                        (n_lower,),
-                        SupportClass.REAL,
-                        "diffusion",
-                        SiteKind.DIFFUSION_LOWER,
-                        deterministic_name="diffusion",
-                        fixed_spec_field="diffusion",
-                        priors_field="diffusion_offdiag",
-                    )
-                )
+    n_diff_lower = len(assembler.diffusion_lower_positions)
+    if n_diff_lower > 0:
+        sites.append(
+            _site(
+                "diffusion_lower",
+                (n_diff_lower,),
+                SupportClass.REAL,
+                "diffusion",
+                SiteKind.DIFFUSION_LOWER,
+                deterministic_name="diffusion",
+                fixed_spec_field="diffusion_chol",
+                priors_field="diffusion_offdiag",
+            )
+        )
 
-    if spec.cint is not None and not isinstance(spec.cint, jnp.ndarray):
+    n_cint = len(assembler.cint_free_positions)
+    if n_cint > 0:
         sites.append(
             _site(
                 "cint_pop",
-                (n_l,),
+                (n_cint,),
                 SupportClass.REAL,
                 "cint",
                 SiteKind.CINT,
@@ -374,11 +378,12 @@ def build_site_registry(
             )
         )
 
-    if spec.manifest_means is not None and not isinstance(spec.manifest_means, jnp.ndarray):
+    n_manifest_means = len(assembler.manifest_means_free_positions)
+    if n_manifest_means > 0:
         sites.append(
             _site(
                 "manifest_means",
-                (n_m,),
+                (n_manifest_means,),
                 SupportClass.REAL,
                 "manifest",
                 SiteKind.MANIFEST_MEANS,
@@ -388,27 +393,27 @@ def build_site_registry(
             )
         )
 
-    if not (isinstance(spec.manifest_var, jnp.ndarray) and spec.manifest_var_mask is None):
-        n_free = len(assembler.manifest_var_free_positions)
-        if n_free > 0:
-            sites.append(
-                _site(
-                    "manifest_var_diag",
-                    (n_free,),
-                    SupportClass.POSITIVE,
-                    "manifest",
-                    SiteKind.MANIFEST_VAR_DIAG,
-                    deterministic_name="manifest_cov",
-                    fixed_spec_field="manifest_var",
-                    priors_field="manifest_var_diag",
-                )
+    n_free = len(assembler.manifest_var_free_positions)
+    if n_free > 0:
+        sites.append(
+            _site(
+                "manifest_var_diag",
+                (n_free,),
+                SupportClass.POSITIVE,
+                "manifest",
+                SiteKind.MANIFEST_VAR_DIAG,
+                deterministic_name="manifest_cov",
+                fixed_spec_field="manifest_chol",
+                priors_field="manifest_var_diag",
             )
+        )
 
-    if not isinstance(spec.t0_means, jnp.ndarray):
+    n_t0_means = len(assembler.t0_means_free_positions)
+    if n_t0_means > 0:
         sites.append(
             _site(
                 "t0_means_pop",
-                (n_l,),
+                (n_t0_means,),
                 SupportClass.REAL,
                 "t0",
                 SiteKind.T0_MEANS,
@@ -418,34 +423,34 @@ def build_site_registry(
             )
         )
 
-    if not isinstance(spec.t0_var, jnp.ndarray):
+    n_t0_diag = len(assembler.t0_diag_free_positions)
+    if n_t0_diag > 0:
         sites.append(
             _site(
                 "t0_var_diag",
-                (n_l,),
+                (n_t0_diag,),
                 SupportClass.POSITIVE,
                 "t0",
                 SiteKind.T0_VAR_DIAG,
                 deterministic_name="t0_cov",
-                fixed_spec_field="t0_var",
+                fixed_spec_field="t0_chol",
                 priors_field="t0_var_diag",
             )
         )
-        if spec.t0_var != "diag":
-            n_lower = len(assembler.t0_correlation_positions)
-            if n_lower > 0:
-                sites.append(
-                    _site(
-                        "t0_var_lower",
-                        (n_lower,),
-                        SupportClass.CORRELATION,
-                        "t0",
-                        SiteKind.T0_VAR_LOWER,
-                        deterministic_name="t0_cov",
-                        fixed_spec_field="t0_var",
-                        priors_field="t0_var_offdiag",
-                    )
-                )
+    n_t0_lower = len(assembler.t0_correlation_positions)
+    if n_t0_lower > 0:
+        sites.append(
+            _site(
+                "t0_var_lower",
+                (n_t0_lower,),
+                SupportClass.CORRELATION,
+                "t0",
+                SiteKind.T0_VAR_LOWER,
+                deterministic_name="t0_cov",
+                fixed_spec_field="t0_chol",
+                priors_field="t0_var_offdiag",
+            )
+        )
 
     # -- Likelihood extra-parameter sites -----------------------------------
 
@@ -687,41 +692,39 @@ def _assemble_t0_cov(
     diag_site: SiteDescriptor | None,
     corr_site: SiteDescriptor | None,
     samples: dict[str, jnp.ndarray],
-    fixed_chol: jnp.ndarray | None,
+    fixed_chol: jnp.ndarray,
     assembler: SSMAssembler,
     n_draws: int,
     dim: int,
 ) -> jnp.ndarray | None:
     """Assemble initial-state covariance from SDs and sparse correlations."""
-    if diag_site is not None and diag_site.name in samples:
-        diag_samples = samples[diag_site.name]
-        corr_samples = (
-            samples[corr_site.name] if corr_site is not None and corr_site.name in samples else None
-        )
+    diag_samples = (
+        samples[diag_site.name] if diag_site is not None and diag_site.name in samples else None
+    )
+    corr_samples = (
+        samples[corr_site.name] if corr_site is not None and corr_site.name in samples else None
+    )
+    if diag_samples is not None or corr_samples is not None:
 
         def _build_stable_cov(
-            diag_values: jnp.ndarray,
+            diag_values: jnp.ndarray | None = None,
             corr_values: jnp.ndarray | None = None,
         ) -> jnp.ndarray:
-            raw_cov = (
-                assembler.assemble_t0_cov(diag_values, corr_values)
-                if corr_values is not None
-                else jnp.diag(diag_values**2)
-            )
+            raw_cov = assembler.assemble_t0_cov(diag_values, corr_values)
             stable_cov, _min_eig = stabilize_covariance_for_cholesky(
                 raw_cov,
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
             )
             return stable_cov
 
-        if corr_samples is not None:
+        if diag_samples is not None and corr_samples is not None:
             return jax.vmap(_build_stable_cov)(diag_samples, corr_samples)
-        return jax.vmap(_build_stable_cov)(diag_samples)
+        if diag_samples is not None:
+            return jax.vmap(_build_stable_cov)(diag_samples)
+        return jax.vmap(lambda corr_values: _build_stable_cov(None, corr_values))(corr_samples)
 
-    if isinstance(fixed_chol, jnp.ndarray):
-        fixed_cov = fixed_chol @ fixed_chol.T
-        return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
-    return None
+    fixed_cov = fixed_chol @ fixed_chol.T
+    return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
 
 
 def assemble_deterministics_from_registry(
@@ -745,35 +748,62 @@ def assemble_deterministics_from_registry(
 
     drift_diag_site = by_kind.get(SiteKind.DRIFT_DIAG)
     drift_offdiag_site = by_kind.get(SiteKind.DRIFT_OFFDIAG)
-    if drift_diag_site is not None and drift_diag_site.name in samples:
-        offdiag = (
-            samples[drift_offdiag_site.name]
-            if drift_offdiag_site is not None and drift_offdiag_site.name in samples
-            else jnp.zeros((n_draws, max(len(assembler.offdiag_positions), 0)))
-        )
-        det["drift"] = jax.vmap(assembler.assemble_drift)(samples[drift_diag_site.name], offdiag)
-    elif isinstance(spec.drift, jnp.ndarray):
+    drift_diag_samples = (
+        samples[drift_diag_site.name]
+        if drift_diag_site is not None and drift_diag_site.name in samples
+        else None
+    )
+    drift_offdiag_samples = (
+        samples[drift_offdiag_site.name]
+        if drift_offdiag_site is not None and drift_offdiag_site.name in samples
+        else None
+    )
+    if drift_diag_samples is not None or drift_offdiag_samples is not None:
+        if drift_diag_samples is not None and drift_offdiag_samples is not None:
+            det["drift"] = jax.vmap(assembler.assemble_drift)(
+                drift_diag_samples,
+                drift_offdiag_samples,
+            )
+        elif drift_diag_samples is not None:
+            det["drift"] = jax.vmap(assembler.assemble_drift)(drift_diag_samples)
+        else:
+            det["drift"] = jax.vmap(lambda offdiag: assembler.assemble_drift(None, offdiag))(
+                drift_offdiag_samples
+            )
+    else:
         det["drift"] = _broadcast_fixed(spec.drift, n_draws)
 
     diffusion_diag_site = by_kind.get(SiteKind.DIFFUSION_DIAG)
     diffusion_lower_site = by_kind.get(SiteKind.DIFFUSION_LOWER)
-    if diffusion_diag_site is not None and diffusion_diag_site.name in samples:
-        if diffusion_lower_site is not None and diffusion_lower_site.name in samples:
+    diffusion_diag_samples = (
+        samples[diffusion_diag_site.name]
+        if diffusion_diag_site is not None and diffusion_diag_site.name in samples
+        else None
+    )
+    diffusion_lower_samples = (
+        samples[diffusion_lower_site.name]
+        if diffusion_lower_site is not None and diffusion_lower_site.name in samples
+        else None
+    )
+    if diffusion_diag_samples is not None or diffusion_lower_samples is not None:
+        if diffusion_diag_samples is not None and diffusion_lower_samples is not None:
             det["diffusion"] = jax.vmap(assembler.assemble_diffusion)(
-                samples[diffusion_diag_site.name],
-                samples[diffusion_lower_site.name],
+                diffusion_diag_samples,
+                diffusion_lower_samples,
             )
+        elif diffusion_diag_samples is not None:
+            det["diffusion"] = jax.vmap(assembler.assemble_diffusion)(diffusion_diag_samples)
         else:
-            det["diffusion"] = jax.vmap(assembler.assemble_diffusion)(
-                samples[diffusion_diag_site.name]
+            det["diffusion"] = jax.vmap(lambda lower: assembler.assemble_diffusion(None, lower))(
+                diffusion_lower_samples
             )
-    elif isinstance(spec.diffusion, jnp.ndarray):
-        det["diffusion"] = _broadcast_fixed(spec.diffusion, n_draws)
+    else:
+        det["diffusion"] = _broadcast_fixed(spec.diffusion_chol, n_draws)
 
     cint_site = by_kind.get(SiteKind.CINT)
     if cint_site is not None and cint_site.name in samples:
-        det["cint"] = samples[cint_site.name]
-    elif isinstance(spec.cint, jnp.ndarray):
+        det["cint"] = jax.vmap(assembler.assemble_cint)(samples[cint_site.name])
+    else:
         det["cint"] = _broadcast_fixed(spec.cint, n_draws)
 
     loading_site = by_kind.get(SiteKind.LOADING)
@@ -788,14 +818,16 @@ def assemble_deterministics_from_registry(
 
     manifest_means_site = by_kind.get(SiteKind.MANIFEST_MEANS)
     if manifest_means_site is not None and manifest_means_site.name in samples:
-        det["manifest_means"] = samples[manifest_means_site.name]
-    elif isinstance(spec.manifest_means, jnp.ndarray):
+        det["manifest_means"] = jax.vmap(assembler.assemble_manifest_means)(
+            samples[manifest_means_site.name]
+        )
+    else:
         det["manifest_means"] = _broadcast_fixed(spec.manifest_means, n_draws)
 
     manifest_cov = _assemble_diag_to_cov(
         by_kind.get(SiteKind.MANIFEST_VAR_DIAG),
         samples,
-        spec.manifest_var,
+        spec.manifest_chol,
         assembler,
         n_draws,
         n_m,
@@ -805,15 +837,15 @@ def assemble_deterministics_from_registry(
 
     t0_means_site = by_kind.get(SiteKind.T0_MEANS)
     if t0_means_site is not None and t0_means_site.name in samples:
-        det["t0_means"] = samples[t0_means_site.name]
-    elif isinstance(spec.t0_means, jnp.ndarray):
+        det["t0_means"] = jax.vmap(assembler.assemble_t0_means)(samples[t0_means_site.name])
+    else:
         det["t0_means"] = _broadcast_fixed(spec.t0_means, n_draws)
 
     t0_cov = _assemble_t0_cov(
         by_kind.get(SiteKind.T0_VAR_DIAG),
         by_kind.get(SiteKind.T0_VAR_LOWER),
         samples,
-        spec.t0_var,
+        spec.t0_chol,
         assembler,
         n_draws,
         n_l,
@@ -1520,9 +1552,13 @@ def build_site_prior_distribution(
                 high=params.get("high"),
             )
         if runtime_kind == PriorRuntimeKind.UNIFORM:
+            low = params.get("low")
+            high = params.get("high")
+            if low is None or high is None:
+                raise ValueError(f"Uniform prior site {site.name!r} is missing low/high bounds")
             return dist.Uniform(
-                low=params.get("low"),
-                high=params.get("high"),
+                low=low,
+                high=high,
             )
         raise ValueError(
             f"Unsupported canonical real prior runtime kind {runtime_kind!r} for site {site.name!r}"

@@ -177,14 +177,17 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
     if ssm_spec is None:
         return None
 
-    if attr in {"drift_diag", "diffusion_diag"}:
-        return ssm_spec.n_latent
+    if attr == "drift_diag":
+        return int(np.asarray(ssm_spec.drift_diag_mask).sum())
+
+    if attr == "diffusion_diag":
+        return int(np.asarray(np.diag(ssm_spec.diffusion_chol_mask)).sum())
 
     if attr == "drift_offdiag":
         count = 0
         for effect_idx in range(ssm_spec.n_latent):
             for cause_idx in range(ssm_spec.n_latent):
-                if effect_idx != cause_idx and ssm_spec.drift_mask[effect_idx, cause_idx]:
+                if effect_idx != cause_idx and ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]:
                     count += 1
         return count
 
@@ -192,22 +195,15 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
         return int(np.asarray(ssm_spec.lambda_mask).sum())
 
     if attr == "manifest_var_diag":
-        if not isinstance(ssm_spec.manifest_var, str) and ssm_spec.manifest_var_mask is None:
-            return 0
-        if ssm_spec.manifest_var_mask is None:
-            return ssm_spec.n_manifest
-        return int(np.asarray(ssm_spec.manifest_var_mask).sum())
+        return int(np.asarray(ssm_spec.manifest_chol_diag_mask).sum())
 
     if attr == "diffusion_offdiag":
-        if ssm_spec.diffusion != "free":
-            return 0
-        return ssm_spec.n_latent * (ssm_spec.n_latent - 1) // 2
+        return int(np.tril(np.asarray(ssm_spec.diffusion_chol_mask), k=-1).sum())
+
+    if attr == "t0_var_diag":
+        return int(np.asarray(ssm_spec.t0_chol_diag_mask).sum())
 
     if attr == "t0_var_offdiag":
-        if ssm_spec.t0_var == "diag":
-            return 0
-        if ssm_spec.t0_correlation_mask is None:
-            return ssm_spec.n_latent * (ssm_spec.n_latent - 1) // 2
         return int(np.asarray(ssm_spec.t0_correlation_mask).sum())
 
     return None

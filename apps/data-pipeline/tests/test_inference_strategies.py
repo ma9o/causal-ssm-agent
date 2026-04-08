@@ -66,7 +66,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discover_sites
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
-from tests.ssm_test_utils import make_ssm_spec
+from tests.ssm_test_utils import diagonal_diffusion_kwargs, make_ssm_spec
 
 
 def _support_runtime(**kwargs) -> ObservationSupportRuntime:
@@ -139,6 +139,7 @@ def test_expected_observation_mean_dispatches_by_summary_operator():
         interval_weights=np.ones((1, 5)),
     )
     operator = compile_observation_operator(support)
+    assert operator.summary_operator_codes is not None
 
     expected = expected_observation_mean(
         response_t=jnp.array([7.0, 8.0, 9.0, 10.0, 11.0]),
@@ -421,7 +422,7 @@ class TestParticleLikelihoodCore:
             n_manifest=1,
             n_particles=80,
             rng_key=random.PRNGKey(1),
-            diffusion_dist=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
+            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
             observation_support=support,
             block_rb=False,
         )
@@ -434,7 +435,7 @@ class TestParticleLikelihoodCore:
             extra_params={"proc_df": 5.0},
         )
 
-        assert backend.diffusion_dist == "mixed"
+        assert backend.transition_dispatch_mode == "mixed"
         assert jnp.all(jnp.isfinite(ll))
 
 
@@ -798,6 +799,7 @@ class TestLaplaceSupportAware:
             ct_params.cint,
             time_intervals,
         )
+        assert cd is not None
         if cd.ndim == 1:
             cd = cd[:, None]
         obs_kernel = build_observation_kernel(
@@ -941,7 +943,7 @@ class TestNutsDASupportAware:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
             manifest_dists=[DistributionFamily.GAUSSIAN],
         )
         model = SSMModel(spec)
@@ -990,7 +992,7 @@ class TestSupportAwareMethodSmoke:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
             manifest_dists=[DistributionFamily.GAUSSIAN],
         )
         model = SSMModel(spec, likelihood="particle", n_particles=16)
@@ -1059,7 +1061,7 @@ class TestParticleMissingData:
             n_latent,
             n_manifest,
             manifest_dists=[DistributionFamily.GAUSSIAN] * n_manifest,
-            diffusion_dist=DistributionFamily.GAUSSIAN,
+            diffusion_dists=[DistributionFamily.GAUSSIAN],
             manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
         )
 
@@ -1210,7 +1212,7 @@ class TestStudentTProcessNoise:
             n_latent,
             n_manifest,
             manifest_dists=[DistributionFamily.GAUSSIAN],
-            diffusion_dist=DistributionFamily.STUDENT_T,
+            diffusion_dists=[DistributionFamily.STUDENT_T],
             manifest_links=[LinkFunction.IDENTITY],
         )
 
@@ -1279,7 +1281,7 @@ class TestParameterRecoveryPF:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(2),
         )
         model = SSMModel(spec, n_particles=200)
 
@@ -1331,7 +1333,7 @@ class TestParameterRecoveryPF:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(2),
         )
         model = SSMModel(spec, n_particles=200)
 
@@ -1422,7 +1424,7 @@ class TestHighDimNonlinear:
             n_manifest=n_manifest,
             n_particles=300,
             manifest_dists=["poisson"],
-            diffusion_dist="student_t",
+            diffusion_dists=["student_t"],
             manifest_links=["log"],
         )
         ll = backend.compute_log_likelihood(
@@ -1594,7 +1596,7 @@ class TestInferenceCaching:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec)
 
@@ -1613,7 +1615,7 @@ class TestInferenceCaching:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec)
         observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
@@ -1639,7 +1641,7 @@ class TestInferenceCaching:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec)
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
@@ -1740,7 +1742,7 @@ class TestPureJaxLikelihoodEvaluator:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
             manifest_dists=[DistributionFamily.POISSON],
             manifest_links=[LinkFunction.LOG],
             manifest_means=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
@@ -1813,7 +1815,7 @@ class TestSVIBackend:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, likelihood="kalman")
         observations = jnp.zeros((4, 1), dtype=jnp.float32)
@@ -1851,7 +1853,7 @@ class TestSVIBackend:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, likelihood="kalman")
         observations = jnp.zeros((4, 1), dtype=jnp.float32)
@@ -1902,7 +1904,7 @@ class TestSVIBackend:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, likelihood="kalman")
 
@@ -1957,7 +1959,7 @@ class TestAutoMethodConfigRouting:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, likelihood="particle")
         model.set_observation_support(self._non_point_support())
@@ -1985,7 +1987,7 @@ class TestAutoMethodConfigRouting:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, likelihood="particle")
         model.set_observation_support(self._non_point_support())
@@ -2025,7 +2027,7 @@ class TestAutoMethodConfigRouting:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, likelihood="particle")
         model.set_observation_support(self._non_point_support())
@@ -2050,7 +2052,7 @@ class TestAutoMethodConfigRouting:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, likelihood="kalman")
         observations = jnp.zeros((3, 1), dtype=jnp.float32)
@@ -2423,16 +2425,17 @@ class TestTemperedSMCVariants:
         from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
-        common_kwargs = {
-            "observations": lgss_data["observations"],
-            "times": lgss_data["times"],
-            "method": "tempered_smc",
-            "n_csmc_particles": 10,
-            "n_mh_steps": 5,
-            "param_step_size": 0.01,
-            "seed": 0,
-        }
-        result = fit(model, **{**common_kwargs, **extra_kwargs})
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="tempered_smc",
+            n_csmc_particles=10,
+            n_mh_steps=5,
+            param_step_size=0.01,
+            seed=0,
+            **extra_kwargs,
+        )
 
         assert isinstance(result, InferenceResult)
 
@@ -2453,7 +2456,7 @@ class TestTemperedSMCVariants:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
         )
         model = SSMModel(spec, n_particles=50)
 
@@ -2521,16 +2524,17 @@ class TestPGASVariants:
         from causal_ssm_agent.models.ssm import SSMModel, fit
 
         model = SSMModel(lgss_data["spec"], n_particles=50)
-        common_kwargs = {
-            "observations": lgss_data["observations"],
-            "times": lgss_data["times"],
-            "method": "pgas",
-            "n_csmc_particles": 8,
-            "n_mh_steps": 3,
-            "param_step_size": 0.1,
-            "seed": 0,
-        }
-        result = fit(model, **{**common_kwargs, **extra_kwargs})
+        result = fit(
+            model,
+            observations=lgss_data["observations"],
+            times=lgss_data["times"],
+            method="pgas",
+            n_csmc_particles=8,
+            n_mh_steps=3,
+            param_step_size=0.1,
+            seed=0,
+            **extra_kwargs,
+        )
 
         assert isinstance(result, InferenceResult)
 
@@ -2559,7 +2563,7 @@ class TestPGASVariants:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
             manifest_dists=[DistributionFamily.POISSON],
             manifest_means=jnp.array([jnp.log(5.0)]),
         )

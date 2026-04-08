@@ -33,6 +33,8 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm.inference.targets.base import (
         CTParams,
@@ -237,8 +239,8 @@ class StructuredVILikelihood:
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dists: list[DistributionFamily | str] | None = None,
-        manifest_links: list[LinkFunction | str | None] | None = None,
+        manifest_dists: Sequence[DistributionFamily | str] | None = None,
+        manifest_links: Sequence[LinkFunction | str | None] | None = None,
         n_vi_steps: int = 20,
         n_mc_samples: int = 4,
         vi_lr: float = 0.01,
@@ -254,7 +256,9 @@ class StructuredVILikelihood:
             if manifest_dists is not None
             else [DistributionFamily.GAUSSIAN] * n_manifest
         )
-        self.manifest_links = manifest_links
+        self.manifest_links: list[LinkFunction | str | None] | None = (
+            list(manifest_links) if manifest_links is not None else None
+        )
         self.n_vi_steps = n_vi_steps
         self.n_mc_samples = n_mc_samples
         self.vi_lr = vi_lr

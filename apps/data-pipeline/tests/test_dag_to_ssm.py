@@ -22,9 +22,11 @@ from causal_ssm_agent.models.ssm.model import (
     SSMSpec,
     _make_prior_batch,
     _make_prior_dist,
-    full_drift_mask,
+    full_diagonal_mask,
+    full_vector_mask,
     zero_loading_mask,
 )
+from tests.ssm_test_utils import combined_drift_mask, full_drift_mask, make_ssm_spec
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
@@ -40,13 +42,11 @@ def _make_3latent_spec(
     n_l, n_m = 3, 4
     if lambda_mat is None:
         lambda_mat = jnp.eye(n_m, n_l)
-    return SSMSpec(
+    return make_ssm_spec(
         n_latent=n_l,
         n_manifest=n_m,
         drift_mask=drift_mask if drift_mask is not None else full_drift_mask(n_l),
         lambda_mask=lambda_mask if lambda_mask is not None else zero_loading_mask(n_m, n_l),
-        drift="free",
-        diffusion="diag",
         lambda_mat=lambda_mat,
         latent_names=["X", "Y", "Z"],
         manifest_names=["x1", "x2", "y1", "z1"],
@@ -204,11 +204,10 @@ class TestDriftMask:
     def test_drift_mask_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
         mask = np.eye(1, dtype=bool)
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mask=zero_loading_mask(1, 1),
-            drift="free",
             drift_mask=mask,
             lambda_mat=jnp.eye(1),
         )
@@ -321,11 +320,10 @@ class TestPerElementPriors:
         mask = np.eye(2, dtype=bool)
         mask[1, 0] = True  # X→Y
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             lambda_mask=zero_loading_mask(2, 2),
-            drift="free",
             drift_mask=mask,
             lambda_mat=jnp.eye(2),
             latent_names=["X", "Y"],
@@ -405,12 +403,10 @@ class TestBuilderMasks:
 
     def test_ssm_spec_rejects_explicit_none_masks(self):
         """Structural masks are required on SSMSpec."""
-        with pytest.raises(ValueError, match="drift_mask must have shape"):
-            SSMSpec(
+        with pytest.raises(ValueError, match="drift_diag_mask must have shape"):
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
-                drift="free",
-                diffusion="diag",
                 lambda_mat=jnp.eye(4, 3),
                 drift_mask=None,
                 lambda_mask=zero_loading_mask(4, 3),
@@ -419,11 +415,9 @@ class TestBuilderMasks:
             )
 
         with pytest.raises(ValueError, match="lambda_mask must have shape"):
-            SSMSpec(
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
-                drift="free",
-                diffusion="diag",
                 lambda_mat=jnp.eye(4, 3),
                 drift_mask=full_drift_mask(3),
                 lambda_mask=None,
@@ -434,11 +428,9 @@ class TestBuilderMasks:
     def test_ssm_spec_rejects_invalid_mask_shapes(self):
         """Structural masks must match the latent/manifest dimensions."""
         with pytest.raises(ValueError, match=r"drift_mask must have shape \(3, 3\)"):
-            SSMSpec(
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
-                drift="free",
-                diffusion="diag",
                 lambda_mat=jnp.eye(4, 3),
                 drift_mask=np.ones((2, 2), dtype=bool),
                 lambda_mask=zero_loading_mask(4, 3),
@@ -447,11 +439,9 @@ class TestBuilderMasks:
             )
 
         with pytest.raises(ValueError, match=r"lambda_mask must have shape \(4, 3\)"):
-            SSMSpec(
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
-                drift="free",
-                diffusion="diag",
                 lambda_mat=jnp.eye(4, 3),
                 drift_mask=full_drift_mask(3),
                 lambda_mask=np.ones((4, 4), dtype=bool),
@@ -464,42 +454,55 @@ class TestBuilderMasks:
         from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
         with pytest.raises(ValueError, match="diffusion_dists length must match n_latent"):
-            SSMSpec(
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
                 drift_mask=full_drift_mask(3),
                 lambda_mask=zero_loading_mask(4, 3),
+                lambda_mat=jnp.eye(4, 3),
                 diffusion_dists=[DistributionFamily.GAUSSIAN] * 2,
             )
 
         with pytest.raises(ValueError, match="manifest_dists length must match n_manifest"):
-            SSMSpec(
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
                 drift_mask=full_drift_mask(3),
                 lambda_mask=zero_loading_mask(4, 3),
+                lambda_mat=jnp.eye(4, 3),
                 manifest_dists=[DistributionFamily.GAUSSIAN] * 3,
             )
 
         with pytest.raises(ValueError, match="manifest_links length must match n_manifest"):
-            SSMSpec(
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
                 drift_mask=full_drift_mask(3),
                 lambda_mask=zero_loading_mask(4, 3),
+                lambda_mat=jnp.eye(4, 3),
                 manifest_dists=[DistributionFamily.GAUSSIAN] * 4,
                 manifest_links=[LinkFunction.IDENTITY] * 3,
             )
 
-        with pytest.raises(
-            ValueError, match="manifest_level_counts length must match n_manifest"
-        ):
-            SSMSpec(
+        with pytest.raises(ValueError, match="manifest_level_counts length must match n_manifest"):
+            make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
                 drift_mask=full_drift_mask(3),
                 lambda_mask=zero_loading_mask(4, 3),
+                lambda_mat=jnp.eye(4, 3),
                 manifest_level_counts=[0, 0, 0],
+            )
+
+    def test_ssm_spec_rejects_string_lambda_mat(self):
+        """Loading structure must be expressed as template + mask, not a string mode."""
+        with pytest.raises(ValueError, match="explicit loading template array"):
+            make_ssm_spec(
+                n_latent=2,
+                n_manifest=2,
+                drift_mask=full_drift_mask(2),
+                lambda_mask=zero_loading_mask(2, 2),
+                lambda_mat="free",
             )
 
     def test_builder_rejects_direct_ssm_spec_plus_causal_spec(self):
@@ -508,13 +511,11 @@ class TestBuilderMasks:
 
         causal_spec = _make_causal_spec_dict()
         builder = SSMModelBuilder(
-            ssm_spec=SSMSpec(
+            ssm_spec=make_ssm_spec(
                 n_latent=3,
                 n_manifest=4,
                 drift_mask=full_drift_mask(3),
                 lambda_mask=zero_loading_mask(4, 3),
-                drift="free",
-                diffusion="diag",
                 lambda_mat=jnp.eye(4, 3),
                 latent_names=["X", "Y", "Z"],
                 manifest_names=["x1", "x2", "y1", "z1"],
@@ -550,7 +551,9 @@ class TestBuilderMasks:
             }
         )
 
-        with pytest.raises(ValueError, match="Cannot auto-detect an SSMSpec when causal_spec is provided"):
+        with pytest.raises(
+            ValueError, match="Cannot auto-detect an SSMSpec when causal_spec is provided"
+        ):
             builder.build_model(X)
 
     def test_translate_spec_builds_sparse_initial_state_correlation_mask(self):
@@ -608,8 +611,8 @@ class TestBuilderMasks:
 
         expected_mask = np.zeros((3, 3), dtype=bool)
         expected_mask[2, 0] = True
-        assert spec.t0_var == "free"
-        assert spec.t0_correlation_mask is not None
+        np.testing.assert_allclose(np.asarray(spec.t0_chol), np.eye(3))
+        np.testing.assert_array_equal(spec.t0_chol_diag_mask, full_diagonal_mask(3))
         np.testing.assert_array_equal(spec.t0_correlation_mask, expected_mask)
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
@@ -713,10 +716,12 @@ class TestBuilderMasks:
 
         spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
 
-        assert isinstance(spec.manifest_var, jnp.ndarray)
-        assert spec.manifest_var_mask is not None
-        np.testing.assert_array_equal(spec.manifest_var_mask, np.array([True, True, False, False]))
-        np.testing.assert_allclose(np.asarray(spec.manifest_var), np.zeros((4, 4)))
+        assert isinstance(spec.manifest_chol, jnp.ndarray)
+        np.testing.assert_array_equal(
+            spec.manifest_chol_diag_mask,
+            np.array([True, True, False, False]),
+        )
+        np.testing.assert_allclose(np.asarray(spec.manifest_chol), np.zeros((4, 4)))
 
     def test_translate_spec_rejects_duplicate_initial_state_correlation_pairs(self):
         """Different parameter names may not target the same initial-state pair."""
@@ -888,7 +893,6 @@ class TestBuilderMasks:
                     description="Y→Z effect",
                 ),
             ],
-            reasoning="Test model",
         )
 
         causal_spec = _make_causal_spec_dict()
@@ -915,7 +919,8 @@ class TestBuilderMasks:
         assert spec is not None
 
         # Verify masks were built
-        assert spec.drift_mask is not None
+        drift_mask = combined_drift_mask(spec)
+        assert drift_mask[0, 0]
         assert spec.lambda_mask is not None
         assert spec.n_latent == 3
         assert spec.n_manifest == 4
@@ -938,18 +943,14 @@ class TestParametricIdMasks:
         mask[1, 0] = True
         mask[2, 1] = True
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=3,
             n_manifest=3,
             lambda_mask=zero_loading_mask(3, 3),
-            drift="free",
             drift_mask=mask,
             lambda_mat=jnp.eye(3),
-            diffusion="diag",
-            cint="free",
-            t0_means="free",
-            t0_var="diag",
-            manifest_var="diag",
+            cint_mask=full_vector_mask(3),
+            cint=jnp.zeros(3),
         )
 
         counts = count_free_params(spec)
@@ -965,14 +966,12 @@ class TestParametricIdMasks:
         lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
         lambda_mask = np.array([[False, False], [False, False], [True, False]])
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=3,
             drift_mask=full_drift_mask(2),
             lambda_mat=lambda_mat,
             lambda_mask=lambda_mask,
-            drift="free",
-            diffusion="diag",
         )
 
         counts = count_free_params(spec)

@@ -34,7 +34,7 @@ from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, Link
 logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
         ObservationOperator,
@@ -496,27 +496,28 @@ def _make_mixed_noise(
 
 
 def compile_transition_semantics(
-    dist: TransitionSemantics | DistributionFamily | str | list | tuple,
+    diffusion_dists: TransitionSemantics
+    | list[DistributionFamily | str]
+    | tuple[DistributionFamily | str, ...],
     n_latent: int | None = None,
 ) -> TransitionSemantics:
-    """Resolve scalar or per-latent diffusion families into a compiled description."""
-    if isinstance(dist, TransitionSemantics):
-        semantics = dist
+    """Resolve per-latent diffusion families into a compiled description."""
+    if isinstance(diffusion_dists, TransitionSemantics):
+        semantics = diffusion_dists
     else:
-        if isinstance(dist, (list, tuple)):
-            per_var_dists = tuple(
-                d if isinstance(d, DistributionFamily) else DistributionFamily(d) for d in dist
+        if not isinstance(diffusion_dists, (list, tuple)):
+            raise TypeError(
+                "compile_transition_semantics requires a per-latent diffusion_dists list "
+                "or a compiled TransitionSemantics."
             )
-            if n_latent is not None and len(per_var_dists) != n_latent:
-                raise ValueError(
-                    f"diffusion_dists length {len(per_var_dists)} does not match n_latent={n_latent}"
-                )
-        else:
-            resolved = dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
-            if n_latent is None:
-                per_var_dists = (resolved,)
-            else:
-                per_var_dists = (resolved,) * n_latent
+        per_var_dists = tuple(
+            dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+            for dist in diffusion_dists
+        )
+        if n_latent is not None and len(per_var_dists) != n_latent:
+            raise ValueError(
+                f"diffusion_dists length {len(per_var_dists)} does not match n_latent={n_latent}"
+            )
 
         unique = set(per_var_dists)
         gaussian_idx = tuple(
@@ -550,21 +551,19 @@ def compile_transition_semantics(
 
 
 def build_transition_kernel(
-    dist: TransitionSemantics
-    | DistributionFamily
-    | list[DistributionFamily]
-    | tuple[DistributionFamily, ...]
-    | str,
+    diffusion_dists: TransitionSemantics
+    | list[DistributionFamily | str]
+    | tuple[DistributionFamily | str, ...],
     extra_params: dict | None = None,
 ) -> TransitionKernel:
     """Build a TransitionKernel from spec enum + sampled hyperparameters.
 
     Args:
-        dist: Diffusion distribution family enum, compiled semantics, or per-latent family list.
+        diffusion_dists: Compiled semantics or canonical per-latent diffusion families.
         extra_params: Sampled hyperparameters (proc_df, etc.).
     """
     extra_params = extra_params or {}
-    semantics = compile_transition_semantics(dist)
+    semantics = compile_transition_semantics(diffusion_dists)
 
     if semantics.dispatch_mode == DistributionFamily.GAUSSIAN.value:
         return TransitionKernel(
@@ -584,7 +583,7 @@ def build_transition_kernel(
             is_gaussian=False,
         )
     raise ValueError(
-        "No transition kernel for diffusion_dist="
+        "No transition kernel for transition dispatch mode="
         f"{semantics.dispatch_mode!r}. Supported: gaussian, student_t, mixed gaussian/student_t."
     )
 
@@ -704,11 +703,11 @@ def build_composite_observation_kernel(
 
 
 def compile_measurement_semantics(
-    manifest_dists: list[DistributionFamily | str],
+    manifest_dists: Sequence[DistributionFamily | str],
     *,
     manifest_cov: jnp.ndarray | None = None,
     extra_params: dict | None = None,
-    manifest_links: list[LinkFunction | str | None] | None = None,
+    manifest_links: Sequence[LinkFunction | str | None] | None = None,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> MeasurementSemantics:
     """Compile observation kernels, mean-space likelihoods, and support semantics together."""

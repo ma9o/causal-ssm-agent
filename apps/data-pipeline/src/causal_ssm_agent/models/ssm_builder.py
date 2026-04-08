@@ -1,11 +1,12 @@
 """SSM Model Builder for causal SSM pipeline integration."""
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
-import numpy as np
 import polars as pl
 
 from causal_ssm_agent.models.ssm import (
@@ -14,8 +15,13 @@ from causal_ssm_agent.models.ssm import (
     SSMPriors,
     SSMSpec,
     fit,
-    full_drift_mask,
+    full_cholesky_mask,
+    full_diagonal_mask,
+    full_drift_offdiag_mask,
+    full_vector_mask,
+    strict_lower_triangle_mask,
     zero_loading_mask,
+    zero_vector_mask,
 )
 from causal_ssm_agent.models.ssm.inference.structure import (
     InferenceStructurePlan,
@@ -35,9 +41,13 @@ from causal_ssm_agent.models.ssm_observation_metadata import (
     hydrate_discrete_manifest_metadata,
     validate_observation_support,
 )
-from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 from causal_ssm_agent.utils.data import pivot_to_wide
-from causal_ssm_agent.workers.schemas_prior import PriorProposal
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+    from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +56,7 @@ logger = logging.getLogger(__name__)
 class PreparedModelRuntime:
     """Canonical prepared runtime context shared by validation and inference."""
 
-    builder: Any  # SSMModelBuilder
+    builder: SSMModelBuilder
     wide_data: pl.DataFrame
     observation_data: pl.DataFrame | None
     observation_support: ObservationSupportRuntime | None
@@ -106,16 +116,23 @@ class SSMModelBuilder:
         self._model: SSMModel | None = None
         self._spec: SSMSpec | None = None
         self._result: InferenceResult | None = None
+        self._prepared_times: jnp.ndarray | None = None
+        self._prepared_observation_mask: jnp.ndarray | None = None
+        self._prepared_observation_support: ObservationSupportRuntime | None = None
+        self._prepared_inference_structure: InferenceStructurePlan | None = None
 
-    def _get_prior_runtime_bundle(self) -> PriorRuntimeBundle | None:
+    def _load_prior_runtime_bundle(
+        self,
+        compiled_prior_semantics: dict[str, Any],
+    ) -> PriorRuntimeBundle:
         """Load compiled prior semantics once for runtime consumers."""
-        if self._prior_runtime_bundle is None and self._compiled_prior_semantics is not None:
-            self._prior_runtime_bundle = load_prior_runtime_bundle(self._compiled_prior_semantics)
+        if self._prior_runtime_bundle is None:
+            self._prior_runtime_bundle = load_prior_runtime_bundle(compiled_prior_semantics)
         return self._prior_runtime_bundle
 
     def compile_inputs(self) -> tuple[SSMSpec, SSMPriors]:
         """Compile user-facing specs into executable SSM inputs."""
-        spec, priors, bindings, _diagnostics = compile_ssm_inputs(
+        spec, priors, bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs(
             model_spec=self._model_spec,
             priors=dump_prior_payloads(self._priors),
             ssm_spec=self._ssm_spec,
@@ -167,11 +184,26 @@ class SSMModelBuilder:
             spec = SSMSpec(
                 n_latent=len(manifest_cols),
                 n_manifest=len(manifest_cols),
-                drift_mask=full_drift_mask(len(manifest_cols)),
+                drift_diag_mask=full_diagonal_mask(len(manifest_cols)),
+                drift_offdiag_mask=full_drift_offdiag_mask(len(manifest_cols)),
+                drift=jnp.zeros((len(manifest_cols), len(manifest_cols))),
+                cint_mask=zero_vector_mask(len(manifest_cols)),
+                cint=jnp.zeros(len(manifest_cols)),
                 lambda_mask=zero_loading_mask(len(manifest_cols), len(manifest_cols)),
                 lambda_mat=jnp.eye(len(manifest_cols)),
+                diffusion_chol_mask=full_cholesky_mask(len(manifest_cols)),
+                diffusion_chol=jnp.eye(len(manifest_cols)),
+                manifest_means_mask=zero_vector_mask(len(manifest_cols)),
+                manifest_means=jnp.zeros(len(manifest_cols)),
+                manifest_chol_diag_mask=full_diagonal_mask(len(manifest_cols)),
+                manifest_chol=jnp.zeros((len(manifest_cols), len(manifest_cols))),
+                t0_means_mask=full_vector_mask(len(manifest_cols)),
+                t0_means=jnp.zeros(len(manifest_cols)),
+                t0_chol_diag_mask=full_diagonal_mask(len(manifest_cols)),
+                t0_correlation_mask=strict_lower_triangle_mask(len(manifest_cols)),
+                t0_chol=jnp.eye(len(manifest_cols)),
             )
-            spec, priors, _bindings, _diagnostics = compile_ssm_inputs(
+            spec, priors, _bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs(
                 priors=dump_prior_payloads(self._priors),
                 ssm_spec=spec,
                 causal_spec=self._causal_spec,
@@ -188,10 +220,14 @@ class SSMModelBuilder:
         # Create model with PF config from model_config
         n_particles = self._model_config.get("n_particles", 200)
         pf_seed = self._model_config.get("pf_seed", 0)
+        prior_runtime_bundle = self._prior_runtime_bundle
+        if prior_runtime_bundle is None and self._compiled_prior_semantics is not None:
+            prior_runtime_bundle = self._load_prior_runtime_bundle(self._compiled_prior_semantics)
+
         self._model = SSMModel(
             spec,
             priors,
-            prior_runtime_bundle=self._get_prior_runtime_bundle(),
+            prior_runtime_bundle=prior_runtime_bundle,
             n_particles=n_particles,
             pf_seed=pf_seed,
         )
@@ -332,8 +368,7 @@ class SSMModelBuilder:
             )
 
         if self._compiled_prior_semantics is not None:
-            runtime = self._get_prior_runtime_bundle()
-            assert runtime is not None
+            runtime = self._load_prior_runtime_bundle(self._compiled_prior_semantics)
             return sample_prior_predictive_from_runtime(
                 spec,
                 runtime,
@@ -445,7 +480,7 @@ def prepare_wide_model_runtime(
     wide_data: pl.DataFrame,
     compiled_ssm: dict | None = None,
     sampler_config: dict | None = None,
-    builder: Any = None,
+    builder: SSMModelBuilder | None = None,
     observation_data: pl.DataFrame | None = None,
 ) -> PreparedModelRuntime:
     """Build or reuse a builder from wide data and extract fit-ready arrays."""
@@ -460,9 +495,10 @@ def prepare_wide_model_runtime(
     elif getattr(builder, "_model", None) is None:
         builder.build_model(wide_data)
 
+    builder_spec = builder._spec
     manifest_names = (
-        list(builder._spec.manifest_names)
-        if getattr(builder, "_spec", None) is not None and builder._spec.manifest_names
+        list(builder_spec.manifest_names)
+        if builder_spec is not None and builder_spec.manifest_names
         else default_manifest_columns(wide_data)
     )
     wide_data = augment_wide_data_with_support_boundaries(
@@ -523,7 +559,7 @@ def prepare_model_runtime(
     data_for_model: pl.DataFrame,
     compiled_ssm: dict | None = None,
     sampler_config: dict | None = None,
-    builder: Any = None,
+    builder: SSMModelBuilder | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
     return prepare_wide_model_runtime(

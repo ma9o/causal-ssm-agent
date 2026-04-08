@@ -815,8 +815,12 @@ def _assemble_support_aware_observation_system(
     if bandwidth > 0:
         local_i = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
         local_j = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
-        grid_i = jnp.broadcast_to(local_i[None, :, None], (segment_flat.shape[0], max_state_len, max_state_len))
-        grid_j = jnp.broadcast_to(local_j[None, None, :], (segment_flat.shape[0], max_state_len, max_state_len))
+        grid_i = jnp.broadcast_to(
+            local_i[None, :, None], (segment_flat.shape[0], max_state_len, max_state_len)
+        )
+        grid_j = jnp.broadcast_to(
+            local_j[None, None, :], (segment_flat.shape[0], max_state_len, max_state_len)
+        )
         upper_offsets = grid_j - grid_i - 1
         valid_upper = (
             (grid_j > grid_i)
@@ -1299,12 +1303,12 @@ class LaplaceLikelihood:
                     initial_state.mean,
                     initial_state.cov,
                     obs_kernel,
-                        measurement_semantics.mean_log_prob_fn,
-                        self.observation_support,
-                        self._support_windows,
-                        self._support_bandwidth,
-                        self.n_ieks_iters,
-                    )
+                    measurement_semantics.mean_log_prob_fn,
+                    self.observation_support,
+                    self._support_windows,
+                    self._support_bandwidth,
+                    self.n_ieks_iters,
+                )
 
         with jax.named_scope("laplace_em/ieks_backend"):
             _, log_lik = _ieks_smooth(

@@ -33,7 +33,7 @@ Usage::
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpyro
 import numpyro.distributions as dist
@@ -91,8 +91,10 @@ class Strategy(ABC):
         with handlers.reparam using this strategy.
         """
         if isinstance(msg_or_fn, dict):
-            msg = msg_or_fn
-            name = msg["name"]
+            msg = cast("dict[str, object]", msg_or_fn)
+            name = msg.get("name")
+            if not isinstance(name, str):
+                raise ValueError("Reparameterization messages must include a string site name")
             if name in self.config:
                 return self.config[name]
             result = self.configure(msg)

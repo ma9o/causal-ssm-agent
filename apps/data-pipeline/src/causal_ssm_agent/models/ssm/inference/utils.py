@@ -141,7 +141,15 @@ def _build_original_sample_resolver(
         decentered_key = f"{site_name}_decentered"
         if decentered_key in site_info:
             d = _unwrap_base_distribution(site["fn"])
-            decentered_rules.append((site_name, decentered_key, d.loc, d.scale))
+            loc = getattr(d, "loc", None)
+            scale = getattr(d, "scale", None)
+            if loc is None or scale is None:
+                raise ValueError(
+                    f"Decentered site {site_name!r} must use a loc/scale prior distribution"
+                )
+            decentered_rules.append(
+                (site_name, decentered_key, jnp.asarray(loc), jnp.asarray(scale))
+            )
         elif site_name in site_info:
             passthrough_sites.append(site_name)
 
@@ -180,46 +188,38 @@ def _assemble_likelihood_inputs(
 ) -> tuple[CTParams, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
     """Build backend-ready parameter tuples from constrained sample sites."""
     det = _assemble_single_deterministics(samples, spec)
-    n_l, n_m = spec.n_latent, spec.n_manifest
+    n_m = spec.n_manifest
 
     drift = det.get("drift")
     if drift is None:
-        drift = spec.drift if isinstance(spec.drift, jnp.ndarray) else jnp.zeros((n_l, n_l))
+        drift = spec.drift
 
     diffusion_chol = det.get("diffusion")
     if diffusion_chol is None:
-        diffusion_chol = spec.diffusion if isinstance(spec.diffusion, jnp.ndarray) else jnp.eye(n_l)
+        diffusion_chol = spec.diffusion_chol
     diffusion_cov = diffusion_chol @ diffusion_chol.T
 
     cint = det.get("cint")
-    if cint is None and isinstance(spec.cint, jnp.ndarray):
+    if cint is None:
         cint = spec.cint
 
     lambda_mat = det.get("lambda")
     if lambda_mat is None:
-        lambda_mat = (
-            spec.lambda_mat if isinstance(spec.lambda_mat, jnp.ndarray) else jnp.eye(n_m, n_l)
-        )
+        lambda_mat = spec.lambda_mat
 
-    manifest_means = samples.get("manifest_means")
+    manifest_means = det.get("manifest_means")
     if manifest_means is None:
-        if isinstance(spec.manifest_means, jnp.ndarray):
-            manifest_means = spec.manifest_means
-        else:
-            manifest_means = jnp.zeros(n_m)
+        manifest_means = spec.manifest_means
 
     manifest_cov = det.get("manifest_cov", jnp.eye(n_m))
 
     t0_means = det.get("t0_means")
     if t0_means is None:
-        t0_means = spec.t0_means if isinstance(spec.t0_means, jnp.ndarray) else jnp.zeros(n_l)
+        t0_means = spec.t0_means
 
     t0_cov = det.get("t0_cov")
     if t0_cov is None:
-        if isinstance(spec.t0_var, jnp.ndarray):
-            t0_cov = spec.t0_var @ spec.t0_var.T
-        else:
-            t0_cov = jnp.eye(n_l)
+        t0_cov = spec.t0_chol @ spec.t0_chol.T
 
     runtime_registry = registry if registry is not None else build_site_registry(spec)
     extra_params = assemble_extra_params_from_registry(spec, samples, runtime_registry)
@@ -282,6 +282,11 @@ def extract_constrained_samples(
         det_samples = _assemble_deterministics(samples, spec)
         samples.update(det_samples)
         return samples
+
+    if observations is None or times is None:
+        raise ValueError(
+            "extract_constrained_samples requires observations and times when reparam is enabled"
+        )
 
     sample_resolver = _build_original_sample_resolver(
         site_info,
@@ -358,7 +363,9 @@ def _build_eval_fns(
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
         return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
 
-    log_lik_fn = jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
+    log_lik_fn = (
+        jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
+    )
 
     def log_prior_unc_fn(z):
         """Log-prior in unconstrained space: log p(T(z)) + log|J(z)|."""
@@ -411,7 +418,9 @@ def _build_runtime_eval_fns_from_registry(
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
         return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
 
-    log_lik_fn = jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
+    log_lik_fn = (
+        jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
+    )
 
     def log_prior_unc_fn(z, prior_state):
         return log_prior_unconstrained(z, unravel_fn, registry, prior_state)

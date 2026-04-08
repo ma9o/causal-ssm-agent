@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 import numpy as np
+from jax import core as jax_core
 
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.inference.targets.emissions import (
@@ -34,7 +35,7 @@ from causal_ssm_agent.orchestrator.schemas_model import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 
 @dataclass(frozen=True)
@@ -84,7 +85,7 @@ def _positive_param(params: dict, key: str, default: float) -> float:
     # than concrete Python scalars. Upstream parameterization already enforces
     # positivity for sampled sites, so only perform eager validation when the
     # value is concrete.
-    if isinstance(val, jax.core.Tracer):
+    if isinstance(val, jax_core.Tracer):
         return val
     if np.any(np.asarray(val) <= 0):
         raise ValueError(f"{key} must be positive, got {val}")
@@ -924,9 +925,9 @@ def any_family_needs_level_metadata(
 
 
 def resolve_manifest_families_and_links(
-    manifest_dists: list[DistributionFamily | str],
+    manifest_dists: Sequence[DistributionFamily | str],
     *,
-    manifest_links: list[LinkFunction | str | None] | None = None,
+    manifest_links: Sequence[LinkFunction | str | None] | None = None,
 ) -> tuple[list[DistributionFamily], list[LinkFunction]]:
     """Resolve per-channel families and links, filling in family defaults when omitted."""
     dists = [DistributionFamily(dist) for dist in manifest_dists]
@@ -936,11 +937,7 @@ def resolve_manifest_families_and_links(
             f"{len(manifest_links)} vs {len(dists)}"
         )
 
-    effective_links = (
-        manifest_links
-        if manifest_links is not None
-        else [None] * len(dists)
-    )
+    effective_links = manifest_links if manifest_links is not None else [None] * len(dists)
     links: list[LinkFunction] = []
     for dist, link in zip(dists, effective_links, strict=False):
         link_fn = _coerce_link_function(link)

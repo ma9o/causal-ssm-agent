@@ -19,10 +19,10 @@ from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
     get_per_variable_diffusion,
     kalman_block_profile_indices,
 )
-from causal_ssm_agent.models.ssm.model import SSMSpec
+from causal_ssm_agent.models.ssm.model import SSMSpec, full_diagonal_mask
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-from tests.ssm_test_utils import make_ssm_spec
+from tests.ssm_test_utils import combined_drift_mask, make_ssm_spec
 
 # =============================================================================
 # Helper
@@ -46,14 +46,14 @@ def _make_spec(**kwargs) -> SSMSpec:
 
 
 class TestGetPerVariableDiffusion:
-    def test_scalar_broadcast(self):
-        """Scalar diffusion_dist broadcasts to all latent variables."""
+    def test_defaults_to_gaussian_per_latent(self):
+        """Missing diffusion_dists defaults to Gaussian for every latent."""
         spec = _make_spec(n_latent=3, n_manifest=3, lambda_mat=jnp.eye(3))
         result = get_per_variable_diffusion(spec)
         assert result == [DistributionFamily.GAUSSIAN] * 3
 
     def test_per_variable_override(self):
-        """diffusion_dists overrides scalar diffusion_dist."""
+        """Authored diffusion_dists are preserved."""
         spec = _make_spec(
             n_latent=3,
             n_manifest=3,
@@ -106,7 +106,7 @@ class TestGetPerChannelLinks:
 class TestComputeDriftSparsity:
     def test_free_drift_all_nonzero(self):
         """Free drift → all entries could be nonzero."""
-        spec = _make_spec(drift="free")
+        spec = _make_spec()
         mask = compute_drift_sparsity(spec)
         assert mask.shape == (2, 2)
         assert mask.all()
@@ -114,9 +114,9 @@ class TestComputeDriftSparsity:
     def test_drift_mask_used_directly(self):
         """drift_mask is used directly when set."""
         dm = np.array([[True, False], [True, True]])
-        spec = _make_spec(drift="free", drift_mask=dm)
+        spec = _make_spec(drift_mask=dm)
         mask = compute_drift_sparsity(spec)
-        np.testing.assert_array_equal(mask, dm)
+        np.testing.assert_array_equal(mask, combined_drift_mask(spec))
 
     def test_fixed_drift_sparsity(self):
         """Fixed drift matrix: nonzero entries detected."""
@@ -133,9 +133,12 @@ class TestComputeDriftSparsity:
 
 
 class TestComputeObsDependency:
-    def test_free_lambda_all_deps(self):
-        """Free lambda_mat → all observation channels depend on all latents."""
-        spec = _make_spec(lambda_mat="free")
+    def test_loading_mask_all_deps(self):
+        """Dense loading mask marks every observation channel as dependent."""
+        spec = _make_spec(
+            lambda_mat=jnp.zeros((2, 2)),
+            lambda_mask=np.ones((2, 2), dtype=bool),
+        )
         dep = compute_obs_dependency(spec)
         assert dep.shape == (2, 2)
         assert dep.all()
@@ -171,7 +174,6 @@ class TestAnalyzeFirstPassRB:
             n_latent=3,
             n_manifest=3,
             lambda_mat=jnp.eye(3),
-            drift="free",
             drift_mask=np.eye(3, dtype=bool),  # diagonal → no cross-coupling
         )
         partition = analyze_first_pass_rb(spec)
@@ -203,7 +205,6 @@ class TestAnalyzeFirstPassRB:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),  # diagonal, no cross-coupling
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         )
@@ -219,7 +220,6 @@ class TestAnalyzeFirstPassRB:
         # Latent 0: Gaussian, Latent 1: Student-t, but drift couples them
         spec = _make_spec(
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-            drift="free",
             drift_mask=np.ones((2, 2), dtype=bool),  # fully coupled
         )
         partition = analyze_first_pass_rb(spec)
@@ -243,7 +243,6 @@ class TestAnalyzeFirstPassRB:
             n_latent=3,
             n_manifest=3,
             lambda_mat=H,
-            drift="free",
             drift_mask=np.eye(3, dtype=bool),  # diagonal
             diffusion_dists=[
                 DistributionFamily.GAUSSIAN,
@@ -266,8 +265,8 @@ class TestKalmanBlockProfileIndices:
             n_manifest=3,
             lambda_mat=jnp.eye(3),
             drift=jnp.diag(jnp.array([-0.5, -0.5, -0.5])),
-            diffusion="diag",
-            t0_var="free",
+            diffusion=jnp.eye(3),
+            diffusion_mask=np.diag(full_diagonal_mask(3)),
         )
         partition = RBPartition(
             kalman_idx=np.array([0, 2]),
@@ -286,8 +285,8 @@ class TestKalmanBlockProfileIndices:
             n_manifest=3,
             lambda_mat=jnp.eye(3),
             drift=jnp.diag(jnp.array([-0.5, -0.5, -0.5])),
-            diffusion="diag",
-            t0_var="free",
+            diffusion=jnp.eye(3),
+            diffusion_mask=np.diag(full_diagonal_mask(3)),
         )
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 0] = True
@@ -311,9 +310,8 @@ class TestKalmanBlockProfileIndices:
             n_manifest=2,
             lambda_mat=jnp.eye(2),
             drift=jnp.diag(jnp.array([-0.5, -0.5])),
-            diffusion="diag",
-            cint=None,
-            manifest_means=None,
+            diffusion=jnp.eye(2),
+            diffusion_mask=np.diag(full_diagonal_mask(2)),
             manifest_var=jnp.diag(jnp.array([0.3, 0.0])),
             manifest_var_mask=np.array([False, True]),
             t0_means=jnp.zeros(2),
@@ -337,7 +335,6 @@ class TestKalmanBlockProfileIndices:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
             manifest_dists=[DistributionFamily.POISSON, DistributionFamily.GAUSSIAN],
         )
@@ -393,7 +390,6 @@ class TestKalmanBlockProfileIndices:
             n_latent=2,
             n_manifest=3,
             lambda_mat=H,
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
         )
         partition = analyze_first_pass_rb(spec)
@@ -419,7 +415,6 @@ class TestKalmanBlockProfileIndices:
             n_latent=2,
             n_manifest=3,
             lambda_mat=H,
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
             manifest_dists=[
                 DistributionFamily.GAUSSIAN,
@@ -441,7 +436,6 @@ class TestKalmanBlockProfileIndices:
         """Free drift without mask → full coupling → no Kalman block if any non-Gaussian."""
         spec = _make_spec(
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-            drift="free",
             # No drift_mask → all entries nonzero → full coupling
         )
         partition = analyze_first_pass_rb(spec)
@@ -461,7 +455,6 @@ class TestKalmanBlockProfileIndices:
             n_latent=5,
             n_manifest=5,
             lambda_mat=jnp.eye(5),
-            drift="free",
             drift_mask=dm,
             diffusion_dists=[
                 DistributionFamily.GAUSSIAN,  # 0 → Kalman
@@ -485,7 +478,6 @@ class TestKalmanBlockProfileIndices:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
             manifest_links=[LinkFunction.LOG, LinkFunction.IDENTITY],
         )
@@ -509,17 +501,18 @@ class TestKalmanBlockProfileIndices:
         assert not partition.has_kalman_block
         assert partition.has_particle_block
 
-    def test_free_lambda_no_split(self):
-        """lambda='free' → no exclusive obs channels → no Kalman obs."""
+    def test_dense_loading_mask_no_split(self):
+        """Dense loading mask leaves no exclusive observation channels."""
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             drift=jnp.diag(jnp.array([-0.5, -0.3])),
-            lambda_mat="free",
+            lambda_mat=jnp.zeros((2, 2)),
+            lambda_mask=np.ones((2, 2), dtype=bool),
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         )
         partition = analyze_first_pass_rb(spec)
-        # Var 0 is decoupled in drift, but lambda="free" means all obs depend on all vars
+        # Var 0 is decoupled in drift, but dense loadings mean all obs depend on both vars.
         np.testing.assert_array_equal(partition.kalman_idx, [0])
         assert len(partition.obs_kalman_idx) == 0  # no exclusive obs
 
@@ -651,7 +644,6 @@ class TestSelectDefaultMethod:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
         )
         assert select_default_method(spec) == "nuts"
@@ -703,7 +695,6 @@ class TestPlanInferenceStructure:
             n_latent=3,
             n_manifest=3,
             lambda_mat=jnp.eye(3),
-            drift="free",
             drift_mask=np.eye(3, dtype=bool),
             diffusion_dists=[
                 DistributionFamily.GAUSSIAN,
@@ -740,7 +731,6 @@ class TestPlanInferenceStructure:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
             first_pass_rb=False,
         )
@@ -763,7 +753,6 @@ class TestPlanInferenceStructure:
         """Mixed Gaussian + non-Gaussian with coupling → laplace_em."""
         spec = _make_spec(
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-            drift="free",
         )
         assert select_default_method(spec) == "laplace_em"
 
@@ -827,7 +816,6 @@ class TestPlanInferenceStructure:
             n_latent=n,
             n_manifest=n,
             lambda_mat=jnp.eye(n),
-            drift="free",
             drift_mask=np.eye(n, dtype=bool),
         )
         assert select_default_method(spec) == "nuts"
@@ -845,7 +833,6 @@ class TestPlanInferenceStructure:
             n_latent=2,
             n_manifest=3,
             lambda_mat=H,
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
         )
         assert select_default_method(spec) == "nuts"
@@ -863,7 +850,6 @@ class TestPlanInferenceStructure:
             n_latent=2,
             n_manifest=3,
             lambda_mat=H,
-            drift="free",
             drift_mask=np.eye(2, dtype=bool),
             manifest_dists=[
                 DistributionFamily.GAUSSIAN,

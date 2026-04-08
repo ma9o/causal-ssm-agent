@@ -183,6 +183,7 @@ class TestDiscretizeSystem:
         Ad, Qd, cd = discretize_system(A, Q, c, dt=0.5)
         assert Ad.shape == (n, n)
         assert Qd.shape == (n, n)
+        assert cd is not None
         assert cd.shape == c.shape
 
     def test_no_cint_returns_none(self):
@@ -222,6 +223,7 @@ class TestDiscretizeSystemBatched:
         Ad, Qd, cd = discretize_system_batched(A, Q, c, dts)
         assert Ad.shape == (T, n, n)
         assert Qd.shape == (T, n, n)
+        assert cd is not None
         assert cd.shape == (T, n)
 
     def test_no_cint_batched(self):
@@ -272,6 +274,8 @@ class TestDiscretizeSystemBatched:
 
         Ad_b, Qd_b, cd_b = discretize_system_batched(A, Q, c, dts)
         Ad_single, Qd_single, cd_single = discretize_system(A, Q, c, 0.25)
+        assert cd_b is not None
+        assert cd_single is not None
 
         assert jnp.allclose(Ad_b, jnp.broadcast_to(Ad_single, Ad_b.shape), atol=1e-5)
         assert jnp.allclose(Qd_b, jnp.broadcast_to(Qd_single, Qd_b.shape), atol=1e-5)

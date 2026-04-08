@@ -373,12 +373,7 @@ def approximate_abducted_state(
     posterior_means = {name: jnp.mean(value, axis=0) for name, value in samples.items()}
     det_values = _assemble_single_deterministics(posterior_means, spec)
 
-    if "manifest_means" in posterior_means:
-        det_values["manifest_means"] = posterior_means["manifest_means"]
-    elif isinstance(getattr(spec, "manifest_means", None), jnp.ndarray):
-        det_values["manifest_means"] = spec.manifest_means
-    else:
-        det_values["manifest_means"] = jnp.zeros(spec.n_manifest)
+    det_values["manifest_means"] = posterior_means.get("manifest_means", spec.manifest_means)
 
     evidence_obs = observations[evidence_start_idx : evidence_end_idx + 1]
     evidence_times = times[evidence_start_idx : evidence_end_idx + 1]

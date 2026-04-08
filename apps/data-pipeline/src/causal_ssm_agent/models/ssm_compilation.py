@@ -33,21 +33,53 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict |
     if causal_spec is None:
         return
 
-    missing_fields: list[str] = []
-    if ssm_spec.drift_mask is None:
-        missing_fields.append("drift_mask")
-    if ssm_spec.lambda_mask is None:
-        missing_fields.append("lambda_mask")
+    required_structural_masks = (
+        "drift_diag_mask",
+        "drift_offdiag_mask",
+        "cint_mask",
+        "lambda_mask",
+        "diffusion_chol_mask",
+        "manifest_means_mask",
+        "manifest_chol_diag_mask",
+        "t0_means_mask",
+        "t0_chol_diag_mask",
+        "t0_correlation_mask",
+    )
+    required_matrix_templates = (
+        "drift",
+        "cint",
+        "lambda_mat",
+        "diffusion_chol",
+        "manifest_means",
+        "manifest_chol",
+        "t0_means",
+        "t0_chol",
+    )
 
-    if not missing_fields:
+    missing_masks = [
+        field_name
+        for field_name in required_structural_masks
+        if getattr(ssm_spec, field_name) is None
+    ]
+    missing_templates = [
+        field_name
+        for field_name in required_matrix_templates
+        if getattr(ssm_spec, field_name) is None
+    ]
+
+    if not missing_masks and not missing_templates:
         return
 
-    rendered_fields = ", ".join(missing_fields)
+    rendered_parts: list[str] = []
+    if missing_masks:
+        rendered_parts.append(f"masks: {', '.join(missing_masks)}")
+    if missing_templates:
+        rendered_parts.append(f"templates: {', '.join(missing_templates)}")
     raise ValueError(
-        "Causal-spec compilation requires explicit structural masks on SSMSpec. "
-        f"Missing: {rendered_fields}. Compile from ModelSpec + CausalSpec so "
-        "translate_spec() can derive the masks, or supply an already translated "
-        "SSMSpec with explicit masks."
+        "Causal-spec compilation requires an explicit compiled structure on SSMSpec. "
+        f"Missing {'; '.join(rendered_parts)}. Compile from ModelSpec + CausalSpec so "
+        "translate_spec() can derive the full structural payload, or supply an already "
+        "translated SSMSpec with explicit masks and matrix templates."
     )
 
 
@@ -86,7 +118,13 @@ def compile_ssm_inputs(
     ssm_spec: SSMSpec | None = None,
     ssm_priors: SSMPriors | None = None,
     causal_spec: dict | None = None,
-) -> tuple[SSMSpec, SSMPriors, list[dict[str, object]], list[PriorValidationResult]]:
+) -> tuple[
+    SSMSpec,
+    SSMPriors,
+    list[dict[str, object]],
+    list[PriorValidationResult],
+    dict[tuple[int, int], float],
+]:
     """Resolve executable SSM inputs plus structured compiler diagnostics."""
     resolved_model_spec = (
         ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
@@ -122,7 +160,7 @@ def compile_ssm_inputs(
         causal_spec=causal_spec,
     )
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-    return ssm_spec, ssm_priors, bindings, diagnostics
+    return ssm_spec, ssm_priors, bindings, diagnostics, edge_lag_days
 
 
 __all__ = [

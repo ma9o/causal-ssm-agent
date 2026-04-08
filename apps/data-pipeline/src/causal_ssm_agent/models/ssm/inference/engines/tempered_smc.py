@@ -39,9 +39,9 @@ logger = get_prefect_logger(__name__)
 
 
 def _adapt_step_size(
-    eps: float,
-    avg_accept: float,
-    target_accept: float,
+    eps: float | jax.Array,
+    avg_accept: float | jax.Array,
+    target_accept: float | jax.Array,
     gain: float = 0.1,
 ) -> jax.Array:
     """Dual-averaging step size adaptation on log scale."""

@@ -192,38 +192,16 @@ def _extract_matrices(det, con, spec):
     manifest_cov = (
         det["manifest_cov"][0]
         if "manifest_cov" in det
-        else spec.manifest_var @ spec.manifest_var.T
-        if isinstance(spec.manifest_var, jnp.ndarray)
-        else jnp.eye(n_m)
+        else spec.manifest_chol @ spec.manifest_chol.T
     )
-    manifest_means = (
-        con["manifest_means"]
-        if "manifest_means" in con
-        else spec.manifest_means
-        if isinstance(spec.manifest_means, jnp.ndarray)
-        else jnp.zeros(n_m)
-    )
+    manifest_means = con.get("manifest_means", spec.manifest_means)
     t0_mean = (
         det["t0_means"][0]
         if "t0_means" in det
         else spec.t0_means
-        if isinstance(spec.t0_means, jnp.ndarray)
-        else jnp.zeros(n_l)
     )
-    t0_cov = (
-        det["t0_cov"][0]
-        if "t0_cov" in det
-        else spec.t0_var @ spec.t0_var.T
-        if isinstance(spec.t0_var, jnp.ndarray)
-        else jnp.eye(n_l)
-    )
-    cint = (
-        det["cint"][0]
-        if "cint" in det
-        else spec.cint
-        if isinstance(spec.cint, jnp.ndarray)
-        else None
-    )
+    t0_cov = det["t0_cov"][0] if "t0_cov" in det else spec.t0_chol @ spec.t0_chol.T
+    cint = det["cint"][0] if "cint" in det else spec.cint
 
     return drift, diff_cov, cint, lambda_mat, manifest_means, manifest_cov, t0_mean, t0_cov
 
@@ -1047,7 +1025,7 @@ def fit_pgas(
         n_l,
         n_m,
         manifest_dists=manifest_dists,
-        diffusion_dist=diffusion_dists,
+        diffusion_dists=diffusion_dists,
         manifest_links=manifest_links,
     )
     support_measurement_semantics = None

@@ -53,6 +53,8 @@ from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, Link
 logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm.inference.targets.base import (
         CTParams,
@@ -756,8 +758,8 @@ class DPFLikelihood:
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dists: list[DistributionFamily | str] | None = None,
-        manifest_links: list[LinkFunction | str | None] | None = None,
+        manifest_dists: Sequence[DistributionFamily | str] | None = None,
+        manifest_links: Sequence[LinkFunction | str | None] | None = None,
         n_particles: int = 100,
         proposal_net: ProposalNetwork | None = None,
         rng_key: jax.Array | None = None,
@@ -773,7 +775,9 @@ class DPFLikelihood:
             if manifest_dists is not None
             else [DistributionFamily.GAUSSIAN] * n_manifest
         )
-        self.manifest_links = manifest_links
+        self.manifest_links: list[LinkFunction | str | None] | None = (
+            list(manifest_links) if manifest_links is not None else None
+        )
         self.n_particles = n_particles
         self.proposal_net = proposal_net
         self.rng_key = rng_key if rng_key is not None else random.PRNGKey(0)
@@ -918,20 +922,9 @@ def fit_dpf(
     # Phase 1: Train proposal network
     # Extract measurement model from spec
     with jax.ensure_compile_time_eval():
-        if isinstance(spec.lambda_mat, jnp.ndarray):
-            H_train = spec.lambda_mat
-        else:
-            H_train = jnp.eye(spec.n_manifest, spec.n_latent)
-        if isinstance(spec.manifest_means, jnp.ndarray):
-            d_train = spec.manifest_means
-        elif spec.manifest_means is None:
-            d_train = jnp.zeros(spec.n_manifest)
-        else:
-            d_train = jnp.zeros(spec.n_manifest)
-        if isinstance(spec.manifest_var, jnp.ndarray):
-            R_train = spec.manifest_var @ spec.manifest_var.T
-        else:
-            R_train = jnp.eye(spec.n_manifest) * 0.25
+        H_train = spec.lambda_mat
+        d_train = spec.manifest_means
+        R_train = spec.manifest_chol @ spec.manifest_chol.T
 
     logger.info("DPF: Phase 1 - Training proposal network...")
     rng_key, train_key = random.split(rng_key)

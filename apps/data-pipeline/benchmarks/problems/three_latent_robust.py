@@ -55,7 +55,7 @@ def _make_three_latent_robust() -> RecoveryProblem:
         lambda_mat="free",
         manifest_means="free",
         manifest_var="diag",
-        manifest_dist=DistributionFamily.STUDENT_T,
+        manifest_dists=[DistributionFamily.STUDENT_T] * n_manifest,
         t0_means="free",
         t0_var="diag",
         latent_names=names,

@@ -63,6 +63,7 @@ from causal_ssm_agent.orchestrator.stage4_navigation import (
 from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
+    Stage4Skeleton,
     build_prior_cards,
     build_stage4_plan,
     derive_deterministic_spec,
@@ -88,7 +89,7 @@ from causal_ssm_agent.orchestrator.stage4_state import (
 )
 from causal_ssm_agent.orchestrator.stage4_submission import get_stage4_block_handler
 from causal_ssm_agent.orchestrator.stage4_types import Stage4Deps
-from causal_ssm_agent.utils.llm import make_generate_fn
+from causal_ssm_agent.utils.llm import LLMTrace, make_generate_fn
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
@@ -372,8 +373,7 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
     skeleton = derive_deterministic_spec(causal_spec)
     plan = build_stage4_plan(causal_spec, skeleton)
     runtime = make_stage4_runtime(plan)
-    active_block = plan.get_block("dynamics:sleep_quality")
-    assert active_block is not None
+    active_block = _require_plan_block(plan, "dynamics:sleep_quality")
 
     repair_plan = _classify_prior_failure_blocks(
         plan,
@@ -409,8 +409,7 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
 def test_prior_failure_classification_raises_without_concrete_reason():
     causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
     del causal_spec, skeleton
-    active_block = plan.get_block("dynamics:sleep")
-    assert active_block is not None
+    active_block = _require_plan_block(plan, "dynamics:sleep")
 
     with pytest.raises(
         ValueError,
@@ -1372,7 +1371,7 @@ class TestStage4Messages:
             question="Does activity improve sleep?",
             plan=plan,
             runtime=runtime,
-            skeleton=SimpleNamespace(),
+            skeleton=Stage4Skeleton(),
             causal_spec={},
             data_for_model=pl.DataFrame(),
             indicator_audits={},
@@ -1716,7 +1715,7 @@ def _make_stage4_no_model_block_spec() -> dict:
 
 
 def _make_stage4_mechanics_context() -> tuple[
-    dict, object, Stage4Plan, Stage4Runtime, pl.DataFrame
+    dict[str, Any], Stage4Skeleton, Stage4Plan, Stage4Runtime, pl.DataFrame
 ]:
     """Build the standard deterministic Stage 4 mechanics fixture."""
     causal_spec = _make_stage4_mechanics_spec()
@@ -1728,10 +1727,10 @@ def _make_stage4_mechanics_context() -> tuple[
 
 def _make_stage4_deps(
     *,
-    causal_spec: dict,
-    skeleton: object,
+    causal_spec: dict[str, Any],
+    skeleton: Stage4Skeleton,
     data_for_model: pl.DataFrame,
-    indicator_audits: dict[str, dict],
+    indicator_audits: dict[str, dict[str, Any]],
     stage4_grounding_fn,
 ) -> Stage4Deps:
     """Build a Stage 4 reducer environment for tests."""
@@ -1774,10 +1773,10 @@ def _make_stage4_session(
     question: str,
     plan: Stage4Plan,
     runtime: Stage4Runtime,
-    skeleton: object,
-    causal_spec: dict,
+    skeleton: Stage4Skeleton,
+    causal_spec: dict[str, Any],
     data_for_model: pl.DataFrame,
-    indicator_audits: dict[str, dict],
+    indicator_audits: dict[str, dict[str, Any]],
     stage4_grounding_fn,
     model_topology: dict[str, Any] | None = None,
     distribution_cards: list[dict[str, Any]] | None = None,
@@ -1812,14 +1811,14 @@ def _make_stage4_session(
 
 
 def _apply_stage4_step_and_capture(
-    payload: dict,
+    payload: dict[str, Any],
     plan: Stage4Plan,
     runtime: Stage4Runtime,
     *,
-    skeleton: dict,
-    causal_spec: dict,
+    skeleton: Stage4Skeleton,
+    causal_spec: dict[str, Any],
     data_for_model: pl.DataFrame,
-    indicator_audits: dict[str, dict],
+    indicator_audits: dict[str, dict[str, Any]],
     stage4_grounding_fn,
 ) -> tuple[dict | None, str]:
     """Run one reducer step."""
@@ -1835,6 +1834,60 @@ def _apply_stage4_step_and_capture(
             stage4_grounding_fn=stage4_grounding_fn,
         ),
     )
+
+
+def _require_plan_block(plan: Stage4Plan, block_id: str) -> Stage4FrontierBlock:
+    """Fetch a Stage 4 block and assert the test fixture contains it."""
+    block = plan.get_block(block_id)
+    assert block is not None
+    return block
+
+
+def _require_active_plan_block(plan: Stage4Plan, runtime: Stage4Runtime) -> Stage4FrontierBlock:
+    """Fetch the active block and assert the runtime is currently promptable."""
+    block = get_active_plan_block(plan, runtime)
+    assert block is not None
+    return block
+
+
+def _current_stage4_state(current: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize optional grounding state payloads for test stubs."""
+    return {} if current is None else current
+
+
+def _current_model_spec(current: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return the current model spec when the grounding state carries one."""
+    model_spec = _current_stage4_state(current).get("model_spec")
+    return model_spec if isinstance(model_spec, dict) else None
+
+
+def _merge_current_authored_priors(
+    current: dict[str, Any] | None,
+    priors: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Merge newly proposed priors onto the current accepted prior state."""
+    current_state = _current_stage4_state(current)
+    authored_priors = dict(current_state.get("authored_priors") or {})
+    authored_priors.update(priors)
+    return authored_priors, _current_model_spec(current_state)
+
+
+def _require_text(value: str | None) -> str:
+    """Assert an optional diagnostic field is present before string matching."""
+    assert value is not None
+    return value
+
+
+async def _await_string(awaitable) -> str:
+    """Bridge `Awaitable[str]` helpers into `asyncio.run()` in tests."""
+    return await awaitable
+
+
+def _require_trace(trace_capture: dict[str, object]) -> LLMTrace:
+    """Extract the accumulated trace from a generate capture."""
+    trace = trace_capture["trace"]
+    assert isinstance(trace, LLMTrace)
+    return trace
 
 
 def _make_scripted_stage4_generate(
@@ -2084,7 +2137,7 @@ class TestPriorPredictiveValidation:
         from causal_ssm_agent.flows.stages.stage4.assembly import validate_assembly
 
         compiled_artifact = {"schema_version": 1}
-        seen_compiled: list[dict] = []
+        seen_compiled: list[dict[str, Any] | None] = []
 
         def stub_validate_prior_predictive(*args, compiled_ssm=None, **kwargs):
             seen_compiled.append(compiled_ssm)
@@ -2551,7 +2604,6 @@ class TestSSMPriorConversion:
         """Beta(2,2) AR prior converts via AR-to-drift transform."""
         import math
 
-
         priors = {
             "rho_mood": {
                 "parameter": "rho_mood",
@@ -2797,7 +2849,6 @@ class TestSSMPriorConversion:
         """Multiple AR params map to separate drift_diag array entries."""
         import math
 
-
         model_spec = {
             "likelihoods": [
                 {
@@ -2854,7 +2905,6 @@ class TestSSMPriorConversion:
     def test_ar_transform_respects_granularity(self):
         """Hourly construct → dt=1/24, producing larger drift magnitude."""
         import math
-
 
         model_spec = {
             "likelihoods": [
@@ -3021,9 +3071,9 @@ class TestSSMPriorConversion:
 
         warnings = diagnostics
         assert len(warnings) == 1
-        assert "`reference_interval_days` is omitted" in warnings[0].issue
-        assert "default model interval (1.0d)" in warnings[0].issue
-        assert "`reference_interval_days`" in warnings[0].suggested_adjustment
+        assert "`reference_interval_days` is omitted" in _require_text(warnings[0].issue)
+        assert "default model interval (1.0d)" in _require_text(warnings[0].issue)
+        assert "`reference_interval_days`" in _require_text(warnings[0].suggested_adjustment)
 
     def test_lagged_beta_diagnostics_preserve_reference_interval_language(self):
         """Lagged-edge diagnostics should talk about the authored reference interval."""
@@ -3082,8 +3132,8 @@ class TestSSMPriorConversion:
 
         warnings = diagnostics
         assert len(warnings) == 1
-        assert "`reference_interval_days`" in warnings[0].issue
-        assert "7.0d" in warnings[0].issue
+        assert "`reference_interval_days`" in _require_text(warnings[0].issue)
+        assert "7.0d" in _require_text(warnings[0].issue)
 
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""
@@ -3249,7 +3299,7 @@ class TestSSMPriorConversion:
             }
         )
 
-        _ssm_spec, _ssm_priors, _bindings, diagnostics = compile_ssm_inputs(
+        _ssm_spec, _ssm_priors, _bindings, diagnostics, _edge_lag_days = compile_ssm_inputs(
             model_spec,
             priors,
             causal_spec=causal_spec,
@@ -3688,8 +3738,7 @@ class TestStage4Mechanics:
             },
         )
         _activate_prior_phase(plan, runtime)
-        block = plan.get_block("effects:sleep")
-        assert block is not None
+        block = _require_plan_block(plan, "effects:sleep")
 
         status = format_stage4_plan_status(
             plan,
@@ -3758,7 +3807,7 @@ class TestStage4Mechanics:
         assert runtime.last_validation_packet is not None
         assert runtime.last_validation_packet.model_feedback == feedback
         assert runtime.decisions.distribution_choices == {}
-        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+        assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
 
     def test_compute_stage4_validate_step_reopens_model_block_when_model_lock_fails(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
@@ -3799,11 +3848,11 @@ class TestStage4Mechanics:
 
         assert stage_output is not None
         assert feedback == "COMPILE ERROR:\nsteps support mismatch"
-        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+        assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.block_status["indicator:steps"] == "reopened"
         assert runtime.last_validation_packet is not None
         assert runtime.last_validation_packet.model_feedback == feedback
-        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+        assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.accepted.as_current() == {}
 
     def test_compute_stage4_validate_step_emits_indicator_last_state_transitions(self):
@@ -3938,6 +3987,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -4027,6 +4077,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -4082,7 +4133,7 @@ class TestStage4Mechanics:
         assert runtime.repair_campaign is not None
         assert runtime.repair_campaign.scope_block_ids == ("dynamics:sleep",)
         assert runtime.block_status["dynamics:sleep"] == "reopened"
-        assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
+        assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
         assert "rho_sleep" not in runtime.accepted.authored_priors
         assert "sigma_sleep" not in runtime.accepted.authored_priors
         assert runtime.last_validation_packet is not None
@@ -4126,7 +4177,7 @@ class TestStage4Mechanics:
         assert stage_output is None
         assert "MODEL REVIEW REOPENED" in feedback
         assert "`indicator:steps`" in feedback
-        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+        assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
         assert get_stage4_phase(runtime, plan=plan) == "model_decisions"
         assert runtime.block_status["indicator:steps"] == "reopened"
 
@@ -4188,7 +4239,7 @@ class TestStage4Mechanics:
             runtime=runtime,
             deps=_make_stage4_deps(
                 causal_spec={},
-                skeleton=object(),
+                skeleton=Stage4Skeleton(),
                 data_for_model=pl.DataFrame(),
                 indicator_audits={},
                 stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
@@ -4200,7 +4251,7 @@ class TestStage4Mechanics:
         assert stage_output is None
         assert "MODEL REVIEW REOPENED" in feedback
         assert "`indicator:a`, `indicator:b`, `indicator:c`, `indicator:d`" in feedback
-        assert get_active_plan_block(plan, runtime).id == "indicator:a"
+        assert _require_active_plan_block(plan, runtime).id == "indicator:a"
         assert get_stage4_phase(runtime, plan=plan) == "model_decisions"
         for block in model_blocks:
             assert runtime.block_status[block.id] == "reopened"
@@ -4255,6 +4306,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -4293,10 +4345,10 @@ class TestStage4Mechanics:
 
         assert stage_output is not None
         assert feedback == "PRIOR PREDICTIVE CHECKS FAILED"
-        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+        assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.block_status["indicator:steps"] == "reopened"
         assert "beta_activity_sleep" in runtime.accepted.authored_priors
-        assert get_active_plan_block(plan, runtime).id == "indicator:steps"
+        assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
 
     def test_compute_stage4_validate_step_accepts_correlation_and_reopens_dynamics_scope(self):
         causal_spec = _make_stage4_global_repair_spec()
@@ -4356,6 +4408,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -4409,9 +4462,9 @@ class TestStage4Mechanics:
         assert runtime.repair_campaign is not None
         assert runtime.repair_campaign.scope_key == "validator_scope:sleep"
         assert runtime.repair_campaign.scope_block_ids == ("dynamics:sleep",)
-        assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
+        assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
         assert "cor0_activity_sleep" in runtime.accepted.authored_priors
-        assert get_active_plan_block(plan, runtime).id == "dynamics:sleep"
+        assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
 
     def test_compute_stage4_validate_step_emits_prior_and_revision_last_state_transitions(self):
         causal_spec = _make_stage4_global_repair_spec()
@@ -4471,6 +4524,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -4556,10 +4610,8 @@ class TestStage4Mechanics:
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
-        repair_block = plan.get_block("correlation:cor0_activity_sleep")
-        next_block = plan.get_block("effects:sleep")
-        assert repair_block is not None
-        assert next_block is not None
+        repair_block = _require_plan_block(plan, "correlation:cor0_activity_sleep")
+        next_block = _require_plan_block(plan, "effects:sleep")
         _set_runtime_block(plan, runtime, repair_block.id)
         runtime.block_status[repair_block.id] = "reopened"
         runtime.block_status[next_block.id] = "reopened"
@@ -4597,6 +4649,7 @@ class TestStage4Mechanics:
         seen_skip_ppc: list[bool] = []
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             seen_skip_ppc.append(_kwargs["skip_ppc"])
@@ -4649,19 +4702,15 @@ class TestStage4Mechanics:
         assert runtime.block_status[repair_block.id] == "accepted"
         assert runtime.repair_campaign is not None
         assert runtime.repair_campaign.completed_block_ids == frozenset((repair_block.id,))
-        assert get_active_plan_block(plan, runtime).id == next_block.id
+        assert _require_active_plan_block(plan, runtime).id == next_block.id
 
-    def test_compute_stage4_validate_step_reruns_ppc_after_final_barrier_repair(
-        self, monkeypatch
-    ):
+    def test_compute_stage4_validate_step_reruns_ppc_after_final_barrier_repair(self, monkeypatch):
         causal_spec = _make_stage4_global_repair_spec()
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
-        repair_block = plan.get_block("correlation:cor0_activity_sleep")
-        final_block = plan.get_block("effects:sleep")
-        assert repair_block is not None
-        assert final_block is not None
+        repair_block = _require_plan_block(plan, "correlation:cor0_activity_sleep")
+        final_block = _require_plan_block(plan, "effects:sleep")
 
         model_spec = {
             "likelihoods": [
@@ -4737,6 +4786,7 @@ class TestStage4Mechanics:
         barrier_validations: list[dict[str, Any]] = []
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             seen_skip_ppc.append(kwargs["skip_ppc"])
@@ -4876,6 +4926,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -4926,7 +4977,7 @@ class TestStage4Mechanics:
         assert runtime.block_status["effects:sleep"] == "accepted"
         assert runtime.block_status["dynamics:activity"] == "reopened"
         assert runtime.block_status["dynamics:sleep"] == "reopened"
-        assert get_active_plan_block(plan, runtime).id == "dynamics:activity"
+        assert _require_active_plan_block(plan, runtime).id == "dynamics:activity"
         assert get_stage4_phase(runtime, plan=plan) == "prior_blocks"
         assert "beta_activity_sleep" in runtime.accepted.authored_priors
 
@@ -4993,7 +5044,7 @@ class TestStage4Mechanics:
 
         repair_plan = _classify_prior_failure_blocks(
             plan,
-            plan.get_block("effects:sleep"),
+            _require_plan_block(plan, "effects:sleep"),
             validation,
             runtime,
         )
@@ -5095,7 +5146,7 @@ class TestStage4Mechanics:
 
         repair_plan = _classify_prior_failure_blocks(
             plan,
-            plan.get_block("effects:sleep"),
+            _require_plan_block(plan, "effects:sleep"),
             validation,
             runtime,
         )
@@ -5219,7 +5270,7 @@ class TestStage4Mechanics:
 
         repair_plan = _classify_prior_failure_blocks(
             plan,
-            plan.get_block("dynamics:sleep"),
+            _require_plan_block(plan, "dynamics:sleep"),
             validation,
             runtime,
         )
@@ -5311,7 +5362,7 @@ class TestStage4Mechanics:
 
         repair_plan = _classify_compile_failure_route(
             plan,
-            plan.get_block("measurement:activity"),
+            _require_plan_block(plan, "measurement:activity"),
             "Compile error: steps has incompatible support metadata.",
         )
 
@@ -5377,6 +5428,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -5414,7 +5466,7 @@ class TestStage4Mechanics:
         assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
         assert runtime.block_status["effects:sleep"] == "accepted"
         assert runtime.block_status["review:prior_system"] == "reopened"
-        assert get_active_plan_block(plan, runtime).id == "review:prior_system"
+        assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
         assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
         assert "beta_activity_sleep" in runtime.accepted.authored_priors
 
@@ -5480,6 +5532,7 @@ class TestStage4Mechanics:
         }
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
             return {
@@ -5517,7 +5570,7 @@ class TestStage4Mechanics:
         assert runtime.repair_campaign is not None
         assert runtime.repair_campaign.scope_key == "global_prior_review:prior_system"
         assert runtime.repair_campaign.attempts_at_scope == 1
-        assert get_active_plan_block(plan, runtime).id == "review:prior_system"
+        assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
         assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
 
         _apply_stage4_step_and_capture(
@@ -6365,6 +6418,7 @@ class TestStage4Mechanics:
         model_spec_calls: list[dict] = []
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             if "model_spec" in data:
                 model_spec_calls.append(data["model_spec"])
                 return _make_stub_grounding_result(
@@ -6681,6 +6735,7 @@ class TestStage4Mechanics:
             saved_runtime = None
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             if "model_spec" in data:
                 return _make_stub_grounding_result(
                     {
@@ -6796,6 +6851,7 @@ class TestStage4Mechanics:
         cleared: list[bool] = []
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
             if "model_spec" in data:
                 return _make_stub_grounding_result(
                     {
@@ -7251,7 +7307,7 @@ class TestStage4Mechanics:
         while not session.is_done():
             turn = session.current_turn()
             assert turn is not None
-            completion = asyncio.run(generate(turn.messages, [validate_tool]))
+            completion = asyncio.run(_await_string(generate(turn.messages, [validate_tool])))
 
         assert completion == ""
         assert seen_block_ids == expected_blocks
@@ -7271,7 +7327,7 @@ class TestStage4Mechanics:
             "PRIOR PREDICTIVE CHECKS FAILED",
         ]
 
-        trace = trace_capture["trace"]
+        trace = _require_trace(trace_capture)
         assert len(trace.messages) == 4 * len(submissions)
         assert [message.role for message in trace.messages[:2]] == ["system", "user"]
         assert sum(message.role == "assistant" for message in trace.messages) == len(submissions)
