@@ -27,6 +27,7 @@ from causal_ssm_agent.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
+from tests.ssm_test_utils import make_ssm_spec
 
 # ---------------------------------------------------------------------------
 # Helpers (ported from NumPyro's test_reparam.py)
@@ -537,9 +538,9 @@ class TestAutoReparamSSM:
     """Test AutoReparam with the actual SSM model."""
 
     def _make_simple_ssm(self):
-        from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
+        from causal_ssm_agent.models.ssm.model import SSMModel
 
-        spec = SSMSpec(n_latent=2, n_manifest=2)
+        spec = make_ssm_spec(n_latent=2, n_manifest=2)
         return SSMModel(spec=spec, likelihood="kalman")
 
     def test_ssm_site_classification(self):

@@ -448,6 +448,11 @@ def _simulate_from_params(con_dict, spec, times, rng_key, *, registry=None):
     )
     det = {k: v[0] for k, v in det.items()}
     n_l, n_m = spec.n_latent, spec.n_manifest
+    if len(set(spec.manifest_dists)) != 1:
+        raise ValueError(
+            "simulate_ssm only supports homogeneous manifest_dists. "
+            f"Got {spec.manifest_dists}."
+        )
     return simulate_ssm(
         drift=det.get("drift", jnp.zeros((n_l, n_l))),
         diffusion_chol=det.get("diffusion", jnp.eye(n_l)),
@@ -460,7 +465,7 @@ def _simulate_from_params(con_dict, spec, times, rng_key, *, registry=None):
         times=times,
         rng_key=rng_key,
         cint=det.get("cint"),
-        manifest_dist=spec.manifest_dist.value,
+        manifest_dist=spec.manifest_dists[0].value,
     )
 
 
@@ -879,11 +884,9 @@ def _build_sensitivity_measurement_semantics(
     from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
 
     return compile_measurement_semantics(
-        manifest_dist=spec.manifest_dist,
+        manifest_dists=spec.manifest_dists,
         manifest_cov=manifest_cov,
         extra_params=extra_params or None,
-        manifest_dists=spec.manifest_dists,
-        manifest_link=spec.manifest_link,
         manifest_links=spec.manifest_links,
         observation_support=observation_support,
     )
@@ -1148,7 +1151,6 @@ def _validate_output_sensitivity_supported(model: SSMModel) -> None:
     if observation_support is None or not observation_support.requires_interval_summary_handling:
         return
 
-    manifest_dists = model.spec.manifest_dists or [model.spec.manifest_dist] * model.spec.n_manifest
     manifest_names = _axis_names(
         model.spec.manifest_names,
         expected=model.spec.n_manifest,
@@ -1161,7 +1163,7 @@ def _validate_output_sensitivity_supported(model: SSMModel) -> None:
     unsupported_manifests = [
         manifest_names[idx]
         for idx, (support_kind, dist) in enumerate(
-            zip(observation_support.support_kinds, manifest_dists, strict=False)
+            zip(observation_support.support_kinds, model.spec.manifest_dists, strict=False)
         )
         if support_kind == "interval" and dist in unsupported_interval_families
     ]

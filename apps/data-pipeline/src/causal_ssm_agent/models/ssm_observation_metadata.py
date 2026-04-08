@@ -425,7 +425,7 @@ def resolve_manifest_metadata(
     X: Any,
 ) -> tuple[list[str], list[DistributionFamily]]:
     """Resolve manifest column names and per-channel distribution families."""
-    manifest_dists = spec.manifest_dists or [spec.manifest_dist] * spec.n_manifest
+    manifest_dists = list(spec.manifest_dists)
     manifest_cols = spec.manifest_names or default_manifest_columns(X)
     if len(manifest_cols) != spec.n_manifest:
         raise ValueError(

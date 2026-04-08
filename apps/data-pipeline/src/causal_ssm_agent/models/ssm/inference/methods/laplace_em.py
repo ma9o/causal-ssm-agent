@@ -1253,10 +1253,9 @@ class LaplaceLikelihood:
 
         with jax.named_scope("laplace_em/compile_measurement_semantics"):
             measurement_semantics = compile_measurement_semantics(
-                self.manifest_dists[0],
+                self.manifest_dists,
                 manifest_cov=measurement_params.manifest_cov,
                 extra_params=extra_params,
-                manifest_dists=self.manifest_dists,
                 manifest_links=self.manifest_links,
                 observation_support=self.observation_support,
             )

@@ -28,6 +28,29 @@ if TYPE_CHECKING:
     from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
 
+def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict | None) -> None:
+    """Reject implicit structural degrees of freedom on causal-spec code paths."""
+    if causal_spec is None:
+        return
+
+    missing_fields: list[str] = []
+    if ssm_spec.drift_mask is None:
+        missing_fields.append("drift_mask")
+    if ssm_spec.lambda_mask is None:
+        missing_fields.append("lambda_mask")
+
+    if not missing_fields:
+        return
+
+    rendered_fields = ", ".join(missing_fields)
+    raise ValueError(
+        "Causal-spec compilation requires explicit structural masks on SSMSpec. "
+        f"Missing: {rendered_fields}. Compile from ModelSpec + CausalSpec so "
+        "translate_spec() can derive the masks, or supply an already translated "
+        "SSMSpec with explicit masks."
+    )
+
+
 def _attach_compile_binding_provenance(
     diagnostics: list[PriorValidationResult],
     bindings: list[dict[str, object]],
@@ -74,6 +97,7 @@ def compile_ssm_inputs(
         if resolved_model_spec is None:
             raise ValueError("Cannot compile SSM inputs without model_spec or ssm_spec")
         ssm_spec, edge_lag_days = translate_spec(resolved_model_spec, causal_spec)
+    _require_explicit_causal_structure(ssm_spec, causal_spec=causal_spec)
 
     index_maps = None
     if ssm_priors is None:

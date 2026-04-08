@@ -36,8 +36,6 @@ class PriorCompilationError(AggregatedCompileError):
 
 def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
     positions: list[tuple[int, int]] = []
-    if ssm_spec.drift_mask is None:
-        return positions
 
     for effect_idx in range(ssm_spec.n_latent):
         for cause_idx in range(ssm_spec.n_latent):

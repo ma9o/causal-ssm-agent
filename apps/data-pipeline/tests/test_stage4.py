@@ -96,6 +96,7 @@ from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
 from tests.helpers import make_stage4_plan as _make_plan
+from tests.ssm_test_utils import make_ssm_spec
 
 _ORDINAL_LEVELS = ("low", "high")
 
@@ -2550,7 +2551,6 @@ class TestSSMPriorConversion:
         """Beta(2,2) AR prior converts via AR-to-drift transform."""
         import math
 
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         priors = {
             "rho_mood": {
@@ -2561,7 +2561,7 @@ class TestSSMPriorConversion:
                 "reasoning": "test",
             },
         }
-        ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
+        ssm_spec = make_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             simple_model_spec,
@@ -2637,7 +2637,6 @@ class TestSSMPriorConversion:
 
     def test_compile_priors_aggregates_independent_prior_errors(self):
         """Independent prior compile failures should be reported together."""
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         model_spec = {
             "likelihoods": [
@@ -2667,7 +2666,7 @@ class TestSSMPriorConversion:
                 "params": {"mu": 0.0, "sigma": 1.0},
             },
         }
-        ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
+        ssm_spec = make_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
         with pytest.raises(ValueError) as exc_info:
             compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
@@ -2798,7 +2797,6 @@ class TestSSMPriorConversion:
         """Multiple AR params map to separate drift_diag array entries."""
         import math
 
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         model_spec = {
             "likelihoods": [
@@ -2834,7 +2832,7 @@ class TestSSMPriorConversion:
             "rho_mood": {"distribution": "Beta", "params": {"alpha": 5.0, "beta": 2.0}},
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 5.0}},
         }
-        ssm_spec = SSMSpec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
+        ssm_spec = make_ssm_spec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
@@ -2857,7 +2855,6 @@ class TestSSMPriorConversion:
         """Hourly construct → dt=1/24, producing larger drift magnitude."""
         import math
 
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         model_spec = {
             "likelihoods": [
@@ -2889,7 +2886,7 @@ class TestSSMPriorConversion:
                 "measurement": {"model_clock": "1h", "indicators": []},
             }
         )
-        ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
+        ssm_spec = make_ssm_spec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
@@ -2907,7 +2904,6 @@ class TestSSMPriorConversion:
 
     def test_beta_prior_dt_to_ct_transform(self):
         """FIXED_EFFECT beta priors are converted via element-wise beta/dt scaling."""
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         model_spec = {
             "likelihoods": [
@@ -2952,7 +2948,7 @@ class TestSSMPriorConversion:
         }
         # drift_mask enables off-diagonal at [mood, stress] position
         drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = SSMSpec(
+        ssm_spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
@@ -2971,7 +2967,6 @@ class TestSSMPriorConversion:
 
     def test_lagged_beta_diagnostics_explain_default_authored_interval(self):
         """Lagged-edge diagnostics should mention the default authored interval semantics."""
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         model_spec = {
             "likelihoods": [
@@ -3010,7 +3005,7 @@ class TestSSMPriorConversion:
                 ],
             },
         }
-        ssm_spec = SSMSpec(
+        ssm_spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
@@ -3032,7 +3027,6 @@ class TestSSMPriorConversion:
 
     def test_lagged_beta_diagnostics_preserve_reference_interval_language(self):
         """Lagged-edge diagnostics should talk about the authored reference interval."""
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         model_spec = {
             "likelihoods": [
@@ -3072,7 +3066,7 @@ class TestSSMPriorConversion:
                 ],
             },
         }
-        ssm_spec = SSMSpec(
+        ssm_spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
@@ -3093,7 +3087,6 @@ class TestSSMPriorConversion:
 
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""
-        from causal_ssm_agent.models.ssm import SSMSpec
 
         model_spec = {
             "likelihoods": [
@@ -3153,7 +3146,7 @@ class TestSSMPriorConversion:
             }
         )
         drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = SSMSpec(
+        ssm_spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["heart_rate", "activity"],

@@ -63,6 +63,7 @@ from causal_ssm_agent.models.ssm.inference.utils import (
     _discover_sites,
     extract_constrained_samples,
 )
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 logger = get_prefect_logger(__name__)
 
@@ -996,8 +997,22 @@ def fit_pgas(
         observation_support is not None and observation_support.requires_interval_summary_handling
     )
 
-    # Detect Gaussian observations for optimal proposal
-    gaussian_obs = model.spec.manifest_dist == "gaussian" and not requires_interval_summary_handling
+    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+        get_per_channel_links,
+        get_per_channel_manifest,
+        get_per_variable_diffusion,
+    )
+
+    manifest_dists = get_per_channel_manifest(model.spec)
+    manifest_links = get_per_channel_links(model.spec)
+    diffusion_dists = get_per_variable_diffusion(model.spec)
+
+    # Detect linear-Gaussian observations for the optimal proposal path.
+    gaussian_obs = (
+        set(manifest_dists) == {DistributionFamily.GAUSSIAN}
+        and set(manifest_links) == {LinkFunction.IDENTITY}
+        and not requires_interval_summary_handling
+    )
 
     block_tag = "+block" if block_sampling else ""
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""
@@ -1031,15 +1046,15 @@ def fit_pgas(
     adapter = SSMAdapter(
         n_l,
         n_m,
-        manifest_dist=model.spec.manifest_dist,
-        diffusion_dist=model.spec.diffusion_dist,
-        manifest_link=model.spec.manifest_link,
+        manifest_dists=manifest_dists,
+        diffusion_dist=diffusion_dists,
+        manifest_links=manifest_links,
     )
     support_measurement_semantics = None
     if requires_interval_summary_handling:
         support_measurement_semantics = compile_measurement_semantics(
-            model.spec.manifest_dist,
-            manifest_link=model.spec.manifest_link,
+            manifest_dists,
+            manifest_links=manifest_links,
             observation_support=observation_support,
         )
 

@@ -45,17 +45,21 @@ class MeasurementParams(NamedTuple):
     """Measurement model parameters.
 
     Represents the observation equation:
-        y = Λ*η + μ + ε, ε ~ N(0, R)
+        y = Λ*η + μ + ε, ε ~ N(0, Σ_R)
 
     where:
         Λ = factor loadings (n_manifest x n_latent)
         μ = manifest intercepts (n_manifest,)
-        R = measurement error covariance (n_manifest x n_manifest)
+        Σ_R = measurement error covariance (n_manifest x n_manifest)
+
+    Note: the higher-level SSMSpec stores ``manifest_var = L_R`` as a
+    Cholesky factor. ``MeasurementParams.manifest_cov`` stores the derived
+    covariance ``Σ_R = L_R L_Rᵀ`` used by likelihood backends.
     """
 
     lambda_mat: jnp.ndarray  # (n_manifest, n_latent)
     manifest_means: jnp.ndarray  # (n_manifest,)
-    manifest_cov: jnp.ndarray  # (n_manifest, n_manifest)
+    manifest_cov: jnp.ndarray  # (n_manifest, n_manifest) = Σ_R
 
 
 class InitialStateParams(NamedTuple):

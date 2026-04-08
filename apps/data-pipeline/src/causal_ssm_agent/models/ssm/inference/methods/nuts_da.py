@@ -52,7 +52,7 @@ from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measur
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_probs,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 logger = get_prefect_logger(__name__)
 
@@ -219,9 +219,8 @@ def _da_model(
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
         manifest_cov = manifest_chol @ manifest_chol.T
         measurement_semantics = compile_measurement_semantics(
-            DistributionFamily.GAUSSIAN,
+            [DistributionFamily.GAUSSIAN] * int(manifest_cov.shape[0]),
             manifest_cov=manifest_cov,
-            manifest_link=LinkFunction.IDENTITY,
             observation_support=support,
         )
         ll_per_timestep = trajectory_observation_log_probs(
@@ -720,9 +719,9 @@ def fit_nuts_da(
             False,
         )
     )
-    if model.spec.manifest_dist != DistributionFamily.GAUSSIAN:
+    if set(model.spec.manifest_dists) != {DistributionFamily.GAUSSIAN}:
         raise ValueError(
-            f"NUTS-DA only supports Gaussian observations, got {model.spec.manifest_dist}. "
+            f"NUTS-DA only supports Gaussian observations, got {model.spec.manifest_dists}. "
             f"Data augmentation MCMC mixes poorly with non-Gaussian likelihoods due to "
             f"challenging posterior geometry (divergent transitions, strong state-parameter "
             f"correlations). Use a marginalizing backend instead: 'nuts', 'svi', 'hessmc2', "

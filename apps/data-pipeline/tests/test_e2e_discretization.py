@@ -33,6 +33,7 @@ from causal_ssm_agent.models.ssm_compilation import (
 from causal_ssm_agent.models.ssm_compilation import (
     translate_spec as translate_ssm_spec,
 )
+from tests.ssm_test_utils import make_ssm_spec
 
 
 def _with_estimation_projection(causal_spec: dict) -> dict:
@@ -1023,7 +1024,7 @@ class TestE2ESpecToDiscretization:
         }
 
         drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = SSMSpec(
+        ssm_spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
@@ -1341,7 +1342,7 @@ class TestExactMatrixLogConversion:
         }
 
         drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = SSMSpec(
+        ssm_spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
@@ -1432,7 +1433,7 @@ class TestExactMatrixLogConversion:
             },
         }
         drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = SSMSpec(
+        ssm_spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],

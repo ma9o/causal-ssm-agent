@@ -35,6 +35,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     summarize_support_observation,
     support_observation_log_prob,
 )
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
     from cuthbertlib.types import ArrayTree, ArrayTreeLike, KeyArray, ScalarArray
@@ -46,8 +47,6 @@ if TYPE_CHECKING:
         InitialStateParams,
         MeasurementParams,
     )
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
 # =============================================================================
 # JAX-native systematic resampling (gradient-safe on all platforms)
 # =============================================================================
@@ -101,15 +100,22 @@ class SSMAdapter:
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dist: DistributionFamily,
-        diffusion_dist: DistributionFamily | list[DistributionFamily],
-        manifest_link: LinkFunction,
+        manifest_dists: list[DistributionFamily | str] | None = None,
+        diffusion_dist: DistributionFamily | list[DistributionFamily] = DistributionFamily.GAUSSIAN,
+        manifest_links: list[LinkFunction | str | None] | None = None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
-        self.manifest_dist = manifest_dist
+        self.manifest_dists = (
+            [
+                dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+                for dist in manifest_dists
+            ]
+            if manifest_dists is not None
+            else [DistributionFamily.GAUSSIAN] * n_manifest
+        )
         self.transition_semantics = compile_transition_semantics(diffusion_dist, n_latent)
-        self.manifest_link = manifest_link
+        self.manifest_links = manifest_links
 
     def initial_sample(self, key: jax.Array, params: dict) -> jax.Array:
         """Sample eta_0 ~ N(t0_mean, t0_cov)."""
@@ -150,10 +156,10 @@ class SSMAdapter:
         mask_float = obs_mask.astype(jnp.float32)
         extra = {k: v for k, v in params.items() if k.startswith("obs_")}
         measurement_semantics = compile_measurement_semantics(
-            self.manifest_dist,
+            self.manifest_dists,
             manifest_cov=R,
             extra_params=extra,
-            manifest_link=self.manifest_link,
+            manifest_links=self.manifest_links,
         )
         return measurement_semantics.obs_kernel.emission_fn(y, x, H, d, R, mask_float)
 
@@ -188,7 +194,7 @@ class ParticleLikelihood:
         n_manifest: Number of manifest indicators
         n_particles: Number of particles (default 200)
         rng_key: Fixed JAX random key for deterministic PF
-        manifest_dist: Observation noise family (DistributionFamily enum)
+        manifest_dists: Per-channel observation noise families
         diffusion_dist: Process noise family (DistributionFamily enum or list)
         ess_threshold: ESS/N threshold for resampling
     """
@@ -201,19 +207,26 @@ class ParticleLikelihood:
         n_manifest: int,
         n_particles: int = 200,
         rng_key: jax.Array | None = None,
-        manifest_dist: DistributionFamily | str = "gaussian",
+        manifest_dists: list[DistributionFamily | str] | None = None,
         diffusion_dist: DistributionFamily | str | list = "gaussian",
         ess_threshold: float = 0.5,
         block_rb: bool = True,
-        manifest_link: LinkFunction | str = "identity",
+        manifest_links: list[LinkFunction | str | None] | None = None,
         observation_support=None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
         self.n_particles = n_particles
         self.rng_key = rng_key if rng_key is not None else random.PRNGKey(0)
-        self.manifest_dist = manifest_dist
-        self.manifest_link = manifest_link
+        self.manifest_dists = (
+            [
+                dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+                for dist in manifest_dists
+            ]
+            if manifest_dists is not None
+            else [DistributionFamily.GAUSSIAN] * n_manifest
+        )
+        self.manifest_links = manifest_links
         self.ess_threshold = ess_threshold
         self.observation_support = observation_support
 
@@ -307,10 +320,10 @@ class ParticleLikelihood:
         # --- Build measurement/transition semantics once ---
         obs_extra = {k: v for k, v in params.items() if k.startswith("obs_")}
         measurement_semantics = compile_measurement_semantics(
-            self.manifest_dist,
+            self.manifest_dists,
             manifest_cov=measurement_params.manifest_cov,
             extra_params=obs_extra,
-            manifest_link=self.manifest_link,
+            manifest_links=self.manifest_links,
             observation_support=self.observation_support,
         )
         obs_kernel = measurement_semantics.obs_kernel
@@ -440,10 +453,10 @@ class ParticleLikelihood:
 
         obs_extra = {k: v for k, v in params.items() if k.startswith("obs_")}
         measurement_semantics = compile_measurement_semantics(
-            self.manifest_dist,
+            self.manifest_dists,
             manifest_cov=measurement_params.manifest_cov,
             extra_params=obs_extra,
-            manifest_link=self.manifest_link,
+            manifest_links=self.manifest_links,
             observation_support=self.observation_support,
         )
         obs_kernel = measurement_semantics.obs_kernel

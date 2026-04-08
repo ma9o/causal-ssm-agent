@@ -30,6 +30,7 @@ from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measur
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_prob,
 )
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.inference import InferenceResult
@@ -38,8 +39,6 @@ if TYPE_CHECKING:
         InitialStateParams,
         MeasurementParams,
     )
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-
 # ---------------------------------------------------------------------------
 # Variational parameters and sampling
 # ---------------------------------------------------------------------------
@@ -238,8 +237,8 @@ class StructuredVILikelihood:
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dist: DistributionFamily | str = "gaussian",
-        manifest_link: LinkFunction | str = "identity",
+        manifest_dists: list[DistributionFamily | str] | None = None,
+        manifest_links: list[LinkFunction | str | None] | None = None,
         n_vi_steps: int = 20,
         n_mc_samples: int = 4,
         vi_lr: float = 0.01,
@@ -247,8 +246,15 @@ class StructuredVILikelihood:
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
-        self.manifest_dist = manifest_dist
-        self.manifest_link = manifest_link
+        self.manifest_dists = (
+            [
+                dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+                for dist in manifest_dists
+            ]
+            if manifest_dists is not None
+            else [DistributionFamily.GAUSSIAN] * n_manifest
+        )
+        self.manifest_links = manifest_links
         self.n_vi_steps = n_vi_steps
         self.n_mc_samples = n_mc_samples
         self.vi_lr = vi_lr
@@ -281,10 +287,10 @@ class StructuredVILikelihood:
             cd = jnp.zeros((T, n))
 
         measurement_semantics = compile_measurement_semantics(
-            self.manifest_dist,
+            self.manifest_dists,
             manifest_cov=measurement_params.manifest_cov,
             extra_params=extra_params,
-            manifest_link=self.manifest_link,
+            manifest_links=self.manifest_links,
             observation_support=self.observation_support,
         )
 
@@ -380,11 +386,17 @@ def fit_structured_vi(
     if model.likelihood == "kalman":
         backend = model.make_likelihood_backend()
     else:
+        from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+            get_per_channel_links,
+            get_per_channel_manifest,
+        )
+
+        manifest_dists = get_per_channel_manifest(model.spec)
         backend = StructuredVILikelihood(
             n_latent=model.spec.n_latent,
             n_manifest=model.spec.n_manifest,
-            manifest_dist=model.spec.manifest_dist,
-            manifest_link=model.spec.manifest_link,
+            manifest_dists=manifest_dists,
+            manifest_links=get_per_channel_links(model.spec),
             n_vi_steps=n_vi_steps,
             n_mc_samples=n_mc_samples,
             vi_lr=vi_lr,

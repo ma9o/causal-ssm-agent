@@ -28,7 +28,7 @@ import pytest
 from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
-from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, SSMSpec, fit
+from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, fit
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import _apply_reparam, _eval_model
@@ -66,6 +66,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discover_sites
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
+from tests.ssm_test_utils import make_ssm_spec
 
 
 def _support_runtime(**kwargs) -> ObservationSupportRuntime:
@@ -578,8 +579,8 @@ class TestStructuredVISupportAware:
         backend = StructuredVILikelihood(
             n_latent=1,
             n_manifest=1,
-            manifest_dist=DistributionFamily.GAUSSIAN,
-            manifest_link=LinkFunction.IDENTITY,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
+            manifest_links=[LinkFunction.IDENTITY],
             n_vi_steps=2,
             n_mc_samples=1,
             vi_lr=0.01,
@@ -849,8 +850,8 @@ class TestDPFSupportAware:
         backend = DPFLikelihood(
             n_latent=1,
             n_manifest=1,
-            manifest_dist=DistributionFamily.GAUSSIAN,
-            manifest_link=LinkFunction.IDENTITY,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
+            manifest_links=[LinkFunction.IDENTITY],
             n_particles=16,
             proposal_net=ProposalNetwork(1, 1, key=random.PRNGKey(1)),
             rng_key=random.PRNGKey(2),
@@ -905,9 +906,9 @@ class TestPGASSupportAware:
         observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
         obs_mask_float = (~jnp.isnan(observations)).astype(jnp.float32)
         measurement_semantics = compile_measurement_semantics(
-            DistributionFamily.GAUSSIAN,
+            [DistributionFamily.GAUSSIAN],
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
-            manifest_link=LinkFunction.IDENTITY,
+            manifest_links=[LinkFunction.IDENTITY],
             observation_support=support,
         )
 
@@ -936,12 +937,12 @@ class TestPGASSupportAware:
 
 class TestNutsDASupportAware:
     def test_da_model_emits_support_aware_factor(self):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             diffusion="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
         )
         model = SSMModel(spec)
         model.set_observation_support(
@@ -985,12 +986,12 @@ class TestSupportAwareMethodSmoke:
 
     @staticmethod
     def _model() -> SSMModel:
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             diffusion="diag",
-            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
         )
         model = SSMModel(spec, likelihood="particle", n_particles=16)
         model.set_observation_support(TestSupportAwareMethodSmoke._support())
@@ -1057,9 +1058,9 @@ class TestParticleMissingData:
         adapter = SSMAdapter(
             n_latent,
             n_manifest,
-            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[DistributionFamily.GAUSSIAN] * n_manifest,
             diffusion_dist=DistributionFamily.GAUSSIAN,
-            manifest_link=LinkFunction.IDENTITY,
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
         )
 
         params = {
@@ -1208,9 +1209,9 @@ class TestStudentTProcessNoise:
         adapter = SSMAdapter(
             n_latent,
             n_manifest,
-            manifest_dist=DistributionFamily.GAUSSIAN,
+            manifest_dists=[DistributionFamily.GAUSSIAN],
             diffusion_dist=DistributionFamily.STUDENT_T,
-            manifest_link=LinkFunction.IDENTITY,
+            manifest_links=[LinkFunction.IDENTITY],
         )
 
         params = {
@@ -1274,7 +1275,7 @@ class TestParameterRecoveryPF:
         observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.1
         times = jnp.arange(T, dtype=float) * dt
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
@@ -1326,7 +1327,7 @@ class TestParameterRecoveryPF:
         observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.05
         times = jnp.arange(T, dtype=float) * dt
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
@@ -1420,9 +1421,9 @@ class TestHighDimNonlinear:
             n_latent=n_latent,
             n_manifest=n_manifest,
             n_particles=300,
-            manifest_dist="poisson",
+            manifest_dists=["poisson"],
             diffusion_dist="student_t",
-            manifest_link="log",
+            manifest_links=["log"],
         )
         ll = backend.compute_log_likelihood(
             ct_params,
@@ -1589,7 +1590,7 @@ class TestInferenceCaching:
         return _IdentityTransform()
 
     def test_model_reuses_backend_instances(self):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1608,7 +1609,7 @@ class TestInferenceCaching:
         assert laplace_a is not laplace_c
 
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1634,7 +1635,7 @@ class TestInferenceCaching:
         assert "manifest_var_diag" in site_info
 
     def test_tempered_smc_reuses_bundle_cache_without_reparam(self, monkeypatch):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1735,13 +1736,13 @@ class TestPureJaxLikelihoodEvaluator:
 
     @staticmethod
     def _build_poisson_case():
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             diffusion="diag",
-            manifest_dist=DistributionFamily.POISSON,
-            manifest_link=LinkFunction.LOG,
+            manifest_dists=[DistributionFamily.POISSON],
+            manifest_links=[LinkFunction.LOG],
             manifest_means=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
         )
         model = SSMModel(spec, n_particles=40)
@@ -1808,7 +1809,7 @@ class TestSVIBackend:
 
     def test_svi_rejects_nonfinite_losses(self, monkeypatch):
         """SVI should fail fast instead of returning a numerically invalid fit."""
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1822,15 +1823,15 @@ class TestSVIBackend:
             def __init__(self, *_args, **_kwargs):
                 pass
 
-            def run(self, *_args, **_kwargs):
-                return type(
-                    "FakeSVIResult",
-                    (),
-                    {
-                        "losses": jnp.array([1.0, jnp.nan], dtype=jnp.float32),
-                        "params": {"loc": jnp.array([0.0], dtype=jnp.float32)},
-                    },
-                )()
+            def init(self, *_args, **_kwargs):
+                return 0
+
+            def update(self, state, *_args, **_kwargs):
+                losses = jnp.array([1.0, jnp.nan], dtype=jnp.float32)
+                return state + 1, losses[state]
+
+            def get_params(self, *_args, **_kwargs):
+                return {"loc": jnp.array([0.0], dtype=jnp.float32)}
 
         monkeypatch.setattr("causal_ssm_agent.models.ssm.inference.SVI", FakeSVI)
 
@@ -1846,7 +1847,7 @@ class TestSVIBackend:
 
     def test_svi_rejects_nonfinite_posterior_samples(self, monkeypatch):
         """SVI should fail fast when guide predictive samples contain NaNs."""
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1860,15 +1861,15 @@ class TestSVIBackend:
             def __init__(self, *_args, **_kwargs):
                 pass
 
-            def run(self, *_args, **_kwargs):
-                return type(
-                    "FakeSVIResult",
-                    (),
-                    {
-                        "losses": jnp.array([1.0, 0.5], dtype=jnp.float32),
-                        "params": {"loc": jnp.array([0.0], dtype=jnp.float32)},
-                    },
-                )()
+            def init(self, *_args, **_kwargs):
+                return 0
+
+            def update(self, state, *_args, **_kwargs):
+                losses = jnp.array([1.0, 0.5], dtype=jnp.float32)
+                return state + 1, losses[state]
+
+            def get_params(self, *_args, **_kwargs):
+                return {"loc": jnp.array([0.0], dtype=jnp.float32)}
 
         class FakePredictive:
             def __init__(self, *_args, **_kwargs):
@@ -1897,7 +1898,7 @@ class TestSVIBackend:
         Uses 1D model because multi-latent SVI has gradient instability
         from eigvals backward pass in the drift stability penalty.
         """
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1952,7 +1953,7 @@ class TestAutoMethodConfigRouting:
         )
 
     def test_auto_routes_non_point_support_to_laplace_em(self, monkeypatch):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -1980,7 +1981,7 @@ class TestAutoMethodConfigRouting:
         assert result.method == "laplace_em"
 
     def test_non_point_support_allows_laplace_em(self, monkeypatch):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -2020,7 +2021,7 @@ class TestAutoMethodConfigRouting:
         method,
         target,
     ):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -2045,7 +2046,7 @@ class TestAutoMethodConfigRouting:
         assert result.method == method
 
     def test_auto_passes_smc_config_to_laplace_em(self, monkeypatch):
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -2446,9 +2447,9 @@ class TestTemperedSMCVariants:
 
     def test_waste_free_rejects_bad_n(self):
         """Waste-free should reject N % n_mh_steps != 0."""
-        from causal_ssm_agent.models.ssm import SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
@@ -2552,14 +2553,14 @@ class TestPGASVariants:
     @pytest.mark.timeout(60)
     def test_pgas_fallback_for_poisson(self):
         """PGAS should fall back to gradient proposal for non-Gaussian obs."""
-        from causal_ssm_agent.models.ssm import DistributionFamily, SSMModel, SSMSpec, fit
+        from causal_ssm_agent.models.ssm import DistributionFamily, SSMModel, fit
 
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             diffusion="diag",
-            manifest_dist=DistributionFamily.POISSON,
+            manifest_dists=[DistributionFamily.POISSON],
             manifest_means=jnp.array([jnp.log(5.0)]),
         )
         model = SSMModel(spec, n_particles=50)

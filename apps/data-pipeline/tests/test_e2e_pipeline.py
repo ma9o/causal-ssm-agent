@@ -25,6 +25,7 @@ from causal_ssm_agent.flows.stages.stage5b.fit import fit_model
 from causal_ssm_agent.flows.stages.stage6.interventions import run_interventions
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 from causal_ssm_agent.utils.causal_spec import get_all_treatments
+from tests.ssm_test_utils import make_ssm_spec
 
 # ==============================================================================
 # Constants
@@ -499,7 +500,7 @@ class TestE2EPipeline:
 
     def test_stage5_interval_summary_pipeline_path_reaches_interventions(self):
         """Interval-summary data should flow through fit_model.fn() and intervention analysis."""
-        from causal_ssm_agent.models.ssm import SSMPriors, SSMSpec
+        from causal_ssm_agent.models.ssm import SSMPriors
         from causal_ssm_agent.models.ssm.inference import FittedArtifact
 
         data_for_model = pl.DataFrame(
@@ -546,7 +547,7 @@ class TestE2EPipeline:
         }
 
         builder = SSMModelBuilder(
-            ssm_spec=SSMSpec(
+            ssm_spec=make_ssm_spec(
                 n_latent=1,
                 n_manifest=1,
                 lambda_mat=jnp.eye(1),

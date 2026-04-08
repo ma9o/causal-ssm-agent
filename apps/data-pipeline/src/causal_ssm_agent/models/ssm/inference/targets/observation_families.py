@@ -924,17 +924,23 @@ def any_family_needs_level_metadata(
 
 
 def resolve_manifest_families_and_links(
-    manifest_dist: DistributionFamily | str,
-    n_manifest: int,
+    manifest_dists: list[DistributionFamily | str],
     *,
-    manifest_dists: list[DistributionFamily | str] | None = None,
-    manifest_link: LinkFunction | str | None = None,
     manifest_links: list[LinkFunction | str | None] | None = None,
 ) -> tuple[list[DistributionFamily], list[LinkFunction]]:
     """Resolve per-channel families and links, filling in family defaults when omitted."""
-    dists = [DistributionFamily(dist) for dist in (manifest_dists or [manifest_dist] * n_manifest)]
-    scalar_link = _coerce_link_function(manifest_link)
-    effective_links = manifest_links or [scalar_link] * n_manifest
+    dists = [DistributionFamily(dist) for dist in manifest_dists]
+    if manifest_links is not None and len(manifest_links) != len(dists):
+        raise ValueError(
+            "manifest_links length must match manifest_dists: "
+            f"{len(manifest_links)} vs {len(dists)}"
+        )
+
+    effective_links = (
+        manifest_links
+        if manifest_links is not None
+        else [None] * len(dists)
+    )
     links: list[LinkFunction] = []
     for dist, link in zip(dists, effective_links, strict=False):
         link_fn = _coerce_link_function(link)

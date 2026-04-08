@@ -8,7 +8,12 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.model import (
+    SSMPriors,
+    SSMSpec,
+    full_drift_mask,
+    zero_loading_mask,
+)
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from causal_ssm_agent.models.ssm_compilation import (
     compile_priors,
@@ -19,6 +24,15 @@ from causal_ssm_agent.models.ssm_compilation import (
 # =============================================================================
 # normalize_prior_params
 # =============================================================================
+
+
+def _make_spec(**kwargs) -> SSMSpec:
+    """Build an SSMSpec with explicit default masks."""
+    n_latent = int(kwargs.get("n_latent", 1))
+    n_manifest = int(kwargs.get("n_manifest", 1))
+    kwargs.setdefault("drift_mask", full_drift_mask(n_latent))
+    kwargs.setdefault("lambda_mask", zero_loading_mask(n_manifest, n_latent))
+    return SSMSpec(**kwargs)
 
 
 class TestNormalizePriorParams:
@@ -241,7 +255,7 @@ class TestBuilderPriorConversion:
                 "params": {"lower": -1.0, "upper": 1.0},
             }
         }
-        ssm_spec = SSMSpec(n_latent=1, n_manifest=1, latent_names=["mood"])
+        ssm_spec = _make_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
         with pytest.raises(ValueError, match="DT persistence scale"):
             compile_priors(priors, model_spec, ssm_spec=ssm_spec)
@@ -280,7 +294,7 @@ class TestBuilderPriorConversion:
         }
         t0_mask = np.zeros((2, 2), dtype=bool)
         t0_mask[1, 0] = True
-        ssm_spec = SSMSpec(
+        ssm_spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "sleep"],
@@ -362,7 +376,7 @@ class TestBuilderPriorConversion:
                 "params": {"sigma": 0.9},
             },
         }
-        ssm_spec = SSMSpec(
+        ssm_spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "sleep"],
@@ -427,7 +441,7 @@ class TestBuilderPriorConversion:
         }
         t0_mask = np.zeros((3, 3), dtype=bool)
         t0_mask[2, 1] = True
-        ssm_spec = SSMSpec(
+        ssm_spec = _make_spec(
             n_latent=3,
             n_manifest=3,
             latent_names=["A", "B", "C"],
@@ -519,7 +533,7 @@ class TestPrepareModelRuntime:
             def __init__(self):
                 self.observation_support = None
                 self.likelihood = "particle"
-                self.spec = SSMSpec(
+                self.spec = _make_spec(
                     n_latent=1,
                     n_manifest=1,
                     lambda_mat=jnp.eye(1, dtype=jnp.float32),
@@ -597,7 +611,7 @@ class TestPrepareModelRuntime:
             def __init__(self):
                 self.observation_support = None
                 self.likelihood = "particle"
-                self.spec = SSMSpec(
+                self.spec = _make_spec(
                     n_latent=1,
                     n_manifest=1,
                     lambda_mat=jnp.eye(1, dtype=jnp.float32),
@@ -650,7 +664,7 @@ class TestPrepareModelRuntime:
             }
         )
         builder = SSMModelBuilder(
-            ssm_spec=SSMSpec(
+            ssm_spec=_make_spec(
                 n_latent=1,
                 n_manifest=1,
                 lambda_mat=jnp.eye(1, dtype=jnp.float32),

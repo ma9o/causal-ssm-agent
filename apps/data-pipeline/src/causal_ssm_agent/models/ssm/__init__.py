@@ -23,6 +23,8 @@ from causal_ssm_agent.models.ssm.model import (
     SSMModel,
     SSMPriors,
     SSMSpec,
+    full_drift_mask,
+    zero_loading_mask,
 )
 
 __all__ = [
@@ -38,6 +40,8 @@ __all__ = [
     "SSMPriors",
     "SSMSpec",
     "DistributionFamily",
+    "full_drift_mask",
+    "zero_loading_mask",
     # Inference
     "InferenceMethod",
     "InferenceResult",

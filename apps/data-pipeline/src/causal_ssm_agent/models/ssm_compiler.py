@@ -50,11 +50,6 @@ _SPEC_BOOL_ARRAY_FIELDS = {
     "t0_correlation_mask",
     "time_invariant_mask",
 }
-_SPEC_ENUM_FIELDS = {
-    "diffusion_dist": DistributionFamily,
-    "manifest_dist": DistributionFamily,
-    "manifest_link": LinkFunction,
-}
 _SPEC_ENUM_LIST_FIELDS = {
     "diffusion_dists": DistributionFamily,
     "manifest_dists": DistributionFamily,
@@ -85,6 +80,22 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
 
 def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     """Restore an SSMSpec from a serialized artifact."""
+    legacy_scalar_family_fields = {"diffusion_dist", "manifest_dist"} & set(payload)
+    if legacy_scalar_family_fields:
+        removed = ", ".join(sorted(legacy_scalar_family_fields))
+        raise ValueError(
+            f"Legacy SSMSpec payload contains removed scalar family fields: {removed}. "
+            "Regenerate the compiled SSM artifact."
+        )
+
+    required_mask_fields = {"drift_mask", "lambda_mask"} - set(payload)
+    if required_mask_fields:
+        missing = ", ".join(sorted(required_mask_fields))
+        raise ValueError(
+            "Serialized SSMSpec payload is missing required structural masks: "
+            f"{missing}. Regenerate the compiled SSM artifact."
+        )
+
     kwargs: dict[str, Any] = {}
 
     for key, value in payload.items():
@@ -92,8 +103,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             kwargs[key] = jnp.asarray(value, dtype=jnp.float32)
         elif key in _SPEC_BOOL_ARRAY_FIELDS and value is not None:
             kwargs[key] = np.asarray(value, dtype=bool)
-        elif key in _SPEC_ENUM_FIELDS and value is not None:
-            kwargs[key] = _SPEC_ENUM_FIELDS[key](value)
         elif key in _SPEC_ENUM_LIST_FIELDS and value is not None:
             enum_cls = _SPEC_ENUM_LIST_FIELDS[key]
             kwargs[key] = [enum_cls(item) for item in value]

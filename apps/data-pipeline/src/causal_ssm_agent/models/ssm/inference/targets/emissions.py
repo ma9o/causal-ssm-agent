@@ -729,11 +729,9 @@ def _slice_per_channel_extra_params(
 
 
 def build_predictive_observation_sampler(
-    manifest_dist,
+    manifest_dists,
     manifest_cov: jnp.ndarray,
     *,
-    manifest_dists=None,
-    manifest_link=None,
     manifest_links=None,
     extra_params: dict | None = None,
 ) -> PredictiveObservationSampler:
@@ -745,14 +743,11 @@ def build_predictive_observation_sampler(
     )
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
-    n_manifest = int(manifest_cov.shape[0])
     dists, links = resolve_manifest_families_and_links(
-        manifest_dist,
-        n_manifest,
-        manifest_dists=manifest_dists,
-        manifest_link=manifest_link,
+        manifest_dists,
         manifest_links=manifest_links,
     )
+    n_manifest = len(dists)
     all_gaussian = all(dist == DistributionFamily.GAUSSIAN for dist in dists)
     manifest_dist_values = tuple(dist.value for dist in dists)
     try:
