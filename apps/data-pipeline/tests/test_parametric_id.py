@@ -20,12 +20,40 @@ import jax.random as random
 import numpy as np
 import pytest
 
-from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors
+from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, full_vector_mask
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
-from tests.ssm_test_utils import make_ssm_spec
+from tests.ssm_test_utils import (
+    diagonal_diffusion_kwargs,
+    diagonal_manifest_var_kwargs,
+    diagonal_t0_var_kwargs,
+    full_diffusion_kwargs,
+    make_ssm_spec,
+)
 
 pytestmark = pytest.mark.slow
+
+
+def _diagonal_structure_kwargs(n_latent: int, n_manifest: int) -> dict[str, object]:
+    return {
+        **diagonal_diffusion_kwargs(n_latent),
+        **diagonal_manifest_var_kwargs(n_manifest),
+        **diagonal_t0_var_kwargs(n_latent),
+    }
+
+
+def _free_cint_kwargs(n_latent: int) -> dict[str, object]:
+    return {
+        "cint_mask": full_vector_mask(n_latent),
+        "cint": jnp.zeros(n_latent),
+    }
+
+
+def _free_manifest_means_kwargs(n_manifest: int) -> dict[str, object]:
+    return {
+        "manifest_means_mask": full_vector_mask(n_manifest),
+        "manifest_means": jnp.zeros(n_manifest),
+    }
 
 
 def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
@@ -33,14 +61,8 @@ def _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman"):
     spec = make_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift="free",
-        diffusion="diag",
-        cint=None,
         lambda_mat=jnp.eye(n_manifest, n_latent),
-        manifest_means=None,
-        manifest_var="diag",
-        t0_means="free",
-        t0_var="diag",
+        **_diagonal_structure_kwargs(n_latent, n_manifest),
     )
     priors = SSMPriors(
         drift_diag={"mu": -0.5, "sigma": 0.5},
@@ -58,14 +80,8 @@ def _make_nonidentified_model():
     spec = make_ssm_spec(
         n_latent=2,
         n_manifest=1,
-        drift="free",
-        diffusion="diag",
-        cint=None,
         lambda_mat=jnp.ones((1, 2)) * 0.5,  # Both latents map identically to 1 manifest
-        manifest_means=None,
-        manifest_var="diag",
-        t0_means="free",
-        t0_var="diag",
+        **_diagonal_structure_kwargs(2, 1),
     )
     priors = SSMPriors(
         drift_diag={"mu": -0.5, "sigma": 0.5},
@@ -81,7 +97,7 @@ def _make_nonidentified_model():
 def _make_interval_support_runtime(
     manifest_names: list[str],
     *,
-    summary_operators: list[str] | None = None,
+    summary_operators: list[str | None] | None = None,
 ) -> ObservationSupportRuntime:
     n_manifest = len(manifest_names)
     if summary_operators is None:
@@ -89,13 +105,18 @@ def _make_interval_support_runtime(
     if len(summary_operators) != n_manifest:
         raise ValueError("summary_operators must align with manifest_names")
 
+    support_kinds: list[str | None] = ["interval"] * n_manifest
+    anchor_policies: list[str | None] = ["end"] * n_manifest
+    observation_windows: list[str | None] = ["1d"] * n_manifest
+    summary_ops: list[str | None] = list(summary_operators)
+
     return ObservationSupportRuntime(
         anchor_times=np.array([0.0, 1.0, 2.0]),
         manifest_names=manifest_names,
-        support_kinds=["interval"] * n_manifest,
-        summary_operators=summary_operators,
-        anchor_policies=["end"] * n_manifest,
-        observation_windows=["1d"] * n_manifest,
+        support_kinds=support_kinds,
+        summary_operators=summary_ops,
+        anchor_policies=anchor_policies,
+        observation_windows=observation_windows,
         support_start_times=np.array(
             [
                 [np.nan] * n_manifest,
@@ -138,6 +159,11 @@ def _make_interval_support_runtime(
     )
 
 
+def _require_manifest_names(names: list[str] | None) -> list[str]:
+    assert names is not None
+    return names
+
+
 class TestTRule:
     """Test t-rule (counting condition) for identification."""
 
@@ -148,14 +174,8 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift="free",
-            diffusion="diag",
-            cint=None,
             lambda_mat=jnp.eye(2),
-            manifest_means=None,
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(2, 2),
         )
         result = check_t_rule(spec, T=50)
         assert result.satisfies
@@ -170,14 +190,12 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=3,
             n_manifest=2,
-            drift="free",
-            diffusion="free",
-            cint="free",
+            **full_diffusion_kwargs(3),
+            **_free_cint_kwargs(3),
             lambda_mat=jnp.eye(2, 3),
-            manifest_means="free",
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_free_manifest_means_kwargs(2),
+            **diagonal_manifest_var_kwargs(2),
+            **diagonal_t0_var_kwargs(3),
         )
         result = check_t_rule(spec, T=None)
         # Cross-sectional only: p=2 -> 2 + 3 = 5 moments, way fewer than params
@@ -190,14 +208,12 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=3,
             n_manifest=2,
-            drift="free",
-            diffusion="free",
-            cint="free",
+            **full_diffusion_kwargs(3),
+            **_free_cint_kwargs(3),
             lambda_mat=jnp.eye(2, 3),
-            manifest_means="free",
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_free_manifest_means_kwargs(2),
+            **diagonal_manifest_var_kwargs(2),
+            **diagonal_t0_var_kwargs(3),
         )
         result = check_t_rule(spec, T=50)
         # With T=50: moments = 2 + 3 + 49*2 = 103, should be enough
@@ -210,12 +226,8 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=2,
             n_manifest=3,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.eye(3, 2),  # fixed
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(2, 3),
         )
         counts = count_free_params(spec)
         assert "lambda_free" not in counts
@@ -227,12 +239,17 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=2,
             n_manifest=4,
-            drift="free",
-            diffusion="diag",
-            lambda_mat="free",
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            lambda_mat=jnp.eye(4, 2),
+            lambda_mask=np.array(
+                [
+                    [False, False],
+                    [False, False],
+                    [True, True],
+                    [True, True],
+                ],
+                dtype=bool,
+            ),
+            **_diagonal_structure_kwargs(2, 4),
         )
         counts = count_free_params(spec)
         # (4 - 2) * 2 = 4 free loadings
@@ -245,12 +262,8 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.eye(3),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(3, 3),
         )
         counts = count_free_params(spec)
         assert counts["drift_diag_pop"] == 3
@@ -263,12 +276,8 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.eye(1),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(1, 1),
             manifest_dists=[DistributionFamily.STUDENT_T],
         )
         counts = count_free_params(spec)
@@ -281,12 +290,8 @@ class TestTRule:
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=2,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.eye(2, 1),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(1, 2),
             manifest_dists=[
                 DistributionFamily.GAUSSIAN,
                 DistributionFamily.STUDENT_T,
@@ -360,7 +365,7 @@ class TestSimulateSSM:
             t0_chol=jnp.eye(n_latent) * 0.1,
             times=jnp.linspace(0, 5, T),
             rng_key=random.PRNGKey(2),
-            manifest_dist="poisson",
+            manifest_dists=["poisson"],
         )
 
         assert y.shape == (T, n_manifest)
@@ -423,9 +428,9 @@ class TestOutputSensitivity:
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             manifest_means=jnp.zeros(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
             t0_means=jnp.zeros(1),
-            t0_var=jnp.eye(1),
+            **diagonal_t0_var_kwargs(1),
         )
         priors = SSMPriors(
             drift_diag={"mu": -0.5, "sigma": 0.3},
@@ -439,7 +444,7 @@ class TestOutputSensitivity:
         result = output_sensitivity_analysis(model, times, n_draws=5, seed=42)
 
         assert result.n_parameters > 0
-        assert result.n_observations == 2 * T * 1  # 2*T*D for mean + variance
+        assert result.n_observations == (3 * T) - 1
         assert result.n_draws == 5
         assert len(result.singular_values) > 0
         assert result.condition_number > 0
@@ -480,12 +485,8 @@ class TestOutputSensitivity:
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=2,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.ones((2, 1), dtype=jnp.float32),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(1, 2),
             manifest_dists=[
                 DistributionFamily.NEGATIVE_BINOMIAL,
                 DistributionFamily.GAUSSIAN,
@@ -506,7 +507,7 @@ class TestOutputSensitivity:
         )
         model = SSMModel(spec, priors, n_particles=50, likelihood="particle")
         model.observation_support = _make_interval_support_runtime(
-            spec.manifest_names,
+            _require_manifest_names(spec.manifest_names),
             summary_operators=["sum", "mean"],
         )
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
@@ -528,7 +529,7 @@ class TestOutputSensitivity:
         )
 
         assert result.n_draws >= 1
-        assert result.n_observations == 8
+        assert result.n_observations == 14
         assert len(result.singular_values) > 0
         assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
         assert jnp.isfinite(result.condition_number)
@@ -540,12 +541,8 @@ class TestOutputSensitivity:
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=2,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.ones((2, 1), dtype=jnp.float32),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(1, 2),
             manifest_dists=[
                 DistributionFamily.ORDERED_LOGISTIC,
                 DistributionFamily.CATEGORICAL,
@@ -591,7 +588,7 @@ class TestOutputSensitivity:
         )
 
         assert result.n_draws >= 1
-        assert result.n_observations == 2 * times.shape[0] * spec.n_manifest
+        assert result.n_observations == 50
         assert len(result.singular_values) > 0
         assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
         assert jnp.isfinite(result.condition_number)
@@ -603,12 +600,8 @@ class TestOutputSensitivity:
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.ones((1, 1), dtype=jnp.float32),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(1, 1),
             manifest_dists=[DistributionFamily.GAUSSIAN],
             manifest_names=["score_std"],
         )
@@ -621,7 +614,7 @@ class TestOutputSensitivity:
         )
         model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
         model.observation_support = _make_interval_support_runtime(
-            spec.manifest_names,
+            _require_manifest_names(spec.manifest_names),
             summary_operators=["std"],
         )
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
@@ -643,7 +636,7 @@ class TestOutputSensitivity:
         )
 
         assert result.n_draws >= 1
-        assert result.n_observations == 4
+        assert result.n_observations == 5
         assert len(result.singular_values) > 0
         assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
         assert jnp.isfinite(result.condition_number)
@@ -658,12 +651,8 @@ class TestOutputSensitivity:
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.ones((1, 1), dtype=jnp.float32),
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(1, 1),
             manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
             manifest_links=[LinkFunction.CUMULATIVE_LOGIT],
             manifest_level_counts=[3],
@@ -680,7 +669,7 @@ class TestOutputSensitivity:
         )
         model = SSMModel(spec, priors, n_particles=50, likelihood="particle")
         model.observation_support = _make_interval_support_runtime(
-            spec.manifest_names,
+            _require_manifest_names(spec.manifest_names),
             summary_operators=["mean"],
         )
 
@@ -701,10 +690,11 @@ class TestOutputSensitivity:
         times = jnp.arange(6, dtype=jnp.float32)
         context = pid.get_stage4b_sweep_context(model)
         real_jacobian = context.jacobian_fn
+        output_dim = int(context.predict_moments_fn(jnp.ones(context.flat_dim), times).shape[0])
 
         def fake_jacobian(z_flat, time_grid):
             if z_flat[0] < 0:
-                return jnp.full((2 * time_grid.shape[0], context.flat_dim), jnp.nan)
+                return jnp.full((output_dim, context.flat_dim), jnp.nan)
             return real_jacobian(z_flat, time_grid)
 
         object.__setattr__(context, "jacobian_fn", fake_jacobian)
@@ -749,7 +739,7 @@ class TestOutputSensitivity:
             seed=7,
         )
 
-        assert result.n_observations == 2 * 3
+        assert result.n_observations == 7
 
     def test_output_sensitivity_exposes_interpretable_parameter_names(self):
         """Sensitivity rows should carry semantic names resolved from bindings or spec metadata."""
@@ -758,13 +748,8 @@ class TestOutputSensitivity:
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift="free",
-            diffusion="diag",
             lambda_mat=jnp.eye(1),
-            manifest_means=None,
-            manifest_var="diag",
-            t0_means="free",
-            t0_var="diag",
+            **_diagonal_structure_kwargs(1, 1),
             latent_names=["mood"],
             manifest_names=["heart_rate"],
         )
@@ -1038,9 +1023,9 @@ class TestSBCCheck:
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             manifest_means=jnp.zeros(1),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(1),
             t0_means=jnp.zeros(1),
-            t0_var=jnp.eye(1),
+            **diagonal_t0_var_kwargs(1),
         )
         priors = SSMPriors(
             drift_diag={"mu": -0.5, "sigma": 0.3},
@@ -1176,9 +1161,9 @@ class TestSimulateSSMRecovery:
             n_manifest=n_manifest,
             lambda_mat=lambda_mat,
             manifest_means=jnp.zeros(n_manifest),
-            diffusion="diag",
+            **diagonal_diffusion_kwargs(n_latent),
             t0_means=jnp.zeros(n_latent),
-            t0_var=jnp.eye(n_latent),
+            **diagonal_t0_var_kwargs(n_latent),
         )
 
         return {
