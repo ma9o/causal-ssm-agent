@@ -33,10 +33,12 @@ from causal_ssm_agent.models.ssm.model import (
     zero_square_mask,
     zero_vector_mask,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 __all__ = [
     # Discretization
     "solve_lyapunov",
+    "SSMStructureRuntime",
     "compute_asymptotic_diffusion",
     "compute_discrete_diffusion",
     "compute_discrete_cint",

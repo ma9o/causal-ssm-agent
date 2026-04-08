@@ -30,6 +30,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     assemble_extra_params_from_registry,
     build_site_registry,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
@@ -79,12 +80,23 @@ def _discover_sites(model, observations, times, rng_key, likelihood_backend, rep
 
 
 def _assemble_deterministics(
-    samples: dict[str, jnp.ndarray], spec: SSMSpec, *, registry=None
+    samples: dict[str, jnp.ndarray],
+    spec: SSMSpec,
+    *,
+    registry=None,
+    structure_runtime: SSMStructureRuntime | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Thin wrapper over the registry-driven deterministic assembly path."""
+    if structure_runtime is None:
+        structure_runtime = SSMStructureRuntime(spec)
     if registry is None:
-        registry = build_site_registry(spec)
-    return assemble_deterministics_from_registry(samples, spec, registry)
+        registry = build_site_registry(spec, structure_runtime)
+    return assemble_deterministics_from_registry(
+        samples,
+        spec,
+        registry,
+        structure_runtime=structure_runtime,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -171,67 +183,68 @@ def _build_original_sample_resolver(
 def _assemble_single_deterministics(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
+    *,
+    structure_runtime: SSMStructureRuntime | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Assemble deterministic sites for a single constrained parameter draw."""
     if not samples:
         return {}
     det = _assemble_deterministics(
-        {name: value[None, ...] for name, value in samples.items()}, spec
+        {name: value[None, ...] for name, value in samples.items()},
+        spec,
+        structure_runtime=structure_runtime,
     )
     return {name: value[0] for name, value in det.items()}
+
+
+def _deterministics_to_likelihood_inputs(
+    det: dict[str, jnp.ndarray],
+) -> tuple[CTParams, MeasurementParams, InitialStateParams]:
+    """Convert one deterministic draw into backend parameter dataclasses."""
+    diffusion_chol = det["diffusion"]
+    return (
+        CTParams(
+            drift=det["drift"],
+            diffusion_cov=diffusion_chol @ diffusion_chol.T,
+            cint=det["cint"],
+        ),
+        MeasurementParams(
+            lambda_mat=det["lambda"],
+            manifest_means=det["manifest_means"],
+            manifest_cov=det["manifest_cov"],
+        ),
+        InitialStateParams(
+            mean=det["t0_means"],
+            cov=det["t0_cov"],
+        ),
+    )
 
 
 def _assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
     registry=None,
+    structure_runtime: SSMStructureRuntime | None = None,
 ) -> tuple[CTParams, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
     """Build backend-ready parameter tuples from constrained sample sites."""
-    det = _assemble_single_deterministics(samples, spec)
-    n_m = spec.n_manifest
+    if structure_runtime is None:
+        structure_runtime = SSMStructureRuntime(spec)
+    det = _assemble_single_deterministics(
+        samples,
+        spec,
+        structure_runtime=structure_runtime,
+    )
+    ct_params, measurement_params, initial_state = _deterministics_to_likelihood_inputs(det)
 
-    drift = det.get("drift")
-    if drift is None:
-        drift = spec.drift
-
-    diffusion_chol = det.get("diffusion")
-    if diffusion_chol is None:
-        diffusion_chol = spec.diffusion_chol
-    diffusion_cov = diffusion_chol @ diffusion_chol.T
-
-    cint = det.get("cint")
-    if cint is None:
-        cint = spec.cint
-
-    lambda_mat = det.get("lambda")
-    if lambda_mat is None:
-        lambda_mat = spec.lambda_mat
-
-    manifest_means = det.get("manifest_means")
-    if manifest_means is None:
-        manifest_means = spec.manifest_means
-
-    manifest_cov = det.get("manifest_cov", jnp.eye(n_m))
-
-    t0_means = det.get("t0_means")
-    if t0_means is None:
-        t0_means = spec.t0_means
-
-    t0_cov = det.get("t0_cov")
-    if t0_cov is None:
-        t0_cov = spec.t0_chol @ spec.t0_chol.T
-
-    runtime_registry = registry if registry is not None else build_site_registry(spec)
+    runtime_registry = (
+        registry if registry is not None else build_site_registry(spec, structure_runtime)
+    )
     extra_params = assemble_extra_params_from_registry(spec, samples, runtime_registry)
 
     return (
-        CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint),
-        MeasurementParams(
-            lambda_mat=lambda_mat,
-            manifest_means=manifest_means,
-            manifest_cov=manifest_cov,
-        ),
-        InitialStateParams(mean=t0_means, cov=t0_cov),
+        ct_params,
+        measurement_params,
+        initial_state,
         extra_params or None,
     )
 
@@ -279,7 +292,14 @@ def extract_constrained_samples(
         samples[name] = jax.vmap(_extract_one)(particles)
 
     if reparam is None:
-        det_samples = _assemble_deterministics(samples, spec)
+        structure_runtime = (
+            model._structure_runtime if model is not None else SSMStructureRuntime(spec)
+        )
+        det_samples = _assemble_deterministics(
+            samples,
+            spec,
+            structure_runtime=structure_runtime,
+        )
         samples.update(det_samples)
         return samples
 
@@ -304,7 +324,12 @@ def extract_constrained_samples(
     original_samples = sample_resolver(samples)
 
     # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
-    det_samples = _assemble_deterministics(original_samples, spec)
+    structure_runtime = model._structure_runtime if model is not None else SSMStructureRuntime(spec)
+    det_samples = _assemble_deterministics(
+        original_samples,
+        spec,
+        structure_runtime=structure_runtime,
+    )
     original_samples.update(det_samples)
     return original_samples
 
@@ -336,7 +361,7 @@ def _build_eval_fns(
         times=times,
         reparam=reparam,
     )
-    runtime_registry = build_site_registry(model.spec, model._assembler)
+    runtime_registry = build_site_registry(model.spec, model._structure_runtime)
     time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
 
     def _constrain(z):
@@ -351,6 +376,7 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
+            structure_runtime=model._structure_runtime,
         )
         lnc = likelihood_backend.compute_log_likelihood(
             ct_params,
@@ -384,6 +410,7 @@ def _build_runtime_eval_fns_from_registry(
     registry,
     unravel_fn,
     transforms,
+    structure_runtime,
     likelihood_backend,
 ):
     """Build compile-stable evaluators that do not close over traced model state.
@@ -405,6 +432,7 @@ def _build_runtime_eval_fns_from_registry(
             con,
             spec,
             registry=registry,
+            structure_runtime=structure_runtime,
         )
         time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
         lnc = likelihood_backend.compute_log_likelihood(

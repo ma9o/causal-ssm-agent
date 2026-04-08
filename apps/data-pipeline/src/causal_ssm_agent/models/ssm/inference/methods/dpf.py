@@ -918,13 +918,14 @@ def fit_dpf(
 
     manifest_dists = get_per_channel_manifest(spec)
     manifest_links = get_per_channel_links(spec)
+    structure_runtime = model._structure_runtime
 
     # Phase 1: Train proposal network
     # Extract measurement model from spec
     with jax.ensure_compile_time_eval():
-        H_train = spec.lambda_mat
-        d_train = spec.manifest_means
-        R_train = spec.manifest_chol @ spec.manifest_chol.T
+        H_train = structure_runtime.lambda_template
+        d_train = structure_runtime.manifest_means_template
+        R_train = structure_runtime.manifest_cov_template
 
     logger.info("DPF: Phase 1 - Training proposal network...")
     rng_key, train_key = random.split(rng_key)

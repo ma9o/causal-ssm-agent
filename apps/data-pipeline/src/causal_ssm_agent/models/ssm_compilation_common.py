@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from causal_ssm_agent.distributions import (
     PriorDistributionFamily,
     PriorRuntimeKind,
@@ -19,6 +17,7 @@ from causal_ssm_agent.models.ssm.parameter_names import (
 from causal_ssm_agent.models.ssm.parameter_names import (
     split_compound_name as _split_compound_name,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
@@ -177,34 +176,31 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
     if ssm_spec is None:
         return None
 
+    structure_runtime = SSMStructureRuntime(ssm_spec)
+
     if attr == "drift_diag":
-        return int(np.asarray(ssm_spec.drift_diag_mask).sum())
+        return structure_runtime.n_drift_diag
 
     if attr == "diffusion_diag":
-        return int(np.asarray(np.diag(ssm_spec.diffusion_chol_mask)).sum())
+        return structure_runtime.n_diffusion_diag
 
     if attr == "drift_offdiag":
-        count = 0
-        for effect_idx in range(ssm_spec.n_latent):
-            for cause_idx in range(ssm_spec.n_latent):
-                if effect_idx != cause_idx and ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]:
-                    count += 1
-        return count
+        return structure_runtime.n_drift_offdiag
 
     if attr == "lambda_free":
-        return int(np.asarray(ssm_spec.lambda_mask).sum())
+        return structure_runtime.n_lambda_free
 
     if attr == "manifest_var_diag":
-        return int(np.asarray(ssm_spec.manifest_chol_diag_mask).sum())
+        return structure_runtime.n_manifest_var_diag
 
     if attr == "diffusion_offdiag":
-        return int(np.tril(np.asarray(ssm_spec.diffusion_chol_mask), k=-1).sum())
+        return structure_runtime.n_diffusion_lower
 
     if attr == "t0_var_diag":
-        return int(np.asarray(ssm_spec.t0_chol_diag_mask).sum())
+        return structure_runtime.n_t0_diag
 
     if attr == "t0_var_offdiag":
-        return int(np.asarray(ssm_spec.t0_correlation_mask).sum())
+        return structure_runtime.n_t0_correlation
 
     return None
 

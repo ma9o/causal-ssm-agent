@@ -31,7 +31,6 @@ from jax import lax
 from pydantic import BaseModel
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.assembler import SSMAssembler, lower_triangle_positions
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     CHOL_JITTER,
@@ -48,6 +47,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     build_site_runtime_bundle,
     sample_prior_unconstrained,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
@@ -76,6 +76,7 @@ class Stage4bSweepContext:
 
     cache_key: tuple[str, ...]
     spec: SSMSpec
+    structure_runtime: SSMStructureRuntime
     site_runtime: SiteRuntimeBundle
     predict_moments_fn: Callable
     jacobian_fn: Callable
@@ -192,13 +193,14 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
         _STAGE4B_SWEEP_CONTEXT_CACHE.move_to_end(cache_key)
         return cached
 
-    site_runtime = build_site_runtime_bundle(model.spec, model._assembler)
+    site_runtime = build_site_runtime_bundle(model.spec, model._structure_runtime)
     backend = model.make_likelihood_backend()
     log_lik_fn, log_prior_unc_fn = _build_runtime_eval_fns_from_registry(
         model.spec,
         site_runtime.registry,
         site_runtime.unravel_fn,
         site_runtime.transforms,
+        model._structure_runtime,
         backend,
     )
 
@@ -209,6 +211,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
             site_runtime.transforms,
             model.spec,
             times,
+            structure_runtime=model._structure_runtime,
             observation_support=getattr(model, "observation_support", None),
             registry=site_runtime.registry,
         )
@@ -216,6 +219,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
     context = Stage4bSweepContext(
         cache_key=cache_key,
         spec=model.spec,
+        structure_runtime=model._structure_runtime,
         site_runtime=site_runtime,
         predict_moments_fn=_predict,
         jacobian_fn=jax.jit(jax.jacfwd(_predict, argnums=0)),
@@ -530,16 +534,20 @@ def _assemble_sensitivity_measurement_state(
     transforms,
     spec,
     *,
-    registry=None,
+    structure_runtime: SSMStructureRuntime,
+    registry,
 ):
     """Assemble deterministic matrices and observation hyperparameters for one draw."""
-    if registry is None:
-        registry = build_site_registry(spec)
     unc_dict = unravel_fn(z_flat)
     con_dict = {name: transforms[name](unc_dict[name]) for name in unc_dict}
 
     batched = {k: v[None, ...] for k, v in con_dict.items()}
-    det = assemble_deterministics_from_registry(batched, spec, registry)
+    det = assemble_deterministics_from_registry(
+        batched,
+        spec,
+        registry,
+        structure_runtime=structure_runtime,
+    )
     det = {k: v[0] for k, v in det.items()}
     from causal_ssm_agent.models.ssm.model import assemble_sampled_extra_params
 
@@ -1447,6 +1455,7 @@ def _predict_observation_components(
     spec,
     times: jnp.ndarray,
     *,
+    structure_runtime: SSMStructureRuntime,
     observation_support=None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Predict emitted-observation mean, covariance, lagged covariance, noise scale, and mask."""
@@ -1460,11 +1469,7 @@ def _predict_observation_components(
     manifest_cov = det.get("manifest_cov", jnp.eye(n_m))
     manifest_means = det.get("manifest_means", jnp.zeros(n_m))
 
-    lambda_val = det.get("lambda")
-    if lambda_val is None:
-        lambda_val = (
-            spec.lambda_mat if isinstance(spec.lambda_mat, jnp.ndarray) else jnp.eye(n_m, n_l)
-        )
+    lambda_val = det.get("lambda", structure_runtime.lambda_template)
 
     cint = det.get("cint", jnp.zeros(n_l))
     measurement_semantics = _build_sensitivity_measurement_semantics(
@@ -1646,8 +1651,9 @@ def _predict_observation_moments(
     spec,
     times,
     *,
+    structure_runtime: SSMStructureRuntime,
     observation_support=None,
-    registry=None,
+    registry,
 ):
     """Predicted observation-space moment summary from unconstrained params.
 
@@ -1662,6 +1668,7 @@ def _predict_observation_moments(
         unravel_fn,
         transforms,
         spec,
+        structure_runtime=structure_runtime,
         registry=registry,
     )
     emitted_means, emitted_same_covs, emitted_lag1_covs, _emitted_obs_noise_sd, _semantic_mask = (
@@ -1670,6 +1677,7 @@ def _predict_observation_moments(
             extra_params,
             spec,
             times,
+            structure_runtime=structure_runtime,
             observation_support=observation_support,
         )
     )
@@ -1849,44 +1857,44 @@ def _fallback_interpretable_parameter_name(
     site_name: str,
     flat_index: int,
     *,
-    assembler: SSMAssembler,
+    structure_runtime: SSMStructureRuntime,
 ) -> str:
     """Resolve a best-effort semantic alias for one scalar sample-site element."""
     latent_names = _axis_names(spec.latent_names, expected=spec.n_latent, prefix="latent")
     manifest_names = _axis_names(spec.manifest_names, expected=spec.n_manifest, prefix="manifest")
 
-    if site_name == "drift_diag_pop" and flat_index < len(assembler.drift_diag_positions):
-        latent_idx = assembler.drift_diag_positions[flat_index]
+    if site_name == "drift_diag_pop" and flat_index < structure_runtime.n_drift_diag:
+        latent_idx = structure_runtime.drift_diag_positions[flat_index]
         return f"rho_{latent_names[latent_idx]}"
-    if site_name == "drift_offdiag_pop" and flat_index < len(assembler.offdiag_positions):
-        effect_idx, cause_idx = assembler.offdiag_positions[flat_index]
+    if site_name == "drift_offdiag_pop" and flat_index < structure_runtime.n_drift_offdiag:
+        effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
         return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
-    if site_name == "diffusion_diag_pop" and flat_index < len(latent_names):
-        return f"sigma_{latent_names[flat_index]}"
-    if site_name == "diffusion_lower":
-        positions = lower_triangle_positions(spec.n_latent)
-        if flat_index < len(positions):
-            row, col = positions[flat_index]
-            return f"cor_{latent_names[col]}_{latent_names[row]}"
-    if site_name == "cint_pop" and flat_index < len(assembler.cint_free_positions):
-        latent_idx = assembler.cint_free_positions[flat_index]
+    if site_name == "diffusion_diag_pop" and flat_index < structure_runtime.n_diffusion_diag:
+        latent_idx = structure_runtime.diffusion_diag_positions[flat_index]
+        return f"sigma_{latent_names[latent_idx]}"
+    if site_name == "diffusion_lower" and flat_index < structure_runtime.n_diffusion_lower:
+        row, col = structure_runtime.diffusion_lower_positions[flat_index]
+        return f"cor_{latent_names[col]}_{latent_names[row]}"
+    if site_name == "cint_pop" and flat_index < structure_runtime.n_cint:
+        latent_idx = structure_runtime.cint_free_positions[flat_index]
         return f"cint_{latent_names[latent_idx]}"
-    if site_name == "lambda_free" and flat_index < len(assembler.lambda_free_positions):
-        manifest_idx, latent_idx = assembler.lambda_free_positions[flat_index]
+    if site_name == "lambda_free" and flat_index < structure_runtime.n_lambda_free:
+        manifest_idx, latent_idx = structure_runtime.lambda_free_positions[flat_index]
         return f"lambda_{manifest_names[manifest_idx]}_{latent_names[latent_idx]}"
-    if site_name == "manifest_means" and flat_index < len(assembler.manifest_means_free_positions):
-        manifest_idx = assembler.manifest_means_free_positions[flat_index]
+    if site_name == "manifest_means" and flat_index < structure_runtime.n_manifest_means:
+        manifest_idx = structure_runtime.manifest_means_free_positions[flat_index]
         return f"manifest_mean_{manifest_names[manifest_idx]}"
-    if site_name == "manifest_var_diag" and flat_index < len(assembler.manifest_var_free_positions):
-        manifest_idx = assembler.manifest_var_free_positions[flat_index]
+    if site_name == "manifest_var_diag" and flat_index < structure_runtime.n_manifest_var_diag:
+        manifest_idx = structure_runtime.manifest_var_free_positions[flat_index]
         return f"obs_sd_{manifest_names[manifest_idx]}"
-    if site_name == "t0_means_pop" and flat_index < len(assembler.t0_means_free_positions):
-        latent_idx = assembler.t0_means_free_positions[flat_index]
+    if site_name == "t0_means_pop" and flat_index < structure_runtime.n_t0_means:
+        latent_idx = structure_runtime.t0_means_free_positions[flat_index]
         return f"t0_mean_{latent_names[latent_idx]}"
-    if site_name == "t0_var_diag" and flat_index < len(latent_names):
-        return f"t0_sd_{latent_names[flat_index]}"
-    if site_name == "t0_var_lower" and flat_index < len(assembler.t0_correlation_positions):
-        row, col = assembler.t0_correlation_positions[flat_index]
+    if site_name == "t0_var_diag" and flat_index < structure_runtime.n_t0_diag:
+        latent_idx = structure_runtime.t0_diag_free_positions[flat_index]
+        return f"t0_sd_{latent_names[latent_idx]}"
+    if site_name == "t0_var_lower" and flat_index < structure_runtime.n_t0_correlation:
+        row, col = structure_runtime.t0_correlation_positions[flat_index]
         return f"cor0_{latent_names[col]}_{latent_names[row]}"
     return site_name if flat_index == 0 else f"{site_name}[{flat_index}]"
 
@@ -1897,9 +1905,9 @@ def _interpretable_parameter_name_map(
 ) -> dict[str, str]:
     """Resolve semantic display names for all scalar Stage 4b parameters."""
     binding_index = _binding_index_for_model(model)
-    assembler = getattr(model, "_assembler", None)
-    if not isinstance(assembler, SSMAssembler):
-        assembler = SSMAssembler(model.spec)
+    structure_runtime = getattr(model, "_structure_runtime", None)
+    if not isinstance(structure_runtime, SSMStructureRuntime):
+        structure_runtime = SSMStructureRuntime(model.spec)
 
     resolved: dict[str, str] = {}
     for scalar_name in scalar_names:
@@ -1910,7 +1918,7 @@ def _interpretable_parameter_name_map(
                 model.spec,
                 site_name,
                 flat_index,
-                assembler=assembler,
+                structure_runtime=structure_runtime,
             )
         resolved[scalar_name] = interpretable
     return resolved
@@ -1943,7 +1951,20 @@ def output_sensitivity_analysis(
     """
     _validate_output_sensitivity_supported(model)
     rng_key = random.PRNGKey(seed)
-    context = sweep_context or get_stage4b_sweep_context(model)
+    if sweep_context is not None:
+        context = sweep_context
+    else:
+        cached_context = get_stage4b_sweep_context(model)
+        context = Stage4bSweepContext(
+            cache_key=cached_context.cache_key,
+            spec=cached_context.spec,
+            structure_runtime=cached_context.structure_runtime,
+            site_runtime=cached_context.site_runtime,
+            predict_moments_fn=cached_context.predict_moments_fn,
+            jacobian_fn=jax.jit(jax.jacfwd(cached_context.predict_moments_fn, argnums=0)),
+            log_lik_fn=cached_context.log_lik_fn,
+            log_prior_unc_fn=cached_context.log_prior_unc_fn,
+        )
 
     # 1. Reuse topology-dependent registry metadata and rebuild only prior values.
     P = context.flat_dim
@@ -1986,6 +2007,7 @@ def output_sensitivity_analysis(
             context.unravel_fn,
             context.transforms,
             context.spec,
+            structure_runtime=context.structure_runtime,
             registry=context.registry,
         )
         _projected_means, _same_covs, _lag1_covs, obs_noise_sd, _semantic = (
@@ -1994,6 +2016,7 @@ def output_sensitivity_analysis(
                 extra_params,
                 context.spec,
                 times,
+                structure_runtime=context.structure_runtime,
                 observation_support=getattr(model, "observation_support", None),
             )
         )
@@ -2507,6 +2530,7 @@ def sbc_check(
         site_runtime.registry,
         site_runtime.unravel_fn,
         site_runtime.transforms,
+        model._structure_runtime,
         backend,
     )
 

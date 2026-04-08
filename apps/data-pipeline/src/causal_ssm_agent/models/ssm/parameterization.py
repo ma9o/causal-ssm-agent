@@ -37,8 +37,8 @@ from causal_ssm_agent.models.ssm.covariance_utils import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.assembler import SSMAssembler
     from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 
 # ---------------------------------------------------------------------------
@@ -272,183 +272,158 @@ def _site(
 
 def build_site_registry(
     spec: SSMSpec,
-    assembler: SSMAssembler | None = None,
+    structure_runtime: SSMStructureRuntime | None = None,
 ) -> list[SiteDescriptor]:
     """Enumerate all sample sites deterministically from *spec*.
 
     No model tracing needed.  The returned list is sorted by site name
     (matching JAX pytree dict-key ordering used by ``ravel_pytree``).
     """
-    from causal_ssm_agent.models.ssm.assembler import SSMAssembler as Asm
+    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
     from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
-    if assembler is None:
-        assembler = Asm(spec)
+    if structure_runtime is None:
+        structure_runtime = SSMStructureRuntime(spec)
 
     sites: list[SiteDescriptor] = []
     n_m = spec.n_manifest
 
     # -- Core parameter sites (mirroring SSMModel._sample_* methods) --------
-
-    n_drift_diag = len(assembler.drift_diag_positions)
-    if n_drift_diag > 0:
+    core_site_specs = (
+        (
+            "drift_diag_pop",
+            "n_drift_diag",
+            SupportClass.REAL,
+            "drift",
+            SiteKind.DRIFT_DIAG,
+            "drift",
+            "drift",
+            "drift_diag",
+        ),
+        (
+            "drift_offdiag_pop",
+            "n_drift_offdiag",
+            SupportClass.REAL,
+            "drift",
+            SiteKind.DRIFT_OFFDIAG,
+            "drift",
+            "drift",
+            "drift_offdiag",
+        ),
+        (
+            "diffusion_diag_pop",
+            "n_diffusion_diag",
+            SupportClass.POSITIVE,
+            "diffusion",
+            SiteKind.DIFFUSION_DIAG,
+            "diffusion",
+            "diffusion_chol",
+            "diffusion_diag",
+        ),
+        (
+            "diffusion_lower",
+            "n_diffusion_lower",
+            SupportClass.REAL,
+            "diffusion",
+            SiteKind.DIFFUSION_LOWER,
+            "diffusion",
+            "diffusion_chol",
+            "diffusion_offdiag",
+        ),
+        (
+            "cint_pop",
+            "n_cint",
+            SupportClass.REAL,
+            "cint",
+            SiteKind.CINT,
+            "cint",
+            "cint",
+            "cint",
+        ),
+        (
+            "lambda_free",
+            "n_lambda_free",
+            SupportClass.REAL,
+            "lambda",
+            SiteKind.LOADING,
+            "lambda",
+            "lambda_mat",
+            "lambda_free",
+        ),
+        (
+            "manifest_means",
+            "n_manifest_means",
+            SupportClass.REAL,
+            "manifest",
+            SiteKind.MANIFEST_MEANS,
+            "manifest_means",
+            "manifest_means",
+            "manifest_means",
+        ),
+        (
+            "manifest_var_diag",
+            "n_manifest_var_diag",
+            SupportClass.POSITIVE,
+            "manifest",
+            SiteKind.MANIFEST_VAR_DIAG,
+            "manifest_cov",
+            "manifest_chol",
+            "manifest_var_diag",
+        ),
+        (
+            "t0_means_pop",
+            "n_t0_means",
+            SupportClass.REAL,
+            "t0",
+            SiteKind.T0_MEANS,
+            "t0_means",
+            "t0_means",
+            "t0_means",
+        ),
+        (
+            "t0_var_diag",
+            "n_t0_diag",
+            SupportClass.POSITIVE,
+            "t0",
+            SiteKind.T0_VAR_DIAG,
+            "t0_cov",
+            "t0_chol",
+            "t0_var_diag",
+        ),
+        (
+            "t0_var_lower",
+            "n_t0_correlation",
+            SupportClass.CORRELATION,
+            "t0",
+            SiteKind.T0_VAR_LOWER,
+            "t0_cov",
+            "t0_chol",
+            "t0_var_offdiag",
+        ),
+    )
+    for (
+        site_name,
+        count_attr,
+        support,
+        assembly_group,
+        site_kind,
+        deterministic_name,
+        fixed_spec_field,
+        priors_field,
+    ) in core_site_specs:
+        count = getattr(structure_runtime, count_attr)
+        if count <= 0:
+            continue
         sites.append(
             _site(
-                "drift_diag_pop",
-                (n_drift_diag,),
-                SupportClass.REAL,
-                "drift",
-                SiteKind.DRIFT_DIAG,
-                deterministic_name="drift",
-                fixed_spec_field="drift",
-                priors_field="drift_diag",
-            )
-        )
-    n_offdiag = len(assembler.offdiag_positions)
-    if n_offdiag > 0:
-        sites.append(
-            _site(
-                "drift_offdiag_pop",
-                (n_offdiag,),
-                SupportClass.REAL,
-                "drift",
-                SiteKind.DRIFT_OFFDIAG,
-                deterministic_name="drift",
-                fixed_spec_field="drift",
-                priors_field="drift_offdiag",
-            )
-        )
-
-    n_diff_diag = len(assembler.diffusion_diag_positions)
-    if n_diff_diag > 0:
-        sites.append(
-            _site(
-                "diffusion_diag_pop",
-                (n_diff_diag,),
-                SupportClass.POSITIVE,
-                "diffusion",
-                SiteKind.DIFFUSION_DIAG,
-                deterministic_name="diffusion",
-                fixed_spec_field="diffusion_chol",
-                priors_field="diffusion_diag",
-            )
-        )
-    n_diff_lower = len(assembler.diffusion_lower_positions)
-    if n_diff_lower > 0:
-        sites.append(
-            _site(
-                "diffusion_lower",
-                (n_diff_lower,),
-                SupportClass.REAL,
-                "diffusion",
-                SiteKind.DIFFUSION_LOWER,
-                deterministic_name="diffusion",
-                fixed_spec_field="diffusion_chol",
-                priors_field="diffusion_offdiag",
-            )
-        )
-
-    n_cint = len(assembler.cint_free_positions)
-    if n_cint > 0:
-        sites.append(
-            _site(
-                "cint_pop",
-                (n_cint,),
-                SupportClass.REAL,
-                "cint",
-                SiteKind.CINT,
-                deterministic_name="cint",
-                fixed_spec_field="cint",
-                priors_field="cint",
-            )
-        )
-
-    n_free = len(assembler.lambda_free_positions)
-    if n_free > 0:
-        sites.append(
-            _site(
-                "lambda_free",
-                (n_free,),
-                SupportClass.REAL,
-                "lambda",
-                SiteKind.LOADING,
-                deterministic_name="lambda",
-                fixed_spec_field="lambda_mat",
-                priors_field="lambda_free",
-            )
-        )
-
-    n_manifest_means = len(assembler.manifest_means_free_positions)
-    if n_manifest_means > 0:
-        sites.append(
-            _site(
-                "manifest_means",
-                (n_manifest_means,),
-                SupportClass.REAL,
-                "manifest",
-                SiteKind.MANIFEST_MEANS,
-                deterministic_name="manifest_means",
-                fixed_spec_field="manifest_means",
-                priors_field="manifest_means",
-            )
-        )
-
-    n_free = len(assembler.manifest_var_free_positions)
-    if n_free > 0:
-        sites.append(
-            _site(
-                "manifest_var_diag",
-                (n_free,),
-                SupportClass.POSITIVE,
-                "manifest",
-                SiteKind.MANIFEST_VAR_DIAG,
-                deterministic_name="manifest_cov",
-                fixed_spec_field="manifest_chol",
-                priors_field="manifest_var_diag",
-            )
-        )
-
-    n_t0_means = len(assembler.t0_means_free_positions)
-    if n_t0_means > 0:
-        sites.append(
-            _site(
-                "t0_means_pop",
-                (n_t0_means,),
-                SupportClass.REAL,
-                "t0",
-                SiteKind.T0_MEANS,
-                deterministic_name="t0_means",
-                fixed_spec_field="t0_means",
-                priors_field="t0_means",
-            )
-        )
-
-    n_t0_diag = len(assembler.t0_diag_free_positions)
-    if n_t0_diag > 0:
-        sites.append(
-            _site(
-                "t0_var_diag",
-                (n_t0_diag,),
-                SupportClass.POSITIVE,
-                "t0",
-                SiteKind.T0_VAR_DIAG,
-                deterministic_name="t0_cov",
-                fixed_spec_field="t0_chol",
-                priors_field="t0_var_diag",
-            )
-        )
-    n_t0_lower = len(assembler.t0_correlation_positions)
-    if n_t0_lower > 0:
-        sites.append(
-            _site(
-                "t0_var_lower",
-                (n_t0_lower,),
-                SupportClass.CORRELATION,
-                "t0",
-                SiteKind.T0_VAR_LOWER,
-                deterministic_name="t0_cov",
-                fixed_spec_field="t0_chol",
-                priors_field="t0_var_offdiag",
+                site_name,
+                (count,),
+                support,
+                assembly_group,
+                site_kind,
+                deterministic_name=deterministic_name,
+                fixed_spec_field=fixed_spec_field,
+                priors_field=priors_field,
             )
         )
 
@@ -616,10 +591,10 @@ def _build_site_runtime_bundle_from_registry(
 
 def build_site_runtime_bundle(
     spec: SSMSpec,
-    assembler: SSMAssembler | None = None,
+    structure_runtime: SSMStructureRuntime | None = None,
 ) -> SiteRuntimeBundle:
     """Build reusable topology-only runtime components from ``spec``."""
-    registry = build_site_registry(spec, assembler)
+    registry = build_site_registry(spec, structure_runtime)
     return _build_site_runtime_bundle_from_registry(registry)
 
 
@@ -671,15 +646,15 @@ def _assemble_diag_to_cov(
     site: SiteDescriptor | None,
     samples: dict[str, jnp.ndarray],
     fixed_chol: jnp.ndarray | None,
-    assembler: SSMAssembler | None,
+    structure_runtime: SSMStructureRuntime | None,
     n_draws: int,
     dim: int,
 ) -> jnp.ndarray | None:
     """Convert diagonal variance samples to full covariance, or broadcast fixed Cholesky."""
     if site is not None and site.name in samples:
         diag_samples = samples[site.name]
-        if assembler is not None:
-            chol = jax.vmap(assembler.assemble_manifest_chol)(diag_samples)
+        if structure_runtime is not None:
+            chol = jax.vmap(structure_runtime.assemble_manifest_chol)(diag_samples)
             return jax.vmap(lambda ch: ch @ ch.T)(chol)
         return jax.vmap(lambda d: jnp.diag(d**2))(diag_samples)
     if isinstance(fixed_chol, jnp.ndarray):
@@ -693,7 +668,7 @@ def _assemble_t0_cov(
     corr_site: SiteDescriptor | None,
     samples: dict[str, jnp.ndarray],
     fixed_chol: jnp.ndarray,
-    assembler: SSMAssembler,
+    structure_runtime: SSMStructureRuntime,
     n_draws: int,
     dim: int,
 ) -> jnp.ndarray | None:
@@ -710,7 +685,7 @@ def _assemble_t0_cov(
             diag_values: jnp.ndarray | None = None,
             corr_values: jnp.ndarray | None = None,
         ) -> jnp.ndarray:
-            raw_cov = assembler.assemble_t0_cov(diag_values, corr_values)
+            raw_cov = structure_runtime.assemble_t0_cov(diag_values, corr_values)
             stable_cov, _min_eig = stabilize_covariance_for_cholesky(
                 raw_cov,
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -732,15 +707,15 @@ def assemble_deterministics_from_registry(
     spec: SSMSpec,
     registry: list[SiteDescriptor],
     *,
-    assembler: SSMAssembler | None = None,
+    structure_runtime: SSMStructureRuntime | None = None,
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Assemble deterministic matrices using registry metadata as authority."""
-    from causal_ssm_agent.models.ssm.assembler import SSMAssembler as Asm
+    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
     n_draws = _resolve_num_draws(samples, n_draws)
-    if assembler is None:
-        assembler = Asm(spec)
+    if structure_runtime is None:
+        structure_runtime = SSMStructureRuntime(spec)
 
     by_kind = {site.site_kind: site for site in registry}
     det: dict[str, jnp.ndarray] = {}
@@ -760,18 +735,18 @@ def assemble_deterministics_from_registry(
     )
     if drift_diag_samples is not None or drift_offdiag_samples is not None:
         if drift_diag_samples is not None and drift_offdiag_samples is not None:
-            det["drift"] = jax.vmap(assembler.assemble_drift)(
+            det["drift"] = jax.vmap(structure_runtime.assemble_drift)(
                 drift_diag_samples,
                 drift_offdiag_samples,
             )
         elif drift_diag_samples is not None:
-            det["drift"] = jax.vmap(assembler.assemble_drift)(drift_diag_samples)
+            det["drift"] = jax.vmap(structure_runtime.assemble_drift)(drift_diag_samples)
         else:
-            det["drift"] = jax.vmap(lambda offdiag: assembler.assemble_drift(None, offdiag))(
-                drift_offdiag_samples
-            )
+            det["drift"] = jax.vmap(
+                lambda offdiag: structure_runtime.assemble_drift(None, offdiag)
+            )(drift_offdiag_samples)
     else:
-        det["drift"] = _broadcast_fixed(spec.drift, n_draws)
+        det["drift"] = _broadcast_fixed(structure_runtime.drift_template, n_draws)
 
     diffusion_diag_site = by_kind.get(SiteKind.DIFFUSION_DIAG)
     diffusion_lower_site = by_kind.get(SiteKind.DIFFUSION_LOWER)
@@ -787,48 +762,53 @@ def assemble_deterministics_from_registry(
     )
     if diffusion_diag_samples is not None or diffusion_lower_samples is not None:
         if diffusion_diag_samples is not None and diffusion_lower_samples is not None:
-            det["diffusion"] = jax.vmap(assembler.assemble_diffusion)(
+            det["diffusion"] = jax.vmap(structure_runtime.assemble_diffusion)(
                 diffusion_diag_samples,
                 diffusion_lower_samples,
             )
         elif diffusion_diag_samples is not None:
-            det["diffusion"] = jax.vmap(assembler.assemble_diffusion)(diffusion_diag_samples)
-        else:
-            det["diffusion"] = jax.vmap(lambda lower: assembler.assemble_diffusion(None, lower))(
-                diffusion_lower_samples
+            det["diffusion"] = jax.vmap(structure_runtime.assemble_diffusion)(
+                diffusion_diag_samples
             )
+        else:
+            det["diffusion"] = jax.vmap(
+                lambda lower: structure_runtime.assemble_diffusion(None, lower)
+            )(diffusion_lower_samples)
     else:
-        det["diffusion"] = _broadcast_fixed(spec.diffusion_chol, n_draws)
+        det["diffusion"] = _broadcast_fixed(structure_runtime.diffusion_chol_template, n_draws)
 
     cint_site = by_kind.get(SiteKind.CINT)
     if cint_site is not None and cint_site.name in samples:
-        det["cint"] = jax.vmap(assembler.assemble_cint)(samples[cint_site.name])
+        det["cint"] = jax.vmap(structure_runtime.assemble_cint)(samples[cint_site.name])
     else:
-        det["cint"] = _broadcast_fixed(spec.cint, n_draws)
+        det["cint"] = _broadcast_fixed(structure_runtime.cint_template, n_draws)
 
     loading_site = by_kind.get(SiteKind.LOADING)
     if (
         loading_site is not None
         and loading_site.name in samples
-        and len(assembler.lambda_free_positions) > 0
+        and structure_runtime.n_lambda_free > 0
     ):
-        det["lambda"] = jax.vmap(assembler.assemble_lambda)(samples[loading_site.name])
+        det["lambda"] = jax.vmap(structure_runtime.assemble_lambda)(samples[loading_site.name])
     else:
-        det["lambda"] = jnp.broadcast_to(assembler.lambda_template, (n_draws, n_m, n_l))
+        det["lambda"] = jnp.broadcast_to(structure_runtime.lambda_template, (n_draws, n_m, n_l))
 
     manifest_means_site = by_kind.get(SiteKind.MANIFEST_MEANS)
     if manifest_means_site is not None and manifest_means_site.name in samples:
-        det["manifest_means"] = jax.vmap(assembler.assemble_manifest_means)(
+        det["manifest_means"] = jax.vmap(structure_runtime.assemble_manifest_means)(
             samples[manifest_means_site.name]
         )
     else:
-        det["manifest_means"] = _broadcast_fixed(spec.manifest_means, n_draws)
+        det["manifest_means"] = _broadcast_fixed(
+            structure_runtime.manifest_means_template,
+            n_draws,
+        )
 
     manifest_cov = _assemble_diag_to_cov(
         by_kind.get(SiteKind.MANIFEST_VAR_DIAG),
         samples,
-        spec.manifest_chol,
-        assembler,
+        structure_runtime.manifest_chol_template,
+        structure_runtime,
         n_draws,
         n_m,
     )
@@ -837,16 +817,16 @@ def assemble_deterministics_from_registry(
 
     t0_means_site = by_kind.get(SiteKind.T0_MEANS)
     if t0_means_site is not None and t0_means_site.name in samples:
-        det["t0_means"] = jax.vmap(assembler.assemble_t0_means)(samples[t0_means_site.name])
+        det["t0_means"] = jax.vmap(structure_runtime.assemble_t0_means)(samples[t0_means_site.name])
     else:
-        det["t0_means"] = _broadcast_fixed(spec.t0_means, n_draws)
+        det["t0_means"] = _broadcast_fixed(structure_runtime.t0_means_template, n_draws)
 
     t0_cov = _assemble_t0_cov(
         by_kind.get(SiteKind.T0_VAR_DIAG),
         by_kind.get(SiteKind.T0_VAR_LOWER),
         samples,
-        spec.t0_chol,
-        assembler,
+        structure_runtime.t0_chol_template,
+        structure_runtime,
         n_draws,
         n_l,
     )

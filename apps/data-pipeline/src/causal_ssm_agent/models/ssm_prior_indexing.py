@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.models.ssm.assembler import SSMAssembler
 from causal_ssm_agent.models.ssm.parameter_names import (
     resolve_initial_state_correlation_bindings,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_compilation_common import PriorIndexMaps, split_compound_name
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec, ParameterRole
 
@@ -80,20 +80,11 @@ def build_prior_index_maps(
     latent_name_set = set(latent_idx_map)
     strict_structure = causal_spec is not None
     errors: list[str] = []
-    assembler = SSMAssembler(ssm_spec)
-    drift_diag_lookup = {
-        latent_idx: flat_idx for flat_idx, latent_idx in enumerate(assembler.drift_diag_positions)
-    }
-    diffusion_diag_lookup = {
-        latent_idx: flat_idx
-        for flat_idx, latent_idx in enumerate(assembler.diffusion_diag_positions)
-    }
-    t0_mean_lookup = {
-        latent_idx: flat_idx for flat_idx, latent_idx in enumerate(assembler.t0_means_free_positions)
-    }
-    t0_diag_lookup = {
-        latent_idx: flat_idx for flat_idx, latent_idx in enumerate(assembler.t0_diag_free_positions)
-    }
+    structure_runtime = SSMStructureRuntime(ssm_spec)
+    drift_diag_lookup = structure_runtime.drift_diag_index
+    diffusion_diag_lookup = structure_runtime.diffusion_diag_index
+    t0_mean_lookup = structure_runtime.t0_means_free_index
+    t0_diag_lookup = structure_runtime.t0_diag_free_index
 
     for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.AR_COEFFICIENT:
@@ -171,15 +162,6 @@ def build_prior_index_maps(
                 f"{parameter.name!r} not in {sorted(latent_idx_map)}"
             )
 
-    positions: list[tuple[int, int]] = []
-    for effect_idx in range(ssm_spec.n_latent):
-        for cause_idx in range(ssm_spec.n_latent):
-            if (
-                effect_idx != cause_idx
-                and ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]
-            ):
-                positions.append((effect_idx, cause_idx))
-
     for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.FIXED_EFFECT:
             continue
@@ -197,8 +179,9 @@ def build_prior_index_maps(
             continue
         cause_name, effect_name = result
         position = (latent_idx_map[effect_name], latent_idx_map[cause_name])
-        if position in positions:
-            offdiag_index[parameter.name] = ("drift_offdiag", positions.index(position))
+        flat_idx = structure_runtime.offdiag_index.get(position)
+        if flat_idx is not None:
+            offdiag_index[parameter.name] = ("drift_offdiag", flat_idx)
         elif strict_structure:
             errors.append(
                 "FIXED_EFFECT parameter does not correspond to an edge in causal_spec: "
@@ -208,12 +191,6 @@ def build_prior_index_maps(
     manifest_names = ssm_spec.manifest_names or []
     manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
     manifest_name_set = set(manifest_idx_map)
-
-    positions = []
-    for manifest_idx in range(ssm_spec.n_manifest):
-        for latent_idx in range(ssm_spec.n_latent):
-            if ssm_spec.lambda_mask[manifest_idx, latent_idx]:
-                positions.append((manifest_idx, latent_idx))
 
     for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.LOADING:
@@ -233,8 +210,9 @@ def build_prior_index_maps(
             continue
         indicator_name, construct_name = result
         position = (manifest_idx_map[indicator_name], latent_idx_map[construct_name])
-        if position in positions:
-            lambda_index[parameter.name] = ("lambda_free", positions.index(position))
+        flat_idx = structure_runtime.lambda_free_index.get(position)
+        if flat_idx is not None:
+            lambda_index[parameter.name] = ("lambda_free", flat_idx)
         elif strict_structure:
             errors.append(
                 "LOADING parameter does not correspond to a free loading in causal_spec: "
@@ -243,11 +221,7 @@ def build_prior_index_maps(
 
     manifest_names = ssm_spec.manifest_names or []
     manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
-    if assembler.manifest_var_free_positions:
-        free_manifest_indices = list(assembler.manifest_var_free_positions)
-        free_manifest_lookup = {
-            manifest_idx: flat_idx for flat_idx, manifest_idx in enumerate(free_manifest_indices)
-        }
+    if structure_runtime.n_manifest_var_diag > 0:
         for parameter in spec_obj.parameters:
             if parameter.role != ParameterRole.MEASUREMENT_ERROR_SD:
                 continue
@@ -263,7 +237,7 @@ def build_prior_index_maps(
                     continue
                 logger.warning("%s", message)
                 continue
-            flat_idx = free_manifest_lookup.get(manifest_idx)
+            flat_idx = structure_runtime.manifest_var_free_index.get(manifest_idx)
             if flat_idx is None:
                 if strict_structure:
                     errors.append(
@@ -309,7 +283,7 @@ def build_prior_index_maps(
                 f"observation site: {parameter.name!r}"
             )
 
-    if assembler.diffusion_lower_positions:
+    if structure_runtime.n_diffusion_lower > 0:
         for parameter in spec_obj.parameters:
             if parameter.role != ParameterRole.CORRELATION:
                 continue
@@ -329,18 +303,16 @@ def build_prior_index_maps(
             idx1 = latent_idx_map[state1_name]
             idx2 = latent_idx_map[state2_name]
             position = (max(idx1, idx2), min(idx1, idx2))
-            if position in assembler.diffusion_lower_positions:
-                diffusion_offdiag_index[parameter.name] = (
-                    "diffusion_offdiag",
-                    assembler.diffusion_lower_positions.index(position),
-                )
+            flat_idx = structure_runtime.diffusion_lower_index.get(position)
+            if flat_idx is not None:
+                diffusion_offdiag_index[parameter.name] = ("diffusion_offdiag", flat_idx)
             elif strict_structure:
                 errors.append(
                     "CORRELATION parameter does not correspond to a modeled latent pair: "
                     f"{parameter.name!r}"
                 )
 
-    if assembler.t0_correlation_positions:
+    if structure_runtime.n_t0_correlation > 0:
         try:
             bindings = resolve_initial_state_correlation_bindings(latent_names, spec_obj)
         except ValueError as exc:
@@ -349,18 +321,18 @@ def build_prior_index_maps(
             logger.warning("%s", exc)
             bindings = []
 
-        modeled_pairs = set(assembler.t0_correlation_positions)
         retained_bindings = []
         for binding in bindings:
             position = (binding.row, binding.col)
-            if position in modeled_pairs:
+            if position in structure_runtime.t0_correlation_index:
                 retained_bindings.append(binding)
             elif strict_structure:
                 errors.append(
                     "INITIAL_STATE_CORRELATION parameter does not correspond to a modeled "
                     f"initial-state pair: {binding.parameter_name!r}"
                 )
-        for dense_index, binding in enumerate(retained_bindings):
+        for binding in retained_bindings:
+            dense_index = structure_runtime.t0_correlation_index[(binding.row, binding.col)]
             t0_offdiag_index[binding.parameter_name] = (
                 "t0_var_offdiag",
                 dense_index,

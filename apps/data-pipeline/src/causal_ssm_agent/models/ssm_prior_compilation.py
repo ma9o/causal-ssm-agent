@@ -9,6 +9,7 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_compilation_common import (
     SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
@@ -45,13 +46,7 @@ class PriorCompilationError(AggregatedCompileError):
 
 
 def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
-    positions: list[tuple[int, int]] = []
-
-    for effect_idx in range(ssm_spec.n_latent):
-        for cause_idx in range(ssm_spec.n_latent):
-            if effect_idx != cause_idx and ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]:
-                positions.append((effect_idx, cause_idx))
-    return positions
+    return list(SSMStructureRuntime(ssm_spec).offdiag_positions)
 
 
 def _drift_parameter_name(

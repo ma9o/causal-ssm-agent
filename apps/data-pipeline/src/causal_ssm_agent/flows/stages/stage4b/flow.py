@@ -221,7 +221,10 @@ def parametric_id_task(
 
             partition = runtime.inference_structure.first_pass_rb.partition
             if partition is not None and runtime.inference_structure.likelihood_path == "composed":
-                kalman_indices = kalman_block_profile_indices(ssm_model.spec, partition)
+                kalman_indices = kalman_block_profile_indices(
+                    partition,
+                    structure_runtime=ssm_model._structure_runtime,
+                )
                 logger.info(
                     "First-pass RB plan: profiling %d/%d Kalman-block params (skipping particle block)",
                     len(kalman_indices),
