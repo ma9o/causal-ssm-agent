@@ -1,7 +1,9 @@
 import asyncio
+import inspect
 import json
 import sys
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import cloudpickle
 import jax.numpy as jnp
@@ -13,6 +15,18 @@ from causal_ssm_agent.flows import dag, pipeline, stage_registry
 from causal_ssm_agent.flows import run_store as run_store_module
 from causal_ssm_agent.utils import data as data_module
 from causal_ssm_agent.utils import openrouter_client
+
+
+class _FakeModalRunnersModule(ModuleType):
+    modal_stage4_runner: Any
+    modal_stage5b_runner: Any
+    persist_noop: Any
+
+
+async def _resolve_maybe_awaitable(value: Any) -> Any:
+    if inspect.isawaitable(value):
+        return await value
+    return value
 
 
 def _redirect_storage(monkeypatch, tmp_path, workspace_id: str = "test_workspace") -> None:
@@ -214,7 +228,7 @@ def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
             "root_run_id": root_run_id,
         }
 
-    fake_modal_runners = ModuleType("causal_ssm_agent.flows.modal_runners")
+    fake_modal_runners = _FakeModalRunnersModule("causal_ssm_agent.flows.modal_runners")
     fake_modal_runners.modal_stage4_runner = fake_stage4_runner
     fake_modal_runners.modal_stage5b_runner = lambda *_args, **_kwargs: None
     fake_modal_runners.persist_noop = lambda _result, _workspace_id: None
@@ -225,39 +239,45 @@ def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
 
     with openrouter_client.use_openrouter_api_key("user-key"):
         user_result = asyncio.run(
-            registry["stage-4"].runner(
-                question="why",
-                stage1b={},
-                stage2={},
-                stage3={},
-                enable_literature=True,
-                workspace_id="workspace-user",
-                openrouter_access_mode="user",
-                root_run_id="root-run-user",
+            _resolve_maybe_awaitable(
+                registry["stage-4"].runner(
+                    question="why",
+                    stage1b={},
+                    stage2={},
+                    stage3={},
+                    enable_literature=True,
+                    workspace_id="workspace-user",
+                    openrouter_access_mode="user",
+                    root_run_id="root-run-user",
+                )
             )
         )
         local_result = asyncio.run(
+            _resolve_maybe_awaitable(
+                registry["stage-4"].runner(
+                    question="why",
+                    stage1b={},
+                    stage2={},
+                    stage3={},
+                    enable_literature=True,
+                    workspace_id="workspace-local",
+                    openrouter_access_mode="local",
+                    root_run_id="root-run-local",
+                )
+            )
+        )
+    modal_result = asyncio.run(
+        _resolve_maybe_awaitable(
             registry["stage-4"].runner(
                 question="why",
                 stage1b={},
                 stage2={},
                 stage3={},
                 enable_literature=True,
-                workspace_id="workspace-local",
-                openrouter_access_mode="local",
-                root_run_id="root-run-local",
+                workspace_id="workspace-modal",
+                openrouter_access_mode=None,
+                root_run_id="root-run-modal",
             )
-        )
-    modal_result = asyncio.run(
-        registry["stage-4"].runner(
-            question="why",
-            stage1b={},
-            stage2={},
-            stage3={},
-            enable_literature=True,
-            workspace_id="workspace-modal",
-            openrouter_access_mode=None,
-            root_run_id="root-run-modal",
         )
     )
 
@@ -369,7 +389,7 @@ def test_run_stage_flow_rejects_override_without_materialization_policy():
 
 
 def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypatch):
-    events: list[tuple[str, object]] = []
+    events: list[tuple[str, object] | tuple[str, object, object]] = []
 
     monkeypatch.setattr(
         "causal_ssm_agent.orchestrator.stage4_navigation.project_stage4_initial_state",
@@ -560,7 +580,7 @@ def test_pipeline_threads_openrouter_key_by_access_mode(
     monkeypatch.setattr(dag, "stage1a", stage1a)
     _reset_stage_registry(monkeypatch)
 
-    result = asyncio.run(pipeline.causal_inference_pipeline(**pipeline_kwargs))
+    result = asyncio.run(pipeline.causal_inference_pipeline.fn(**pipeline_kwargs))
 
     assert result["final_stage"] == "stage-1a"
     assert seen == [("stage0", expected_key), ("stage1a", expected_key)]
@@ -872,8 +892,6 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     from causal_ssm_agent.models.ssm.inference import FittedArtifact
 
     # Build a minimal FittedArtifact with mock result and builder
-    mock_samples = {"latent": np.array([[0.1, 0.2]])}
-    mock_result = SimpleNamespace(get_samples=lambda: mock_samples)
     mock_spec = SimpleNamespace(
         latent_names=["screen_time", "sleep_quality"],
         manifest_names=[],
@@ -881,7 +899,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     mock_builder = SimpleNamespace(_spec=mock_spec)
 
     fitted_artifact = FittedArtifact(
-        result=mock_result,
+        result=None,
         builder=mock_builder,
         times=np.array([0.0, 1.0]),
         ppc_result={"checked": True, "per_variable_warnings": []},

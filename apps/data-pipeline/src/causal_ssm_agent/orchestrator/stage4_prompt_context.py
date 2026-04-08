@@ -453,7 +453,10 @@ class Stage4Messages:
         cards = deepcopy(self.distribution_cards)
         likelihood_lookup = self._likelihood_lookup(runtime)
         for card in cards:
-            choice = likelihood_lookup.get(card.get("variable"))
+            variable = card.get("variable")
+            if not isinstance(variable, str):
+                continue
+            choice = likelihood_lookup.get(variable)
             if choice is None:
                 continue
             card["selected_distribution"] = choice.get("distribution")

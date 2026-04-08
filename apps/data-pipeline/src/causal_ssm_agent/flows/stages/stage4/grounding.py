@@ -180,6 +180,8 @@ def stage4_grounding(
             capture_stage_output=True,
         )
 
+    if validation.compiled_ssm is None:
+        raise ValueError("Stage 4 grounding requires compiled_ssm before resolving priors")
     output["resolved_priors"] = resolve_prior_proposals(
         validation.compiled_ssm,
         authored_priors=authored_priors or {},

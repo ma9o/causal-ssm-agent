@@ -1,5 +1,7 @@
 """Tests for model spec merging, dict validation, and DistributionFamily."""
 
+from typing import Any
+
 import pytest
 
 from causal_ssm_agent.orchestrator.schemas_model import (
@@ -12,6 +14,10 @@ from causal_ssm_agent.orchestrator.schemas_model import (
     validate_model_spec_decisions_dict,
     validate_model_spec_dict,
 )
+
+
+def _invalid_dict_payload(value: object) -> Any:
+    return value
 
 
 def _valid_spec_dict():
@@ -49,7 +55,7 @@ class TestValidateModelSpecDict:
         assert errors == []
 
     def test_not_dict(self):
-        spec, errors = validate_model_spec_dict("not a dict")
+        spec, errors = validate_model_spec_dict(_invalid_dict_payload("not a dict"))
         assert spec is None
         assert any("dictionary" in e.lower() for e in errors)
 
@@ -244,7 +250,6 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             distribution_choices=[],
-            reasoning="Standard model",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
         assert errors == []
@@ -271,7 +276,6 @@ class TestMergeDecisionsToSpec:
                     reasoning="Count data",
                 ),
             ],
-            reasoning="model reason",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
         assert errors == []
@@ -305,7 +309,6 @@ class TestMergeDecisionsToSpec:
                     reasoning="count",
                 ),
             ],
-            reasoning="test",
         )
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
         assert errors == []
@@ -351,7 +354,6 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             distribution_choices=[],
-            reasoning="test",
         )
 
         spec, errors = merge_decisions_to_spec(resolved, params, decisions)
@@ -410,7 +412,7 @@ class TestValidateModelSpecDecisionsDict:
 
     def test_not_dict(self):
         spec, errors = validate_model_spec_decisions_dict(
-            "bad", self._resolved(), self._ambiguous(), self._params()
+            _invalid_dict_payload("bad"), self._resolved(), self._ambiguous(), self._params()
         )
         assert spec is None
         assert any("dictionary" in e.lower() for e in errors)

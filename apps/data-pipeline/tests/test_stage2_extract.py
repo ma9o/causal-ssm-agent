@@ -3,11 +3,13 @@
 import asyncio
 import logging
 from types import SimpleNamespace
+from typing import Any
 
 import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage2 import flow as stage2_extract
+from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 
 
 class _FakeFuture:
@@ -23,6 +25,16 @@ class _FakeFuture:
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+def _require_mapping(value: object) -> dict[str, Any]:
+    assert isinstance(value, dict)
+    return {str(key): item for key, item in value.items()}
+
+
+def _require_list(value: object) -> list[Any]:
+    assert isinstance(value, list)
+    return value
 
 
 def test_collect_batch_results_logs_completion_order_but_preserves_worker_order(
@@ -104,11 +116,10 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
     import causal_ssm_agent.workers.core as worker_core
 
     logger = logging.getLogger("test_stage2_extract")
-    generate_config = SimpleNamespace(
+    generate_config = GenerateConfig(
         max_tokens=1234,
         reasoning_effort="medium",
         timeout=None,
-        max_tool_output=None,
     )
     captured: dict[str, object] = {}
 
@@ -171,11 +182,13 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         "status": "completed",
     }
     assert captured["model_name"] == "mock-stage2-model"
-    assert captured["generate_config"].max_tokens == generate_config.max_tokens
-    assert captured["generate_config"].reasoning_effort == generate_config.reasoning_effort
-    assert captured["generate_kwargs"]["max_tool_turns"] == 55
-    worker_kwargs = captured["worker_kwargs"]
-    assert isinstance(worker_kwargs, dict)
+    captured_generate_config = captured["generate_config"]
+    assert isinstance(captured_generate_config, GenerateConfig)
+    assert captured_generate_config.max_tokens == generate_config.max_tokens
+    assert captured_generate_config.reasoning_effort == generate_config.reasoning_effort
+    captured_generate_kwargs = _require_mapping(captured["generate_kwargs"])
+    assert captured_generate_kwargs["max_tool_turns"] == 55
+    worker_kwargs = _require_mapping(captured["worker_kwargs"])
     assert worker_kwargs["window_text"] == window_text
     assert worker_kwargs["window_starts"] == window_starts
     assert worker_kwargs["question"] == "Does treatment affect outcome?"
@@ -396,8 +409,10 @@ def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
     )
 
     assert bucket_windows == ["1d", "1mo"]
+    chunk_contexts = _require_list(captured_runner["chunk_contexts"])
     assert [
-        ctx["measurement"]["indicators"][0]["name"] for ctx in captured_runner["chunk_contexts"]
+        _require_mapping(_require_mapping(ctx)["measurement"])["indicators"][0]["name"]
+        for ctx in chunk_contexts
     ] == [
         "stress_score",
         "monthly_sleep_hours",

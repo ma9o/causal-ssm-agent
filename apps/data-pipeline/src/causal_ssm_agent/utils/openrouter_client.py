@@ -260,7 +260,10 @@ def _parameter_schema(handler: Any) -> dict[str, Any]:
             "additionalProperties": False,
         }
 
-    model = create_model(f"{handler.__name__.title()}ToolParams", **fields)
+    model = create_model(
+        f"{handler.__name__.title()}ToolParams",
+        **cast("dict[str, Any]", fields),
+    )
     schema = model.model_json_schema()
     schema["additionalProperties"] = False
     return schema

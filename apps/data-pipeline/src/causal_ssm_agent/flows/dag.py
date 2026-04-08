@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from inspect import isawaitable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from . import get_prefect_logger
 from .run_store import (
@@ -121,7 +121,9 @@ async def stage2(
     causal_spec = stage1b["causal_spec"]
     raw_df_path = Path(stage0["_df_path"])
     stage2_subflow = stage2_extraction_flow.with_options(
-        task_runner=ThreadPoolTaskRunner(max_workers=config.stage2_workers.max_concurrent_workers)
+        task_runner=cast(
+            "Any", ThreadPoolTaskRunner(max_workers=config.stage2_workers.max_concurrent_workers)
+        )
     )
     stage2_result = await stage2_subflow(
         raw_df_path=str(raw_df_path),
@@ -190,7 +192,7 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
         status = derive_validation_status(all_issues)
         audit_result = {**audit_result, "is_valid": status["is_valid"]}
         outcome = status["outcome"]
-        fail_reason = status["fail_reason"]
+        fail_reason = status["fail_reason"] if isinstance(status["fail_reason"], str) else None
 
         if not status["is_valid"]:
             logger.warning("Stage 3 validation errors detected:")

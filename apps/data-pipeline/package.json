@@ -9,6 +9,6 @@
     "lint:fix": "uv run ruff check --fix src/ tests/ && uv run ruff format src/ tests/",
     "format": "uv run ruff format src/ tests/",
     "check": "bun run lint && bun run test",
-    "type-check": "echo 'skipped (Python)'"
+    "type-check": "uv run ty check src/ tests/"
   }
 }

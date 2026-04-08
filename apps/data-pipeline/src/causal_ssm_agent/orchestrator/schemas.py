@@ -8,7 +8,7 @@ Separates:
 import ast
 import re
 from enum import StrEnum
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
 
@@ -145,7 +145,8 @@ def _computed_rule_source_names(expr: str) -> set[str]:
             for arg in node.args:
                 self.visit(arg)
 
-        def visit_Attribute(self, _node: ast.Attribute) -> None:
+        def visit_Attribute(self, node: ast.Attribute) -> Any:
+            _ = node
             raise ValueError("computed_rule.window_expr does not support attribute access")
 
         def visit_Name(self, node: ast.Name) -> None:
@@ -982,6 +983,9 @@ def validate_measurement_model(
 
     if not errors:
         try:
+            if model_clock is None:
+                errors.append("Measurement model is missing required model_clock")
+                return None, errors
             model = MeasurementModel(indicators=valid_indicators, model_clock=model_clock)
             return model, []
         except Exception as e:
@@ -1019,10 +1023,12 @@ def validate_causal_spec(
         model = CausalSpec(
             latent=latent,
             measurement=measurement,
-            estimation=build_estimation_projection(
-                latent_payload,
-                measurement_payload,
-                identifiability_result=None,
+            estimation=EstimationSpec.model_validate(
+                build_estimation_projection(
+                    latent_payload,
+                    measurement_payload,
+                    identifiability_result=None,
+                )
             ),
         )
         return model, []

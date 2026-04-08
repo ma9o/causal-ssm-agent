@@ -6,14 +6,16 @@ This file tests CausalSpec composition, computed properties, and utility
 functions that are not exercised through dict validation.
 """
 
+from typing import Any
+
 import pytest
 
 from causal_ssm_agent.orchestrator.schemas import (
     AnchorPolicy,
     CausalEdge,
     CausalSpec,
+    ComputedRule,
     Construct,
-    Indicator,
     LatentModel,
     MeasurementModel,
     Role,
@@ -24,6 +26,18 @@ from causal_ssm_agent.orchestrator.schemas import (
     derive_indicator_observation_semantics,
     parse_duration_to_hours,
 )
+from causal_ssm_agent.orchestrator.schemas import (
+    Indicator as IndicatorModel,
+)
+
+
+def Indicator(**kwargs: Any) -> IndicatorModel:
+    """Build test indicators with the current required schema defaults."""
+    kwargs.setdefault("construct_polarity", "positive")
+    computed_rule = kwargs.get("computed_rule")
+    if isinstance(computed_rule, dict):
+        kwargs["computed_rule"] = ComputedRule(**computed_rule)
+    return IndicatorModel(**kwargs)
 
 
 class TestConstruct:

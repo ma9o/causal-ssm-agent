@@ -163,7 +163,7 @@ def _issues_from_raw(
     """Convert raw issue dicts into Issue dataclasses with centralized cell-key mapping."""
     issues: list[Issue] = []
     for raw_issue in raw_issues:
-        resolved_cell_key = cell_key(raw_issue) if callable(cell_key) else cell_key
+        resolved_cell_key = cell_key if isinstance(cell_key, str) else cell_key(raw_issue)
         issues.append(_issue_from_raw(raw_issue, cell_key=resolved_cell_key))
     return issues
 
@@ -790,7 +790,10 @@ def _build_indicator_context(
     variance: float | None = None
     try:
         _var = values.var()
-        variance = float(_var) if _var is not None else None
+        if isinstance(_var, timedelta):
+            variance = _var.total_seconds()
+        elif _var is not None:
+            variance = float(_var)
     except (ValueError, ZeroDivisionError, ArithmeticError):
         logger.info("Variance calculation failed for indicator %s", ind_name, exc_info=True)
 

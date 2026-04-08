@@ -16,7 +16,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import jax
 import jax.numpy as jnp
@@ -56,7 +56,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Tool Server", docs_url="/api/tools/docs")
 
 app.add_middleware(
-    CORSMiddleware,
+    cast("Any", CORSMiddleware),
     allow_origins=["http://localhost:3000"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],

@@ -3,6 +3,8 @@
 Covers: _check_dtype_match, validate_worker_output, WorkerOutput.to_dataframe.
 """
 
+from typing import Any
+
 import polars as pl
 
 from causal_ssm_agent.workers.schemas import (
@@ -11,6 +13,10 @@ from causal_ssm_agent.workers.schemas import (
     _check_dtype_match,
     validate_worker_output,
 )
+
+
+def _invalid_dict_payload(value: object) -> Any:
+    return value
 
 
 def _causal_spec(*indicators):
@@ -141,7 +147,7 @@ class TestValidateWorkerOutput:
 
     def test_not_dict_returns_error(self):
         spec = _causal_spec(("mood", "continuous"))
-        output, errors = validate_worker_output("not a dict", spec)
+        output, errors = validate_worker_output(_invalid_dict_payload("not a dict"), spec)
         assert output is None
         assert len(errors) == 1
         assert "dictionary" in errors[0].lower()
