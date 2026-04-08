@@ -18,6 +18,7 @@ from causal_ssm_agent.models.ssm.covariance_utils import (
 )
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.emissions import (
+    PredictiveObservationSampler,
     build_predictive_observation_sampler,
 )
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
@@ -31,13 +32,15 @@ from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     resolve_manifest_families_and_links,
 )
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    ObservationOperator,
     compile_observation_operator,
 )
-from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
+from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 logger = get_prefect_logger(__name__)
 
@@ -71,12 +74,10 @@ class PredictiveObservationMeanOverflow(RuntimeError):
 
 
 def _broadcast_draw_param(
-    value: jnp.ndarray | None,
+    value: jnp.ndarray,
     n_use: int,
     indices: jnp.ndarray,
-) -> jnp.ndarray | None:
-    if value is None:
-        return None
+) -> jnp.ndarray:
     if value.ndim == 0:
         return jnp.broadcast_to(value, (n_use,))
     if value.shape[0] == n_use:
@@ -136,14 +137,14 @@ def _simulate_latent_trajectory(
 
 
 def _build_response_kernel(
-    manifest_dists: list[str],
-    manifest_links: list[str] | None,
-    extra_params: dict | None,
+    manifest_dists: Sequence[DistributionFamily | str],
+    manifest_links: Sequence[LinkFunction | str | None] | None,
+    extra_params: dict[str, jnp.ndarray | float] | None,
 ):
     """Build the response-space observation kernel for one posterior draw."""
     dists, links = resolve_manifest_families_and_links(
-        manifest_dists,
-        manifest_links=manifest_links,
+        list(manifest_dists),
+        manifest_links=list(manifest_links) if manifest_links is not None else None,
     )
     if len(set(zip(dists, links))) == 1:
         return build_observation_kernel(dists[0], links[0], extra_params)
@@ -151,24 +152,25 @@ def _build_response_kernel(
 
 
 def _slice_extra_params_for_indices(
-    extra_params: dict | None,
+    extra_params: dict[str, jnp.ndarray | float] | None,
     indices: list[int],
-) -> dict | None:
+) -> dict[str, jnp.ndarray | float] | None:
     """Slice per-channel extra params down to a manifest subset."""
     if extra_params is None:
         return None
 
-    sliced: dict = {}
+    sliced: dict[str, jnp.ndarray | float] = {}
     idx = jnp.asarray(indices, dtype=jnp.int32)
     for key, value in extra_params.items():
-        if hasattr(value, "ndim") and hasattr(value, "shape") and value.ndim >= 1:
-            try:
-                if value.shape[0] >= len(indices):
-                    sliced[key] = value[idx]
-                    continue
-            except TypeError:
-                logger.warning("Unexpected type for extra parameter %r during slicing", key)
-        sliced[key] = value
+        if isinstance(value, float):
+            sliced[key] = value
+            continue
+
+        array_value = jnp.asarray(value)
+        if array_value.ndim >= 1 and array_value.shape[0] >= len(indices):
+            sliced[key] = array_value[idx]
+            continue
+        sliced[key] = array_value
     return sliced
 
 
@@ -209,14 +211,14 @@ def _apply_observation_mask(
 def _raise_if_log_link_mean_overflow(
     linear_predictors: jnp.ndarray,
     *,
-    manifest_dists: list[str],
-    manifest_links: list[str] | None,
+    manifest_dists: Sequence[DistributionFamily | str],
+    manifest_links: Sequence[LinkFunction | str | None] | None,
     manifest_names: list[str] | None,
 ) -> None:
     """Fail fast when a log-link predictive mean would overflow before sampling."""
     _dists, links = resolve_manifest_families_and_links(
-        manifest_dists,
-        manifest_links=manifest_links,
+        list(manifest_dists),
+        manifest_links=list(manifest_links) if manifest_links is not None else None,
     )
     log_link_mask = np.asarray([link == LinkFunction.LOG for link in links], dtype=bool)
     if not bool(log_link_mask.any()):
@@ -225,9 +227,9 @@ def _raise_if_log_link_mean_overflow(
     linear_np = np.asarray(linear_predictors)
     overflow_threshold = float(np.log(np.finfo(linear_np.dtype).max))
     bad_mask = np.zeros_like(linear_np, dtype=bool)
-    bad_mask[..., log_link_mask] = (
-        ~np.isfinite(linear_np[..., log_link_mask])
-    ) | (linear_np[..., log_link_mask] > overflow_threshold)
+    bad_mask[..., log_link_mask] = (~np.isfinite(linear_np[..., log_link_mask])) | (
+        linear_np[..., log_link_mask] > overflow_threshold
+    )
     if not bool(bad_mask.any()):
         return
 
@@ -254,13 +256,13 @@ def _sample_observations_for_draw(
     linear_predictors: jnp.ndarray,
     rng_key: jax.Array,
     *,
-    manifest_dists: list[str],
-    manifest_links: list[str] | None,
-    point_sampler,
-    interval_summary_sampler,
-    observation_operator,
+    manifest_dists: Sequence[DistributionFamily | str],
+    manifest_links: Sequence[LinkFunction | str | None] | None,
+    point_sampler: PredictiveObservationSampler,
+    interval_summary_sampler: PredictiveObservationSampler | None,
+    observation_operator: ObservationOperator,
     observation_mask: jnp.ndarray | None,
-    extra_params: dict | None,
+    extra_params: dict[str, jnp.ndarray | float] | None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Sample one observation trajectory from precomputed linear predictors."""
     _key_latent, key_point, key_interval_summary = random.split(rng_key, 3)
@@ -302,21 +304,20 @@ def _sample_observations_for_draw(
     return _apply_observation_mask(point_samples, semantic_mask, observation_mask), effective_mask
 
 
-def simulate_predictive_observations(
+def _simulate_predictive_observations_with_mask(
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,
-    diffusion_dists: list[DistributionFamily | str] | None = None,
-    manifest_dists: list[str] | None = None,
-    manifest_links: list[str] | None = None,
+    diffusion_dists: Sequence[DistributionFamily | str] | None = None,
+    manifest_dists: Sequence[DistributionFamily | str] | None = None,
+    manifest_links: Sequence[LinkFunction | str | None] | None = None,
     manifest_level_counts: list[int] | None = None,
     observation_support: ObservationSupportRuntime | None = None,
     observation_mask: jnp.ndarray | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
     manifest_names: list[str] | None = None,
-    return_mask: bool = False,
-) -> jnp.ndarray | tuple[jnp.ndarray, jnp.ndarray]:
-    """Forward-simulate observations from predictive draws."""
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Forward-simulate observations and the effective emission mask."""
     drift_draws = samples["drift"]
     diffusion_draws = samples["diffusion"]
     lambda_mat = samples["lambda"]
@@ -346,23 +347,58 @@ def simulate_predictive_observations(
         raise ValueError(
             f"manifest_names must have length {n_manifest}, got {len(resolved_manifest_names)}"
         )
-    resolved_manifest_dists = manifest_dists or ["gaussian"] * n_manifest
+    resolved_manifest_dists = (
+        list(manifest_dists) if manifest_dists is not None else ["gaussian"] * n_manifest
+    )
+    resolved_manifest_links = list(manifest_links) if manifest_links is not None else None
 
     if manifest_means_draws is not None:
         manifest_means_sub = _broadcast_draw_param(manifest_means_draws, n_use, indices)
     else:
         manifest_means_sub = jnp.zeros((n_use, n_manifest))
 
-    ordered_cutpoints_sub = _broadcast_draw_param(
-        samples.get("obs_ordered_cutpoints"), n_use, indices
+    ordered_cutpoints_draws = samples.get("obs_ordered_cutpoints")
+    ordered_cutpoints_sub = (
+        _broadcast_draw_param(ordered_cutpoints_draws, n_use, indices)
+        if ordered_cutpoints_draws is not None
+        else None
     )
-    cat_intercepts_sub = _broadcast_draw_param(samples.get("obs_cat_intercepts"), n_use, indices)
-    cat_slopes_sub = _broadcast_draw_param(samples.get("obs_cat_slopes"), n_use, indices)
-    obs_df_sub = _broadcast_draw_param(samples.get("obs_df"), n_use, indices)
-    proc_df_sub = _broadcast_draw_param(samples.get("proc_df"), n_use, indices)
-    obs_shape_sub = _broadcast_draw_param(samples.get("obs_shape"), n_use, indices)
-    obs_r_sub = _broadcast_draw_param(samples.get("obs_r"), n_use, indices)
-    obs_conc_sub = _broadcast_draw_param(samples.get("obs_concentration"), n_use, indices)
+    cat_intercepts_draws = samples.get("obs_cat_intercepts")
+    cat_intercepts_sub = (
+        _broadcast_draw_param(cat_intercepts_draws, n_use, indices)
+        if cat_intercepts_draws is not None
+        else None
+    )
+    cat_slopes_draws = samples.get("obs_cat_slopes")
+    cat_slopes_sub = (
+        _broadcast_draw_param(cat_slopes_draws, n_use, indices)
+        if cat_slopes_draws is not None
+        else None
+    )
+    obs_df_draws = samples.get("obs_df")
+    obs_df_sub = (
+        _broadcast_draw_param(obs_df_draws, n_use, indices) if obs_df_draws is not None else None
+    )
+    proc_df_draws = samples.get("proc_df")
+    proc_df_sub = (
+        _broadcast_draw_param(proc_df_draws, n_use, indices) if proc_df_draws is not None else None
+    )
+    obs_shape_draws = samples.get("obs_shape")
+    obs_shape_sub = (
+        _broadcast_draw_param(obs_shape_draws, n_use, indices)
+        if obs_shape_draws is not None
+        else None
+    )
+    obs_r_draws = samples.get("obs_r")
+    obs_r_sub = (
+        _broadcast_draw_param(obs_r_draws, n_use, indices) if obs_r_draws is not None else None
+    )
+    obs_concentration_draws = samples.get("obs_concentration")
+    obs_conc_sub = (
+        _broadcast_draw_param(obs_concentration_draws, n_use, indices)
+        if obs_concentration_draws is not None
+        else None
+    )
     level_counts = (
         jnp.asarray(manifest_level_counts, dtype=jnp.int32)
         if manifest_level_counts is not None
@@ -371,7 +407,9 @@ def simulate_predictive_observations(
 
     n_timepoints = int(times.shape[0])
     transition_dt_array = jnp.maximum(jnp.diff(times), MIN_DT)
-    resolved_diffusion_dists = diffusion_dists or ["gaussian"] * drift_sub.shape[-1]
+    resolved_diffusion_dists = (
+        list(diffusion_dists) if diffusion_dists is not None else ["gaussian"] * drift_sub.shape[-1]
+    )
     transition_semantics = compile_transition_semantics(
         resolved_diffusion_dists, drift_sub.shape[-1]
     )
@@ -381,11 +419,13 @@ def simulate_predictive_observations(
 
     resolved_dists, _resolved_links = resolve_manifest_families_and_links(
         resolved_manifest_dists,
-        manifest_links=manifest_links,
+        manifest_links=resolved_manifest_links,
     )
     observation_operator = compile_observation_operator(observation_support)
 
-    if level_counts is None and any_family_needs_level_metadata([dist.value for dist in resolved_dists]):
+    if level_counts is None and any_family_needs_level_metadata(
+        [dist.value for dist in resolved_dists]
+    ):
         raise ValueError(
             "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
         )
@@ -463,10 +503,10 @@ def simulate_predictive_observations(
         point_sampler = build_predictive_observation_sampler(
             resolved_manifest_dists,
             manifest_cov=manifest_cov_sub[i],
-            manifest_links=manifest_links,
+            manifest_links=resolved_manifest_links,
             extra_params=extra_params,
         )
-        interval_summary_sampler = None
+        interval_summary_sampler: PredictiveObservationSampler | None = None
         if observation_operator.requires_interval_summary_handling:
             interval_summary_indices = list(observation_operator.interval_summary_indices)
             interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
@@ -476,8 +516,8 @@ def simulate_predictive_observations(
                     jnp.ix_(interval_summary_idx, interval_summary_idx)
                 ],
                 manifest_links=(
-                    [manifest_links[idx] for idx in interval_summary_indices]
-                    if manifest_links is not None
+                    [resolved_manifest_links[idx] for idx in interval_summary_indices]
+                    if resolved_manifest_links is not None
                     else None
                 ),
                 extra_params=_slice_extra_params_for_indices(
@@ -488,7 +528,7 @@ def simulate_predictive_observations(
             linear_predictors=linear_predictors_sub[i],
             rng_key=draw_keys[i],
             manifest_dists=resolved_manifest_dists,
-            manifest_links=manifest_links,
+            manifest_links=resolved_manifest_links,
             point_sampler=point_sampler,
             interval_summary_sampler=interval_summary_sampler,
             observation_operator=observation_operator,
@@ -497,7 +537,33 @@ def simulate_predictive_observations(
         )
 
     y_sim, y_mask = vmap(sim_one)(jnp.arange(n_use))
+    return y_sim, y_mask
 
-    if return_mask:
-        return y_sim, y_mask
-    return y_sim
+
+def simulate_predictive_observations(
+    samples: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    diffusion_dists: Sequence[DistributionFamily | str] | None = None,
+    manifest_dists: Sequence[DistributionFamily | str] | None = None,
+    manifest_links: Sequence[LinkFunction | str | None] | None = None,
+    manifest_level_counts: list[int] | None = None,
+    observation_support: ObservationSupportRuntime | None = None,
+    observation_mask: jnp.ndarray | None = None,
+    n_subsample: int = 50,
+    rng_seed: int = 42,
+    manifest_names: list[str] | None = None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Forward-simulate observations and their effective emission mask."""
+    return _simulate_predictive_observations_with_mask(
+        samples=samples,
+        times=times,
+        diffusion_dists=diffusion_dists,
+        manifest_dists=manifest_dists,
+        manifest_links=manifest_links,
+        manifest_level_counts=manifest_level_counts,
+        observation_support=observation_support,
+        observation_mask=observation_mask,
+        n_subsample=n_subsample,
+        rng_seed=rng_seed,
+        manifest_names=manifest_names,
+    )

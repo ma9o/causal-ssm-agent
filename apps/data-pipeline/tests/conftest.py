@@ -11,12 +11,22 @@ see helpers.py.
 
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 import pytest
 
-from causal_ssm_agent.models.ssm import SSMSpec, full_drift_mask, zero_loading_mask
+from causal_ssm_agent.models.ssm import (
+    SSMSpec,
+    full_diagonal_mask,
+    full_drift_offdiag_mask,
+    zero_diagonal_mask,
+    zero_loading_mask,
+    zero_square_mask,
+    zero_vector_mask,
+)
 from causal_ssm_agent.orchestrator.schemas import (
     Construct,
     Indicator,
+    IndicatorPolarity,
     Role,
     TemporalStatus,
 )
@@ -67,7 +77,7 @@ def indicator_factory():
         construct_name: str,
         dtype: str = "continuous",
         aggregation: str = "mean",
-        construct_polarity: str = "positive",
+        construct_polarity: IndicatorPolarity = IndicatorPolarity.POSITIVE,
         ordinal_levels: list[str] | None = None,
         source_columns: list[str] | None = None,
         extraction_mode: str = "semantic",
@@ -252,13 +262,24 @@ def lgss_data():
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_mask=full_drift_mask(n_latent),
+        drift_diag_mask=full_diagonal_mask(n_latent),
+        drift_offdiag_mask=full_drift_offdiag_mask(n_latent),
+        drift=jnp.zeros((n_latent, n_latent)),
+        cint_mask=zero_vector_mask(n_latent),
+        cint=jnp.zeros(n_latent),
         lambda_mask=zero_loading_mask(n_manifest, n_latent),
         lambda_mat=jnp.eye(n_manifest, n_latent),
+        diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+        diffusion_chol=jnp.eye(n_latent),
+        manifest_means_mask=zero_vector_mask(n_manifest),
         manifest_means=jnp.zeros(n_manifest),
-        diffusion="diag",
+        manifest_chol_diag_mask=full_diagonal_mask(n_manifest),
+        manifest_chol=jnp.zeros((n_manifest, n_manifest)),
+        t0_means_mask=zero_vector_mask(n_latent),
         t0_means=jnp.zeros(n_latent),
-        t0_var=jnp.eye(n_latent),
+        t0_chol_diag_mask=zero_diagonal_mask(n_latent),
+        t0_correlation_mask=zero_square_mask(n_latent),
+        t0_chol=jnp.eye(n_latent),
     )
 
     return {

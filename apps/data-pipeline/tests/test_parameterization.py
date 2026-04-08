@@ -16,8 +16,9 @@ from causal_ssm_agent.models.ssm.model import (
     SSMModel,
     SSMPriors,
     SSMSpec,
-    full_drift_mask,
-    zero_loading_mask,
+    full_cholesky_mask,
+    full_diagonal_mask,
+    full_vector_mask,
 )
 from causal_ssm_agent.models.ssm.parameterization import (
     SupportClass,
@@ -38,6 +39,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     verify_registry_matches_trace,
 )
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+from tests.ssm_test_utils import make_ssm_spec
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -46,11 +48,9 @@ from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 def _make_spec(**kwargs) -> SSMSpec:
     """Build an SSMSpec with explicit default masks."""
-    n_latent = int(kwargs.get("n_latent", 2))
-    n_manifest = int(kwargs.get("n_manifest", 2))
-    kwargs.setdefault("drift_mask", full_drift_mask(n_latent))
-    kwargs.setdefault("lambda_mask", zero_loading_mask(n_manifest, n_latent))
-    return SSMSpec(**kwargs)
+    kwargs.setdefault("n_latent", 2)
+    kwargs.setdefault("n_manifest", 2)
+    return make_ssm_spec(**kwargs)
 
 
 @pytest.fixture
@@ -78,7 +78,8 @@ def dag_spec():
         drift_mask=drift_mask,
         lambda_mat=lambda_template,
         lambda_mask=lambda_mask,
-        cint="free",
+        cint_mask=full_vector_mask(2),
+        cint=jnp.zeros(2),
     )
 
 
@@ -164,7 +165,12 @@ class TestSiteRegistry:
 
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
-        spec = _make_spec(n_latent=2, n_manifest=2, diffusion="diag")
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            diffusion=jnp.eye(2),
+            diffusion_mask=np.diag(full_diagonal_mask(2)),
+        )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_pop" in names
@@ -172,7 +178,12 @@ class TestSiteRegistry:
 
     def test_free_diffusion_includes_lower(self):
         """Free diffusion includes lower-triangle sites."""
-        spec = _make_spec(n_latent=2, n_manifest=2, diffusion="free")
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            diffusion=jnp.eye(2),
+            diffusion_mask=full_cholesky_mask(2),
+        )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_pop" in names
@@ -185,7 +196,8 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=3,
             n_manifest=2,
-            t0_var="free",
+            t0_var=jnp.eye(3),
+            t0_var_diag_mask=full_diagonal_mask(3),
             t0_correlation_mask=mask,
         )
         registry = build_site_registry(spec)
@@ -316,13 +328,15 @@ class TestDeterministicAssembly:
         registry = build_site_registry(spec)
 
         det = assemble_deterministics_from_registry({}, spec, registry, n_draws=3)
+        assert isinstance(spec.drift, jnp.ndarray)
         assert jnp.allclose(det["drift"], jnp.broadcast_to(spec.drift, (3, 2, 2)))
-        assert jnp.allclose(det["diffusion"], jnp.broadcast_to(spec.diffusion, (3, 2, 2)))
+        assert jnp.allclose(det["diffusion"], jnp.broadcast_to(spec.diffusion_chol, (3, 2, 2)))
         assert jnp.allclose(det["lambda"], jnp.broadcast_to(spec.lambda_mat, (3, 2, 2)))
-        expected_manifest_cov = spec.manifest_var @ spec.manifest_var.T
+        expected_manifest_cov = spec.manifest_chol @ spec.manifest_chol.T
         assert jnp.allclose(det["manifest_cov"], jnp.broadcast_to(expected_manifest_cov, (3, 2, 2)))
+        assert isinstance(spec.t0_means, jnp.ndarray)
         assert jnp.allclose(det["t0_means"], jnp.broadcast_to(spec.t0_means, (3, 2)))
-        expected_t0_cov = spec.t0_var @ spec.t0_var.T
+        expected_t0_cov = spec.t0_chol @ spec.t0_chol.T
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
 
     def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
@@ -355,7 +369,8 @@ class TestDeterministicAssembly:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            t0_var="free",
+            t0_var=jnp.eye(2),
+            t0_var_diag_mask=full_diagonal_mask(2),
             t0_correlation_mask=mask,
         )
         registry = build_site_registry(spec)
@@ -387,7 +402,8 @@ class TestDeterministicAssembly:
         spec = _make_spec(
             n_latent=3,
             n_manifest=3,
-            t0_var="free",
+            t0_var=jnp.eye(3),
+            t0_var_diag_mask=full_diagonal_mask(3),
             t0_correlation_mask=mask,
         )
         registry = build_site_registry(spec)
@@ -815,6 +831,8 @@ class TestCompiledArtifactIntegration:
         artifact = compile_ssm_artifact(model_spec, priors)
         assert "priors" not in artifact
         assert "compiled_prior_semantics" in artifact
+        assert "edge_lag_days" in artifact
+        assert artifact["edge_lag_days"] == []
         sem = artifact["compiled_prior_semantics"]
         assert sem["schema_version"] == 4
         assert "site_registry" in sem
@@ -901,7 +919,8 @@ class TestCompiledArtifactIntegration:
             n_latent=2,
             n_manifest=2,
             lambda_mat=jnp.eye(2),
-            manifest_var="diag",
+            manifest_var=jnp.zeros((2, 2)),
+            manifest_var_mask=full_diagonal_mask(2),
             manifest_names=["m0", "m1"],
         )
         priors = SSMPriors(t0_var_diag={"sigma": [1.0, 2.0]})

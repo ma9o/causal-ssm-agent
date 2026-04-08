@@ -1,6 +1,6 @@
 """Rao-Blackwell particle filter callbacks for Gaussian dynamics.
 
-When the latent dynamics are linear-Gaussian (diffusion_dist == "gaussian"),
+When the latent dynamics are linear-Gaussian,
 the Kalman filter can analytically marginalize the latent state inside each
 particle. Particles are only needed for the non-Gaussian observation model.
 This gives strictly lower variance than the bootstrap PF at no extra cost.

@@ -3,6 +3,8 @@
 Covers: variance functions, build_observation_kernel, build_transition_kernel.
 """
 
+from typing import cast
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -133,9 +135,10 @@ class TestBuildObservationKernel:
         assert var[0, 0] > 0
 
     def test_unsupported_link_raises(self):
+        invalid_link = cast("LinkFunction", "nonexistent_link")
         with pytest.raises(ValueError, match="No response function"):
             build_observation_kernel(
-                DistributionFamily.GAUSSIAN, "nonexistent_link", manifest_cov=jnp.eye(2)
+                DistributionFamily.GAUSSIAN, invalid_link, manifest_cov=jnp.eye(2)
             )
 
     def test_gaussian_response_is_identity(self):
@@ -159,15 +162,15 @@ class TestBuildObservationKernel:
 
 class TestBuildTransitionKernel:
     def test_gaussian_is_gaussian(self):
-        kernel = build_transition_kernel(DistributionFamily.GAUSSIAN)
+        kernel = build_transition_kernel([DistributionFamily.GAUSSIAN])
         assert kernel.is_gaussian
 
     def test_student_t_not_gaussian(self):
-        kernel = build_transition_kernel(DistributionFamily.STUDENT_T)
+        kernel = build_transition_kernel([DistributionFamily.STUDENT_T])
         assert not kernel.is_gaussian
 
     def test_gaussian_noise_shape(self):
-        kernel = build_transition_kernel(DistributionFamily.GAUSSIAN)
+        kernel = build_transition_kernel([DistributionFamily.GAUSSIAN])
         key = jax.random.PRNGKey(0)
         chol_Q = jnp.eye(3) * 0.1
         noise = kernel.sample_noise_fn(key, chol_Q)
@@ -175,7 +178,7 @@ class TestBuildTransitionKernel:
 
     def test_student_t_noise_shape(self):
         kernel = build_transition_kernel(
-            DistributionFamily.STUDENT_T, extra_params={"proc_df": 5.0}
+            [DistributionFamily.STUDENT_T], extra_params={"proc_df": 5.0}
         )
         key = jax.random.PRNGKey(0)
         chol_Q = jnp.eye(2) * 0.5
@@ -206,11 +209,11 @@ class TestBuildTransitionKernel:
 
     def test_unsupported_diffusion_raises(self):
         with pytest.raises(ValueError, match="No transition kernel"):
-            build_transition_kernel(DistributionFamily.POISSON)
+            build_transition_kernel([DistributionFamily.POISSON])
 
     def test_gaussian_noise_mean_near_zero(self):
         """Gaussian process noise should have approximately zero mean."""
-        kernel = build_transition_kernel(DistributionFamily.GAUSSIAN)
+        kernel = build_transition_kernel([DistributionFamily.GAUSSIAN])
         chol_Q = jnp.eye(2) * 0.1
         keys = jax.random.split(jax.random.PRNGKey(42), 1000)
         samples = jax.vmap(lambda k: kernel.sample_noise_fn(k, chol_Q))(keys)

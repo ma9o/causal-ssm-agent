@@ -16,7 +16,7 @@ Use when:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 import jax
 import jax.numpy as jnp
@@ -38,6 +38,9 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from cuthbert.smc.types import InitSample, LogPotential, PropagateSample
     from cuthbertlib.types import ArrayTree, ArrayTreeLike, KeyArray, ScalarArray
     from jax import Array
     from jax.typing import ArrayLike
@@ -100,9 +103,9 @@ class SSMAdapter:
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dists: list[DistributionFamily | str] | None = None,
-        diffusion_dist: DistributionFamily | list[DistributionFamily] = DistributionFamily.GAUSSIAN,
-        manifest_links: list[LinkFunction | str | None] | None = None,
+        manifest_dists: Sequence[DistributionFamily | str] | None = None,
+        diffusion_dists: Sequence[DistributionFamily | str] | None = None,
+        manifest_links: Sequence[LinkFunction | str | None] | None = None,
     ):
         self.n_latent = n_latent
         self.n_manifest = n_manifest
@@ -114,8 +117,18 @@ class SSMAdapter:
             if manifest_dists is not None
             else [DistributionFamily.GAUSSIAN] * n_manifest
         )
-        self.transition_semantics = compile_transition_semantics(diffusion_dist, n_latent)
-        self.manifest_links = manifest_links
+        self.diffusion_dists = (
+            [
+                dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+                for dist in diffusion_dists
+            ]
+            if diffusion_dists is not None
+            else [DistributionFamily.GAUSSIAN] * n_latent
+        )
+        self.transition_semantics = compile_transition_semantics(self.diffusion_dists, n_latent)
+        self.manifest_links: list[LinkFunction | str | None] | None = (
+            list(manifest_links) if manifest_links is not None else None
+        )
 
     def initial_sample(self, key: jax.Array, params: dict) -> jax.Array:
         """Sample eta_0 ~ N(t0_mean, t0_cov)."""
@@ -195,7 +208,7 @@ class ParticleLikelihood:
         n_particles: Number of particles (default 200)
         rng_key: Fixed JAX random key for deterministic PF
         manifest_dists: Per-channel observation noise families
-        diffusion_dist: Process noise family (DistributionFamily enum or list)
+        diffusion_dists: Per-latent process noise families
         ess_threshold: ESS/N threshold for resampling
     """
 
@@ -207,11 +220,11 @@ class ParticleLikelihood:
         n_manifest: int,
         n_particles: int = 200,
         rng_key: jax.Array | None = None,
-        manifest_dists: list[DistributionFamily | str] | None = None,
-        diffusion_dist: DistributionFamily | str | list = "gaussian",
+        manifest_dists: Sequence[DistributionFamily | str] | None = None,
+        diffusion_dists: Sequence[DistributionFamily | str] | None = None,
         ess_threshold: float = 0.5,
         block_rb: bool = True,
-        manifest_links: list[LinkFunction | str | None] | None = None,
+        manifest_links: Sequence[LinkFunction | str | None] | None = None,
         observation_support=None,
     ):
         self.n_latent = n_latent
@@ -226,15 +239,25 @@ class ParticleLikelihood:
             if manifest_dists is not None
             else [DistributionFamily.GAUSSIAN] * n_manifest
         )
-        self.manifest_links = manifest_links
+        self.diffusion_dists = (
+            [
+                dist if isinstance(dist, DistributionFamily) else DistributionFamily(dist)
+                for dist in diffusion_dists
+            ]
+            if diffusion_dists is not None
+            else [DistributionFamily.GAUSSIAN] * n_latent
+        )
+        self.manifest_links: list[LinkFunction | str | None] | None = (
+            list(manifest_links) if manifest_links is not None else None
+        )
         self.ess_threshold = ess_threshold
         self.observation_support = observation_support
 
         self._block_rb = block_rb
         self.observation_operator = compile_observation_operator(observation_support)
 
-        self.transition_semantics = compile_transition_semantics(diffusion_dist, n_latent)
-        self.diffusion_dist = self.transition_semantics.dispatch_mode
+        self.transition_semantics = compile_transition_semantics(self.diffusion_dists, n_latent)
+        self.transition_dispatch_mode = self.transition_semantics.dispatch_mode
 
         # Pre-compute partition indices for mixed mode (static, not traced)
         if self.transition_semantics.is_mixed:
@@ -244,10 +267,10 @@ class ParticleLikelihood:
                 )
             self._g_idx = jnp.asarray(self.transition_semantics.gaussian_idx, dtype=jnp.int32)
             self._s_idx = jnp.asarray(self.transition_semantics.sampled_idx, dtype=jnp.int32)
-            self._diffusion_dist_s = (
-                self.transition_semantics.sampled_block_dist.value
+            self._sampled_block_dist = (
+                self.transition_semantics.sampled_block_dist
                 if self.transition_semantics.sampled_block_dist is not None
-                else "student_t"
+                else DistributionFamily.STUDENT_T
             )
 
     def compute_log_likelihood(
@@ -344,12 +367,9 @@ class ParticleLikelihood:
             from causal_ssm_agent.models.ssm.inference.targets.block_rb import (
                 make_block_rb_callbacks,
             )
-            from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
             trans_extra = {k: v for k, v in params.items() if k.startswith("proc_")}
-            trans_kernel = build_transition_kernel(
-                DistributionFamily(self._diffusion_dist_s), trans_extra
-            )
+            trans_kernel = build_transition_kernel([self._sampled_block_dist], trans_extra)
 
             init_sample, propagate_sample, log_potential = make_block_rb_callbacks(
                 n_latent=n,
@@ -404,9 +424,9 @@ class ParticleLikelihood:
 
         # Build and run filter
         filter_obj = build_filter(
-            init_sample=init_sample,
-            propagate_sample=propagate_sample,
-            log_potential=log_potential,
+            init_sample=cast("InitSample", init_sample),
+            propagate_sample=cast("PropagateSample", propagate_sample),
+            log_potential=cast("LogPotential", log_potential),
             n_filter_particles=self.n_particles,
             resampling_fn=_systematic_resampling,
             ess_threshold=self.ess_threshold,
@@ -464,6 +484,7 @@ class ParticleLikelihood:
             raise NotImplementedError(
                 "Interval-summary observations are not supported for the current measurement setup."
             )
+        mean_log_prob_fn = measurement_semantics.mean_log_prob_fn
         observation_operator = measurement_semantics.observation_operator
 
         trans_extra = {k: v for k, v in params.items() if k.startswith("proc_")}
@@ -557,7 +578,7 @@ class ParticleLikelihood:
             return support_observation_log_prob(
                 observation_operator,
                 obs_kernel,
-                measurement_semantics.mean_log_prob_fn,
+                mean_log_prob_fn,
                 obs,
                 mask_float,
                 state.latent,
@@ -583,9 +604,9 @@ class ParticleLikelihood:
         }
 
         filter_obj = build_filter(
-            init_sample=init_sample,
-            propagate_sample=propagate_sample,
-            log_potential=log_potential,
+            init_sample=cast("InitSample", init_sample),
+            propagate_sample=cast("PropagateSample", propagate_sample),
+            log_potential=cast("LogPotential", log_potential),
             n_filter_particles=self.n_particles,
             resampling_fn=_systematic_resampling,
             ess_threshold=self.ess_threshold,

@@ -7,6 +7,8 @@ values, scale plausibility).
 
 from __future__ import annotations
 
+from typing import Literal
+
 import jax.numpy as jnp
 import networkx as nx
 import numpy as np
@@ -23,6 +25,18 @@ from causal_ssm_agent.workers.schemas_prior import (
 
 logger = get_prefect_logger(__name__)
 
+PriorValidationSeverity = Literal["error", "warning"]
+PriorFailureStage = Literal[
+    "compiled_parameters",
+    "latent_dynamics",
+    "observation_mean",
+    "observation_sample",
+    "support_violation",
+    "model_build",
+    "prior_sampling",
+    "unknown",
+]
+
 
 def _pp_result(
     *,
@@ -31,11 +45,11 @@ def _pp_result(
     code: str,
     issue: str | None,
     suggested_adjustment: str | None = None,
-    severity: str = "error",
+    severity: PriorValidationSeverity = "error",
     related_parameters: list[str] | None = None,
     supporting_codes: list[str] | None = None,
     repair_scope: PriorRepairScope | None = None,
-    failure_stage: str | None = None,
+    failure_stage: PriorFailureStage | None = None,
     bad_sample_sites: list[str] | None = None,
     bad_manifest_names: list[str] | None = None,
     failing_draw_indices: list[int] | None = None,
@@ -105,14 +119,14 @@ def _supporting_compile_context(
 
     related_parameters = list(
         dict.fromkeys(
-            parameter
+            str(parameter)
             for diagnostic in relevant
             for parameter in (diagnostic.related_parameters or [diagnostic.parameter])
             if parameter
         )
     )
     supporting_codes = list(
-        dict.fromkeys(diagnostic.code for diagnostic in relevant if diagnostic.code)
+        dict.fromkeys(str(diagnostic.code) for diagnostic in relevant if diagnostic.code)
     )
     return related_parameters, supporting_codes
 
@@ -337,12 +351,14 @@ def _make_support_compatible_dummy_wide_data(
     n_rows: int = 10,
 ) -> pl.DataFrame:
     """Build minimal wide data that satisfy each likelihood family's support."""
-    cols: dict[str, list[float] | list[int]] = {"time": list(range(n_rows))}
-    manifest_cols: dict[str, type[pl.DataType]] = {}
+    cols: dict[str, pl.Series] = {"time": pl.Series("time", list(range(n_rows)), dtype=pl.Float64)}
     for lik in model_spec.likelihoods:
-        cols[lik.variable] = _dummy_values_for_distribution(lik.distribution, n_rows)
-        manifest_cols[lik.variable] = pl.Float64
-    return pl.DataFrame(cols).cast(manifest_cols)
+        cols[lik.variable] = pl.Series(
+            lik.variable,
+            _dummy_values_for_distribution(lik.distribution, n_rows),
+            dtype=pl.Float64,
+        )
+    return pl.DataFrame(cols)
 
 
 def _check_constraint_violations(
@@ -633,14 +649,17 @@ def _check_lagged_response_plausibility(
         logger.debug("Skipping lagged-response plausibility check (missing inputs)")
         return []
 
-    from causal_ssm_agent.models.ssm_compiler import deserialize_ssm_spec
-    from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
+    from causal_ssm_agent.models.ssm_compiler import (
+        deserialize_edge_lag_days,
+        deserialize_ssm_spec,
+    )
     from causal_ssm_agent.utils.causal_spec import get_estimation_edges
 
     try:
         spec_payload = compiled_ssm.get("spec")
         if not isinstance(spec_payload, dict):
             return []
+        edge_lag_days = deserialize_edge_lag_days(compiled_ssm.get("edge_lag_days"))
         ssm_spec = deserialize_ssm_spec(spec_payload)
     except (ValueError, KeyError, TypeError) as exc:
         logger.warning(
@@ -685,13 +704,19 @@ def _check_lagged_response_plausibility(
     import jax.scipy.linalg as jla
 
     results: list[PriorValidationResult] = []
-    model_dt_days = get_construct_dt_days(causal_spec)
     for edge in lagged_edges:
         cause = str(edge["cause"])
         effect = str(edge["effect"])
         effect_idx = latent_index[effect]
         cause_idx = latent_index[cause]
-        lag_days = model_dt_days
+        lag_days = edge_lag_days.get((effect_idx, cause_idx))
+        if lag_days is None:
+            logger.warning(
+                "Skipping lagged-response plausibility check for %s->%s (missing edge lag metadata)",
+                cause,
+                effect,
+            )
+            continue
         responses: list[float] = []
         for idx in sample_idx:
             drift = jnp.asarray(drift_samples[idx], dtype=jnp.float32)
@@ -765,8 +790,8 @@ def validate_prior_predictive(
 
     Returns:
         Tuple of (is_valid, validation results, raw prior predictive samples).
-        The samples dict can be passed to ``simulate_predictive_observations()``
-        to generate per-variable observation samples for visualization.
+        Unpack ``simulate_predictive_observations()`` to generate per-variable
+        observation samples and their effective emission mask for visualization.
     """
     from causal_ssm_agent.models.predictive_simulation import (
         PredictiveObservationMeanOverflow,

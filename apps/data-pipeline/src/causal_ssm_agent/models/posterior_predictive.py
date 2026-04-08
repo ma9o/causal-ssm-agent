@@ -471,7 +471,7 @@ def run_posterior_predictive_checks(
     Returns:
         PPCResult with diagnostics
     """
-    y_sim = simulate_predictive_observations(
+    y_sim, _y_mask = simulate_predictive_observations(
         samples=samples,
         times=times,
         diffusion_dists=diffusion_dists,

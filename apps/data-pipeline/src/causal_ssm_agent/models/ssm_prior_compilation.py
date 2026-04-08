@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, Literal
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
@@ -26,6 +26,16 @@ from causal_ssm_agent.workers.schemas_prior import (
 
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
 CompileDiagnostic = PriorValidationResult
+PriorFailureStage = Literal[
+    "compiled_parameters",
+    "latent_dynamics",
+    "observation_mean",
+    "observation_sample",
+    "support_violation",
+    "model_build",
+    "prior_sampling",
+    "unknown",
+]
 
 
 class PriorCompilationError(AggregatedCompileError):
@@ -39,7 +49,7 @@ def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
 
     for effect_idx in range(ssm_spec.n_latent):
         for cause_idx in range(ssm_spec.n_latent):
-            if effect_idx != cause_idx and ssm_spec.drift_mask[effect_idx, cause_idx]:
+            if effect_idx != cause_idx and ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]:
                 positions.append((effect_idx, cause_idx))
     return positions
 
@@ -92,7 +102,7 @@ def _compile_warning(
     suggested_adjustment: str,
     compiled_site_name: str | None = None,
     compiled_flat_index: int | None = None,
-    failure_stage: str | None = None,
+    failure_stage: PriorFailureStage | None = None,
     pathology_certificate: PriorPathologyCertificate | None = None,
 ) -> CompileDiagnostic:
     """Build a typed non-fatal compile diagnostic."""

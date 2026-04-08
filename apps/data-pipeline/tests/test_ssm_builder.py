@@ -3,6 +3,8 @@
 Covers: normalize_prior_params, split_compound_name, fit-input preparation.
 """
 
+from typing import cast
+
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
@@ -11,8 +13,7 @@ import pytest
 from causal_ssm_agent.models.ssm.model import (
     SSMPriors,
     SSMSpec,
-    full_drift_mask,
-    zero_loading_mask,
+    full_diagonal_mask,
 )
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from causal_ssm_agent.models.ssm_compilation import (
@@ -20,6 +21,7 @@ from causal_ssm_agent.models.ssm_compilation import (
     normalize_prior_params,
     split_compound_name,
 )
+from tests.ssm_test_utils import make_ssm_spec
 
 # =============================================================================
 # normalize_prior_params
@@ -28,11 +30,9 @@ from causal_ssm_agent.models.ssm_compilation import (
 
 def _make_spec(**kwargs) -> SSMSpec:
     """Build an SSMSpec with explicit default masks."""
-    n_latent = int(kwargs.get("n_latent", 1))
-    n_manifest = int(kwargs.get("n_manifest", 1))
-    kwargs.setdefault("drift_mask", full_drift_mask(n_latent))
-    kwargs.setdefault("lambda_mask", zero_loading_mask(n_manifest, n_latent))
-    return SSMSpec(**kwargs)
+    kwargs.setdefault("n_latent", 1)
+    kwargs.setdefault("n_manifest", 1)
+    return make_ssm_spec(**kwargs)
 
 
 class TestNormalizePriorParams:
@@ -299,7 +299,8 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["mood", "sleep"],
             manifest_names=["mood", "sleep"],
-            t0_var="free",
+            t0_var=jnp.eye(2),
+            t0_var_diag_mask=full_diagonal_mask(2),
             t0_correlation_mask=t0_mask,
         )
 
@@ -381,8 +382,9 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["mood", "sleep"],
             manifest_names=["mood", "sleep"],
-            t0_means="free",
-            t0_var="diag",
+            t0_var=jnp.eye(2),
+            t0_var_diag_mask=full_diagonal_mask(2),
+            t0_correlation_mask=np.zeros((2, 2), dtype=bool),
         )
 
         ssm_priors, index_maps, _diagnostics = compile_priors(priors, model_spec, ssm_spec=ssm_spec)
@@ -446,7 +448,8 @@ class TestBuilderPriorConversion:
             n_manifest=3,
             latent_names=["A", "B", "C"],
             manifest_names=["a", "b", "c"],
-            t0_var="free",
+            t0_var=jnp.eye(3),
+            t0_var_diag_mask=full_diagonal_mask(3),
             t0_correlation_mask=t0_mask,
         )
 
@@ -556,7 +559,9 @@ class TestPrepareModelRuntime:
                 )
 
         with caplog.at_level("INFO"):
-            runtime = prepare_model_runtime(data_for_model, builder=StubBuilder())
+            runtime = prepare_model_runtime(
+                data_for_model, builder=cast("SSMModelBuilder", StubBuilder())
+            )
 
         assert runtime.observation_data is not None
         assert runtime.observation_data.columns == data_for_model.columns
@@ -584,6 +589,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_curr_coeffs[1, 0, 0] == pytest.approx(15.5)
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(31.0)
         assert runtime.manifest_names == ["stress_score"]
+        assert runtime.builder._model is not None
         assert runtime.builder._model.observation_support is runtime.observation_support
         assert runtime.inference_structure.likelihood_path == "particle"
         assert runtime.inference_structure.auto_method == "laplace_em"
@@ -633,7 +639,9 @@ class TestPrepareModelRuntime:
                     ["stress_score"],
                 )
 
-        runtime = prepare_model_runtime(data_for_model, builder=StubBuilder())
+        runtime = prepare_model_runtime(
+            data_for_model, builder=cast("SSMModelBuilder", StubBuilder())
+        )
 
         assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
         assert runtime.observation_support is not None
@@ -668,7 +676,8 @@ class TestPrepareModelRuntime:
                 n_latent=1,
                 n_manifest=1,
                 lambda_mat=jnp.eye(1, dtype=jnp.float32),
-                diffusion="diag",
+                diffusion=jnp.eye(1, dtype=jnp.float32),
+                diffusion_mask=np.diag(full_diagonal_mask(1)),
                 manifest_names=["stress_score"],
             ),
             ssm_priors=SSMPriors(),

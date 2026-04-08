@@ -25,7 +25,7 @@ from causal_ssm_agent.flows.stages.stage5b.fit import fit_model
 from causal_ssm_agent.flows.stages.stage6.interventions import run_interventions
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 from causal_ssm_agent.utils.causal_spec import get_all_treatments
-from tests.ssm_test_utils import make_ssm_spec
+from tests.ssm_test_utils import diagonal_diffusion_kwargs, make_ssm_spec
 
 # ==============================================================================
 # Constants
@@ -551,7 +551,7 @@ class TestE2EPipeline:
                 n_latent=1,
                 n_manifest=1,
                 lambda_mat=jnp.eye(1),
-                diffusion="diag",
+                **diagonal_diffusion_kwargs(1),
                 latent_names=["Perf"],
                 manifest_names=["perf_avg"],
             ),

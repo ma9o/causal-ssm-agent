@@ -33,11 +33,16 @@ from causal_ssm_agent.models.ssm_compilation import (
 from causal_ssm_agent.models.ssm_compilation import (
     translate_spec as translate_ssm_spec,
 )
-from tests.ssm_test_utils import make_ssm_spec
+from tests.ssm_test_utils import combined_drift_mask, make_ssm_spec
 
 
 def _with_estimation_projection(causal_spec: dict) -> dict:
     causal_spec = deepcopy(causal_spec)
+    measurement = causal_spec.get("measurement", {})
+    indicators = measurement.get("indicators", [])
+    for indicator in indicators:
+        if isinstance(indicator, dict) and "construct_polarity" not in indicator:
+            indicator["construct_polarity"] = "positive"
     latent = causal_spec.get("latent", {})
     causal_spec["estimation"] = {
         "state_order": [
@@ -297,11 +302,11 @@ class TestE2ESpecToDiscretization:
         assert spec.latent_names == ["mood", "stress"]
 
         # Drift mask: diagonal (AR) + stress→mood off-diagonal
-        assert spec.drift_mask is not None
-        assert spec.drift_mask[0, 0]  # mood AR
-        assert spec.drift_mask[1, 1]  # stress AR
-        assert spec.drift_mask[0, 1]  # stress→mood coupling (effect=mood row, cause=stress col)
-        assert not spec.drift_mask[1, 0]  # no mood→stress edge
+        drift_mask = combined_drift_mask(spec)
+        assert drift_mask[0, 0]  # mood AR
+        assert drift_mask[1, 1]  # stress AR
+        assert drift_mask[0, 1]  # stress→mood coupling (effect=mood row, cause=stress col)
+        assert not drift_mask[1, 0]  # no mood→stress edge
 
         # Lambda mask: stress_cortisol has free loading for stress
         assert spec.lambda_mask is not None
@@ -559,9 +564,9 @@ class TestE2ESpecToDiscretization:
         builder = build_compiled_ssm_builder(compiled, pivot_to_wide(data_for_model))
         assert builder._spec is not None
         assert builder._spec.latent_names == ["mood", "stress"]
-        assert builder._spec.drift_mask is not None
-        assert builder._spec.drift_mask[0, 1]
-        assert not builder._spec.drift_mask[1, 0]
+        drift_mask = combined_drift_mask(builder._spec)
+        assert drift_mask[0, 1]
+        assert not drift_mask[1, 0]
         assert builder._spec.lambda_mask is not None
         assert builder._spec.lambda_mask[2, 1]
         assert builder._model is not None
@@ -677,15 +682,15 @@ class TestE2ESpecToDiscretization:
             np.fill_diagonal(drift, -abs(mu_diag))
 
         # Off-diagonal from drift mask
-        if spec.drift_mask is not None:
-            mu_offdiag = ssm_priors.drift_offdiag["mu"]
-            offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
-            idx = 0
-            for i in range(n):
-                for j in range(n):
-                    if i != j and spec.drift_mask[i, j]:
-                        drift[i, j] = offdiag_vals[idx]
-                        idx += 1
+        mu_offdiag = ssm_priors.drift_offdiag["mu"]
+        offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
+        drift_mask = combined_drift_mask(spec)
+        idx = 0
+        for i in range(n):
+            for j in range(n):
+                if i != j and drift_mask[i, j]:
+                    drift[i, j] = offdiag_vals[idx]
+                    idx += 1
 
         # All eigenvalues must have negative real parts (stability)
         eigenvalues = np.linalg.eigvals(drift)
@@ -719,15 +724,15 @@ class TestE2ESpecToDiscretization:
         else:
             drift = drift.at[jnp.diag_indices(n)].set(-abs(mu_diag))
 
-        if spec.drift_mask is not None:
-            mu_offdiag = ssm_priors.drift_offdiag["mu"]
-            offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
-            idx = 0
-            for i in range(n):
-                for j in range(n):
-                    if i != j and spec.drift_mask[i, j]:
-                        drift = drift.at[i, j].set(offdiag_vals[idx])
-                        idx += 1
+        mu_offdiag = ssm_priors.drift_offdiag["mu"]
+        offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
+        drift_mask = combined_drift_mask(spec)
+        idx = 0
+        for i in range(n):
+            for j in range(n):
+                if i != j and drift_mask[i, j]:
+                    drift = drift.at[i, j].set(offdiag_vals[idx])
+                    idx += 1
 
         # Discretize at dt=7 (weekly) — should recover original DT AR
         dt_weekly = 7.0
@@ -786,15 +791,15 @@ class TestE2ESpecToDiscretization:
         if isinstance(mu_diag, list):
             drift = drift.at[jnp.diag_indices(n)].set(jnp.array([-abs(v) for v in mu_diag]))
 
-        if spec.drift_mask is not None:
-            mu_offdiag = ssm_priors.drift_offdiag["mu"]
-            offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
-            idx = 0
-            for i in range(n):
-                for j in range(n):
-                    if i != j and spec.drift_mask[i, j]:
-                        drift = drift.at[i, j].set(offdiag_vals[idx])
-                        idx += 1
+        mu_offdiag = ssm_priors.drift_offdiag["mu"]
+        offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
+        drift_mask = combined_drift_mask(spec)
+        idx = 0
+        for i in range(n):
+            for j in range(n):
+                if i != j and drift_mask[i, j]:
+                    drift = drift.at[i, j].set(offdiag_vals[idx])
+                    idx += 1
 
         # Discretize at weekly interval
         dt_weekly = 7.0
@@ -844,15 +849,15 @@ class TestE2ESpecToDiscretization:
         if isinstance(mu_diag, list):
             drift = drift.at[jnp.diag_indices(n)].set(jnp.array([-abs(v) for v in mu_diag]))
 
-        if spec.drift_mask is not None:
-            mu_offdiag = ssm_priors.drift_offdiag["mu"]
-            offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
-            idx = 0
-            for i in range(n):
-                for j in range(n):
-                    if i != j and spec.drift_mask[i, j]:
-                        drift = drift.at[i, j].set(offdiag_vals[idx])
-                        idx += 1
+        mu_offdiag = ssm_priors.drift_offdiag["mu"]
+        offdiag_vals = mu_offdiag if isinstance(mu_offdiag, list) else [mu_offdiag]
+        drift_mask = combined_drift_mask(spec)
+        idx = 0
+        for i in range(n):
+            for j in range(n):
+                if i != j and drift_mask[i, j]:
+                    drift = drift.at[i, j].set(offdiag_vals[idx])
+                    idx += 1
 
         # Simple diagonal diffusion
         diff_sd = ssm_priors.diffusion_diag.get("sigma", 1.0)

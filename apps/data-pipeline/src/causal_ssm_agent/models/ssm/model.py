@@ -69,14 +69,56 @@ def _nan_safe_ll_bwd(is_finite, g):
 _nan_safe_ll.defvjp(_nan_safe_ll_fwd, _nan_safe_ll_bwd)
 
 
-def full_drift_mask(n_latent: int) -> np.ndarray:
-    """Return the fully free structural support mask for a drift matrix."""
-    return np.ones((n_latent, n_latent), dtype=bool)
+def _sample_prior_array(site_name: str, prior: dist.Distribution) -> jnp.ndarray:
+    """Sample one prior site and normalize it to a concrete JAX array."""
+    return jnp.asarray(numpyro.sample(site_name, prior))
+
+
+def full_drift_offdiag_mask(n_latent: int) -> np.ndarray:
+    """Return the fully free off-diagonal structural support mask for a drift matrix."""
+    mask = np.ones((n_latent, n_latent), dtype=bool)
+    np.fill_diagonal(mask, False)
+    return mask
 
 
 def zero_loading_mask(n_manifest: int, n_latent: int) -> np.ndarray:
     """Return the zero free-loading mask for a fixed loading template."""
     return np.zeros((n_manifest, n_latent), dtype=bool)
+
+
+def full_vector_mask(n: int) -> np.ndarray:
+    """Return a fully free vector support mask."""
+    return np.ones(n, dtype=bool)
+
+
+def zero_vector_mask(n: int) -> np.ndarray:
+    """Return a zero vector support mask."""
+    return np.zeros(n, dtype=bool)
+
+
+def full_diagonal_mask(n: int) -> np.ndarray:
+    """Return a fully free diagonal support mask."""
+    return np.ones(n, dtype=bool)
+
+
+def zero_diagonal_mask(n: int) -> np.ndarray:
+    """Return a zero diagonal support mask."""
+    return np.zeros(n, dtype=bool)
+
+
+def full_cholesky_mask(n: int) -> np.ndarray:
+    """Return the fully free lower-Cholesky support mask."""
+    return np.tri(n, dtype=bool)
+
+
+def strict_lower_triangle_mask(n: int) -> np.ndarray:
+    """Return the strict lower-triangle support mask."""
+    return np.tri(n, k=-1, dtype=bool)
+
+
+def zero_square_mask(n: int) -> np.ndarray:
+    """Return the zero square support mask."""
+    return np.zeros((n, n), dtype=bool)
 
 
 @dataclass
@@ -85,13 +127,13 @@ class SSMSpec:
 
     Matrices:
     - drift (A): n_latent x n_latent continuous-time auto/cross effects
-    - diffusion (G): n_latent x n_latent process noise (Cholesky)
+    - diffusion_chol (L_Q): n_latent x n_latent process noise Cholesky factor
     - cint (c): n_latent x 1 continuous intercept
     - lambda_mat (Λ): n_manifest x n_latent factor loadings
     - manifest_means (μ): n_manifest x 1 manifest intercepts
-    - manifest_var (L_R): n_manifest x n_manifest measurement-error Cholesky factor
+    - manifest_chol (L_R): n_manifest x n_manifest measurement-error Cholesky factor
     - t0_means (η₀): n_latent x 1 initial state means
-    - t0_var (P₀): n_latent x n_latent initial state variance (Cholesky)
+    - t0_chol (L_0): n_latent x n_latent initial-state Cholesky factor
 
     Distributions:
     - diffusion_dists (Nₛ): per-latent process noise family
@@ -99,8 +141,8 @@ class SSMSpec:
     - manifest_links (gᵢ): per-channel link
     - hᵢ: extra observation parameters required by Fᵢ (for example df, shape, r, concentration, cutpoints, or categorical logits)
 
-    State:       dη(t) = (A η(t) + c) dt + G dNₛ(t)
-                 η(0) ~ N(t0_means, t0_var t0_varᵀ)
+    State:       dη(t) = (A η(t) + c) dt + L_Q dNₛ(t)
+                 η(0) ~ N(t0_means, L_0 L_0ᵀ)
 
     Linear pred: ξᵢ(t) = (Λ η(t) + μ)ᵢ
     Mean param:  mᵢ(t) = gᵢ⁻¹(ξᵢ(t))
@@ -109,19 +151,24 @@ class SSMSpec:
 
     n_latent: int
     n_manifest: int
-    drift_mask: np.ndarray
+    drift_diag_mask: np.ndarray
+    drift_offdiag_mask: np.ndarray
+    drift: jnp.ndarray
+    cint_mask: np.ndarray
+    cint: jnp.ndarray
     lambda_mask: np.ndarray
-
-    # Fixed or "free" specification for each matrix
-    # If a matrix, use those fixed values; if "free", estimate
-    drift: jnp.ndarray | Literal["free"] = "free"
-    diffusion: jnp.ndarray | Literal["free", "diag"] = "free"
-    cint: jnp.ndarray | Literal["free"] | None = None
-    lambda_mat: jnp.ndarray | Literal["free"] = "free"
-    manifest_means: jnp.ndarray | Literal["free"] | None = None
-    manifest_var: jnp.ndarray | Literal["free", "diag"] = "diag"
-    t0_means: jnp.ndarray | Literal["free"] = "free"
-    t0_var: jnp.ndarray | Literal["free", "diag"] = "free"
+    lambda_mat: jnp.ndarray
+    diffusion_chol_mask: np.ndarray
+    diffusion_chol: jnp.ndarray
+    manifest_means_mask: np.ndarray
+    manifest_means: jnp.ndarray
+    manifest_chol_diag_mask: np.ndarray
+    manifest_chol: jnp.ndarray
+    t0_means_mask: np.ndarray
+    t0_means: jnp.ndarray
+    t0_chol_diag_mask: np.ndarray
+    t0_correlation_mask: np.ndarray
+    t0_chol: jnp.ndarray
 
     # Per-variable diffusion noise families.
     diffusion_dists: list[DistributionFamily] = field(default_factory=list)
@@ -147,28 +194,56 @@ class SSMSpec:
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
 
-    # manifest_var_mask: (n_manifest,) bool — True where measurement SD is free
-    # to sample on the diagonal of manifest_var. When None, manifest_var follows
-    # its global mode ("diag"/"free" = all free, fixed ndarray = all fixed).
-    manifest_var_mask: np.ndarray | None = None
+    # drift_diag_mask: (n_latent,) bool — True where the diagonal self-dynamics
+    # remain free to sample.
 
-    # t0_correlation_mask: (n_latent, n_latent) bool — True on lower-triangle
-    # positions where an authored initial-state correlation parameter exists.
-    # When None, `t0_var` controls whether all or none are free.
-    t0_correlation_mask: np.ndarray | None = None
+    # drift_offdiag_mask: (n_latent, n_latent) bool — True on off-diagonal
+    # structural couplings that remain free to sample.
+
+    # diffusion_chol_mask: (n_latent, n_latent) bool — True on lower-Cholesky
+    # entries that remain free to sample.
+
+    # cint_mask: (n_latent,) bool — True where the continuous intercept
+    # remains free to sample.
+
+    # manifest_means_mask: (n_manifest,) bool — True where manifest
+    # intercepts remain free to sample.
+
+    # t0_means_mask: (n_latent,) bool — True where initial-state means
+    # remain free to sample.
+
+    # manifest_chol_diag_mask: (n_manifest,) bool — True where the diagonal
+    # manifest-noise standard deviation remains free to sample.
+
+    # t0_chol_diag_mask: (n_latent,) bool — True where initial-state standard
+    # deviations remain free to sample.
+
+    # t0_correlation_mask: (n_latent, n_latent) bool — True on strict lower
+    # positions where initial-state correlations remain free to sample.
 
     # Time-invariant latent mask: (n_latent,) bool — True for quasi-constant latents.
     # These get near-zero drift diagonal and near-zero diffusion, so η_i(t) ≈ η_i(0).
     # When None, no latent is treated as quasi-constant.
     time_invariant_mask: np.ndarray | None = None
 
-    def _coerce_drift_mask(self, mask: np.ndarray) -> np.ndarray:
+    def _coerce_drift_diag_mask(self, mask: np.ndarray) -> np.ndarray:
+        mask_array = np.asarray(mask, dtype=bool)
+        if mask_array.shape != (self.n_latent,):
+            raise ValueError(
+                "drift_diag_mask must have shape "
+                f"({self.n_latent},), got {mask_array.shape}"
+            )
+        return mask_array
+
+    def _coerce_drift_offdiag_mask(self, mask: np.ndarray) -> np.ndarray:
         mask_array = np.asarray(mask, dtype=bool)
         if mask_array.shape != (self.n_latent, self.n_latent):
             raise ValueError(
-                "drift_mask must have shape "
+                "drift_offdiag_mask must have shape "
                 f"({self.n_latent}, {self.n_latent}), got {mask_array.shape}"
             )
+        if bool(np.diag(mask_array).any()):
+            raise ValueError("drift_offdiag_mask must have a zero diagonal.")
         return mask_array
 
     def _coerce_lambda_mask(self, mask: np.ndarray) -> np.ndarray:
@@ -180,10 +255,118 @@ class SSMSpec:
             )
         return mask_array
 
+    def _coerce_lambda_mat(self, lambda_mat: jnp.ndarray) -> jnp.ndarray:
+        if isinstance(lambda_mat, str):
+            raise ValueError(
+                "lambda_mat must be an explicit loading template array. "
+                "Use lambda_mask to mark free loadings."
+            )
+        lambda_array = jnp.asarray(lambda_mat)
+        if lambda_array.shape != (self.n_manifest, self.n_latent):
+            raise ValueError(
+                "lambda_mat must have shape "
+                f"({self.n_manifest}, {self.n_latent}), got {lambda_array.shape}"
+            )
+        return lambda_array
+
+    def _coerce_vector_template(self, name: str, value: jnp.ndarray, dim: int) -> jnp.ndarray:
+        if isinstance(value, str):
+            raise ValueError(f"{name} must be an explicit vector template array.")
+        value_array = jnp.asarray(value)
+        if value_array.shape != (dim,):
+            raise ValueError(f"{name} must have shape ({dim},), got {value_array.shape}")
+        return value_array
+
+    def _coerce_square_template(self, name: str, value: jnp.ndarray, dim: int) -> jnp.ndarray:
+        if isinstance(value, str):
+            raise ValueError(f"{name} must be an explicit matrix template array.")
+        value_array = jnp.asarray(value)
+        if value_array.shape != (dim, dim):
+            raise ValueError(f"{name} must have shape ({dim}, {dim}), got {value_array.shape}")
+        return value_array
+
+    def _coerce_diagonal_mask(self, name: str, mask: np.ndarray, dim: int) -> np.ndarray:
+        mask_array = np.asarray(mask, dtype=bool)
+        if mask_array.shape != (dim,):
+            raise ValueError(f"{name} must have shape ({dim},), got {mask_array.shape}")
+        return mask_array
+
+    def _coerce_cholesky_mask(self, name: str, mask: np.ndarray, dim: int) -> np.ndarray:
+        mask_array = np.asarray(mask, dtype=bool)
+        if mask_array.shape != (dim, dim):
+            raise ValueError(f"{name} must have shape ({dim}, {dim}), got {mask_array.shape}")
+        if bool(np.triu(mask_array, k=1).any()):
+            raise ValueError(f"{name} must only mark lower-Cholesky entries.")
+        return mask_array
+
+    def _coerce_strict_lower_mask(self, name: str, mask: np.ndarray, dim: int) -> np.ndarray:
+        mask_array = np.asarray(mask, dtype=bool)
+        if mask_array.shape != (dim, dim):
+            raise ValueError(f"{name} must have shape ({dim}, {dim}), got {mask_array.shape}")
+        if bool(np.triu(mask_array, k=0).any()):
+            raise ValueError(f"{name} must only mark strict lower-triangle entries.")
+        return mask_array
+
     def __post_init__(self) -> None:
         """Validate structural masks and canonicalize per-channel family metadata."""
-        self.drift_mask = self._coerce_drift_mask(self.drift_mask)
+        self.drift_diag_mask = self._coerce_diagonal_mask(
+            "drift_diag_mask",
+            self.drift_diag_mask,
+            self.n_latent,
+        )
+        self.drift_offdiag_mask = self._coerce_drift_offdiag_mask(self.drift_offdiag_mask)
+        self.drift = self._coerce_square_template("drift", self.drift, self.n_latent)
+        self.cint_mask = self._coerce_diagonal_mask("cint_mask", self.cint_mask, self.n_latent)
+        self.cint = self._coerce_vector_template("cint", self.cint, self.n_latent)
         self.lambda_mask = self._coerce_lambda_mask(self.lambda_mask)
+        self.lambda_mat = self._coerce_lambda_mat(self.lambda_mat)
+        self.diffusion_chol_mask = self._coerce_cholesky_mask(
+            "diffusion_chol_mask",
+            self.diffusion_chol_mask,
+            self.n_latent,
+        )
+        self.diffusion_chol = self._coerce_square_template(
+            "diffusion_chol",
+            self.diffusion_chol,
+            self.n_latent,
+        )
+        self.manifest_means_mask = self._coerce_diagonal_mask(
+            "manifest_means_mask",
+            self.manifest_means_mask,
+            self.n_manifest,
+        )
+        self.manifest_means = self._coerce_vector_template(
+            "manifest_means",
+            self.manifest_means,
+            self.n_manifest,
+        )
+        self.manifest_chol_diag_mask = self._coerce_diagonal_mask(
+            "manifest_chol_diag_mask",
+            self.manifest_chol_diag_mask,
+            self.n_manifest,
+        )
+        self.manifest_chol = self._coerce_square_template(
+            "manifest_chol",
+            self.manifest_chol,
+            self.n_manifest,
+        )
+        self.t0_means_mask = self._coerce_diagonal_mask(
+            "t0_means_mask",
+            self.t0_means_mask,
+            self.n_latent,
+        )
+        self.t0_means = self._coerce_vector_template("t0_means", self.t0_means, self.n_latent)
+        self.t0_chol_diag_mask = self._coerce_diagonal_mask(
+            "t0_chol_diag_mask",
+            self.t0_chol_diag_mask,
+            self.n_latent,
+        )
+        self.t0_correlation_mask = self._coerce_strict_lower_mask(
+            "t0_correlation_mask",
+            self.t0_correlation_mask,
+            self.n_latent,
+        )
+        self.t0_chol = self._coerce_square_template("t0_chol", self.t0_chol, self.n_latent)
 
         if self.diffusion_dists:
             self.diffusion_dists = [DistributionFamily(dist) for dist in self.diffusion_dists]
@@ -213,7 +396,10 @@ class SSMSpec:
                     f"{len(self.manifest_links)} vs {self.n_manifest}"
                 )
 
-        if self.manifest_level_counts is not None and len(self.manifest_level_counts) != self.n_manifest:
+        if (
+            self.manifest_level_counts is not None
+            and len(self.manifest_level_counts) != self.n_manifest
+        ):
             raise ValueError(
                 "manifest_level_counts length must match n_manifest: "
                 f"{len(self.manifest_level_counts)} vs {self.n_manifest}"
@@ -485,6 +671,7 @@ class SSMModel:
         self._assembler = SSMAssembler(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
+        self.parameter_bindings: list[dict[str, Any]] = []
         self._prior_runtime_bundle = prior_runtime_bundle
         self._prior_site_index = (
             {site.name: site for site in prior_runtime_bundle.registry}
@@ -531,26 +718,28 @@ class SSMModel:
         """Sample drift matrix with stability constraints."""
         n = spec.n_latent
 
-        if isinstance(spec.drift, jnp.ndarray):
-            return spec.drift
-
         asm = self._assembler
+        n_diag = len(asm.drift_diag_positions)
         n_offdiag = len(asm.offdiag_positions)
 
-        drift_diag_pop = numpyro.sample(
-            "drift_diag_pop",
-            self._prior_distribution("drift_diag_pop"),
-        )
+        if n_diag == 0 and n_offdiag == 0:
+            return spec.drift
 
-        if n_offdiag > 0:
-            drift_offdiag_pop = jnp.asarray(
-                numpyro.sample(
-                    "drift_offdiag_pop",
-                    self._prior_distribution("drift_offdiag_pop"),
-                )
+        if n_diag > 0:
+            drift_diag_pop = _sample_prior_array(
+                "drift_diag_pop",
+                self._prior_distribution("drift_diag_pop"),
             )
         else:
-            drift_offdiag_pop = jnp.array([])
+            drift_diag_pop = None
+
+        if n_offdiag > 0:
+            drift_offdiag_pop = _sample_prior_array(
+                "drift_offdiag_pop",
+                self._prior_distribution("drift_offdiag_pop"),
+            )
+        else:
+            drift_offdiag_pop = None
 
         drift = asm.assemble_drift(drift_diag_pop, drift_offdiag_pop)
 
@@ -573,58 +762,57 @@ class SSMModel:
 
     def _sample_diffusion(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample diffusion matrix (lower Cholesky)."""
-        n = spec.n_latent
+        assembler = self._assembler
+        n_diag = len(assembler.diffusion_diag_positions)
+        n_lower = len(assembler.diffusion_lower_positions)
+        if n_diag == 0 and n_lower == 0:
+            return spec.diffusion_chol
 
-        if isinstance(spec.diffusion, jnp.ndarray):
-            return spec.diffusion
-
-        diff_diag_pop = numpyro.sample(
-            "diffusion_diag_pop",
-            self._prior_distribution("diffusion_diag_pop"),
-        )
+        diff_diag_pop = None
+        if n_diag > 0:
+            diff_diag_pop = _sample_prior_array(
+                "diffusion_diag_pop",
+                self._prior_distribution("diffusion_diag_pop"),
+            )
 
         diff_lower = None
-        if spec.diffusion != "diag":
-            n_lower = n * (n - 1) // 2
-            if n_lower > 0:
-                diff_lower = jnp.asarray(
-                    numpyro.sample(
-                        "diffusion_lower",
-                        self._prior_distribution("diffusion_lower"),
-                    )
-                )
+        if n_lower > 0:
+            diff_lower = _sample_prior_array(
+                "diffusion_lower",
+                self._prior_distribution("diffusion_lower"),
+            )
 
-        diffusion = self._assembler.assemble_diffusion(diff_diag_pop, diff_lower)
+        diffusion = assembler.assemble_diffusion(diff_diag_pop, diff_lower)
 
         numpyro.deterministic("diffusion", diffusion)
         return diffusion
 
     def _sample_cint(self, spec: SSMSpec) -> jnp.ndarray | None:
         """Sample continuous intercept."""
-        if spec.cint is None:
-            return None
-
-        if isinstance(spec.cint, jnp.ndarray):
+        n_free = len(self._assembler.cint_free_positions)
+        if n_free == 0:
             return spec.cint
 
-        cint = numpyro.sample(
+        cint_free = _sample_prior_array(
             "cint_pop",
             self._prior_distribution("cint_pop"),
         )
+        cint = self._assembler.assemble_cint(cint_free)
 
         numpyro.deterministic("cint", cint)
-        return jnp.asarray(cint)
+        return cint
 
     def _sample_lambda(self, spec: SSMSpec) -> jnp.ndarray:
         """Sample factor loading matrix (shared across subjects).
 
-        Three modes (determined by SSMAssembler from spec):
+        Two modes (determined by SSMAssembler from spec):
         1. Template+mask: sample free loadings at masked positions.
         2. Fixed: return template as-is (no sampling).
-        3. Legacy: identity + extra rows filled with sampled loadings.
         """
         # Fully fixed (array with no free-loading positions): return as-is
-        if isinstance(spec.lambda_mat, jnp.ndarray) and not bool(np.asarray(spec.lambda_mask).any()):
+        if isinstance(spec.lambda_mat, jnp.ndarray) and not bool(
+            np.asarray(spec.lambda_mask).any()
+        ):
             return spec.lambda_mat
 
         asm = self._assembler
@@ -632,11 +820,9 @@ class SSMModel:
 
         free_loadings = None
         if n_free > 0:
-            free_loadings = jnp.asarray(
-                numpyro.sample(
-                    "lambda_free",
-                    self._prior_distribution("lambda_free"),
-                )
+            free_loadings = _sample_prior_array(
+                "lambda_free",
+                self._prior_distribution("lambda_free"),
             )
 
         lambda_mat = asm.assemble_lambda(free_loadings)
@@ -645,32 +831,27 @@ class SSMModel:
 
     def _sample_manifest_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample manifest means and variance (shared across subjects)."""
-        n_m = spec.n_manifest
-
         # Means
-        if spec.manifest_means is None:
-            manifest_means = jnp.zeros(n_m)
-        elif isinstance(spec.manifest_means, jnp.ndarray):
+        n_means_free = len(self._assembler.manifest_means_free_positions)
+        if n_means_free == 0:
             manifest_means = spec.manifest_means
         else:
-            manifest_means = numpyro.sample(
+            manifest_means_free = _sample_prior_array(
                 "manifest_means",
                 self._prior_distribution("manifest_means"),
             )
+            manifest_means = self._assembler.assemble_manifest_means(manifest_means_free)
 
         # Variance (Cholesky)
-        if isinstance(spec.manifest_var, jnp.ndarray) and spec.manifest_var_mask is None:
-            manifest_chol = spec.manifest_var
+        n_free = len(self._assembler.manifest_var_free_positions)
+        if n_free == 0:
+            manifest_chol = spec.manifest_chol
         else:
-            n_free = len(self._assembler.manifest_var_free_positions)
-            if n_free > 0:
-                var_diag = numpyro.sample(
-                    "manifest_var_diag",
-                    self._prior_distribution("manifest_var_diag"),
-                )
-                manifest_chol = self._assembler.assemble_manifest_chol(var_diag)
-            else:
-                manifest_chol = self._assembler.manifest_var_template
+            var_diag = _sample_prior_array(
+                "manifest_var_diag",
+                self._prior_distribution("manifest_var_diag"),
+            )
+            manifest_chol = self._assembler.assemble_manifest_chol(var_diag)
 
         numpyro.deterministic("manifest_cov", manifest_chol @ manifest_chol.T)
         return jnp.asarray(manifest_means), jnp.asarray(manifest_chol)
@@ -678,31 +859,36 @@ class SSMModel:
     def _sample_t0_params(self, spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
         """Sample initial state parameters."""
         # Means
-        if isinstance(spec.t0_means, jnp.ndarray):
+        n_means_free = len(self._assembler.t0_means_free_positions)
+        if n_means_free == 0:
             t0_means = spec.t0_means
         else:
-            t0_means = numpyro.sample(
+            t0_means_free = _sample_prior_array(
                 "t0_means_pop",
                 self._prior_distribution("t0_means_pop"),
             )
+            t0_means = self._assembler.assemble_t0_means(t0_means_free)
 
         # Variance (Cholesky)
-        if isinstance(spec.t0_var, jnp.ndarray):
-            t0_chol = spec.t0_var
+        assembler = self._assembler
+        n_diag = len(assembler.t0_diag_free_positions)
+        n_corr = len(assembler.t0_correlation_positions)
+        if n_diag == 0 and n_corr == 0:
+            t0_chol = spec.t0_chol
         else:
-            var_diag = numpyro.sample(
-                "t0_var_diag",
-                self._prior_distribution("t0_var_diag"),
-            )
+            var_diag = None
+            if n_diag > 0:
+                var_diag = _sample_prior_array(
+                    "t0_var_diag",
+                    self._prior_distribution("t0_var_diag"),
+                )
             t0_corr = None
-            if spec.t0_var != "diag":
-                n_corr = len(self._assembler.t0_correlation_positions)
-                if n_corr > 0:
-                    t0_corr = numpyro.sample(
-                        "t0_var_lower",
-                        self._prior_distribution("t0_var_lower"),
-                    )
-            t0_cov_raw = self._assembler.assemble_t0_cov(var_diag, t0_corr)
+            if n_corr > 0:
+                t0_corr = _sample_prior_array(
+                    "t0_var_lower",
+                    self._prior_distribution("t0_var_lower"),
+                )
+            t0_cov_raw = assembler.assemble_t0_cov(var_diag, t0_corr)
             t0_cov, min_eig = stabilize_covariance_for_cholesky(
                 t0_cov_raw,
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -761,22 +947,22 @@ class SSMModel:
         manifest_dist_set = set(spec.manifest_dists)
 
         if DistributionFamily.STUDENT_T in manifest_dist_set:
-            sampled_values["obs_df"] = numpyro.sample(
+            sampled_values["obs_df"] = _sample_prior_array(
                 "obs_df",
                 self._prior_distribution("obs_df"),
             )
         if DistributionFamily.GAMMA in manifest_dist_set:
-            sampled_values["obs_shape"] = numpyro.sample(
+            sampled_values["obs_shape"] = _sample_prior_array(
                 "obs_shape",
                 self._prior_distribution("obs_shape"),
             )
         if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
-            sampled_values["obs_r"] = numpyro.sample(
+            sampled_values["obs_r"] = _sample_prior_array(
                 "obs_r",
                 self._prior_distribution("obs_r"),
             )
         if DistributionFamily.BETA in manifest_dist_set:
-            sampled_values["obs_concentration"] = numpyro.sample(
+            sampled_values["obs_concentration"] = _sample_prior_array(
                 "obs_concentration",
                 self._prior_distribution("obs_concentration"),
             )
@@ -792,22 +978,22 @@ class SSMModel:
                 )
 
             if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
-                sampled_values["obs_ordered_base"] = numpyro.sample(
+                sampled_values["obs_ordered_base"] = _sample_prior_array(
                     "obs_ordered_base",
                     self._prior_distribution("obs_ordered_base"),
                 )
                 if max_cutpoints > 1:
-                    sampled_values["obs_ordered_gaps"] = numpyro.sample(
+                    sampled_values["obs_ordered_gaps"] = _sample_prior_array(
                         "obs_ordered_gaps",
                         self._prior_distribution("obs_ordered_gaps"),
                     )
 
             if DistributionFamily.CATEGORICAL in manifest_dist_set:
-                sampled_values["obs_cat_intercepts"] = numpyro.sample(
+                sampled_values["obs_cat_intercepts"] = _sample_prior_array(
                     "obs_cat_intercepts",
                     self._prior_distribution("obs_cat_intercepts"),
                 )
-                sampled_values["obs_cat_slopes"] = numpyro.sample(
+                sampled_values["obs_cat_slopes"] = _sample_prior_array(
                     "obs_cat_slopes",
                     self._prior_distribution("obs_cat_slopes"),
                 )
@@ -817,7 +1003,7 @@ class SSMModel:
         )
 
         if has_student_t_diffusion(spec):
-            sampled_values["proc_df"] = numpyro.sample(
+            sampled_values["proc_df"] = _sample_prior_array(
                 "proc_df",
                 self._prior_distribution("proc_df"),
             )
@@ -966,9 +1152,9 @@ def make_likelihood_backend(
         get_per_variable_diffusion,
     )
 
-    per_var = get_per_variable_diffusion(spec)
-    per_obs = get_per_channel_manifest(spec)
-    per_links = get_per_channel_links(spec)
+    per_var = list(get_per_variable_diffusion(spec))
+    per_obs = list(get_per_channel_manifest(spec))
+    per_links = list(get_per_channel_links(spec))
 
     if inference_structure.likelihood_path == "composed":
         from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
@@ -984,9 +1170,15 @@ def make_likelihood_backend(
         n_p = len(partition.particle_idx)
         n_obs_p = len(partition.obs_particle_idx)
 
-        particle_diffs = [per_var[int(i)] for i in partition.particle_idx]
-
-        particle_obs_dists = [per_obs[int(k)] for k in partition.obs_particle_idx]
+        particle_diffs: list[DistributionFamily | str] = [
+            per_var[int(i)] for i in partition.particle_idx
+        ]
+        particle_obs_dists: list[DistributionFamily | str] = [
+            per_obs[int(k)] for k in partition.obs_particle_idx
+        ]
+        particle_obs_links: list[LinkFunction | str | None] = [
+            per_links[int(k)] for k in partition.obs_particle_idx
+        ]
 
         return ComposedLikelihood(
             partition=partition,
@@ -1000,9 +1192,9 @@ def make_likelihood_backend(
                 n_particles=n_particles,
                 rng_key=pf_key,
                 manifest_dists=particle_obs_dists,
-                diffusion_dist=particle_diffs,
+                diffusion_dists=particle_diffs,
                 block_rb=spec.second_pass_rb,
-                manifest_links=[per_links[int(k)] for k in partition.obs_particle_idx],
+                manifest_links=particle_obs_links,
                 observation_support=None,
             ),
         )
@@ -1016,7 +1208,7 @@ def make_likelihood_backend(
         n_particles=n_particles,
         rng_key=pf_key,
         manifest_dists=per_obs,
-        diffusion_dist=per_var,
+        diffusion_dists=per_var,
         block_rb=False
         if observation_support is not None
         and observation_support.requires_interval_summary_handling

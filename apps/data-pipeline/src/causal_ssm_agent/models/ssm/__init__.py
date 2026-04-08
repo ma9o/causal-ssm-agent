@@ -23,8 +23,15 @@ from causal_ssm_agent.models.ssm.model import (
     SSMModel,
     SSMPriors,
     SSMSpec,
-    full_drift_mask,
+    full_cholesky_mask,
+    full_diagonal_mask,
+    full_drift_offdiag_mask,
+    full_vector_mask,
+    strict_lower_triangle_mask,
+    zero_diagonal_mask,
     zero_loading_mask,
+    zero_square_mask,
+    zero_vector_mask,
 )
 
 __all__ = [
@@ -40,8 +47,15 @@ __all__ = [
     "SSMPriors",
     "SSMSpec",
     "DistributionFamily",
-    "full_drift_mask",
+    "full_cholesky_mask",
+    "full_diagonal_mask",
+    "full_drift_offdiag_mask",
+    "full_vector_mask",
+    "strict_lower_triangle_mask",
+    "zero_diagonal_mask",
     "zero_loading_mask",
+    "zero_square_mask",
+    "zero_vector_mask",
     # Inference
     "InferenceMethod",
     "InferenceResult",

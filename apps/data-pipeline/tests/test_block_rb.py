@@ -200,7 +200,7 @@ def _run_block_rbpf(
         n_particles=n_particles,
         rng_key=rng_key,
         manifest_dists=manifest_dists,
-        diffusion_dist=diffusion_dists,
+        diffusion_dists=diffusion_dists,
         manifest_links=manifest_links,
     )
     return backend.compute_log_likelihood(
@@ -240,7 +240,7 @@ def _run_full_rbpf(
         n_particles=n_particles,
         rng_key=rng_key,
         manifest_dists=manifest_dists,
-        diffusion_dist="gaussian",
+        diffusion_dists=["gaussian"] * init.mean.shape[0],
         manifest_links=manifest_links,
     )
     return backend.compute_log_likelihood(
@@ -259,7 +259,7 @@ def _run_bootstrap_pf(
     observations,
     time_intervals,
     manifest_dists=None,
-    diffusion_dist="student_t",
+    diffusion_dists=None,
     n_particles=200,
     rng_key=None,
     extra_params=None,
@@ -278,6 +278,8 @@ def _run_bootstrap_pf(
     ep = {"proc_df": 100.0}
     if extra_params:
         ep.update(extra_params)
+    if diffusion_dists is None:
+        diffusion_dists = ["student_t"] * init.mean.shape[0]
 
     backend = ParticleLikelihood(
         n_latent=init.mean.shape[0],
@@ -285,7 +287,7 @@ def _run_bootstrap_pf(
         n_particles=n_particles,
         rng_key=rng_key,
         manifest_dists=manifest_dists,
-        diffusion_dist=diffusion_dist,
+        diffusion_dists=diffusion_dists,
         manifest_links=manifest_links,
     )
     return backend.compute_log_likelihood(
@@ -764,7 +766,7 @@ class TestParameterRecovery:
                 n_particles=50,
                 rng_key=random.PRNGKey(0),
                 manifest_dists=["gaussian"] * n,
-                diffusion_dist="student_t",
+                diffusion_dists=["student_t"] * n,
             )
             ll = backend.compute_log_likelihood(
                 ct,
@@ -834,7 +836,7 @@ class TestParameterRecovery:
                 n_particles=100,
                 rng_key=random.PRNGKey(0),
                 manifest_dists=["gaussian"] * n,
-                diffusion_dist=["gaussian", "student_t"],
+                diffusion_dists=["gaussian", "student_t"],
             )
             ll = backend.compute_log_likelihood(
                 ct,
@@ -909,7 +911,7 @@ class TestParameterRecovery:
                 n_particles=100,
                 rng_key=random.PRNGKey(0),
                 manifest_dists=["gaussian"] * n,
-                diffusion_dist=["gaussian", "student_t"],
+                diffusion_dists=["gaussian", "student_t"],
             )
             ll = backend.compute_log_likelihood(
                 ct,
@@ -980,7 +982,7 @@ class TestParameterRecovery:
                 n_particles=200,
                 rng_key=random.PRNGKey(0),
                 manifest_dists=["gaussian"] * n,
-                diffusion_dist=["gaussian", "student_t", "student_t"],
+                diffusion_dists=["gaussian", "student_t", "student_t"],
             )
             ll = backend.compute_log_likelihood(
                 ct,

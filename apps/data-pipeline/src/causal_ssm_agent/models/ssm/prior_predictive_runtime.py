@@ -107,8 +107,7 @@ def sample_prior_predictive_from_runtime(
         observation_mask=observation_mask,
         n_subsample=num_samples,
         rng_seed=seed,
-        manifest_names=list(spec.manifest_names),
-        return_mask=True,
+        manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
     )
     samples["observations"] = observations
     samples["observations_mask"] = observations_mask

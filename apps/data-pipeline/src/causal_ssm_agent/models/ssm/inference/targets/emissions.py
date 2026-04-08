@@ -897,7 +897,7 @@ def build_composite_mean_log_prob_fn(
     for ch_idx, dist in enumerate(dists):
         groups[dist].append(ch_idx)
 
-    group_fns: list[tuple[list[int], callable]] = []
+    group_fns: list[tuple[list[int], Callable]] = []
     for dist, ch_indices in groups.items():
         group_fns.append(
             (
@@ -940,7 +940,7 @@ def build_composite_mean_sample_fn(
     for ch_idx, dist in enumerate(dists):
         groups[dist].append(ch_idx)
 
-    group_fns: list[tuple[list[int], callable]] = []
+    group_fns: list[tuple[list[int], Callable]] = []
     for dist, ch_indices in groups.items():
         group_fns.append(
             (

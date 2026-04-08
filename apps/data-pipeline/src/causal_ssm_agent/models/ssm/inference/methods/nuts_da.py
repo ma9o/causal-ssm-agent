@@ -123,11 +123,13 @@ def _da_model(
 
     # --- Initial state ---
     if centered:
-        eta_0 = numpyro.sample("eta_0", dist.MultivariateNormal(t0_means, scale_tril=t0_chol))
+        eta_0 = jnp.asarray(
+            numpyro.sample("eta_0", dist.MultivariateNormal(t0_means, scale_tril=t0_chol))
+        )
     else:
         # NCP: sample standardized innovation, transform deterministically
         eps_0 = numpyro.sample("eps_0", dist.Normal(0, 1).expand((n_l,)).to_event(1))
-        eta_0 = t0_means + t0_chol @ eps_0
+        eta_0 = jnp.asarray(t0_means + t0_chol @ eps_0)
 
     # --- Sequential state sampling via scan ---
     cd_scan = cd_all[1:] if cd_all is not None else jnp.zeros((T - 1, n_l))
@@ -214,7 +216,11 @@ def _da_model(
             eta_hist = None
 
     if requires_interval_summary_handling:
-        trajectory = eta_0[None] if T == 1 else jnp.concatenate([eta_0[None], eta_hist], axis=0)
+        if T == 1:
+            trajectory = eta_0[None]
+        else:
+            assert eta_hist is not None
+            trajectory = jnp.concatenate([eta_0[None], eta_hist], axis=0)
         obs_mask = ~jnp.isnan(observations)
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
         manifest_cov = manifest_chol @ manifest_chol.T
@@ -560,12 +566,7 @@ def _try_smoother(
         cint = det_values.get("cint")
 
         # Get manifest means (prefer SVI estimate over spec default)
-        if "manifest_means" in det_values:
-            manifest_means_val = det_values["manifest_means"]
-        elif isinstance(spec.manifest_means, jnp.ndarray):
-            manifest_means_val = spec.manifest_means
-        else:
-            manifest_means_val = jnp.zeros(spec.n_manifest)
+        manifest_means_val = det_values.get("manifest_means", spec.manifest_means)
 
         time_intervals = jnp.diff(times, prepend=times[0])
         time_intervals = jnp.maximum(time_intervals, MIN_DT)

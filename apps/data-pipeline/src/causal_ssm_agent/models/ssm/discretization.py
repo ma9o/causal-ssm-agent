@@ -90,7 +90,7 @@ def compute_asymptotic_diffusion(drift: jnp.ndarray, diffusion_cov: jnp.ndarray)
 def compute_discrete_diffusion(
     drift: jnp.ndarray,
     diffusion_cov: jnp.ndarray,
-    dt: float,
+    dt: float | jax.Array,
     discrete_drift: jnp.ndarray | None = None,
     asymptotic_diffusion: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
@@ -134,7 +134,7 @@ def compute_discrete_diffusion(
 def compute_discrete_cint(
     drift: jnp.ndarray,
     cint: jnp.ndarray,
-    dt: float,
+    dt: float | jax.Array,
     discrete_drift: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Compute discrete-time intercept for time interval dt.
@@ -215,7 +215,7 @@ def _discretize_system_with_cint(
     drift: jnp.ndarray,
     diffusion_cov: jnp.ndarray,
     cint: jnp.ndarray,
-    dt: float,
+    dt: float | jax.Array,
     asymptotic_diffusion: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Discretize with cint always present (vmap-compatible).
@@ -238,7 +238,7 @@ def _discretize_system_with_cint(
 def _discretize_system_no_cint(
     drift: jnp.ndarray,
     diffusion_cov: jnp.ndarray,
-    dt: float,
+    dt: float | jax.Array,
     asymptotic_diffusion: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Discretize without cint (vmap-compatible)."""

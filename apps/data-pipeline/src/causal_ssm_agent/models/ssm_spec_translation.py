@@ -9,7 +9,16 @@ from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
 )
-from causal_ssm_agent.models.ssm.model import SSMSpec, full_drift_mask, zero_loading_mask
+from causal_ssm_agent.models.ssm.model import (
+    SSMSpec,
+    full_cholesky_mask,
+    full_diagonal_mask,
+    full_drift_offdiag_mask,
+    full_vector_mask,
+    zero_loading_mask,
+    zero_square_mask,
+    zero_vector_mask,
+)
 from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
 from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import (
@@ -103,7 +112,7 @@ def build_masks_from_causal_spec(
     """Build drift/lambda masks and edge lag metadata from the causal structure."""
     if causal_spec is None or latent_names is None:
         return (
-            full_drift_mask(n_latent),
+            np.eye(n_latent, dtype=bool) | full_drift_offdiag_mask(n_latent),
             jnp.eye(n_manifest, n_latent),
             zero_loading_mask(n_manifest, n_latent),
             {},
@@ -205,7 +214,7 @@ def build_manifest_variance_from_causal_spec(
     manifest_cols: list[str],
     *,
     causal_spec: dict | None,
-) -> tuple[jnp.ndarray | str, np.ndarray | None]:
+) -> tuple[jnp.ndarray, np.ndarray]:
     """Build manifest-noise structure from the retained measurement model.
 
     Single-indicator constructs absorb measurement error into the structural
@@ -213,7 +222,10 @@ def build_manifest_variance_from_causal_spec(
     Multi-indicator constructs keep free diagonal manifest noise.
     """
     if causal_spec is None or latent_names is None:
-        return "diag", None
+        return (
+            jnp.zeros((len(manifest_cols), len(manifest_cols))),
+            full_diagonal_mask(len(manifest_cols)),
+        )
 
     indicators = get_indicators(causal_spec)
     latent_name_set = set(latent_names)
@@ -236,17 +248,15 @@ def build_manifest_variance_from_causal_spec(
         )
 
     if not manifest_to_construct:
-        return "diag", None
+        return (
+            jnp.zeros((len(manifest_cols), len(manifest_cols))),
+            full_diagonal_mask(len(manifest_cols)),
+        )
 
     manifest_var_mask = np.ones(len(manifest_cols), dtype=bool)
-    fixed_any = False
     for manifest_name, construct_name in manifest_to_construct.items():
         if indicators_per_construct.get(construct_name) == 1:
             manifest_var_mask[manifest_idx[manifest_name]] = False
-            fixed_any = True
-
-    if not fixed_any:
-        return "diag", None
 
     manifest_var = np.zeros((len(manifest_cols), len(manifest_cols)), dtype=np.float64)
     return jnp.array(manifest_var), manifest_var_mask
@@ -374,12 +384,16 @@ def translate_spec(
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
-        drift_mask = full_drift_mask(n_latent)
+        drift_mask = np.eye(n_latent, dtype=bool) | full_drift_offdiag_mask(n_latent)
         lambda_mat = jnp.eye(n_manifest, n_latent)
         lambda_mask = zero_loading_mask(n_manifest, n_latent)
         edge_lag_days = {}
 
-    manifest_var, manifest_var_mask = build_manifest_variance_from_causal_spec(
+    drift_diag_mask = np.diag(drift_mask).copy()
+    drift_offdiag_mask = np.asarray(drift_mask, dtype=bool).copy()
+    np.fill_diagonal(drift_offdiag_mask, False)
+
+    manifest_chol, manifest_chol_diag_mask = build_manifest_variance_from_causal_spec(
         latent_names,
         manifest_cols,
         causal_spec=causal_spec,
@@ -401,9 +415,15 @@ def translate_spec(
         t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
     except ValueError as exc:
         errors.append(str(exc))
-        t0_correlation_mask = None
-    diffusion_mode = "free" if has_innovation_correlation else "diag"
-    t0_var_mode = "free" if t0_correlation_mask is not None else "diag"
+        t0_correlation_mask = zero_square_mask(n_latent)
+    diffusion_chol_mask = (
+        full_cholesky_mask(n_latent)
+        if has_innovation_correlation
+        else np.diag(full_diagonal_mask(n_latent))
+    )
+    if t0_correlation_mask is None:
+        t0_correlation_mask = zero_square_mask(n_latent)
+    t0_chol_diag_mask = full_diagonal_mask(n_latent)
 
     if errors:
         raise SpecTranslationError(errors)
@@ -411,24 +431,30 @@ def translate_spec(
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
+        drift_diag_mask=drift_diag_mask,
+        drift_offdiag_mask=drift_offdiag_mask,
+        drift=jnp.zeros((n_latent, n_latent)),
+        cint_mask=full_vector_mask(n_latent),
+        cint=jnp.zeros(n_latent),
         lambda_mat=lambda_mat,
-        drift="free",
-        diffusion=diffusion_mode,
+        diffusion_chol_mask=diffusion_chol_mask,
+        diffusion_chol=jnp.eye(n_latent),
+        manifest_means_mask=zero_vector_mask(n_manifest),
+        manifest_means=jnp.zeros(n_manifest),
+        manifest_chol_diag_mask=manifest_chol_diag_mask,
+        manifest_chol=manifest_chol,
+        t0_means_mask=full_vector_mask(n_latent),
+        t0_means=jnp.zeros(n_latent),
+        t0_chol_diag_mask=t0_chol_diag_mask,
+        t0_correlation_mask=t0_correlation_mask,
+        t0_chol=jnp.eye(n_latent),
         diffusion_dists=[DistributionFamily.GAUSSIAN] * n_latent,
-        cint="free",
-        manifest_means=None,
-        manifest_var=manifest_var,
         manifest_dists=manifest_dists,
         manifest_links=manifest_links,
         manifest_level_counts=manifest_level_counts,
-        t0_means="free",
-        t0_var=t0_var_mode,
         latent_names=latent_names,
         manifest_names=manifest_cols,
-        drift_mask=drift_mask,
         lambda_mask=lambda_mask,
-        manifest_var_mask=manifest_var_mask,
-        t0_correlation_mask=t0_correlation_mask,
         time_invariant_mask=time_invariant_mask,
     )
     return spec, edge_lag_days

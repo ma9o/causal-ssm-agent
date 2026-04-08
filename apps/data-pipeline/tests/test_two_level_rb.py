@@ -10,6 +10,7 @@ import numpy as np
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+from tests.ssm_test_utils import make_ssm_spec
 
 # =============================================================================
 # Helpers
@@ -49,7 +50,7 @@ def _make_separable_spec(
     # Per-variable diffusion dists
     diffusion_dists = [DistributionFamily.GAUSSIAN] * n_g + [DistributionFamily.STUDENT_T] * n_s
 
-    return SSMSpec(
+    return make_ssm_spec(
         n_latent=n,
         n_manifest=m,
         drift=drift,
@@ -59,9 +60,8 @@ def _make_separable_spec(
         manifest_means=jnp.zeros(m),
         t0_means=jnp.zeros(n),
         t0_var=jnp.eye(n),
-        diffusion_dist=DistributionFamily.GAUSSIAN,
-        manifest_dist=DistributionFamily.GAUSSIAN,
         diffusion_dists=diffusion_dists,
+        manifest_dists=[DistributionFamily.GAUSSIAN] * m,
     )
 
 
@@ -91,19 +91,18 @@ class TestMakeLikelihoodBackend:
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         # Override first_pass_rb
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=spec.n_latent,
             n_manifest=spec.n_manifest,
             drift=spec.drift,
             lambda_mat=spec.lambda_mat,
-            diffusion=spec.diffusion,
-            manifest_var=spec.manifest_var,
+            diffusion=spec.diffusion_chol,
+            manifest_var=spec.manifest_chol,
             manifest_means=spec.manifest_means,
             t0_means=spec.t0_means,
-            t0_var=spec.t0_var,
-            diffusion_dist=spec.diffusion_dist,
-            manifest_dist=spec.manifest_dist,
+            t0_var=spec.t0_chol,
             diffusion_dists=spec.diffusion_dists,
+            manifest_dists=spec.manifest_dists,
             first_pass_rb=False,
         )
         model = SSMModel(spec=spec)
@@ -116,19 +115,18 @@ class TestMakeLikelihoodBackend:
         from causal_ssm_agent.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=spec.n_latent,
             n_manifest=spec.n_manifest,
             drift=spec.drift,
             lambda_mat=spec.lambda_mat,
-            diffusion=spec.diffusion,
-            manifest_var=spec.manifest_var,
+            diffusion=spec.diffusion_chol,
+            manifest_var=spec.manifest_chol,
             manifest_means=spec.manifest_means,
             t0_means=spec.t0_means,
-            t0_var=spec.t0_var,
-            diffusion_dist=spec.diffusion_dist,
-            manifest_dist=spec.manifest_dist,
+            t0_var=spec.t0_chol,
             diffusion_dists=spec.diffusion_dists,
+            manifest_dists=spec.manifest_dists,
             second_pass_rb=False,
         )
         model = SSMModel(spec=spec)
@@ -147,19 +145,18 @@ class TestMakeLikelihoodBackend:
         from causal_ssm_agent.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
-        spec = SSMSpec(
+        spec = make_ssm_spec(
             n_latent=spec.n_latent,
             n_manifest=spec.n_manifest,
             drift=spec.drift,
             lambda_mat=spec.lambda_mat,
-            diffusion=spec.diffusion,
-            manifest_var=spec.manifest_var,
+            diffusion=spec.diffusion_chol,
+            manifest_var=spec.manifest_chol,
             manifest_means=spec.manifest_means,
             t0_means=spec.t0_means,
-            t0_var=spec.t0_var,
-            diffusion_dist=spec.diffusion_dist,
-            manifest_dist=spec.manifest_dist,
+            t0_var=spec.t0_chol,
             diffusion_dists=spec.diffusion_dists,
+            manifest_dists=spec.manifest_dists,
             first_pass_rb=False,
             second_pass_rb=False,
         )
@@ -167,7 +164,7 @@ class TestMakeLikelihoodBackend:
         backend = model.make_likelihood_backend()
         assert isinstance(backend, ParticleLikelihood)
         # Should not use Rao-Blackwellization at all, but should preserve mixed diffusion semantics.
-        assert backend.diffusion_dist == "mixed"
+        assert backend.transition_dispatch_mode == "mixed"
         assert not backend._block_rb
 
     def test_kalman_override_bypasses_analysis(self):

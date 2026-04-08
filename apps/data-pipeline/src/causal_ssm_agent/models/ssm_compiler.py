@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING, Any
 import jax
 import jax.numpy as jnp
 import numpy as np
+from pydantic import BaseModel
 
+from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm import SSMSpec
 from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
@@ -35,18 +37,24 @@ CompiledSSMArtifact = dict[str, Any]
 
 _SPEC_ARRAY_FIELDS = {
     "drift",
-    "diffusion",
+    "diffusion_chol",
     "cint",
     "lambda_mat",
     "manifest_means",
-    "manifest_var",
+    "manifest_chol",
     "t0_means",
-    "t0_var",
+    "t0_chol",
 }
 _SPEC_BOOL_ARRAY_FIELDS = {
-    "drift_mask",
+    "drift_diag_mask",
+    "drift_offdiag_mask",
+    "cint_mask",
     "lambda_mask",
-    "manifest_var_mask",
+    "diffusion_chol_mask",
+    "manifest_means_mask",
+    "manifest_chol_diag_mask",
+    "t0_means_mask",
+    "t0_chol_diag_mask",
     "t0_correlation_mask",
     "time_invariant_mask",
 }
@@ -78,6 +86,47 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
     return {field.name: _to_jsonable(getattr(spec, field.name)) for field in fields(SSMSpec)}
 
 
+def serialize_edge_lag_days(
+    edge_lag_days: dict[tuple[int, int], float],
+) -> list[dict[str, float | int]]:
+    """Convert edge-lag metadata into a JSON-serializable payload."""
+    return [
+        {
+            "effect_idx": int(effect_idx),
+            "cause_idx": int(cause_idx),
+            "lag_days": float(lag_days),
+        }
+        for (effect_idx, cause_idx), lag_days in sorted(edge_lag_days.items())
+    ]
+
+
+def deserialize_edge_lag_days(payload: Any) -> dict[tuple[int, int], float]:
+    """Restore serialized edge-lag metadata from a compiled artifact payload."""
+    if not isinstance(payload, list):
+        raise ValueError(
+            "Compiled artifact is missing required 'edge_lag_days'. Recompile the artifact."
+        )
+
+    edge_lag_days: dict[tuple[int, int], float] = {}
+    for entry in payload:
+        if not isinstance(entry, dict):
+            raise ValueError("Compiled artifact 'edge_lag_days' entries must be JSON objects.")
+        effect_idx = entry.get("effect_idx")
+        cause_idx = entry.get("cause_idx")
+        lag_days = entry.get("lag_days")
+        if not isinstance(effect_idx, int) or not isinstance(cause_idx, int):
+            raise ValueError(
+                "Compiled artifact 'edge_lag_days' entries must include integer effect_idx "
+                "and cause_idx values."
+            )
+        if not isinstance(lag_days, int | float):
+            raise ValueError(
+                "Compiled artifact 'edge_lag_days' entries must include numeric lag_days values."
+            )
+        edge_lag_days[(effect_idx, cause_idx)] = float(lag_days)
+    return edge_lag_days
+
+
 def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     """Restore an SSMSpec from a serialized artifact."""
     legacy_scalar_family_fields = {"diffusion_dist", "manifest_dist"} & set(payload)
@@ -88,12 +137,56 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             "Regenerate the compiled SSM artifact."
         )
 
-    required_mask_fields = {"drift_mask", "lambda_mask"} - set(payload)
+    required_mask_fields = {"drift_diag_mask", "drift_offdiag_mask", "lambda_mask"} - set(payload)
     if required_mask_fields:
         missing = ", ".join(sorted(required_mask_fields))
         raise ValueError(
             "Serialized SSMSpec payload is missing required structural masks: "
             f"{missing}. Regenerate the compiled SSM artifact."
+        )
+    required_template_fields = {
+        "drift",
+        "cint",
+        "lambda_mat",
+        "diffusion_chol",
+        "manifest_means",
+        "manifest_chol",
+        "t0_means",
+        "t0_chol",
+    } - set(payload)
+    if required_template_fields:
+        missing = ", ".join(sorted(required_template_fields))
+        raise ValueError(
+            "Serialized SSMSpec payload is missing required matrix templates: "
+            f"{missing}. "
+            "Regenerate the compiled SSM artifact."
+        )
+    required_compiled_mask_fields = {
+        "cint_mask",
+        "diffusion_chol_mask",
+        "manifest_means_mask",
+        "manifest_chol_diag_mask",
+        "t0_means_mask",
+        "t0_chol_diag_mask",
+        "t0_correlation_mask",
+    } - set(payload)
+    if required_compiled_mask_fields:
+        missing = ", ".join(sorted(required_compiled_mask_fields))
+        raise ValueError(
+            "Serialized SSMSpec payload is missing required compiled masks: "
+            f"{missing}. "
+            "Regenerate the compiled SSM artifact."
+        )
+    legacy_matrix_mode_fields = [
+        key
+        for key in ("drift", "diffusion_chol", "manifest_chol", "t0_chol")
+        if isinstance(payload.get(key), str)
+    ]
+    if legacy_matrix_mode_fields:
+        removed = ", ".join(sorted(legacy_matrix_mode_fields))
+        raise ValueError(
+            f"Legacy SSMSpec payload contains removed matrix mode fields: {removed}. "
+            "Regenerate the compiled SSM artifact."
         )
 
     kwargs: dict[str, Any] = {}
@@ -197,7 +290,7 @@ def trial_compile_measurement_model(
     """Try compiling a measurement model and return a feedback string on failure."""
     measurement_data = (
         measurement_model.model_dump(mode="json")
-        if hasattr(measurement_model, "model_dump")
+        if isinstance(measurement_model, BaseModel)
         else measurement_model
     )
     _, errors = validate_measurement_model_for_compilation(measurement_data, latent_model)
@@ -336,7 +429,7 @@ def _compile_validated_ssm_artifact(
     from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
     from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
 
-    spec, ssm_priors, parameter_bindings, compile_diagnostics = compile_ssm_inputs(
+    spec, ssm_priors, parameter_bindings, compile_diagnostics, edge_lag_days = compile_ssm_inputs(
         validated_model_spec,
         raw_priors,
         causal_spec=causal_spec,
@@ -345,6 +438,7 @@ def _compile_validated_ssm_artifact(
     return {
         "schema_version": 1,
         "spec": serialize_ssm_spec(spec),
+        "edge_lag_days": serialize_edge_lag_days(edge_lag_days),
         "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
         "parameter_bindings": parameter_bindings,
         "compile_diagnostics": [
@@ -532,7 +626,7 @@ def _build_compiled_parameter_prior(
         reasoning = f"Compiler-resolved prior for {parameter}."
     return PriorProposal(
         parameter=parameter,
-        distribution=distribution,
+        distribution=PriorDistributionFamily(distribution),
         params=distribution_params,
         sources=[],
         reasoning=reasoning,
@@ -603,7 +697,7 @@ def _build_compiled_initial_state_priors(
         rows.append(
             PriorProposal(
                 parameter=f"t0_mean_{latent_name}",
-                distribution="Normal",
+                distribution=PriorDistributionFamily.NORMAL,
                 params={
                     "mu": _extract_serialized_prior_value(mean_params, "loc", index),
                     "sigma": _extract_serialized_prior_value(mean_params, "scale", index),
@@ -619,7 +713,7 @@ def _build_compiled_initial_state_priors(
         rows.append(
             PriorProposal(
                 parameter=f"t0_sd_{latent_name}",
-                distribution="HalfNormal",
+                distribution=PriorDistributionFamily.HALF_NORMAL,
                 params={"sigma": _extract_serialized_prior_value(sd_params, "scale", index)},
                 sources=[],
                 reasoning=(

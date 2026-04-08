@@ -22,15 +22,26 @@ from causal_ssm_agent.models.prior_predictive import (
     format_validation_report,
     get_failed_parameters,
 )
-from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec, full_diagonal_mask
 from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
 from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
-from causal_ssm_agent.models.ssm_compiler import serialize_ssm_spec
+from causal_ssm_agent.models.ssm_compiler import serialize_edge_lag_days, serialize_ssm_spec
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 from tests.ssm_test_utils import make_ssm_spec
+
+
+def _require_result(result: PriorValidationResult | None) -> PriorValidationResult:
+    assert result is not None
+    return result
+
+
+def _require_text(value: str | None) -> str:
+    assert value is not None
+    return value
+
 
 # =============================================================================
 # _check_nan_inf
@@ -44,16 +55,15 @@ class TestCheckNanInf:
 
     def test_nan_detected(self):
         samples = {"drift_diag_pop": jnp.array([1.0, float("nan"), 3.0])}
-        result = _check_nan_inf(samples)
-        assert result is not None
+        result = _require_result(_check_nan_inf(samples))
         assert not result.is_valid
-        assert "drift_diag_pop" in result.issue
+        assert "drift_diag_pop" in _require_text(result.issue)
 
     def test_inf_detected(self):
         samples = {"x": jnp.array([float("inf")])}
-        result = _check_nan_inf(samples)
+        result = _require_result(_check_nan_inf(samples))
         assert not result.is_valid
-        assert "x" in result.issue
+        assert "x" in _require_text(result.issue)
 
     def test_multiple_bad_sites(self):
         samples = {
@@ -61,10 +71,9 @@ class TestCheckNanInf:
             "b": jnp.array([float("inf")]),
             "c": jnp.array([1.0]),
         }
-        result = _check_nan_inf(samples)
-        assert result is not None
-        assert "a" in result.issue
-        assert "b" in result.issue
+        result = _require_result(_check_nan_inf(samples))
+        assert "a" in _require_text(result.issue)
+        assert "b" in _require_text(result.issue)
 
     def test_likelihood_diagnostics_ignored(self):
         samples = {
@@ -138,7 +147,7 @@ class TestCheckConstraintViolations:
         results = _check_constraint_violations(samples)
         assert len(results) == 1
         assert "diffusion_diag_pop" in results[0].parameter
-        assert "negative" in results[0].issue
+        assert "negative" in _require_text(results[0].issue)
 
     def test_below_threshold_no_issue(self):
         # 1% negative → below 5% threshold
@@ -179,7 +188,7 @@ class TestCheckExtremeValues:
         samples = {"drift_diag_pop": jnp.array([1e7, 1e8, 1e9])}
         results = _check_extreme_values(samples)
         assert len(results) == 1
-        assert "extreme" in results[0].issue.lower()
+        assert "extreme" in _require_text(results[0].issue).lower()
 
     def test_below_threshold_no_issue(self):
         # Only 1 out of 100 extreme → 1% < 10% threshold
@@ -303,7 +312,10 @@ class TestCheckLaggedResponsePlausibility:
             latent_names=["activity", "sleep"],
             drift_mask=np.array([[True, False], [True, True]]),
         )
-        compiled_ssm = {"spec": serialize_ssm_spec(spec)}
+        compiled_ssm = {
+            "spec": serialize_ssm_spec(spec),
+            "edge_lag_days": serialize_edge_lag_days({(1, 0): 1.0}),
+        }
         causal_spec = {
             "latent": {"constructs": [], "edges": []},
             "measurement": {"model_clock": "1d"},
@@ -348,7 +360,10 @@ class TestCheckLaggedResponsePlausibility:
                 dtype=jnp.float32,
             )
         }
-        compiled_ssm = {"spec": serialize_ssm_spec(spec)}
+        compiled_ssm = {
+            "spec": serialize_ssm_spec(spec),
+            "edge_lag_days": serialize_edge_lag_days({(1, 0): 1.0}),
+        }
         causal_spec = {
             "latent": {"constructs": [], "edges": []},
             "measurement": {"model_clock": "1d"},
@@ -483,13 +498,18 @@ class TestScalePlausibilityDiagnostics:
             lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("solver failed")),
         )
 
-        with pytest.raises(RuntimeError, match="draws unstable"):
-            _check_scale_plausibility(
-                samples,
-                data_stats={},
-                manifest_names=["dummy_manifest"],
-                n_subsample=5,
-            )
+        results = _check_scale_plausibility(
+            samples,
+            data_stats={},
+            manifest_names=["dummy_manifest"],
+            n_subsample=5,
+        )
+
+        assert len(results) == 1
+        result = results[0]
+        assert result.code == "dynamics_stability"
+        assert result.failure_stage == "latent_dynamics"
+        assert result.failing_draw_indices == [0, 1, 2, 3, 4]
 
     def test_nuisance_site_skipped(self):
         results = [PriorValidationResult(parameter="cint_pop", is_valid=False, issue="something")]
@@ -697,7 +717,8 @@ class TestCompiledPriorPredictiveRuntime:
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1, dtype=jnp.float32),
-            diffusion="diag",
+            diffusion=jnp.eye(1, dtype=jnp.float32),
+            diffusion_mask=np.diag(full_diagonal_mask(1)),
             manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
         )
         semantics = compile_prior_semantics(spec, SSMPriors())
@@ -721,8 +742,10 @@ class TestCompiledPriorPredictiveRuntime:
             n_latent=3,
             n_manifest=3,
             lambda_mat=jnp.eye(3, dtype=jnp.float32),
-            diffusion="diag",
-            t0_var="free",
+            diffusion=jnp.eye(3, dtype=jnp.float32),
+            diffusion_mask=np.diag(full_diagonal_mask(3)),
+            t0_var=jnp.eye(3, dtype=jnp.float32),
+            t0_var_diag_mask=full_diagonal_mask(3),
             t0_correlation_mask=mask,
             manifest_dists=[DistributionFamily.GAUSSIAN] * 3,
             manifest_links=[LinkFunction.IDENTITY] * 3,
