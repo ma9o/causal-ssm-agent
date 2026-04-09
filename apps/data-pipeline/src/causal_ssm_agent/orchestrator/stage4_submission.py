@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from causal_ssm_agent.orchestrator.schemas_model import DistributionChoice
 
 from .stage4_orchestrator import (
@@ -99,7 +101,7 @@ def _normalize_indicator_submission(
     """Validate an indicator-decision proposal."""
     try:
         choice = DistributionChoice.model_validate(proposal).model_dump(mode="json")
-    except Exception as exc:
+    except ValidationError as exc:
         return None, f"VALIDATION ERRORS:\n- {exc}"
 
     variable = block.variable_names[0]

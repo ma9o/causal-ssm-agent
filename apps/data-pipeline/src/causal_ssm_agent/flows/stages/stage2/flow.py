@@ -19,9 +19,10 @@ from typing import Any, cast
 import polars as pl
 from prefect import flow, get_run_logger, task
 from prefect.futures import as_completed
+from pydantic import ValidationError
 
-from ... import get_prefect_logger
-from ...runtime_events import (
+from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.runtime_events import (
     emit_nested_stage_running_event,
     emit_stage2_plan_event,
     emit_stage2_snapshot_event,
@@ -32,6 +33,18 @@ logger = get_prefect_logger(__name__)
 
 SemanticChunkRunner = Callable[..., Awaitable[tuple[list[dict], list[dict], int, dict | None]]]
 _TERMINAL_STAGE2_WORKER_STATES = {"completed", "failed"}
+_RECOVERABLE_STAGE2_WORKER_ERRORS = (
+    ArithmeticError,
+    AssertionError,
+    AttributeError,
+    ImportError,
+    LookupError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValidationError,
+    ValueError,
+)
 
 
 @dataclass
@@ -239,7 +252,7 @@ def _collect_batch_results(
 
         try:
             result = future.result()
-        except Exception as exc:
+        except _RECOVERABLE_STAGE2_WORKER_ERRORS as exc:
             logger.warning(
                 "Stage 2: worker %d failed (progress=%d/%d, batch=%d/%d, windows=%d): %s",
                 worker_id,
@@ -704,23 +717,15 @@ async def extract_window_chunk_task(
             )
 
             started_at = perf_counter()
-            try:
-                result = await run_worker_extraction(
-                    window_text=window_text,
-                    window_starts=window_starts,
-                    question=question,
-                    causal_spec=causal_spec,
-                    generate=generate,
-                    logger=run_logger,
-                    call_label=chunk_label,
-                )
-            except Exception:
-                run_logger.exception(
-                    "[%s] Failed after %.1fs",
-                    chunk_label,
-                    perf_counter() - started_at,
-                )
-                raise
+            result = await run_worker_extraction(
+                window_text=window_text,
+                window_starts=window_starts,
+                question=question,
+                causal_spec=causal_spec,
+                generate=generate,
+                logger=run_logger,
+                call_label=chunk_label,
+            )
 
             elapsed = perf_counter() - started_at
             run_logger.info(

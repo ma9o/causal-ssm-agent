@@ -86,9 +86,6 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
-    "B008",   # do not perform function calls in argument defaults (needed for Prefect)
-    "B904",   # raise from err (too noisy)
-    "B905",   # zip() without strict= (often unnecessary)
     "PERF401",# list/dict comprehension nudges are too noisy for legacy code
     "PERF403",# dict comprehension nudges are too noisy for legacy code
     "SIM108", # use ternary operator (not always clearer)
@@ -102,19 +99,6 @@ ignore = [
     "ARG002",  # unused method arguments (pytest fixtures)
     "DTZ001",  # tests intentionally use naive datetimes as compact fixtures
 ]
-"src/causal_ssm_agent/__init__.py" = ["BLE001"]
-"src/causal_ssm_agent/flows/stages/stage0/tools.py" = ["BLE001"]
-"src/causal_ssm_agent/flows/stages/stage2/flow.py" = ["BLE001"]
-"src/causal_ssm_agent/flows/stages/stage4/assembly.py" = ["BLE001"]
-"src/causal_ssm_agent/models/prior_predictive.py" = ["BLE001"]
-"src/causal_ssm_agent/orchestrator/schemas.py" = ["BLE001"]
-"src/causal_ssm_agent/orchestrator/schemas_model.py" = ["BLE001"]
-"src/causal_ssm_agent/orchestrator/stage4_reducer.py" = ["BLE001"]
-"src/causal_ssm_agent/orchestrator/stage4_submission.py" = ["BLE001"]
-"src/causal_ssm_agent/utils/openrouter_client.py" = ["BLE001"]
-"src/causal_ssm_agent/workers/prior_research.py" = ["BLE001"]
-"src/causal_ssm_agent/workers/schemas.py" = ["BLE001"]
-"tests/test_stage0_ingest.py" = ["BLE001"]
 
 [tool.ruff.lint.flake8-pytest-style]
 parametrize-names-type = "tuple"

@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
+from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_decisions_dict
 
 from .stage4_events import (
@@ -53,6 +56,16 @@ if TYPE_CHECKING:
 
     from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan, Stage4Skeleton
     from .stage4_types import Stage4Deps
+
+_RECOVERABLE_STAGE4_REDUCER_ERRORS = (
+    AggregatedCompileError,
+    AttributeError,
+    KeyError,
+    RuntimeError,
+    TypeError,
+    ValidationError,
+    ValueError,
+)
 
 
 @dataclass(frozen=True)
@@ -552,7 +565,7 @@ def _apply_prior_partial_drift_guard(
                 target_construct=str(active_block.payload.get("target_construct", "")),
                 active_parameter_names=active_block.parameter_names,
             )
-    except Exception as exc:
+    except _RECOVERABLE_STAGE4_REDUCER_ERRORS as exc:
         feedback = f"COMPILE ERROR:\n{exc}"
         return replace(
             state,

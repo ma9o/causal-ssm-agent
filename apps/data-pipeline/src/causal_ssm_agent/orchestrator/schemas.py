@@ -10,7 +10,14 @@ import re
 from enum import StrEnum
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, Field, computed_field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.inference.schemas import AggregationFunction, MeasurementDtype
@@ -847,7 +854,7 @@ def validate_latent_model(data: dict) -> tuple[LatentModel | None, list[str]]:
         try:
             construct = Construct.model_validate(construct_data)
             valid_constructs.append(construct)
-        except Exception as e:
+        except ValidationError as e:
             error_msg = str(e)
             if "validation error" in error_msg.lower():
                 for line in error_msg.split("\n")[1:]:
@@ -873,7 +880,7 @@ def validate_latent_model(data: dict) -> tuple[LatentModel | None, list[str]]:
 
         try:
             edge = CausalEdge.model_validate(edge_data)
-        except Exception as e:
+        except ValidationError as e:
             errors.append(f"{edge_label}: {e}")
             continue
 
@@ -898,7 +905,7 @@ def validate_latent_model(data: dict) -> tuple[LatentModel | None, list[str]]:
         try:
             model = LatentModel(constructs=valid_constructs, edges=valid_edges)
             return model, []
-        except Exception as e:
+        except ValidationError as e:
             errors.append(f"Final validation failed: {e}")
 
     return None, errors
@@ -961,7 +968,7 @@ def validate_measurement_model(
 
         try:
             indicator = Indicator.model_validate(indicator_data)
-        except Exception as e:
+        except ValidationError as e:
             error_msg = str(e)
             if "validation error" in error_msg.lower():
                 for line in error_msg.split("\n")[1:]:
@@ -988,7 +995,7 @@ def validate_measurement_model(
                 return None, errors
             model = MeasurementModel(indicators=valid_indicators, model_clock=model_clock)
             return model, []
-        except Exception as e:
+        except ValidationError as e:
             errors.append(f"Final validation failed: {e}")
 
     return None, errors
@@ -1032,5 +1039,5 @@ def validate_causal_spec(
             ),
         )
         return model, []
-    except Exception as e:
+    except (ValidationError, ValueError, TypeError) as e:
         return None, [f"CausalSpec validation failed: {e}"]

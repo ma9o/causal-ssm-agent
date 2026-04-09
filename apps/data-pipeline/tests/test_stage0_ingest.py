@@ -21,6 +21,20 @@ from causal_ssm_agent.flows.stages.stage0.tools import (
     make_ingestion_tools,
 )
 
+_MOCK_SANDBOX_EXECUTION_ERRORS = (
+    ArithmeticError,
+    AssertionError,
+    AttributeError,
+    ImportError,
+    LookupError,
+    NameError,
+    OSError,
+    RuntimeError,
+    SyntaxError,
+    TypeError,
+    ValueError,
+)
+
 
 def _run(coro):
     """Run an async coroutine synchronously (no pytest-asyncio needed)."""
@@ -55,7 +69,7 @@ class _MockSandbox:
         }
         try:
             exec(code, ns)
-        except Exception:
+        except _MOCK_SANDBOX_EXECUTION_ERRORS:
             return f"Execution error:\n{traceback.format_exc()}", None
 
         result_df = ns.get("result_df")
@@ -123,7 +137,7 @@ class TestSafeResolve:
 class TestIngestionTools:
     """Test the individual tools returned by make_ingestion_tools."""
 
-    @pytest.fixture()
+    @pytest.fixture
     def sample_archive(self, tmp_path):
         """Create a temp directory simulating an extracted zip with a CSV."""
         csv_file = tmp_path / "data.csv"

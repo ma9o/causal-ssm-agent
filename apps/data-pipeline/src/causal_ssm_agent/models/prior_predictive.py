@@ -13,8 +13,10 @@ import jax.numpy as jnp
 import networkx as nx
 import numpy as np
 import polars as pl
+from pydantic import ValidationError
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
@@ -24,6 +26,24 @@ from causal_ssm_agent.workers.schemas_prior import (
 )
 
 logger = get_prefect_logger(__name__)
+_RECOVERABLE_MODEL_BUILD_ERRORS = (
+    AggregatedCompileError,
+    AttributeError,
+    KeyError,
+    RuntimeError,
+    TypeError,
+    ValidationError,
+    ValueError,
+)
+_RECOVERABLE_PRIOR_SAMPLING_ERRORS = (
+    ArithmeticError,
+    AttributeError,
+    FloatingPointError,
+    OverflowError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 
 PriorValidationSeverity = Literal["error", "warning"]
 PriorFailureStage = Literal[
@@ -830,7 +850,7 @@ def validate_prior_predictive(
                 X_wide,
                 builder=make_builder_from_compiled_artifact(artifact),
             ).builder
-    except Exception as e:
+    except _RECOVERABLE_MODEL_BUILD_ERRORS as e:
         return (
             False,
             [
@@ -880,7 +900,7 @@ def validate_prior_predictive(
             ],
             {},
         )
-    except Exception as e:
+    except _RECOVERABLE_PRIOR_SAMPLING_ERRORS as e:
         return (
             False,
             [

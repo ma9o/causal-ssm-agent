@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 import numpy as np
+from pydantic import ValidationError
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.openrouter_client import acquire_limiter
@@ -47,7 +48,7 @@ def _make_prior_tool() -> tuple[object, dict]:
         try:
             validated = PriorProposal.model_validate(data)
             return validated.model_dump(), []
-        except Exception as e:
+        except ValidationError as e:
             return None, [str(e)]
 
     return make_validation_tool(
@@ -174,6 +175,7 @@ async def run_gmm_elicitation(
                 aggregated.mixture_weights,
                 aggregated.mixture_means or [],
                 aggregated.mixture_stds or [],
+                strict=True,
             )
         ):
             lines.append(f"  Component {k + 1} (w={w:.2f}): Normal(mu={m:.4f}, sigma={s:.4f})")

@@ -18,7 +18,7 @@ def _make_samples(mus: list[float], sigmas: list[float]) -> list[RawPriorSample]
     """Helper to create RawPriorSample list."""
     return [
         RawPriorSample(paraphrase_id=i, mu=mu, sigma=sigma, reasoning=f"sample {i}")
-        for i, (mu, sigma) in enumerate(zip(mus, sigmas))
+        for i, (mu, sigma) in enumerate(zip(mus, sigmas, strict=True))
     ]
 
 
