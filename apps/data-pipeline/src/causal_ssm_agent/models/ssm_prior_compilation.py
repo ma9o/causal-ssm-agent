@@ -5,6 +5,8 @@ from __future__ import annotations
 import math
 from typing import Any, Literal
 
+from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
+from causal_ssm_agent.artifacts.model_spec import ModelSpec, ParameterRole
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
@@ -19,8 +21,6 @@ from causal_ssm_agent.models.ssm_compilation_common import (
 )
 from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
-from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
-from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,

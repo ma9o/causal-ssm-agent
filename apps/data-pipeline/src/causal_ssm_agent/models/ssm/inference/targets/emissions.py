@@ -492,8 +492,8 @@ def get_emission_score_weight_fn(manifest_dist, extra_params=None, *, link=None)
     Returns Callable(y_t, eta, obs_mask_t) → (g_eta, w_eta) of shape (n_manifest,),
     or None for gaussian/student_t which require special handling in kernels.py.
     """
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
     from causal_ssm_agent.models.ssm.inference.targets.observation_families import FAMILY_REGISTRY
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     extra_params = extra_params or {}
     dist = DistributionFamily(manifest_dist)
@@ -521,8 +521,8 @@ def get_emission_fn(manifest_dist, extra_params=None, *, link=None):
     Returns:
         Callable(y_t, z_t, H, d, R, obs_mask_t) -> scalar log-prob.
     """
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
     from causal_ssm_agent.models.ssm.inference.targets.observation_families import FAMILY_REGISTRY
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     extra_params = extra_params or {}
     try:
@@ -557,7 +557,7 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
     semantics where the mean is aggregated over a support window after applying
     the link function.
     """
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 
     extra_params = extra_params or {}
     dist = DistributionFamily(manifest_dist)
@@ -648,7 +648,7 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
 
 def get_mean_param_sample_fn(manifest_dist, extra_params=None):
     """Return a sampler operating directly in observation mean-parameter space."""
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 
     extra_params = extra_params or {}
     dist = DistributionFamily(manifest_dist)
@@ -670,7 +670,7 @@ def get_mean_param_sample_fn(manifest_dist, extra_params=None):
     def poisson(key, mean_t, _R):
         valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
         safe_rate = jnp.where(valid_mean, mean_t, 1.0)
-        draw = jax.random.poisson(key, safe_rate).astype(jnp.float32)
+        draw = jax.random.poisson(key, safe_rate).astype(jnp.float64)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     def gamma(key, mean_t, _R):
@@ -684,7 +684,7 @@ def get_mean_param_sample_fn(manifest_dist, extra_params=None):
     def bernoulli(key, mean_t, _R):
         valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0) & (mean_t <= 1.0)
         safe_p = jnp.where(valid_mean, mean_t, 0.5)
-        draw = jax.random.bernoulli(key, safe_p).astype(jnp.float32)
+        draw = jax.random.bernoulli(key, safe_p).astype(jnp.float64)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     def negative_binomial(key, mean_t, _R):
@@ -698,7 +698,7 @@ def get_mean_param_sample_fn(manifest_dist, extra_params=None):
         draw = jax.random.poisson(
             key_poisson,
             jnp.maximum(gamma_draw, NUMERICAL_EPSILON),
-        ).astype(jnp.float32)
+        ).astype(jnp.float64)
         return jnp.where(valid_mean, draw, jnp.nan)
 
     def beta(key, mean_t, _R):
@@ -776,12 +776,12 @@ def build_predictive_observation_sampler(
     extra_params: dict | None = None,
 ) -> PredictiveObservationSampler:
     """Compile predictive samplers for point observations and mean-space summaries."""
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
     from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
         POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
         get_posterior_predictive_switch_index,
         resolve_manifest_families_and_links,
     )
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     dists, links = resolve_manifest_families_and_links(
         manifest_dists,
@@ -925,7 +925,7 @@ def build_composite_mean_log_prob_fn(
     extra_params: dict | None = None,
 ):
     """Build an observation-space log-prob for heterogeneous manifest families."""
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 
     dists = [DistributionFamily(dist) for dist in manifest_dists]
     if len(set(dists)) == 1:
@@ -968,7 +968,7 @@ def build_composite_mean_sample_fn(
     extra_params: dict | None = None,
 ):
     """Build an observation-space sampler for heterogeneous manifest families."""
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 
     dists = [DistributionFamily(dist) for dist in manifest_dists]
     if len(set(dists)) == 1:

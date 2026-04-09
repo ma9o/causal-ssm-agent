@@ -7,6 +7,7 @@ resolution, and the main analyze_first_pass_rb decomposition logic.
 import jax.numpy as jnp
 import numpy as np
 
+from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
 from causal_ssm_agent.models.ssm.inference import select_default_method
 from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
 from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
@@ -22,7 +23,6 @@ from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
 from causal_ssm_agent.models.ssm.model import SSMSpec, full_diagonal_mask
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from tests.ssm_test_utils import combined_drift_mask, make_ssm_spec
 
 # =============================================================================

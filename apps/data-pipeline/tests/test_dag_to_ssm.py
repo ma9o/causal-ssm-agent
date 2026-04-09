@@ -451,7 +451,7 @@ class TestBuilderMasks:
 
     def test_ssm_spec_rejects_mismatched_family_metadata_lengths(self):
         """Per-variable metadata lists must match the declared dimensions."""
-        from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+        from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
 
         with pytest.raises(ValueError, match="diffusion_dists length must match n_latent"):
             make_ssm_spec(
@@ -558,8 +558,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_builds_sparse_initial_state_correlation_mask(self):
         """Only authored initial-state correlations should become free t0 pairs."""
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
-        from causal_ssm_agent.orchestrator.schemas_model import (
+        from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -568,6 +567,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -617,8 +617,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
         """Single-indicator constructs get fixed zero manifest noise in the compiled spec."""
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
-        from causal_ssm_agent.orchestrator.schemas_model import (
+        from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -627,6 +626,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -725,8 +725,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_rejects_duplicate_initial_state_correlation_pairs(self):
         """Different parameter names may not target the same initial-state pair."""
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
-        from causal_ssm_agent.orchestrator.schemas_model import (
+        from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -735,6 +734,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -785,8 +785,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_rejects_initial_state_self_correlations(self):
         """Initial-state correlations must target two distinct latent states."""
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
-        from causal_ssm_agent.orchestrator.schemas_model import (
+        from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -795,6 +794,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -840,8 +840,7 @@ class TestBuilderMasks:
     def test_builder_end_to_end(self):
         """Full builder pipeline with causal_spec produces masked spec."""
 
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-        from causal_ssm_agent.orchestrator.schemas_model import (
+        from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -850,6 +849,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
+        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 
         def _lik(var: str) -> LikelihoodSpec:
             return LikelihoodSpec(

@@ -10,6 +10,7 @@ import jax.random as random
 import numpy as np
 from jax import lax, vmap
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.covariance_utils import (
@@ -35,7 +36,6 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     ObservationOperator,
     compile_observation_operator,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

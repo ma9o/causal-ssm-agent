@@ -6,7 +6,7 @@ Covers: _count_rule_points, score_latent_model, score_latent_model_normalized.
 import json
 from types import SimpleNamespace
 
-from causal_ssm_agent.orchestrator.schemas import LatentModel
+from causal_ssm_agent.artifacts import LatentModel
 from causal_ssm_agent.orchestrator.scoring import (
     _count_rule_points,
     score_latent_model,

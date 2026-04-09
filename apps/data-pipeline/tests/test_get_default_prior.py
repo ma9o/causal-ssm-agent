@@ -1,11 +1,11 @@
 """Tests for get_default_prior fallback logic in prior_research."""
 
-from causal_ssm_agent.distributions import PriorDistributionFamily
-from causal_ssm_agent.orchestrator.schemas_model import (
+from causal_ssm_agent.artifacts import (
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
 )
+from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.workers.prior_research import get_default_prior
 
 

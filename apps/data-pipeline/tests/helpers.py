@@ -8,7 +8,7 @@ import asyncio
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.orchestrator.stage4_orchestrator import (
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
     Stage4RepairTopology,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, ModelSpec, ParameterRole
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.parameter_names import (
@@ -11,7 +12,6 @@ from causal_ssm_agent.models.ssm.parameter_names import (
 )
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_compilation_common import PriorIndexMaps, split_compound_name
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec, ParameterRole
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec

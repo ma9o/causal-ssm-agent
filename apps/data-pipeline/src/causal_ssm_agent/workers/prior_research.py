@@ -19,7 +19,7 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.openrouter_client import acquire_limiter
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.orchestrator.schemas_model import ParameterSpec
+    from causal_ssm_agent.artifacts.model_spec import ParameterSpec
 from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.utils.llm import (
     GenerateFn,
@@ -346,7 +346,7 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     Returns:
         Default PriorProposal based on parameter role/constraint
     """
-    from causal_ssm_agent.orchestrator.schemas_model import ParameterConstraint, ParameterRole
+    from causal_ssm_agent.artifacts.model_spec import ParameterConstraint, ParameterRole
 
     # AR priors live on the DT persistence scale in (0, 1).
     if parameter.role == ParameterRole.AR_COEFFICIENT:

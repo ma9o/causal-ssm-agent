@@ -250,7 +250,7 @@ def build_prior_predictive_samples(
     try:
         import numpy as np
 
-        from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+        from causal_ssm_agent.artifacts.model_spec import ModelSpec
 
         spec = ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
         manifest_names = [lik.variable for lik in spec.likelihoods]

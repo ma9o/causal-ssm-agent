@@ -15,9 +15,9 @@ import numpy as np
 import polars as pl
 from pydantic import ValidationError
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, ModelSpec
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, ModelSpec
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorProposal,
@@ -432,11 +432,7 @@ def _check_extreme_values(
     """Check for extreme parameter values indicating priors too wide."""
     results = []
     # Check parameter sites (not deterministic outputs like drift, diffusion)
-    param_sites = [
-        k
-        for k in samples
-        if k.endswith("_free")
-    ]
+    param_sites = [k for k in samples if k.endswith("_free")]
     for site_name in param_sites:
         arr = np.asarray(samples[site_name])
         n_total = arr.size
@@ -739,7 +735,7 @@ def _check_lagged_response_plausibility(
             continue
         responses: list[float] = []
         for idx in sample_idx:
-            drift = jnp.asarray(drift_samples[idx], dtype=jnp.float32)
+            drift = jnp.asarray(drift_samples[idx], dtype=jnp.float64)
             transition = np.asarray(jla.expm(drift * lag_days))
             responses.append(float(transition[effect_idx, cause_idx]))
 

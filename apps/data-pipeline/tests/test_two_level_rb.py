@@ -7,9 +7,9 @@ Graph analysis and partition tests live in test_graph_analysis.py.
 import jax.numpy as jnp
 import numpy as np
 
+from causal_ssm_agent.artifacts import DistributionFamily
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 from tests.ssm_test_utils import make_ssm_spec
 
 # =============================================================================

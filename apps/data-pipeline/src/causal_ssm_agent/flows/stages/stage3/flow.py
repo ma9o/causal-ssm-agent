@@ -1013,7 +1013,7 @@ def validate_extraction(
     if model_clock_str:
         import contextlib
 
-        from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
+        from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
 
         with contextlib.suppress(ValueError):
             model_clock_hours = parse_duration_to_hours(model_clock_str)

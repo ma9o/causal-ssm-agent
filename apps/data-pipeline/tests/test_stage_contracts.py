@@ -89,6 +89,7 @@ def valid_stage_payloads() -> dict[str, dict]:
                         {
                             "name": "stress_score",
                             "construct_name": "Stress",
+                            "construct_polarity": "positive",
                             "how_to_measure": "Self-reported stress",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",

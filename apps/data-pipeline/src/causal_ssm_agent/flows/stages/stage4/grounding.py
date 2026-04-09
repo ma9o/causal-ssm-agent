@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.orchestrator.stage4_feedback import (
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4GroundingResult,
     make_stage4_grounding_result,
 )

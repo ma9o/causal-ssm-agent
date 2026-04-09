@@ -16,6 +16,9 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
+from causal_ssm_agent.artifacts.causal_spec import CausalSpec  # noqa: TC001
+from causal_ssm_agent.artifacts.latent_model import LatentModel  # noqa: TC001
+from causal_ssm_agent.artifacts.model_spec import ModelSpec  # noqa: TC001
 from causal_ssm_agent.models.posterior_predictive import (  # noqa: TC001
     PPCOverlay,
     PPCTestStat,
@@ -32,11 +35,6 @@ from causal_ssm_agent.models.ssm.inference.schemas import (  # noqa: TC001
     SVIDiagnostics,
     TemporalEffect,
 )
-from causal_ssm_agent.orchestrator.schemas import (  # noqa: TC001
-    CausalSpec,
-    LatentModel,
-)
-from causal_ssm_agent.orchestrator.schemas_model import ModelSpec  # noqa: TC001
 from causal_ssm_agent.utils.llm import LLMTrace  # noqa: TC001
 from causal_ssm_agent.workers.schemas_prior import PriorProposal  # noqa: TC001
 

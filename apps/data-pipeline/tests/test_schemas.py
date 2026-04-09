@@ -10,8 +10,7 @@ from typing import Any
 
 import pytest
 
-from causal_ssm_agent.orchestrator.schemas import (
-    AnchorPolicy,
+from causal_ssm_agent.artifacts import (
     CausalEdge,
     CausalSpec,
     ComputedRule,
@@ -19,15 +18,18 @@ from causal_ssm_agent.orchestrator.schemas import (
     LatentModel,
     MeasurementModel,
     Role,
-    SummaryOperator,
-    SupportKind,
     TemporalStatus,
     check_semantic_collisions,
-    derive_indicator_observation_semantics,
     parse_duration_to_hours,
 )
-from causal_ssm_agent.orchestrator.schemas import (
+from causal_ssm_agent.artifacts import (
     Indicator as IndicatorModel,
+)
+from causal_ssm_agent.utils.observation_semantics import (
+    AnchorPolicy,
+    SummaryOperator,
+    SupportKind,
+    derive_indicator_observation_semantics,
 )
 
 

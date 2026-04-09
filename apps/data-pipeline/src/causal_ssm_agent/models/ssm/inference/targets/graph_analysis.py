@@ -25,8 +25,8 @@ import numpy as np
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
     from causal_ssm_agent.models.ssm.model import SSMSpec
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
 @dataclass
@@ -59,7 +59,7 @@ def get_per_variable_diffusion(spec: SSMSpec) -> list[DistributionFamily]:
 
 def has_student_t_diffusion(spec: SSMSpec) -> bool:
     """Return whether any latent process uses Student-t diffusion noise."""
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 
     return DistributionFamily.STUDENT_T in set(get_per_variable_diffusion(spec))
 

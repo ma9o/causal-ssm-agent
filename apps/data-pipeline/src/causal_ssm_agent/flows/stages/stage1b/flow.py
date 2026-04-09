@@ -4,9 +4,10 @@ from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.flows.llm_stage_task import make_llm_stage_task
-from causal_ssm_agent.orchestrator.agents import build_causal_spec as _build_causal_spec_core
-from causal_ssm_agent.orchestrator.stage1b import run_stage1b
 from causal_ssm_agent.utils.config import get_config
+
+from .assemble import build_causal_spec as _build_causal_spec_core
+from .run import run_stage1b
 
 
 @task(cache_policy=INPUTS, result_serializer="json")

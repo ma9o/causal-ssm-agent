@@ -7,6 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from causal_ssm_agent.artifacts import DistributionFamily
 from causal_ssm_agent.flows.dag import stage4b
 from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task
 from causal_ssm_agent.models.ssm.inference.structure import (
@@ -16,7 +17,6 @@ from causal_ssm_agent.models.ssm.inference.structure import (
 from causal_ssm_agent.models.ssm.model import SSMSpec
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 from tests.ssm_test_utils import make_ssm_spec
 
 pytestmark = pytest.mark.slow

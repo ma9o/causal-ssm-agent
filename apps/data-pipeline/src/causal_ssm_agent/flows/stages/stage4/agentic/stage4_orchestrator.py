@@ -12,11 +12,9 @@ from typing import Any
 
 import networkx as nx
 
+from causal_ssm_agent.artifacts.model_spec import VALID_LINKS_FOR_DISTRIBUTION
 from causal_ssm_agent.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
-from causal_ssm_agent.orchestrator.schemas_model import (
-    VALID_LINKS_FOR_DISTRIBUTION,
-)
 from causal_ssm_agent.utils.causal_spec import (
     build_reference_indicator_lookup,
     get_estimation_edges,

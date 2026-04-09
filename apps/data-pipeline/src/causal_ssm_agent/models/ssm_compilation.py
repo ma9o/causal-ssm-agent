@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from causal_ssm_agent.artifacts.model_spec import ModelSpec
 from causal_ssm_agent.models.ssm_compilation_common import (
     PriorIndexMaps,
     empty_prior_index_maps,
@@ -22,7 +23,6 @@ from causal_ssm_agent.models.ssm_spec_translation import (
     get_estimation_latent_layout,
     translate_spec,
 )
-from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec

@@ -9,7 +9,7 @@ You are given:
 1. A latent model with theoretical constructs and causal edges (from Stage 1a)
 2. A structured dataset with named columns (already parsed from the user's data)
 
-Your job is to propose INDICATORS that operationalize constructs using the available data columns. Each indicator gets a semantic `name` (it does NOT need to match a column name). The `how_to_measure` field must describe exactly how to derive the indicator value from the raw data columns — worker LLMs will follow these instructions to extract values.
+Your job is to propose INDICATORS that operationalize constructs using the available data columns. Each indicator gets a semantic `name` (it does NOT need to match a column name). The `how_to_measure` field must describe exactly how to derive the indicator value from the raw data columns - worker LLMs will follow these instructions to extract values.
 
 Prefer a parsimonious, source-faithful measurement model:
 - Start from raw columns that already directly express the construct.
@@ -23,15 +23,15 @@ Prefer a parsimonious, source-faithful measurement model:
 We use a REFLECTIVE measurement model: the latent construct CAUSES its indicators.
 
 ```
-Latent Construct → Indicator₁
-                 → Indicator₂
-                 → Indicator₃
+Latent Construct -> Indicator₁
+                 -> Indicator₂
+                 -> Indicator₃
 ```
 
 This implies:
 - **Local independence**: Indicators are conditionally independent given the construct
 - **Marginal correlation**: Indicators covary because they share a common cause (the construct)
-- **Pure indicators**: No direct causal paths between indicators—all covariance flows through the construct
+- **Pure indicators**: No direct causal paths between indicators-all covariance flows through the construct
 - Multiple indicators per construct improve reliability (recommended ≥2 for measurement error separation)
 
 ## Indicator Specification
@@ -56,7 +56,7 @@ Each indicator needs:
 | Type | Description | Example |
 |------|-------------|---------|
 | **binary** | Exactly two categories (0/1) | took_medication, is_weekend |
-| **ordinal** | Ordered categories (3+ levels). **Must** include `ordinal_levels` (low→high). | stress_level (1-5) |
+| **ordinal** | Ordered categories (3+ levels). **Must** include `ordinal_levels` (low->high). | stress_level (1-5) |
 | **count** | Non-negative integers | num_emails, steps |
 | **categorical** | Unordered categories | activity_type |
 | **continuous** | Real-valued | temperature, mood_rating |
@@ -68,9 +68,9 @@ Every indicator must declare whether its numeric direction matches the construct
 - `negative`: higher indicator values imply less of the construct
 
 Examples:
-- `sleep_hours` for `sleep_quality` → `positive`
-- `sleep_problem_search_count` for `sleep_quality` → `negative`
-- `negative_mood_search_flag` for `mood` → `negative`
+- `sleep_hours` for `sleep_quality` -> `positive`
+- `sleep_problem_search_count` for `sleep_quality` -> `negative`
+- `negative_mood_search_flag` for `mood` -> `negative`
 
 This field is used downstream to orient the latent factor. Do not leave it implicit.
 
@@ -180,9 +180,9 @@ Implication: Do NOT propose indicators with their own temporal momentum independ
 
 ## Constraints
 
-1. Every **time-varying** construct MUST have at least one indicator—constructs without indicators are unobserved, and causal effects through them may not be identifiable
+1. Every **time-varying** construct MUST have at least one indicator-constructs without indicators are unobserved, and causal effects through them may not be identifiable
 2. Indicators can only reference constructs from the latent model
-3. You CANNOT add new causal edges—only operationalize existing constructs
+3. You CANNOT add new causal edges-only operationalize existing constructs
 5. No direct causal edges between indicators (pure indicators assumption)
 
 ## Refinement Rule
@@ -198,9 +198,9 @@ When revising an existing measurement model after validation or downstream extra
 The `model_clock` defines the latent-state discretization and the default extraction/support window. Indicators normally emit one value per `model_clock` bucket unless they explicitly declare a wider `observation_window`.
 
 Choose a duration string (e.g. `"1h"`, `"4h"`, `"1d"`, `"1w"`) based on:
-- **Data density**: each support window should contain ~5–200 events on average. Too sparse → noisy; too dense → expensive.
+- **Data density**: each support window should contain ~5-200 events on average. Too sparse -> noisy; too dense -> expensive.
 - **Causal timescale**: the clock should be fine enough to capture the fastest causal mechanism in the model (e.g. if stress affects sleep within hours, use `"1h"` or `"4h"`, not `"1w"`).
-- **Data span**: ensure at least ~30 windows across the full dataset (e.g. 30 days of data → `"1d"` gives 30 windows; `"1w"` gives only ~4).
+- **Data span**: ensure at least ~30 windows across the full dataset (e.g. 30 days of data -> `"1d"` gives 30 windows; `"1w"` gives only ~4).
 
 Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (weeks), `mo` (months), `q` (quarters), `y` (years). Format: `"<integer><unit>"`.
 
@@ -217,13 +217,13 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
       "construct_polarity": "positive" | "negative",
       "measurement_dtype": "continuous" | "binary" | "count" | "ordinal" | "categorical",
       "aggregation": "<aggregation_function>",
-      "observation_window": "1mo",  // optional; omit unless support window differs from model_clock
-      "ordinal_levels": ["low", "medium", "high"],  // required when measurement_dtype is "ordinal", ordered low→high
-      "source_columns": ["col_a", "col_b"],  // raw data columns referenced by how_to_measure
+      "observation_window": "1mo",
+      "ordinal_levels": ["low", "medium", "high"],
+      "source_columns": ["col_a", "col_b"],
       "computed_rule": {
         "window_expr": "1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)"
-      },  // optional; use only for deterministic computed indicators that need formulas/thresholds/filtering
-      "extraction_mode": "computed" | "semantic"  // default "semantic"; use "computed" for deterministic direct aggregation or deterministic computed_rule logic
+      },
+      "extraction_mode": "computed" | "semantic"
     }
   ]
 }
@@ -233,7 +233,7 @@ Supported units: `s` (seconds), `m` (minutes), `h` (hours), `d` (days), `w` (wee
 
 You have access to `validate_measurement_model` tool. It checks:
 1. Schema and compiler-level measurement constraints
-2. **Causal identifiability** — whether treatment effects can be estimated from the proposed indicators
+2. **Causal identifiability** - whether treatment effects can be estimated from the proposed indicators
 
 Keep validating until you get "VALID".
 
@@ -243,11 +243,11 @@ If the tool reports identifiability issues, it will tell you:
 - Which treatment effects are blocked and by which unobserved confounders
 - Which confounders need proxy indicators
 
-To fix: add proxy indicators for the blocking confounders and resubmit the COMPLETE measurement model (all existing indicators + new proxy indicators). A proxy indicator is a measurable variable from the dataset that correlates with the unobserved confounder — add it as a new indicator with the confounder as its `construct_name`.
+To fix: add proxy indicators for the blocking confounders and resubmit the COMPLETE measurement model (all existing indicators + new proxy indicators). A proxy indicator is a measurable variable from the dataset that correlates with the unobserved confounder - add it as a new indicator with the confounder as its `construct_name`.
 
-If no suitable strong proxy exists in the available data columns, proceed anyway — those effects will remain non-identifiable and be flagged in downstream analysis. Do not invent speculative semantic proxies from sparse incidental text just to satisfy identifiability.
+If no suitable strong proxy exists in the available data columns, proceed anyway - those effects will remain non-identifiable and be flagged in downstream analysis. Do not invent speculative semantic proxies from sparse incidental text just to satisfy identifiability.
 
-IMPORTANT: Once you get "VALID", STOP. Do not output anything else — the validated result is already saved by the tool. Any additional output will be ignored.
+IMPORTANT: Once you get "VALID", STOP. Do not output anything else - the validated result is already saved by the tool. Any additional output will be ignored.
 """
 
 USER = """\
@@ -299,10 +299,10 @@ Review your proposed measurement model for operationalization coherence.
 3. **how_to_measure clarity**: Are instructions specific enough for workers?
 4. **Support-window semantics**: If an indicator summarizes a wider period than `model_clock`, does it declare `observation_window`, and does `how_to_measure` clearly say whether to aggregate event-level evidence or extract an explicit summary mention?
 5. **dtype/aggregation consistency**:
-   - `first`, `last` → point-state measurements
-   - `sum` → continuous or count
-   - `count` → count
-   - `mean`, `std` → continuous
+   - `first`, `last` -> point-state measurements
+   - `sum` -> continuous or count
+   - `count` -> count
+   - `mean`, `std` -> continuous
    - ordinal indicators currently support only `first` or `last`
 6. **Redundancy**: Are there indicators that are essentially duplicates?
 7. **Local independence**: Would any two indicators of the same construct remain correlated after conditioning on the construct? If so, they violate pure indicators.
@@ -314,22 +314,8 @@ Review your proposed measurement model for operationalization coherence.
 
 ## Red Flags
 
-- how_to_measure describes computed metrics → move to aggregation
-- how_to_measure requires cross-chunk data → not possible
+- how_to_measure describes computed metrics -> move to aggregation
+- how_to_measure requires cross-chunk data -> not possible
 - monthly/weekly summary indicator lacks `observation_window` or fails to say whether to extract an explicit summary mention versus aggregate raw events
 - weekly/monthly indicator introduced even though the signal can be operationalized at `model_clock`
-- unsupported aggregation operator (`min`, `median`, `trend`, etc.)
-- Vague instructions that workers can't follow
-- semantic instructions like "return 1 if found, otherwise 0" that do not distinguish `0` from `null`
-- semantic proxy duplicates or weakens an available deterministic computed measurement
-- weak proxy for a time-invariant construct inferred from sparse incidental text
-- construct kept in the graph after all of its viable indicators have been removed
-- Indicators that directly cause each other → violates pure indicators assumption
-- Cumulative/running metrics → violates A8 (temporal independence)
-
-## Output
-
-If you find issues, fix them, validate with the tool, and stop once you get "VALID". If your model is already correct, just confirm — do not re-output the JSON.
-
-Think very hard.
 """

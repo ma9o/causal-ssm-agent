@@ -62,8 +62,8 @@ async def stage4_agentic_flow(
         Full grounded Stage 4 result (same shape as before).
     """
     from causal_ssm_agent.flows.run_store import clear_stage4_checkpoint, save_stage4_checkpoint
-    from causal_ssm_agent.orchestrator.stage4_agent_loop import run_stage4
-    from causal_ssm_agent.orchestrator.stage4_navigation import (
+    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
+    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
         project_stage4_graph,
         project_stage4_snapshot,
     )

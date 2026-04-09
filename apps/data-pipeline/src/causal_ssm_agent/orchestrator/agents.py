@@ -7,12 +7,19 @@ Two-stage approach following Anderson & Gerbing (1988):
 
 import asyncio
 
+from causal_ssm_agent.flows.stages.stage1a.run import run_stage1a
+from causal_ssm_agent.flows.stages.stage1b.assemble import build_causal_spec
+from causal_ssm_agent.flows.stages.stage1b.run import run_stage1b
 from causal_ssm_agent.utils.config import get_config  # also loads .env
 from causal_ssm_agent.utils.llm import make_generate_fn
 
-from .schemas import CausalSpec, EstimationSpec, LatentModel, MeasurementModel
-from .stage1a import run_stage1a
-from .stage1b import run_stage1b
+__all__ = [
+    "build_causal_spec",
+    "propose_latent_model",
+    "propose_latent_model_async",
+    "propose_measurement_model",
+    "propose_measurement_model_async",
+]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STAGE 1a: LATENT MODEL (theory-driven, no data)
@@ -121,40 +128,3 @@ def propose_measurement_model(
 # ══════════════════════════════════════════════════════════════════════════════
 # COMBINED: FULL CAUSAL SPEC
 # ══════════════════════════════════════════════════════════════════════════════
-
-
-def build_causal_spec(
-    latent_model: dict, measurement_model: dict, identifiability_status: dict | None = None
-) -> dict:
-    """
-    Combine latent and measurement models into a full CausalSpec with identifiability.
-
-    Args:
-        latent_model: The latent model dict from Stage 1a
-        measurement_model: The measurement model dict from Stage 1b
-        identifiability_status: Identifiability status dict from Stage 1b
-
-    Returns:
-        CausalSpec as a dictionary (includes identifiability key)
-    """
-    from causal_ssm_agent.utils.estimation_projection import build_estimation_projection
-
-    from .schemas import IdentifiabilityStatus
-
-    estimation = build_estimation_projection(
-        latent_model,
-        measurement_model,
-        identifiability_status,
-    )
-
-    causal_spec = CausalSpec(
-        latent=LatentModel.model_validate(latent_model),
-        measurement=MeasurementModel.model_validate(measurement_model),
-        identifiability=(
-            IdentifiabilityStatus.model_validate(identifiability_status)
-            if identifiability_status
-            else None
-        ),
-        estimation=EstimationSpec.model_validate(estimation) if estimation is not None else None,
-    )
-    return causal_spec.model_dump()

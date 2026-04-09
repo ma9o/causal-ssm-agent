@@ -14,8 +14,8 @@ from causal_ssm_agent.flows import get_prefect_logger
 logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
     from causal_ssm_agent.models.ssm.model import SSMSpec
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 NON_MANIFEST_COLUMNS = {"time"}
 SECONDS_PER_DAY = 86400.0

@@ -10,6 +10,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
 from causal_ssm_agent.models.prior_predictive import (
     _check_constraint_violations,
     _check_extreme_values,
@@ -28,7 +29,6 @@ from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
 from causal_ssm_agent.models.ssm_compiler import serialize_edge_lag_days, serialize_ssm_spec
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 from tests.ssm_test_utils import make_ssm_spec
 

@@ -40,6 +40,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 )
 
 if TYPE_CHECKING:
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
     from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm.inference.targets.base import (
         CTParams,
@@ -47,7 +48,6 @@ if TYPE_CHECKING:
         MeasurementParams,
     )
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 logger = get_prefect_logger(__name__)
 
@@ -407,12 +407,12 @@ def _infer_support_groups(
         start_idx = max(start_idx, 0)
         max_bandwidth = max(max_bandwidth, anchor_idx - start_idx)
 
-        mask_full = np.zeros((n_manifest,), dtype=np.float32)
+        mask_full = np.zeros((n_manifest,), dtype=np.float64)
         mask_full[manifests] = 1.0
         segment_len = anchor_idx - start_idx
-        group_prev = np.zeros((segment_len, n_manifest), dtype=np.float32)
-        group_curr = np.zeros((segment_len, n_manifest), dtype=np.float32)
-        group_weights = np.zeros((segment_len, n_manifest), dtype=np.float32)
+        group_prev = np.zeros((segment_len, n_manifest), dtype=np.float64)
+        group_curr = np.zeros((segment_len, n_manifest), dtype=np.float64)
+        group_weights = np.zeros((segment_len, n_manifest), dtype=np.float64)
         for manifest_idx, slot_idx, local_start_idx in manifest_windows:
             offset = local_start_idx - start_idx
             local_segment_len = anchor_idx - local_start_idx
@@ -452,10 +452,10 @@ def _infer_support_groups(
     state_lens = np.zeros((n_windows,), dtype=np.int32)
     anchor_indices = np.zeros((n_windows,), dtype=np.int32)
     start_indices = np.zeros((n_windows,), dtype=np.int32)
-    mask_full = np.zeros((n_windows, n_manifest), dtype=np.float32)
-    padded_prev = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float32)
-    padded_curr = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float32)
-    padded_weights = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float32)
+    mask_full = np.zeros((n_windows, n_manifest), dtype=np.float64)
+    padded_prev = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float64)
+    padded_curr = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float64)
+    padded_weights = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float64)
 
     for window_idx, (
         state_len,
@@ -536,7 +536,7 @@ def _ieks_smooth(
     z_est = jnp.broadcast_to(init_mean, (T, D)).copy()
 
     cd_scan = cd if cd is not None else jnp.zeros((T, D))
-    obs_mask_float = obs_mask.astype(jnp.float32)
+    obs_mask_float = obs_mask.astype(jnp.float64)
     prior_lower, prior_diag, prior_upper, prior_rhs = _build_prior_tridiagonal_system(
         Ad,
         Qd,
@@ -614,7 +614,7 @@ def _compute_laplace_log_lik(
     """
     T, D = z_smooth.shape
     jitter = jnp.eye(D) * 1e-6
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
 
     # Compute emission gradients and Hessians at the smoothed states (linearization point)
     def _emission_grad_hess(y_t, z_t, mask_t):
@@ -1212,10 +1212,10 @@ class LaplaceLikelihood:
                 state_lens=jnp.zeros((0,), dtype=jnp.int32),
                 anchor_indices=jnp.zeros((0,), dtype=jnp.int32),
                 start_indices=jnp.zeros((0,), dtype=jnp.int32),
-                mask_full=jnp.zeros((0, n_manifest), dtype=jnp.float32),
-                prev_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float32),
-                curr_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float32),
-                weights=jnp.zeros((0, 0, n_manifest), dtype=jnp.float32),
+                mask_full=jnp.zeros((0, n_manifest), dtype=jnp.float64),
+                prev_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float64),
+                curr_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float64),
+                weights=jnp.zeros((0, 0, n_manifest), dtype=jnp.float64),
             )
             self._support_bandwidth = 1 if n_latent > 0 else 0
 

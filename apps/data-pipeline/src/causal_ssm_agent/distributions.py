@@ -147,7 +147,7 @@ def render_lagged_beta_authored_interval_guidance() -> str:
 
 # ---------------------------------------------------------------------------
 # Parameter role catalog — authoritative source for docs codegen and the
-# EXPECTED_CONSTRAINT_FOR_ROLE dict in schemas_model.py.
+# EXPECTED_CONSTRAINT_FOR_ROLE dict in artifacts/model_spec.py.
 # Uses plain strings (not enum references) so this module stays import-clean.
 # ---------------------------------------------------------------------------
 

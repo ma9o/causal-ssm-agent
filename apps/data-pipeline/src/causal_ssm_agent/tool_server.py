@@ -24,6 +24,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
+from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
 from causal_ssm_agent.flows.run_store import load_parquet, load_pickle
 from causal_ssm_agent.flows.stage_contracts import STAGE_TOOLS
 from causal_ssm_agent.flows.stage_persistence import persist_web_patch
@@ -40,7 +41,6 @@ from causal_ssm_agent.models.ssm.counterfactual import (
     treatment_effect_for_action,
 )
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
-from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.causal_spec import (
     get_estimable_treatments,

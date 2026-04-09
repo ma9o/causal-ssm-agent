@@ -8,14 +8,16 @@ import asyncio
 
 import pytest
 
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+    make_stage4_grounding_result,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
 from causal_ssm_agent.flows.stages.stage4.assembly import format_prior_proposal_errors
 from causal_ssm_agent.flows.stages.stage4.grounding import (
     should_capture_stage4_output,
     stage4_grounding,
 )
 from causal_ssm_agent.flows.stages.stage4.tools import make_search_tool
-from causal_ssm_agent.orchestrator.stage4_feedback import make_stage4_grounding_result
-from causal_ssm_agent.orchestrator.stage4_state import Stage4Runtime
 
 # ---------------------------------------------------------------------------
 # Fixtures

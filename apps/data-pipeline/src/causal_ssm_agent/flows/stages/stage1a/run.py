@@ -1,14 +1,10 @@
-"""Stage 1a: Latent Model Proposal.
-
-Core logic for Stage 1a, decoupled from Prefect and model-client frameworks.
-Uses dependency injection for the LLM generate function.
-"""
+"""Stage 1a: Latent Model Proposal."""
 
 from dataclasses import dataclass
 
 from causal_ssm_agent.utils.llm import GenerateFn
 
-from .prompts import latent_model
+from .prompting import templates
 
 
 @dataclass
@@ -37,8 +33,8 @@ class Stage1aMessages:
     def proposal_messages(self) -> list[dict]:
         """Build messages for initial latent model proposal."""
         return [
-            {"role": "system", "content": latent_model.SYSTEM},
-            {"role": "user", "content": latent_model.USER.format(question=self.question)},
+            {"role": "system", "content": templates.SYSTEM},
+            {"role": "user", "content": templates.USER.format(question=self.question)},
         ]
 
 
@@ -72,7 +68,7 @@ async def run_stage1a(
         compute_fn=stage1a_grounding,
     )
 
-    await generate(msgs.proposal_messages(), [tool], [latent_model.REVIEW])
+    await generate(msgs.proposal_messages(), [tool], [templates.REVIEW])
 
     if not capture.get("latent_model"):
         raise ValueError("No valid latent model produced")

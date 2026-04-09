@@ -5,6 +5,13 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
+from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
+from causal_ssm_agent.artifacts.model_spec import (
+    DistributionFamily,
+    LinkFunction,
+    ModelSpec,
+    ParameterRole,
+)
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
@@ -20,13 +27,6 @@ from causal_ssm_agent.models.ssm.model import (
     zero_vector_mask,
 )
 from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
-from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
-from causal_ssm_agent.orchestrator.schemas_model import (
-    DistributionFamily,
-    LinkFunction,
-    ModelSpec,
-    ParameterRole,
-)
 from causal_ssm_agent.utils.causal_spec import (
     build_reference_indicator_lookup,
     get_estimation_edges,

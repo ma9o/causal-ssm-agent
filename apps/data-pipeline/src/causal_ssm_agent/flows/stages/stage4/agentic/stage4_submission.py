@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from causal_ssm_agent.orchestrator.schemas_model import DistributionChoice
+from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import DistributionChoice
 
 from .stage4_orchestrator import (
     Stage4FrontierBlock,

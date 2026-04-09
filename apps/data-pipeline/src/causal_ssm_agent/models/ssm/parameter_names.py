@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from causal_ssm_agent.artifacts.model_spec import ModelSpec, ParameterRole
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

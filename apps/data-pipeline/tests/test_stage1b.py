@@ -11,13 +11,13 @@ import json
 
 import pytest
 
+from causal_ssm_agent.artifacts import CausalSpec
 from causal_ssm_agent.flows.stages.stage1b.flow import build_causal_spec
-from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
-from causal_ssm_agent.orchestrator.schemas import CausalSpec
-from causal_ssm_agent.orchestrator.stage1b import (
+from causal_ssm_agent.flows.stages.stage1b.run import (
     Stage1bResult,
     run_stage1b,
 )
+from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
 from causal_ssm_agent.utils.causal_spec import get_outcome_name
 from tests.helpers import make_mock_generate
 

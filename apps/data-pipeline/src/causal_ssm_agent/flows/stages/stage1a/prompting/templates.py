@@ -48,12 +48,12 @@ time-varying parents.
 Edges represent causal relationships between constructs.
 
 ### Edge Timing
-- **lagged=true** (default): cause at t-1 → effect at t (one model_clock tick delay)
-- **lagged=false**: cause at t → effect at t (contemporaneous). Do not use this for directed edges between constructs that are both endogenous and time_varying; represent those with lagged=true.
+- **lagged=true** (default): cause at t-1 -> effect at t (one model_clock tick delay)
+- **lagged=false**: cause at t -> effect at t (contemporaneous). Do not use this for directed edges between constructs that are both endogenous and time_varying; represent those with lagged=true.
 
 Multi-step effects (e.g., "sleep 2 days ago affects mood today") should be modeled as indirect chains through intermediary constructs.
 
-Contemporaneous edges must form a DAG within each time slice (A4). Feedback loops require lagged edges—model them across time, not within.
+Contemporaneous edges must form a DAG within each time slice (A4). Feedback loops require lagged edges-model them across time, not within.
 
 ### Constraints
 - Models must be acyclic WITHIN time slice (contemporaneous edges form a DAG)
@@ -91,7 +91,7 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
 
 You have access to `validate_latent_model` tool. Use it to validate your JSON before returning the final answer. Keep validating until you get "VALID".
 
-IMPORTANT: Once you get "VALID", STOP. Do not output anything else — the validated result is already saved by the tool. Any additional output will be ignored.
+IMPORTANT: Once you get "VALID", STOP. Do not output anything else - the validated result is already saved by the tool. Any additional output will be ignored.
 """
 
 USER = """\
@@ -117,7 +117,7 @@ Review your proposed latent model for theoretical coherence.
 
 ## Output
 
-If you find issues, fix them, validate with the tool, and stop once you get "VALID". If your structure is already correct, just confirm — do not re-output the JSON.
+If you find issues, fix them, validate with the tool, and stop once you get "VALID". If your structure is already correct, just confirm - do not re-output the JSON.
 
 Think very hard.
 """

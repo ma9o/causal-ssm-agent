@@ -20,6 +20,7 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.inference.targets.emissions import (
     build_composite_mean_log_prob_fn,
@@ -29,7 +30,6 @@ from causal_ssm_agent.models.ssm.inference.targets.emissions import (
     get_mean_param_log_prob_fn,
     ordered_logistic_moments,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 logger = get_prefect_logger(__name__)
 
