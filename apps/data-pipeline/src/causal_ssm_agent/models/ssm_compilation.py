@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from causal_ssm_agent.artifacts.model_spec import ModelSpec
+from causal_ssm_agent.models.ssm.parameter_names import split_compound_name
 from causal_ssm_agent.models.ssm_compilation_common import (
     PriorIndexMaps,
     empty_prior_index_maps,
     normalize_prior_params,
-    split_compound_name,
 )
 from causal_ssm_agent.models.ssm_prior_compilation import (
     bind_parameters,

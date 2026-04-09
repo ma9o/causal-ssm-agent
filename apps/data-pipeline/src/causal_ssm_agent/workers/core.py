@@ -13,14 +13,16 @@ import polars as pl
 from causal_ssm_agent.utils.causal_spec import (
     get_indicators,
     get_outcome_construct,
-    get_summary_operator,
-    get_support_kind,
 )
 from causal_ssm_agent.utils.llm import (
     GenerateFn,
     make_validation_tool,
     parse_json_response,
     scoped_log,
+)
+from causal_ssm_agent.utils.observation_semantics import (
+    get_summary_operator,
+    get_support_kind,
 )
 
 from .prompts.extraction import SYSTEM, USER

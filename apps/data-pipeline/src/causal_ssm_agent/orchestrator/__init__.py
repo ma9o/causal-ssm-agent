@@ -15,7 +15,6 @@ from causal_ssm_agent.artifacts import (
 )
 
 from .agents import (
-    build_causal_spec,
     propose_latent_model,
     propose_measurement_model,
 )
@@ -24,7 +23,6 @@ __all__ = [
     # Agents
     "propose_latent_model",
     "propose_measurement_model",
-    "build_causal_spec",
     # Schemas - Latent
     "Construct",
     "CausalEdge",

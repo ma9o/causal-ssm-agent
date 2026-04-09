@@ -8,13 +8,11 @@ Two-stage approach following Anderson & Gerbing (1988):
 import asyncio
 
 from causal_ssm_agent.flows.stages.stage1a.run import run_stage1a
-from causal_ssm_agent.flows.stages.stage1b.assemble import build_causal_spec
 from causal_ssm_agent.flows.stages.stage1b.run import run_stage1b
 from causal_ssm_agent.utils.config import get_config  # also loads .env
 from causal_ssm_agent.utils.llm import make_generate_fn
 
 __all__ = [
-    "build_causal_spec",
     "propose_latent_model",
     "propose_latent_model_async",
     "propose_measurement_model",

@@ -9,12 +9,12 @@ from causal_ssm_agent.artifacts.model_spec import VALID_LINKS_FOR_DISTRIBUTION
 from causal_ssm_agent.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
 from causal_ssm_agent.utils.causal_spec import (
     build_reference_indicator_lookup,
+    get_constructs,
     get_estimation_edges,
     get_estimation_state_order,
     get_indicator_polarity,
     get_indicators,
     get_induced_dependencies,
-    get_latent_constructs,
 )
 
 from .stage4_parameter_surfaces import parameter_is_active_for_likelihoods
@@ -47,7 +47,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     induced_dependencies = get_induced_dependencies(causal_spec)
     indicators = get_indicators(causal_spec)
     latent_construct_lookup = {
-        construct["name"]: construct for construct in get_latent_constructs(causal_spec)
+        construct["name"]: construct for construct in get_constructs(causal_spec)
     }
     retained_constructs = [
         latent_construct_lookup[name]
