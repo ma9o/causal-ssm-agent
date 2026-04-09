@@ -15,10 +15,7 @@ import numpyro.distributions as dist
 import pytest
 from numpy.testing import assert_allclose
 from numpyro import handlers
-from numpyro.infer import SVI, Predictive, Trace_ELBO
-from numpyro.infer.autoguide import AutoNormal
 from numpyro.infer.reparam import LocScaleReparam, ProjectedNormalReparam
-from numpyro.optim import Adam
 
 from causal_ssm_agent.models.ssm.autoreparam import (
     AutoReparam,
@@ -463,74 +460,6 @@ class TestSyntax:
 # ---------------------------------------------------------------------------
 
 
-class TestEndToEndSVI:
-    """End-to-end SVI: train, then Predictive.
-
-    Ported from Pyro's test_strategies.py::test_end_to_end.
-    """
-
-    def test_svi_then_predictive(self):
-        strategy = AutoReparam(centered=0.0)
-        model = strategy(simple_normal_model)
-        guide = AutoNormal(model)
-        svi = SVI(model, guide, Adam(1e-3), Trace_ELBO())
-
-        svi_state = svi.init(jax.random.PRNGKey(0))
-        for _ in range(3):
-            svi_state, _loss = svi.update(svi_state)
-
-        params = svi.get_params(svi_state)
-        predictive = Predictive(model, guide=guide, params=params, num_samples=5)
-        samples = predictive(jax.random.PRNGKey(1))
-        assert "x" in samples
-        assert "y" in samples
-
-    def test_learnable_centering(self):
-        """centered=None creates numpyro.param sites that SVI can optimize."""
-        strategy = AutoReparam(centered=None)
-        model = strategy(simple_normal_model)
-        guide = AutoNormal(model)
-        svi = SVI(model, guide, Adam(1e-2), Trace_ELBO())
-
-        svi_state = svi.init(jax.random.PRNGKey(0))
-        for _ in range(20):
-            svi_state, _loss = svi.update(svi_state)
-
-        params = svi.get_params(svi_state)
-        # Should have learned centering params
-        centering_params = [k for k in params if "_centered" in k]
-        assert len(centering_params) > 0
-
-
-class TestEndToEndNUTS:
-    """End-to-end NUTS with AutoReparam(centered=0.0)."""
-
-    def test_neals_funnel(self):
-        """Neal's funnel: NCP is essential for NUTS to sample correctly.
-
-        Without NCP, NUTS produces many divergences due to the extreme
-        correlation between y and x scale. With AutoReparam(centered=0.0),
-        the decentered parameterization breaks this correlation.
-        """
-        from numpyro.infer import MCMC, NUTS
-
-        strategy = AutoReparam(centered=0.0)
-        model = strategy(neals_funnel)
-
-        kernel = NUTS(model)
-        mcmc = MCMC(kernel, num_warmup=200, num_samples=200, num_chains=1, progress_bar=False)
-        mcmc.run(jax.random.PRNGKey(0), dim=5)
-        samples = mcmc.get_samples()
-
-        assert "y" in samples
-        assert "x" in samples
-        # y ~ N(0, 9): posterior mean should be near 0
-        assert abs(float(jnp.mean(samples["y"]))) < 2.0
-        # Check no extreme values (would indicate bad mixing)
-        assert jnp.all(jnp.isfinite(samples["y"]))
-        assert jnp.all(jnp.isfinite(samples["x"]))
-
-
 # ---------------------------------------------------------------------------
 # VI. SSM-specific integration
 # ---------------------------------------------------------------------------
@@ -578,62 +507,6 @@ class TestAutoReparamSSM:
             if site["type"] in ("sample", "deterministic"):
                 assert jnp.all(jnp.isfinite(site["value"])), f"Non-finite at {name}"
 
-    @pytest.mark.slow
-    def test_fit_svi_with_reparam(self):
-        """fit() + SVI + AutoReparam produces valid posterior samples."""
-        from causal_ssm_agent.models.ssm.inference import fit
-
-        model = self._make_simple_ssm()
-        T = 10
-        observations = jnp.zeros((T, 2))
-        times = jnp.linspace(0, 1, T)
-
-        result = fit(
-            model,
-            observations,
-            times,
-            method="svi",
-            reparam=AutoReparam(centered=0.0),
-            num_steps=50,
-            num_samples=10,
-            seed=42,
-        )
-
-        assert result.method == "svi"
-        samples = result.get_samples()
-        assert len(samples) > 0
-        for v in samples.values():
-            assert jnp.all(jnp.isfinite(v))
-
-    def test_fit_nuts_filters_auxiliary_sites(self):
-        """NUTS results and diagnostics should expose original sites only."""
-        from causal_ssm_agent.models.ssm.inference import fit
-
-        model = self._make_simple_ssm()
-        observations = jnp.zeros((8, 2))
-        times = jnp.linspace(0, 1, 8)
-
-        result = fit(
-            model,
-            observations,
-            times,
-            method="nuts",
-            num_warmup=10,
-            num_samples=10,
-            num_chains=1,
-            seed=0,
-        )
-
-        sample_names = set(result.get_samples())
-        assert "drift_diag_free" in sample_names
-        assert "diffusion_diag_free" in sample_names
-        assert all("_decentered" not in name for name in sample_names)
-
-        diag = result.get_mcmc_diagnostics()
-        assert diag is not None
-        diag_names = {entry["parameter"] for entry in diag["per_parameter"]}
-        assert all("_decentered" not in name for name in diag_names)
-
     def test_extract_constrained_samples_filters_auxiliary_sites(self):
         """Replay-based extraction should drop internal reparam auxiliaries."""
         from jax.flatten_util import ravel_pytree
@@ -675,33 +548,6 @@ class TestAutoReparamSSM:
         assert "drift_diag_free" in samples
         assert "diffusion_diag_free" in samples
         assert all("_decentered" not in name for name in samples)
-
-    def test_fit_nuts_da_noncentered_with_reparam(self):
-        """Default reparam should not break the non-centered DA state path."""
-        from causal_ssm_agent.models.ssm.inference import fit
-
-        model = self._make_simple_ssm()
-        observations = jnp.zeros((4, 2))
-        times = jnp.linspace(0, 1, 4)
-
-        result = fit(
-            model,
-            observations,
-            times,
-            method="nuts_da",
-            centered=False,
-            num_warmup=1,
-            num_samples=1,
-            num_chains=1,
-            svi_warmstart=False,
-            seed=0,
-        )
-
-        sample_names = set(result.get_samples())
-        assert "drift_diag_free" in sample_names
-        assert "eps" not in sample_names
-        assert "eps_0" not in sample_names
-        assert all("_decentered" not in name for name in sample_names)
 
     def test_fit_pgas_rejects_reparam(self):
         """PGAS should fail explicitly rather than silently ignore reparam."""

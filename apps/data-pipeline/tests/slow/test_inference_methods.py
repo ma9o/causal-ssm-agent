@@ -16,7 +16,9 @@ import pytest
 from causal_ssm_agent.models.ssm import InferenceResult, SSMModel, fit
 from tests.helpers import assert_recovery_ci
 
-DOCTOLIB_FIXTURE_DIR = Path(__file__).resolve().parents[3] / "data" / "DOCTOLIB" / "run"
+pytestmark = pytest.mark.slow
+
+DOCTOLIB_FIXTURE_DIR = Path(__file__).resolve().parents[4] / "data" / "DOCTOLIB" / "run"
 
 
 def _load_doctolib_fixture(name: str) -> dict:
