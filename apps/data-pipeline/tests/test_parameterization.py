@@ -480,35 +480,35 @@ class TestPriorRuntimeState:
 
 class TestLogPriorCorrectness:
     def test_normal_log_prob_matches_numpyro(self):
-        """Pure-JAX Normal log_prob matches NumPyro."""
-        from causal_ssm_agent.models.ssm.parameterization import _normal_log_prob
+        """Pure-JAX Normal log_prob terms match NumPyro."""
+        from causal_ssm_agent.models.ssm.parameterization import _normal_log_prob_terms
 
         x = jnp.array([0.5, -1.0, 2.0])
         loc = jnp.array([0.0, 0.0, 1.0])
         scale = jnp.array([1.0, 2.0, 0.5])
         expected = jnp.sum(dist.Normal(loc, scale).log_prob(x))
-        actual = _normal_log_prob(x, loc, scale)
+        actual = jnp.sum(_normal_log_prob_terms(x, loc, scale))
         assert jnp.allclose(actual, expected, atol=1e-5)
 
     def test_half_normal_log_prob_matches_numpyro(self):
-        """Pure-JAX HalfNormal log_prob matches NumPyro."""
-        from causal_ssm_agent.models.ssm.parameterization import _half_normal_log_prob
+        """Pure-JAX HalfNormal log_prob terms match NumPyro."""
+        from causal_ssm_agent.models.ssm.parameterization import _half_normal_log_prob_terms
 
         x = jnp.array([0.5, 1.0, 2.0])
         scale = jnp.array([1.0, 2.0, 0.5])
         expected = jnp.sum(dist.HalfNormal(scale).log_prob(x))
-        actual = _half_normal_log_prob(x, scale)
+        actual = jnp.sum(_half_normal_log_prob_terms(x, scale))
         assert jnp.allclose(actual, expected, atol=1e-5)
 
     def test_gamma_log_prob_matches_numpyro(self):
-        """Pure-JAX Gamma log_prob matches NumPyro."""
-        from causal_ssm_agent.models.ssm.parameterization import _gamma_log_prob
+        """Pure-JAX Gamma log_prob terms match NumPyro."""
+        from causal_ssm_agent.models.ssm.parameterization import _gamma_log_prob_terms
 
         x = jnp.array([0.5, 1.0, 2.0])
         concentration = jnp.array([2.0, 5.0, 1.0])
         rate = jnp.array([1.0, 0.5, 2.0])
         expected = jnp.sum(dist.Gamma(concentration, rate).log_prob(x))
-        actual = _gamma_log_prob(x, concentration, rate)
+        actual = jnp.sum(_gamma_log_prob_terms(x, concentration, rate))
         assert jnp.allclose(actual, expected, atol=1e-5)
 
     def test_log_prior_unc_matches_trace_based(self, simple_model):
