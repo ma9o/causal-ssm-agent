@@ -415,6 +415,7 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
 
     assert repair_plan.scope.scope_kind == "direct_writer_blocks"
     assert repair_plan.block_ids == ("dynamics:chronotype",)
+    assert repair_plan.uses_repair_campaign is True
     assert (
         repair_plan.scope.reason
         == "Scale mismatch for monthly_eveningness_activity_timing Suggested fix: "
@@ -3795,6 +3796,7 @@ class TestStage4Mechanics:
             plan,
             runtime,
             block,
+            get_stage4_block_handler(block.kind),
             causal_spec=causal_spec,
         )
 
@@ -5088,6 +5090,72 @@ class TestStage4Mechanics:
         assert repair_plan.scope.scope_kind == "local_drift_motif"
         assert repair_plan.scope.scope_key == "local_drift_motif:activity|sleep|beta_activity_sleep"
 
+    def test_failure_evidence_surface_owns_supporting_compile_context(self):
+        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+            _localize_prior_failure,
+            build_stage4_failure_evidence,
+        )
+
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+
+        validation = AssemblyValidation(
+            compile_ok=True,
+            pp_checked=True,
+            pp_valid=False,
+            diagnostics=[
+                PriorValidationResult(
+                    parameter="drift_offdiag",
+                    is_valid=True,
+                    code="dt_ct_approximation_warning",
+                    origin="compile",
+                    severity="warning",
+                    issue="off-diagonal drift is large relative to damping",
+                    related_parameters=["beta_activity_sleep"],
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="dt_ct_approximation",
+                        primary_score=0.30,
+                    ),
+                ),
+                PriorValidationResult(
+                    parameter="dynamics_stability",
+                    is_valid=False,
+                    code="dynamics_stability",
+                    origin="prior_predictive",
+                    issue="Unstable reciprocal drift subsystem",
+                    related_parameters=["beta_activity_sleep"],
+                    supporting_codes=["dt_ct_approximation_warning"],
+                    repair_scope=PriorRepairScope(
+                        kind="dynamics_scc",
+                        construct_names=["activity", "sleep"],
+                    ),
+                    failure_stage="latent_dynamics",
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="dynamics_stability",
+                        primary_score=0.6,
+                    ),
+                ),
+            ],
+        )
+
+        evidence = build_stage4_failure_evidence(plan, validation)
+        assert evidence.diagnostic_codes == ("dynamics_stability",)
+        assert evidence.supporting_codes == ("dt_ct_approximation_warning",)
+        assert tuple(
+            diagnostic.parameter for diagnostic in evidence.supporting_compile_diagnostics
+        ) == ("drift_offdiag",)
+
+        localization = _localize_prior_failure(plan, validation)
+        assert localization.direct_parameters == ("beta_activity_sleep",)
+        assert localization.supporting_parameters == ("beta_activity_sleep",)
+        assert localization.construct_names == ("activity", "sleep")
+        assert localization.pathology_certificate == PriorPathologyCertificate(
+            kind="dynamics_stability",
+            primary_score=0.6,
+        )
+        assert localization.reasons.validator == "Unstable reciprocal drift subsystem"
+
     def test_prior_failure_classification_prefers_lowest_rank_scope_over_validator_scope(self):
         causal_spec = _with_positive_indicator_polarity(
             {
@@ -5274,6 +5342,7 @@ class TestStage4Mechanics:
         sleep_prompt = next(
             block for block in repair_plan.prompt_blocks if block.id == "effects:sleep"
         )
+        assert repair_plan.uses_repair_campaign is True
         assert sleep_prompt.parameter_names == ("beta_activity_sleep",)
         assert sleep_prompt.construct_names == ("activity", "sleep")
         assert "stress_vas" not in sleep_prompt.variable_names
@@ -5410,6 +5479,7 @@ class TestStage4Mechanics:
 
         assert repair_plan.scope.scope_kind == "compile_local"
         assert repair_plan.block_ids == ("indicator:steps",)
+        assert repair_plan.uses_repair_campaign is False
 
     def test_compute_stage4_validate_step_escalates_unattributed_global_failure_to_prior_review(
         self,

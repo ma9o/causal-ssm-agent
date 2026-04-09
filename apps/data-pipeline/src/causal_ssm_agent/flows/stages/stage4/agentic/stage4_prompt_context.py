@@ -21,11 +21,9 @@ from .stage4_navigation import (
     get_stage4_phase,
     pending_repair_campaign_block_ids,
 )
-from .stage4_partial_drift import build_effect_row_budget
 from .stage4_text import summarize_stage4_names
 
 if TYPE_CHECKING:
-    from .stage4_block_specs import Stage4PromptScopePolicy
     from .stage4_feedback import Stage4ValidationPacket
     from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan
     from .stage4_state import Stage4Runtime
@@ -60,47 +58,19 @@ def _filter_cards(
 def _filter_model_topology(
     model_topology: dict[str, Any],
     block: Stage4FrontierBlock,
+    handler: Stage4BlockHandler,
 ) -> dict[str, Any]:
-    """Restrict model-topology context to the constructs relevant to this scope."""
-    if not model_topology:
-        return {}
-
-    filtered_edges = model_topology.get("latent_edges") or []
-    construct_names = set(block.construct_names)
-    if construct_names:
-        if block.kind == "effect_prior" and block.expand_neighbor_topology:
-            expanded_construct_names = set(construct_names)
-            for edge in filtered_edges:
-                cause = edge.get("cause")
-                effect = edge.get("effect")
-                if cause in construct_names or effect in construct_names:
-                    if isinstance(cause, str):
-                        expanded_construct_names.add(cause)
-                    if isinstance(effect, str):
-                        expanded_construct_names.add(effect)
-            construct_names = expanded_construct_names
-
-        filtered_edges = [
-            edge
-            for edge in filtered_edges
-            if edge.get("cause") in construct_names and edge.get("effect") in construct_names
-        ]
-
-    return {
-        "model_clock": model_topology.get("model_clock"),
-        "model_interval_days": model_topology.get("model_interval_days"),
-        "outcome": model_topology.get("outcome"),
-        "latent_edges": filtered_edges,
-    }
+    """Project model-topology context through the active block-family handler."""
+    return handler.project_model_topology(model_topology, block)
 
 
 def _visible_block_section(
-    policy: Stage4PromptScopePolicy,
+    visible_sections: tuple[str, ...],
     section_name: str,
     items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Return section items only when the active prompt scope explicitly allows them."""
-    if section_name not in policy.visible_sections:
+    if section_name not in visible_sections:
         return []
     return items
 
@@ -125,6 +95,7 @@ def format_stage4_plan_status(
     plan: Stage4Plan,
     runtime: Stage4Runtime,
     block: Stage4FrontierBlock,
+    handler: Stage4BlockHandler,
     *,
     causal_spec: dict[str, Any] | None = None,
 ) -> str:
@@ -170,34 +141,13 @@ def format_stage4_plan_status(
             f"- active repair scope: `{runtime.repair_campaign.scope_key}` "
             f"({len(pending_block_ids)} remaining)"
         )
-    if block.kind == "effect_prior":
-        target_construct = block.payload.get("target_construct")
-        if isinstance(target_construct, str):
-            budget = build_effect_row_budget(
-                model_spec=runtime.accepted.model_spec,
-                authored_priors=runtime.accepted.authored_priors,
-                causal_spec=causal_spec,
-                target_construct=target_construct,
-            )
-            if budget is not None:
-                lines.extend(
-                    [
-                        "- stability budget source: `compiled CT drift row` (advisory headroom guidance)",
-                        (
-                            f"- target row budget guidance: `{budget.diagonal_magnitude:.3f}` "
-                            f"(conservative lower bound `{budget.diagonal_lower_bound:.3f}`)"
-                        ),
-                        (
-                            f"- incoming effect mass currently used: `{budget.used_abs_mean:.3f}` "
-                            f"(conservative `{budget.used_abs_upper:.3f}`) across "
-                            f"`{budget.specified_incoming_edges}/{budget.total_incoming_edges}` edges"
-                        ),
-                        (
-                            f"- remaining headroom guidance: `{budget.remaining_abs_mean:.3f}` "
-                            f"(conservative `{budget.remaining_abs_upper:.3f}`)"
-                        ),
-                    ]
-                )
+    lines.extend(
+        handler.render_frontier_status_lines(
+            block,
+            runtime,
+            causal_spec=causal_spec,
+        )
+    )
     return "\n".join(lines)
 
 
@@ -293,28 +243,27 @@ class Stage4Messages:
         include_prior_source_guidance: bool,
     ) -> Stage4ScopeSnapshot:
         """Build the typed LLM-visible snapshot for one active Stage 4 block."""
-        policy = handler.prompt_policy
         distribution_cards = self._distribution_cards_for_runtime(runtime)
         loading_params = deepcopy(self.loading_params)
         construct_scale_cards = self._construct_scale_cards_for_runtime(runtime)
         prior_cards = self._prior_cards_for_runtime(runtime)
         visible_distribution_cards = _visible_block_section(
-            policy,
+            handler.prompt_policy.visible_sections,
             "distribution_cards",
             _filter_cards(distribution_cards, "variable", block.variable_names),
         )
         visible_loading_params = _visible_block_section(
-            policy,
+            handler.prompt_policy.visible_sections,
             "loading_params",
             _filter_cards(loading_params, "name", block.parameter_names),
         )
         visible_construct_scale_cards = _visible_block_section(
-            policy,
+            handler.prompt_policy.visible_sections,
             "construct_scale_cards",
             _filter_cards(construct_scale_cards, "construct", block.construct_names),
         )
         visible_prior_cards = _visible_block_section(
-            policy,
+            handler.prompt_policy.visible_sections,
             "prior_cards",
             _filter_cards(prior_cards, "parameter", block.parameter_names),
         )
@@ -347,14 +296,15 @@ class Stage4Messages:
             block_id=block.id,
             block_kind=block.kind,
             block_label=block.label,
-            block_instructions=policy.user_task,
+            block_instructions=handler.prompt_policy.user_task,
             frontier_status=format_stage4_plan_status(
                 plan,
                 runtime,
                 block,
+                handler,
                 causal_spec=self.causal_spec,
             ),
-            model_topology=_filter_model_topology(self.model_topology, block),
+            model_topology=_filter_model_topology(self.model_topology, block, handler),
             distribution_cards=visible_distribution_cards,
             loading_params=visible_loading_params,
             construct_scale_cards=visible_construct_scale_cards,
@@ -382,7 +332,6 @@ class Stage4Messages:
         include_prior_source_guidance: bool,
     ) -> list[dict]:
         """Build the model-facing prompt for one active Stage 4 scope."""
-        policy = handler.prompt_policy
         snapshot = self._scope_snapshot_for_block(
             block=block,
             plan=plan,
@@ -394,9 +343,9 @@ class Stage4Messages:
             {
                 "role": "system",
                 "content": build_stage4_system_prompt(
-                    system_task=policy.system_task,
-                    guidance_section_keys=policy.guidance_section_keys,
-                    parameter_guidance_prefixes=policy.parameter_guidance_prefixes,
+                    system_task=handler.prompt_policy.system_task,
+                    guidance_section_keys=handler.prompt_policy.guidance_section_keys,
+                    parameter_guidance_prefixes=handler.prompt_policy.parameter_guidance_prefixes,
                     submission_tool_name=handler.submission_tool_name,
                     enabled_tool_names=enabled_tool_names,
                 ),
