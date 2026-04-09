@@ -538,6 +538,18 @@ def _try_svi(
             if k in det_sites or k == "manifest_means":
                 det_values[k] = v[0]
 
+        structure_runtime = ssm_model._structure_runtime
+        if structure_runtime.n_drift_diag == 0 and structure_runtime.n_drift_offdiag == 0:
+            det_values["drift"] = structure_runtime.drift_template
+        if structure_runtime.n_diffusion_diag == 0 and structure_runtime.n_diffusion_lower == 0:
+            det_values["diffusion"] = structure_runtime.diffusion_chol_template
+        if structure_runtime.n_cint == 0:
+            det_values["cint"] = structure_runtime.cint_template
+        if structure_runtime.n_lambda_free == 0:
+            det_values["lambda"] = structure_runtime.lambda_template
+        if structure_runtime.n_manifest_means == 0:
+            det_values["manifest_means"] = structure_runtime.manifest_means_template
+
         return param_init, det_values
 
     except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as e:

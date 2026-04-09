@@ -45,8 +45,17 @@ def _adapt_step_size(
     gain: float = 0.1,
 ) -> jax.Array:
     """Dual-averaging step size adaptation on log scale."""
-    log_eps = jnp.log(jnp.array(eps)) + gain * (avg_accept - target_accept)
-    return jnp.clip(jnp.exp(log_eps), 1e-5, 2.0)
+    eps_arr = jnp.asarray(eps)
+    dtype = eps_arr.dtype
+    avg_accept_arr = jnp.asarray(avg_accept, dtype=dtype)
+    target_accept_arr = jnp.asarray(target_accept, dtype=dtype)
+    gain_arr = jnp.asarray(gain, dtype=dtype)
+    log_eps = jnp.log(eps_arr) + gain_arr * (avg_accept_arr - target_accept_arr)
+    return jnp.clip(
+        jnp.exp(log_eps),
+        jnp.asarray(1e-5, dtype=dtype),
+        jnp.asarray(2.0, dtype=dtype),
+    )
 
 
 def _build_tempered_smc_bundle(
@@ -151,7 +160,7 @@ def _build_tempered_smc_bundle(
                 particles_new, n_accepts = _mutate_batch(
                     mutate_key, particles, zero, eps, chol_mass
                 )
-                avg_accept_new = jnp.mean(n_accepts) / n_mh_steps
+                avg_accept_new = (jnp.mean(n_accepts) / n_mh_steps).astype(eps.dtype)
                 eps_new = _adapt_step_size(eps, avg_accept_new, target_accept, gain=0.5)
                 converged = (step_idx >= 5) & (jnp.abs(avg_accept_new - target_accept) < 0.1)
                 return rng_key, particles_new, eps_new, converged, avg_accept_new
@@ -183,7 +192,7 @@ def _build_tempered_smc_bundle(
                     mutate_key, particles, beta_k, eps, chol_mass
                 )
                 round_accepts = jnp.sum(n_accepts).astype(eps.dtype)
-                round_accept_rate_new = round_accepts / proposals_per_round
+                round_accept_rate_new = (round_accepts / proposals_per_round).astype(eps.dtype)
                 eps_new = _adapt_step_size(eps, round_accept_rate_new, target_accept)
                 stop_now = (step_idx > 0) & (round_accept_rate_new > 0.2)
                 return (
@@ -293,6 +302,7 @@ def run_tempered_smc(
     # Default target acceptance depends on n_leapfrog
     if target_accept is None:
         target_accept = HMC_TARGET_ACCEPT if n_leapfrog > 1 else RWM_TARGET_ACCEPT
+    target_accept_host = float(target_accept)
 
     rng_key = random.PRNGKey(seed)
     N = n_csmc_particles
@@ -374,6 +384,7 @@ def run_tempered_smc(
 
     # 3. Initialize N particles from prior
     eps = jnp.asarray(param_step_size, dtype=observations.dtype)
+    target_accept = jnp.asarray(target_accept_host, dtype=eps.dtype)
     mode_tag = "adaptive" if adaptive_tempering else "linear"
     wf_tag = "+waste-free" if waste_free else ""
     hmc_tag = f"+HMC(L={n_leapfrog})" if n_leapfrog > 1 else ""
@@ -388,7 +399,7 @@ def run_tempered_smc(
         D,
         n_mh_steps,
         float(jax.device_get(eps)),
-        target_accept,
+        target_accept_host,
     )
     logger.info("  Initializing %s particles from prior...", N)
 
@@ -517,7 +528,7 @@ def run_tempered_smc(
                     particles = all_trajs.reshape(N, D)
                     logw = jnp.full(N, -jnp.log(float(N)))
 
-                    avg_accept_arr = jnp.mean(n_accs) / n_mh_steps
+                    avg_accept_arr = (jnp.mean(n_accs) / n_mh_steps).astype(eps.dtype)
                     avg_accept = float(jax.device_get(avg_accept_arr))
                     n_rounds = 1
                     eps = _adapt_step_size(eps, avg_accept_arr, target_accept)
@@ -596,7 +607,7 @@ def run_tempered_smc(
                     particles, n_accepts = _mutate_batch_jit(
                         mutate_key, particles, 1.0, eps, chol_mass
                     )
-                    mix_accept_arr = jnp.mean(n_accepts) / n_mh_steps
+                    mix_accept_arr = (jnp.mean(n_accepts) / n_mh_steps).astype(eps.dtype)
                     mix_accept = float(jax.device_get(mix_accept_arr))
                     eps = _adapt_step_size(eps, mix_accept_arr, target_accept)
         logger.info(
@@ -634,7 +645,7 @@ def run_tempered_smc(
         "n_leapfrog": n_leapfrog,
         "param_step_size": param_step_size,
         "n_mixing_rounds": n_mixing_rounds,
-        "target_accept": target_accept,
+        "target_accept": target_accept_host,
         "adaptive_tempering": adaptive_tempering,
         "waste_free": waste_free,
     }

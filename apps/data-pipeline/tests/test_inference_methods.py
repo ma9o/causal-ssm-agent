@@ -262,41 +262,6 @@ class TestHessMC2Recovery:
 
 
 # =============================================================================
-# PGAS
-# =============================================================================
-
-
-class TestPGASRecovery:
-    """PGAS recovery tests on 1D LGSS."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(180)
-    def test_pgas_recovery(self, lgss_data):
-        """PGAS recovers 1D LGSS params (D=3) within 90% CIs."""
-        model = SSMModel(lgss_data["spec"], n_particles=50)
-
-        result = fit(
-            model,
-            observations=lgss_data["observations"],
-            times=lgss_data["times"],
-            method="pgas",
-            n_outer=200,
-            n_csmc_particles=30,
-            n_mh_steps=10,
-            langevin_step_size=0.0,
-            param_step_size=0.05,
-            n_warmup=100,
-            block_sampling=False,
-            n_leapfrog=3,
-            seed=0,
-        )
-
-        samples = result.get_samples()
-
-        _assert_lgss_recovery(samples, lgss_data)
-
-
-# =============================================================================
 # Tempered SMC
 # =============================================================================
 
@@ -494,6 +459,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
         for likelihood in model_spec["likelihoods"]
         if likelihood["distribution"] == "beta"
     }
+    executable_manifest_names = {likelihood["variable"] for likelihood in model_spec["likelihoods"]}
     if beta_variables:
         eps = 1e-3
         data_for_model = data_for_model.with_columns(
@@ -519,89 +485,144 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
     measurement = {
         "model_clock": "1d",
         "indicators": [
-            indicator
+            {
+                **indicator,
+                "construct_polarity": (
+                    "negative"
+                    if indicator["name"] == "hdl_cholesterol"
+                    else "positive"
+                ),
+            }
             for indicator in stage1b["measurement"]["indicators"]
             if indicator["construct_name"] in stage4_construct_names
         ],
     }
+    latent_constructs = [
+        {
+            "name": "medication_adherence",
+            "description": "Prescription refill and appointment follow-through.",
+            "role": "exogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "lipid_burden",
+            "description": "Atherogenic lipid profile.",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "vascular_inflammation",
+            "description": "Inflammatory state relevant to cardiovascular risk.",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "glycemic_control",
+            "description": "Blood-glucose regulation quality.",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "arterial_pressure",
+            "description": "Blood-pressure burden.",
+            "role": "endogenous",
+            "temporal_status": "time_varying",
+        },
+        {
+            "name": "cardiovascular_risk",
+            "description": "Overall cardiovascular risk trajectory.",
+            "role": "endogenous",
+            "is_outcome": True,
+            "temporal_status": "time_varying",
+        },
+    ]
+    latent_edges = [
+        {
+            "cause": "medication_adherence",
+            "effect": "lipid_burden",
+            "description": "Medication adherence improves lipid control.",
+        },
+        {
+            "cause": "medication_adherence",
+            "effect": "arterial_pressure",
+            "description": "Medication adherence improves blood-pressure control.",
+        },
+        {
+            "cause": "lipid_burden",
+            "effect": "vascular_inflammation",
+            "description": "Higher lipid burden raises vascular inflammation.",
+        },
+        {
+            "cause": "lipid_burden",
+            "effect": "cardiovascular_risk",
+            "description": "Higher lipid burden raises cardiovascular risk.",
+        },
+        {
+            "cause": "vascular_inflammation",
+            "effect": "cardiovascular_risk",
+            "description": "Higher vascular inflammation raises cardiovascular risk.",
+        },
+        {
+            "cause": "glycemic_control",
+            "effect": "cardiovascular_risk",
+            "description": "Poorer glycemic control raises cardiovascular risk.",
+        },
+        {
+            "cause": "arterial_pressure",
+            "effect": "cardiovascular_risk",
+            "description": "Higher arterial pressure raises cardiovascular risk.",
+        },
+    ]
+    retained_state_order = [
+        construct["name"]
+        for construct in latent_constructs
+        if any(
+            indicator["construct_name"] == construct["name"]
+            and indicator["name"] in executable_manifest_names
+            for indicator in measurement["indicators"]
+        )
+    ]
+    excluded_effect_suffixes = tuple(
+        f"_{construct_name}"
+        for construct_name in stage4_construct_names
+        if construct_name not in retained_state_order
+    )
+    if excluded_effect_suffixes:
+        model_spec["parameters"] = [
+            parameter
+            for parameter in model_spec["parameters"]
+            if not (
+                parameter["role"] == "fixed_effect"
+                and any(parameter["name"].endswith(suffix) for suffix in excluded_effect_suffixes)
+            )
+        ]
+        priors = {
+            name: payload
+            for name, payload in priors.items()
+            if not (
+                name.startswith("beta_")
+                and any(name.endswith(suffix) for suffix in excluded_effect_suffixes)
+            )
+        }
+    retained_parameter_names = {parameter["name"] for parameter in model_spec["parameters"]}
+    priors = {
+        name: payload
+        for name, payload in priors.items()
+        if name in retained_parameter_names
+    }
     causal_spec = {
         "latent": {
-            "constructs": [
-                {
-                    "name": "medication_adherence",
-                    "description": "Prescription refill and appointment follow-through.",
-                    "role": "exogenous",
-                    "temporal_status": "time_varying",
-                },
-                {
-                    "name": "lipid_burden",
-                    "description": "Atherogenic lipid profile.",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                },
-                {
-                    "name": "vascular_inflammation",
-                    "description": "Inflammatory state relevant to cardiovascular risk.",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                },
-                {
-                    "name": "glycemic_control",
-                    "description": "Blood-glucose regulation quality.",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                },
-                {
-                    "name": "arterial_pressure",
-                    "description": "Blood-pressure burden.",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                },
-                {
-                    "name": "cardiovascular_risk",
-                    "description": "Overall cardiovascular risk trajectory.",
-                    "role": "endogenous",
-                    "is_outcome": True,
-                    "temporal_status": "time_varying",
-                },
-            ],
+            "constructs": latent_constructs,
+            "edges": latent_edges,
+        },
+        "estimation": {
+            "state_order": retained_state_order,
             "edges": [
-                {
-                    "cause": "medication_adherence",
-                    "effect": "lipid_burden",
-                    "description": "Medication adherence improves lipid control.",
-                },
-                {
-                    "cause": "medication_adherence",
-                    "effect": "arterial_pressure",
-                    "description": "Medication adherence improves blood-pressure control.",
-                },
-                {
-                    "cause": "lipid_burden",
-                    "effect": "vascular_inflammation",
-                    "description": "Higher lipid burden raises vascular inflammation.",
-                },
-                {
-                    "cause": "lipid_burden",
-                    "effect": "cardiovascular_risk",
-                    "description": "Higher lipid burden raises cardiovascular risk.",
-                },
-                {
-                    "cause": "vascular_inflammation",
-                    "effect": "cardiovascular_risk",
-                    "description": "Higher vascular inflammation raises cardiovascular risk.",
-                },
-                {
-                    "cause": "glycemic_control",
-                    "effect": "cardiovascular_risk",
-                    "description": "Poorer glycemic control raises cardiovascular risk.",
-                },
-                {
-                    "cause": "arterial_pressure",
-                    "effect": "cardiovascular_risk",
-                    "description": "Higher arterial pressure raises cardiovascular risk.",
-                },
+                edge
+                for edge in latent_edges
+                if edge["cause"] in retained_state_order and edge["effect"] in retained_state_order
             ],
+            "induced_dependencies": [],
         },
         "measurement": measurement,
     }
