@@ -11,9 +11,7 @@ Use the explicit latent/estimation accessors in new code. The historical
 import networkx as nx
 
 from causal_ssm_agent.utils.observation_semantics import (
-    get_anchor_policy,
-    get_summary_operator,
-    get_support_kind,
+    get_observation_semantics,
 )
 
 
@@ -25,16 +23,6 @@ def get_constructs(causal_spec: dict) -> list[dict]:
 def get_edges(causal_spec: dict) -> list[dict]:
     """Get latent DAG edges from a CausalSpec dict."""
     return causal_spec.get("latent", {}).get("edges", [])
-
-
-def get_latent_constructs(causal_spec: dict) -> list[dict]:
-    """Get user-facing latent constructs from a CausalSpec dict."""
-    return get_constructs(causal_spec)
-
-
-def get_latent_edges(causal_spec: dict) -> list[dict]:
-    """Get user-facing latent DAG edges from a CausalSpec dict."""
-    return get_edges(causal_spec)
 
 
 def get_indicators(causal_spec: dict) -> list[dict]:
@@ -106,7 +94,7 @@ def get_estimation_constructs(causal_spec: dict) -> list[dict]:
     """Get retained latent construct payloads in estimation-state order."""
     latent_lookup = {
         construct["name"]: construct
-        for construct in get_latent_constructs(causal_spec)
+        for construct in get_constructs(causal_spec)
         if construct.get("name")
     }
     return [
@@ -132,18 +120,19 @@ def get_indicator_info(causal_spec: dict) -> dict[str, dict]:
     Returns:
         Dict mapping indicator name to semantic extraction/measurement metadata.
     """
-    return {
-        ind["name"]: {
+    result: dict[str, dict] = {}
+    for ind in get_indicators(causal_spec):
+        support_kind, summary_operator, anchor_policy = get_observation_semantics(ind)
+        result[ind["name"]] = {
             "dtype": ind.get("measurement_dtype"),
             "construct_name": ind.get("construct_name"),
             "ordinal_levels": ind.get("ordinal_levels"),
-            "support_kind": get_support_kind(ind),
-            "summary_operator": get_summary_operator(ind),
-            "anchor_policy": get_anchor_policy(ind),
+            "support_kind": support_kind,
+            "summary_operator": summary_operator,
+            "anchor_policy": anchor_policy,
             "observation_window": ind.get("observation_window"),
         }
-        for ind in get_indicators(causal_spec)
-    }
+    return result
 
 
 def get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:
@@ -182,22 +171,19 @@ def make_extraction_context(causal_spec: dict) -> dict:
     stable numeric codebook.
     """
     model_clock = causal_spec.get("measurement", {}).get("model_clock")
-    slim_indicators = [
-        {
+    slim_indicators = []
+    for ind in get_indicators(causal_spec):
+        support_kind, summary_operator, anchor_policy = get_observation_semantics(ind)
+        entry = {
             **{k: ind[k] for k in _WORKER_INDICATOR_KEYS if k in ind},
-            "support_kind": get_support_kind(ind),
-            "summary_operator": get_summary_operator(ind),
-            "anchor_policy": get_anchor_policy(ind),
-            **(
-                {
-                    "observation_window": get_effective_observation_window(ind, model_clock),
-                }
-                if get_effective_observation_window(ind, model_clock)
-                else {}
-            ),
+            "support_kind": support_kind,
+            "summary_operator": summary_operator,
+            "anchor_policy": anchor_policy,
         }
-        for ind in get_indicators(causal_spec)
-    ]
+        effective_window = get_effective_observation_window(ind, model_clock)
+        if effective_window:
+            entry["observation_window"] = effective_window
+        slim_indicators.append(entry)
     outcome = get_outcome_construct(causal_spec)
     slim_outcome = (
         {"name": outcome["name"], "description": outcome.get("description", "")}

@@ -12,10 +12,10 @@ from typing import TYPE_CHECKING, Any
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.utils.causal_spec import (
     build_reference_indicator_lookup,
+    get_constructs,
     get_estimation_edges,
     get_estimation_state_order,
     get_indicators,
-    get_latent_constructs,
     get_outcome_name,
 )
 
@@ -110,7 +110,7 @@ def build_construct_scale_cards(
     model_clock = causal_spec.get("measurement", {}).get("model_clock")
     retained_state_order = get_estimation_state_order(causal_spec)
     latent_construct_lookup = {
-        construct["name"]: construct for construct in get_latent_constructs(causal_spec)
+        construct["name"]: construct for construct in get_constructs(causal_spec)
     }
     constructs = [
         latent_construct_lookup[name]

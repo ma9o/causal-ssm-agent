@@ -29,11 +29,11 @@ from causal_ssm_agent.models.ssm.model import (
 from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
 from causal_ssm_agent.utils.causal_spec import (
     build_reference_indicator_lookup,
+    get_constructs,
     get_estimation_edges,
     get_estimation_state_order,
     get_indicator_polarity,
     get_indicators,
-    get_latent_constructs,
 )
 
 
@@ -79,7 +79,7 @@ def get_estimation_latent_layout(
         raise SpecTranslationError(errors)
 
     latent_construct_lookup = {
-        construct["name"]: construct for construct in get_latent_constructs(causal_spec)
+        construct["name"]: construct for construct in get_constructs(causal_spec)
     }
     unknown_states = [name for name in state_order if name not in latent_construct_lookup]
     if unknown_states:

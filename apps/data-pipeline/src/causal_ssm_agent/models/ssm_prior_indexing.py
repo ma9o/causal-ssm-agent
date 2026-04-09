@@ -9,12 +9,13 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.parameter_names import (
     resolve_initial_state_correlation_bindings,
+    split_compound_name,
 )
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.models.ssm_compilation_common import PriorIndexMaps, split_compound_name
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
+    from causal_ssm_agent.models.ssm_compilation_common import PriorIndexMaps
 
 logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
 

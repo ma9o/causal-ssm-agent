@@ -8,9 +8,7 @@ from causal_ssm_agent.utils.causal_spec import (
 )
 from causal_ssm_agent.utils.observation_semantics import (
     AnchorPolicy,
-    get_anchor_policy,
-    get_summary_operator,
-    get_support_kind,
+    get_observation_semantics,
 )
 from causal_ssm_agent.utils.storage import get_base_uri, join
 
@@ -129,17 +127,18 @@ def annotate_observation_rows(
         return df
 
     model_clock = causal_spec.get("measurement", {}).get("model_clock")
-    indicator_rows = [
-        {
+    indicator_rows = []
+    for ind in causal_spec.get("measurement", {}).get("indicators", []):
+        if not ind.get("name"):
+            continue
+        support_kind, summary_operator, anchor_policy = get_observation_semantics(ind)
+        indicator_rows.append({
             "indicator": ind["name"],
-            "support_kind_meta": get_support_kind(ind),
-            "summary_operator_meta": get_summary_operator(ind),
-            "anchor_policy_meta": get_anchor_policy(ind),
+            "support_kind_meta": support_kind,
+            "summary_operator_meta": summary_operator,
+            "anchor_policy_meta": anchor_policy,
             "observation_window_meta": get_effective_observation_window(ind, model_clock),
-        }
-        for ind in causal_spec.get("measurement", {}).get("indicators", [])
-        if ind.get("name")
-    ]
+        })
     kind_df = (
         pl.DataFrame(
             indicator_rows,
