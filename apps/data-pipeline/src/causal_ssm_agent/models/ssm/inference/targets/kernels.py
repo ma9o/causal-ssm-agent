@@ -144,7 +144,10 @@ def _response_probit(eta: jnp.ndarray) -> jnp.ndarray:
 
 
 def _response_inverse(eta: jnp.ndarray) -> jnp.ndarray:
-    return 1.0 / jnp.clip(eta, min=1e-6)
+    valid_eta = jnp.isfinite(eta) & (eta > 0.0)
+    safe_eta = jnp.where(valid_eta, eta, 1.0)
+    response = 1.0 / safe_eta
+    return jnp.where(valid_eta, response, jnp.nan)
 
 
 _RESPONSE_FNS: dict[LinkFunction, Callable] = {

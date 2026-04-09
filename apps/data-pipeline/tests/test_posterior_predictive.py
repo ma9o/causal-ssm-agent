@@ -689,6 +689,8 @@ class TestLinkFunctionSimulation:
         """Inverse Gamma produces positive observations."""
         samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
         samples["obs_shape"] = jnp.array(2.0)
+        samples["lambda"] = jnp.zeros((2, 2), dtype=jnp.float32)
+        samples["manifest_means"] = jnp.full((10, 2), 2.0, dtype=jnp.float32)
         times = jnp.arange(15, dtype=float)
 
         y_sim, _ = simulate_predictive_observations(
@@ -702,6 +704,25 @@ class TestLinkFunctionSimulation:
         assert y_sim.shape == (10, 15, 2)
         assert jnp.all(jnp.isfinite(y_sim))
         assert jnp.all(y_sim > 0)
+
+    def test_forward_simulate_gamma_inverse_invalid_predictor_surfaces_nan(self):
+        """Inverse Gamma PPC leaves invalid inverse-link draws as NaN."""
+        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
+        samples["obs_shape"] = jnp.array(2.0)
+        samples["lambda"] = jnp.zeros((2, 2), dtype=jnp.float32)
+        samples["manifest_means"] = jnp.full((10, 2), -1.0, dtype=jnp.float32)
+        times = jnp.arange(15, dtype=float)
+
+        y_sim, _ = simulate_predictive_observations(
+            samples=samples,
+            times=times,
+            manifest_dists=["gamma", "gamma"],
+            manifest_links=["inverse", "inverse"],
+            n_subsample=10,
+        )
+
+        assert y_sim.shape == (10, 15, 2)
+        assert jnp.all(jnp.isnan(y_sim))
 
     def test_forward_simulate_beta_probit(self):
         """Probit Beta produces observations in (0, 1)."""

@@ -22,6 +22,7 @@ from causal_ssm_agent.models.ssm.inference.targets.emissions import (
     emission_log_prob_poisson,
     emission_log_prob_student_t,
     get_emission_fn,
+    get_mean_param_log_prob_fn,
 )
 
 # =============================================================================
@@ -145,6 +146,27 @@ class TestGammaEmission:
         expected = jstats.gamma.logpdf(1.5, a=2.0, scale=1.0)
         assert jnp.isclose(lp, expected, atol=1e-5)
 
+    def test_log_link_invalid_observation_returns_negative_infinity(self):
+        H = jnp.eye(1)
+        d = jnp.zeros(1)
+        R = jnp.eye(1)
+        z = jnp.array([jnp.log(2.0)])
+        y = jnp.array([0.0])
+        mask = jnp.ones(1)
+        fn = get_emission_fn("gamma", extra_params={"obs_shape": 2.0})
+        lp = fn(y, z, H, d, R, mask)
+        assert jnp.isneginf(lp)
+
+    def test_inverse_link_invalid_linear_predictor_returns_negative_infinity(self):
+        H = jnp.eye(1)
+        d = jnp.zeros(1)
+        R = jnp.eye(1)
+        z = jnp.array([-0.5])
+        y = jnp.array([1.5])
+        mask = jnp.ones(1)
+        lp = emission_log_prob_gamma_inverse(y, z, H, d, R, mask, shape=2.0)
+        assert jnp.isneginf(lp)
+
 
 # =============================================================================
 # Bernoulli
@@ -263,6 +285,38 @@ class TestBetaEmission:
         lp_logit = emission_log_prob_beta(y, z, H, d, R, mask, concentration=conc)
         lp_probit = emission_log_prob_beta_probit(y, z, H, d, R, mask, concentration=conc)
         assert jnp.isclose(lp_logit, lp_probit, atol=1e-4)
+
+    def test_invalid_observation_returns_negative_infinity(self):
+        H = jnp.eye(1)
+        d = jnp.zeros(1)
+        R = jnp.eye(1)
+        z = jnp.array([0.0])
+        y = jnp.array([1.0])
+        mask = jnp.ones(1)
+        lp = emission_log_prob_beta(y, z, H, d, R, mask, concentration=10.0)
+        assert jnp.isneginf(lp)
+
+
+class TestMeanParamLogProb:
+    def test_gamma_invalid_support_returns_negative_infinity(self):
+        fn = get_mean_param_log_prob_fn("gamma", extra_params={"obs_shape": 2.0})
+        lp = fn(
+            jnp.array([0.0], dtype=jnp.float32),
+            jnp.array([2.0], dtype=jnp.float32),
+            jnp.eye(1, dtype=jnp.float32),
+            jnp.array([1.0], dtype=jnp.float32),
+        )
+        assert jnp.isneginf(lp)
+
+    def test_beta_invalid_mean_returns_negative_infinity(self):
+        fn = get_mean_param_log_prob_fn("beta", extra_params={"obs_concentration": 10.0})
+        lp = fn(
+            jnp.array([0.5], dtype=jnp.float32),
+            jnp.array([1.2], dtype=jnp.float32),
+            jnp.eye(1, dtype=jnp.float32),
+            jnp.array([1.0], dtype=jnp.float32),
+        )
+        assert jnp.isneginf(lp)
 
 
 # =============================================================================

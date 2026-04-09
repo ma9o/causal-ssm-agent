@@ -453,9 +453,12 @@ def _ppc_gamma_log(
 def _ppc_gamma_inverse(
     loc, key, _std, _df, shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    mean = 1.0 / jnp.clip(loc, 1e-6, None)
+    valid_loc = jnp.isfinite(loc) & (loc > 0.0)
+    safe_loc = jnp.where(valid_loc, loc, 1.0)
+    mean = 1.0 / safe_loc
     scale = jnp.maximum(mean / jnp.maximum(shape, 1e-8), 1e-8)
-    return jax.random.gamma(key, shape) * scale
+    draw = jax.random.gamma(key, shape) * scale
+    return jnp.where(valid_loc, draw, jnp.nan)
 
 
 def _ppc_bernoulli_logit(
