@@ -143,7 +143,7 @@ def preprocess_missing_data(
 
     # Build per-timestep R with inflated variance for missing entries
     T, n_manifest = observations.shape
-    mask_float = obs_mask.astype(jnp.float32)  # (T, n_manifest)
+    mask_float = obs_mask.astype(jnp.float64)  # (T, n_manifest)
     # (T, n_manifest) diagonal inflation values
     inflation = (1.0 - mask_float) * MISSING_DATA_LARGE_VAR
     # Broadcast R to (T, n_manifest, n_manifest) and add diagonal inflation

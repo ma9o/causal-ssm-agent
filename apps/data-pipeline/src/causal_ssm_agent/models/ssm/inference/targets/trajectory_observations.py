@@ -506,7 +506,7 @@ def trajectory_observation_log_probs(
         obs_mask = ~jnp.isnan(observations)
 
     clean_obs = jnp.nan_to_num(observations, nan=0.0)
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
     observation_operator = compile_observation_operator(observation_support)
 
     if not observation_operator.requires_interval_summary_handling:
