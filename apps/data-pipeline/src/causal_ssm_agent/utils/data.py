@@ -132,13 +132,15 @@ def annotate_observation_rows(
         if not ind.get("name"):
             continue
         support_kind, summary_operator, anchor_policy = get_observation_semantics(ind)
-        indicator_rows.append({
-            "indicator": ind["name"],
-            "support_kind_meta": support_kind,
-            "summary_operator_meta": summary_operator,
-            "anchor_policy_meta": anchor_policy,
-            "observation_window_meta": get_effective_observation_window(ind, model_clock),
-        })
+        indicator_rows.append(
+            {
+                "indicator": ind["name"],
+                "support_kind_meta": support_kind,
+                "summary_operator_meta": summary_operator,
+                "anchor_policy_meta": anchor_policy,
+                "observation_window_meta": get_effective_observation_window(ind, model_clock),
+            }
+        )
     kind_df = (
         pl.DataFrame(
             indicator_rows,

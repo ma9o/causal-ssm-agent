@@ -527,9 +527,7 @@ def get_real_runtime_family_index(family: PriorDistributionFamily) -> int:
     try:
         return REAL_RUNTIME_FAMILY_INDEX[family]
     except KeyError as exc:
-        raise ValueError(
-            f"{family!r} is not a real-support executable family."
-        ) from exc
+        raise ValueError(f"{family!r} is not a real-support executable family.") from exc
 
 
 def get_real_runtime_kind_from_index(index: int) -> PriorDistributionFamily:
@@ -545,9 +543,7 @@ def get_positive_runtime_family_index(family: PriorDistributionFamily) -> int:
     try:
         return POSITIVE_RUNTIME_FAMILY_INDEX[family]
     except KeyError as exc:
-        raise ValueError(
-            f"{family!r} is not a positive-support executable family."
-        ) from exc
+        raise ValueError(f"{family!r} is not a positive-support executable family.") from exc
 
 
 def get_positive_runtime_kind_from_index(index: int) -> PriorDistributionFamily:
