@@ -9,7 +9,8 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
+from causal_ssm_agent.artifacts import LinkFunction
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
     build_transition_kernel,

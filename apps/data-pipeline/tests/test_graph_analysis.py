@@ -7,7 +7,8 @@ resolution, and the main analyze_first_pass_rb decomposition logic.
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
+from causal_ssm_agent.artifacts import LinkFunction
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm.inference import select_default_method
 from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
 from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (

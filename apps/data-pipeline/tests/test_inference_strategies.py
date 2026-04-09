@@ -29,7 +29,8 @@ from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
 from causal_ssm_agent.artifacts import LinkFunction
-from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, fit
+from causal_ssm_agent.distributions import DistributionFamily
+from causal_ssm_agent.models.ssm import InferenceResult, SSMModel, fit
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import _apply_reparam, _eval_model
@@ -2560,7 +2561,8 @@ class TestPGASVariants:
     @pytest.mark.timeout(60)
     def test_pgas_fallback_for_poisson(self):
         """PGAS should fall back to gradient proposal for non-Gaussian obs."""
-        from causal_ssm_agent.models.ssm import DistributionFamily, SSMModel, fit
+        from causal_ssm_agent.distributions import DistributionFamily
+        from causal_ssm_agent.models.ssm import SSMModel, fit
 
         spec = make_ssm_spec(
             n_latent=1,

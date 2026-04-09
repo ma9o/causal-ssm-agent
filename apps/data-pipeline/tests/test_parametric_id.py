@@ -23,7 +23,8 @@ import numpy as np
 import pytest
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
+from causal_ssm_agent.artifacts import LinkFunction
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, full_vector_mask
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.ssm_test_utils import (

@@ -630,7 +630,7 @@ class TestLaplaceEMDoctolib:
     @pytest.mark.timeout(180)
     def test_laplace_em_doctolib_fixture_smoke(self):
         """Laplace-EM fits the executable Doctolib fixture end-to-end."""
-        from causal_ssm_agent.artifacts import DistributionFamily
+        from causal_ssm_agent.distributions import DistributionFamily
         from causal_ssm_agent.models.ssm.inference import select_default_method
         from causal_ssm_agent.models.ssm_builder import build_ssm_builder
         from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact

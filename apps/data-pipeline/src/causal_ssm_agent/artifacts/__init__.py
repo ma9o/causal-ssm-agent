@@ -29,7 +29,6 @@ from .measurement_model import (
 from .model_spec import (
     EXPECTED_CONSTRAINT_FOR_ROLE,
     VALID_LINKS_FOR_DISTRIBUTION,
-    DistributionFamily,
     LikelihoodSource,
     LikelihoodSpec,
     LinkFunction,
@@ -45,7 +44,6 @@ __all__ = [
     "CausalSpec",
     "ComputedRule",
     "Construct",
-    "DistributionFamily",
     "EXPECTED_CONSTRAINT_FOR_ROLE",
     "EstimationSpec",
     "IdentifiabilityStatus",

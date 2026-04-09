@@ -6,7 +6,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
+from causal_ssm_agent.artifacts import LinkFunction
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm.diagnostics.observation_moments import (
     _predict_observation_components,
     _project_response_covariance_blocks,

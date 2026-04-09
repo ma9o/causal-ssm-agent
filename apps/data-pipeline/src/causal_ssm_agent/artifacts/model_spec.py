@@ -263,7 +263,6 @@ def validate_model_spec_dict(
 
 
 __all__ = [
-    "DistributionFamily",
     "EXPECTED_CONSTRAINT_FOR_ROLE",
     "LinkFunction",
     "LikelihoodSource",

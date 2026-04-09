@@ -11,7 +11,7 @@ import pytest
 from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
-from causal_ssm_agent.artifacts import DistributionFamily
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm.inference.utils import _discover_sites
 from causal_ssm_agent.models.ssm.model import (
     SSMModel,
