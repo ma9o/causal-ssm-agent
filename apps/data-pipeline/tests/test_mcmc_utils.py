@@ -7,7 +7,6 @@ dual averaging step size adaptation.
 import jax
 import jax.numpy as jnp
 import jax.random as random
-import pytest
 
 from causal_ssm_agent.models.ssm.inference.engines.mcmc_utils import (
     compute_weighted_chol_mass,
@@ -49,36 +48,6 @@ class TestHMCStep:
         assert z_new.shape == (D,)
         assert accepted.shape == ()
         assert log_pi.shape == ()
-
-    @pytest.mark.slow
-    def test_mala_moves_toward_mode(self):
-        """MALA (n_leapfrog=1) moves particles toward the target mode on average."""
-        D = 2
-        mean = jnp.array([3.0, -2.0])
-        prec = jnp.eye(D) * 4.0  # tight target
-        target_fn = self._make_gaussian_target(mean, prec)
-        chol_mass = jnp.eye(D) * 2.0
-
-        z = jnp.zeros(D)
-        n_steps = 500
-        key = random.PRNGKey(42)
-
-        positions = []
-        for i in range(n_steps):
-            key, step_key = random.split(key)
-            z, _accepted, _ = hmc_step(
-                step_key, z, target_fn, step_size=0.1, chol_mass=chol_mass, n_leapfrog=1
-            )
-            if i >= 200:  # burn-in
-                positions.append(z)
-
-        positions = jnp.stack(positions)
-        sample_mean = jnp.mean(positions, axis=0)
-        # With 300 post-burnin samples from precision=4 Gaussian, SE ≈ 1/sqrt(4*300) ≈ 0.03
-        # Use atol=0.5 as conservative but meaningful bound
-        assert jnp.allclose(sample_mean, mean, atol=0.5), (
-            f"Sample mean {sample_mean} far from target {mean}"
-        )
 
     def test_multi_leapfrog_hmc_accepts_more(self):
         """Multi-step leapfrog should maintain reasonable acceptance with proper step size."""

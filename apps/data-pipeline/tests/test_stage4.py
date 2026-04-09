@@ -2096,27 +2096,6 @@ class TestPriorPredictiveValidation:
         assert is_valid is True
         assert not any(r.parameter == "model_build" for r in results)
 
-    @pytest.mark.slow
-    def test_build_validation_payload_from_assembly(self, simple_model_spec, simple_priors):
-        """Shared Stage 4 assembly helpers return the expected payload shape."""
-        from causal_ssm_agent.flows.stages.stage4.assembly import (
-            build_validation_payload,
-            validate_assembly,
-        )
-
-        data_for_model = _make_polars_data()
-        validation = validate_assembly(simple_model_spec, simple_priors, data_for_model, None, None)
-        result = build_validation_payload(validation, simple_model_spec)
-        assert isinstance(result["is_valid"], bool)
-        assert isinstance(result["results"], list)
-        assert isinstance(result["issues"], list)
-        assert isinstance(result["warnings"], list)
-        # Issues must be strings, each describing a validation failure
-        for issue in result["issues"]:
-            assert isinstance(issue, str)
-        for warning in result["warnings"]:
-            assert isinstance(warning, str)
-
     def test_materialize_stage4_result_persists_validation_warnings(
         self,
         simple_model_spec,

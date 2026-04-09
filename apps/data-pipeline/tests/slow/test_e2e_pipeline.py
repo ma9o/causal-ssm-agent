@@ -27,6 +27,8 @@ from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
 from causal_ssm_agent.utils.causal_spec import get_all_treatments
 from tests.ssm_test_utils import diagonal_diffusion_kwargs, make_ssm_spec
 
+pytestmark = pytest.mark.slow
+
 # ==============================================================================
 # Constants
 # ==============================================================================
