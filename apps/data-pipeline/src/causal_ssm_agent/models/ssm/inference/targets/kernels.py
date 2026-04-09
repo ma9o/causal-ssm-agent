@@ -22,13 +22,14 @@ import jax.scipy.stats as jstats
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.targets.emissions import (
+
+from .emissions import (
     build_composite_mean_log_prob_fn,
-    categorical_moments,
+    get_mean_param_log_prob_fn,
+)
+from .observation_dispatch import (
     get_emission_fn,
     get_emission_score_weight_fn,
-    get_mean_param_log_prob_fn,
-    ordered_logistic_moments,
 )
 
 logger = get_prefect_logger(__name__)
@@ -157,115 +158,6 @@ _RESPONSE_FNS: dict[LinkFunction, Callable] = {
     LinkFunction.PROBIT: _response_probit,
     LinkFunction.INVERSE: _response_inverse,
 }
-
-
-# =============================================================================
-# Variance functions (EKF linearization pseudo-covariance)
-# =============================================================================
-
-
-def _make_variance_poisson() -> Callable:
-    """Poisson: Var(Y) = lambda = mean.
-
-    Clamps mean away from zero to prevent singular EKF pseudo-covariance.
-    """
-
-    def variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
-        return jnp.diag(jnp.maximum(mean, 1e-8))
-
-    return variance_fn
-
-
-def _make_variance_negative_binomial(r: float) -> Callable:
-    """NegBin: Var(Y) = mu + mu^2/r.
-
-    Clamps mean away from zero to prevent singular EKF pseudo-covariance.
-    """
-
-    def variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
-        mu = jnp.maximum(mean, 1e-8)
-        return jnp.diag(mu + mu**2 / (r + 1e-8))
-
-    return variance_fn
-
-
-def _make_variance_gamma(shape: float) -> Callable:
-    """Gamma: Var(Y) = mean^2 / shape.
-
-    Clamps mean away from zero to prevent singular EKF pseudo-covariance.
-    """
-
-    def variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
-        mu = jnp.maximum(mean, 1e-8)
-        return jnp.diag(mu**2 / (shape + 1e-8))
-
-    return variance_fn
-
-
-def _make_variance_bernoulli() -> Callable:
-    """Bernoulli: Var(Y) = p(1-p).
-
-    Clamps p away from 0/1 boundaries to prevent singular EKF pseudo-covariance.
-    """
-
-    def variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
-        p = jnp.clip(mean, 1e-7, 1.0 - 1e-7)
-        return jnp.diag(p * (1.0 - p))
-
-    return variance_fn
-
-
-def _make_variance_beta(concentration: float) -> Callable:
-    """Beta: Var(Y) = p(1-p) / (phi + 1).
-
-    Clamps p away from 0/1 boundaries to prevent singular EKF pseudo-covariance.
-    """
-
-    def variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
-        p = jnp.clip(mean, 1e-7, 1.0 - 1e-7)
-        return jnp.diag(p * (1.0 - p) / (concentration + 1.0))
-
-    return variance_fn
-
-
-def _make_variance_identity(manifest_cov: jnp.ndarray) -> Callable:
-    """Gaussian/Student-t: pseudo-R = measurement covariance (constant)."""
-
-    def variance_fn(_mean: jnp.ndarray) -> jnp.ndarray:
-        return manifest_cov
-
-    return variance_fn
-
-
-def _make_discrete_response_ordered_logistic(
-    cutpoints: jnp.ndarray,
-    level_counts: jnp.ndarray,
-) -> Callable:
-    def response_fn(eta: jnp.ndarray) -> jnp.ndarray:
-        mean, _variance = ordered_logistic_moments(eta, cutpoints, level_counts)
-        return mean
-
-    return response_fn
-
-
-def _make_discrete_response_categorical(
-    intercepts: jnp.ndarray,
-    slopes: jnp.ndarray,
-    level_counts: jnp.ndarray,
-) -> Callable:
-    def response_fn(eta: jnp.ndarray) -> jnp.ndarray:
-        mean, _variance = categorical_moments(eta, intercepts, slopes, level_counts)
-        return mean
-
-    return response_fn
-
-
-def _make_discrete_variance_from_moments(moment_fn: Callable) -> Callable:
-    def variance_fn(eta: jnp.ndarray) -> jnp.ndarray:
-        _mean, variance = moment_fn(eta)
-        return jnp.diag(jnp.maximum(variance, 1e-8))
-
-    return variance_fn
 
 
 def _slice_observation_extra_params(

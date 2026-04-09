@@ -16,12 +16,12 @@ from causal_ssm_agent.models.ssm.inference.targets.base import (
     MeasurementParams,
 )
 from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
-from causal_ssm_agent.models.ssm.inference.targets.emissions import get_emission_fn
 from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
     RBPartition,
     analyze_first_pass_rb,
 )
 from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
+from causal_ssm_agent.models.ssm.inference.targets.observation_dispatch import get_emission_fn
 from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
 __all__ = [

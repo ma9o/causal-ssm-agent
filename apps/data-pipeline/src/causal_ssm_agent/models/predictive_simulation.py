@@ -18,15 +18,15 @@ from causal_ssm_agent.models.ssm.covariance_utils import (
     stable_cholesky,
 )
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.inference.targets.emissions import (
-    PredictiveObservationSampler,
-    build_predictive_observation_sampler,
-)
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_composite_observation_kernel,
     build_observation_kernel,
     build_transition_kernel,
     compile_transition_semantics,
+)
+from causal_ssm_agent.models.ssm.inference.targets.observation_dispatch import (
+    PredictiveObservationSampler,
+    build_predictive_observation_sampler,
 )
 from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,

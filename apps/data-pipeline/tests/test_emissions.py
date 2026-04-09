@@ -21,9 +21,9 @@ from causal_ssm_agent.models.ssm.inference.targets.emissions import (
     emission_log_prob_ordered_logistic,
     emission_log_prob_poisson,
     emission_log_prob_student_t,
-    get_emission_fn,
     get_mean_param_log_prob_fn,
 )
+from causal_ssm_agent.models.ssm.inference.targets.observation_dispatch import get_emission_fn
 
 # =============================================================================
 # Helpers
