@@ -170,7 +170,7 @@ def _kalman_update_gaussian(
     """
     n_manifest = H.shape[0]
     large_var = MISSING_DATA_LARGE_VAR
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
 
     # Inflate R for missing observations
     R_adj = R + jnp.diag((1.0 - mask_float) * large_var)
@@ -223,7 +223,7 @@ def _linearized_update(
     """
     n = m.shape[0]
     n_manifest = H.shape[0]
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
 
     eta_pred = H @ m + d
     mean = obs_kernel.response_fn(eta_pred)
@@ -265,7 +265,7 @@ def _obs_weight_gaussian(
 ) -> float:
     """Exact log marginal for Gaussian observations: log N(y | H m + d, H P H' + R)."""
     n_manifest = H.shape[0]
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
 
     y_pred = H @ pred_mean + d
     v = (y - y_pred) * mask_float
@@ -305,7 +305,7 @@ def _obs_weight_quadrature(
     the observation log-likelihood at each point, and averages.
     """
     n_latent = pred_mean.shape[0]
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
     n_observed = jnp.sum(mask_float)
 
     if quadrature == "unscented":

@@ -280,7 +280,7 @@ def make_block_rb_callbacks(
         y_t = model_inputs["observation"]
         mask_t = model_inputs["obs_mask"]
         x_s = state.s_sample
-        mask_float = mask_t.astype(jnp.float32)
+        mask_float = mask_t.astype(jnp.float64)
         n_observed = jnp.sum(mask_float)
 
         if obs_kernel.is_gaussian:

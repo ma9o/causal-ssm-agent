@@ -14,6 +14,21 @@ def _truthy_env(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _configure_jax_precision() -> None:
+    """Force float64 support for the JAX runtime used by the data pipeline."""
+    try:
+        import jax
+    except (ImportError, OSError):
+        _logger.debug("JAX import failed; skipping precision setup", exc_info=True)
+        return
+
+    try:
+        jax.config.update("jax_enable_x64", True)
+    except (AttributeError, RuntimeError, ValueError):
+        _logger.debug("JAX precision configuration failed", exc_info=True)
+        return
+
+
 def _configure_jax_persistent_cache() -> None:
     """Enable JAX's persistent compilation cache unless explicitly disabled."""
     if _truthy_env("CAUSAL_SSM_DISABLE_JAX_PERSISTENT_CACHE"):
@@ -38,5 +53,5 @@ def _configure_jax_persistent_cache() -> None:
         _logger.debug("JAX cache configuration failed", exc_info=True)
         return
 
-
+_configure_jax_precision()
 _configure_jax_persistent_cache()
