@@ -3,7 +3,7 @@
 from typing import Any
 
 import polars as pl
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from causal_ssm_agent.utils.causal_spec import get_indicator_info as _get_indicator_info
 
@@ -198,7 +198,7 @@ def validate_worker_output(
         try:
             ext = WindowExtraction.model_validate(normalized)
             valid_extractions.append(ext)
-        except Exception as e:
+        except ValidationError as e:
             errors.append(f"extractions[{i}] ({ind_name}): {e}")
 
     # If no errors, build and return the output
@@ -206,7 +206,7 @@ def validate_worker_output(
         try:
             output = WorkerOutput(extractions=valid_extractions)
             return output, []
-        except Exception as e:
+        except ValidationError as e:
             errors.append(f"Final validation failed: {e}")
 
     return None, errors

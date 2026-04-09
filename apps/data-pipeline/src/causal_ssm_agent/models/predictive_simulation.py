@@ -146,7 +146,7 @@ def _build_response_kernel(
         list(manifest_dists),
         manifest_links=list(manifest_links) if manifest_links is not None else None,
     )
-    if len(set(zip(dists, links))) == 1:
+    if len(set(zip(dists, links, strict=True))) == 1:
         return build_observation_kernel(dists[0], links[0], extra_params)
     return build_composite_observation_kernel(dists, links, extra_params)
 

@@ -189,7 +189,7 @@ async def run_worker_extraction(
 
 
 __all__ = [
-    "WorkerResult",
     "WorkerMessages",
+    "WorkerResult",
     "run_worker_extraction",
 ]

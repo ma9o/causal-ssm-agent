@@ -21,7 +21,7 @@ def _configure_jax_persistent_cache() -> None:
 
     try:
         import jax
-    except Exception:
+    except (ImportError, OSError):
         _logger.debug("JAX import failed; skipping persistent cache setup", exc_info=True)
         return
 
@@ -33,7 +33,7 @@ def _configure_jax_persistent_cache() -> None:
         Path(cache_dir).mkdir(parents=True, exist_ok=True)
         if not jax.config.values.get("jax_compilation_cache_dir"):
             jax.config.update("jax_compilation_cache_dir", cache_dir)
-    except Exception:
+    except (AttributeError, OSError, RuntimeError, ValueError):
         # Cache configuration is an optimization only; it must never block imports.
         _logger.debug("JAX cache configuration failed", exc_info=True)
         return

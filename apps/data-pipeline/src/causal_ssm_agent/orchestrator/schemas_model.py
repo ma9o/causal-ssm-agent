@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from causal_ssm_agent.distributions import (
     OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
@@ -287,7 +287,7 @@ def validate_model_spec_dict(
         try:
             spec = ModelSpec.model_validate(data)
             return spec, []
-        except Exception as e:
+        except ValidationError as e:
             return None, [f"Unexpected validation error: {e}"]
 
     return None, errors
@@ -453,7 +453,7 @@ def validate_model_spec_decisions_dict(
     # Parse as ModelSpecDecisions and merge
     try:
         decisions = ModelSpecDecisions.model_validate(data)
-    except Exception as e:
+    except ValidationError as e:
         return None, [f"Schema validation error: {e}"]
 
     return merge_decisions_to_spec(resolved_likelihoods, parameters, decisions)

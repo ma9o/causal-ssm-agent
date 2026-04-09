@@ -18,12 +18,23 @@ from time import monotonic, perf_counter
 from typing import Any, Literal, cast
 
 from openai import AsyncOpenAI
-from pydantic import Field, create_model
+from pydantic import Field, ValidationError, create_model
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.config import get_secret
 
 logger = get_prefect_logger(__name__)
+_RECOVERABLE_TOOL_EXECUTION_ERRORS = (
+    ArithmeticError,
+    AssertionError,
+    AttributeError,
+    LookupError,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValidationError,
+    ValueError,
+)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL_PREFIX = "openrouter/"
@@ -573,7 +584,7 @@ async def execute_tools(
                     raise ValueError("Tool arguments must decode to a JSON object")
                 result = await tool_obj(**args)
                 result_text = str(result)
-            except Exception as exc:
+            except _RECOVERABLE_TOOL_EXECUTION_ERRORS as exc:
                 result_text = f"Tool execution failed: {exc}"
                 error_text = str(exc)
 

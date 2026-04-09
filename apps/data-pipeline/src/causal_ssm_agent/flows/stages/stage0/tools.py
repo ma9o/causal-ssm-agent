@@ -167,7 +167,7 @@ class ModalCodeSandbox:
         if self._sandbox is not None:
             try:
                 self._sandbox.terminate()
-            except Exception:
+            except (AttributeError, OSError, RuntimeError, ValueError):
                 logger.warning("Failed to terminate sandbox", exc_info=True)
             self._sandbox = None
 
@@ -205,7 +205,7 @@ class ModalCodeSandbox:
             sf = self._sandbox.open("/tmp/status.json", "r")
             status: dict = json.loads(sf.read())
             sf.close()
-        except Exception as exc:
+        except (FileNotFoundError, OSError, ValueError) as exc:
             # Runner crashed before writing status (OOM, timeout, ...).
             logger.warning("Code execution runner crashed (%s: %s)", type(exc).__name__, exc)
             output = ""

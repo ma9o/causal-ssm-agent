@@ -686,7 +686,7 @@ class TestSerialization:
         payload = serialize_site_registry(registry)
         restored = deserialize_site_registry(payload)
         assert len(restored) == len(registry)
-        for orig, rest in zip(registry, restored):
+        for orig, rest in zip(registry, restored, strict=True):
             assert orig.name == rest.name
             assert orig.shape == rest.shape
             assert orig.support == rest.support

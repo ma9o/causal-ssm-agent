@@ -157,8 +157,8 @@ def _coerce_distribution_family(
         return dist
     try:
         return DistributionFamily(dist)
-    except ValueError:
-        raise ValueError(f"Unknown distribution family: {dist!r}")
+    except ValueError as exc:
+        raise ValueError(f"Unknown distribution family: {dist!r}") from exc
 
 
 def _link_key(link: LinkFunction | str) -> str:
@@ -886,8 +886,8 @@ def _coerce_link_function(
         return link
     try:
         return LinkFunction(link)
-    except ValueError:
-        raise ValueError(f"Unknown link function: {link!r}")
+    except ValueError as exc:
+        raise ValueError(f"Unknown link function: {link!r}") from exc
 
 
 def supported_distribution_families() -> frozenset[DistributionFamily]:

@@ -622,7 +622,7 @@ def build_composite_observation_kernel(
         raise ValueError(f"dists ({len(dists)}) and links ({len(links)}) must have same length")
 
     # Fast path: all channels homogeneous → standard kernel
-    if len(set(zip(dists, links))) == 1:
+    if len(set(zip(dists, links, strict=True))) == 1:
         return build_observation_kernel(
             dists[0],
             links[0],
@@ -737,7 +737,7 @@ def compile_measurement_semantics(
         manifest_dists,
         manifest_links=manifest_links,
     )
-    if len(set(zip(dists, links))) == 1:
+    if len(set(zip(dists, links, strict=True))) == 1:
         obs_kernel = build_observation_kernel(
             dists[0],
             links[0],

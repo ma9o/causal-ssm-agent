@@ -13,7 +13,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 
 if TYPE_CHECKING:
     import polars as pl
@@ -21,6 +24,15 @@ if TYPE_CHECKING:
     from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
 logger = get_prefect_logger(__name__)
+_RECOVERABLE_STAGE4_ASSEMBLY_ERRORS = (
+    AggregatedCompileError,
+    AttributeError,
+    KeyError,
+    RuntimeError,
+    TypeError,
+    ValidationError,
+    ValueError,
+)
 
 
 @dataclass
@@ -77,7 +89,7 @@ def validate_assembly(
     if authored_priors:
         try:
             compiled_ssm = compile_ssm_artifact(candidate, authored_priors, causal_spec=causal_spec)
-        except Exception as exc:
+        except _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS as exc:
             return AssemblyValidation(
                 normalized_model_spec=candidate,
                 compile_ok=False,
@@ -124,8 +136,7 @@ def validate_assembly(
 
 def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
     """Normalize a Stage 4 model spec before any compile-time work."""
-    candidate = deepcopy(model_spec)
-    return candidate
+    return deepcopy(model_spec)
 
 
 def _collect_compile_diagnostics(compiled_ssm: dict[str, Any]) -> list[PriorValidationResult]:
@@ -179,7 +190,7 @@ def partition_prior_proposals(
     for name, prior in (priors or {}).items():
         try:
             validated[name] = PriorProposal.model_validate(prior).model_dump(mode="json")
-        except Exception as exc:
+        except ValidationError as exc:
             errors[name] = str(exc)
     return validated, errors
 
@@ -464,7 +475,7 @@ def compile_model_artifact(
             authored_priors,
             causal_spec=causal_spec,
         )
-    except Exception as exc:
+    except _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS as exc:
         return {
             "model_built": False,
             "error": str(exc),
@@ -485,7 +496,7 @@ def compile_model_artifact(
             "error": "SSM implementation not available",
             "compiled_ssm": artifact,
         }
-    except Exception as exc:
+    except _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS as exc:
         return {
             "model_built": False,
             "error": str(exc),
