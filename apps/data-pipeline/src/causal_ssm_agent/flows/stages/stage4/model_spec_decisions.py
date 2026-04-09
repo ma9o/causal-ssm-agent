@@ -10,6 +10,9 @@ from causal_ssm_agent.artifacts.model_spec import (
     ModelSpec,
     validate_model_spec_dict,
 )
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_parameter_surfaces import (
+    parameter_is_active_for_likelihoods,
+)
 
 
 class DistributionChoice(BaseModel):
@@ -66,33 +69,11 @@ def merge_decisions_to_spec(
     active_parameters = [
         parameter
         for parameter in parameters
-        if _parameter_is_active_for_likelihoods(parameter, chosen_distribution_by_variable)
+        if parameter_is_active_for_likelihoods(parameter, chosen_distribution_by_variable)
     ]
 
     spec_dict = {"likelihoods": likelihoods, "parameters": active_parameters}
     return validate_model_spec_dict(spec_dict)
-
-
-def _parameter_is_active_for_likelihoods(
-    parameter: dict,
-    chosen_distribution_by_variable: dict[str, str],
-) -> bool:
-    """Return whether a candidate Stage 4 parameter is active for the locked likelihoods."""
-    activation_families = parameter.get("activation_distribution_families")
-    if not isinstance(activation_families, list) or not activation_families:
-        return True
-
-    relevant_variables = parameter.get("activation_indicator_names")
-    if not isinstance(relevant_variables, list) or not relevant_variables:
-        relevant_variables = parameter.get("indicator_names")
-    if not isinstance(relevant_variables, list) or not relevant_variables:
-        relevant_variables = list(chosen_distribution_by_variable)
-
-    allowed_families = {str(family) for family in activation_families}
-    return any(
-        chosen_distribution_by_variable.get(str(variable)) in allowed_families
-        for variable in relevant_variables
-    )
 
 
 def validate_model_spec_decisions_dict(

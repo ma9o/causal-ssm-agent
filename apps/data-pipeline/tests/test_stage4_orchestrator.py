@@ -24,6 +24,9 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4Plan,
     build_stage4_plan,
 )
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_parameter_surfaces import (
+    build_stage4_parameter_surface_index,
+)
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import Stage4Messages
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
@@ -231,6 +234,61 @@ class TestDeriveDeterministicSpec:
         skeleton = derive_deterministic_spec(_simple_spec())
         parameter_names = {parameter["name"] for parameter in skeleton.parameters}
         assert {"t0_mean_stress", "t0_sd_stress", "t0_mean_sleep", "t0_sd_sleep"} <= parameter_names
+
+    def test_parameter_surface_index_owns_block_grouping_and_context(self):
+        """Typed surfaces should be the single semantic owner for block grouping."""
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "stress",
+                    "role": "exogenous",
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "sleep",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                },
+            ],
+            edges=[{"cause": "stress", "effect": "sleep"}],
+            indicators=[
+                {
+                    "name": "pss",
+                    "construct_name": "stress",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "PSS score",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "vas",
+                    "construct_name": "stress",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Stress VAS",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "sleep_quality",
+                    "construct_name": "sleep",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Sleep quality rating",
+                    "aggregation": "mean",
+                },
+            ],
+        )
+        skeleton = derive_deterministic_spec(spec)
+        surface_index = build_stage4_parameter_surface_index(spec, skeleton)
+
+        loading_surface = surface_index.by_name["lambda_vas_stress"]
+        assert loading_surface.block_kind == "measurement_prior"
+        assert loading_surface.owner_key == "stress"
+        assert loading_surface.structural_context["reference_indicator"] == "pss"
+
+        effect_surface = surface_index.by_name["beta_stress_sleep"]
+        assert effect_surface.block_kind == "effect_prior"
+        assert effect_surface.owner_key == "sleep"
+        assert effect_surface.effect_edge == ("stress", "sleep")
+        assert effect_surface.structural_context["expected_lag_days"] == 1.0
 
     def test_stage4_inventory_matches_compiler_public_prior_rows(self):
         """Stage 4 should expose compiler rows plus conditional likelihood extras."""
