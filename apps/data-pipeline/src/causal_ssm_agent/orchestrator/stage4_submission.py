@@ -56,6 +56,11 @@ class Stage4BlockHandler:
     ]
     include_prior_source_guidance: bool = False
 
+    @property
+    def submission_tool_name(self) -> str:
+        """Return the primary submit tool required for this block kind."""
+        return self.prompt_policy.allowed_tool_names[0]
+
     def allowed_tool_names(
         self,
         *,
@@ -78,31 +83,13 @@ class Stage4BlockHandler:
         return self.include_prior_source_guidance and enable_literature
 
 
-def validate_submission_envelope(
+def validate_stage4_submission_payload(
     data: dict[str, Any],
-    block: Stage4FrontierBlock,
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Validate the common Stage 4 submission envelope."""
+) -> str | None:
+    """Validate that a Stage 4 tool submission payload is a JSON object."""
     if not isinstance(data, dict):
-        return None, "VALIDATION ERRORS:\n- submission must be a JSON object"
-
-    block_id = data.get("block_id")
-    block_kind = data.get("block_kind")
-    proposal = data.get("proposal")
-
-    if block_id != block.id:
-        return (
-            None,
-            f"WRONG BLOCK:\n- active block id is `{block.id}`\n- received `{block_id}`",
-        )
-    if block_kind != block.kind:
-        return (
-            None,
-            f"WRONG BLOCK KIND:\n- active block kind is `{block.kind}`\n- received `{block_kind}`",
-        )
-    if not isinstance(proposal, dict):
-        return None, "VALIDATION ERRORS:\n- `proposal` must be an object"
-    return proposal, None
+        return "VALIDATION ERRORS:\n- submission must be a JSON object"
+    return None
 
 
 def _normalize_indicator_submission(

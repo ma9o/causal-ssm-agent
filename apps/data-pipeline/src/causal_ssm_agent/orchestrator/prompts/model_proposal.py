@@ -863,7 +863,8 @@ def build_stage4_system_prompt(
     system_task: str,
     guidance_section_keys: tuple[str, ...],
     parameter_guidance_prefixes: tuple[str, ...] = (),
-    enabled_tool_names: tuple[str, ...] = ("validate_model",),
+    submission_tool_name: str,
+    enabled_tool_names: tuple[str, ...] = ("submit_prior_block",),
 ) -> str:
     """Build the scope-local Stage 4 system prompt for the active frontier."""
     sections = [
@@ -902,7 +903,7 @@ def build_stage4_system_prompt(
             "- If evidence is heterogeneous or indirect, widen the prior.\n"
             "- Do not paraphrase the same search for the same parameter across extra turns.\n"
             "- If direct evidence remains sparse but a conservative prior is already justified, "
-            "stop searching and submit `validate_model`."
+            f"stop searching and call `{submission_tool_name}`."
         )
     if "elicit_prior_gmm" in enabled_tool_names:
         sections.append(
@@ -912,7 +913,7 @@ def build_stage4_system_prompt(
         )
 
     available_tools = [
-        "- `validate_model`: submit only the active scope using the block-local contract.",
+        f"- `{submission_tool_name}`: submit only the active scope using the block-local contract.",
     ]
     if "search_literature" in enabled_tool_names:
         available_tools.append(
@@ -926,10 +927,8 @@ def build_stage4_system_prompt(
         )
     sections.append(
         "## Tool Contract\n\n"
-        "Use `validate_model` with exactly this outer shape:\n"
-        "```json\n"
-        '{\n  "block_id": "...",\n  "block_kind": "...",\n  "proposal": { ... }\n}\n'
-        "```\n\n"
+        f"Use `{submission_tool_name}` for the active block only. "
+        "The user message below shows the exact argument shape for this scope.\n\n"
         "Available tools on this scope:\n"
         + "\n".join(available_tools)
         + "\n\nDo not submit decisions or priors for any other block. "

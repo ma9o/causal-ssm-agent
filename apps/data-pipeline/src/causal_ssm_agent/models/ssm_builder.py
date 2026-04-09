@@ -31,7 +31,10 @@ from causal_ssm_agent.models.ssm.parameterization import (
     PriorRuntimeBundle,
     load_prior_runtime_bundle,
 )
-from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
+from causal_ssm_agent.models.ssm_compilation import (
+    compile_ssm_inputs_from_model_spec,
+    compile_ssm_inputs_from_spec,
+)
 from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
 from causal_ssm_agent.models.ssm_observation_metadata import (
     ObservationSupportRuntime,
@@ -132,13 +135,29 @@ class SSMModelBuilder:
 
     def compile_inputs(self) -> tuple[SSMSpec, SSMPriors]:
         """Compile user-facing specs into executable SSM inputs."""
-        spec, priors, bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs(
-            model_spec=self._model_spec,
-            priors=dump_prior_payloads(self._priors),
-            ssm_spec=self._ssm_spec,
-            ssm_priors=self._ssm_priors,
-            causal_spec=self._causal_spec,
-        )
+        if self._model_spec is not None:
+            if self._ssm_spec is not None or self._ssm_priors is not None:
+                raise ValueError(
+                    "compile_inputs() accepts either ModelSpec-driven inputs or direct "
+                    "SSMSpec inputs, not both."
+                )
+            spec, priors, bindings, _diagnostics, _edge_lag_days = (
+                compile_ssm_inputs_from_model_spec(
+                    model_spec=self._model_spec,
+                    priors=dump_prior_payloads(self._priors),
+                    causal_spec=self._causal_spec,
+                )
+            )
+        elif self._ssm_spec is not None:
+            spec, priors, bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs_from_spec(
+                ssm_spec=self._ssm_spec,
+                priors=dump_prior_payloads(self._priors),
+                ssm_priors=self._ssm_priors,
+                model_spec=self._model_spec,
+                causal_spec=self._causal_spec,
+            )
+        else:
+            raise ValueError("compile_inputs() requires either model_spec or ssm_spec")
         if self._parameter_bindings is None:
             self._parameter_bindings = bindings
         return spec, priors
@@ -203,9 +222,9 @@ class SSMModelBuilder:
                 t0_correlation_mask=strict_lower_triangle_mask(len(manifest_cols)),
                 t0_chol=jnp.eye(len(manifest_cols)),
             )
-            spec, priors, _bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs(
-                priors=dump_prior_payloads(self._priors),
+            spec, priors, _bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs_from_spec(
                 ssm_spec=spec,
+                priors=dump_prior_payloads(self._priors),
                 causal_spec=self._causal_spec,
             )
         elif self._compiled_prior_semantics is not None and self._ssm_spec is not None:

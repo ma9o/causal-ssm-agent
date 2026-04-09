@@ -136,7 +136,7 @@ class Stage4PromptScopePolicy:
     visible_sections: tuple[str, ...]
     guidance_section_keys: tuple[str, ...] = ()
     parameter_guidance_prefixes: tuple[str, ...] = ()
-    allowed_tool_names: tuple[str, ...] = ("validate_model",)
+    allowed_tool_names: tuple[str, ...] = ("submit_prior_block",)
 
 
 _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
@@ -154,7 +154,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "observation_distribution_guidance",
             "link_function_rules",
         ),
-        allowed_tool_names=("validate_model",),
+        allowed_tool_names=("submit_indicator_choice",),
     ),
     "measurement_prior": Stage4PromptScopePolicy(
         system_task=(
@@ -172,7 +172,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "measurement_prior_guidance",
         ),
         parameter_guidance_prefixes=("lambda", "obs_sd"),
-        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
+        allowed_tool_names=("submit_prior_block", "elicit_prior_gmm"),
     ),
     "observation_prior": Stage4PromptScopePolicy(
         system_task=(
@@ -191,7 +191,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "measurement_prior_guidance",
         ),
         parameter_guidance_prefixes=("obs_",),
-        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
+        allowed_tool_names=("submit_prior_block", "elicit_prior_gmm"),
     ),
     "dynamics_prior": Stage4PromptScopePolicy(
         system_task=(
@@ -214,7 +214,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "dynamics_budget_discipline",
         ),
         parameter_guidance_prefixes=("rho", "sigma", "t0_mean", "t0_sd"),
-        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
+        allowed_tool_names=("submit_prior_block", "elicit_prior_gmm"),
     ),
     "effect_prior": Stage4PromptScopePolicy(
         system_task=(
@@ -241,7 +241,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "lagged_effect_interval_guidance",
         ),
         parameter_guidance_prefixes=("beta",),
-        allowed_tool_names=("validate_model", "search_literature", "elicit_prior_gmm"),
+        allowed_tool_names=("submit_prior_block", "search_literature", "elicit_prior_gmm"),
     ),
     "correlation_prior": Stage4PromptScopePolicy(
         system_task=(
@@ -258,7 +258,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "parameter_guidance",
         ),
         parameter_guidance_prefixes=("cor",),
-        allowed_tool_names=("validate_model", "elicit_prior_gmm"),
+        allowed_tool_names=("submit_prior_block", "elicit_prior_gmm"),
     ),
     "global_review": Stage4PromptScopePolicy(
         system_task=(
@@ -276,7 +276,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "observation_distribution_guidance",
             "link_function_rules",
         ),
-        allowed_tool_names=("validate_model",),
+        allowed_tool_names=("submit_model_review",),
     ),
     "global_prior_review": Stage4PromptScopePolicy(
         system_task=(
@@ -307,7 +307,7 @@ _PROMPT_SCOPE_CONFIG: dict[str, Stage4PromptScopePolicy] = {
             "t0_mean",
             "t0_sd",
         ),
-        allowed_tool_names=("validate_model",),
+        allowed_tool_names=("submit_prior_block",),
     ),
 }
 

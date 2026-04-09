@@ -26,8 +26,8 @@ class PriorIndexingError(AggregatedCompileError):
 
 
 def build_prior_index_maps(
-    ssm_spec: SSMSpec | None,
-    model_spec: ModelSpec | dict | None,
+    ssm_spec: SSMSpec,
+    model_spec: ModelSpec | dict,
     *,
     causal_spec: dict | None = None,
 ) -> PriorIndexMaps:
@@ -43,36 +43,14 @@ def build_prior_index_maps(
     manifest_var_index: dict[str, tuple[str, int]] = {}
     observation_site_index: dict[str, tuple[str, int]] = {}
 
-    if ssm_spec is None or not model_spec:
-        return (
-            offdiag_index,
-            lambda_index,
-            diag_index,
-            diffusion_diag_index,
-            diffusion_offdiag_index,
-            t0_offdiag_index,
-            t0_mean_index,
-            t0_sd_index,
-            manifest_var_index,
-            observation_site_index,
-        )
-
     if isinstance(model_spec, dict):
         spec_obj = ModelSpec.model_validate(model_spec)
     elif isinstance(model_spec, ModelSpec):
         spec_obj = model_spec
     else:
-        return (
-            offdiag_index,
-            lambda_index,
-            diag_index,
-            diffusion_diag_index,
-            diffusion_offdiag_index,
-            t0_offdiag_index,
-            t0_mean_index,
-            t0_sd_index,
-            manifest_var_index,
-            observation_site_index,
+        raise TypeError(
+            "build_prior_index_maps() requires model_spec to be a ModelSpec or dict, "
+            f"got {type(model_spec).__name__}."
         )
 
     latent_names = ssm_spec.latent_names or []

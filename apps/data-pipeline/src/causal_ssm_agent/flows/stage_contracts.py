@@ -197,15 +197,19 @@ class SearchLiteratureInput(BaseModel):
     )
 
 
-class ValidateModelInput(BaseModel):
+class SubmitModelSpecInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    model_json: str = Field(
-        description=(
-            "JSON object with proposed changes. Include 'model_spec' (complete ModelSpec) "
-            "and/or 'priors' (dict mapping parameter names to prior proposals). "
-            "Only include fields you are changing."
-        ),
+    model_spec_json: str = Field(
+        description=("The JSON string containing the complete ModelSpec to lock for Stage 4."),
+    )
+
+
+class SubmitPriorsInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    priors_json: str = Field(
+        description="The JSON string containing prior proposals keyed by parameter name.",
     )
 
 
@@ -509,9 +513,14 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
             input_schema=SearchLiteratureInput,
         ),
         ToolContract(
-            name="validate_model",
-            description="Validate model specification and/or prior proposals: schema check, compile, prior predictive simulation.",
-            input_schema=ValidateModelInput,
+            name="submit_model_spec",
+            description="Submit the full Stage 4 ModelSpec for compile-only locking and validation.",
+            input_schema=SubmitModelSpecInput,
+        ),
+        ToolContract(
+            name="submit_priors",
+            description="Submit Stage 4 prior proposals for schema, compile, and prior-predictive validation.",
+            input_schema=SubmitPriorsInput,
         ),
     ],
     "stage-6": [

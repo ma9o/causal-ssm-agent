@@ -147,7 +147,7 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
     assert ctx["_prepared_runtime"] is rebuilt_runtime
 
 
-def test_execute_validate_model_loads_stage2_runtime_via_stage_registry(monkeypatch):
+def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypatch):
     import causal_ssm_agent.flows.stage_registry as stage_registry
     from causal_ssm_agent.orchestrator.stage4_feedback import make_stage4_grounding_result
 
@@ -193,12 +193,12 @@ def test_execute_validate_model_loads_stage2_runtime_via_stage_registry(monkeypa
     )
     monkeypatch.setattr(tool_server, "stage4_grounding", fake_stage4_grounding)
 
-    result = tool_server._execute_validate_model(
+    result = tool_server._execute_submit_priors(
         {
             "_workspace_id": "user-123",
             "stage-1b": {"causal_spec": {"latent": {"constructs": []}}},
         },
-        {"model_json": "{}"},
+        {"priors_json": "{}"},
     )
 
     assert result == {"result": "VALID", "stage_output": {"model_spec": {}}}

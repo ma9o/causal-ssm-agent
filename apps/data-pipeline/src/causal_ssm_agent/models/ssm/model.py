@@ -725,22 +725,22 @@ class SSMModel:
             return structure_runtime.drift_template
 
         if n_diag > 0:
-            drift_diag_pop = _sample_prior_array(
-                "drift_diag_pop",
-                self._prior_distribution("drift_diag_pop"),
+            drift_diag_free = _sample_prior_array(
+                "drift_diag_free",
+                self._prior_distribution("drift_diag_free"),
             )
         else:
-            drift_diag_pop = None
+            drift_diag_free = None
 
         if n_offdiag > 0:
-            drift_offdiag_pop = _sample_prior_array(
-                "drift_offdiag_pop",
-                self._prior_distribution("drift_offdiag_pop"),
+            drift_offdiag_free = _sample_prior_array(
+                "drift_offdiag_free",
+                self._prior_distribution("drift_offdiag_free"),
             )
         else:
-            drift_offdiag_pop = None
+            drift_offdiag_free = None
 
-        drift = structure_runtime.assemble_drift(drift_diag_pop, drift_offdiag_pop)
+        drift = structure_runtime.assemble_drift(drift_diag_free, drift_offdiag_free)
 
         # Stability guard: penalise drift matrices whose max real eigenvalue
         # approaches zero (i.e. the system is near-unstable).  Only needed
@@ -767,21 +767,21 @@ class SSMModel:
         if n_diag == 0 and n_lower == 0:
             return structure_runtime.diffusion_chol_template
 
-        diff_diag_pop = None
+        diff_diag_free = None
         if n_diag > 0:
-            diff_diag_pop = _sample_prior_array(
-                "diffusion_diag_pop",
-                self._prior_distribution("diffusion_diag_pop"),
+            diff_diag_free = _sample_prior_array(
+                "diffusion_diag_free",
+                self._prior_distribution("diffusion_diag_free"),
             )
 
-        diff_lower = None
+        diff_lower_free = None
         if n_lower > 0:
-            diff_lower = _sample_prior_array(
-                "diffusion_lower",
-                self._prior_distribution("diffusion_lower"),
+            diff_lower_free = _sample_prior_array(
+                "diffusion_lower_free",
+                self._prior_distribution("diffusion_lower_free"),
             )
 
-        diffusion = structure_runtime.assemble_diffusion(diff_diag_pop, diff_lower)
+        diffusion = structure_runtime.assemble_diffusion(diff_diag_free, diff_lower_free)
 
         numpyro.deterministic("diffusion", diffusion)
         return diffusion
@@ -793,8 +793,8 @@ class SSMModel:
             return self._structure_runtime.cint_template
 
         cint_free = _sample_prior_array(
-            "cint_pop",
-            self._prior_distribution("cint_pop"),
+            "cint_free",
+            self._prior_distribution("cint_free"),
         )
         cint = self._structure_runtime.assemble_cint(cint_free)
 
@@ -802,7 +802,7 @@ class SSMModel:
         return cint
 
     def _sample_lambda(self, _spec: SSMSpec) -> jnp.ndarray:
-        """Sample factor loading matrix (shared across subjects).
+        """Sample factor loading matrix for the fitted subject/model.
 
         Two modes (determined by SSMStructureRuntime from spec):
         1. Template+mask: sample free loadings at masked positions.
@@ -826,15 +826,15 @@ class SSMModel:
         return lambda_mat
 
     def _sample_manifest_params(self, _spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Sample manifest means and variance (shared across subjects)."""
+        """Sample manifest means and variance for the fitted subject/model."""
         # Means
         n_means_free = self._structure_runtime.n_manifest_means
         if n_means_free == 0:
             manifest_means = self._structure_runtime.manifest_means_template
         else:
             manifest_means_free = _sample_prior_array(
-                "manifest_means",
-                self._prior_distribution("manifest_means"),
+                "manifest_means_free",
+                self._prior_distribution("manifest_means_free"),
             )
             manifest_means = self._structure_runtime.assemble_manifest_means(manifest_means_free)
 
@@ -844,8 +844,8 @@ class SSMModel:
             manifest_chol = self._structure_runtime.manifest_chol_template
         else:
             var_diag = _sample_prior_array(
-                "manifest_var_diag",
-                self._prior_distribution("manifest_var_diag"),
+                "manifest_var_diag_free",
+                self._prior_distribution("manifest_var_diag_free"),
             )
             manifest_chol = self._structure_runtime.assemble_manifest_chol(var_diag)
 
@@ -860,8 +860,8 @@ class SSMModel:
             t0_means = self._structure_runtime.t0_means_template
         else:
             t0_means_free = _sample_prior_array(
-                "t0_means_pop",
-                self._prior_distribution("t0_means_pop"),
+                "t0_means_free",
+                self._prior_distribution("t0_means_free"),
             )
             t0_means = self._structure_runtime.assemble_t0_means(t0_means_free)
 
@@ -875,14 +875,14 @@ class SSMModel:
             var_diag = None
             if n_diag > 0:
                 var_diag = _sample_prior_array(
-                    "t0_var_diag",
-                    self._prior_distribution("t0_var_diag"),
+                    "t0_var_diag_free",
+                    self._prior_distribution("t0_var_diag_free"),
                 )
             t0_corr = None
             if n_corr > 0:
                 t0_corr = _sample_prior_array(
-                    "t0_var_lower",
-                    self._prior_distribution("t0_var_lower"),
+                    "t0_var_lower_free",
+                    self._prior_distribution("t0_var_lower_free"),
                 )
             t0_cov_raw = structure_runtime.assemble_t0_cov(var_diag, t0_corr)
             t0_cov, min_eig = stabilize_covariance_for_cholesky(

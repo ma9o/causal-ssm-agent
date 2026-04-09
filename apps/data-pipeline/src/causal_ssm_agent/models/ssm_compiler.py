@@ -427,12 +427,14 @@ def _compile_validated_ssm_artifact(
 ) -> CompiledSSMArtifact:
     """Compile an already-validated ``ModelSpec`` into a serialized SSM artifact."""
     from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
-    from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs
+    from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs_from_model_spec
 
-    spec, ssm_priors, parameter_bindings, compile_diagnostics, edge_lag_days = compile_ssm_inputs(
-        validated_model_spec,
-        raw_priors,
-        causal_spec=causal_spec,
+    spec, ssm_priors, parameter_bindings, compile_diagnostics, edge_lag_days = (
+        compile_ssm_inputs_from_model_spec(
+            validated_model_spec,
+            raw_priors,
+            causal_spec=causal_spec,
+        )
     )
 
     return {

@@ -350,8 +350,8 @@ class TestTRule:
             **_diagonal_structure_kwargs(3, 3),
         )
         counts = count_free_params(spec)
-        assert counts["drift_diag_pop"] == 3
-        assert counts["drift_offdiag_pop"] == 6  # 3*3 - 3
+        assert counts["drift_diag_free"] == 3
+        assert counts["drift_offdiag_free"] == 6  # 3*3 - 3
 
     def test_count_free_params_noise_hyperparams(self):
         """Student-t manifest noise should add obs_df parameter."""
@@ -468,9 +468,9 @@ class TestOutputSensitivity:
         context = pid.get_stage4b_sweep_context(model)
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
         unconstrained = context.unravel_fn(jnp.zeros(context.flat_dim, dtype=jnp.float32))
-        unconstrained["diffusion_diag_pop"] = jnp.array([0.25, 0.1], dtype=jnp.float32)
-        unconstrained["drift_diag_pop"] = jnp.array([-0.75, -0.55], dtype=jnp.float32)
-        unconstrained["drift_offdiag_pop"] = jnp.array([0.08], dtype=jnp.float32)
+        unconstrained["diffusion_diag_free"] = jnp.array([0.25, 0.1], dtype=jnp.float32)
+        unconstrained["drift_diag_free"] = jnp.array([-0.75, -0.55], dtype=jnp.float32)
+        unconstrained["drift_offdiag_free"] = jnp.array([0.08], dtype=jnp.float32)
         unconstrained["obs_r"] = jnp.array(0.9, dtype=jnp.float32)
         unconstrained["obs_shape"] = jnp.array(1.1, dtype=jnp.float32)
         z_flat, _ = ravel_pytree(unconstrained)
@@ -878,7 +878,7 @@ class TestOutputSensitivity:
         )
         model = SSMModel(spec, priors, n_particles=50, likelihood="kalman")
         model.parameter_bindings = [
-            {"site_name": "drift_diag_pop", "flat_index": 0, "parameter": "rho_mood"}
+            {"site_name": "drift_diag_free", "flat_index": 0, "parameter": "rho_mood"}
         ]
 
         result = output_sensitivity_analysis(
@@ -891,10 +891,10 @@ class TestOutputSensitivity:
         names_by_parameter = {
             entry["parameter"]: entry["interpretable_parameter"] for entry in result.per_parameter
         }
-        assert names_by_parameter["drift_diag_pop"] == "rho_mood"
-        assert names_by_parameter["diffusion_diag_pop"] == "sigma_mood"
-        assert names_by_parameter["manifest_var_diag"] == "obs_sd_heart_rate"
-        assert names_by_parameter["t0_means_pop"] == "t0_mean_mood"
+        assert names_by_parameter["drift_diag_free"] == "rho_mood"
+        assert names_by_parameter["diffusion_diag_free"] == "sigma_mood"
+        assert names_by_parameter["manifest_var_diag_free"] == "obs_sd_heart_rate"
+        assert names_by_parameter["t0_means_free"] == "t0_mean_mood"
 
     def test_manifest_var_alias_uses_sparse_free_positions(self):
         """Sparse manifest-noise sites should resolve to the correct manifest channel."""
@@ -913,7 +913,7 @@ class TestOutputSensitivity:
 
         alias = _fallback_interpretable_parameter_name(
             spec,
-            "manifest_var_diag",
+            "manifest_var_diag_free",
             0,
             structure_runtime=model._structure_runtime,
         )
@@ -1193,14 +1193,14 @@ class TestPowerScalingSensitivity:
         rng = random.PRNGKey(123)
         samples = {}
         rng, k1, k2, k3, k4, k5 = random.split(rng, 6)
-        samples["drift_diag_pop"] = jnp.abs(random.normal(k1, (n_samples, 2))) * 0.5
-        samples["drift_offdiag_pop"] = random.normal(k2, (n_samples, 2)) * 0.1
-        samples["diffusion_diag_pop"] = jnp.abs(random.normal(k3, (n_samples, 2))) * 0.3
-        samples["t0_means_pop"] = random.normal(k4, (n_samples, 2)) * 0.5
-        samples["t0_var_diag"] = jnp.abs(random.normal(k5, (n_samples, 2))) * 0.5
-        # Add manifest_var_diag
+        samples["drift_diag_free"] = jnp.abs(random.normal(k1, (n_samples, 2))) * 0.5
+        samples["drift_offdiag_free"] = random.normal(k2, (n_samples, 2)) * 0.1
+        samples["diffusion_diag_free"] = jnp.abs(random.normal(k3, (n_samples, 2))) * 0.3
+        samples["t0_means_free"] = random.normal(k4, (n_samples, 2)) * 0.5
+        samples["t0_var_diag_free"] = jnp.abs(random.normal(k5, (n_samples, 2))) * 0.5
+        # Add manifest_var_diag_free
         rng, k6 = random.split(rng)
-        samples["manifest_var_diag"] = jnp.abs(random.normal(k6, (n_samples, 2))) * 0.3
+        samples["manifest_var_diag_free"] = jnp.abs(random.normal(k6, (n_samples, 2))) * 0.3
 
         mock_result = InferenceResult(
             _samples=samples,
@@ -1317,24 +1317,24 @@ class TestSimulateSSMRecovery:
 
         samples = result.get_samples()
 
-        # drift_diag_pop: model applies -abs(), so recovered drift = -abs(sample)
-        drift_samples = -jnp.abs(samples["drift_diag_pop"][:, 0])
+        # drift_diag_free: model applies -abs(), so recovered drift = -abs(sample)
+        drift_samples = -jnp.abs(samples["drift_diag_free"][:, 0])
         drift_q5 = float(jnp.percentile(drift_samples, 5))
         drift_q95 = float(jnp.percentile(drift_samples, 95))
         assert drift_q5 <= data["true_drift_diag"] <= drift_q95, (
             f"Drift {data['true_drift_diag']:.2f} outside 90% CI [{drift_q5:.3f}, {drift_q95:.3f}]"
         )
 
-        # diffusion_diag_pop: HalfNormal, positive
-        diff_samples = samples["diffusion_diag_pop"][:, 0]
+        # diffusion_diag_free: HalfNormal, positive
+        diff_samples = samples["diffusion_diag_free"][:, 0]
         diff_q5 = float(jnp.percentile(diff_samples, 5))
         diff_q95 = float(jnp.percentile(diff_samples, 95))
         assert diff_q5 <= data["true_diff_diag"] <= diff_q95, (
             f"Diffusion {data['true_diff_diag']:.2f} outside 90% CI [{diff_q5:.3f}, {diff_q95:.3f}]"
         )
 
-        # manifest_var_diag: observation noise SD
-        obs_samples = samples["manifest_var_diag"][:, 0]
+        # manifest_var_diag_free: observation noise SD
+        obs_samples = samples["manifest_var_diag_free"][:, 0]
         obs_q5 = float(jnp.percentile(obs_samples, 5))
         obs_q95 = float(jnp.percentile(obs_samples, 95))
         assert obs_q5 <= data["true_obs_sd"] <= obs_q95, (

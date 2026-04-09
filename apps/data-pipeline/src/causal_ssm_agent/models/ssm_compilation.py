@@ -1,4 +1,4 @@
-"""Public pure-compilation surface for turning ModelSpec + priors into SSM inputs."""
+"""Public pure-compilation entry points for executable SSM inputs."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from causal_ssm_agent.models.ssm_compilation_common import (
     PriorIndexMaps,
+    empty_prior_index_maps,
     normalize_prior_params,
     split_compound_name,
 )
@@ -111,12 +112,10 @@ def _attach_compile_binding_provenance(
     return diagnostics
 
 
-def compile_ssm_inputs(
-    model_spec: ModelSpec | dict | None = None,
+def compile_ssm_inputs_from_model_spec(
+    model_spec: ModelSpec | dict,
     priors: dict[str, dict] | None = None,
     *,
-    ssm_spec: SSMSpec | None = None,
-    ssm_priors: SSMPriors | None = None,
     causal_spec: dict | None = None,
 ) -> tuple[
     SSMSpec,
@@ -125,42 +124,96 @@ def compile_ssm_inputs(
     list[PriorValidationResult],
     dict[tuple[int, int], float],
 ]:
-    """Resolve executable SSM inputs plus structured compiler diagnostics."""
+    """Compile executable SSM inputs from a validated semantic model spec surface."""
+    resolved_model_spec = (
+        ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
+    )
+    if resolved_model_spec is None:
+        raise ValueError("compile_ssm_inputs_from_model_spec() requires model_spec")
+
+    ssm_spec, edge_lag_days = translate_spec(resolved_model_spec, causal_spec)
+    _require_explicit_causal_structure(ssm_spec, causal_spec=causal_spec)
+
+    ssm_priors, index_maps, diagnostics = compile_priors(
+        priors or {},
+        resolved_model_spec,
+        ssm_spec,
+        edge_lag_days=edge_lag_days,
+        causal_spec=causal_spec,
+    )
+    bindings = bind_parameters(index_maps)
+    diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
+    return ssm_spec, ssm_priors, bindings, diagnostics, edge_lag_days
+
+
+def compile_ssm_inputs_from_spec(
+    ssm_spec: SSMSpec,
+    *,
+    priors: dict[str, dict] | None = None,
+    ssm_priors: SSMPriors | None = None,
+    model_spec: ModelSpec | dict | None = None,
+    causal_spec: dict | None = None,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+) -> tuple[
+    SSMSpec,
+    SSMPriors,
+    list[dict[str, object]],
+    list[PriorValidationResult],
+    dict[tuple[int, int], float],
+]:
+    """Finalize executable SSM inputs from an explicit translated SSMSpec surface."""
+    from causal_ssm_agent.models.ssm.model import SSMPriors
+
     resolved_model_spec = (
         ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
     )
 
-    edge_lag_days: dict[tuple[int, int], float] = {}
-    if ssm_spec is None:
-        if resolved_model_spec is None:
-            raise ValueError("Cannot compile SSM inputs without model_spec or ssm_spec")
-        ssm_spec, edge_lag_days = translate_spec(resolved_model_spec, causal_spec)
+    resolved_edge_lag_days = {} if edge_lag_days is None else dict(edge_lag_days)
     _require_explicit_causal_structure(ssm_spec, causal_spec=causal_spec)
+    raw_priors = priors or {}
 
-    index_maps = None
+    if resolved_model_spec is None:
+        if raw_priors:
+            raise ValueError(
+                "compile_ssm_inputs_from_spec() requires model_spec to compile semantic prior "
+                "proposals from a direct SSMSpec."
+            )
+        resolved_ssm_priors = ssm_priors or SSMPriors()
+        index_maps = empty_prior_index_maps()
+        diagnostics = collect_compile_diagnostics(
+            ssm_spec,
+            edge_lag_days=resolved_edge_lag_days,
+            raw_priors=raw_priors,
+            ssm_priors=resolved_ssm_priors,
+        )
+        bindings: list[dict[str, object]] = []
+        diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
+        return ssm_spec, resolved_ssm_priors, bindings, diagnostics, resolved_edge_lag_days
+
     if ssm_priors is None:
         ssm_priors, index_maps, diagnostics = compile_priors(
-            priors or {},
+            raw_priors,
             resolved_model_spec,
             ssm_spec,
-            edge_lag_days=edge_lag_days,
+            edge_lag_days=resolved_edge_lag_days,
             causal_spec=causal_spec,
         )
     else:
+        index_maps = build_prior_index_maps(
+            ssm_spec,
+            resolved_model_spec,
+            causal_spec=causal_spec,
+        )
         diagnostics = collect_compile_diagnostics(
             ssm_spec,
-            edge_lag_days=edge_lag_days,
-            raw_priors=priors or {},
+            edge_lag_days=resolved_edge_lag_days,
+            raw_priors=raw_priors,
+            ssm_priors=ssm_priors,
         )
 
-    bindings = bind_parameters(
-        resolved_model_spec,
-        ssm_spec,
-        index_maps=index_maps,
-        causal_spec=causal_spec,
-    )
+    bindings = bind_parameters(index_maps)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-    return ssm_spec, ssm_priors, bindings, diagnostics, edge_lag_days
+    return ssm_spec, ssm_priors, bindings, diagnostics, resolved_edge_lag_days
 
 
 __all__ = [
@@ -169,7 +222,8 @@ __all__ = [
     "build_masks_from_causal_spec",
     "build_prior_index_maps",
     "compile_priors",
-    "compile_ssm_inputs",
+    "compile_ssm_inputs_from_model_spec",
+    "compile_ssm_inputs_from_spec",
     "get_construct_dt_days",
     "get_estimation_latent_layout",
     "normalize_prior_params",

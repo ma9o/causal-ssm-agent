@@ -14,11 +14,12 @@ from causal_ssm_agent.models.ssm_compilation_common import (
     SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
     build_array_prior_payload,
+    empty_prior_index_maps,
     normalize_prior_params,
-    split_compound_name,
 )
 from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
+from causal_ssm_agent.orchestrator.schemas import parse_duration_to_hours
 from causal_ssm_agent.orchestrator.schemas_model import ModelSpec, ParameterRole
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
@@ -61,6 +62,85 @@ def _drift_parameter_name(
         ssm_spec.latent_names[effect_idx] if ssm_spec.latent_names else f"latent_{effect_idx}"
     )
     return f"beta_{cause_name}_{effect_name}", cause_name, effect_name
+
+
+def _resolve_model_clock_interval_days(causal_spec: dict | None) -> float | None:
+    """Resolve the declared model clock interval without silently defaulting to 1 day."""
+    if causal_spec is None:
+        return None
+
+    model_clock = (
+        causal_spec.get("measurement", {}).get("model_clock")
+        if isinstance(causal_spec, dict)
+        else getattr(getattr(causal_spec, "measurement", None), "model_clock", None)
+    )
+    if not model_clock:
+        return None
+
+    try:
+        interval_days = parse_duration_to_hours(model_clock) / 24.0
+    except ValueError as exc:
+        raise ValueError(
+            "causal_spec.measurement.model_clock must parse to a positive interval to "
+            "compile cross-lag priors without explicit reference_interval_days."
+        ) from exc
+
+    if interval_days <= 0:
+        raise ValueError(
+            "causal_spec.measurement.model_clock must resolve to a positive interval to "
+            "compile cross-lag priors."
+        )
+    return interval_days
+
+
+def _resolve_cross_lag_interval_days(
+    *,
+    param_name: str,
+    prior_spec: dict[str, Any],
+    flat_index: int,
+    structure_runtime: SSMStructureRuntime,
+    ssm_spec: SSMSpec,
+    edge_lag_days: dict[tuple[int, int], float] | None,
+    causal_spec: dict | None,
+) -> float:
+    """Resolve a positive authoring interval for cross-lag priors."""
+    ref_days = prior_spec.get("reference_interval_days")
+    if ref_days is not None:
+        interval_days = float(ref_days)
+        if interval_days <= 0:
+            raise ValueError(
+                f"Cross-lag prior '{param_name}' must set reference_interval_days to a "
+                f"positive value, got {interval_days:.3g}."
+            )
+        return interval_days
+
+    if flat_index >= structure_runtime.n_drift_offdiag:
+        raise ValueError(
+            f"Cross-lag prior '{param_name}' resolved to invalid flat index {flat_index}."
+        )
+
+    effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
+    lag_days = (edge_lag_days or {}).get((effect_idx, cause_idx))
+    if lag_days is not None:
+        interval_days = float(lag_days)
+        if interval_days <= 0:
+            raise ValueError(
+                f"Cross-lag prior '{param_name}' maps to non-positive edge lag {interval_days:.3g}."
+            )
+        return interval_days
+
+    effect_name = (
+        ssm_spec.latent_names[effect_idx] if ssm_spec.latent_names else f"latent_{effect_idx}"
+    )
+    interval_days = _resolve_model_clock_interval_days(causal_spec)
+    if interval_days is not None:
+        return interval_days
+
+    raise ValueError(
+        f"Cross-lag prior '{param_name}' could not resolve an authoring interval. "
+        "Set reference_interval_days explicitly, or compile with edge_lag_days / "
+        f"causal_spec model_clock metadata for effect '{effect_name}'."
+    )
 
 
 def _format_interval_days(days: float) -> str:
@@ -281,7 +361,7 @@ def collect_first_order_approximation_warnings(
                 suggested_adjustment=(
                     "Consider a shorter reference interval or elicit priors directly on CT rates."
                 ),
-                compiled_site_name="drift_offdiag_pop",
+                compiled_site_name="drift_offdiag_free",
                 compiled_flat_index=idx,
                 failure_stage="compiled_parameters",
                 pathology_certificate=PriorPathologyCertificate(
@@ -346,7 +426,23 @@ def compile_priors(
     ssm_priors = SSMPriors()
     role_by_name = _collect_role_lookup(model_spec)
     per_element: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
-    index_maps = build_prior_index_maps(ssm_spec, model_spec, causal_spec=causal_spec)
+    has_model_spec = model_spec is not None and (
+        not isinstance(model_spec, dict) or bool(model_spec)
+    )
+    resolved_model_spec = model_spec if has_model_spec else None
+    if resolved_model_spec is not None and ssm_spec is not None:
+        index_maps = build_prior_index_maps(ssm_spec, resolved_model_spec, causal_spec=causal_spec)
+    elif raw_priors and not has_model_spec:
+        raise ValueError(
+            "compile_priors() requires model_spec when compiling semantic prior proposals."
+        )
+    elif raw_priors and ssm_spec is None:
+        raise ValueError(
+            "compile_priors() requires a translated SSMSpec when compiling semantic prior "
+            "proposals."
+        )
+    else:
+        index_maps = empty_prior_index_maps()
     (
         offdiag_param_index,
         lambda_param_index,
@@ -359,6 +455,7 @@ def compile_priors(
         manifest_var_param_index,
         observation_site_param_index,
     ) = index_maps
+    structure_runtime = SSMStructureRuntime(ssm_spec) if ssm_spec is not None else None
     errors: list[str] = []
 
     for param_name, prior_spec in raw_priors.items():
@@ -410,18 +507,19 @@ def compile_priors(
 
             if param_name in offdiag_param_index:
                 attr, idx = offdiag_param_index[param_name]
-                ref_days = prior_spec.get("reference_interval_days")
-                if ref_days is not None and ref_days > 0:
-                    dt = float(ref_days)
-                else:
-                    dt = 1.0
-                    if ssm_spec is not None and ssm_spec.latent_names:
-                        latent_set = set(ssm_spec.latent_names)
-                        compound = param_name.removeprefix("beta_")
-                        split = split_compound_name(compound, latent_set, latent_set)
-                        if split is not None:
-                            _cause, effect = split
-                            dt = get_construct_dt_days(causal_spec, effect)
+                if structure_runtime is None or ssm_spec is None:
+                    raise ValueError(
+                        "Cross-lag prior compilation requires a translated SSMSpec runtime."
+                    )
+                dt = _resolve_cross_lag_interval_days(
+                    param_name=param_name,
+                    prior_spec=prior_spec,
+                    flat_index=idx,
+                    structure_runtime=structure_runtime,
+                    ssm_spec=ssm_spec,
+                    edge_lag_days=edge_lag_days,
+                    causal_spec=causal_spec,
+                )
                 _append_structured_prior(
                     per_element,
                     attr,
@@ -515,19 +613,8 @@ def compile_priors(
     return ssm_priors, index_maps, diagnostics
 
 
-def bind_parameters(
-    model_spec: ModelSpec | dict | None,
-    ssm_spec: SSMSpec,
-    index_maps: PriorIndexMaps | None = None,
-    *,
-    causal_spec: dict | None = None,
-) -> list[dict[str, Any]]:
+def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
     """Map semantic parameter names to NumPyro sample sites."""
-    if model_spec is None:
-        return []
-    if index_maps is None:
-        index_maps = build_prior_index_maps(ssm_spec, model_spec, causal_spec=causal_spec)
-
     (
         offdiag_index,
         lambda_index,

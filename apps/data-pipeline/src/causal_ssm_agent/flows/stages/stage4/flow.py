@@ -36,7 +36,7 @@ def _stage4_generate_config() -> GenerateConfig:
         max_tokens=None,
         timeout=180,
         reasoning_effort=base.reasoning_effort,
-        max_tool_output=base.max_tool_output,
+        max_tool_output=None,
     )
 
 

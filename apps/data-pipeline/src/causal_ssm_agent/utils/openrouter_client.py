@@ -176,7 +176,7 @@ class GenerateConfig:
     max_tokens: int | None = None
     timeout: int | None = None
     reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
-    max_tool_output: int = 16_000
+    max_tool_output: int | None = 16_000
 
 
 @dataclass

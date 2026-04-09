@@ -586,9 +586,8 @@ def _response_latent_variance_diag(
             elif link == LinkFunction.PROBIT:
                 deriv.append(jstats.norm.pdf(eta_j))
             elif link == LinkFunction.INVERSE:
-                clipped_eta = jnp.clip(eta_j, min=1e-6)
                 deriv.append(
-                    jnp.where(eta_j > 1e-6, -1.0 / (clipped_eta**2), 0.0).astype(eta_mean.dtype)
+                    jnp.where(eta_j > 0.0, -1.0 / (eta_j**2), jnp.nan).astype(eta_mean.dtype)
                 )
             else:
                 raise OutputSensitivityUnsupportedError(
@@ -1863,37 +1862,37 @@ def _fallback_interpretable_parameter_name(
     latent_names = _axis_names(spec.latent_names, expected=spec.n_latent, prefix="latent")
     manifest_names = _axis_names(spec.manifest_names, expected=spec.n_manifest, prefix="manifest")
 
-    if site_name == "drift_diag_pop" and flat_index < structure_runtime.n_drift_diag:
+    if site_name == "drift_diag_free" and flat_index < structure_runtime.n_drift_diag:
         latent_idx = structure_runtime.drift_diag_positions[flat_index]
         return f"rho_{latent_names[latent_idx]}"
-    if site_name == "drift_offdiag_pop" and flat_index < structure_runtime.n_drift_offdiag:
+    if site_name == "drift_offdiag_free" and flat_index < structure_runtime.n_drift_offdiag:
         effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
         return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
-    if site_name == "diffusion_diag_pop" and flat_index < structure_runtime.n_diffusion_diag:
+    if site_name == "diffusion_diag_free" and flat_index < structure_runtime.n_diffusion_diag:
         latent_idx = structure_runtime.diffusion_diag_positions[flat_index]
         return f"sigma_{latent_names[latent_idx]}"
-    if site_name == "diffusion_lower" and flat_index < structure_runtime.n_diffusion_lower:
+    if site_name == "diffusion_lower_free" and flat_index < structure_runtime.n_diffusion_lower:
         row, col = structure_runtime.diffusion_lower_positions[flat_index]
         return f"cor_{latent_names[col]}_{latent_names[row]}"
-    if site_name == "cint_pop" and flat_index < structure_runtime.n_cint:
+    if site_name == "cint_free" and flat_index < structure_runtime.n_cint:
         latent_idx = structure_runtime.cint_free_positions[flat_index]
         return f"cint_{latent_names[latent_idx]}"
     if site_name == "lambda_free" and flat_index < structure_runtime.n_lambda_free:
         manifest_idx, latent_idx = structure_runtime.lambda_free_positions[flat_index]
         return f"lambda_{manifest_names[manifest_idx]}_{latent_names[latent_idx]}"
-    if site_name == "manifest_means" and flat_index < structure_runtime.n_manifest_means:
+    if site_name == "manifest_means_free" and flat_index < structure_runtime.n_manifest_means:
         manifest_idx = structure_runtime.manifest_means_free_positions[flat_index]
         return f"manifest_mean_{manifest_names[manifest_idx]}"
-    if site_name == "manifest_var_diag" and flat_index < structure_runtime.n_manifest_var_diag:
+    if site_name == "manifest_var_diag_free" and flat_index < structure_runtime.n_manifest_var_diag:
         manifest_idx = structure_runtime.manifest_var_free_positions[flat_index]
         return f"obs_sd_{manifest_names[manifest_idx]}"
-    if site_name == "t0_means_pop" and flat_index < structure_runtime.n_t0_means:
+    if site_name == "t0_means_free" and flat_index < structure_runtime.n_t0_means:
         latent_idx = structure_runtime.t0_means_free_positions[flat_index]
         return f"t0_mean_{latent_names[latent_idx]}"
-    if site_name == "t0_var_diag" and flat_index < structure_runtime.n_t0_diag:
+    if site_name == "t0_var_diag_free" and flat_index < structure_runtime.n_t0_diag:
         latent_idx = structure_runtime.t0_diag_free_positions[flat_index]
         return f"t0_sd_{latent_names[latent_idx]}"
-    if site_name == "t0_var_lower" and flat_index < structure_runtime.n_t0_correlation:
+    if site_name == "t0_var_lower_free" and flat_index < structure_runtime.n_t0_correlation:
         row, col = structure_runtime.t0_correlation_positions[flat_index]
         return f"cor0_{latent_names[col]}_{latent_names[row]}"
     return site_name if flat_index == 0 else f"{site_name}[{flat_index}]"

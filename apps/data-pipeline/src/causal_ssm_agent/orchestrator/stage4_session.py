@@ -23,7 +23,7 @@ class Stage4TurnOutcome:
     """Structured outcome for one Stage 4 model turn."""
 
     block_id: str
-    validate_submitted: bool
+    submission_made: bool
     submit_count: int
     latest_feedback: str | None
     next_block_id: str | None
@@ -99,7 +99,7 @@ class Stage4Session:
         self._turn_tracker = None
         return Stage4TurnOutcome(
             block_id=tracker.block_id,
-            validate_submitted=tracker.submit_count > 0,
+            submission_made=tracker.submit_count > 0,
             submit_count=tracker.submit_count,
             latest_feedback=tracker.latest_feedback,
             next_block_id=tracker.next_block_id,
@@ -109,7 +109,7 @@ class Stage4Session:
         """Clear any active turn tracker after an aborted model call."""
         self._turn_tracker = None
 
-    def submit(self, payload: dict[str, Any]) -> str:
+    def _submit(self, payload: dict[str, Any]) -> str:
         """Apply one block-local submission and return reducer feedback."""
         _stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
             payload,
@@ -125,6 +125,48 @@ class Stage4Session:
             self._turn_tracker.latest_feedback = feedback
             self._turn_tracker.next_block_id = None if next_block is None else next_block.id
         return feedback
+
+    def submit_indicator_choice(
+        self,
+        *,
+        variable: str,
+        distribution: str,
+        link: str,
+        reasoning: str,
+    ) -> str:
+        """Submit the active indicator-decision block."""
+        return self._submit(
+            {
+                "variable": variable,
+                "distribution": distribution,
+                "link": link,
+                "reasoning": reasoning,
+            }
+        )
+
+    def submit_model_review(
+        self,
+        *,
+        decision: str,
+        reasoning: str,
+        reopen_block_ids: list[str] | None = None,
+    ) -> str:
+        """Submit the active model-review block."""
+        payload: dict[str, Any] = {
+            "decision": decision,
+            "reasoning": reasoning,
+        }
+        if reopen_block_ids is not None:
+            payload["reopen_block_ids"] = reopen_block_ids
+        return self._submit(payload)
+
+    def submit_prior_block(
+        self,
+        *,
+        priors: dict[str, dict[str, Any]],
+    ) -> str:
+        """Submit the active prior-authoring block."""
+        return self._submit({"priors": priors})
 
     def is_done(self) -> bool:
         """Whether Stage 4 has produced a final accepted result."""

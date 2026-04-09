@@ -120,9 +120,7 @@ def _build_partial_drift_state(
     offdiag_positions: list[tuple[int, int]] = []
     for effect_idx in range(ssm_spec.n_latent):
         for cause_idx in range(ssm_spec.n_latent):
-            if effect_idx != cause_idx and bool(
-                ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]
-            ):
+            if effect_idx != cause_idx and bool(ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]):
                 offdiag_positions.append((effect_idx, cause_idx))
     offdiag_mu = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)

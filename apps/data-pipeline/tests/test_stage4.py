@@ -39,7 +39,7 @@ from causal_ssm_agent.models.ssm_compilation import (
     compile_priors as compile_ssm_priors,
 )
 from causal_ssm_agent.models.ssm_compilation import (
-    compile_ssm_inputs,
+    compile_ssm_inputs_from_model_spec,
 )
 from causal_ssm_agent.orchestrator.stage4_agent_loop import run_stage4
 from causal_ssm_agent.orchestrator.stage4_feedback import (
@@ -626,7 +626,7 @@ class TestStage4Messages:
         assert "## Frontier Status" in user_content
         assert "## Effect-Block Stability Discipline" in user_content
         assert "`id`: `effects:sleep`" in user_content
-        assert '"block_id": "effects:sleep"' in user_content
+        assert "Use `submit_prior_block` with exactly this argument object:" in user_content
         assert (
             "This block owns one target construct's full incoming lagged-effect row."
             in user_content
@@ -640,7 +640,7 @@ class TestStage4Messages:
         assert "## Effect Row Budget Discipline" in system_content
         assert "batch those `search_literature` calls in the same turn" in system_content
         assert "advisory stability guidance" in system_content
-        assert "stop searching and submit `validate_model`" in system_content
+        assert "stop searching and call `submit_prior_block`" in system_content
 
     def test_messages_for_scope_omit_literature_prompt_parts_when_disabled(self):
         block = Stage4FrontierBlock(
@@ -767,7 +767,7 @@ class TestStage4Messages:
         assert "| beta_stress_sleep | stress | sleep | lagged | 1.0 | yes | none |" in user_content
         assert "### Construct Scale Cards" in user_content
         assert "## Scope Snapshot" in user_content
-        assert '"block_kind": "effect_prior"' in user_content
+        assert "Use `submit_prior_block` with exactly this argument object:" in user_content
 
     def test_messages_for_scope_include_accepted_coupled_priors_outside_local_scope(self):
         block = Stage4FrontierBlock(
@@ -1402,14 +1402,15 @@ class TestStage4Messages:
             enable_paraphrasing=True,
         )
         tools = [
-            SimpleNamespace(name="validate_model"),
+            SimpleNamespace(name="submit_indicator_choice"),
+            SimpleNamespace(name="submit_prior_block"),
             SimpleNamespace(name="search_literature"),
             SimpleNamespace(name="elicit_prior_gmm"),
         ]
         turn = session.current_turn()
         assert turn is not None
         assert [tool.name for tool in tools if tool.name in turn.allowed_tool_names] == [
-            "validate_model"
+            "submit_indicator_choice"
         ]
 
         runtime.accepted.model_spec = {
@@ -1423,7 +1424,7 @@ class TestStage4Messages:
         turn = session.current_turn()
         assert turn is not None
         assert [tool.name for tool in tools if tool.name in turn.allowed_tool_names] == [
-            "validate_model",
+            "submit_prior_block",
             "elicit_prior_gmm",
         ]
 
@@ -1432,7 +1433,7 @@ class TestStage4Messages:
         turn = session.current_turn()
         assert turn is not None
         assert [tool.name for tool in tools if tool.name in turn.allowed_tool_names] == [
-            "validate_model",
+            "submit_prior_block",
             "search_literature",
             "elicit_prior_gmm",
         ]
@@ -1823,7 +1824,7 @@ def _apply_stage4_step_and_capture(
 ) -> tuple[dict | None, str]:
     """Run one reducer step."""
     return compute_stage4_validate_step(
-        payload,
+        _stage4_test_payload(payload),
         plan=plan,
         runtime=runtime,
         deps=_make_stage4_deps(
@@ -1890,13 +1891,41 @@ def _require_trace(trace_capture: dict[str, object]) -> LLMTrace:
     return trace
 
 
+def _stage4_submit_tool_name(block_kind: str) -> str:
+    """Return the primary submit-tool name for one Stage 4 block kind."""
+    if block_kind == "indicator_decision":
+        return "submit_indicator_choice"
+    if block_kind == "global_review":
+        return "submit_model_review"
+    return "submit_prior_block"
+
+
+def _stage4_submit_tool_args(submission: dict[str, object]) -> dict[str, object]:
+    """Extract the direct tool arguments from a legacy block-keyed submission fixture."""
+    proposal = submission.get("proposal")
+    assert isinstance(proposal, dict)
+    normalized: dict[str, object] = {}
+    for key, value in proposal.items():
+        assert isinstance(key, str)
+        normalized[key] = value
+    return normalized
+
+
+def _stage4_test_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize legacy block-envelope fixtures into reducer payloads."""
+    proposal = payload.get("proposal")
+    if isinstance(proposal, dict):
+        return proposal
+    return payload
+
+
 def _make_scripted_stage4_generate(
     submissions: list[dict[str, object]],
     *,
     visited_blocks: list[str],
     visible_tools: list[list[str]],
 ):
-    """Drive ``run_stage4()`` with scripted ``validate_model`` submissions only."""
+    """Drive ``run_stage4()`` with scripted block-local submit-tool calls only."""
     turn_index = 0
 
     async def _generate(messages, tools, rewrite_messages=None, rewrite_tools=None, label=None):
@@ -1913,8 +1942,9 @@ def _make_scripted_stage4_generate(
         turn_index += 1
         visited_blocks.append(block_id or str(submission["block_id"]))
         visible_tools.append([tool.name for tool in tools])
-        validate_tool = next(tool for tool in tools if tool.name == "validate_model")
-        feedback = await validate_tool(model_json=json.dumps(submission))
+        submit_tool_name = _stage4_submit_tool_name(str(submission["block_kind"]))
+        submit_tool = next(tool for tool in tools if tool.name == submit_tool_name)
+        feedback = await submit_tool(**_stage4_submit_tool_args(submission))
         assert isinstance(feedback, str)
         if feedback.startswith("VALIDATION ERRORS:"):
             raise AssertionError(feedback)
@@ -1938,8 +1968,9 @@ def _make_scripted_stage4_generate_by_block(
         submission = submissions_by_block[block_id]
         visited_blocks.append(block_id)
         visible_tools.append([tool.name for tool in tools])
-        validate_tool = next(tool for tool in tools if tool.name == "validate_model")
-        feedback = await validate_tool(model_json=json.dumps(submission))
+        submit_tool_name = _stage4_submit_tool_name(str(submission["block_kind"]))
+        submit_tool = next(tool for tool in tools if tool.name == submit_tool_name)
+        feedback = await submit_tool(**_stage4_submit_tool_args(submission))
         assert isinstance(feedback, str)
         if feedback.startswith("VALIDATION ERRORS:"):
             raise AssertionError(f"{block_id}: {feedback}")
@@ -2038,7 +2069,7 @@ class TestPriorPredictiveValidation:
 
         with patch(
             "causal_ssm_agent.models.ssm_builder.SSMModelBuilder.sample_prior_predictive",
-            return_value={"drift_diag_pop": np.ones((2, 1))},
+            return_value={"drift_diag_free": np.ones((2, 1))},
         ):
             is_valid, results, _samples = validate_prior_predictive(
                 model_spec, priors, None, n_samples=2
@@ -2240,7 +2271,7 @@ class TestPriorPredictiveValidation:
         class _DummyBuilder:
             def sample_prior_predictive(self, samples: int = 500):
                 return {
-                    "drift_diag_pop": np.ones((samples, 1)),
+                    "drift_diag_free": np.ones((samples, 1)),
                     "observations": np.random.default_rng(0).normal(
                         loc=5.0,
                         scale=1.5,
@@ -2324,7 +2355,7 @@ class TestPriorPredictiveValidation:
                 "schema_version": 4,
                 "site_registry": [
                     {
-                        "name": "t0_means_pop",
+                        "name": "t0_means_free",
                         "shape": [2],
                         "support": "real",
                         "assembly_group": "t0",
@@ -2333,11 +2364,11 @@ class TestPriorPredictiveValidation:
                         "deterministic_name": "t0_means",
                         "fixed_spec_field": "t0_means",
                         "priors_field": "t0_means",
-                        "runtime_prior_key": "t0_means_pop",
+                        "runtime_prior_key": "t0_means_free",
                         "is_runtime_prior_controlled": True,
                     },
                     {
-                        "name": "t0_var_diag",
+                        "name": "t0_var_diag_free",
                         "shape": [2],
                         "support": "positive",
                         "assembly_group": "t0",
@@ -2346,13 +2377,13 @@ class TestPriorPredictiveValidation:
                         "deterministic_name": "t0_cov",
                         "fixed_spec_field": "t0_var",
                         "priors_field": "t0_var_diag",
-                        "runtime_prior_key": "t0_var_diag",
+                        "runtime_prior_key": "t0_var_diag_free",
                         "is_runtime_prior_controlled": True,
                     },
                 ],
                 "prior_state": {
-                    "t0_means_pop": {"family": 0, "loc": [0.0, 1.0], "scale": [2.0, 3.0]},
-                    "t0_var_diag": {
+                    "t0_means_free": {"family": 0, "loc": [0.0, 1.0], "scale": [2.0, 3.0]},
+                    "t0_var_diag_free": {
                         "family": 0,
                         "scale": [4.0, 5.0],
                         "concentration": [1.0, 1.0],
@@ -2440,7 +2471,7 @@ class TestPriorPredictiveValidation:
                 "schema_version": 4,
                 "site_registry": [
                     {
-                        "name": "diffusion_diag_pop",
+                        "name": "diffusion_diag_free",
                         "shape": [1],
                         "support": "positive",
                         "assembly_group": "diffusion",
@@ -2449,11 +2480,11 @@ class TestPriorPredictiveValidation:
                         "deterministic_name": "diffusion",
                         "fixed_spec_field": "diffusion",
                         "priors_field": "diffusion_diag",
-                        "runtime_prior_key": "diffusion_diag_pop",
+                        "runtime_prior_key": "diffusion_diag_free",
                         "is_runtime_prior_controlled": True,
                     },
                     {
-                        "name": "drift_offdiag_pop",
+                        "name": "drift_offdiag_free",
                         "shape": [1],
                         "support": "real",
                         "assembly_group": "drift",
@@ -2462,19 +2493,19 @@ class TestPriorPredictiveValidation:
                         "deterministic_name": "drift",
                         "fixed_spec_field": "drift",
                         "priors_field": "drift_offdiag",
-                        "runtime_prior_key": "drift_offdiag_pop",
+                        "runtime_prior_key": "drift_offdiag_free",
                         "is_runtime_prior_controlled": True,
                     },
                 ],
                 "prior_state": {
-                    "diffusion_diag_pop": {
+                    "diffusion_diag_free": {
                         "family": [2],
                         "loc": [0.2],
                         "scale": [0.7],
                         "concentration": [1.0],
                         "rate": [1.0],
                     },
-                    "drift_offdiag_pop": {
+                    "drift_offdiag_free": {
                         "family": 2,
                         "loc": [0.0],
                         "scale": [0.3],
@@ -2484,10 +2515,10 @@ class TestPriorPredictiveValidation:
                 },
             },
             "parameter_bindings": [
-                {"parameter": "sigma_mood", "site_name": "diffusion_diag_pop", "flat_index": 0},
+                {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
                 {
                     "parameter": "cor_stress_sleep",
-                    "site_name": "drift_offdiag_pop",
+                    "site_name": "drift_offdiag_free",
                     "flat_index": 0,
                 },
             ],
@@ -2513,7 +2544,7 @@ class TestPriorPredictiveValidation:
                 "schema_version": 4,
                 "site_registry": [
                     {
-                        "name": "t0_var_lower",
+                        "name": "t0_var_lower_free",
                         "shape": [1],
                         "support": "correlation",
                         "assembly_group": "t0",
@@ -2522,12 +2553,12 @@ class TestPriorPredictiveValidation:
                         "deterministic_name": "t0_cov",
                         "fixed_spec_field": "t0_var",
                         "priors_field": "t0_var_offdiag",
-                        "runtime_prior_key": "t0_var_lower",
+                        "runtime_prior_key": "t0_var_lower_free",
                         "is_runtime_prior_controlled": True,
                     }
                 ],
                 "prior_state": {
-                    "t0_var_lower": {
+                    "t0_var_lower_free": {
                         "family": [2],
                         "loc": [0.0],
                         "scale": [0.25],
@@ -2539,7 +2570,7 @@ class TestPriorPredictiveValidation:
             "parameter_bindings": [
                 {
                     "parameter": "cor0_sleep_stress",
-                    "site_name": "t0_var_lower",
+                    "site_name": "t0_var_lower_free",
                     "flat_index": 0,
                 }
             ],
@@ -2641,7 +2672,7 @@ class TestSSMPriorConversion:
                 "reasoning": "test",
             },
         }
-        with pytest.raises(ValueError, match="could not be structurally bound"):
+        with pytest.raises(ValueError, match="requires a translated SSMSpec"):
             compile_ssm_priors(priors, simple_model_spec, ssm_spec=None)
 
     def test_compile_ssm_inputs_validates_dict_once(self, simple_model_spec, simple_priors):
@@ -2649,7 +2680,7 @@ class TestSSMPriorConversion:
         from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
 
         with patch.object(ModelSpec, "model_validate", wraps=ModelSpec.model_validate) as validate:
-            compile_ssm_inputs(simple_model_spec, simple_priors)
+            compile_ssm_inputs_from_model_spec(simple_model_spec, simple_priors)
 
         assert validate.call_count == 1
 
@@ -2673,18 +2704,18 @@ class TestSSMPriorConversion:
                 "reasoning": "test",
             },
         }
-        with pytest.raises(ValueError, match="could not be structurally bound"):
+        with pytest.raises(ValueError, match="requires a translated SSMSpec"):
             compile_ssm_priors(priors, spec, ssm_spec=None)
 
     def test_unbound_prior_name_fails_without_model_spec(self):
-        """Prior names must match a ModelSpec parameter; keyword guessing is not allowed."""
+        """Semantic prior compilation should fail fast when model_spec is missing."""
         priors = {
             "rho_x": {
                 "distribution": "Normal",
                 "params": {"mu": -0.3, "sigma": 0.5},
             },
         }
-        with pytest.raises(ValueError, match="does not correspond to any parameter in ModelSpec"):
+        with pytest.raises(ValueError, match="requires model_spec"):
             compile_ssm_priors(priors, {}, ssm_spec=None)
 
     def test_compile_priors_aggregates_independent_prior_errors(self):
@@ -3008,9 +3039,10 @@ class TestSSMPriorConversion:
             priors,
             model_spec,
             ssm_spec=ssm_spec,
+            edge_lag_days={(0, 1): 1.0},
         )
 
-        # Daily default: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
+        # Resolved 1d lag metadata: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
         mu = ssm_priors.drift_offdiag["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - 0.3) < 0.01
@@ -3299,10 +3331,12 @@ class TestSSMPriorConversion:
             }
         )
 
-        _ssm_spec, _ssm_priors, _bindings, diagnostics, _edge_lag_days = compile_ssm_inputs(
-            model_spec,
-            priors,
-            causal_spec=causal_spec,
+        _ssm_spec, _ssm_priors, _bindings, diagnostics, _edge_lag_days = (
+            compile_ssm_inputs_from_model_spec(
+                model_spec,
+                priors,
+                causal_spec=causal_spec,
+            )
         )
 
         dt_ct_warning = next(
@@ -3756,31 +3790,24 @@ class TestStage4Mechanics:
         [
             (
                 {
-                    "block_id": "review:model_spec",
-                    "block_kind": "indicator_decision",
-                    "proposal": {
-                        "variable": "steps",
-                        "distribution": "poisson",
-                        "link": "log",
-                        "reasoning": "wrong block id",
-                    },
+                    "variable": "sleep",
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "wrong indicator variable",
                 },
-                "WRONG BLOCK",
+                "proposal variable must be `steps`",
             ),
             (
                 {
-                    "block_id": "indicator:steps",
-                    "block_kind": "global_review",
-                    "proposal": {
-                        "decision": "approve",
-                        "reasoning": "wrong block kind",
-                    },
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "missing variable",
                 },
-                "WRONG BLOCK KIND",
+                "VALIDATION ERRORS:",
             ),
         ],
     )
-    def test_compute_stage4_validate_step_rejects_wrong_block_payloads(
+    def test_compute_stage4_validate_step_rejects_invalid_indicator_payloads(
         self,
         payload,
         expected_feedback,
@@ -3882,7 +3909,7 @@ class TestStage4Mechanics:
             }, "COMPILE ERROR:\nsteps support mismatch"
 
         stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
-            indicator_payload,
+            _stage4_test_payload(indicator_payload),
             plan=plan,
             runtime=runtime,
             deps=_make_stage4_deps(
@@ -4153,13 +4180,9 @@ class TestStage4Mechanics:
 
         stage_output, feedback = compute_stage4_validate_step(
             {
-                "block_id": "review:model_spec",
-                "block_kind": "global_review",
-                "proposal": {
-                    "decision": "reopen",
-                    "reopen_block_ids": ["indicator:steps"],
-                    "reasoning": "The count likelihood should be reconsidered.",
-                },
+                "decision": "reopen",
+                "reopen_block_ids": ["indicator:steps"],
+                "reasoning": "The count likelihood should be reconsidered.",
             },
             plan=plan,
             runtime=runtime,
@@ -4227,13 +4250,9 @@ class TestStage4Mechanics:
 
         stage_output, feedback = compute_stage4_validate_step(
             {
-                "block_id": "review:model_spec",
-                "block_kind": "global_review",
-                "proposal": {
-                    "decision": "reopen",
-                    "reopen_block_ids": [block.id for block in model_blocks],
-                    "reasoning": "These measurement decisions need to be reconsidered together.",
-                },
+                "decision": "reopen",
+                "reopen_block_ids": [block.id for block in model_blocks],
+                "reasoning": "These measurement decisions need to be reconsidered together.",
             },
             plan=plan,
             runtime=runtime,
@@ -4560,7 +4579,7 @@ class TestStage4Mechanics:
             }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
 
         stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
-            correlation_payload,
+            _stage4_test_payload(correlation_payload),
             plan=plan,
             runtime=runtime,
             deps=_make_stage4_deps(
@@ -4663,7 +4682,7 @@ class TestStage4Mechanics:
             }, "VALID"
 
         stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
-            repair_payload,
+            _stage4_test_payload(repair_payload),
             plan=plan,
             runtime=runtime,
             deps=_make_stage4_deps(
@@ -4843,7 +4862,7 @@ class TestStage4Mechanics:
         )
 
         stage_output, feedback, _transitions = _compute_stage4_validate_step_with_transitions(
-            repair_payload,
+            _stage4_test_payload(repair_payload),
             plan=plan,
             runtime=runtime,
             deps=_make_stage4_deps(
@@ -5613,11 +5632,7 @@ class TestStage4Mechanics:
         _set_done_cursor(runtime)
 
         stage_output, feedback = compute_stage4_validate_step(
-            {
-                "block_id": "effects:sleep",
-                "block_kind": "effect_prior",
-                "proposal": {},
-            },
+            {},
             plan=plan,
             runtime=runtime,
             deps=_make_stage4_deps(
@@ -5944,7 +5959,7 @@ class TestStage4Mechanics:
             "sigma_sleep",
         ]
 
-    def test_run_stage4_can_follow_scripted_validate_model_path(self, monkeypatch):
+    def test_run_stage4_can_follow_scripted_submit_tool_path(self, monkeypatch):
         causal_spec = _make_stage4_mechanics_spec()
 
         submissions = [
@@ -6112,7 +6127,15 @@ class TestStage4Mechanics:
             "dynamics:sleep",
             "effects:sleep",
         ]
-        assert visible_tools == [["validate_model"]] * len(submissions)
+        assert visible_tools == [
+            ["submit_indicator_choice"],
+            ["submit_model_review"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+        ]
         assert any(
             likelihood["variable"] == "steps" and likelihood["distribution"] == "poisson"
             for likelihood in result.model_spec["likelihoods"]
@@ -6348,7 +6371,17 @@ class TestStage4Mechanics:
             "effects:sleep",
             "effects:mood",
         ]
-        assert visible_tools == [["validate_model"]] * len(visited_blocks)
+        assert visible_tools == [
+            ["submit_indicator_choice"],
+            ["submit_model_review"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+        ]
         assert sorted(result.authored_priors) == [
             "beta_activity_mood",
             "beta_activity_sleep",
@@ -6474,7 +6507,11 @@ class TestStage4Mechanics:
             "observation:obs_ordered_base",
             "dynamics:sleep",
         ]
-        assert visible_tools == [["validate_model"], ["validate_model"], ["validate_model"]]
+        assert visible_tools == [
+            ["submit_model_review"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+        ]
         assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_run_stage4_tracks_submission_when_feedback_repeats(self, monkeypatch):
@@ -6670,7 +6707,13 @@ class TestStage4Mechanics:
             "dynamics:sleep",
             "dynamics:sleep",
         ]
-        assert visible_tools == [["validate_model"]] * len(submissions)
+        assert visible_tools == [
+            ["submit_model_review"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+        ]
         assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_run_stage4_resumes_from_runtime_checkpoint(self, monkeypatch):
@@ -6780,8 +6823,8 @@ class TestStage4Mechanics:
             block_id = label.removeprefix("stage-4:")
             first_run_blocks.append(block_id)
             if block_id == "review:model_spec":
-                validate_tool = next(tool for tool in tools if tool.name == "validate_model")
-                feedback = await validate_tool(model_json=json.dumps(review_submission))
+                submit_tool = next(tool for tool in tools if tool.name == "submit_model_review")
+                feedback = await submit_tool(**_stage4_submit_tool_args(review_submission))
                 assert isinstance(feedback, str)
                 assert not feedback.startswith("VALIDATION ERRORS:")
                 return ""
@@ -6815,13 +6858,17 @@ class TestStage4Mechanics:
             assert label is not None and label.startswith("stage-4:")
             block_id = label.removeprefix("stage-4:")
             second_run_blocks.append(block_id)
-            validate_tool = next(tool for tool in tools if tool.name == "validate_model")
             submission = (
                 observation_submission
                 if block_id == "observation:obs_ordered_base"
                 else dynamics_submission
             )
-            feedback = await validate_tool(model_json=json.dumps(submission))
+            submit_tool = next(
+                tool
+                for tool in tools
+                if tool.name == _stage4_submit_tool_name(submission["block_kind"])
+            )
+            feedback = await submit_tool(**_stage4_submit_tool_args(submission))
             assert isinstance(feedback, str)
             assert not feedback.startswith("VALIDATION ERRORS:")
             return ""
@@ -6959,7 +7006,11 @@ class TestStage4Mechanics:
         assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
-        from causal_ssm_agent.utils.openrouter_client import Tool
+        from causal_ssm_agent.flows.stages.stage4.tools import (
+            make_submit_indicator_choice_tool,
+            make_submit_model_review_tool,
+            make_submit_prior_block_tool,
+        )
 
         causal_spec = _make_stage4_mechanics_spec()
         submissions = [
@@ -7252,6 +7303,7 @@ class TestStage4Mechanics:
             seen_feedbacks.append(turn.latest_feedback)
             payload = submissions[call_index]
             call_index += 1
+            tool_name = _stage4_submit_tool_name(str(payload["block_kind"]))
             return {
                 "message": {
                     "role": "assistant",
@@ -7261,8 +7313,8 @@ class TestStage4Mechanics:
                             "id": f"call_{call_index}",
                             "type": "function",
                             "function": {
-                                "name": "validate_model",
-                                "arguments": json.dumps({"model_json": json.dumps(payload)}),
+                                "name": tool_name,
+                                "arguments": json.dumps(_stage4_submit_tool_args(payload)),
                             },
                         }
                     ],
@@ -7274,28 +7326,11 @@ class TestStage4Mechanics:
                 "stop_reason": "tool_calls",
             }
 
-        async def _execute_validate(*, model_json: str) -> str:
-            data = json.loads(model_json)
-            return session.submit(data)
-
-        validate_tool = Tool(
-            name="validate_model",
-            description="Submit one active Stage 4 frontier block for validation.",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "model_json": {
-                        "type": "string",
-                        "description": "JSON object with block-local Stage 4 submission payload.",
-                    }
-                },
-                "required": ["model_json"],
-                "additionalProperties": False,
-            },
-            execute=_execute_validate,
-            stop_on_success=True,
-            success_output=None,
-        )
+        tool_map = {
+            "submit_indicator_choice": make_submit_indicator_choice_tool(session),
+            "submit_model_review": make_submit_model_review_tool(session),
+            "submit_prior_block": make_submit_prior_block_tool(session),
+        }
         monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
 
         generate = make_generate_fn(
@@ -7307,14 +7342,31 @@ class TestStage4Mechanics:
         while not session.is_done():
             turn = session.current_turn()
             assert turn is not None
-            completion = asyncio.run(_await_string(generate(turn.messages, [validate_tool])))
+            completion = asyncio.run(
+                _await_string(
+                    generate(
+                        turn.messages,
+                        [tool_map[turn.required_submission_tool_name]],
+                    )
+                )
+            )
 
         assert completion == ""
         assert seen_block_ids == expected_blocks
         assert call_index == len(submissions)
         assert seen_message_counts == [2] * len(submissions)
         assert seen_message_roles == [["system", "user"]] * len(submissions)
-        assert seen_tool_names == [["validate_model"]] * len(submissions)
+        assert seen_tool_names == [
+            ["submit_indicator_choice"],
+            ["submit_model_review"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+            ["submit_prior_block"],
+        ]
         assert seen_feedbacks == [
             "No validator feedback yet. Submit the active block only.",
             "MODEL STATE SAVED:\n- missing priors",

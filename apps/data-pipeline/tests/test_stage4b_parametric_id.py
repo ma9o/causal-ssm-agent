@@ -14,6 +14,7 @@ from causal_ssm_agent.models.ssm.inference.structure import (
     plan_inference_structure,
 )
 from causal_ssm_agent.models.ssm.model import SSMSpec
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 from tests.ssm_test_utils import make_ssm_spec
@@ -40,7 +41,10 @@ def _support_runtime() -> ObservationSupportRuntime:
 
 def _make_model(spec: SSMSpec, observation_support=None):
     return SimpleNamespace(
-        spec=spec, observation_support=observation_support, likelihood="particle"
+        spec=spec,
+        observation_support=observation_support,
+        likelihood="particle",
+        _structure_runtime=SSMStructureRuntime(spec),
     )
 
 
@@ -218,7 +222,7 @@ class TestStage4bInferenceStructurePayload:
                 self.condition_number = 10.0
                 self.per_parameter = [
                     {
-                        "parameter": "drift_offdiag_pop[0]",
+                        "parameter": "drift_offdiag_free[0]",
                         "interpretable_parameter": "beta_g1_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
@@ -247,9 +251,9 @@ class TestStage4bInferenceStructurePayload:
 
         class StubProfileLikelihoodResult:
             def __init__(self):
-                self.parameter_names = ["drift_offdiag_pop[0]", "lambda_free"]
+                self.parameter_names = ["drift_offdiag_free[0]", "lambda_free"]
                 self.parameter_profiles = {
-                    "drift_offdiag_pop[0]": {
+                    "drift_offdiag_free[0]": {
                         "grid_con": [-1.0, 0.0, 1.0],
                         "profile_ll": jnp.array([-0.1, 0.0, -0.1]),
                     },
@@ -265,7 +269,7 @@ class TestStage4bInferenceStructurePayload:
 
             def summary(self):
                 return {
-                    "drift_offdiag_pop[0]": "structurally_unidentifiable",
+                    "drift_offdiag_free[0]": "structurally_unidentifiable",
                     "lambda_free": "practically_unidentifiable",
                 }
 
@@ -280,7 +284,7 @@ class TestStage4bInferenceStructurePayload:
         monkeypatch.setattr(
             "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
-                scalar_names=["drift_offdiag_pop[0]", "lambda_free"]
+                scalar_names=["drift_offdiag_free[0]", "lambda_free"]
             ),
         )
         monkeypatch.setattr(
@@ -302,7 +306,7 @@ class TestStage4bInferenceStructurePayload:
 
         pid = result["parametric_id"]
         assert pid["summary"] == {
-            "structural_issues": ["drift_offdiag_pop[0]"],
+            "structural_issues": ["drift_offdiag_free[0]"],
             "boundary_issues": [],
             "weak_params": ["lambda_free"],
         }
@@ -344,7 +348,7 @@ class TestStage4bInferenceStructurePayload:
                 self.condition_number = 10.0
                 self.per_parameter = [
                     {
-                        "parameter": "diffusion_diag_pop[0]",
+                        "parameter": "diffusion_diag_free[0]",
                         "interpretable_parameter": "sigma_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
@@ -354,7 +358,7 @@ class TestStage4bInferenceStructurePayload:
                         "identifiable": False,
                     },
                     {
-                        "parameter": "drift_diag_pop[0]",
+                        "parameter": "drift_diag_free[0]",
                         "interpretable_parameter": "rho_g0",
                         "sensitivity_norm": 0.1,
                         "effective_sv": 1e-5,
@@ -382,7 +386,7 @@ class TestStage4bInferenceStructurePayload:
         monkeypatch.setattr(
             "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
-                scalar_names=["diffusion_diag_pop[0]", "drift_diag_pop[0]"]
+                scalar_names=["diffusion_diag_free[0]", "drift_diag_free[0]"]
             ),
         )
         monkeypatch.setattr(
@@ -402,8 +406,8 @@ class TestStage4bInferenceStructurePayload:
         assert pid["per_param_classification"] is None
         assert pid["threshold"] is None
         assert pid["summary"]["weak_params"] == [
-            "diffusion_diag_pop[0]",
-            "drift_diag_pop[0]",
+            "diffusion_diag_free[0]",
+            "drift_diag_free[0]",
         ]
 
     def test_profiles_only_substantive_raw_failures_after_sensitivity_gate(self, monkeypatch):
@@ -437,7 +441,7 @@ class TestStage4bInferenceStructurePayload:
                 self.condition_number = 10.0
                 self.per_parameter = [
                     {
-                        "parameter": "diffusion_diag_pop[0]",
+                        "parameter": "diffusion_diag_free[0]",
                         "interpretable_parameter": "sigma_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
@@ -447,7 +451,7 @@ class TestStage4bInferenceStructurePayload:
                         "identifiable": False,
                     },
                     {
-                        "parameter": "drift_offdiag_pop[0]",
+                        "parameter": "drift_offdiag_free[0]",
                         "interpretable_parameter": "beta_g1_g0",
                         "sensitivity_norm": 0.01,
                         "effective_sv": 1e-8,
@@ -510,7 +514,7 @@ class TestStage4bInferenceStructurePayload:
         monkeypatch.setattr(
             "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
-                scalar_names=["diffusion_diag_pop[0]", "drift_offdiag_pop[0]", "lambda_free"]
+                scalar_names=["diffusion_diag_free[0]", "drift_offdiag_free[0]", "lambda_free"]
             ),
         )
         monkeypatch.setattr(

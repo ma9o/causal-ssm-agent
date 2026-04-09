@@ -561,14 +561,14 @@ class TestAutoReparamSSM:
             trace = handlers.trace(reparam_model).get_trace(observations, times)
 
         # Normal sites (loc-scale, real support) → LocScaleReparam
-        for site in ["drift_diag_pop", "drift_offdiag_pop", "t0_means_pop"]:
+        for site in ["drift_diag_free", "drift_offdiag_free", "t0_means_free"]:
             if site in strategy.config:
                 assert isinstance(strategy.config[site], LocScaleReparam), (
                     f"{site} should be LocScaleReparam"
                 )
 
         # HalfNormal sites (positive support) → None
-        for site in ["diffusion_diag_pop", "manifest_var_diag", "t0_var_diag"]:
+        for site in ["diffusion_diag_free", "manifest_var_diag_free", "t0_var_diag_free"]:
             assert strategy.config.get(site) is None, f"{site} should NOT be reparameterized"
 
         # All values finite
@@ -622,8 +622,8 @@ class TestAutoReparamSSM:
         )
 
         sample_names = set(result.get_samples())
-        assert "drift_diag_pop" in sample_names
-        assert "diffusion_diag_pop" in sample_names
+        assert "drift_diag_free" in sample_names
+        assert "diffusion_diag_free" in sample_names
         assert all("_decentered" not in name for name in sample_names)
 
         diag = result.get_mcmc_diagnostics()
@@ -669,8 +669,8 @@ class TestAutoReparamSSM:
             times=times,
         )
 
-        assert "drift_diag_pop" in samples
-        assert "diffusion_diag_pop" in samples
+        assert "drift_diag_free" in samples
+        assert "diffusion_diag_free" in samples
         assert all("_decentered" not in name for name in samples)
 
     def test_fit_nuts_da_noncentered_with_reparam(self):
@@ -695,7 +695,7 @@ class TestAutoReparamSSM:
         )
 
         sample_names = set(result.get_samples())
-        assert "drift_diag_pop" in sample_names
+        assert "drift_diag_free" in sample_names
         assert "eps" not in sample_names
         assert "eps_0" not in sample_names
         assert all("_decentered" not in name for name in sample_names)

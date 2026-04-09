@@ -199,7 +199,7 @@ class TestDriftMask:
         )
 
         # 3x3 - 3 diagonal = 6 off-diagonal
-        assert trace["drift_offdiag_pop"]["value"].shape == (6,)
+        assert trace["drift_offdiag_free"]["value"].shape == (6,)
 
     def test_drift_mask_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
@@ -221,7 +221,7 @@ class TestDriftMask:
         )
 
         # No off-diagonal params sampled
-        assert "drift_offdiag_pop" not in trace
+        assert "drift_offdiag_free" not in trace
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -344,7 +344,7 @@ class TestPerElementPriors:
         )
 
         # The off-diagonal value should be near 2.0 (tight prior)
-        offdiag = float(trace["drift_offdiag_pop"]["value"][0])
+        offdiag = float(trace["drift_offdiag_free"]["value"][0])
         assert abs(offdiag - 2.0) < 1.0, f"Expected ~2.0, got {offdiag}"
 
 
@@ -956,8 +956,8 @@ class TestParametricIdMasks:
         counts = count_free_params(spec)
 
         # Should have 2 off-diagonal, not 6
-        assert counts["drift_offdiag_pop"] == 2
-        assert counts["drift_diag_pop"] == 3
+        assert counts["drift_offdiag_free"] == 2
+        assert counts["drift_diag_free"] == 3
 
     def test_count_free_params_with_lambda_mask(self):
         """count_free_params counts masked lambda entries."""
@@ -987,7 +987,7 @@ class TestTraceVerification:
     """Verify parameter shapes via numpyro.handlers.trace."""
 
     def test_masked_model_trace(self):
-        """Full model trace with masks: verify drift_offdiag_pop shape."""
+        """Full model trace with masks: verify drift_offdiag_free shape."""
         mask = np.eye(3, dtype=bool)
         mask[1, 0] = True  # X→Y
         mask[2, 1] = True  # Y→Z
@@ -1015,8 +1015,8 @@ class TestTraceVerification:
         )
 
         # Drift: 3 diagonal + 2 off-diagonal
-        assert trace["drift_diag_pop"]["value"].shape == (3,)
-        assert trace["drift_offdiag_pop"]["value"].shape == (2,)
+        assert trace["drift_diag_free"]["value"].shape == (3,)
+        assert trace["drift_offdiag_free"]["value"].shape == (2,)
 
         # Lambda: 1 free loading
         assert trace["lambda_free"]["value"].shape == (1,)

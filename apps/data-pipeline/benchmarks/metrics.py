@@ -58,8 +58,8 @@ def extract_drift(samples, n_latent):
     if "drift" in samples and samples["drift"].ndim == 3:
         return samples["drift"]
 
-    drift_diag = samples["drift_diag_pop"]
-    drift_offdiag = samples["drift_offdiag_pop"]
+    drift_diag = samples["drift_diag_free"]
+    drift_offdiag = samples["drift_offdiag_free"]
 
     def assemble_one(diag, offdiag):
         d = jnp.diag(-jnp.abs(diag))
@@ -80,14 +80,14 @@ def extract_diffusion_diag(samples, n_latent):
     """Extract diffusion diagonal samples (Cholesky SD)."""
     if "diffusion" in samples and samples["diffusion"].ndim == 3:
         return jnp.array([samples["diffusion"][:, i, i] for i in range(n_latent)]).T
-    return samples["diffusion_diag_pop"]
+    return samples["diffusion_diag_free"]
 
 
 def extract_cint(samples):
     """Extract continuous intercept samples."""
     if "cint" in samples and samples["cint"].ndim == 2:
         return samples["cint"]
-    return samples["cint_pop"]
+    return samples["cint_free"]
 
 
 def extract_lambda(samples):

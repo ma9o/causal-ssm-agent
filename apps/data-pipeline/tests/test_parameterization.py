@@ -148,7 +148,7 @@ class TestSiteRegistry:
         site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
 
         verify_registry_matches_trace(registry, site_info)
-        manifest_site = next(site for site in registry if site.name == "manifest_var_diag")
+        manifest_site = next(site for site in registry if site.name == "manifest_var_diag_free")
         assert manifest_site.shape == (1,)
 
     def test_fixed_drift_excludes_drift_sites(self):
@@ -160,8 +160,8 @@ class TestSiteRegistry:
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
-        assert "drift_diag_pop" not in names
-        assert "drift_offdiag_pop" not in names
+        assert "drift_diag_free" not in names
+        assert "drift_offdiag_free" not in names
 
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
@@ -173,8 +173,8 @@ class TestSiteRegistry:
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
-        assert "diffusion_diag_pop" in names
-        assert "diffusion_lower" not in names
+        assert "diffusion_diag_free" in names
+        assert "diffusion_lower_free" not in names
 
     def test_free_diffusion_includes_lower(self):
         """Free diffusion includes lower-triangle sites."""
@@ -186,8 +186,8 @@ class TestSiteRegistry:
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
-        assert "diffusion_diag_pop" in names
-        assert "diffusion_lower" in names
+        assert "diffusion_diag_free" in names
+        assert "diffusion_lower_free" in names
 
     def test_sparse_initial_state_correlations_only_include_authored_pairs(self):
         """Initial-state correlation sites should only exist for authored pairs."""
@@ -202,18 +202,18 @@ class TestSiteRegistry:
         )
         registry = build_site_registry(spec)
         site_map = {site.name: site for site in registry}
-        assert site_map["t0_var_lower"].shape == (1,)
+        assert site_map["t0_var_lower_free"].shape == (1,)
 
     def test_support_classes(self, simple_spec):
         """Check that support classes are correctly assigned."""
         registry = build_site_registry(simple_spec)
         support_map = {s.name: s.support for s in registry}
         # REAL support sites (Normal priors)
-        assert support_map["drift_diag_pop"] == SupportClass.REAL
+        assert support_map["drift_diag_free"] == SupportClass.REAL
         # POSITIVE support sites (HalfNormal priors)
-        assert support_map["diffusion_diag_pop"] == SupportClass.POSITIVE
-        assert support_map["manifest_var_diag"] == SupportClass.POSITIVE
-        assert support_map["t0_var_diag"] == SupportClass.POSITIVE
+        assert support_map["diffusion_diag_free"] == SupportClass.POSITIVE
+        assert support_map["manifest_var_diag_free"] == SupportClass.POSITIVE
+        assert support_map["t0_var_diag_free"] == SupportClass.POSITIVE
 
     def test_mixed_diffusion_includes_proc_df_site(self):
         """Any student-t latent in diffusion_dists should expose proc_df."""
@@ -286,22 +286,22 @@ class TestDeterministicAssembly:
         assert "drift" in grouped
         assert "diffusion" in grouped
         assert {site.name for site in grouped["drift"]} == {
-            "drift_diag_pop",
-            "drift_offdiag_pop",
+            "drift_diag_free",
+            "drift_offdiag_free",
         }
 
     def test_assemble_deterministics_from_registry_free_spec(self, simple_spec):
         """Registry-driven assembly builds the expected matrices."""
         registry = build_site_registry(simple_spec)
         samples = {
-            "drift_diag_pop": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
-            "drift_offdiag_pop": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
-            "diffusion_diag_pop": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
-            "diffusion_lower": jnp.array([[0.25]], dtype=jnp.float32),
+            "drift_diag_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_offdiag_free": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
+            "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
-            "manifest_var_diag": jnp.array([[0.7, 0.8]], dtype=jnp.float32),
-            "t0_means_pop": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
-            "t0_var_diag": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
+            "manifest_var_diag_free": jnp.array([[0.7, 0.8]], dtype=jnp.float32),
+            "t0_means_free": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
+            "t0_var_diag_free": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
         }
 
         det = assemble_deterministics_from_registry(samples, simple_spec, registry)
@@ -349,14 +349,14 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "drift_diag_pop": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
-            "drift_offdiag_pop": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
-            "diffusion_diag_pop": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
-            "diffusion_lower": jnp.array([[0.25]], dtype=jnp.float32),
+            "drift_diag_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_offdiag_free": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
+            "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
-            "manifest_var_diag": jnp.array([[0.9]], dtype=jnp.float32),
-            "t0_means_pop": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
-            "t0_var_diag": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
+            "manifest_var_diag_free": jnp.array([[0.9]], dtype=jnp.float32),
+            "t0_means_free": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
+            "t0_var_diag_free": jnp.array([[0.9, 1.1]], dtype=jnp.float32),
         }
 
         det = assemble_deterministics_from_registry(samples, spec, registry)
@@ -375,15 +375,15 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "drift_diag_pop": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
-            "drift_offdiag_pop": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
-            "diffusion_diag_pop": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
-            "diffusion_lower": jnp.array([[0.25]], dtype=jnp.float32),
+            "drift_diag_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_offdiag_free": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
+            "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
-            "manifest_var_diag": jnp.array([[0.7, 0.8]], dtype=jnp.float32),
-            "t0_means_pop": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
-            "t0_var_diag": jnp.array([[2.0, 3.0]], dtype=jnp.float32),
-            "t0_var_lower": jnp.array([[0.25]], dtype=jnp.float32),
+            "manifest_var_diag_free": jnp.array([[0.7, 0.8]], dtype=jnp.float32),
+            "t0_means_free": jnp.array([[1.0, -1.0]], dtype=jnp.float32),
+            "t0_var_diag_free": jnp.array([[2.0, 3.0]], dtype=jnp.float32),
+            "t0_var_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
         }
 
         det = assemble_deterministics_from_registry(samples, spec, registry)
@@ -408,15 +408,15 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "drift_diag_pop": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
-            "drift_offdiag_pop": jnp.array([[0.1] * 6], dtype=jnp.float32),
-            "diffusion_diag_pop": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
-            "diffusion_lower": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
+            "drift_diag_free": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
+            "drift_offdiag_free": jnp.array([[0.1] * 6], dtype=jnp.float32),
+            "diffusion_diag_free": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
+            "diffusion_lower_free": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
-            "manifest_var_diag": jnp.array([[0.7, 0.8, 0.9]], dtype=jnp.float32),
-            "t0_means_pop": jnp.array([[1.0, -1.0, 0.5]], dtype=jnp.float32),
-            "t0_var_diag": jnp.array([[1.0, 1.0, 1.0]], dtype=jnp.float32),
-            "t0_var_lower": jnp.array([[0.9, 0.9, -0.9]], dtype=jnp.float32),
+            "manifest_var_diag_free": jnp.array([[0.7, 0.8, 0.9]], dtype=jnp.float32),
+            "t0_means_free": jnp.array([[1.0, -1.0, 0.5]], dtype=jnp.float32),
+            "t0_var_diag_free": jnp.array([[1.0, 1.0, 1.0]], dtype=jnp.float32),
+            "t0_var_lower_free": jnp.array([[0.9, 0.9, -0.9]], dtype=jnp.float32),
         }
 
         det = assemble_deterministics_from_registry(samples, spec, registry)
@@ -459,8 +459,8 @@ class TestPriorRuntimeState:
         priors = SSMPriors(drift_diag={"mu": -2.0, "sigma": 0.5})
         registry = build_site_registry(simple_spec)
         state = build_prior_runtime_state(registry, priors)
-        assert jnp.allclose(state["drift_diag_pop"]["loc"], jnp.full(2, -2.0))
-        assert jnp.allclose(state["drift_diag_pop"]["scale"], jnp.full(2, 0.5))
+        assert jnp.allclose(state["drift_diag_free"]["loc"], jnp.full(2, -2.0))
+        assert jnp.allclose(state["drift_diag_free"]["scale"], jnp.full(2, 0.5))
 
     def test_state_is_valid_pytree(self, simple_spec):
         """Prior state can be flattened/unflattened as a JAX pytree."""
@@ -610,10 +610,10 @@ class TestCompileStability:
         D, unravel_fn = build_unravel_fn(registry)
 
         state1 = build_prior_runtime_state(registry)
-        # Switch diffusion_diag_pop from HalfNormal (0) to Gamma (1)
+        # Switch diffusion_diag_free from HalfNormal (0) to Gamma (1)
         # Use _make_positive_params to ensure consistent weak_type/dtype.
         state2 = build_prior_runtime_state(registry)
-        state2["diffusion_diag_pop"] = _make_positive_params(
+        state2["diffusion_diag_free"] = _make_positive_params(
             (simple_spec.n_latent,),
             family=1,
             scale=1.0,
@@ -724,12 +724,12 @@ class TestSerialization:
         payload = serialize_prior_runtime_state(state)
         restored = deserialize_prior_runtime_state(payload, registry)
         assert jnp.allclose(
-            restored["drift_diag_pop"]["loc"],
+            restored["drift_diag_free"]["loc"],
             jnp.full(2, -2.0),
             atol=1e-6,
         )
         assert jnp.allclose(
-            restored["diffusion_diag_pop"]["scale"],
+            restored["diffusion_diag_free"]["scale"],
             jnp.full(2, 0.5),
             atol=1e-6,
         )
@@ -741,8 +741,8 @@ class TestSerialization:
         assert semantics["schema_version"] == 4
         registry = deserialize_site_registry(semantics["site_registry"])
         state = deserialize_prior_runtime_state(semantics["prior_state"], registry)
-        assert "drift_diag_pop" in state
-        assert jnp.allclose(state["drift_diag_pop"]["loc"], jnp.full(2, -1.0), atol=1e-6)
+        assert "drift_diag_free" in state
+        assert jnp.allclose(state["drift_diag_free"]["loc"], jnp.full(2, -1.0), atol=1e-6)
 
 
 class TestCanonicalRuntimePriors:
@@ -753,9 +753,9 @@ class TestCanonicalRuntimePriors:
             drift_diag={"mu": [-0.5, -0.3, -0.7], "sigma": [1.0, 0.5, 0.8]},
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(spec, priors))
-        assert runtime.prior_state["drift_diag_pop"]["loc"].shape == (3,)
+        assert runtime.prior_state["drift_diag_free"]["loc"].shape == (3,)
         assert jnp.allclose(
-            runtime.prior_state["drift_diag_pop"]["loc"],
+            runtime.prior_state["drift_diag_free"]["loc"],
             jnp.array([-0.5, -0.3, -0.7], dtype=jnp.float32),
         )
 
@@ -763,7 +763,7 @@ class TestCanonicalRuntimePriors:
         """Canonical site distributions accept vector-valued positive scales."""
         priors = SSMPriors(t0_var_diag={"sigma": [1.0, 2.0]})
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        site = next(site for site in runtime.registry if site.name == "t0_var_diag")
+        site = next(site for site in runtime.registry if site.name == "t0_var_diag_free")
         prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
         assert isinstance(prior_dist, dist.HalfNormal)
         assert prior_dist.batch_shape == (2,)
@@ -947,4 +947,4 @@ class TestCompiledArtifactIntegration:
             likelihood_backend=backend,
         )
 
-        assert trace["t0_var_diag"]["value"].shape == (2,)
+        assert trace["t0_var_diag_free"]["value"].shape == (2,)

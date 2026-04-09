@@ -193,17 +193,17 @@ class SSMStructureRuntime:
 
     def assemble_drift(
         self,
-        drift_diag_pop: jnp.ndarray | None = None,
-        drift_offdiag_pop: jnp.ndarray | None = None,
+        drift_diag_free: jnp.ndarray | None = None,
+        drift_offdiag_free: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Build drift matrix from diagonal and off-diagonal parameter values."""
         drift = self.drift_template
-        if drift_diag_pop is not None:
+        if drift_diag_free is not None:
             for idx, latent_idx in enumerate(self.drift_diag_positions):
-                drift = drift.at[latent_idx, latent_idx].set(-jnp.abs(drift_diag_pop[idx]))
-        if drift_offdiag_pop is not None:
+                drift = drift.at[latent_idx, latent_idx].set(-jnp.abs(drift_diag_free[idx]))
+        if drift_offdiag_free is not None:
             for idx, (i, j) in enumerate(self.offdiag_positions):
-                drift = drift.at[i, j].set(drift_offdiag_pop[idx])
+                drift = drift.at[i, j].set(drift_offdiag_free[idx])
         if self.ti_mask is not None:
             diag_vals = jnp.diag(drift)
             new_diag = jnp.where(self.ti_mask, -1e-6, diag_vals)
