@@ -7,6 +7,7 @@ dual averaging step size adaptation.
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import pytest
 
 from causal_ssm_agent.models.ssm.inference.engines.mcmc_utils import (
     compute_weighted_chol_mass,
@@ -49,6 +50,7 @@ class TestHMCStep:
         assert accepted.shape == ()
         assert log_pi.shape == ()
 
+    @pytest.mark.slow
     def test_mala_moves_toward_mode(self):
         """MALA (n_leapfrog=1) moves particles toward the target mode on average."""
         D = 2

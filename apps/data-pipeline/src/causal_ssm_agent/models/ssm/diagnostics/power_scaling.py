@@ -1,32 +1,26 @@
-"""Post-fit parametric diagnostics for state-space models.
-
-Power-scaling sensitivity: detect prior-dominated or conflicting parameters
-by perturbing each component's contribution and measuring posterior shift
-(Kallioinen et al. 2023).
-"""
+"""Post-fit parametric diagnostics for state-space models."""
 
 from __future__ import annotations
 
-import logging
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import arviz as az
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.models.ssm.inference.utils import (
-    _build_eval_fns,
-    _discover_sites,
-)
+from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discover_sites
+
+from .results import PowerScalingResult
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm.model import SSMModel
 
-# Use parent module's logger so existing log-level filters work unchanged
-logger = logging.getLogger("causal_ssm_agent.utils.parametric_id")
+logger = get_prefect_logger(__name__)
 
 
 def _sum_sample_terms(values: jnp.ndarray) -> jnp.ndarray:
@@ -37,31 +31,6 @@ def _sum_sample_terms(values: jnp.ndarray) -> jnp.ndarray:
     return arr.reshape((arr.shape[0], -1)).sum(axis=1)
 
 
-@dataclass
-class PowerScalingResult:
-    """Results from post-fit power-scaling sensitivity analysis."""
-
-    prior_sensitivity: dict[str, float]
-    likelihood_sensitivity: dict[str, float]
-    diagnosis: dict[str, str]  # "prior_dominated" | "well_identified" | "prior_data_conflict"
-    psis_k_hat: dict[str, float] = field(default_factory=dict)
-
-    def print_report(self) -> None:
-        """Log a human-readable power-scaling report."""
-        lines = ["=== Power-Scaling Sensitivity Report ==="]
-        for name in self.diagnosis:
-            prior_s = self.prior_sensitivity.get(name, 0.0)
-            lik_s = self.likelihood_sensitivity.get(name, 0.0)
-            diag = self.diagnosis[name]
-            k_hat = self.psis_k_hat.get(name, float("nan"))
-            reliable = "reliable" if k_hat < 0.7 else "UNRELIABLE"
-            lines.append(
-                f"  {name}: prior_sens={prior_s:.3f}, lik_sens={lik_s:.3f} "
-                f"-> {diag} (k_hat={k_hat:.2f}, {reliable})"
-            )
-        logger.info("\n%s", "\n".join(lines))
-
-
 def power_scaling_sensitivity(
     model: SSMModel,
     observations: jnp.ndarray,
@@ -70,26 +39,9 @@ def power_scaling_sensitivity(
     seed: int = 0,
     alpha_delta: float = 0.01,
 ) -> PowerScalingResult:
-    """Post-fit power-scaling sensitivity diagnostic.
-
-    Detects whether posterior is driven by prior or likelihood by
-    perturbing each component's contribution and measuring the
-    resulting shift in posterior means.
-
-    Args:
-        model: SSMModel instance
-        observations: (T, n_manifest) real observed data
-        times: (T,) observation times
-        result: InferenceResult from fitting
-        seed: random seed
-        alpha_delta: perturbation size for power scaling (default 0.01)
-
-    Returns:
-        PowerScalingResult with per-parameter sensitivity diagnostics
-    """
+    """Post-fit power-scaling sensitivity diagnostic."""
     rng_key = random.PRNGKey(seed)
 
-    # 1. Discover sites and build eval functions
     backend = model.make_likelihood_backend()
     rng_key, trace_key = random.split(rng_key)
     site_info = _discover_sites(model, observations, times, trace_key, backend)
@@ -97,7 +49,12 @@ def power_scaling_sensitivity(
     _, unravel_fn = ravel_pytree(example_unc)
 
     log_lik_fn, _log_prior_unc_fn = _build_eval_fns(
-        model, observations, times, site_info, unravel_fn, backend
+        model,
+        observations,
+        times,
+        site_info,
+        unravel_fn,
+        backend,
     )
 
     param_names = sorted(site_info.keys())
@@ -107,14 +64,13 @@ def power_scaling_sensitivity(
         for entry in parameter_bindings
     }
 
-    # 2. Extract posterior samples -> unconstrained flat vectors
     samples = result.get_samples()
     n_samples = next(iter(samples.values())).shape[0]
 
     constrained_by_site: dict[str, jnp.ndarray] = {}
     unconstrained_by_site: dict[str, jnp.ndarray] = {}
     flat_samples = []
-    for i in range(n_samples):
+    for sample_idx in range(n_samples):
         parts = []
         for name in param_names:
             if name in samples:
@@ -123,7 +79,7 @@ def power_scaling_sensitivity(
                     unconstrained_by_site[name] = jax.vmap(site_info[name]["transform"].inv)(
                         constrained_by_site[name]
                     )
-                unc_val = unconstrained_by_site[name][i]
+                unc_val = unconstrained_by_site[name][sample_idx]
                 parts.append(unc_val.reshape(-1))
         if parts:
             flat_samples.append(jnp.concatenate(parts))
@@ -135,12 +91,10 @@ def power_scaling_sensitivity(
             diagnosis={},
         )
 
-    z_samples = jnp.stack(flat_samples)  # (n_samples, D)
+    z_samples = jnp.stack(flat_samples)
 
-    # 3. Evaluate log-prior and log-likelihood for each sample
     batch_log_lik = jax.vmap(log_lik_fn)
 
-    # Chunk to avoid OOM
     chunk_size = 32
     log_liks_parts = []
     for start in range(0, n_samples, chunk_size):
@@ -149,19 +103,15 @@ def power_scaling_sensitivity(
 
     log_liks = jnp.concatenate(log_liks_parts)
 
-    # 4. Power-scaling: use per-site prior factors and global likelihood weights.
     alpha = alpha_delta
     lik_log_weights = alpha * log_liks
     lik_log_weights = lik_log_weights - jax.nn.logsumexp(lik_log_weights)
     lik_weights = jnp.exp(lik_log_weights)
 
-    # 5. Compute per-parameter sensitivity
     prior_sensitivity = {}
     likelihood_sensitivity = {}
     diagnosis = {}
     psis_k_hat = {}
-    import arviz as az
-    import numpy as np
 
     for name in param_names:
         if name not in constrained_by_site:

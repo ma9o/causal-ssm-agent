@@ -127,7 +127,9 @@ def validate_model_spec_dict(
         errors.append("'likelihoods' must be a list")
         likelihoods = []
 
-    likelihood_variables = [item.get("variable", "") for item in likelihoods if isinstance(item, dict)]
+    likelihood_variables = [
+        item.get("variable", "") for item in likelihoods if isinstance(item, dict)
+    ]
     seen_likelihood_variables: set[str] = set()
     for variable in likelihood_variables:
         if variable and variable in seen_likelihood_variables:
@@ -137,7 +139,9 @@ def validate_model_spec_dict(
 
     parameters_raw = data.get("parameters", [])
     if isinstance(parameters_raw, list):
-        parameter_names = [item.get("name", "") for item in parameters_raw if isinstance(item, dict)]
+        parameter_names = [
+            item.get("name", "") for item in parameters_raw if isinstance(item, dict)
+        ]
         seen_parameter_names: set[str] = set()
         for name in parameter_names:
             if name and name in seen_parameter_names:
@@ -188,7 +192,10 @@ def validate_model_spec_dict(
         if distribution in valid_distributions and variable in indicator_dtype:
             dtype = indicator_dtype[variable]
             allowed_distributions = VALID_LIKELIHOODS_FOR_DTYPE.get(dtype)
-            if allowed_distributions is not None and DistributionFamily(distribution) not in allowed_distributions:
+            if (
+                allowed_distributions is not None
+                and DistributionFamily(distribution) not in allowed_distributions
+            ):
                 errors.append(
                     f"likelihoods[{index}] '{variable}': distribution '{distribution}' invalid for dtype '{dtype}'; "
                     f"expected one of {{{', '.join(sorted(item.value for item in allowed_distributions))}}}"
@@ -237,7 +244,9 @@ def validate_model_spec_dict(
                     f"parameters[{index}] '{name}': constraint '{constraint}' unexpected "
                     f"for role '{role}'; expected '{expected.value}'"
                 )
-            if role_enum == ParameterRole.INITIAL_STATE_CORRELATION and not name.startswith("cor0_"):
+            if role_enum == ParameterRole.INITIAL_STATE_CORRELATION and not name.startswith(
+                "cor0_"
+            ):
                 errors.append(
                     f"parameters[{index}] '{name}': initial_state_correlation parameters "
                     "must use canonical names starting with 'cor0_'"

@@ -467,9 +467,9 @@ class TestE2EPipeline:
 
     def test_stage4b_t_rule(self, model_spec, priors, daily_data):
         """T-rule check passes (necessary condition for identifiability)."""
+        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
         from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
         from causal_ssm_agent.utils.data import pivot_to_wide
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
         builder.build_model(pivot_to_wide(daily_data))

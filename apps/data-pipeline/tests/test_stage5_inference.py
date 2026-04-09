@@ -182,7 +182,7 @@ def test_run_power_scaling_logs_completion_summary(monkeypatch, caplog):
             return None
 
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.parametric_id_postfit.power_scaling_sensitivity",
+        "causal_ssm_agent.models.ssm.diagnostics.power_scaling_sensitivity",
         lambda **_kwargs: _FakePowerScalingResult(),
     )
 

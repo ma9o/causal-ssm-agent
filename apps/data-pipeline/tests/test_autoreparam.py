@@ -578,6 +578,7 @@ class TestAutoReparamSSM:
             if site["type"] in ("sample", "deterministic"):
                 assert jnp.all(jnp.isfinite(site["value"])), f"Non-finite at {name}"
 
+    @pytest.mark.slow
     def test_fit_svi_with_reparam(self):
         """fit() + SVI + AutoReparam produces valid posterior samples."""
         from causal_ssm_agent.models.ssm.inference import fit

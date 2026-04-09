@@ -343,6 +343,7 @@ class TestForwardSimulation:
         assert y_sim.shape == (3, 3, 3)
         assert jnp.all(jnp.isfinite(y_sim))
 
+    @pytest.mark.slow
     def test_forward_simulate_large_mixed_family_model(self):
         """A richer mixed-family model should stay finite and respect channel support."""
         manifest_dists, manifest_links, manifest_level_counts, _manifest_names = (
@@ -764,6 +765,7 @@ class TestLinkFunctionSimulation:
 class TestRunPPC:
     """Integration test for run_posterior_predictive_checks."""
 
+    @pytest.mark.slow
     def test_basic_run(self):
         """Full PPC pipeline runs on a richer mixed-family synthetic model."""
         manifest_dists, manifest_links, manifest_level_counts, manifest_names = (

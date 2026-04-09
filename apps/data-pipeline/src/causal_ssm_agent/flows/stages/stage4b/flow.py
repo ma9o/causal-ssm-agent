@@ -127,11 +127,17 @@ def parametric_id_task(
     """
     import jax.numpy as jnp
 
+    from causal_ssm_agent.models.ssm.diagnostics import (
+        OutputSensitivityUnsupportedError,
+        check_t_rule,
+        get_stage4b_sweep_context,
+        output_sensitivity_analysis,
+        profile_likelihood,
+    )
     from causal_ssm_agent.models.ssm.inference.structure import (
         build_inference_structure_payload,
     )
     from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
-    from causal_ssm_agent.utils.parametric_id import profile_likelihood
 
     try:
         runtime = prepare_model_runtime(
@@ -149,9 +155,6 @@ def parametric_id_task(
             ssm_model.spec,
             runtime.inference_structure,
         )
-
-        # T-rule: fast conservative screen surfaced as a warning if it fails
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
 
         t_rule = check_t_rule(ssm_model.spec, T=T)
         t_rule.print_report()
@@ -175,18 +178,11 @@ def parametric_id_task(
                 "inference_structure": inference_structure_payload,
             }
 
-        from causal_ssm_agent.utils.parametric_id import get_stage4b_sweep_context
-
         sweep_context = get_stage4b_sweep_context(ssm_model)
 
         # Sensitivity analysis: structural check (sufficient for local identifiability)
         sensitivity_payload = None
         try:
-            from causal_ssm_agent.utils.parametric_id import (
-                OutputSensitivityUnsupportedError,
-                output_sensitivity_analysis,
-            )
-
             sa_result = output_sensitivity_analysis(
                 ssm_model,
                 times,

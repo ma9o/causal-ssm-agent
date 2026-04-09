@@ -2096,6 +2096,7 @@ class TestPriorPredictiveValidation:
         assert is_valid is True
         assert not any(r.parameter == "model_build" for r in results)
 
+    @pytest.mark.slow
     def test_build_validation_payload_from_assembly(self, simple_model_spec, simple_priors):
         """Shared Stage 4 assembly helpers return the expected payload shape."""
         from causal_ssm_agent.flows.stages.stage4.assembly import (

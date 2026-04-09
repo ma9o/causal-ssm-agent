@@ -936,7 +936,7 @@ class TestParametricIdMasks:
 
     def test_count_free_params_with_drift_mask(self):
         """count_free_params should count masked off-diagonal entries."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
 
         # 3 latent, X→Y and Y→Z = 2 off-diagonal entries
         mask = np.eye(3, dtype=bool)
@@ -961,7 +961,7 @@ class TestParametricIdMasks:
 
     def test_count_free_params_with_lambda_mask(self):
         """count_free_params counts masked lambda entries."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
 
         lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
         lambda_mask = np.array([[False, False], [False, False], [True, False]])

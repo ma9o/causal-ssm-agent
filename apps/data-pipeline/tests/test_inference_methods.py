@@ -488,9 +488,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
             {
                 **indicator,
                 "construct_polarity": (
-                    "negative"
-                    if indicator["name"] == "hdl_cholesterol"
-                    else "positive"
+                    "negative" if indicator["name"] == "hdl_cholesterol" else "positive"
                 ),
             }
             for indicator in stage1b["measurement"]["indicators"]
@@ -605,11 +603,7 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
             )
         }
     retained_parameter_names = {parameter["name"] for parameter in model_spec["parameters"]}
-    priors = {
-        name: payload
-        for name, payload in priors.items()
-        if name in retained_parameter_names
-    }
+    priors = {name: payload for name, payload in priors.items() if name in retained_parameter_names}
     causal_spec = {
         "latent": {
             "constructs": latent_constructs,

@@ -64,7 +64,7 @@ class TestBenchmarkSpecIdentifiability:
 
     def test_t_rule(self, problem_name):
         """T-rule: free params must not exceed available moment conditions."""
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
 
         problem = ALL_PROBLEMS[problem_name]
         # Use T=100 (same as profile likelihood benchmark)

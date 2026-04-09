@@ -218,7 +218,7 @@ def run_power_scaling(fitted_result: dict) -> dict:
     Returns:
         Dict with power-scaling diagnostics
     """
-    from causal_ssm_agent.utils.parametric_id_postfit import power_scaling_sensitivity
+    from causal_ssm_agent.models.ssm.diagnostics import power_scaling_sensitivity
 
     if not fitted_result.get("fitted", False):
         return {"checked": False, "error": "Model not fitted"}

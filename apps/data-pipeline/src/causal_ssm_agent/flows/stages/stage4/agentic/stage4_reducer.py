@@ -130,7 +130,6 @@ class _Stage4PriorSubmissionState:
         return render_stage4_validation_feedback(self.validation_packet)
 
 
-
 def _format_repair_campaign_feedback(
     repair_plan: ResolvedRepairPlan,
     *,

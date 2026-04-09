@@ -1817,6 +1817,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
     }
 
 
+@pytest.mark.slow
 def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)

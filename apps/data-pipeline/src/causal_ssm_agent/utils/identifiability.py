@@ -499,7 +499,6 @@ def find_instruments(
     return [z for z in valid_instruments if z in observed_constructs]
 
 
-
 def analyze_unobserved_constructs(
     latent_model: dict,
     measurement_model: dict,

@@ -53,5 +53,6 @@ def _configure_jax_persistent_cache() -> None:
         _logger.debug("JAX cache configuration failed", exc_info=True)
         return
 
+
 _configure_jax_precision()
 _configure_jax_persistent_cache()
