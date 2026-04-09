@@ -527,16 +527,16 @@ class TestE2ESpecToDiscretization:
             "stress_cortisol",
         ]
         assert compiled["parameter_bindings"] == [
-            {"parameter": "beta_stress_mood", "site_name": "drift_offdiag_pop", "flat_index": 0},
+            {"parameter": "beta_stress_mood", "site_name": "drift_offdiag_free", "flat_index": 0},
             {
                 "parameter": "lambda_stress_cortisol_stress",
                 "site_name": "lambda_free",
                 "flat_index": 0,
             },
-            {"parameter": "rho_mood", "site_name": "drift_diag_pop", "flat_index": 0},
-            {"parameter": "rho_stress", "site_name": "drift_diag_pop", "flat_index": 1},
-            {"parameter": "sigma_mood", "site_name": "diffusion_diag_pop", "flat_index": 0},
-            {"parameter": "sigma_stress", "site_name": "diffusion_diag_pop", "flat_index": 1},
+            {"parameter": "rho_mood", "site_name": "drift_diag_free", "flat_index": 0},
+            {"parameter": "rho_stress", "site_name": "drift_diag_free", "flat_index": 1},
+            {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
+            {"parameter": "sigma_stress", "site_name": "diffusion_diag_free", "flat_index": 1},
         ]
 
         data_for_model = pl.DataFrame(

@@ -22,9 +22,9 @@ from ...runtime_events import emit_nested_stage_running_event
 logger = get_prefect_logger(__name__)
 
 _SUBSTANTIVE_PROFILE_PREFIXES = (
-    "cint_pop[",
-    "drift_diag_pop[",
-    "drift_offdiag_pop[",
+    "cint_free[",
+    "drift_diag_free[",
+    "drift_offdiag_free[",
     "lambda_free",
 )
 

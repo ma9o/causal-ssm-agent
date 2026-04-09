@@ -125,21 +125,21 @@ This separation is why Stage 4 can reopen one scope without regenerating the who
 
 ## 5. Every Outer Turn Has One Required Contract
 
-For every promptable block, Stage 4 renders a prompt and then requires the model turn to end with a `validate_model` submission. If the turn ends without `validate_model`, the stage errors.
+For every promptable block, Stage 4 renders a prompt and then requires the model turn to end with that block's primary submit tool. If the turn ends without the required submit tool, the stage errors.
 
 Only some tools are allowed in each block family.
 
 | Block family | Tools allowed in that turn |
 |---|---|
-| `indicator_decision` | `validate_model` |
-| `global_review` | `validate_model` |
-| `measurement_prior` | `validate_model`, `elicit_prior_gmm` when paraphrasing is enabled |
-| `dynamics_prior` | `validate_model`, `elicit_prior_gmm` when paraphrasing is enabled |
-| `effect_prior` | `validate_model`, `search_literature` when enabled, `elicit_prior_gmm` when paraphrasing is enabled |
-| `correlation_prior` | `validate_model`, `elicit_prior_gmm` when paraphrasing is enabled |
-| `global_prior_review` | `validate_model` |
+| `indicator_decision` | `submit_indicator_choice` |
+| `global_review` | `submit_model_review` |
+| `measurement_prior` | `submit_prior_block`, `elicit_prior_gmm` when paraphrasing is enabled |
+| `dynamics_prior` | `submit_prior_block`, `elicit_prior_gmm` when paraphrasing is enabled |
+| `effect_prior` | `submit_prior_block`, `search_literature` when enabled, `elicit_prior_gmm` when paraphrasing is enabled |
+| `correlation_prior` | `submit_prior_block`, `elicit_prior_gmm` when paraphrasing is enabled |
+| `global_prior_review` | `submit_prior_block` |
 
-Only `validate_model` advances reducer state. Auxiliary tools can help the LLM think, but they do not themselves accept or reopen anything.
+Only the block's primary submit tool advances reducer state. Auxiliary tools can help the LLM think, but they do not themselves accept or reopen anything.
 
 ## 6. Model-Decision Phase: Exact Semantics
 
@@ -382,7 +382,7 @@ When Stage 4 activates it:
 |---|---|
 | Scope | It may revise priors across the whole system. |
 | Model-form authority | It may not change locked likelihood choices or loading orientations. |
-| Tools | Only `validate_model` is allowed. |
+| Tools | Only `submit_prior_block` is allowed. |
 | Compile failure route | If compile fails while this block is active, compile repair routes back to `review:prior_system` itself. |
 
 So `review:prior_system` is the widest prior-authoring scope, but it is still prior-only. It does not reopen the model-form surface directly.

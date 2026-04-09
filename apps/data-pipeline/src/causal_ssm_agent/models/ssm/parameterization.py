@@ -102,7 +102,7 @@ class SiteDescriptor:
     """Metadata for a single sample site, derived from SSMSpec.
 
     Attributes:
-        name: NumPyro sample site name (e.g. ``"drift_diag_pop"``).
+        name: NumPyro sample site name (e.g. ``"drift_diag_free"``).
         shape: Array shape of the sampled value.
         support: Support class determining transform and valid families.
         assembly_group: Which matrix group this site contributes to
@@ -177,7 +177,7 @@ class SiteRuntimeBundle:
 
     @property
     def scalar_names(self) -> list[str]:
-        """Flat list of per-element names (e.g. ``drift_diag_pop[0]``)."""
+        """Flat list of per-element names (e.g. ``drift_diag_free[0]``)."""
         names: list[str] = []
         for site in self.registry:
             size = _site_size(site.shape)
@@ -291,7 +291,7 @@ def build_site_registry(
     # -- Core parameter sites (mirroring SSMModel._sample_* methods) --------
     core_site_specs = (
         (
-            "drift_diag_pop",
+            "drift_diag_free",
             "n_drift_diag",
             SupportClass.REAL,
             "drift",
@@ -301,7 +301,7 @@ def build_site_registry(
             "drift_diag",
         ),
         (
-            "drift_offdiag_pop",
+            "drift_offdiag_free",
             "n_drift_offdiag",
             SupportClass.REAL,
             "drift",
@@ -311,7 +311,7 @@ def build_site_registry(
             "drift_offdiag",
         ),
         (
-            "diffusion_diag_pop",
+            "diffusion_diag_free",
             "n_diffusion_diag",
             SupportClass.POSITIVE,
             "diffusion",
@@ -321,7 +321,7 @@ def build_site_registry(
             "diffusion_diag",
         ),
         (
-            "diffusion_lower",
+            "diffusion_lower_free",
             "n_diffusion_lower",
             SupportClass.REAL,
             "diffusion",
@@ -331,7 +331,7 @@ def build_site_registry(
             "diffusion_offdiag",
         ),
         (
-            "cint_pop",
+            "cint_free",
             "n_cint",
             SupportClass.REAL,
             "cint",
@@ -351,7 +351,7 @@ def build_site_registry(
             "lambda_free",
         ),
         (
-            "manifest_means",
+            "manifest_means_free",
             "n_manifest_means",
             SupportClass.REAL,
             "manifest",
@@ -361,7 +361,7 @@ def build_site_registry(
             "manifest_means",
         ),
         (
-            "manifest_var_diag",
+            "manifest_var_diag_free",
             "n_manifest_var_diag",
             SupportClass.POSITIVE,
             "manifest",
@@ -371,7 +371,7 @@ def build_site_registry(
             "manifest_var_diag",
         ),
         (
-            "t0_means_pop",
+            "t0_means_free",
             "n_t0_means",
             SupportClass.REAL,
             "t0",
@@ -381,7 +381,7 @@ def build_site_registry(
             "t0_means",
         ),
         (
-            "t0_var_diag",
+            "t0_var_diag_free",
             "n_t0_diag",
             SupportClass.POSITIVE,
             "t0",
@@ -391,7 +391,7 @@ def build_site_registry(
             "t0_var_diag",
         ),
         (
-            "t0_var_lower",
+            "t0_var_lower_free",
             "n_t0_correlation",
             SupportClass.CORRELATION,
             "t0",

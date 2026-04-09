@@ -50,14 +50,14 @@ def _require_text(value: str | None) -> str:
 
 class TestCheckNanInf:
     def test_clean_samples_no_issue(self):
-        samples = {"drift_diag_pop": jnp.array([1.0, 2.0, 3.0])}
+        samples = {"drift_diag_free": jnp.array([1.0, 2.0, 3.0])}
         assert _check_nan_inf(samples) is None
 
     def test_nan_detected(self):
-        samples = {"drift_diag_pop": jnp.array([1.0, float("nan"), 3.0])}
+        samples = {"drift_diag_free": jnp.array([1.0, float("nan"), 3.0])}
         result = _require_result(_check_nan_inf(samples))
         assert not result.is_valid
-        assert "drift_diag_pop" in _require_text(result.issue)
+        assert "drift_diag_free" in _require_text(result.issue)
 
     def test_inf_detected(self):
         samples = {"x": jnp.array([float("inf")])}
@@ -79,7 +79,7 @@ class TestCheckNanInf:
         samples = {
             "ll_per_timestep": jnp.array([float("-inf")]),
             "log_likelihood": jnp.array([float("nan")]),
-            "drift_diag_pop": jnp.array([0.1, 0.2]),
+            "drift_diag_free": jnp.array([0.1, 0.2]),
         }
         assert _check_nan_inf(samples) is None
 
@@ -137,27 +137,27 @@ class TestCheckNanInf:
 
 class TestCheckConstraintViolations:
     def test_all_positive_no_issue(self):
-        samples = {"diffusion_diag_pop": jnp.array([0.1, 0.5, 1.0])}
+        samples = {"diffusion_diag_free": jnp.array([0.1, 0.5, 1.0])}
         results = _check_constraint_violations(samples)
         assert results == []
 
     def test_negative_values_detected(self):
         # 50% negative → above 5% threshold
-        samples = {"diffusion_diag_pop": jnp.array([-1.0, -2.0, 1.0, 2.0])}
+        samples = {"diffusion_diag_free": jnp.array([-1.0, -2.0, 1.0, 2.0])}
         results = _check_constraint_violations(samples)
         assert len(results) == 1
-        assert "diffusion_diag_pop" in results[0].parameter
+        assert "diffusion_diag_free" in results[0].parameter
         assert "negative" in _require_text(results[0].issue)
 
     def test_below_threshold_no_issue(self):
         # 1% negative → below 5% threshold
         values = jnp.concatenate([jnp.array([-0.001]), jnp.ones(99)])
-        samples = {"manifest_var_diag": values}
+        samples = {"manifest_var_diag_free": values}
         results = _check_constraint_violations(samples)
         assert results == []
 
     def test_non_positive_site_ignored(self):
-        samples = {"drift_diag_pop": jnp.array([-1.0, -2.0])}
+        samples = {"drift_diag_free": jnp.array([-1.0, -2.0])}
         results = _check_constraint_violations(samples)
         assert results == []
 
@@ -167,7 +167,7 @@ class TestCheckConstraintViolations:
 
     def test_custom_threshold(self):
         # 25% negative → above 10% custom threshold
-        samples = {"t0_var_diag": jnp.array([-1.0, 1.0, 1.0, 1.0])}
+        samples = {"t0_var_diag_free": jnp.array([-1.0, 1.0, 1.0, 1.0])}
         results = _check_constraint_violations(samples, threshold=0.1)
         assert len(results) == 1
 
@@ -179,13 +179,13 @@ class TestCheckConstraintViolations:
 
 class TestCheckExtremeValues:
     def test_normal_values_no_issue(self):
-        samples = {"drift_diag_pop": jnp.array([0.5, -0.3, 1.0])}
+        samples = {"drift_diag_free": jnp.array([0.5, -0.3, 1.0])}
         results = _check_extreme_values(samples)
         assert results == []
 
     def test_extreme_values_detected(self):
         # All extreme
-        samples = {"drift_diag_pop": jnp.array([1e7, 1e8, 1e9])}
+        samples = {"drift_diag_free": jnp.array([1e7, 1e8, 1e9])}
         results = _check_extreme_values(samples)
         assert len(results) == 1
         assert "extreme" in _require_text(results[0].issue).lower()
@@ -193,7 +193,7 @@ class TestCheckExtremeValues:
     def test_below_threshold_no_issue(self):
         # Only 1 out of 100 extreme → 1% < 10% threshold
         values = jnp.concatenate([jnp.array([1e7]), jnp.ones(99)])
-        samples = {"drift_diag_pop": values}
+        samples = {"drift_diag_free": values}
         results = _check_extreme_values(samples)
         assert results == []
 
@@ -218,13 +218,13 @@ class TestFormatValidationReport:
     def test_failed_report_includes_each_issue_and_parameter(self):
         results = [
             PriorValidationResult(
-                parameter="drift_diag_pop",
+                parameter="drift_diag_free",
                 is_valid=False,
                 issue="Too extreme",
                 suggested_adjustment="Fix it",
             ),
             PriorValidationResult(
-                parameter="diffusion_diag_pop",
+                parameter="diffusion_diag_free",
                 is_valid=False,
                 issue="Negative values",
                 suggested_adjustment="Use positive prior",
@@ -232,9 +232,9 @@ class TestFormatValidationReport:
         ]
         report = format_validation_report(False, results)
         assert "FAILED" in report
-        assert "drift_diag_pop" in report
+        assert "drift_diag_free" in report
         assert "Too extreme" in report
-        assert "diffusion_diag_pop" in report
+        assert "diffusion_diag_free" in report
         assert "Negative values" in report
         assert "Use positive prior" in report or "Negative values" in report
 
@@ -512,14 +512,14 @@ class TestScalePlausibilityDiagnostics:
         assert result.failing_draw_indices == [0, 1, 2, 3, 4]
 
     def test_nuisance_site_skipped(self):
-        results = [PriorValidationResult(parameter="cint_pop", is_valid=False, issue="something")]
+        results = [PriorValidationResult(parameter="cint_free", is_valid=False, issue="something")]
         failed = get_failed_parameters(results, ["alpha", "beta"])
-        # cint_pop is nuisance → skipped, no other matches → falls back to all params
+        # cint_free is nuisance → skipped, no other matches → falls back to all params
         assert set(failed) == {"alpha", "beta"}
 
     def test_keyword_matching(self):
         results = [
-            PriorValidationResult(parameter="drift_diag_pop", is_valid=False, issue="constraint")
+            PriorValidationResult(parameter="drift_diag_free", is_valid=False, issue="constraint")
         ]
         params = ["rho_X", "beta_X_Y", "sigma_X"]
         failed = get_failed_parameters(results, params)

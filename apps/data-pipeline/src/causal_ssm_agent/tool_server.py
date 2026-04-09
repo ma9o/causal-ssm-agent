@@ -553,7 +553,10 @@ def _execute_validate_measurement_model(
     )
 
 
-def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+def _execute_stage4_submission(
+    ctx: dict[str, Any],
+    data: dict[str, Any],
+) -> dict[str, Any]:
     from causal_ssm_agent.flows.stages.stage4.grounding import should_capture_stage4_output
 
     workspace_id = ctx["_workspace_id"]
@@ -561,11 +564,6 @@ def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
     causal_spec = stage1b.get("causal_spec", {})
     current = _load_stage4_current(workspace_id)
     data_for_model = _load_stage2_data_for_model(workspace_id)
-    raw = args.get("model_json", "")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return {"result": f"JSON parse error: {e}", "stage_output": None}
 
     grounding_result = stage4_grounding(
         data, causal_spec, current=current, data_for_model=data_for_model
@@ -574,6 +572,24 @@ def _execute_validate_model(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
         grounding_result.stage_output if should_capture_stage4_output(grounding_result) else None
     )
     return {"result": grounding_result.feedback, "stage_output": stage_output}
+
+
+def _execute_submit_model_spec(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    raw = args.get("model_spec_json", "")
+    try:
+        model_spec = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"result": f"JSON parse error: {e}", "stage_output": None}
+    return _execute_stage4_submission(ctx, {"model_spec": model_spec})
+
+
+def _execute_submit_priors(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    raw = args.get("priors_json", "")
+    try:
+        priors = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"result": f"JSON parse error: {e}", "stage_output": None}
+    return _execute_stage4_submission(ctx, {"priors": priors})
 
 
 async def _execute_search_literature(_ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
@@ -894,7 +910,8 @@ _TOOL_IMPLS: dict[tuple[str, str], Any] = {
     ("stage-1a", "validate_latent_model"): _execute_validate_latent_model,
     ("stage-1b", "validate_measurement_model"): _execute_validate_measurement_model,
     ("stage-2", "validate_extractions"): _execute_validate_extractions,
-    ("stage-4", "validate_model"): _execute_validate_model,
+    ("stage-4", "submit_model_spec"): _execute_submit_model_spec,
+    ("stage-4", "submit_priors"): _execute_submit_priors,
     ("stage-4", "search_literature"): _execute_search_literature,
     ("stage-6", "get_model_info"): _execute_get_model_info,
     ("stage-6", "simulate_intervention"): _execute_simulate_intervention,

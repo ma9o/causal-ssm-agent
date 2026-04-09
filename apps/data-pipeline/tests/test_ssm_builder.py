@@ -18,6 +18,7 @@ from causal_ssm_agent.models.ssm.model import (
 from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from causal_ssm_agent.models.ssm_compilation import (
     compile_priors,
+    compile_ssm_inputs_from_spec,
     normalize_prior_params,
     split_compound_name,
 )
@@ -464,6 +465,65 @@ class TestBuilderPriorConversion:
         assert ssm_priors.t0_var_offdiag["sigma"] == [0.2]
         assert ssm_priors.t0_var_offdiag["lower"] == [-1.0]
         assert ssm_priors.t0_var_offdiag["upper"] == [1.0]
+
+    def test_cross_lag_prior_requires_resolved_interval_metadata(self):
+        """Cross-lag priors should fail instead of silently defaulting to 1 day."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "stress",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "beta_stress_mood",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                }
+            ],
+        }
+        priors = {
+            "beta_stress_mood": {
+                "distribution": "Normal",
+                "params": {"mu": 0.3, "sigma": 0.15},
+            }
+        }
+        drift_offdiag_mask = np.zeros((2, 2), dtype=bool)
+        drift_offdiag_mask[0, 1] = True
+        ssm_spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["mood", "stress"],
+            manifest_names=["mood", "stress"],
+            drift_diag_mask=full_diagonal_mask(2),
+            drift_offdiag_mask=drift_offdiag_mask,
+        )
+
+        with pytest.raises(ValueError, match="could not resolve an authoring interval"):
+            compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+
+    def test_compile_inputs_from_spec_requires_model_spec_for_semantic_priors(self):
+        """Direct SSMSpec compilation should reject raw semantic priors without model_spec."""
+        ssm_spec = _make_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
+        priors = {
+            "rho_mood": {
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+            }
+        }
+
+        with pytest.raises(ValueError, match="requires model_spec to compile semantic prior"):
+            compile_ssm_inputs_from_spec(ssm_spec=ssm_spec, priors=priors)
 
 
 class TestObservationSupportValidation:

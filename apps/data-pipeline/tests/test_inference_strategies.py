@@ -1296,7 +1296,7 @@ class TestParameterRecoveryPF:
         )
 
         samples = result.get_samples()
-        drift_diag_samples = samples["drift_diag_pop"]
+        drift_diag_samples = samples["drift_diag_free"]
 
         for i, true_val in enumerate(true_drift_diag):
             posterior_mean = jnp.mean(drift_diag_samples[:, i])
@@ -1348,7 +1348,7 @@ class TestParameterRecoveryPF:
         )
 
         samples = result.get_samples()
-        diffusion_samples = samples["diffusion_diag_pop"]
+        diffusion_samples = samples["diffusion_diag_free"]
 
         for i, true_val in enumerate(true_diffusion_diag):
             posterior_mean = jnp.mean(diffusion_samples[:, i])
@@ -1633,8 +1633,8 @@ class TestInferenceCaching:
             _ExplodingBackend(),
         )
 
-        assert "drift_diag_pop" in site_info
-        assert "manifest_var_diag" in site_info
+        assert "drift_diag_free" in site_info
+        assert "manifest_var_diag_free" in site_info
 
     def test_tempered_smc_reuses_bundle_cache_without_reparam(self, monkeypatch):
         spec = make_ssm_spec(
@@ -1659,13 +1659,13 @@ class TestInferenceCaching:
             return {
                 "dim": 1,
                 "site_info": {
-                    "drift_diag_pop": {
+                    "drift_diag_free": {
                         "distribution": _ZeroDistribution(),
                         "transform": self._identity_transform(),
                         "value": jnp.asarray([0.0], dtype=jnp.float32),
                     }
                 },
-                "unravel_fn": lambda z: {"drift_diag_pop": z},
+                "unravel_fn": lambda z: {"drift_diag_free": z},
                 "batch_lik_val_and_grad": lambda particles: (
                     jnp.zeros((particles.shape[0],), dtype=particles.dtype),
                     jnp.zeros_like(particles),
@@ -1702,7 +1702,7 @@ class TestInferenceCaching:
         )
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.inference.engines.tempered_smc.extract_constrained_samples",
-            lambda *_args, **_kwargs: {"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
+            lambda *_args, **_kwargs: {"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
         )
 
         for _ in range(2):
@@ -1968,7 +1968,7 @@ class TestAutoMethodConfigRouting:
 
         def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
             return InferenceResult(
-                _samples={"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method="laplace_em",
                 diagnostics={"kwargs": kwargs},
             )
@@ -1996,7 +1996,7 @@ class TestAutoMethodConfigRouting:
 
         def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
             return InferenceResult(
-                _samples={"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method="laplace_em",
                 diagnostics={"kwargs": kwargs},
             )
@@ -2036,7 +2036,7 @@ class TestAutoMethodConfigRouting:
 
         def fake_fit_method(_model, _observations, _times, **kwargs):
             return InferenceResult(
-                _samples={"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method=method,
                 diagnostics={"kwargs": kwargs},
             )
@@ -2067,7 +2067,7 @@ class TestAutoMethodConfigRouting:
         def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
             captured.update(kwargs)
             return InferenceResult(
-                _samples={"drift_diag_pop": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method="laplace_em",
                 diagnostics={},
             )

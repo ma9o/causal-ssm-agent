@@ -219,7 +219,7 @@ def kalman_block_profile_indices(
     indices: list[int] = []
     offset = 0
 
-    # --- drift_diag_pop: shape (n,), index k → latent k ---
+    # --- drift_diag_free: shape (n,), index k → latent k ---
     for dense_idx, latent_idx in enumerate(structure_runtime.drift_diag_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
@@ -240,7 +240,7 @@ def kalman_block_profile_indices(
             indices.append(offset + dense_idx)
     offset += structure_runtime.n_diffusion_lower
 
-    # --- cint_pop: sparse free continuous intercept entries ---
+    # --- cint_free: sparse free continuous intercept entries ---
     for dense_idx, latent_idx in enumerate(structure_runtime.cint_free_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
@@ -251,7 +251,7 @@ def kalman_block_profile_indices(
         if manifest_idx in obs_kalman_set and latent_idx in kalman_set:
             indices.append(offset + dense_idx)
     offset += structure_runtime.n_lambda_free
-    # --- manifest_means: sparse free manifest intercept entries ---
+    # --- manifest_means_free: sparse free manifest intercept entries ---
     for dense_idx, manifest_idx in enumerate(structure_runtime.manifest_means_free_positions):
         if manifest_idx in obs_kalman_set:
             indices.append(offset + dense_idx)
@@ -262,7 +262,7 @@ def kalman_block_profile_indices(
             indices.append(offset + dense_idx)
     offset += structure_runtime.n_manifest_var_diag
 
-    # --- t0_means_pop: sparse free initial-state mean entries ---
+    # --- t0_means_free: sparse free initial-state mean entries ---
     for dense_idx, latent_idx in enumerate(structure_runtime.t0_means_free_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)

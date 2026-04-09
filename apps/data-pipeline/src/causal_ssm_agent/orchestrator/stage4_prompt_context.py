@@ -40,6 +40,7 @@ class Stage4Turn:
     block: Stage4FrontierBlock
     messages: list[dict[str, Any]]
     allowed_tool_names: tuple[str, ...]
+    required_submission_tool_name: str
     latest_feedback: str
     phase: str
 
@@ -245,14 +246,10 @@ def _indicator_submission_example(block: Stage4FrontierBlock) -> dict[str, Any]:
         link = str(candidate_links[0])
 
     return {
-        "block_id": block.id,
-        "block_kind": block.kind,
-        "proposal": {
-            "variable": variable,
-            "distribution": distribution,
-            "link": link,
-            "reasoning": "Example only: choose one allowed distribution/link pair for the active indicator.",
-        },
+        "variable": variable,
+        "distribution": distribution,
+        "link": link,
+        "reasoning": "Example only: choose one allowed distribution/link pair for the active indicator.",
     }
 
 
@@ -358,23 +355,15 @@ def _prior_submission_example(
         raise ValueError(f"Prior block {block.id!r} is missing prompt-local prior cards")
     prior_payload = _example_prior_payload(prior_cards[0])
     parameter = str(prior_payload["parameter"])
-    return {
-        "block_id": block.id,
-        "block_kind": block.kind,
-        "proposal": {"priors": {parameter: prior_payload}},
-    }
+    return {"priors": {parameter: prior_payload}}
 
 
 def _global_review_submission_example(block: Stage4FrontierBlock) -> dict[str, Any]:
     """Example payload for compact global-review blocks."""
     del block
     return {
-        "block_id": "review:model_spec",
-        "block_kind": "global_review",
-        "proposal": {
-            "decision": "approve",
-            "reasoning": "The locked likelihoods and loading orientations are coherent for prior elicitation.",
-        },
+        "decision": "approve",
+        "reasoning": "The locked likelihoods and loading orientations are coherent for prior elicitation.",
     }
 
 
@@ -384,19 +373,17 @@ def _prior_review_submission_example(
     prior_cards: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Example payload for whole-system prior-review work items."""
-    example = _prior_submission_example(block, prior_cards=prior_cards)
-    example["block_kind"] = "global_prior_review"
-    example["block_id"] = block.id
-    return example
+    return _prior_submission_example(block, prior_cards=prior_cards)
 
 
 def _format_submission_example(
     block: Stage4FrontierBlock,
     *,
+    submission_tool_name: str,
     prior_cards: list[dict[str, Any]] | None = None,
     fallback_submission_example: str | None = None,
 ) -> str:
-    """Render a block-local `validate_model` example payload."""
+    """Render a block-local submit-tool example payload."""
     if block.kind == "indicator_decision":
         example = _indicator_submission_example(block)
     elif block.kind == "global_review":
@@ -415,7 +402,10 @@ def _format_submission_example(
         return fallback_submission_example
     else:
         raise ValueError(f"Unsupported Stage 4 block kind {block.kind!r}")
-    return "```json\n" + json.dumps(example, indent=2) + "\n```"
+    return (
+        f"Use `{submission_tool_name}` with exactly this argument object:\n\n"
+        "```json\n" + json.dumps(example, indent=2) + "\n```"
+    )
 
 
 @dataclass
@@ -507,6 +497,7 @@ class Stage4Messages:
         plan: Stage4Plan,
         runtime: Stage4Runtime,
         policy: Stage4PromptScopePolicy,
+        submission_tool_name: str,
         submission_example: str,
         include_prior_source_guidance: bool,
     ) -> Stage4ScopeSnapshot:
@@ -579,6 +570,7 @@ class Stage4Messages:
             coupled_prior_cards=coupled_prior_cards,
             submission_example=_format_submission_example(
                 block,
+                submission_tool_name=submission_tool_name,
                 prior_cards=visible_prior_cards,
                 fallback_submission_example=submission_example,
             ),
@@ -596,6 +588,7 @@ class Stage4Messages:
         runtime: Stage4Runtime,
         *,
         policy: Stage4PromptScopePolicy,
+        submission_tool_name: str,
         enabled_tool_names: tuple[str, ...],
         submission_example: str,
         include_prior_source_guidance: bool,
@@ -606,6 +599,7 @@ class Stage4Messages:
             plan=plan,
             runtime=runtime,
             policy=policy,
+            submission_tool_name=submission_tool_name,
             submission_example=submission_example,
             include_prior_source_guidance=include_prior_source_guidance,
         )
@@ -616,6 +610,7 @@ class Stage4Messages:
                     system_task=policy.system_task,
                     guidance_section_keys=policy.guidance_section_keys,
                     parameter_guidance_prefixes=policy.parameter_guidance_prefixes,
+                    submission_tool_name=submission_tool_name,
                     enabled_tool_names=enabled_tool_names,
                 ),
             },
@@ -645,6 +640,7 @@ class Stage4Messages:
             plan,
             runtime,
             policy=handler.prompt_policy,
+            submission_tool_name=handler.submission_tool_name,
             enabled_tool_names=enabled_tool_names,
             submission_example="",
             include_prior_source_guidance=handler.include_prior_source_guidance_for_prompt(
@@ -676,6 +672,7 @@ class Stage4Messages:
             block=block,
             messages=messages,
             allowed_tool_names=allowed_tool_names,
+            required_submission_tool_name=handler.submission_tool_name,
             latest_feedback=latest_feedback,
             phase=get_stage4_phase(runtime, plan=plan),
         )

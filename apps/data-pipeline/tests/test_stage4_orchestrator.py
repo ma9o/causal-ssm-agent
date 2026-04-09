@@ -865,7 +865,10 @@ class TestStage4TurnProjection:
         )
         assert "| steps | activity | count | sum |" in prompt[1]["content"]
         assert "beta_activity_sleep" not in prompt[1]["content"]
-        assert '"block_kind": "indicator_decision"' in prompt[1]["content"]
+        assert (
+            "Use `submit_indicator_choice` with exactly this argument object:"
+            in prompt[1]["content"]
+        )
         assert "### Parameter Prior Cards" not in prompt[1]["content"]
 
     def test_current_turn_moves_to_next_pending_prior_block(self):
@@ -1026,9 +1029,9 @@ class TestStage4TurnProjection:
 
         assert turn is not None
         assert turn.block.id == "review:prior_system"
-        assert turn.allowed_tool_names == ("validate_model",)
-        assert '"block_kind": "global_prior_review"' in turn.messages[1]["content"]
-        assert '"block_id": "review:prior_system"' in turn.messages[1]["content"]
+        assert turn.allowed_tool_names == ("submit_prior_block",)
+        assert "`submit_prior_block`" in turn.messages[1]["content"]
+        assert '"priors": {' in turn.messages[1]["content"]
 
 
 class TestStage4PromptScopePolicy:
@@ -1044,7 +1047,7 @@ class TestStage4PromptScopePolicy:
             "measurement_prior_guidance",
         )
         assert policy.parameter_guidance_prefixes == ("lambda", "obs_sd")
-        assert policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
+        assert policy.allowed_tool_names == ("submit_prior_block", "elicit_prior_gmm")
 
     def test_observation_policy_is_looked_up_by_block_kind(self):
         policy = get_stage4_prompt_scope_policy("observation_prior")
@@ -1057,14 +1060,14 @@ class TestStage4PromptScopePolicy:
             "prior_cards",
         )
         assert policy.parameter_guidance_prefixes == ("obs_",)
-        assert policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
+        assert policy.allowed_tool_names == ("submit_prior_block", "elicit_prior_gmm")
 
     def test_effect_policy_keeps_search_enabled(self):
         policy = get_stage4_prompt_scope_policy("effect_prior")
 
         assert policy.parameter_guidance_prefixes == ("beta",)
         assert policy.allowed_tool_names == (
-            "validate_model",
+            "submit_prior_block",
             "search_literature",
             "elicit_prior_gmm",
         )
@@ -1073,8 +1076,8 @@ class TestStage4PromptScopePolicy:
         dynamics_policy = get_stage4_prompt_scope_policy("dynamics_prior")
         correlation_policy = get_stage4_prompt_scope_policy("correlation_prior")
 
-        assert dynamics_policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
-        assert correlation_policy.allowed_tool_names == ("validate_model", "elicit_prior_gmm")
+        assert dynamics_policy.allowed_tool_names == ("submit_prior_block", "elicit_prior_gmm")
+        assert correlation_policy.allowed_tool_names == ("submit_prior_block", "elicit_prior_gmm")
 
     def test_global_review_policy_is_validate_only(self):
         policy = get_stage4_prompt_scope_policy("global_review")
@@ -1085,7 +1088,7 @@ class TestStage4PromptScopePolicy:
             "loading_params",
             "construct_scale_cards",
         )
-        assert policy.allowed_tool_names == ("validate_model",)
+        assert policy.allowed_tool_names == ("submit_model_review",)
 
     def test_global_prior_review_policy_is_validate_only(self):
         policy = get_stage4_prompt_scope_policy("global_prior_review")
@@ -1102,4 +1105,4 @@ class TestStage4PromptScopePolicy:
             "t0_mean",
             "t0_sd",
         )
-        assert policy.allowed_tool_names == ("validate_model",)
+        assert policy.allowed_tool_names == ("submit_prior_block",)

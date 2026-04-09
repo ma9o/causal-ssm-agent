@@ -35,12 +35,12 @@ def _assert_core_smoke_result(
     assert result.method == method
     samples = result.get_samples()
 
-    for site in ["drift_diag_pop", "diffusion_diag_pop", "manifest_var_diag"]:
+    for site in ["drift_diag_free", "diffusion_diag_free", "manifest_var_diag_free"]:
         assert site in samples, f"Missing sample site: {site}"
 
-    assert samples["drift_diag_pop"].shape == (n_draws, 1)
-    assert samples["diffusion_diag_pop"].shape == (n_draws, 1)
-    assert samples["manifest_var_diag"].shape == (n_draws, 1)
+    assert samples["drift_diag_free"].shape == (n_draws, 1)
+    assert samples["diffusion_diag_free"].shape == (n_draws, 1)
+    assert samples["manifest_var_diag_free"].shape == (n_draws, 1)
 
     for key in extra_diag_keys:
         assert key in result.diagnostics
@@ -50,18 +50,18 @@ def _assert_core_smoke_result(
 
 def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], lgss_data) -> None:
     assert_recovery_ci(
-        samples["drift_diag_pop"][:, 0],
+        samples["drift_diag_free"][:, 0],
         lgss_data["true_drift_diag"],
         "Drift",
         transform=lambda s: -jnp.abs(s),
     )
     assert_recovery_ci(
-        samples["diffusion_diag_pop"][:, 0],
+        samples["diffusion_diag_free"][:, 0],
         lgss_data["true_diff_diag"],
         "Diffusion",
     )
     assert_recovery_ci(
-        samples["manifest_var_diag"][:, 0],
+        samples["manifest_var_diag_free"][:, 0],
         lgss_data["true_obs_sd"],
         "Obs SD",
     )
@@ -660,15 +660,15 @@ class TestLaplaceEMDoctolib:
         assert result.method == "laplace_em"
 
         samples = result.get_samples()
-        assert "drift_diag_pop" in samples
-        assert "diffusion_diag_pop" in samples
-        assert "manifest_var_diag" in samples
-        assert samples["drift_diag_pop"].shape == (8, builder._spec.n_latent)
-        assert samples["diffusion_diag_pop"].shape == (8, builder._spec.n_latent)
-        assert samples["manifest_var_diag"].shape == (8, builder._spec.n_manifest)
-        assert bool(jnp.isfinite(samples["drift_diag_pop"]).all())
-        assert bool(jnp.isfinite(samples["diffusion_diag_pop"]).all())
-        assert bool(jnp.isfinite(samples["manifest_var_diag"]).all())
+        assert "drift_diag_free" in samples
+        assert "diffusion_diag_free" in samples
+        assert "manifest_var_diag_free" in samples
+        assert samples["drift_diag_free"].shape == (8, builder._spec.n_latent)
+        assert samples["diffusion_diag_free"].shape == (8, builder._spec.n_latent)
+        assert samples["manifest_var_diag_free"].shape == (8, builder._spec.n_manifest)
+        assert bool(jnp.isfinite(samples["drift_diag_free"]).all())
+        assert bool(jnp.isfinite(samples["diffusion_diag_free"]).all())
+        assert bool(jnp.isfinite(samples["manifest_var_diag_free"]).all())
 
         assert "accept_rates" in result.diagnostics
         assert "n_ieks_iters" in result.diagnostics

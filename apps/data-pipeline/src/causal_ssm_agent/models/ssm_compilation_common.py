@@ -37,16 +37,23 @@ PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
 ]
 
+
+def empty_prior_index_maps() -> PriorIndexMaps:
+    """Return an empty prior-index payload for spec-only code paths."""
+    return ({}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+
+
 SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
-    "drift_diag": "drift_diag_pop",
-    "drift_offdiag": "drift_offdiag_pop",
-    "diffusion_diag": "diffusion_diag_pop",
-    "diffusion_offdiag": "diffusion_lower",
+    "drift_diag": "drift_diag_free",
+    "drift_offdiag": "drift_offdiag_free",
+    "diffusion_diag": "diffusion_diag_free",
+    "diffusion_offdiag": "diffusion_lower_free",
     "lambda_free": "lambda_free",
-    "manifest_var_diag": "manifest_var_diag",
-    "t0_means": "t0_means_pop",
-    "t0_var_diag": "t0_var_diag",
-    "t0_var_offdiag": "t0_var_lower",
+    "manifest_means": "manifest_means_free",
+    "manifest_var_diag": "manifest_var_diag_free",
+    "t0_means": "t0_means_free",
+    "t0_var_diag": "t0_var_diag_free",
+    "t0_var_offdiag": "t0_var_lower_free",
     "obs_df": "obs_df",
     "obs_shape": "obs_shape",
     "obs_r": "obs_r",
@@ -59,14 +66,22 @@ SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
 
 SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "drift_diag": ["rho", "ar"],
+    "drift_diag_free": ["rho", "ar"],
     "drift_offdiag": ["beta"],
+    "drift_offdiag_free": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
+    "diffusion_diag_free": ["sigma", "sd"],
+    "diffusion_lower_free": ["cor"],
     "lambda_free": ["lambda", "loading"],
+    "manifest_means_free": ["manifest_mean"],
     "manifest_var_diag": ["obs_sd", "measurement_error"],
+    "manifest_var_diag_free": ["obs_sd", "measurement_error"],
     "t0_means": ["t0_mean"],
-    "t0_means_pop": ["t0_mean"],
+    "t0_means_free": ["t0_mean"],
     "t0_var_diag": ["t0_sd"],
+    "t0_var_diag_free": ["t0_sd"],
     "t0_var_offdiag": list(INITIAL_STATE_CORRELATION_KEYWORDS),
+    "t0_var_lower_free": list(INITIAL_STATE_CORRELATION_KEYWORDS),
     "diffusion_offdiag": ["cor"],
     "obs_df": ["obs_df"],
     "obs_shape": ["obs_shape"],
@@ -84,7 +99,7 @@ SITE_TO_KEYWORDS["dynamics_stability"] = ["rho", "ar", "sigma", "sd"]
 # SSM parameters with fixed default priors that are not in ModelSpec and
 # cannot be re-elicited.  Used to filter validation failures before mapping
 # them back to user-facing parameter names.
-NUISANCE_SITES: frozenset[str] = frozenset({"cint_pop", "cint", "t0_means", "t0_cov"})
+NUISANCE_SITES: frozenset[str] = frozenset({"cint_free", "cint", "t0_means", "t0_cov"})
 
 # Validation failure parameters that are global (affect all ModelSpec params).
 GLOBAL_FAILURE_SITES: frozenset[str] = frozenset(

@@ -375,7 +375,7 @@ def _check_constraint_violations(
             Default 5% to tolerate minor numerical rounding near the boundary.
     """
     results = []
-    positive_sites = ["diffusion_diag_pop", "manifest_var_diag", "t0_var_diag"]
+    positive_sites = ["diffusion_diag_free", "manifest_var_diag_free", "t0_var_diag_free"]
 
     for site_name in positive_sites:
         if site_name not in samples:
@@ -415,7 +415,7 @@ def _check_extreme_values(
     param_sites = [
         k
         for k in samples
-        if k.endswith("_pop") or k.endswith("_diag") or k == "cint_pop" or k == "lambda_free"
+        if k.endswith("_free")
     ]
     for site_name in param_sites:
         arr = np.asarray(samples[site_name])
@@ -1097,7 +1097,7 @@ def get_failed_parameters(
     """Extract parameter names that contributed to validation failure.
 
     Maps validation result parameter names (which may be SSM site names like
-    'drift_diag_pop' or 'scale_mood') back to ModelSpec parameter names.
+    'drift_diag_free' or 'scale_mood') back to ModelSpec parameter names.
 
     When ``causal_spec`` is provided, scale mismatch failures are targeted
     to the construct whose indicator triggered the mismatch rather than

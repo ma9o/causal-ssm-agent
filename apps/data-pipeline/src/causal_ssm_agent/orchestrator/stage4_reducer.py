@@ -46,7 +46,7 @@ from .stage4_state import (
     Stage4RepairCampaignState,
     Stage4Runtime,
 )
-from .stage4_submission import get_stage4_block_handler, validate_submission_envelope
+from .stage4_submission import get_stage4_block_handler, validate_stage4_submission_payload
 
 if TYPE_CHECKING:
     from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
@@ -986,7 +986,7 @@ def _compute_stage4_validate_step_with_transitions(
     runtime: Stage4Runtime,
     deps: Stage4Deps,
 ) -> tuple[dict | None, str, tuple[dict[str, Any], ...]]:
-    """Advance the reducer by one ``validate_model`` submission."""
+    """Advance the reducer by one block-local Stage 4 submit-tool call."""
     active_block = get_active_prompt_block(plan, runtime)
     if active_block is None:
         if isinstance(
@@ -1001,7 +1001,7 @@ def _compute_stage4_validate_step_with_transitions(
             )
         return None, "VALIDATION ERRORS:\n- no active Stage 4 frontier block remains", ()
 
-    proposal, error_feedback = validate_submission_envelope(data, active_block)
+    error_feedback = validate_stage4_submission_payload(data)
     if error_feedback is not None:
         runtime.last_validation_packet = _build_validation_packet_for_block(
             block=active_block,
@@ -1011,10 +1011,9 @@ def _compute_stage4_validate_step_with_transitions(
             capture_stage_output=False,
         )
         return None, error_feedback, ()
-    assert proposal is not None
 
     handler = get_stage4_block_handler(active_block.kind)
-    normalized, error_feedback = handler.normalize_submission(active_block, proposal)
+    normalized, error_feedback = handler.normalize_submission(active_block, data)
     if error_feedback is not None:
         runtime.last_validation_packet = _build_validation_packet_for_block(
             block=active_block,
@@ -1082,7 +1081,7 @@ def compute_stage4_validate_step(
     runtime: Stage4Runtime,
     deps: Stage4Deps,
 ) -> tuple[dict | None, str]:
-    """Advance the reducer by one ``validate_model`` submission."""
+    """Advance the reducer by one block-local Stage 4 submit-tool call."""
     stage_output, feedback, _transitions = _compute_stage4_validate_step_with_transitions(
         data,
         plan=plan,

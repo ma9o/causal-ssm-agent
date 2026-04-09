@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any
 
 from .stage4_feedback import should_store_stage4_validation_packet
@@ -51,39 +50,16 @@ def _build_stage4_tool_map(
     from causal_ssm_agent.flows.stages.stage4.tools import (
         make_elicit_prior_gmm_tool,
         make_search_tool,
-    )
-    from causal_ssm_agent.utils.openrouter_client import Tool
-
-    async def _execute_validate(*, model_json: str) -> str:
-        try:
-            data = json.loads(model_json)
-        except json.JSONDecodeError as exc:
-            return f"JSON parse error: {exc}"
-        return session.submit(data)
-
-    validate_tool = Tool(
-        name="validate_model",
-        description="Submit one active Stage 4 frontier block for validation.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "model_json": {
-                    "type": "string",
-                    "description": (
-                        "JSON object with exactly `block_id`, `block_kind`, and `proposal`. "
-                        "Submit only the current active Stage 4 block."
-                    ),
-                }
-            },
-            "required": ["model_json"],
-            "additionalProperties": False,
-        },
-        execute=_execute_validate,
-        stop_on_success=True,
-        success_output=None,
+        make_submit_indicator_choice_tool,
+        make_submit_model_review_tool,
+        make_submit_prior_block_tool,
     )
 
-    tool_map: dict[str, Any] = {"validate_model": validate_tool}
+    tool_map: dict[str, Any] = {
+        "submit_indicator_choice": make_submit_indicator_choice_tool(session),
+        "submit_model_review": make_submit_model_review_tool(session),
+        "submit_prior_block": make_submit_prior_block_tool(session),
+    }
     if enable_literature:
         tool_map["search_literature"] = make_search_tool(session)
     if enable_paraphrasing:
@@ -101,7 +77,7 @@ async def _run_stage4_turn(
     generate: GenerateFn,
     tool_map: dict[str, Any],
 ) -> None:
-    """Run one Stage 4 outer turn and require a validate_model submission."""
+    """Run one Stage 4 outer turn and require the block's submit tool."""
     turn = session.current_turn()
     if turn is None:
         raise ValueError("Stage 4 turn requested with no active block")
@@ -115,9 +91,11 @@ async def _run_stage4_turn(
         session.discard_turn()
         raise
     outcome = session.finish_turn(block_before)
-    if not outcome.validate_submitted:
+    if not outcome.submission_made:
         raise ValueError(
-            f"Stage 4 block `{block_before}` did not submit `validate_model` before the turn ended"
+            "Stage 4 block "
+            f"`{block_before}` did not submit `{turn.required_submission_tool_name}` "
+            "before the turn ended"
         )
 
 

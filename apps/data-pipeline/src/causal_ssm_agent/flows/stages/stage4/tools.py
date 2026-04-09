@@ -51,6 +51,129 @@ def make_search_tool(state: Any) -> Any:
     )
 
 
+def make_submit_indicator_choice_tool(state: Any) -> Any:
+    """Create the indicator-decision submit tool for the active Stage 4 block."""
+    from causal_ssm_agent.utils.openrouter_client import Tool
+
+    async def _execute(
+        *,
+        variable: str,
+        distribution: str,
+        link: str,
+        reasoning: str,
+    ) -> str:
+        return state.submit_indicator_choice(
+            variable=variable,
+            distribution=distribution,
+            link=link,
+            reasoning=reasoning,
+        )
+
+    return Tool(
+        name="submit_indicator_choice",
+        description="Submit one distribution/link choice for the active Stage 4 indicator block.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "variable": {
+                    "type": "string",
+                    "description": "Active indicator variable name.",
+                },
+                "distribution": {
+                    "type": "string",
+                    "description": "Chosen distribution for the active indicator.",
+                },
+                "link": {
+                    "type": "string",
+                    "description": "Chosen link function for the active indicator.",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Short justification for the active indicator choice.",
+                },
+            },
+            "required": ["variable", "distribution", "link", "reasoning"],
+            "additionalProperties": False,
+        },
+        execute=_execute,
+        stop_on_success=True,
+        success_output=None,
+    )
+
+
+def make_submit_model_review_tool(state: Any) -> Any:
+    """Create the model-review submit tool for the active Stage 4 review block."""
+    from causal_ssm_agent.utils.openrouter_client import Tool
+
+    async def _execute(
+        *,
+        decision: str,
+        reasoning: str,
+        reopen_block_ids: list[str] | None = None,
+    ) -> str:
+        return state.submit_model_review(
+            decision=decision,
+            reasoning=reasoning,
+            reopen_block_ids=reopen_block_ids,
+        )
+
+    return Tool(
+        name="submit_model_review",
+        description="Submit the active Stage 4 model-review decision.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "decision": {
+                    "type": "string",
+                    "enum": ["approve", "reopen"],
+                    "description": "Whether to approve the locked model or reopen named blocks.",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Short explanation for the review decision.",
+                },
+                "reopen_block_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Required when decision is reopen; omit when approving.",
+                },
+            },
+            "required": ["decision", "reasoning"],
+            "additionalProperties": False,
+        },
+        execute=_execute,
+        stop_on_success=True,
+        success_output=None,
+    )
+
+
+def make_submit_prior_block_tool(state: Any) -> Any:
+    """Create the prior-authoring submit tool for the active Stage 4 block."""
+    from causal_ssm_agent.utils.openrouter_client import Tool
+
+    async def _execute(*, priors: dict[str, dict[str, Any]]) -> str:
+        return state.submit_prior_block(priors=priors)
+
+    return Tool(
+        name="submit_prior_block",
+        description="Submit prior proposals for the active Stage 4 prior block only.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "priors": {
+                    "type": "object",
+                    "description": "Prior proposals keyed by active-scope parameter name.",
+                }
+            },
+            "required": ["priors"],
+            "additionalProperties": False,
+        },
+        execute=_execute,
+        stop_on_success=True,
+        success_output=None,
+    )
+
+
 def make_elicit_prior_gmm_tool(
     question: str,
     model_name: str,
