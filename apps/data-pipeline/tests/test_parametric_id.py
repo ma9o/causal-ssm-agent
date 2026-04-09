@@ -13,8 +13,10 @@ Tests:
 9. Recovery: profile_likelihood correctly classifies identified vs non-identified
 """
 
+from dataclasses import replace
 from unittest.mock import patch
 
+import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
@@ -161,21 +163,14 @@ def _finite_difference_jacobian(
     rel_step: float = 1e-4,
 ) -> np.ndarray:
     """Approximate the Stage 4b moment Jacobian with central differences."""
-    z_np = np.asarray(z_flat, dtype=np.float64)
-    base = np.asarray(predict_fn(jnp.asarray(z_np, dtype=z_flat.dtype)), dtype=np.float64)
-    jacobian = np.empty((base.size, z_np.size), dtype=np.float64)
-
-    for idx in range(z_np.size):
-        step = rel_step * max(1.0, abs(float(z_np[idx])))
-        z_plus = z_np.copy()
-        z_minus = z_np.copy()
-        z_plus[idx] += step
-        z_minus[idx] -= step
-        f_plus = np.asarray(predict_fn(jnp.asarray(z_plus, dtype=z_flat.dtype)), dtype=np.float64)
-        f_minus = np.asarray(predict_fn(jnp.asarray(z_minus, dtype=z_flat.dtype)), dtype=np.float64)
-        jacobian[:, idx] = (f_plus - f_minus) / (2.0 * step)
-
-    return jacobian
+    z = jnp.asarray(z_flat)
+    steps = rel_step * jnp.maximum(1.0, jnp.abs(z))
+    perturbations = jnp.eye(z.shape[0], dtype=z.dtype) * steps[:, None]
+    batched_predict = jax.jit(jax.vmap(predict_fn))
+    f_plus = batched_predict(z + perturbations)
+    f_minus = batched_predict(z - perturbations)
+    denominator = (2.0 * steps)[None, :]
+    return np.asarray((f_plus - f_minus).T / denominator, dtype=np.float64)
 
 
 def _make_interval_support_runtime(
@@ -813,7 +808,7 @@ class TestOutputSensitivity:
                 return jnp.full((output_dim, context.flat_dim), jnp.nan)
             return real_jacobian(z_flat, time_grid)
 
-        object.__setattr__(context, "jacobian_fn", fake_jacobian)
+        patched_context = replace(context, jacobian_fn=fake_jacobian)
 
         def fake_sample_prior_unconstrained(rng_key, registry, prior_state, n_samples):
             draws = jnp.ones((n_samples, context.flat_dim), dtype=jnp.float32)
@@ -832,7 +827,7 @@ class TestOutputSensitivity:
             times,
             n_draws=2,
             seed=13,
-            sweep_context=context,
+            sweep_context=patched_context,
         )
 
         assert result.n_draws == 1
