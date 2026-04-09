@@ -442,8 +442,160 @@ class TestE2ESpecToDiscretization:
         assert spec.n_latent == 3
         assert spec.time_invariant_mask is not None
         np.testing.assert_array_equal(spec.time_invariant_mask, [False, False, True])
+        np.testing.assert_array_equal(spec.drift_diag_mask, [True, True, False])
+        np.testing.assert_array_equal(spec.cint_mask, [True, True, False])
+        np.testing.assert_array_equal(
+            spec.diffusion_chol_mask,
+            [
+                [True, False, False],
+                [False, True, False],
+                [False, False, False],
+            ],
+        )
         assert isinstance(ssm_priors.drift_diag["mu"], list)
-        assert len(ssm_priors.drift_diag["mu"]) == 3
+        assert len(ssm_priors.drift_diag["mu"]) == 2
+
+    def test_time_invariant_states_drop_static_target_drift_and_diffusion_support(self):
+        """Time-invariant states should not expose drift, diffusion, or cint support."""
+        causal_spec = _with_estimation_projection(
+            {
+                "latent": {
+                    "constructs": [
+                        {
+                            "name": "mood",
+                            "description": "Daily mood",
+                            "role": "endogenous",
+                            "is_outcome": True,
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "stress",
+                            "description": "Daily stress",
+                            "role": "exogenous",
+                            "temporal_status": "time_varying",
+                        },
+                        {
+                            "name": "trait_vulnerability",
+                            "description": "Stable vulnerability factor",
+                            "role": "exogenous",
+                            "temporal_status": "time_invariant",
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "cause": "stress",
+                            "effect": "mood",
+                            "description": "Stress impairs mood",
+                            "lagged": True,
+                        },
+                        {
+                            "cause": "trait_vulnerability",
+                            "effect": "mood",
+                            "description": "Stable vulnerability shifts mood dynamics",
+                            "lagged": False,
+                        },
+                    ],
+                },
+                "measurement": {
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "name": "mood_rating",
+                            "construct_name": "mood",
+                            "how_to_measure": "Mood rating",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "stress_rating",
+                            "construct_name": "stress",
+                            "how_to_measure": "Stress rating",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                        {
+                            "name": "vulnerability_score",
+                            "construct_name": "trait_vulnerability",
+                            "how_to_measure": "Vulnerability questionnaire",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
+                    ],
+                },
+            }
+        )
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood_rating",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "stress_rating",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "vulnerability_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "beta_stress_mood",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+                {
+                    "name": "beta_trait_vulnerability_mood",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+                {
+                    "name": "cor_mood_stress",
+                    "role": "correlation",
+                    "constraint": "correlation",
+                    "description": "",
+                },
+            ],
+        }
+
+        spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
+
+        assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
+        np.testing.assert_array_equal(spec.drift_diag_mask, [True, True, False])
+        assert spec.drift_offdiag_mask[0, 1]
+        assert spec.drift_offdiag_mask[0, 2]
+        assert not spec.drift_offdiag_mask[2, 0]
+        assert not spec.drift_offdiag_mask[2, 1]
+        np.testing.assert_array_equal(spec.cint_mask, [True, True, False])
+        np.testing.assert_array_equal(
+            spec.diffusion_chol_mask,
+            [
+                [True, False, False],
+                [True, True, False],
+                [False, False, False],
+            ],
+        )
 
     def test_builder_rejects_parameter_names_not_grounded_in_causal_spec(
         self, two_construct_causal_spec

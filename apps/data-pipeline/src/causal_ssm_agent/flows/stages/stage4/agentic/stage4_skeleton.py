@@ -127,6 +127,9 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     for edge in retained_edges:
         cause = edge["cause"]
         effect = edge["effect"]
+        effect_construct = latent_construct_lookup.get(effect)
+        if effect_construct is not None and effect_construct.get("temporal_status") == "time_invariant":
+            continue
         seed_parameters.append(
             {
                 "name": f"beta_{cause}_{effect}",
@@ -141,6 +144,8 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
 
     # --- Residual SDs ---
     for construct in retained_constructs:
+        if construct.get("temporal_status") == "time_invariant":
+            continue
         construct_name = construct["name"]
         seed_parameters.append(
             {
