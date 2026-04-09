@@ -451,7 +451,8 @@ class TestBuilderMasks:
 
     def test_ssm_spec_rejects_mismatched_family_metadata_lengths(self):
         """Per-variable metadata lists must match the declared dimensions."""
-        from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
+        from causal_ssm_agent.artifacts import LinkFunction
+        from causal_ssm_agent.distributions import DistributionFamily
 
         with pytest.raises(ValueError, match="diffusion_dists length must match n_latent"):
             make_ssm_spec(

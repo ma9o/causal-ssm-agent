@@ -19,7 +19,6 @@ from causal_ssm_agent.models.ssm.discretization import (
 )
 from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult, fit
 from causal_ssm_agent.models.ssm.model import (
-    DistributionFamily,
     SSMModel,
     SSMPriors,
     SSMSpec,
@@ -48,7 +47,6 @@ __all__ = [
     "SSMModel",
     "SSMPriors",
     "SSMSpec",
-    "DistributionFamily",
     "full_cholesky_mask",
     "full_diagonal_mask",
     "full_drift_offdiag_mask",

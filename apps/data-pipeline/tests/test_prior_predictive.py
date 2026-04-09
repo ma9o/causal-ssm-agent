@@ -10,7 +10,8 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
+from causal_ssm_agent.artifacts import LinkFunction
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.prior_predictive import (
     _check_constraint_violations,
     _check_extreme_values,

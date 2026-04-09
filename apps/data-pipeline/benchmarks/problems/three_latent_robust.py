@@ -13,7 +13,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.artifacts import DistributionFamily
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm import (
     SSMPriors,
     SSMSpec,

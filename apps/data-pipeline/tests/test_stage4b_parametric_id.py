@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.artifacts import DistributionFamily
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.flows.dag import stage4b
 from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task
 from causal_ssm_agent.models.ssm.inference.structure import (
