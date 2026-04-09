@@ -7,15 +7,15 @@ import numpy as np
 import pytest
 
 from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
+from causal_ssm_agent.models.ssm.diagnostics.observation_moments import (
+    _predict_observation_components,
+    _project_response_covariance_blocks,
+)
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     compile_observation_operator,
 )
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from causal_ssm_agent.utils.parametric_id import (
-    _predict_observation_components,
-    _project_response_covariance_blocks,
-)
 from tests.ssm_test_utils import make_ssm_spec
 
 

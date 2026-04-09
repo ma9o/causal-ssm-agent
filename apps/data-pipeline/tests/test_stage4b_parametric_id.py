@@ -178,7 +178,7 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
             lambda *_args, **_kwargs: StubTRule(),
         )
 
@@ -278,17 +278,17 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
             lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["drift_offdiag_free[0]", "lambda_free"]
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
@@ -296,7 +296,7 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: [0, 1],
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: StubProfileLikelihoodResult(),
         )
 
@@ -380,21 +380,21 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
             lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["diffusion_diag_free[0]", "drift_diag_free[0]"]
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail("profile_likelihood should be skipped"),
         )
 
@@ -508,17 +508,17 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
             lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["diffusion_diag_free[0]", "drift_offdiag_free[0]", "lambda_free"]
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
@@ -526,7 +526,7 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: [2],
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
             _profile_likelihood_stub,
         )
 
@@ -595,19 +595,19 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
             lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(scalar_names=["lambda_free"]),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail(
                 "profile_likelihood should be skipped on particle-only paths"
             ),
@@ -623,7 +623,7 @@ class TestStage4bInferenceStructurePayload:
         assert pid["summary"]["weak_params"] == ["lambda_free"]
 
     def test_unsupported_sensitivity_screen_does_not_emit_false_weak_params(self, monkeypatch):
-        from causal_ssm_agent.utils.parametric_id import OutputSensitivityUnsupportedError
+        from causal_ssm_agent.models.ssm.diagnostics import OutputSensitivityUnsupportedError
 
         spec = _make_separable_spec()
         model = _make_model(spec)
@@ -657,21 +657,21 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.check_t_rule",
+            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
             lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.get_stage4b_sweep_context",
+            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(scalar_names=["lambda_free"]),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.output_sensitivity_analysis",
+            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 OutputSensitivityUnsupportedError("unsupported")
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.parametric_id.profile_likelihood",
+            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail(
                 "profile_likelihood should be skipped on particle-only paths"
             ),

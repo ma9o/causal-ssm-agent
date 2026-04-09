@@ -709,6 +709,7 @@ class TestLaplaceSupportAware:
         assert float(ll) == pytest.approx(-1.0)
         assert calls == ["dense"]
 
+    @pytest.mark.slow
     def test_laplace_backend_handles_window_average(self):
         support = _support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
@@ -756,6 +757,7 @@ class TestLaplaceSupportAware:
 
         assert jnp.isfinite(ll)
 
+    @pytest.mark.slow
     def test_laplace_banded_matches_dense_reference(self):
         support = _support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
@@ -1794,6 +1796,7 @@ class TestPureJaxLikelihoodEvaluator:
         grads = jax.grad(log_lik_fn)(z0)
         assert jnp.all(jnp.isfinite(grads))
 
+    @pytest.mark.slow
     def test_log_likelihood_matches_model_replay_without_reparam(self):
         self._assert_log_likelihood_match(reparam=None)
 

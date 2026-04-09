@@ -248,7 +248,7 @@ class TestTRule:
 
     def test_identified_model_passes(self):
         """Well-identified 2L/2M model should pass t-rule with time series."""
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
 
         spec = make_ssm_spec(
             n_latent=2,
@@ -263,7 +263,7 @@ class TestTRule:
 
     def test_overparameterized_model_fails_without_T(self):
         """Model with many params fails cross-sectional t-rule (no T)."""
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
 
         # 3 latent, 2 manifest: lots of drift params relative to cross-sectional moments
         spec = make_ssm_spec(
@@ -282,7 +282,7 @@ class TestTRule:
 
     def test_overparameterized_rescued_by_time_series(self):
         """Same model passes when T is large enough (autocovariance helps)."""
-        from causal_ssm_agent.utils.parametric_id import check_t_rule
+        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
 
         spec = make_ssm_spec(
             n_latent=3,
@@ -300,7 +300,7 @@ class TestTRule:
 
     def test_count_free_params_fixed_lambda(self):
         """Fixed lambda should contribute 0 free params."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
 
         spec = make_ssm_spec(
             n_latent=2,
@@ -313,7 +313,7 @@ class TestTRule:
 
     def test_count_free_params_free_lambda(self):
         """Free lambda with n_m > n_l should have (n_m - n_l) * n_l free entries."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
 
         spec = make_ssm_spec(
             n_latent=2,
@@ -336,7 +336,7 @@ class TestTRule:
 
     def test_count_free_params_drift_components(self):
         """Drift should have n_l diagonal + n_l*(n_l-1) off-diagonal."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
 
         spec = make_ssm_spec(
             n_latent=3,
@@ -350,7 +350,7 @@ class TestTRule:
 
     def test_count_free_params_noise_hyperparams(self):
         """Student-t manifest noise should add obs_df parameter."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -364,7 +364,7 @@ class TestTRule:
 
     def test_count_free_params_per_channel_noise_hyperparams(self):
         """Per-channel manifest_dists should contribute registry-defined noise sites."""
-        from causal_ssm_agent.utils.parametric_id import count_free_params
+        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -385,7 +385,7 @@ class TestSimulateSSM:
 
     def test_simulate_ssm_shape_and_finite(self):
         """Forward sim produces correct shape, finite values."""
-        from causal_ssm_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.models.ssm.diagnostics import simulate_ssm
 
         n_latent, n_manifest, T = 2, 2, 20
         drift = jnp.array([[-0.5, 0.1], [0.05, -0.8]])
@@ -412,7 +412,7 @@ class TestSimulateSSM:
 
     def test_simulate_ssm_with_cint(self):
         """Forward sim works with continuous intercept."""
-        from causal_ssm_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.models.ssm.diagnostics import simulate_ssm
 
         n_latent, n_manifest, T = 2, 2, 15
         y = simulate_ssm(
@@ -432,7 +432,7 @@ class TestSimulateSSM:
 
     def test_simulate_ssm_poisson(self):
         """Forward sim produces non-negative integers for Poisson noise."""
-        from causal_ssm_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.models.ssm.diagnostics import simulate_ssm
 
         n_latent, n_manifest, T = 1, 1, 10
         y = simulate_ssm(
@@ -457,7 +457,7 @@ class TestOutputSensitivity:
 
     def test_stage4b_jacobian_matches_finite_difference_on_identifiable_mixed_family_model(self):
         """A GOLDEN-like mixed-family interval model should match a finite-difference Jacobian."""
-        from causal_ssm_agent.utils import parametric_id as pid
+        from causal_ssm_agent.models.ssm.diagnostics import context as pid
 
         model = _make_mixed_family_interval_oracle_model()
         context = pid.get_stage4b_sweep_context(model)
@@ -489,7 +489,7 @@ class TestOutputSensitivity:
 
     def test_stage4b_sweep_context_reuses_cached_topology_bundle(self):
         """Identical topology should reuse one cached Stage 4b sweep context."""
-        from causal_ssm_agent.utils import parametric_id as pid
+        from causal_ssm_agent.models.ssm.diagnostics import context as pid
 
         model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
         pid.clear_stage4b_sweep_context_cache()
@@ -513,7 +513,7 @@ class TestOutputSensitivity:
 
     def test_stage4b_sweep_context_separates_distinct_topologies(self):
         """A topology change should create a different cached sweep context."""
-        from causal_ssm_agent.utils.parametric_id import (
+        from causal_ssm_agent.models.ssm.diagnostics import (
             clear_stage4b_sweep_context_cache,
             get_stage4b_sweep_context,
         )
@@ -531,7 +531,7 @@ class TestOutputSensitivity:
 
     def test_identified_model_mostly_identifiable(self):
         """Well-identified 1D LGSS: all params should be flagged identifiable."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+        from causal_ssm_agent.models.ssm.diagnostics import output_sensitivity_analysis
 
         # 1D model (3 free params: drift_diag, diffusion_diag, manifest_var_diag)
         spec = make_ssm_spec(
@@ -570,7 +570,7 @@ class TestOutputSensitivity:
 
     def test_non_identified_model_flags_issues(self):
         """Non-identified model (2 latent, 1 manifest): should flag issues."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+        from causal_ssm_agent.models.ssm.diagnostics import output_sensitivity_analysis
 
         model = _make_nonidentified_model()
         T = 50
@@ -591,7 +591,7 @@ class TestOutputSensitivity:
 
     def test_mixed_family_interval_observation_models_produce_finite_sensitivity(self):
         """Stage 4b should handle mixed-family interval summaries on the observation scale."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+        from causal_ssm_agent.models.ssm.diagnostics import output_sensitivity_analysis
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -647,7 +647,7 @@ class TestOutputSensitivity:
 
     def test_discrete_point_observation_models_produce_finite_sensitivity(self):
         """Point-like ordered-logistic and categorical channels should be supported."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+        from causal_ssm_agent.models.ssm.diagnostics import output_sensitivity_analysis
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -706,7 +706,7 @@ class TestOutputSensitivity:
 
     def test_interval_std_observation_models_produce_finite_sensitivity(self):
         """Interval-summary standard-deviation channels should produce finite sensitivities."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+        from causal_ssm_agent.models.ssm.diagnostics import output_sensitivity_analysis
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -754,7 +754,7 @@ class TestOutputSensitivity:
 
     def test_interval_discrete_observation_models_raise_unsupported_error(self):
         """Interval summaries over discrete families should fail explicitly."""
-        from causal_ssm_agent.utils.parametric_id import (
+        from causal_ssm_agent.models.ssm.diagnostics import (
             OutputSensitivityUnsupportedError,
             output_sensitivity_analysis,
         )
@@ -795,7 +795,7 @@ class TestOutputSensitivity:
 
     def test_skips_nonfinite_prior_draws_instead_of_poisoning_median(self, monkeypatch):
         """One bad Jacobian draw should not turn the whole sensitivity result into NaN."""
-        from causal_ssm_agent.utils import parametric_id as pid
+        from causal_ssm_agent.models.ssm.diagnostics import sensitivity as pid
 
         model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
         times = jnp.arange(6, dtype=jnp.float32)
@@ -836,7 +836,7 @@ class TestOutputSensitivity:
 
     def test_output_sensitivity_counts_only_observed_outputs_when_masked(self):
         """Missing observations should be excluded from the sensitivity output count."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+        from causal_ssm_agent.models.ssm.diagnostics import output_sensitivity_analysis
 
         model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
         times = jnp.linspace(0, 6, 4)
@@ -854,7 +854,7 @@ class TestOutputSensitivity:
 
     def test_output_sensitivity_exposes_interpretable_parameter_names(self):
         """Sensitivity rows should carry semantic names resolved from bindings or spec metadata."""
-        from causal_ssm_agent.utils.parametric_id import output_sensitivity_analysis
+        from causal_ssm_agent.models.ssm.diagnostics import output_sensitivity_analysis
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -893,7 +893,9 @@ class TestOutputSensitivity:
 
     def test_manifest_var_alias_uses_sparse_free_positions(self):
         """Sparse manifest-noise sites should resolve to the correct manifest channel."""
-        from causal_ssm_agent.utils.parametric_id import _fallback_interpretable_parameter_name
+        from causal_ssm_agent.models.ssm.diagnostics.sensitivity import (
+            _fallback_interpretable_parameter_name,
+        )
 
         spec = make_ssm_spec(
             n_latent=2,
@@ -921,7 +923,7 @@ class TestProfileLikelihood:
 
     def test_profile_likelihood_accepts_cached_sweep_context(self):
         """Explicitly reusing a cached Stage 4b context should still work."""
-        from causal_ssm_agent.utils.parametric_id import (
+        from causal_ssm_agent.models.ssm.diagnostics import (
             get_stage4b_sweep_context,
             output_sensitivity_analysis,
             profile_likelihood,
@@ -965,14 +967,14 @@ class TestProfileLikelihood:
     @pytest.mark.slow
     def test_identified_model(self):
         """Well-identified model: all params should be classified as identified."""
-        from causal_ssm_agent.utils.parametric_id import profile_likelihood
+        from causal_ssm_agent.models.ssm.diagnostics import profile_likelihood
 
         model = _make_identified_model()
         T = 50
         times = jnp.linspace(0, 25, T)
 
         # Simulate real data from known params
-        from causal_ssm_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.models.ssm.diagnostics import simulate_ssm
 
         obs = simulate_ssm(
             drift=jnp.array([[-0.5, 0.1], [0.05, -0.8]]),
@@ -1005,7 +1007,7 @@ class TestProfileLikelihood:
     @pytest.mark.slow
     def test_non_identified_model(self):
         """Non-identified model (2 latent, 1 manifest) should flag issues."""
-        from causal_ssm_agent.utils.parametric_id import profile_likelihood, simulate_ssm
+        from causal_ssm_agent.models.ssm.diagnostics import profile_likelihood, simulate_ssm
 
         model = _make_nonidentified_model()
         T = 50
@@ -1045,7 +1047,7 @@ class TestProfileLikelihoodResult:
 
     def test_summary_keys(self):
         """Summary should return per-parameter classification strings."""
-        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
+        from causal_ssm_agent.models.ssm.diagnostics import ProfileLikelihoodResult
 
         result = ProfileLikelihoodResult(
             parameter_profiles={
@@ -1072,7 +1074,7 @@ class TestProfileLikelihoodResult:
 
     def test_identified_classification(self):
         """Parabolic profile (strong curvature) should be classified as identified."""
-        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
+        from causal_ssm_agent.models.ssm.diagnostics import ProfileLikelihoodResult
 
         grid = jnp.linspace(-3, 3, 20)
         # Strong parabola: -2*x^2, drops by >1.92 within grid
@@ -1097,7 +1099,7 @@ class TestProfileLikelihoodResult:
 
     def test_flat_profile_detection(self):
         """Flat profile should be classified as structurally_unidentifiable."""
-        from causal_ssm_agent.utils.parametric_id import ProfileLikelihoodResult
+        from causal_ssm_agent.models.ssm.diagnostics import ProfileLikelihoodResult
 
         grid = jnp.linspace(-3, 3, 20)
         profile = jnp.zeros(20) - 10.0  # flat
@@ -1127,7 +1129,7 @@ class TestSBCCheck:
     @pytest.mark.timeout(300)
     def test_sbc_identified_model_uniform_ranks(self):
         """Well-identified 1D LGSS with enough replicates should have uniform ranks."""
-        from causal_ssm_agent.utils.parametric_id import sbc_check
+        from causal_ssm_agent.models.ssm.diagnostics import sbc_check
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -1176,8 +1178,8 @@ class TestPowerScalingSensitivity:
     @pytest.mark.slow
     def test_power_scaling_basic(self):
         """After fitting with simple data, power scaling should produce valid output."""
+        from causal_ssm_agent.models.ssm.diagnostics import power_scaling_sensitivity
         from causal_ssm_agent.models.ssm.inference import InferenceResult
-        from causal_ssm_agent.utils.parametric_id_postfit import power_scaling_sensitivity
 
         model = _make_identified_model()
         T = 20
@@ -1239,7 +1241,7 @@ class TestSimulateSSMRecovery:
     @pytest.fixture
     def lgss_ground_truth(self):
         """1D Linear Gaussian SSM ground truth + simulated data via simulate_ssm."""
-        from causal_ssm_agent.utils.parametric_id import simulate_ssm
+        from causal_ssm_agent.models.ssm.diagnostics import simulate_ssm
 
         n_latent, n_manifest = 1, 1
         T = 100

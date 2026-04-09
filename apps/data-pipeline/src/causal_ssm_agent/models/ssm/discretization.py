@@ -129,7 +129,6 @@ def compute_discrete_diffusion(
     return 0.5 * (Q_dt + Q_dt.T)
 
 
-
 def compute_discrete_cint(
     drift: jnp.ndarray,
     cint: jnp.ndarray,
@@ -162,7 +161,6 @@ def compute_discrete_cint(
     # Using solve for numerical stability: A * c_dt = (exp(A*dt) - I) * c
     rhs = (discrete_drift - I_n) @ cint
     return jla.solve(drift, rhs)
-
 
 
 def discretize_system(

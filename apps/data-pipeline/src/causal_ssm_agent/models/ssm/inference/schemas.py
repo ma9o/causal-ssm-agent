@@ -315,7 +315,6 @@ AggregationFunction = Literal[
     "n_unique",
 ]
 
-# Avoid circular import — TRuleResult lives in parametric_id.py
-from causal_ssm_agent.utils.parametric_id import TRuleResult as TRuleResult  # noqa: E402, TC001
+from causal_ssm_agent.models.ssm.diagnostics import TRuleResult as TRuleResult  # noqa: E402, TC001
 
 ParametricIdResult.model_rebuild()

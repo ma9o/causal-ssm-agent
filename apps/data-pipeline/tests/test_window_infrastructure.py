@@ -196,8 +196,7 @@ class TestFormatWindowChunk:
         events = pl.DataFrame(
             {
                 "timestamp": [
-                    datetime(2024, 1, 1, h % 24, m)
-                    for h, m in zip(range(n), range(n), strict=True)
+                    datetime(2024, 1, 1, h % 24, m) for h, m in zip(range(n), range(n), strict=True)
                 ],
                 "action": [f"event_{i}" for i in range(n)],
             }
@@ -211,8 +210,7 @@ class TestFormatWindowChunk:
         events = pl.DataFrame(
             {
                 "timestamp": [
-                    datetime(2024, 1, 1, h % 24, m)
-                    for h, m in zip(range(n), range(n), strict=True)
+                    datetime(2024, 1, 1, h % 24, m) for h, m in zip(range(n), range(n), strict=True)
                 ],
                 "action": [f"event_{i}" for i in range(n)],
             }

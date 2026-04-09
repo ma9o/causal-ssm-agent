@@ -669,6 +669,7 @@ def _complex_mixed_runtime_spec() -> SSMSpec:
 
 
 class TestCompiledPriorPredictiveRuntime:
+    @pytest.mark.slow
     def test_mixed_likelihood_samples_are_finite(self):
         """Compiled runtime handles a larger mixed-family model without tracing."""
         spec = _complex_mixed_runtime_spec()

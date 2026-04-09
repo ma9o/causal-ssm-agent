@@ -387,7 +387,9 @@ class MeasurementModel(BaseModel):
         return self.model_clock_hours / 24.0
 
     def get_indicators_for_construct(self, construct_name: str) -> list[Indicator]:
-        return [indicator for indicator in self.indicators if indicator.construct_name == construct_name]
+        return [
+            indicator for indicator in self.indicators if indicator.construct_name == construct_name
+        ]
 
 
 def validate_measurement_model(
