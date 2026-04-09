@@ -332,3 +332,58 @@ def build_prior_index_maps(
         manifest_var_index,
         observation_site_index,
     )
+
+
+def check_backward_closure(
+    ssm_spec: SSMSpec,
+    index_maps: PriorIndexMaps,
+) -> list[str]:
+    """Check that every free runtime site has exactly one bound semantic parameter.
+
+    The forward check in ``build_prior_index_maps`` ensures every ModelSpec
+    parameter finds a free site.  This function checks the converse: no free
+    site is left unowned.
+
+    ``cint`` and ``manifest_means`` are excluded — they are known nuisance
+    freedoms with no semantic owner until ``initialization_policy`` /
+    ``equilibrium_policy`` gate their masks.
+
+    Returns a list of violation messages (empty when the invariant holds).
+
+    .. todo:: Once ``initialization_policy`` / ``equilibrium_policy`` gate the
+       ``cint`` and ``t0_*`` masks, add those families to the checked list and
+       remove the nuisance exclusion.
+    """
+    (
+        offdiag_index,
+        lambda_index,
+        diag_index,
+        diffusion_diag_index,
+        diffusion_offdiag_index,
+        t0_offdiag_index,
+        t0_mean_index,
+        t0_sd_index,
+        manifest_var_index,
+        _observation_site_index,
+    ) = index_maps
+
+    sr = SSMStructureRuntime(ssm_spec)
+
+    families = [
+        ("drift_diag", sr.n_drift_diag, len(diag_index)),
+        ("drift_offdiag", sr.n_drift_offdiag, len(offdiag_index)),
+        ("diffusion_diag", sr.n_diffusion_diag, len(diffusion_diag_index)),
+        ("diffusion_lower", sr.n_diffusion_lower, len(diffusion_offdiag_index)),
+        ("lambda_free", sr.n_lambda_free, len(lambda_index)),
+        ("manifest_var_diag", sr.n_manifest_var_diag, len(manifest_var_index)),
+        ("t0_means", sr.n_t0_means, len(t0_mean_index)),
+        ("t0_diag", sr.n_t0_diag, len(t0_sd_index)),
+        ("t0_correlation", sr.n_t0_correlation, len(t0_offdiag_index)),
+    ]
+
+    return [
+        f"Backward closure violation in {family}: {n_free} free site(s), "
+        f"{n_bound} bound parameter(s)"
+        for family, n_free, n_bound in families
+        if n_free != n_bound
+    ]

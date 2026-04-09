@@ -16,7 +16,10 @@ from causal_ssm_agent.models.ssm_prior_compilation import (
     collect_compile_diagnostics,
     compile_priors,
 )
-from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
+from causal_ssm_agent.models.ssm_prior_indexing import (
+    build_prior_index_maps,
+    check_backward_closure,
+)
 from causal_ssm_agent.models.ssm_spec_translation import (
     build_masks_from_causal_spec,
     get_construct_dt_days,
@@ -142,6 +145,14 @@ def compile_ssm_inputs_from_model_spec(
         edge_lag_days=edge_lag_days,
         causal_spec=causal_spec,
     )
+
+    if causal_spec is not None:
+        backward_gaps = check_backward_closure(ssm_spec, index_maps)
+        if backward_gaps:
+            from causal_ssm_agent.models.ssm_prior_indexing import PriorIndexingError
+
+            raise PriorIndexingError(backward_gaps)
+
     bindings = bind_parameters(index_maps)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
     return ssm_spec, ssm_priors, bindings, diagnostics, edge_lag_days
@@ -211,6 +222,13 @@ def compile_ssm_inputs_from_spec(
             raw_priors=raw_priors,
             ssm_priors=ssm_priors,
         )
+
+    if causal_spec is not None:
+        backward_gaps = check_backward_closure(ssm_spec, index_maps)
+        if backward_gaps:
+            from causal_ssm_agent.models.ssm_prior_indexing import PriorIndexingError
+
+            raise PriorIndexingError(backward_gaps)
 
     bindings = bind_parameters(index_maps)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)

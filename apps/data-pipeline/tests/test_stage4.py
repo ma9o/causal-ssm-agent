@@ -3281,6 +3281,12 @@ class TestSSMPriorConversion:
                     "constraint": "none",
                     "description": "",
                 },
+                {"name": "sigma_heart_rate", "role": "residual_sd", "constraint": "positive", "description": ""},
+                {"name": "sigma_activity", "role": "residual_sd", "constraint": "positive", "description": ""},
+                {"name": "t0_mean_heart_rate", "role": "initial_state_mean", "constraint": "none", "description": ""},
+                {"name": "t0_mean_activity", "role": "initial_state_mean", "constraint": "none", "description": ""},
+                {"name": "t0_sd_heart_rate", "role": "initial_state_sd", "constraint": "positive", "description": ""},
+                {"name": "t0_sd_activity", "role": "initial_state_sd", "constraint": "positive", "description": ""},
             ],
         }
         priors = {
@@ -3290,6 +3296,12 @@ class TestSSMPriorConversion:
                 "distribution": "Normal",
                 "params": {"mu": 0.3, "sigma": 0.15},
             },
+            "sigma_heart_rate": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
+            "sigma_activity": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
+            "t0_mean_heart_rate": {"distribution": "Normal", "params": {"mu": 0.0, "sigma": 1.0}},
+            "t0_mean_activity": {"distribution": "Normal", "params": {"mu": 0.0, "sigma": 1.0}},
+            "t0_sd_heart_rate": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
+            "t0_sd_activity": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
         }
         causal_spec = _with_positive_indicator_polarity(
             {
