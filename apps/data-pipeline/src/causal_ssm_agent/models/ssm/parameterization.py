@@ -863,11 +863,6 @@ def _normal_log_prob_terms(x, loc, scale):
     return -0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * ((x - loc) / scale) ** 2
 
 
-def _normal_log_prob(x, loc, scale):
-    """Total Normal(loc, scale) log-density."""
-    return jnp.sum(_normal_log_prob_terms(x, loc, scale))
-
-
 def _truncated_normal_log_prob_terms(x, loc, scale, low, high):
     """Element-wise TruncatedNormal(loc, scale, low, high) log-density."""
     return dist.TruncatedNormal(loc=loc, scale=scale, low=low, high=high).log_prob(x)
@@ -886,11 +881,6 @@ def _half_normal_log_prob_terms(x, scale):
     return jnp.log(2.0) - 0.5 * _LOG_2PI - jnp.log(scale) - 0.5 * (x / scale) ** 2
 
 
-def _half_normal_log_prob(x, scale):
-    """Total HalfNormal(scale) log-density."""
-    return jnp.sum(_half_normal_log_prob_terms(x, scale))
-
-
 def _log_normal_log_prob_terms(x, loc, scale):
     """Element-wise LogNormal(loc, scale) log-density."""
     log_x = jnp.log(x)
@@ -905,11 +895,6 @@ def _gamma_log_prob_terms(x, concentration, rate):
         + (concentration - 1.0) * jnp.log(x)
         - rate * x
     )
-
-
-def _gamma_log_prob(x, concentration, rate):
-    """Total Gamma(concentration, rate) log-density."""
-    return jnp.sum(_gamma_log_prob_terms(x, concentration, rate))
 
 
 def _exponential_log_prob_terms(x, rate):
@@ -1071,6 +1056,10 @@ def sample_prior_unconstrained(
     Returns ``(samples, rng_key)`` where *samples* has shape
     ``(n_samples, D)``.
 
+    Uses ``build_site_prior_distribution`` as the single authority for
+    family → distribution mapping, then applies the inverse of each
+    site's unconstrained ↔ constrained transform.
+
     This is a Python-level loop (not JIT'd) — intended for initialization,
     not inner-loop hot paths.
     """
@@ -1082,103 +1071,15 @@ def sample_prior_unconstrained(
         parts = []
         for site in registry:
             rng_key, sk = random.split(rng_key)
-            params = prior_state[site.name]
+            d = build_site_prior_distribution(site, prior_state[site.name])
+            x = d.sample(sk)
 
-            if site.support == SupportClass.REAL:
-                shape = site.shape or ()
-                family = jnp.broadcast_to(
-                    jnp.asarray(params["family"], dtype=jnp.int32),
-                    shape or (),
-                )
-                if not jnp.all((family == 0) | (family == 1) | (family == 2)):
-                    raise ValueError(f"Unknown REAL family index in site {site.name}")
-
-                sk_normal, sk_trunc, sk_uniform = random.split(sk, 3)
-                normal_sample = params["loc"] + params["scale"] * random.normal(
-                    sk_normal, shape=shape
-                )
-                truncated_sample = dist.TruncatedNormal(
-                    loc=params["loc"],
-                    scale=params["scale"],
-                    low=params.get("low", jnp.full_like(params["loc"], -1e6)),
-                    high=params.get("high", jnp.full_like(params["loc"], 1e6)),
-                ).sample(sk_trunc)
-                uniform_sample = random.uniform(
-                    sk_uniform,
-                    shape=shape,
-                    minval=params.get("low", jnp.full_like(params["loc"], 0.0)),
-                    maxval=params.get("high", jnp.full_like(params["loc"], 1.0)),
-                )
-                x = jnp.where(
-                    family == 0,
-                    normal_sample,
-                    jnp.where(family == 1, truncated_sample, uniform_sample),
-                )
-                parts.append(x.reshape(-1))
-
-            elif site.support == SupportClass.POSITIVE:
-                shape = site.shape or ()
-                family = jnp.broadcast_to(
-                    jnp.asarray(params["family"], dtype=jnp.int32),
-                    shape or (),
-                )
-                if not jnp.all((family == 0) | (family == 1) | (family == 2) | (family == 3)):
-                    raise ValueError(f"Unknown POSITIVE family index in site {site.name}")
-
-                sk_half, sk_gamma, sk_log_normal, sk_exp = random.split(sk, 4)
-                half_normal_sample = jnp.abs(params["scale"] * random.normal(sk_half, shape=shape))
-                gamma_sample = (
-                    random.gamma(sk_gamma, params["concentration"], shape=shape) / params["rate"]
-                )
-                log_normal_sample = jnp.exp(
-                    params["loc"] + params["scale"] * random.normal(sk_log_normal, shape=shape)
-                )
-                exponential_sample = random.exponential(sk_exp, shape=shape) / params["rate"]
-                x = jnp.where(
-                    family == 0,
-                    half_normal_sample,
-                    jnp.where(
-                        family == 1,
-                        gamma_sample,
-                        jnp.where(family == 2, log_normal_sample, exponential_sample),
-                    ),
-                )
-                # Unconstrained = log(x)
+            if site.support == SupportClass.POSITIVE:
                 parts.append(jnp.log(jnp.maximum(x, 1e-30)).reshape(-1))
-
             elif site.support == SupportClass.CORRELATION:
-                shape = site.shape or ()
-                family = jnp.broadcast_to(
-                    jnp.asarray(params["family"], dtype=jnp.int32),
-                    shape or (),
-                )
-                if not jnp.all((family == 0) | (family == 1) | (family == 2)):
-                    raise ValueError(f"Unknown CORRELATION family index in site {site.name}")
-
-                low = params.get("low", jnp.full(shape or (), -1.0, dtype=jnp.float64))
-                high = params.get("high", jnp.full(shape or (), 1.0, dtype=jnp.float64))
-                sk_normal, sk_trunc, sk_uniform = random.split(sk, 3)
-                normal_sample = params["loc"] + params["scale"] * random.normal(
-                    sk_normal, shape=shape
-                )
-                truncated_sample = dist.TruncatedNormal(
-                    loc=params["loc"],
-                    scale=params["scale"],
-                    low=low,
-                    high=high,
-                ).sample(sk_trunc)
-                uniform_sample = random.uniform(
-                    sk_uniform,
-                    shape=shape,
-                    minval=low,
-                    maxval=high,
-                )
-                x = jnp.where(
-                    family == 0,
-                    normal_sample,
-                    jnp.where(family == 1, truncated_sample, uniform_sample),
-                )
                 parts.append(_correlation_inverse(x).reshape(-1))
+            else:
+                parts.append(x.reshape(-1))
 
         if parts:
             all_samples.append(jnp.concatenate(parts))
