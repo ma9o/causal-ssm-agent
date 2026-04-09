@@ -496,9 +496,8 @@ def find_instruments(
     valid_instruments = candidate_instruments - descendants_of_ancestors
 
     # Filter to only observed instruments
-    observed_instruments = [z for z in valid_instruments if z in observed_constructs]
+    return [z for z in valid_instruments if z in observed_constructs]
 
-    return observed_instruments
 
 
 def analyze_unobserved_constructs(

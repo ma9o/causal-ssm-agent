@@ -26,12 +26,12 @@ from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikel
 
 __all__ = [
     "CTParams",
-    "InitialStateParams",
-    "MeasurementParams",
-    "LikelihoodBackend",
-    "KalmanLikelihood",
-    "ParticleLikelihood",
     "ComposedLikelihood",
+    "InitialStateParams",
+    "KalmanLikelihood",
+    "LikelihoodBackend",
+    "MeasurementParams",
+    "ParticleLikelihood",
     "RBPartition",
     "analyze_first_pass_rb",
     "get_emission_fn",

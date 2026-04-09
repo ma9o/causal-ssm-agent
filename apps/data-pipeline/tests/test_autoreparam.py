@@ -368,8 +368,9 @@ class TestMomentPreservation:
     @pytest.mark.parametrize("centered", [0.0, 0.6, 1.0, None])
     @pytest.mark.parametrize("dist_type", ["Normal", "StudentT"])
     def test_loc_scale_moments(self, dist_type, centered, shape):
-        loc = np.random.uniform(-1.0, 1.0, shape)
-        scale = np.random.uniform(0.5, 1.5, shape)
+        rng = np.random.default_rng(0)
+        loc = rng.uniform(-1.0, 1.0, shape)
+        scale = rng.uniform(0.5, 1.5, shape)
 
         def model(loc, scale):
             with numpyro.plate_stack("plates", shape), numpyro.plate("particles", 100_000):
@@ -401,8 +402,9 @@ class TestMomentPreservation:
     @pytest.mark.parametrize("centered", [0.0, 1.0])
     def test_loc_scale_gradients(self, centered, shape):
         """Gradients through reparameterized model should match original."""
-        loc = np.random.uniform(-1.0, 1.0, shape)
-        scale = np.random.uniform(0.5, 1.5, shape)
+        rng = np.random.default_rng(0)
+        loc = rng.uniform(-1.0, 1.0, shape)
+        scale = rng.uniform(0.5, 1.5, shape)
 
         def model(loc, scale):
             with numpyro.plate_stack("plates", shape), numpyro.plate("particles", 100_000):

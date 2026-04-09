@@ -6,7 +6,7 @@ from hmac import new as hmac_new
 import libsql
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from causal_ssm_agent.utils.byok_secret_store import BYOK_SECRET_TABLE, consume_byok_secret_ref
+from causal_ssm_agent.utils.byok_secret_store import consume_byok_secret_ref
 
 
 def _encode_base64url(raw: bytes) -> str:
@@ -36,8 +36,8 @@ def _seed_byok_ref(tmp_path, ref: str, payload: str, *, expires_at_ms: int) -> N
         raise RuntimeError("libsql.connect is unavailable in the test environment")
     connection = connect(str(db_path))
     connection.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {BYOK_SECRET_TABLE} (
+        """
+        CREATE TABLE IF NOT EXISTS byok_secret_refs (
             ref TEXT PRIMARY KEY,
             ciphertext TEXT NOT NULL,
             created_at_ms INTEGER NOT NULL,
@@ -46,8 +46,8 @@ def _seed_byok_ref(tmp_path, ref: str, payload: str, *, expires_at_ms: int) -> N
         """
     )
     connection.execute(
-        f"""
-        INSERT INTO {BYOK_SECRET_TABLE} (ref, ciphertext, created_at_ms, expires_at_ms)
+        """
+        INSERT INTO byok_secret_refs (ref, ciphertext, created_at_ms, expires_at_ms)
         VALUES (?, ?, ?, ?)
         """,
         (ref, payload, expires_at_ms - 1000, expires_at_ms),

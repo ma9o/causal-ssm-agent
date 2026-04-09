@@ -7,17 +7,16 @@ This module manages config, Prefect lifecycle, and materialization.
 import polars as pl
 from prefect import flow
 
-from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
-
-from ... import get_prefect_logger
-from ...runtime_events import (
+from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.runtime_events import (
     emit_nested_stage_running_event,
     emit_stage4_block_transition_event,
     emit_stage4_graph_event,
     emit_stage4_snapshot_event,
 )
+from causal_ssm_agent.utils.config import get_config
+from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
+from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
 
 logger = get_prefect_logger(__name__)
 
@@ -62,16 +61,13 @@ async def stage4_agentic_flow(
     Returns:
         Full grounded Stage 4 result (same shape as before).
     """
+    from causal_ssm_agent.flows.run_store import clear_stage4_checkpoint, save_stage4_checkpoint
     from causal_ssm_agent.orchestrator.stage4_agent_loop import run_stage4
     from causal_ssm_agent.orchestrator.stage4_navigation import (
         project_stage4_graph,
         project_stage4_snapshot,
     )
 
-    from ...run_store import (
-        clear_stage4_checkpoint,
-        save_stage4_checkpoint,
-    )
     from .assembly import materialize_stage4_result
 
     if root_run_id:
@@ -138,7 +134,7 @@ async def stage4_agentic_flow(
 
 def _load_stage4_checkpoint_or_none(workspace_id: str):
     """Load a Stage 4 checkpoint when present, otherwise return ``None``."""
-    from ...run_store import load_stage4_checkpoint
+    from causal_ssm_agent.flows.run_store import load_stage4_checkpoint
 
     try:
         return load_stage4_checkpoint(workspace_id)

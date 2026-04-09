@@ -7,9 +7,8 @@ import jax.numpy as jnp
 import polars as pl
 from prefect import task
 
+from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, prepare_model_runtime
-
-from ... import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 

@@ -153,7 +153,7 @@ def _stage4b_context_key(model: SSMModel) -> tuple[str, ...]:
         field_name: _normalize_sweep_cache_value(field_value)
         for field_name, field_value in vars(model.spec).items()
     }
-    spec_fingerprint = hashlib.sha1(
+    spec_fingerprint = hashlib.sha256(
         json.dumps(spec_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     observation_support = getattr(model, "observation_support", None)
@@ -165,7 +165,7 @@ def _stage4b_context_key(model: SSMModel) -> tuple[str, ...]:
             for field_name, field_value in vars(observation_support).items()
         }
     )
-    support_fingerprint = hashlib.sha1(
+    support_fingerprint = hashlib.sha256(
         json.dumps(support_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     pf_key = tuple(str(int(v)) for v in np.asarray(model.pf_key).reshape(-1))
@@ -473,8 +473,7 @@ def simulate_ssm(
     (_, _), y_rest = lax.scan(scan_fn, (x_0, rng_key), (Ad, Qd, cd_scan))
 
     # Stack: first obs + rest
-    observations = jnp.concatenate([y_0[None, :], y_rest], axis=0)
-    return observations
+    return jnp.concatenate([y_0[None, :], y_rest], axis=0)
 
 
 # ---------------------------------------------------------------------------
@@ -648,10 +647,9 @@ def _observation_noise_covariance(
     """Return one same-row observation-noise covariance matrix."""
     observation_noise_cov = _symmetrize_covariance(obs_kernel.variance_fn(variance_args))
     diag_idx = jnp.diag_indices(observation_noise_cov.shape[0])
-    observation_noise_cov = observation_noise_cov.at[diag_idx].set(
+    return observation_noise_cov.at[diag_idx].set(
         jnp.maximum(jnp.diag(observation_noise_cov), NUMERICAL_EPSILON)
     )
-    return observation_noise_cov
 
 
 def _extra_param_at(

@@ -126,9 +126,8 @@ def compute_discrete_diffusion(
     Q_dt = Q_inf - discrete_drift @ Q_inf @ discrete_drift.T
 
     # Ensure symmetry
-    Q_dt = 0.5 * (Q_dt + Q_dt.T)
+    return 0.5 * (Q_dt + Q_dt.T)
 
-    return Q_dt
 
 
 def compute_discrete_cint(
@@ -162,9 +161,8 @@ def compute_discrete_cint(
     # c_dt = A^{-1} * (exp(A*dt) - I) * c
     # Using solve for numerical stability: A * c_dt = (exp(A*dt) - I) * c
     rhs = (discrete_drift - I_n) @ cint
-    c_dt = jla.solve(drift, rhs)
+    return jla.solve(drift, rhs)
 
-    return c_dt
 
 
 def discretize_system(

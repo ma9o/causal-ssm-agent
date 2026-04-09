@@ -461,15 +461,15 @@ class TestValidateModelSpecDecisionsDict:
 
 class TestDistributionFamilyConstruction:
     def test_invalid_inputs_raise(self):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
             DistributionFamily(42)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
             DistributionFamily("")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
             DistributionFamily("not_a_distribution")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
             DistributionFamily("GAUSSIAN")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
             DistributionFamily("Normal")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
             DistributionFamily("negative binomial")

@@ -293,7 +293,8 @@ def _check_dtype_range(values: pl.Series, dtype: str, ind_name: str) -> tuple[li
         if n >= MIN_OBSERVATIONS:
             q1_raw = values.quantile(0.25)
             q3_raw = values.quantile(0.75)
-            assert isinstance(q1_raw, (int, float)) and isinstance(q3_raw, (int, float))
+            assert isinstance(q1_raw, (int, float))
+            assert isinstance(q3_raw, (int, float))
             q1 = float(q1_raw)
             q3 = float(q3_raw)
             iqr = q3 - q1
@@ -334,7 +335,8 @@ def _check_time_coverage(
 
     ts_max = parsed_ts.max()
     ts_min = parsed_ts.min()
-    assert isinstance(ts_max, datetime) and isinstance(ts_min, datetime)
+    assert isinstance(ts_max, datetime)
+    assert isinstance(ts_min, datetime)
     time_span = ts_max - ts_min
     time_span_hours = time_span.total_seconds() / 3600
     min_hours = MIN_COVERAGE_PERIODS * model_clock_hours

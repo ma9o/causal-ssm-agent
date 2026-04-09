@@ -123,8 +123,7 @@ class TestHMCStep:
 
         def bad_target(z):
             # Returns valid value but NaN gradient for first component
-            val = -0.5 * jnp.dot(z, z)
-            return val
+            return -0.5 * jnp.dot(z, z)
 
         def val_and_grad_with_nan(z):
             val = bad_target(z)

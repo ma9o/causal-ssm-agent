@@ -903,11 +903,12 @@ class TestE2ESpecToDiscretization:
 
         # Build model with minimal mock data
         n_time = 30
+        rng = np.random.default_rng(0)
         mock_data = pl.DataFrame(
             {
-                "mood_rating": np.random.randn(n_time) * 1.5 + 5,
-                "stress_self_report": np.random.randn(n_time) * 1.5 + 5,
-                "stress_cortisol": np.random.randn(n_time) * 2 + 10,
+                "mood_rating": rng.normal(5, 1.5, n_time),
+                "stress_self_report": rng.normal(5, 1.5, n_time),
+                "stress_cortisol": rng.normal(10, 2, n_time),
                 "time": np.arange(n_time, dtype=float),
             }
         )

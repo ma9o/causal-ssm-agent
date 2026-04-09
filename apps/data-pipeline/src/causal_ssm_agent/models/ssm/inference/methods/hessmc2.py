@@ -165,8 +165,7 @@ def _compute_weight(
     log_q = _log_cov_density(v, fwd_chol, fwd_ss, D)
     lw = logw_old + log_post_new - log_post_old + log_L - log_q
     lw = jnp.where(jnp.isfinite(log_post_new), lw, -jnp.inf)
-    lw = jnp.where(jnp.isfinite(logw_old), lw, -jnp.inf)
-    return lw
+    return jnp.where(jnp.isfinite(logw_old), lw, -jnp.inf)
 
 
 # ---------------------------------------------------------------------------

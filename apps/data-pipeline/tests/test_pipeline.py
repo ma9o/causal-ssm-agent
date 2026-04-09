@@ -532,7 +532,7 @@ def _stub_stage1a_result():
 
 
 @pytest.mark.parametrize(
-    "access_mode, expected_key, extra_setup",
+    ("access_mode", "expected_key", "extra_setup"),
     [
         pytest.param("user", "user-key", "byok", id="user-byok"),
         pytest.param("local", "local-key", "env", id="local-env"),

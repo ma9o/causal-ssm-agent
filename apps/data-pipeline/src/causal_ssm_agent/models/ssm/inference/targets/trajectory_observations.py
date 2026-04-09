@@ -239,8 +239,7 @@ def expected_observation_mean(
     expected_mean = jnp.where(
         summary_operator_codes == _MEAN_OPERATOR_CODE, window_mean, expected_mean
     )
-    expected_mean = jnp.where(summary_operator_codes == _STD_OPERATOR_CODE, std_mean, expected_mean)
-    return expected_mean
+    return jnp.where(summary_operator_codes == _STD_OPERATOR_CODE, std_mean, expected_mean)
 
 
 def reset_support_accumulators(

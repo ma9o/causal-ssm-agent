@@ -1084,10 +1084,10 @@ def sample_prior_unconstrained(
             params = prior_state[site.name]
 
             if site.support == SupportClass.REAL:
-                shape = site.shape if site.shape else ()
+                shape = site.shape or ()
                 family = jnp.broadcast_to(
                     jnp.asarray(params["family"], dtype=jnp.int32),
-                    shape if shape else (),
+                    shape or (),
                 )
                 if not jnp.all((family == 0) | (family == 1) | (family == 2)):
                     raise ValueError(f"Unknown REAL family index in site {site.name}")
@@ -1116,10 +1116,10 @@ def sample_prior_unconstrained(
                 parts.append(x.reshape(-1))
 
             elif site.support == SupportClass.POSITIVE:
-                shape = site.shape if site.shape else ()
+                shape = site.shape or ()
                 family = jnp.broadcast_to(
                     jnp.asarray(params["family"], dtype=jnp.int32),
-                    shape if shape else (),
+                    shape or (),
                 )
                 if not jnp.all((family == 0) | (family == 1) | (family == 2) | (family == 3)):
                     raise ValueError(f"Unknown POSITIVE family index in site {site.name}")
@@ -1146,16 +1146,16 @@ def sample_prior_unconstrained(
                 parts.append(jnp.log(jnp.maximum(x, 1e-30)).reshape(-1))
 
             elif site.support == SupportClass.CORRELATION:
-                shape = site.shape if site.shape else ()
+                shape = site.shape or ()
                 family = jnp.broadcast_to(
                     jnp.asarray(params["family"], dtype=jnp.int32),
-                    shape if shape else (),
+                    shape or (),
                 )
                 if not jnp.all((family == 0) | (family == 1) | (family == 2)):
                     raise ValueError(f"Unknown CORRELATION family index in site {site.name}")
 
-                low = params.get("low", jnp.full(shape if shape else (), -1.0, dtype=jnp.float32))
-                high = params.get("high", jnp.full(shape if shape else (), 1.0, dtype=jnp.float32))
+                low = params.get("low", jnp.full(shape or (), -1.0, dtype=jnp.float32))
+                high = params.get("high", jnp.full(shape or (), 1.0, dtype=jnp.float32))
                 sk_normal, sk_trunc, sk_uniform = random.split(sk, 3)
                 normal_sample = params["loc"] + params["scale"] * random.normal(
                     sk_normal, shape=shape
@@ -1217,7 +1217,7 @@ def _make_positive_params(
     rate: float = 1.0,
 ) -> dict[str, jnp.ndarray]:
     """Build canonical param dict for a POSITIVE-support site."""
-    s = shape if shape else ()
+    s = shape or ()
     return {
         "family": jnp.array(family, dtype=jnp.int32),
         "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
@@ -1237,7 +1237,7 @@ def _make_real_params(
     high: float | list[float] | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Build canonical param dict for a REAL-support site."""
-    s = shape if shape else ()
+    s = shape or ()
     params = {
         "family": jnp.array(family, dtype=jnp.int32),
         "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
@@ -1321,7 +1321,7 @@ def _params_from_prior_dict(
             low=prior_dict.get("lower", -1.0 if site.support == SupportClass.CORRELATION else None),
             high=prior_dict.get("upper", 1.0 if site.support == SupportClass.CORRELATION else None),
         )
-    elif site.support == SupportClass.POSITIVE:
+    if site.support == SupportClass.POSITIVE:
         return _make_positive_params(
             site.shape,
             family=prior_dict.get("family", 0),
