@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from causal_ssm_agent.distributions import (
     PriorDistributionFamily,
-    PriorRuntimeKind,
     get_positive_runtime_family_index,
     get_prior_family_spec,
     get_real_runtime_family_index,
@@ -14,15 +13,10 @@ from causal_ssm_agent.distributions import (
 from causal_ssm_agent.models.ssm.parameter_names import (
     INITIAL_STATE_CORRELATION_KEYWORDS,
 )
-from causal_ssm_agent.models.ssm.parameter_names import (
-    split_compound_name as _split_compound_name,
-)
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.model import SSMSpec
-
-split_compound_name = _split_compound_name
 
 PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
@@ -118,21 +112,20 @@ def normalize_prior_params(
         raise ValueError(f"Unsupported prior distribution family: {distribution!r}") from exc
 
     family = spec.family
-    runtime_kind = spec.runtime_kind
 
-    if runtime_kind == PriorRuntimeKind.NORMAL:
+    if family == PriorDistributionFamily.NORMAL:
         return {"mu": params.get("mu", 0.0), "sigma": params.get("sigma", 1.0)}
 
-    if runtime_kind == PriorRuntimeKind.TRUNCATED_NORMAL:
+    if family == PriorDistributionFamily.TRUNCATED_NORMAL:
         return {
-            "family": get_real_runtime_family_index(runtime_kind),
+            "family": get_real_runtime_family_index(family),
             "mu": params.get("mu", 0.0),
             "sigma": params.get("sigma", 1.0),
             "lower": params.get("lower", -1.0),
             "upper": params.get("upper", 1.0),
         }
 
-    if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
+    if family == PriorDistributionFamily.HALF_NORMAL:
         return {"sigma": params.get("sigma", 1.0)}
 
     if family == PriorDistributionFamily.BETA:
@@ -148,30 +141,30 @@ def normalize_prior_params(
         mu = (lower + upper) / 2
         sigma = (upper - lower) / 4
         return {
-            "family": get_real_runtime_family_index(runtime_kind),
+            "family": get_real_runtime_family_index(family),
             "mu": mu,
             "sigma": sigma,
             "lower": lower,
             "upper": upper,
         }
 
-    if runtime_kind == PriorRuntimeKind.GAMMA:
+    if family == PriorDistributionFamily.GAMMA:
         return {
-            "family": get_positive_runtime_family_index(runtime_kind),
+            "family": get_positive_runtime_family_index(family),
             "concentration": params.get("concentration", 2.0),
             "rate": params.get("rate", 1.0),
         }
 
-    if runtime_kind == PriorRuntimeKind.LOG_NORMAL:
+    if family == PriorDistributionFamily.LOG_NORMAL:
         return {
-            "family": get_positive_runtime_family_index(runtime_kind),
+            "family": get_positive_runtime_family_index(family),
             "loc": params.get("mu", 0.0),
             "sigma": params.get("sigma", 1.0),
         }
 
-    if runtime_kind == PriorRuntimeKind.EXPONENTIAL:
+    if family == PriorDistributionFamily.EXPONENTIAL:
         return {
-            "family": get_positive_runtime_family_index(runtime_kind),
+            "family": get_positive_runtime_family_index(family),
             "rate": params.get("rate", 1.0),
         }
 

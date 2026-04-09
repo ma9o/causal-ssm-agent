@@ -42,7 +42,7 @@ class DistributionFamily(StrEnum):
 
 
 @dataclass(frozen=True)
-class ObservationFamilySpec:
+class ObservationFamilyCatalogEntry:
     """Central observation-family metadata shared across prompts and validation."""
 
     family: DistributionFamily
@@ -63,19 +63,6 @@ class PriorDistributionFamily(StrEnum):
     EXPONENTIAL = "Exponential"
 
 
-class PriorRuntimeKind(StrEnum):
-    """Executable encoding for prior families."""
-
-    NORMAL = "normal"
-    HALF_NORMAL = "half_normal"
-    BETA = "beta"
-    UNIFORM = "uniform"
-    TRUNCATED_NORMAL = "truncated_normal"
-    GAMMA = "gamma"
-    LOG_NORMAL = "log_normal"
-    EXPONENTIAL = "exponential"
-
-
 @dataclass(frozen=True)
 class PriorFamilySpec:
     """Central prior-family metadata shared across prompts, docs, and runtime."""
@@ -84,7 +71,6 @@ class PriorFamilySpec:
     signature: str
     summary: str
     support: Literal["real", "positive", "unit_interval", "bounded"]
-    runtime_kind: PriorRuntimeKind
 
 
 @dataclass(frozen=True)
@@ -266,48 +252,48 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
 )
 
 
-OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilySpec, ...]] = (
-    ObservationFamilySpec(
+OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.GAUSSIAN,
         summary="Continuous unbounded data, approximately symmetric.",
         links=("identity",),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.STUDENT_T,
         summary="Continuous data with heavy tails or outliers.",
         links=("identity",),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.POISSON,
         summary="Count data with variance roughly tracking the mean.",
         links=("log",),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.GAMMA,
         summary="Positive continuous data such as durations or reaction times.",
         links=("log", "inverse"),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.BERNOULLI,
         summary="Binary outcomes with two possible states.",
         links=("logit", "probit"),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.NEGATIVE_BINOMIAL,
         summary="Overdispersed count data where variance exceeds the mean.",
         links=("log",),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.BETA,
         summary="Proportions or rates strictly inside the unit interval.",
         links=("logit", "probit"),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.ORDERED_LOGISTIC,
         summary="Ordered categorical outcomes with ranked levels.",
         links=("cumulative_logit",),
     ),
-    ObservationFamilySpec(
+    ObservationFamilyCatalogEntry(
         family=DistributionFamily.CATEGORICAL,
         summary="Unordered multi-class outcomes.",
         links=("softmax",),
@@ -320,56 +306,48 @@ PRIOR_FAMILY_SPECS: Final[tuple[PriorFamilySpec, ...]] = (
         signature="Normal(mu, sigma)",
         summary="Unconstrained effects that can be positive or negative.",
         support="real",
-        runtime_kind=PriorRuntimeKind.NORMAL,
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.HALF_NORMAL,
         signature="HalfNormal(sigma)",
         summary="Positive-only parameters such as standard deviations and scales.",
         support="positive",
-        runtime_kind=PriorRuntimeKind.HALF_NORMAL,
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.BETA,
         signature="Beta(alpha, beta)",
         summary="Parameters constrained to the unit interval [0, 1].",
         support="unit_interval",
-        runtime_kind=PriorRuntimeKind.BETA,
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.UNIFORM,
         signature="Uniform(lower, upper)",
         summary="Hard-bounded parameters when only plausible limits are known.",
         support="bounded",
-        runtime_kind=PriorRuntimeKind.UNIFORM,
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.TRUNCATED_NORMAL,
         signature="TruncatedNormal(mu, sigma, lower, upper)",
         summary="Bounded parameters when both a center and hard limits are meaningful.",
         support="bounded",
-        runtime_kind=PriorRuntimeKind.TRUNCATED_NORMAL,
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.GAMMA,
         signature="Gamma(concentration, rate)",
         summary="Positive-only parameters when right-skewed uncertainty is plausible.",
         support="positive",
-        runtime_kind=PriorRuntimeKind.GAMMA,
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.LOG_NORMAL,
         signature="LogNormal(mu, sigma)",
         summary="Positive-only parameters when uncertainty is multiplicative on the log scale.",
         support="positive",
-        runtime_kind=PriorRuntimeKind.LOG_NORMAL,
     ),
     PriorFamilySpec(
         family=PriorDistributionFamily.EXPONENTIAL,
         signature="Exponential(rate)",
         summary="Positive-only parameters with mass near zero and a single decay rate.",
         support="positive",
-        runtime_kind=PriorRuntimeKind.EXPONENTIAL,
     ),
 )
 
@@ -512,41 +490,29 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
         "[-1, 1]",
         "Innovation correlation",
     ),
-    PriorParameterGuidanceRow(
-        "t0_mean (initial state mean)",
-        "Normal(0, 1)",
-        "[-5, 5]",
-        "Latent-state scale at the first modeled timepoint",
-    ),
-    PriorParameterGuidanceRow(
-        "t0_sd (initial state SD)",
-        "HalfNormal(1)",
-        "[0, 5]",
-        "Latent-state scale at the first modeled timepoint",
-    ),
     PriorParameterGuidanceRow("tau (random SD)", "HalfNormal(0.5)", "[0, 2]", "Data scale"),
 )
 
 # Pure-JAX real-support runtime family indices used by parameterization.py.
-REAL_RUNTIME_FAMILY_INDEX: Final[dict[PriorRuntimeKind, int]] = {
-    PriorRuntimeKind.NORMAL: 0,
-    PriorRuntimeKind.TRUNCATED_NORMAL: 1,
-    PriorRuntimeKind.UNIFORM: 2,
+REAL_RUNTIME_FAMILY_INDEX: Final[dict[PriorDistributionFamily, int]] = {
+    PriorDistributionFamily.NORMAL: 0,
+    PriorDistributionFamily.TRUNCATED_NORMAL: 1,
+    PriorDistributionFamily.UNIFORM: 2,
 }
 
-PRIMARY_REAL_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorRuntimeKind]] = {
+PRIMARY_REAL_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorDistributionFamily]] = {
     index: kind for kind, index in REAL_RUNTIME_FAMILY_INDEX.items()
 }
 
 # Pure-JAX positive-support runtime family indices used by parameterization.py.
-POSITIVE_RUNTIME_FAMILY_INDEX: Final[dict[PriorRuntimeKind, int]] = {
-    PriorRuntimeKind.HALF_NORMAL: 0,
-    PriorRuntimeKind.GAMMA: 1,
-    PriorRuntimeKind.LOG_NORMAL: 2,
-    PriorRuntimeKind.EXPONENTIAL: 3,
+POSITIVE_RUNTIME_FAMILY_INDEX: Final[dict[PriorDistributionFamily, int]] = {
+    PriorDistributionFamily.HALF_NORMAL: 0,
+    PriorDistributionFamily.GAMMA: 1,
+    PriorDistributionFamily.LOG_NORMAL: 2,
+    PriorDistributionFamily.EXPONENTIAL: 3,
 }
 
-PRIMARY_POSITIVE_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorRuntimeKind]] = {
+PRIMARY_POSITIVE_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorDistributionFamily]] = {
     index: kind for kind, index in POSITIVE_RUNTIME_FAMILY_INDEX.items()
 }
 
@@ -556,36 +522,36 @@ def get_prior_family_spec(family: PriorDistributionFamily | str) -> PriorFamilyS
     return PRIOR_FAMILY_REGISTRY[PriorDistributionFamily(family)]
 
 
-def get_real_runtime_family_index(runtime_kind: PriorRuntimeKind) -> int:
-    """Return the executable real-support family index for a runtime kind."""
+def get_real_runtime_family_index(family: PriorDistributionFamily) -> int:
+    """Return the executable real-support family index."""
     try:
-        return REAL_RUNTIME_FAMILY_INDEX[runtime_kind]
+        return REAL_RUNTIME_FAMILY_INDEX[family]
     except KeyError as exc:
         raise ValueError(
-            f"Runtime kind {runtime_kind!r} is not a real-support executable family."
+            f"{family!r} is not a real-support executable family."
         ) from exc
 
 
-def get_real_runtime_kind_from_index(index: int) -> PriorRuntimeKind:
-    """Return the runtime kind for a serialized real-support family index."""
+def get_real_runtime_kind_from_index(index: int) -> PriorDistributionFamily:
+    """Return the prior family for a serialized real-support family index."""
     try:
         return PRIMARY_REAL_RUNTIME_KIND_BY_INDEX[index]
     except KeyError as exc:
         raise ValueError(f"Unsupported serialized real prior family index {index}") from exc
 
 
-def get_positive_runtime_family_index(runtime_kind: PriorRuntimeKind) -> int:
-    """Return the executable positive-support family index for a runtime kind."""
+def get_positive_runtime_family_index(family: PriorDistributionFamily) -> int:
+    """Return the executable positive-support family index."""
     try:
-        return POSITIVE_RUNTIME_FAMILY_INDEX[runtime_kind]
+        return POSITIVE_RUNTIME_FAMILY_INDEX[family]
     except KeyError as exc:
         raise ValueError(
-            f"Runtime kind {runtime_kind!r} is not a positive-support executable family."
+            f"{family!r} is not a positive-support executable family."
         ) from exc
 
 
-def get_positive_runtime_kind_from_index(index: int) -> PriorRuntimeKind:
-    """Return the primary runtime kind for a serialized positive family index."""
+def get_positive_runtime_kind_from_index(index: int) -> PriorDistributionFamily:
+    """Return the prior family for a serialized positive family index."""
     try:
         return PRIMARY_POSITIVE_RUNTIME_KIND_BY_INDEX[index]
     except KeyError as exc:

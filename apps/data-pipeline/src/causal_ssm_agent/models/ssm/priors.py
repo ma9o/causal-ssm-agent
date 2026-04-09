@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from causal_ssm_agent.distributions import (
-    PriorRuntimeKind,
+    PriorDistributionFamily,
     get_positive_runtime_family_index,
 )
 from causal_ssm_agent.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
@@ -30,28 +30,28 @@ class SSMPriors:
 
     obs_df: dict = field(
         default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
             "concentration": 5.0,
             "rate": 1.0,
         }
     )
     obs_shape: dict = field(
         default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
             "concentration": 2.0,
             "rate": 1.0,
         }
     )
     obs_r: dict = field(
         default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
             "concentration": 2.0,
             "rate": 0.5,
         }
     )
     obs_concentration: dict = field(
         default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
+            "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
             "concentration": 5.0,
             "rate": 0.5,
         }

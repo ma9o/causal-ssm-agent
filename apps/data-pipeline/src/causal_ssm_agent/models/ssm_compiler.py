@@ -528,7 +528,7 @@ def _compiled_distribution_for_site(
 ) -> tuple[str, dict[str, float]]:
     """Convert one compiled site element back to a user-facing distribution row."""
     from causal_ssm_agent.distributions import (
-        PriorRuntimeKind,
+        PriorDistributionFamily,
         get_positive_runtime_kind_from_index,
         get_real_runtime_kind_from_index,
     )
@@ -536,8 +536,8 @@ def _compiled_distribution_for_site(
 
     if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
         family = int(_extract_serialized_prior_value(params, "family", flat_index))
-        runtime_kind = get_real_runtime_kind_from_index(family)
-        if runtime_kind == PriorRuntimeKind.UNIFORM:
+        prior_family = get_real_runtime_kind_from_index(family)
+        if prior_family == PriorDistributionFamily.UNIFORM:
             return "Uniform", {
                 "lower": _extract_serialized_prior_value(params, "low", flat_index),
                 "upper": _extract_serialized_prior_value(params, "high", flat_index),
@@ -555,22 +555,22 @@ def _compiled_distribution_for_site(
         }
 
     family = int(_extract_serialized_prior_value(params, "family", flat_index))
-    runtime_kind = get_positive_runtime_kind_from_index(family)
-    if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
+    prior_family = get_positive_runtime_kind_from_index(family)
+    if prior_family == PriorDistributionFamily.HALF_NORMAL:
         return "HalfNormal", {
             "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
         }
-    if runtime_kind == PriorRuntimeKind.GAMMA:
+    if prior_family == PriorDistributionFamily.GAMMA:
         return "Gamma", {
             "concentration": _extract_serialized_prior_value(params, "concentration", flat_index),
             "rate": _extract_serialized_prior_value(params, "rate", flat_index),
         }
-    if runtime_kind == PriorRuntimeKind.LOG_NORMAL:
+    if prior_family == PriorDistributionFamily.LOG_NORMAL:
         return "LogNormal", {
             "mu": _extract_serialized_prior_value(params, "loc", flat_index),
             "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
         }
-    if runtime_kind == PriorRuntimeKind.EXPONENTIAL:
+    if prior_family == PriorDistributionFamily.EXPONENTIAL:
         return "Exponential", {
             "rate": _extract_serialized_prior_value(params, "rate", flat_index),
         }

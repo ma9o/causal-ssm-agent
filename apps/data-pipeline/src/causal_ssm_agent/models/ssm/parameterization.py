@@ -27,7 +27,7 @@ import numpyro.distributions as dist
 from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.distributions import (
-    PriorRuntimeKind,
+    PriorDistributionFamily,
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
@@ -1523,16 +1523,16 @@ def build_site_prior_distribution(
 
     if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
         runtime_kind = get_real_runtime_kind_from_index(family)
-        if runtime_kind == PriorRuntimeKind.NORMAL:
+        if runtime_kind == PriorDistributionFamily.NORMAL:
             return dist.Normal(loc=params["loc"], scale=params["scale"])
-        if runtime_kind == PriorRuntimeKind.TRUNCATED_NORMAL:
+        if runtime_kind == PriorDistributionFamily.TRUNCATED_NORMAL:
             return dist.TruncatedNormal(
                 loc=params["loc"],
                 scale=params["scale"],
                 low=params.get("low"),
                 high=params.get("high"),
             )
-        if runtime_kind == PriorRuntimeKind.UNIFORM:
+        if runtime_kind == PriorDistributionFamily.UNIFORM:
             low = params.get("low")
             high = params.get("high")
             if low is None or high is None:
@@ -1547,19 +1547,19 @@ def build_site_prior_distribution(
 
     if site.support == SupportClass.POSITIVE:
         runtime_kind = get_positive_runtime_kind_from_index(family)
-        if runtime_kind == PriorRuntimeKind.HALF_NORMAL:
+        if runtime_kind == PriorDistributionFamily.HALF_NORMAL:
             return dist.HalfNormal(scale=params["scale"])
-        if runtime_kind == PriorRuntimeKind.GAMMA:
+        if runtime_kind == PriorDistributionFamily.GAMMA:
             return dist.Gamma(
                 concentration=params["concentration"],
                 rate=params["rate"],
             )
-        if runtime_kind == PriorRuntimeKind.LOG_NORMAL:
+        if runtime_kind == PriorDistributionFamily.LOG_NORMAL:
             return dist.LogNormal(
                 loc=params["loc"],
                 scale=params["scale"],
             )
-        if runtime_kind == PriorRuntimeKind.EXPONENTIAL:
+        if runtime_kind == PriorDistributionFamily.EXPONENTIAL:
             return dist.Exponential(rate=params["rate"])
         raise ValueError(
             f"Unsupported canonical positive prior runtime kind {runtime_kind!r} "
