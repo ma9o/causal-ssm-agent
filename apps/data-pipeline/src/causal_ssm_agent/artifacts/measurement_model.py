@@ -59,6 +59,7 @@ _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
     ),
 ]
 
+
 def check_semantic_collisions(
     how_to_measure: str,
     aggregation: str,
