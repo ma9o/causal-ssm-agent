@@ -23,15 +23,28 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core as jax_core
 
+import causal_ssm_agent.models.ssm.inference.targets.emissions as emission_math
 from causal_ssm_agent.artifacts.model_spec import (
     VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LinkFunction,
 )
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
-from causal_ssm_agent.models.ssm.inference.targets.emissions import (
+
+from .emissions import (
     categorical_probabilities,
     ordered_logistic_probabilities,
+)
+from .observation_kernel_helpers import (
+    _make_discrete_response_categorical,
+    _make_discrete_response_ordered_logistic,
+    _make_discrete_variance_from_moments,
+    _make_variance_bernoulli,
+    _make_variance_beta,
+    _make_variance_gamma,
+    _make_variance_identity,
+    _make_variance_negative_binomial,
+    _make_variance_poisson,
 )
 
 if TYPE_CHECKING:
@@ -133,23 +146,6 @@ def _infer_contiguous_levels(values: np.ndarray) -> int | None:
     return len(unique_levels)
 
 
-# ---------------------------------------------------------------------------
-# Lazy imports — avoid circular deps (called at registry-build time only)
-# ---------------------------------------------------------------------------
-
-
-def _get_emissions():
-    from causal_ssm_agent.models.ssm.inference.targets import emissions as em
-
-    return em
-
-
-def _get_kernels():
-    from causal_ssm_agent.models.ssm.inference.targets import kernels as kr
-
-    return kr
-
-
 def _coerce_distribution_family(
     dist: DistributionFamily | str,
 ) -> DistributionFamily:
@@ -200,69 +196,67 @@ def _build_link_dispatch_map(
 
 
 def _emission_factory_gaussian(_params: dict):
-    return _get_emissions().emission_log_prob_gaussian
+    return emission_math.emission_log_prob_gaussian
 
 
 def _emission_factory_poisson(_params: dict):
-    return _get_emissions().emission_log_prob_poisson
+    return emission_math.emission_log_prob_poisson
 
 
 def _emission_factory_student_t(params: dict):
-    em = _get_emissions()
     df = _positive_param(params, "obs_df", 5.0)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_student_t(y, z, H, d, R, m, df)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_student_t(y, z, H, d, R, m, df)
 
 
 def _emission_factory_gamma_log(params: dict):
-    em = _get_emissions()
     shape = _positive_param(params, "obs_shape", 1.0)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_gamma(y, z, H, d, R, m, shape)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_gamma(y, z, H, d, R, m, shape)
 
 
 def _emission_factory_gamma_inverse(params: dict):
-    em = _get_emissions()
     shape = _positive_param(params, "obs_shape", 1.0)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_gamma_inverse(y, z, H, d, R, m, shape)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_gamma_inverse(
+        y, z, H, d, R, m, shape
+    )
 
 
 def _emission_factory_bernoulli_logit(_params: dict):
-    return _get_emissions().emission_log_prob_bernoulli
+    return emission_math.emission_log_prob_bernoulli
 
 
 def _emission_factory_bernoulli_probit(_params: dict):
-    return _get_emissions().emission_log_prob_bernoulli_probit
+    return emission_math.emission_log_prob_bernoulli_probit
 
 
 def _emission_factory_negbin(params: dict):
-    em = _get_emissions()
     r = _positive_param(params, "obs_r", 5.0)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_negative_binomial(y, z, H, d, R, m, r)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_negative_binomial(
+        y, z, H, d, R, m, r
+    )
 
 
 def _emission_factory_beta_logit(params: dict):
-    em = _get_emissions()
     conc = _positive_param(params, "obs_concentration", 10.0)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_beta(y, z, H, d, R, m, conc)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_beta(y, z, H, d, R, m, conc)
 
 
 def _emission_factory_beta_probit(params: dict):
-    em = _get_emissions()
     conc = _positive_param(params, "obs_concentration", 10.0)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_beta_probit(y, z, H, d, R, m, conc)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_beta_probit(
+        y, z, H, d, R, m, conc
+    )
 
 
 def _emission_factory_ordered_logistic(params: dict):
-    em = _get_emissions()
-    level_counts, cutpoints = em.get_ordered_logistic_extra_params(params)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_ordered_logistic(
+    level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_ordered_logistic(
         y, z, H, d, R, m, cutpoints, level_counts
     )
 
 
 def _emission_factory_categorical(params: dict):
-    em = _get_emissions()
-    level_counts, intercepts, slopes = em.get_categorical_extra_params(params)
-    return lambda y, z, H, d, R, m: em.emission_log_prob_categorical(
+    level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
+    return lambda y, z, H, d, R, m: emission_math.emission_log_prob_categorical(
         y, z, H, d, R, m, intercepts, slopes, level_counts
     )
 
@@ -277,57 +271,52 @@ def _sw_factory_none(_params: dict):
 
 
 def _sw_factory_poisson(_params: dict):
-    return _get_emissions()._score_weight_poisson
+    return emission_math._score_weight_poisson
 
 
 def _sw_factory_bernoulli_logit(_params: dict):
-    return _get_emissions()._score_weight_bernoulli_logit
+    return emission_math._score_weight_bernoulli_logit
 
 
 def _sw_factory_bernoulli_probit(_params: dict):
-    return _get_emissions()._score_weight_bernoulli_probit
+    return emission_math._score_weight_bernoulli_probit
 
 
 def _sw_factory_beta_logit(params: dict):
-    em = _get_emissions()
     conc = _positive_param(params, "obs_concentration", 10.0)
-    return lambda y, eta, m: em._score_weight_beta_logit(y, eta, m, conc)
+    return lambda y, eta, m: emission_math._score_weight_beta_logit(y, eta, m, conc)
 
 
 def _sw_factory_beta_probit(params: dict):
-    em = _get_emissions()
     conc = _positive_param(params, "obs_concentration", 10.0)
-    return lambda y, eta, m: em._score_weight_beta_probit(y, eta, m, conc)
+    return lambda y, eta, m: emission_math._score_weight_beta_probit(y, eta, m, conc)
 
 
 def _sw_factory_gamma_log(params: dict):
-    em = _get_emissions()
     shape = _positive_param(params, "obs_shape", 1.0)
-    return lambda y, eta, m: em._score_weight_gamma_log(y, eta, m, shape)
+    return lambda y, eta, m: emission_math._score_weight_gamma_log(y, eta, m, shape)
 
 
 def _sw_factory_gamma_inverse(params: dict):
-    em = _get_emissions()
     shape = _positive_param(params, "obs_shape", 1.0)
-    return lambda y, eta, m: em._score_weight_gamma_inverse(y, eta, m, shape)
+    return lambda y, eta, m: emission_math._score_weight_gamma_inverse(y, eta, m, shape)
 
 
 def _sw_factory_negbin(params: dict):
-    em = _get_emissions()
     r = _positive_param(params, "obs_r", 5.0)
-    return lambda y, eta, m: em._score_weight_negative_binomial(y, eta, m, r)
+    return lambda y, eta, m: emission_math._score_weight_negative_binomial(y, eta, m, r)
 
 
 def _sw_factory_ordered_logistic(params: dict):
-    em = _get_emissions()
-    level_counts, cutpoints = em.get_ordered_logistic_extra_params(params)
-    return lambda y, eta, m: em._score_weight_ordered_logistic(y, eta, m, cutpoints, level_counts)
+    level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
+    return lambda y, eta, m: emission_math._score_weight_ordered_logistic(
+        y, eta, m, cutpoints, level_counts
+    )
 
 
 def _sw_factory_categorical(params: dict):
-    em = _get_emissions()
-    level_counts, intercepts, slopes = em.get_categorical_extra_params(params)
-    return lambda y, eta, m: em._score_weight_categorical(
+    level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
+    return lambda y, eta, m: emission_math._score_weight_categorical(
         y, eta, m, intercepts, slopes, level_counts
     )
 
@@ -338,9 +327,8 @@ def _sw_factory_categorical(params: dict):
 
 
 def _variance_factory_gaussian_like(_params: dict, manifest_cov):
-    kr = _get_kernels()
     if manifest_cov is not None:
-        return kr._make_variance_identity(manifest_cov)
+        return _make_variance_identity(manifest_cov)
 
     def _lazy_error(_mean):
         raise RuntimeError(
@@ -352,43 +340,39 @@ def _variance_factory_gaussian_like(_params: dict, manifest_cov):
 
 
 def _variance_factory_poisson(_params: dict, _manifest_cov):
-    return _get_kernels()._make_variance_poisson()
+    return _make_variance_poisson()
 
 
 def _variance_factory_negbin(params: dict, _manifest_cov):
     r = _positive_param(params, "obs_r", 5.0)
-    return _get_kernels()._make_variance_negative_binomial(r)
+    return _make_variance_negative_binomial(r)
 
 
 def _variance_factory_gamma(params: dict, _manifest_cov):
     shape = _positive_param(params, "obs_shape", 1.0)
-    return _get_kernels()._make_variance_gamma(shape)
+    return _make_variance_gamma(shape)
 
 
 def _variance_factory_bernoulli(_params: dict, _manifest_cov):
-    return _get_kernels()._make_variance_bernoulli()
+    return _make_variance_bernoulli()
 
 
 def _variance_factory_beta(params: dict, _manifest_cov):
     conc = _positive_param(params, "obs_concentration", 10.0)
-    return _get_kernels()._make_variance_beta(conc)
+    return _make_variance_beta(conc)
 
 
 def _variance_factory_ordered_logistic(params: dict, _manifest_cov):
-    em = _get_emissions()
-    kr = _get_kernels()
-    level_counts, cutpoints = em.get_ordered_logistic_extra_params(params)
-    return kr._make_discrete_variance_from_moments(
-        lambda eta: em.ordered_logistic_moments(eta, cutpoints, level_counts)
+    level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
+    return _make_discrete_variance_from_moments(
+        lambda eta: emission_math.ordered_logistic_moments(eta, cutpoints, level_counts)
     )
 
 
 def _variance_factory_categorical(params: dict, _manifest_cov):
-    em = _get_emissions()
-    kr = _get_kernels()
-    level_counts, intercepts, slopes = em.get_categorical_extra_params(params)
-    return kr._make_discrete_variance_from_moments(
-        lambda eta: em.categorical_moments(eta, intercepts, slopes, level_counts)
+    level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
+    return _make_discrete_variance_from_moments(
+        lambda eta: emission_math.categorical_moments(eta, intercepts, slopes, level_counts)
     )
 
 
@@ -398,17 +382,13 @@ def _variance_factory_categorical(params: dict, _manifest_cov):
 
 
 def _response_factory_ordered_logistic(params: dict):
-    em = _get_emissions()
-    kr = _get_kernels()
-    level_counts, cutpoints = em.get_ordered_logistic_extra_params(params)
-    return kr._make_discrete_response_ordered_logistic(cutpoints, level_counts)
+    level_counts, cutpoints = emission_math.get_ordered_logistic_extra_params(params)
+    return _make_discrete_response_ordered_logistic(cutpoints, level_counts)
 
 
 def _response_factory_categorical(params: dict):
-    em = _get_emissions()
-    kr = _get_kernels()
-    level_counts, intercepts, slopes = em.get_categorical_extra_params(params)
-    return kr._make_discrete_response_categorical(intercepts, slopes, level_counts)
+    level_counts, intercepts, slopes = emission_math.get_categorical_extra_params(params)
+    return _make_discrete_response_categorical(intercepts, slopes, level_counts)
 
 
 def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarray:

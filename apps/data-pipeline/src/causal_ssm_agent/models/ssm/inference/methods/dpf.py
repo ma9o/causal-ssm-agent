@@ -37,11 +37,11 @@ from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFuncti
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
-from causal_ssm_agent.models.ssm.inference.targets.emissions import (
-    build_predictive_observation_sampler,
-)
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     compile_measurement_semantics,
+)
+from causal_ssm_agent.models.ssm.inference.targets.observation_dispatch import (
+    build_predictive_observation_sampler,
 )
 from causal_ssm_agent.models.ssm.inference.targets.particle import _systematic_resampling
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
