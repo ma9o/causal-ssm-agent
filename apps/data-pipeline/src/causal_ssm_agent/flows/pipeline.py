@@ -104,17 +104,17 @@ def _resolve_question(
     return None
 
 
-async def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
-    causal_spec = stage1b_web.get("causal_spec", {})
-    latent = causal_spec.get("latent", {})
-    measurement = causal_spec.get("measurement", {})
+async def _emit_causal_spec_artifact(stage1b: Any) -> None:
+    causal_spec = stage1b.causal_spec
+    latent = causal_spec.latent
+    measurement = causal_spec.measurement
     artifact = create_markdown_artifact(
         key="causal-spec",
         markdown=(
             f"## Causal Specification\n\n"
-            f"- **Constructs**: {len(latent.get('constructs', []))}\n"
-            f"- **Edges**: {len(latent.get('edges', []))}\n"
-            f"- **Indicators**: {len(measurement.get('indicators', []))}\n"
+            f"- **Constructs**: {len(latent.constructs)}\n"
+            f"- **Edges**: {len(latent.edges)}\n"
+            f"- **Indicators**: {len(measurement.indicators)}\n"
         ),
     )
     if isawaitable(artifact):
@@ -122,20 +122,19 @@ async def _emit_causal_spec_artifact(stage1b_web: dict[str, Any]) -> None:
 
 
 def _partial_pipeline_result(
-    workspace_id: str, stage_id: str, state: dict[str, Any]
+    workspace_id: str, stage_id: str, contract: Any
 ) -> dict[str, Any]:
     return {
         "workspace_id": workspace_id,
         "final_stage": stage_id,
-        "stage": state["web"],
+        "stage": contract.model_dump(mode="json"),
     }
 
 
-def _stage_fail_reason(state: dict[str, Any]) -> str | None:
-    web = state.get("web") or {}
-    if web.get("outcome") != "fail":
+def _stage_fail_reason(contract: Any) -> str | None:
+    if contract.outcome != "fail":
         return None
-    return web.get("fail_reason")
+    return contract.fail_reason
 
 
 @flow(
@@ -284,16 +283,19 @@ async def causal_inference_pipeline(
         openrouter_access_mode=resolved_openrouter_access_mode,
     )
 
-    stage_states: dict[str, dict[str, Any]] = {}
+    stage_states: dict[str, Any] = {}
 
     async def _maybe_finish(stage_id: str) -> dict[str, Any] | None:
         if stage_id != effective_end_stage:
             return None
         if "stage-1b" in stage_states:
-            await _emit_causal_spec_artifact(stage_states["stage-1b"]["web"])
+            await _emit_causal_spec_artifact(stage_states["stage-1b"])
         if stage_id == "stage-6":
             logger.info("Pipeline complete: run finished successfully")
-            return {**stage_states["stage-5b"]["web"], **stage_states["stage-6"]["web"]}
+            return {
+                **stage_states["stage-5b"].model_dump(mode="json"),
+                **stage_states["stage-6"].model_dump(mode="json"),
+            }
         logger.info("Pipeline partial run complete: stopped after %s", stage_id)
         return _partial_pipeline_result(workspace_id, stage_id, stage_states[stage_id])
 
@@ -339,8 +341,7 @@ async def causal_inference_pipeline(
                 )
                 raise
             elapsed = time.monotonic() - t0
-            web_data = state.get("web", {}) if isinstance(state, dict) else {}
-            stage_outcome = web_data.get("outcome")
+            stage_outcome = state.outcome
             logger.info(">>> %s completed in %.1fs (outcome=%s)", stage_id, elapsed, stage_outcome)
             emit_stage_progress_event(prefect_run_id, stage_id, "completed", outcome=stage_outcome)
             stage_states[stage_id] = state

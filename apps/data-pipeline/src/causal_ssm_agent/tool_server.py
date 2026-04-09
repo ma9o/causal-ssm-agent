@@ -77,26 +77,17 @@ def _load_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
 
 
 def _load_stage2_data_for_model(workspace_id: str) -> Any:
-    """Load Stage 2's canonical modeling rows through the stage restore path."""
-    stage2_runtime = _load_runtime_stage_result(workspace_id, "stage-2")
-    path = stage2_runtime.get("_data_for_model_path")
-    if not isinstance(path, str) or not path:
-        raise HTTPException(500, "Stage 2 runtime is missing _data_for_model_path")
-    return load_parquet(path)
-
-
-def _load_runtime_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
-    """Load a stage runtime result through stage-owned rehydration logic."""
-    from causal_ssm_agent.flows.stage_registry import load_stage_state
+    """Load Stage 2's canonical modeling rows via well-known artifact path."""
+    from causal_ssm_agent.flows.run_store import (
+        STAGE2_MODEL_PARQUET_FILENAMES,
+        find_run_artifact,
+    )
 
     try:
-        state = load_stage_state(workspace_id, stage_id)
+        path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
     except FileNotFoundError as exc:
-        raise HTTPException(404, f"Stage runtime not found for {stage_id}") from exc
-    result = state.get("result")
-    if not isinstance(result, dict):
-        raise HTTPException(500, f"Stage runtime for {stage_id} is malformed")
-    return result
+        raise HTTPException(500, "Stage 2 model data parquet not found") from exc
+    return load_parquet(path)
 
 
 def _load_optional_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
@@ -256,10 +247,16 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     stage5b = _load_stage_result(workspace_id, "stage-5b")
     stage6 = _load_optional_stage_result(workspace_id, "stage-6")
 
-    stage2_runtime = _load_runtime_stage_result(workspace_id, "stage-2")
-    stage5b_runtime = _load_runtime_stage_result(workspace_id, "stage-5b")
-    fitted_artifact = load_pickle(stage5b_runtime["_fitted_result_path"])
-    data_for_model = load_parquet(stage2_runtime["_data_for_model_path"])
+    from causal_ssm_agent.flows.run_store import (
+        STAGE2_MODEL_PARQUET_FILENAMES,
+        STAGE5B_PICKLE_FILENAMES,
+        find_run_artifact,
+    )
+
+    data_for_model_path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
+    fitted_result_path = find_run_artifact(workspace_id, STAGE5B_PICKLE_FILENAMES)
+    fitted_artifact = load_pickle(fitted_result_path)
+    data_for_model = load_parquet(data_for_model_path)
     persisted_builder = getattr(fitted_artifact, "builder", None)
     fitted_spec = getattr(persisted_builder, "_spec", None)
     if fitted_spec is None:
@@ -288,8 +285,6 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "stage-4b": stage4b,
         "stage-5b": stage5b,
         "stage-6": stage6,
-        "_stage-2-runtime": stage2_runtime,
-        "_stage-5b-runtime": stage5b_runtime,
         "_fitted_artifact": fitted_artifact,
         "_prepared_runtime": runtime,
         "_observation_timestamps": _extract_observation_timestamps(runtime.observation_data),
