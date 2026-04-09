@@ -26,10 +26,6 @@ if TYPE_CHECKING:
 logger = get_prefect_logger(__name__)
 _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS = (
     AggregatedCompileError,
-    AttributeError,
-    KeyError,
-    RuntimeError,
-    TypeError,
     ValidationError,
     ValueError,
 )
