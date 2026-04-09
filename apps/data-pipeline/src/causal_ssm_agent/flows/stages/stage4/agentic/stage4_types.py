@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
     from .stage4_feedback import Stage4GroundingResult
-    from .stage4_orchestrator import Stage4Skeleton
+    from .stage4_skeleton import Stage4Skeleton
 
 
 @dataclass

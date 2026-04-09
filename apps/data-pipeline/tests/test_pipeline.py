@@ -392,7 +392,7 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
     events: list[tuple[str, object] | tuple[str, object, object]] = []
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation.project_stage4_initial_state",
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections.project_stage4_initial_state",
         lambda _causal_spec: (
             {"nodes": [{"id": "indicator:x"}], "edges": [], "phases": []},
             {

@@ -52,7 +52,7 @@ OpenRouterAccessMode = Literal["user", "anonymous", "local"]
 
 def _emit_stage4_initial_replay_state(inputs: dict[str, Any]) -> None:
     """Emit the initial Stage 4 graph/snapshot before heavy startup work."""
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
+    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
         project_stage4_initial_state,
     )
 

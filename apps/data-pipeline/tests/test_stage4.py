@@ -25,6 +25,7 @@ import pytest
 
 from causal_ssm_agent.flows import stage_registry
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_cards import build_prior_cards
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4GroundingResult,
     make_stage4_grounding_result,
@@ -39,32 +40,34 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
     get_active_plan_block,
     get_stage4_phase,
     make_stage4_runtime,
-    project_stage4_graph,
-    project_stage4_initial_state,
-    project_stage4_snapshot,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
-    Stage4Skeleton,
-    build_prior_cards,
     build_stage4_plan,
-    derive_deterministic_spec,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import (
     Stage4Messages,
     format_stage4_plan_status,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer import (
-    _build_model_spec_from_decisions,
-    _compute_stage4_validate_step_with_transitions,
-    compute_stage4_validate_step,
+    build_model_spec_from_decisions,
+    compute_stage4_validate_step_with_transitions,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
     ResolvedRepairScope,
-    _classify_prior_failure_blocks,
+    classify_prior_failure_blocks,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
+    project_stage4_graph,
+    project_stage4_initial_state,
+    project_stage4_snapshot,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
+    Stage4Skeleton,
+    derive_deterministic_spec,
+)
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
     Stage4AcceptedState,
     Stage4RepairCampaignState,
@@ -98,6 +101,18 @@ from causal_ssm_agent.workers.schemas_prior import (
 )
 from tests.helpers import make_stage4_plan as _make_plan
 from tests.ssm_test_utils import make_ssm_spec
+
+
+def compute_stage4_validate_step(data, *, plan, runtime, deps):
+    """Test helper: advance the reducer by one step, discarding transitions."""
+    stage_output, feedback, _transitions = compute_stage4_validate_step_with_transitions(
+        data,
+        plan=plan,
+        runtime=runtime,
+        deps=deps,
+    )
+    return stage_output, feedback
+
 
 _ORDINAL_LEVELS = ("low", "high")
 
@@ -376,7 +391,7 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
     runtime = make_stage4_runtime(plan)
     active_block = _require_plan_block(plan, "dynamics:sleep_quality")
 
-    repair_plan = _classify_prior_failure_blocks(
+    repair_plan = classify_prior_failure_blocks(
         plan,
         active_block,
         AssemblyValidation(
@@ -398,10 +413,10 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
         runtime,
     )
 
-    assert repair_plan.scope_kind == "direct_writer_blocks"
+    assert repair_plan.scope.scope_kind == "direct_writer_blocks"
     assert repair_plan.block_ids == ("dynamics:chronotype",)
     assert (
-        repair_plan.reason
+        repair_plan.scope.reason
         == "Scale mismatch for monthly_eveningness_activity_timing Suggested fix: "
         "Adjust diffusion/drift priors to match data scale"
     )
@@ -416,7 +431,7 @@ def test_prior_failure_classification_raises_without_concrete_reason():
         ValueError,
         match="requires a concrete reason",
     ):
-        _classify_prior_failure_blocks(
+        classify_prior_failure_blocks(
             plan,
             active_block,
             AssemblyValidation(
@@ -3727,7 +3742,7 @@ class TestStage4Mechanics:
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
-        model_spec, errors = _build_model_spec_from_decisions(
+        model_spec, errors = build_model_spec_from_decisions(
             runtime.decisions,
             skeleton,
         )
@@ -3910,7 +3925,7 @@ class TestStage4Mechanics:
                 )
             }, "COMPILE ERROR:\nsteps support mismatch"
 
-        stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
+        stage_output, feedback, transitions = compute_stage4_validate_step_with_transitions(
             _stage4_test_payload(indicator_payload),
             plan=plan,
             runtime=runtime,
@@ -3952,7 +3967,7 @@ class TestStage4Mechanics:
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
-        model_spec, errors = _build_model_spec_from_decisions(
+        model_spec, errors = build_model_spec_from_decisions(
             runtime.decisions,
             skeleton,
         )
@@ -4056,7 +4071,7 @@ class TestStage4Mechanics:
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
-        model_spec, errors = _build_model_spec_from_decisions(
+        model_spec, errors = build_model_spec_from_decisions(
             runtime.decisions,
             skeleton,
         )
@@ -4580,7 +4595,7 @@ class TestStage4Mechanics:
                 ),
             }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
 
-        stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
+        stage_output, feedback, transitions = compute_stage4_validate_step_with_transitions(
             _stage4_test_payload(correlation_payload),
             plan=plan,
             runtime=runtime,
@@ -4683,7 +4698,7 @@ class TestStage4Mechanics:
                 ),
             }, "VALID"
 
-        stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
+        stage_output, feedback, transitions = compute_stage4_validate_step_with_transitions(
             _stage4_test_payload(repair_payload),
             plan=plan,
             runtime=runtime,
@@ -4863,7 +4878,7 @@ class TestStage4Mechanics:
             lambda **_kwargs: None,
         )
 
-        stage_output, feedback, _transitions = _compute_stage4_validate_step_with_transitions(
+        stage_output, feedback, _transitions = compute_stage4_validate_step_with_transitions(
             _stage4_test_payload(repair_payload),
             plan=plan,
             runtime=runtime,
@@ -5063,15 +5078,15 @@ class TestStage4Mechanics:
             ],
         )
 
-        repair_plan = _classify_prior_failure_blocks(
+        repair_plan = classify_prior_failure_blocks(
             plan,
             _require_plan_block(plan, "effects:sleep"),
             validation,
             runtime,
         )
 
-        assert repair_plan.scope_kind == "local_drift_motif"
-        assert repair_plan.scope_key == "local_drift_motif:activity|sleep|beta_activity_sleep"
+        assert repair_plan.scope.scope_kind == "local_drift_motif"
+        assert repair_plan.scope.scope_key == "local_drift_motif:activity|sleep|beta_activity_sleep"
 
     def test_prior_failure_classification_prefers_lowest_rank_scope_over_validator_scope(self):
         causal_spec = _with_positive_indicator_polarity(
@@ -5165,14 +5180,14 @@ class TestStage4Mechanics:
             ],
         )
 
-        repair_plan = _classify_prior_failure_blocks(
+        repair_plan = classify_prior_failure_blocks(
             plan,
             _require_plan_block(plan, "effects:sleep"),
             validation,
             runtime,
         )
 
-        assert repair_plan.scope_kind == "local_drift_motif"
+        assert repair_plan.scope.scope_kind == "local_drift_motif"
         assert repair_plan.block_ids == ("dynamics:activity+sleep", "effects:sleep")
 
     def test_scc_repair_plan_narrows_effect_prompt_to_internal_scc_parameters(self):
@@ -5289,14 +5304,14 @@ class TestStage4Mechanics:
             ],
         )
 
-        repair_plan = _classify_prior_failure_blocks(
+        repair_plan = classify_prior_failure_blocks(
             plan,
             _require_plan_block(plan, "dynamics:sleep"),
             validation,
             runtime,
         )
 
-        assert repair_plan.scope_kind == "local_drift_motif"
+        assert repair_plan.scope.scope_kind == "local_drift_motif"
         assert repair_plan.block_ids == ("dynamics:sleep",)
 
     def test_validate_dynamics_block_partial_drift_treats_budget_overrun_as_advisory(
@@ -5381,19 +5396,19 @@ class TestStage4Mechanics:
 
     def test_compile_failure_route_prefers_true_indicator_owner_for_exact_match(self):
         from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
-            _classify_compile_failure_route,
+            classify_compile_failure_route,
         )
 
         causal_spec, skeleton, plan, _runtime, _data_for_model = _make_stage4_mechanics_context()
         del causal_spec, skeleton
 
-        repair_plan = _classify_compile_failure_route(
+        repair_plan = classify_compile_failure_route(
             plan,
             _require_plan_block(plan, "measurement:activity"),
             "Compile error: steps has incompatible support metadata.",
         )
 
-        assert repair_plan.scope_kind == "compile_local"
+        assert repair_plan.scope.scope_kind == "compile_local"
         assert repair_plan.block_ids == ("indicator:steps",)
 
     def test_compute_stage4_validate_step_escalates_unattributed_global_failure_to_prior_review(

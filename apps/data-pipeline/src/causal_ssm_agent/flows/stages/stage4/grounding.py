@@ -8,6 +8,7 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4GroundingResult,
     make_stage4_grounding_result,
 )
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_text import summarize_stage4_names
 
 # ---------------------------------------------------------------------------
 # Stage 4: Model grounding (model spec + priors, unified)
@@ -273,21 +274,12 @@ def _collect_model_spec_targets(model_spec: dict | None) -> list[str]:
     return targets
 
 
-def _summarize_names(names: list[str], *, limit: int = 8) -> str:
-    """Render a compact preview of missing or updated parameter names."""
-    if not names:
-        return "(none)"
-    preview = ", ".join(f"`{name}`" for name in names[:limit])
-    if len(names) <= limit:
-        return preview
-    return f"{preview}, ... (+{len(names) - limit} more)"
-
-
 def _format_missing_priors_feedback(missing_priors: list[str]) -> str:
     """Guide the LLM to submit only the unresolved priors."""
     return (
         "MODEL STATE SAVED:\n"
-        f"- missing priors for {len(missing_priors)} parameters: {_summarize_names(missing_priors)}\n"
+        "- missing priors for "
+        f"{len(missing_priors)} parameters: {summarize_stage4_names(missing_priors)}\n"
         "- model decisions are already locked; do not send distribution_choices again\n"
         "- your next submit tool call must contain only `priors`\n"
         "- do not resend unchanged fields\n"
@@ -310,7 +302,7 @@ def _find_redundant_prior_updates(
 
 def _format_redundant_stage4_update_feedback(kind: str, names: list[str]) -> str:
     """Tell the LLM not to resend already accepted stage-4 fields."""
-    summary = _summarize_names(names)
+    summary = summarize_stage4_names(names)
     if kind == "model decisions":
         return (
             f"REDUNDANT {kind.upper()} UPDATE:\n"

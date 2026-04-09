@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from .stage4_navigation import get_active_prompt_block
-from .stage4_reducer import _compute_stage4_validate_step_with_transitions
+from .stage4_reducer import compute_stage4_validate_step_with_transitions
 from .stage4_state import Stage4AcceptedState, Stage4DoneCursor, Stage4Runtime
 from .stage4_submission import get_stage4_block_handler
 from .stage4_types import Stage4Deps, Stage4Result
@@ -111,7 +111,7 @@ class Stage4Session:
 
     def _submit(self, payload: dict[str, Any]) -> str:
         """Apply one block-local submission and return reducer feedback."""
-        _stage_output, feedback, transitions = _compute_stage4_validate_step_with_transitions(
+        _stage_output, feedback, transitions = compute_stage4_validate_step_with_transitions(
             payload,
             plan=self.plan,
             runtime=self.runtime,
