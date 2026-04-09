@@ -19,6 +19,8 @@ from causal_ssm_agent.utils.causal_spec import (
     get_outcome_name,
 )
 
+from .stage4_parameter_surfaces import build_stage4_parameter_surface_index
+
 if TYPE_CHECKING:
     from .stage4_skeleton import Stage4Skeleton
 
@@ -153,77 +155,8 @@ def build_construct_scale_cards(
 
 def build_prior_cards(causal_spec: dict, skeleton: Stage4Skeleton) -> list[dict[str, Any]]:
     """Build compact prompt-local prior cards for every deterministic parameter."""
-    model_interval_days = get_construct_dt_days(causal_spec)
-    lagged_edges = {
-        (edge["cause"], edge["effect"])
-        for edge in get_estimation_edges(causal_spec)
-        if edge.get("lagged", True)
-    }
-    cards: list[dict[str, Any]] = []
-    for parameter in skeleton.all_params:
-        role = parameter["role"]
-        card: dict[str, Any] = {
-            "parameter": parameter["name"],
-            "role": role,
-            "constraint": parameter["constraint"],
-        }
-        if role in {
-            "ar_coefficient",
-            "residual_sd",
-            "initial_state_mean",
-            "initial_state_sd",
-        }:
-            construct_name = parameter["construct"]
-            card["structural_context"] = {"construct": construct_name}
-        elif role == "measurement_error_sd":
-            card["structural_context"] = {
-                "construct": parameter["construct"],
-                "indicator": parameter["indicator"],
-            }
-        elif role == "fixed_effect":
-            cause = parameter["cause"]
-            effect = parameter["effect"]
-            lagged = parameter.get("lagged", True)
-            card["structural_context"] = {
-                "cause": cause,
-                "effect": effect,
-                "lagged": lagged,
-                "expected_lag_days": model_interval_days if lagged else 0.0,
-                "feedback_loop": lagged and (effect, cause) in lagged_edges,
-            }
-        elif role == "loading":
-            construct_name = parameter["construct"]
-            indicator_name = parameter["indicator"]
-            reference_indicator = parameter.get("reference_indicator")
-            card["structural_context"] = {
-                "construct": construct_name,
-                "indicator": indicator_name,
-                "reference_indicator": reference_indicator,
-                "indicator_polarity": parameter.get("indicator_polarity"),
-            }
-        elif role in {"observation_hyperparameter", "observation_hyperparameter_positive"}:
-            card["structural_context"] = {
-                "indicator_names": list(parameter.get("indicator_names") or ()),
-                "construct_names": list(parameter.get("construct_names") or ()),
-                "activation_distribution_families": list(
-                    parameter.get("activation_distribution_families") or ()
-                ),
-            }
-        elif role in {"correlation", "initial_state_correlation"}:
-            construct_1 = parameter["construct_1"]
-            construct_2 = parameter["construct_2"]
-            card["structural_context"] = {
-                "construct_1": construct_1,
-                "construct_2": construct_2,
-                "dependency_kind": parameter["dependency_kind"],
-                "source_confounders": parameter["source_confounders"],
-            }
-        else:
-            card["structural_context"] = {}
-
-        cards.append(card)
-
-    return cards
+    surface_index = build_stage4_parameter_surface_index(causal_spec, skeleton)
+    return [surface.to_prior_card() for surface in surface_index.surfaces]
 
 
 def _build_indicator_anchor(

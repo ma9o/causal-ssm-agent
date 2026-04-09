@@ -17,6 +17,8 @@ from causal_ssm_agent.utils.causal_spec import (
     get_latent_constructs,
 )
 
+from .stage4_parameter_surfaces import parameter_is_active_for_likelihoods
+
 
 @dataclass(frozen=True)
 class Stage4Skeleton:
@@ -283,15 +285,9 @@ def _compiler_authoritative_stage4_inventory(
         "parameters": [
             parameter
             for parameter in [*seed_parameters, *seed_loading_params]
-            if not parameter.get("activation_distribution_families")
-            or any(
-                provisional_distribution_by_variable.get(indicator_name)
-                in set(parameter.get("activation_distribution_families") or ())
-                for indicator_name in (
-                    parameter.get("activation_indicator_names")
-                    or parameter.get("indicator_names")
-                    or provisional_distribution_by_variable.keys()
-                )
+            if parameter_is_active_for_likelihoods(
+                parameter,
+                provisional_distribution_by_variable,
             )
         ],
     }

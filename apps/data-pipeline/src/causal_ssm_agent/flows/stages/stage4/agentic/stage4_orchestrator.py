@@ -18,6 +18,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_indicators,
 )
 
+from .stage4_parameter_surfaces import build_stage4_parameter_surface_index
 from .stage4_skeleton import Stage4Skeleton, indicators_per_construct
 
 
@@ -105,7 +106,8 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     indicators = get_indicators(causal_spec)
     indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
     grouped_indicators = indicators_per_construct(indicators)
-    param_order = {parameter["name"]: idx for idx, parameter in enumerate(skeleton.all_params)}
+    surface_index = build_stage4_parameter_surface_index(causal_spec, skeleton)
+    param_order = {name: idx for idx, name in enumerate(surface_index.ordered_names)}
 
     model_blocks: list[Stage4FrontierBlock] = []
     for item in skeleton.ambiguous_indicators:
@@ -123,20 +125,10 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         )
 
     measurement_parameter_names_by_construct: dict[str, list[str]] = {}
-    for parameter in skeleton.loading_params:
-        construct_name = parameter.get("construct")
-        if isinstance(construct_name, str):
-            measurement_parameter_names_by_construct.setdefault(construct_name, []).append(
-                parameter["name"]
-            )
-    for parameter in skeleton.parameters:
-        if parameter.get("role") != "measurement_error_sd":
-            continue
-        construct_name = parameter.get("construct")
-        if isinstance(construct_name, str):
-            measurement_parameter_names_by_construct.setdefault(construct_name, []).append(
-                parameter["name"]
-            )
+    for surface in surface_index.for_block_kind("measurement_prior"):
+        measurement_parameter_names_by_construct.setdefault(surface.owner_key, []).append(
+            surface.name
+        )
 
     review_block = Stage4FrontierBlock(
         id="review:model_spec",
@@ -145,10 +137,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         construct_names=tuple(construct_order),
         variable_names=tuple(item["variable"] for item in skeleton.ambiguous_indicators),
         parameter_names=tuple(
-            sorted(
-                (parameter["name"] for parameter in skeleton.loading_params),
-                key=param_order.__getitem__,
-            )
+            surface.name for surface in surface_index.surfaces if surface.role == "loading"
         ),
         payload={"reopenable_block_ids": tuple(block.id for block in model_blocks)},
     )
@@ -169,24 +158,15 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             )
         )
 
-    observation_parameter_roles = {
-        "observation_hyperparameter",
-        "observation_hyperparameter_positive",
-    }
-    for parameter in skeleton.parameters:
-        if parameter["role"] not in observation_parameter_roles:
-            continue
-        indicator_names = tuple(parameter.get("indicator_names") or ())
-        construct_names = tuple(parameter.get("construct_names") or ())
-        label = str(parameter.get("description") or parameter["name"])
+    for surface in surface_index.for_block_kind("observation_prior"):
         prior_blocks.append(
             Stage4FrontierBlock(
-                id=f"observation:{parameter['name']}",
+                id=f"observation:{surface.name}",
                 kind="observation_prior",
-                label=label,
-                construct_names=construct_names,
-                variable_names=indicator_names,
-                parameter_names=(parameter["name"],),
+                label=surface.description,
+                construct_names=surface.construct_names,
+                variable_names=surface.indicator_names,
+                parameter_names=(surface.name,),
                 expand_neighbor_topology=False,
             )
         )
@@ -196,12 +176,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     for edge in get_estimation_edges(causal_spec):
         graph.add_edge(edge["cause"], edge["effect"])
     order_lookup = {name: idx for idx, name in enumerate(construct_order)}
-    dynamics_roles = {
-        "ar_coefficient",
-        "residual_sd",
-        "initial_state_mean",
-        "initial_state_sd",
-    }
+    dynamics_surfaces = surface_index.for_block_kind("dynamics_prior")
     scc_id_by_construct: dict[str, str] = {}
     scc_construct_names_by_id: dict[str, tuple[str, ...]] = {}
     for component in sorted(
@@ -213,11 +188,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         scc_construct_names_by_id[scc_id] = ordered_members
         for construct_name in ordered_members:
             scc_id_by_construct[construct_name] = scc_id
-        names = [
-            parameter["name"]
-            for parameter in skeleton.parameters
-            if parameter["role"] in dynamics_roles and parameter.get("construct") in component
-        ]
+        names = [surface.name for surface in dynamics_surfaces if surface.owner_key in component]
         if not names:
             continue
         prior_blocks.append(
@@ -235,19 +206,20 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             )
         )
 
-    effect_parameters_by_target: dict[str, list[dict[str, Any]]] = {}
-    for parameter in skeleton.parameters:
-        if parameter["role"] != "fixed_effect":
-            continue
-        effect_parameters_by_target.setdefault(parameter["effect"], []).append(parameter)
+    effect_parameters_by_target: dict[str, list[Any]] = {}
+    for surface in surface_index.for_block_kind("effect_prior"):
+        effect_parameters_by_target.setdefault(surface.owner_key, []).append(surface)
     for effect_name in construct_order:
-        parameters = effect_parameters_by_target.get(effect_name) or []
-        if not parameters:
+        effect_surfaces = effect_parameters_by_target.get(effect_name) or []
+        if not effect_surfaces:
             continue
-        ordered_parameters = sorted(
-            parameters, key=lambda parameter: param_order[parameter["name"]]
+        ordered_effect_surfaces = sorted(
+            effect_surfaces,
+            key=lambda surface: param_order[surface.name],
         )
-        cause_names = tuple(dict.fromkeys(parameter["cause"] for parameter in ordered_parameters))
+        cause_names = tuple(
+            dict.fromkeys(surface.construct_names[0] for surface in ordered_effect_surfaces)
+        )
         construct_names = (*cause_names, effect_name)
         prior_blocks.append(
             Stage4FrontierBlock(
@@ -260,7 +232,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                     for construct_name in construct_names
                     for indicator_name in grouped_indicators.get(construct_name, [])
                 ),
-                parameter_names=tuple(parameter["name"] for parameter in ordered_parameters),
+                parameter_names=tuple(surface.name for surface in ordered_effect_surfaces),
                 payload={
                     "target_construct": effect_name,
                     "cause_names": cause_names,
@@ -268,23 +240,16 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             )
         )
 
-    correlation_roles = {"correlation", "initial_state_correlation"}
-    for parameter in skeleton.parameters:
-        if parameter["role"] not in correlation_roles:
-            continue
-        construct_names = tuple(
-            name
-            for name in (parameter.get("construct_1"), parameter.get("construct_2"))
-            if isinstance(name, str)
-        )
+    for surface in surface_index.for_block_kind("correlation_prior"):
+        construct_names = surface.construct_names
         correlation_label = (
             f"{construct_names[0]} \u00d7 {construct_names[1]}"
             if len(construct_names) == 2
-            else parameter["name"]
+            else surface.name
         )
         prior_blocks.append(
             Stage4FrontierBlock(
-                id=f"correlation:{parameter['name']}",
+                id=f"correlation:{surface.name}",
                 kind="correlation_prior",
                 label=correlation_label,
                 construct_names=construct_names,
@@ -293,7 +258,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                     for construct_name in construct_names
                     for indicator_name in grouped_indicators.get(construct_name, [])
                 ),
-                parameter_names=(parameter["name"],),
+                parameter_names=(surface.name,),
             )
         )
 
@@ -303,12 +268,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         label="Full Prior System",
         construct_names=tuple(construct_order),
         variable_names=tuple(indicator["name"] for indicator in indicators),
-        parameter_names=tuple(
-            sorted(
-                (parameter["name"] for parameter in skeleton.all_params),
-                key=param_order.__getitem__,
-            )
-        ),
+        parameter_names=surface_index.ordered_names,
     )
 
     blocks_by_id = {
@@ -340,48 +300,12 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             for indicator_name in block.variable_names:
                 indicator_to_decision_block_id[indicator_name] = block.id
 
-    for parameter in skeleton.parameters:
-        name = parameter["name"]
-        role = parameter["role"]
-        if role == "fixed_effect":
-            cause_name = parameter.get("cause")
-            effect_name = parameter.get("effect")
-            construct_names = tuple(
-                name_ for name_ in (cause_name, effect_name) if isinstance(name_, str)
-            )
-            parameter_construct_names[name] = construct_names
-            if len(construct_names) == 2:
-                effect_parameter_by_edge[(construct_names[0], construct_names[1])] = name
-        elif (
-            role
-            in {
-                "ar_coefficient",
-                "residual_sd",
-                "initial_state_mean",
-                "initial_state_sd",
-                "measurement_error_sd",
-            }
-            or role == "loading"
-        ):
-            construct_name = parameter.get("construct")
-            if isinstance(construct_name, str):
-                parameter_construct_names[name] = (construct_name,)
-        elif role in {"observation_hyperparameter", "observation_hyperparameter_positive"}:
-            construct_names = tuple(
-                construct_name
-                for construct_name in (parameter.get("construct_names") or ())
-                if isinstance(construct_name, str)
-            )
-            if construct_names:
-                parameter_construct_names[name] = construct_names
-        elif role in {"correlation", "initial_state_correlation"}:
-            construct_names = tuple(
-                name_
-                for name_ in (parameter.get("construct_1"), parameter.get("construct_2"))
-                if isinstance(name_, str)
-            )
-            if construct_names:
-                parameter_construct_names[name] = construct_names
+    for surface in surface_index.surfaces:
+        if surface.construct_names:
+            parameter_construct_names[surface.name] = surface.construct_names
+        effect_edge = surface.effect_edge
+        if effect_edge is not None:
+            effect_parameter_by_edge[effect_edge] = surface.name
 
     for (cause_name, effect_name), parameter_name in effect_parameter_by_edge.items():
         reciprocal_name = effect_parameter_by_edge.get((effect_name, cause_name))
