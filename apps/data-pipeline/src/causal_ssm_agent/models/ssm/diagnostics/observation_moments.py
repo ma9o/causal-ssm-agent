@@ -16,6 +16,9 @@ from causal_ssm_agent.models.ssm.inference.targets.base import (
     NUMERICAL_EPSILON,
     PROB_CLIP_MIN,
 )
+from causal_ssm_agent.models.ssm.likelihood_extra_params import (
+    assemble_sampled_extra_params,
+)
 from causal_ssm_agent.models.ssm.parameterization import assemble_deterministics_from_registry
 
 from .results import OutputSensitivityUnsupportedError
@@ -45,7 +48,6 @@ def _assemble_sensitivity_measurement_state(
         structure_runtime=structure_runtime,
     )
     det = {name: value[0] for name, value in det.items()}
-    from causal_ssm_agent.models.ssm.model import assemble_sampled_extra_params
 
     extra_params = assemble_sampled_extra_params(spec, con_dict)
     return det, extra_params

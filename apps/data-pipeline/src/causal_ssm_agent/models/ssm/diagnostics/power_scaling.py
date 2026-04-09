@@ -17,7 +17,7 @@ from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discov
 from .results import PowerScalingResult
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.inference import InferenceResult
+    from causal_ssm_agent.models.ssm.inference.types import InferenceResult
     from causal_ssm_agent.models.ssm.model import SSMModel
 
 logger = get_prefect_logger(__name__)

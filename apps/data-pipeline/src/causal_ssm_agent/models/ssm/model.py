@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.distributions import (
     PriorRuntimeKind,
-    get_positive_runtime_family_index,
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
@@ -33,6 +32,10 @@ from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stabilize_covariance_for_cholesky,
+)
+from causal_ssm_agent.models.ssm.inference.backend_factory import (
+    build_laplace_backend,
+    make_likelihood_backend,
 )
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     CTParams,
@@ -42,12 +45,15 @@ from causal_ssm_agent.models.ssm.inference.targets.base import (
 from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
 )
-from causal_ssm_agent.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
+from causal_ssm_agent.models.ssm.likelihood_extra_params import (
+    assemble_sampled_extra_params,
+)
 from causal_ssm_agent.models.ssm.parameterization import (
     PriorRuntimeBundle,
     build_prior_runtime_bundle,
     build_site_prior_distribution,
 )
+from causal_ssm_agent.models.ssm.priors import SSMPriors
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 
@@ -403,152 +409,6 @@ class SSMSpec:
                 "manifest_level_counts length must match n_manifest: "
                 f"{len(self.manifest_level_counts)} vs {self.n_manifest}"
             )
-
-
-@dataclass
-class SSMPriors:
-    """Prior specifications for state-space model parameters.
-
-    Each prior is specified as a dict with distribution parameters.
-    """
-
-    # Drift diagonal (auto-effects, typically negative for stability)
-    drift_diag: dict = field(default_factory=lambda: {"mu": -0.5, "sigma": 1.0})
-    # Drift off-diagonal (cross-effects)
-    drift_offdiag: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 0.5})
-
-    # Diffusion (log scale for positivity)
-    diffusion_diag: dict = field(default_factory=lambda: {"sigma": 1.0})
-    diffusion_offdiag: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 0.5})
-
-    # Continuous intercept
-    cint: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
-
-    # Factor loadings
-    lambda_free: dict = field(default_factory=lambda: {"mu": 0.5, "sigma": 0.5})
-
-    # Manifest means
-    manifest_means: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 2.0})
-
-    # Manifest variance (measurement error)
-    manifest_var_diag: dict = field(default_factory=lambda: {"sigma": 1.0})
-
-    # Observation-family extras
-    obs_df: dict = field(
-        default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
-            "concentration": 5.0,
-            "rate": 1.0,
-        }
-    )
-    obs_shape: dict = field(
-        default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
-            "concentration": 2.0,
-            "rate": 1.0,
-        }
-    )
-    obs_r: dict = field(
-        default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
-            "concentration": 2.0,
-            "rate": 0.5,
-        }
-    )
-    obs_concentration: dict = field(
-        default_factory=lambda: {
-            "family": get_positive_runtime_family_index(PriorRuntimeKind.GAMMA),
-            "concentration": 5.0,
-            "rate": 0.5,
-        }
-    )
-    obs_ordered_base: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
-    obs_ordered_gaps: dict = field(default_factory=lambda: {"sigma": 1.0})
-    obs_cat_intercepts: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
-    obs_cat_slopes: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
-
-    # Initial state
-    t0_means: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 2.0})
-    t0_var_diag: dict = field(default_factory=lambda: {"sigma": 2.0})
-    t0_var_offdiag: dict = field(
-        default_factory=lambda: dict(INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS)
-    )
-
-
-def assemble_sampled_extra_params(
-    spec: SSMSpec,
-    sampled_values: dict[str, jnp.ndarray],
-) -> dict[str, jnp.ndarray]:
-    """Assemble likelihood hyperparameters and derived observation metadata."""
-    extra_params: dict[str, jnp.ndarray] = {}
-    manifest_dist_set = set(spec.manifest_dists)
-
-    scalar_keys = (
-        "obs_df",
-        "obs_shape",
-        "obs_r",
-        "obs_concentration",
-        "proc_df",
-    )
-    for key in scalar_keys:
-        if key in sampled_values:
-            extra_params[key] = sampled_values[key]
-
-    if spec.manifest_level_counts is None:
-        return extra_params
-
-    level_counts_list = list(spec.manifest_level_counts)
-    level_counts = jnp.asarray(level_counts_list, dtype=jnp.int32)
-    extra_params["obs_level_counts"] = level_counts
-
-    max_levels = max(level_counts_list) if level_counts_list else 0
-    max_cutpoints = max(max_levels - 1, 0)
-
-    if any_family_needs_level_metadata(manifest_dist_set) and max_cutpoints <= 0:
-        raise ValueError(
-            "ordered_logistic/categorical requires manifest_level_counts with at least 2 levels"
-        )
-
-    if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set:
-        ordered_base = sampled_values["obs_ordered_base"]
-        if max_cutpoints > 1:
-            ordered_gaps = sampled_values["obs_ordered_gaps"]
-        else:
-            ordered_gaps = jnp.zeros((spec.n_manifest, 0), dtype=ordered_base.dtype)
-
-        raw_cutpoints = jnp.concatenate(
-            [
-                ordered_base[:, None],
-                ordered_base[:, None] + jnp.cumsum(ordered_gaps, axis=1),
-            ],
-            axis=1,
-        )
-        cutpoint_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(
-            level_counts[:, None] - 1, 0
-        )
-        cutpoint_sum = jnp.sum(jnp.where(cutpoint_mask, raw_cutpoints, 0.0), axis=1)
-        cutpoint_count = jnp.maximum(level_counts - 1, 1)
-        cutpoint_center = cutpoint_sum / cutpoint_count
-        extra_params["obs_ordered_cutpoints"] = jnp.where(
-            cutpoint_mask,
-            raw_cutpoints - cutpoint_center[:, None],
-            0.0,
-        )
-
-    if DistributionFamily.CATEGORICAL in manifest_dist_set:
-        cat_mask = jnp.arange(max_cutpoints)[None, :] < jnp.maximum(level_counts[:, None] - 1, 0)
-        extra_params["obs_cat_intercepts"] = jnp.where(
-            cat_mask,
-            sampled_values["obs_cat_intercepts"],
-            0.0,
-        )
-        extra_params["obs_cat_slopes"] = jnp.where(
-            cat_mask,
-            sampled_values["obs_cat_slopes"],
-            0.0,
-        )
-
-    return extra_params
 
 
 def _make_prior_dist(prior: dict) -> dist.Distribution:
@@ -930,7 +790,7 @@ class SSMModel:
                 n_ieks_iters,
                 id(self.observation_support),
             ),
-            lambda: _build_laplace_backend(
+            lambda: build_laplace_backend(
                 self.spec,
                 n_ieks_iters,
                 observation_support=self.observation_support,
@@ -1073,142 +933,3 @@ class SSMModel:
             numpyro.factor("log_likelihood", total_ll)
             ll_per_timestep = jnp.diff(lnc, prepend=0.0)
             numpyro.deterministic("ll_per_timestep", ll_per_timestep)
-
-
-def _build_laplace_backend(
-    spec: SSMSpec,
-    n_ieks_iters: int,
-    observation_support: ObservationSupportRuntime | None = None,
-):
-    from causal_ssm_agent.models.ssm.inference.methods.laplace_em import LaplaceLikelihood
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
-        get_per_channel_links,
-        get_per_channel_manifest,
-    )
-
-    return LaplaceLikelihood(
-        n_latent=spec.n_latent,
-        n_manifest=spec.n_manifest,
-        manifest_dists=get_per_channel_manifest(spec),
-        manifest_links=get_per_channel_links(spec),
-        n_ieks_iters=n_ieks_iters,
-        observation_support=observation_support,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Standalone likelihood backend factory
-# ---------------------------------------------------------------------------
-
-
-def make_likelihood_backend(
-    spec: SSMSpec,
-    likelihood: Literal["particle", "kalman"] = "particle",
-    n_particles: int = 200,
-    pf_key: jnp.ndarray | None = None,
-    observation_support: ObservationSupportRuntime | None = None,
-):
-    """Construct a likelihood backend from model configuration.
-
-    Selects between Kalman and Particle backends. When ``first_pass_rb`` is
-    enabled, the shared inference-structure planner may route a decoupled
-    linear-Gaussian sub-block to exact Kalman filtering while the remainder
-    uses a particle filter.
-
-    Args:
-        spec: SSM specification
-        likelihood: Backend type — "kalman" (exact, linear Gaussian) or
-            "particle" (universal, any noise family)
-        n_particles: Number of particles for bootstrap PF
-        pf_key: Fixed JAX PRNG key for the particle filter
-    """
-    if pf_key is None:
-        pf_key = jax.random.PRNGKey(0)
-
-    from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
-
-    inference_structure = plan_inference_structure(
-        spec,
-        likelihood=likelihood,
-        observation_support=observation_support,
-    )
-
-    if inference_structure.likelihood_path == "kalman":
-        from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
-
-        return KalmanLikelihood(
-            n_latent=spec.n_latent,
-            n_manifest=spec.n_manifest,
-        )
-
-    # Resolve per-variable distributions for ParticleLikelihood
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
-        get_per_channel_links,
-        get_per_channel_manifest,
-        get_per_variable_diffusion,
-    )
-
-    per_var = list(get_per_variable_diffusion(spec))
-    per_obs = list(get_per_channel_manifest(spec))
-    per_links = list(get_per_channel_links(spec))
-
-    if inference_structure.likelihood_path == "composed":
-        from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
-        from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
-        from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
-
-        partition = inference_structure.first_pass_rb.partition
-        if partition is None:
-            raise ValueError("Composed likelihood path requires an active first-pass partition")
-
-        n_k = len(partition.kalman_idx)
-        n_obs_k = len(partition.obs_kalman_idx)
-        n_p = len(partition.particle_idx)
-        n_obs_p = len(partition.obs_particle_idx)
-
-        particle_diffs: list[DistributionFamily | str] = [
-            per_var[int(i)] for i in partition.particle_idx
-        ]
-        particle_obs_dists: list[DistributionFamily | str] = [
-            per_obs[int(k)] for k in partition.obs_particle_idx
-        ]
-        particle_obs_links: list[LinkFunction | str | None] = [
-            per_links[int(k)] for k in partition.obs_particle_idx
-        ]
-
-        return ComposedLikelihood(
-            partition=partition,
-            kalman_backend=KalmanLikelihood(
-                n_latent=n_k,
-                n_manifest=n_obs_k,
-            ),
-            particle_backend=ParticleLikelihood(
-                n_latent=n_p,
-                n_manifest=n_obs_p,
-                n_particles=n_particles,
-                rng_key=pf_key,
-                manifest_dists=particle_obs_dists,
-                diffusion_dists=particle_diffs,
-                block_rb=spec.second_pass_rb,
-                manifest_links=particle_obs_links,
-                observation_support=None,
-            ),
-        )
-
-    # Fallthrough: full particle filter
-    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
-
-    return ParticleLikelihood(
-        n_latent=spec.n_latent,
-        n_manifest=spec.n_manifest,
-        n_particles=n_particles,
-        rng_key=pf_key,
-        manifest_dists=per_obs,
-        diffusion_dists=per_var,
-        block_rb=False
-        if observation_support is not None
-        and observation_support.requires_interval_summary_handling
-        else spec.second_pass_rb,
-        manifest_links=per_links,
-        observation_support=observation_support,
-    )

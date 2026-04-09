@@ -21,7 +21,6 @@ from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.autoreparam import reparam_cache_key
-from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult
 from causal_ssm_agent.models.ssm.inference.engines.mcmc_utils import (
     HMC_TARGET_ACCEPT,
     RWM_TARGET_ACCEPT,
@@ -29,6 +28,7 @@ from causal_ssm_agent.models.ssm.inference.engines.mcmc_utils import (
     find_next_beta,
     hmc_step,
 )
+from causal_ssm_agent.models.ssm.inference.types import InferenceMethod, InferenceResult
 from causal_ssm_agent.models.ssm.inference.utils import (
     _build_eval_fns,
     _discover_sites,
