@@ -18,6 +18,7 @@ from pydantic import (
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.inference.schemas import AggregationFunction, MeasurementDtype
+from causal_ssm_agent.utils.aggregations import COMPUTED_RULE_FUNCTIONS
 from causal_ssm_agent.utils.observation_semantics import (
     AnchorPolicy,
     IndicatorObservationSemantics,
@@ -57,26 +58,6 @@ _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
         "how_to_measure implies point-in-time but aggregation is a window statistic",
     ),
 ]
-
-_COMPUTED_RULE_FUNCTIONS = {
-    "abs",
-    "all",
-    "any",
-    "coalesce",
-    "contains",
-    "contains_any",
-    "count_non_null",
-    "count_true",
-    "first",
-    "last",
-    "lower",
-    "max",
-    "mean",
-    "min",
-    "std",
-    "sum",
-}
-
 
 def check_semantic_collisions(
     how_to_measure: str,
@@ -121,8 +102,8 @@ def _computed_rule_source_names(expr: str) -> set[str]:
         def visit_Call(self, node: ast.Call) -> None:
             if not isinstance(node.func, ast.Name):
                 raise ValueError("computed_rule.window_expr only supports simple function calls")
-            if node.func.id not in _COMPUTED_RULE_FUNCTIONS:
-                available = ", ".join(sorted(_COMPUTED_RULE_FUNCTIONS))
+            if node.func.id not in COMPUTED_RULE_FUNCTIONS:
+                available = ", ".join(sorted(COMPUTED_RULE_FUNCTIONS))
                 raise ValueError(
                     f"Unsupported computed_rule function '{node.func.id}'. Available: {available}"
                 )
@@ -136,7 +117,7 @@ def _computed_rule_source_names(expr: str) -> set[str]:
             raise ValueError("computed_rule.window_expr does not support attribute access")
 
         def visit_Name(self, node: ast.Name) -> None:
-            if node.id not in _COMPUTED_RULE_FUNCTIONS:
+            if node.id not in COMPUTED_RULE_FUNCTIONS:
                 names.add(node.id)
 
     _NameCollector().visit(parsed.body)

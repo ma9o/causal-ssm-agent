@@ -15,7 +15,7 @@ logger = get_prefect_logger(__name__)
 
 # Aggregations that require map_groups (cannot be expressed as a single Polars expr)
 _MAP_GROUPS_AGGREGATIONS = {"trend"}
-_COMPUTED_RULE_FUNCTIONS = {
+COMPUTED_RULE_FUNCTIONS = {
     "abs",
     "all",
     "any",
@@ -168,8 +168,8 @@ def _compile_computed_rule_call(node: ast.Call, *, allowed_names: set[str]) -> p
     if not isinstance(node.func, ast.Name):
         raise ValueError("computed_rule.window_expr only supports simple function calls")
     name = node.func.id
-    if name not in _COMPUTED_RULE_FUNCTIONS:
-        available = ", ".join(sorted(_COMPUTED_RULE_FUNCTIONS))
+    if name not in COMPUTED_RULE_FUNCTIONS:
+        available = ", ".join(sorted(COMPUTED_RULE_FUNCTIONS))
         raise ValueError(f"Unsupported computed_rule function '{name}'. Available: {available}")
     if node.keywords:
         raise ValueError("computed_rule.window_expr does not support keyword arguments")
