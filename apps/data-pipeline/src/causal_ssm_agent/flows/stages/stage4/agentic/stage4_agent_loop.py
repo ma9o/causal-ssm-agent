@@ -307,7 +307,7 @@ async def run_stage4(
         )
         stage_output = grounding_result.stage_output
         validation = stage_output.get("validation") if stage_output else None
-        if validation is not None and getattr(validation, "compile_ok", True) is False:
+        if validation is not None and not validation.compile_ok:
             raise ValueError(
                 f"Stage 4 could not lock the initial ModelSpec: {validation.compile_error}"
             )

@@ -220,4 +220,4 @@ def _validator_scope_construct_names(repair_scope: PriorRepairScope | None) -> t
     """Return construct names from a validator-owned repair scope."""
     if repair_scope is None:
         return ()
-    return tuple(getattr(repair_scope, "construct_names", ()) or ())
+    return tuple(repair_scope.construct_names or ())

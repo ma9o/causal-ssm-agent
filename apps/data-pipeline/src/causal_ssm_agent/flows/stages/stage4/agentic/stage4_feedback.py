@@ -93,17 +93,16 @@ def make_stage4_validation_packet(
     capture_stage_output: bool = False,
 ) -> Stage4ValidationPacket:
     """Create a typed validation packet without inferring control flow from text."""
-    diagnostics = tuple(getattr(validation, "diagnostics", ()) or ())
+    diagnostics = tuple(validation.diagnostics) if validation is not None else ()
     failing_parameters, coupled_parameters, global_failure_sites = _collect_failure_context(
         diagnostics
     )
     diagnostic_codes = tuple(
         sorted(
             {
-                code
+                diagnostic.code
                 for diagnostic in diagnostics
-                if not getattr(diagnostic, "is_valid", True)
-                and (code := getattr(diagnostic, "code", None))
+                if not diagnostic.is_valid and diagnostic.code
             }
         )
     )
@@ -213,15 +212,14 @@ def _collect_failure_context(
     global_failure_sites: set[str] = set()
 
     for diagnostic in diagnostics:
-        if getattr(diagnostic, "is_valid", True):
+        if diagnostic.is_valid:
             continue
-        parameter_name = getattr(diagnostic, "parameter", None)
-        if isinstance(parameter_name, str):
-            if parameter_name in GLOBAL_FAILURE_SITES:
-                global_failure_sites.add(parameter_name)
-            else:
-                failing_parameters.add(parameter_name)
-        for related_parameter in getattr(diagnostic, "related_parameters", ()) or ():
+        parameter_name = diagnostic.parameter
+        if parameter_name in GLOBAL_FAILURE_SITES:
+            global_failure_sites.add(parameter_name)
+        else:
+            failing_parameters.add(parameter_name)
+        for related_parameter in diagnostic.related_parameters:
             if not isinstance(related_parameter, str):
                 continue
             if related_parameter in GLOBAL_FAILURE_SITES:

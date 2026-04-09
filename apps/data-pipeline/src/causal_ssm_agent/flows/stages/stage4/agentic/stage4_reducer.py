@@ -63,10 +63,6 @@ if TYPE_CHECKING:
 
 _RECOVERABLE_STAGE4_REDUCER_ERRORS = (
     AggregatedCompileError,
-    AttributeError,
-    KeyError,
-    RuntimeError,
-    TypeError,
     ValidationError,
     ValueError,
 )
@@ -422,8 +418,8 @@ def _should_run_partial_drift_guard(
     return (
         state.stage_output is not None
         and state.validation is not None
-        and getattr(state.validation, "compile_ok", True)
-        and not getattr(state.validation, "pp_checked", False)
+        and state.validation.compile_ok
+        and not state.validation.pp_checked
         and active_block.kind in {"dynamics_prior", "effect_prior"}
     )
 

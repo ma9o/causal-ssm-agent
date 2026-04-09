@@ -34,20 +34,20 @@ def classify_validation_outcome(
     include_prior_predictive: bool = True,
 ) -> Stage4ValidationOutcomeDecision:
     """Classify validation into acceptance or a concrete repair route."""
-    if validation is not None and getattr(validation, "compile_ok", True) is False:
+    if validation is not None and not validation.compile_ok:
         return Stage4ValidationOutcomeDecision(
             outcome="compile_error",
             repair_plan=classify_compile_failure_route(
                 plan,
                 active_block,
-                getattr(validation, "compile_error", None) or feedback,
+                validation.compile_error or feedback,
             ),
         )
     if (
         include_prior_predictive
         and validation is not None
-        and getattr(validation, "pp_checked", False)
-        and getattr(validation, "pp_valid", True) is False
+        and validation.pp_checked
+        and not validation.pp_valid
     ):
         return Stage4ValidationOutcomeDecision(
             outcome="prior_predictive_failure",
