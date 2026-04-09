@@ -80,6 +80,7 @@ class Stage4bSweepContext:
     site_runtime: SiteRuntimeBundle
     predict_moments_fn: Callable
     jacobian_fn: Callable
+    row_scales_fn: Callable
     log_lik_fn: Callable
     log_prior_unc_fn: Callable
 
@@ -216,6 +217,18 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
             registry=site_runtime.registry,
         )
 
+    def _row_scales(z_flat, times):
+        return _predict_observation_row_scales(
+            z_flat,
+            site_runtime.unravel_fn,
+            site_runtime.transforms,
+            model.spec,
+            times,
+            structure_runtime=model._structure_runtime,
+            observation_support=getattr(model, "observation_support", None),
+            registry=site_runtime.registry,
+        )
+
     context = Stage4bSweepContext(
         cache_key=cache_key,
         spec=model.spec,
@@ -223,6 +236,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> Stage4bSweepContext:
         site_runtime=site_runtime,
         predict_moments_fn=_predict,
         jacobian_fn=jax.jit(jax.jacfwd(_predict, argnums=0)),
+        row_scales_fn=jax.jit(_row_scales),
         log_lik_fn=log_lik_fn,
         log_prior_unc_fn=log_prior_unc_fn,
     )
@@ -1685,6 +1699,39 @@ def _predict_observation_moments(
     )
 
 
+def _predict_observation_row_scales(
+    z_flat,
+    unravel_fn,
+    transforms,
+    spec,
+    times,
+    *,
+    structure_runtime: SSMStructureRuntime,
+    observation_support=None,
+    registry,
+):
+    """Predicted observation-scale normalizers aligned to the moment summary."""
+    det, extra_params = _assemble_sensitivity_measurement_state(
+        z_flat,
+        unravel_fn,
+        transforms,
+        spec,
+        structure_runtime=structure_runtime,
+        registry=registry,
+    )
+    _emitted_means, _emitted_same_covs, _emitted_lag1_covs, emitted_obs_noise_sd, _semantic_mask = (
+        _predict_observation_components(
+            det,
+            extra_params,
+            spec,
+            times,
+            structure_runtime=structure_runtime,
+            observation_support=observation_support,
+        )
+    )
+    return _moment_summary_row_scales(emitted_obs_noise_sd)
+
+
 @dataclass
 class OutputSensitivityResult:
     """Results from output sensitivity analysis (pre-inference identifiability).
@@ -1951,17 +1998,7 @@ def output_sensitivity_analysis(
     if sweep_context is not None:
         context = sweep_context
     else:
-        cached_context = get_stage4b_sweep_context(model)
-        context = Stage4bSweepContext(
-            cache_key=cached_context.cache_key,
-            spec=cached_context.spec,
-            structure_runtime=cached_context.structure_runtime,
-            site_runtime=cached_context.site_runtime,
-            predict_moments_fn=cached_context.predict_moments_fn,
-            jacobian_fn=jax.jit(jax.jacfwd(cached_context.predict_moments_fn, argnums=0)),
-            log_lik_fn=cached_context.log_lik_fn,
-            log_prior_unc_fn=cached_context.log_prior_unc_fn,
-        )
+        context = get_stage4b_sweep_context(model)
 
     # 1. Reuse topology-dependent registry metadata and rebuild only prior values.
     P = context.flat_dim
@@ -1996,28 +2033,6 @@ def output_sensitivity_analysis(
         N_out = int(context.predict_moments_fn(prior_z[0], times).shape[0])
     else:
         N_out = int(output_mask.sum())
-
-    # Helper to extract family-aware observation noise scales for a given parameter vector
-    def _get_obs_noise_scales(z_0):
-        det, extra_params = _assemble_sensitivity_measurement_state(
-            z_0,
-            context.unravel_fn,
-            context.transforms,
-            context.spec,
-            structure_runtime=context.structure_runtime,
-            registry=context.registry,
-        )
-        _projected_means, _same_covs, _lag1_covs, obs_noise_sd, _semantic = (
-            _predict_observation_components(
-                det,
-                extra_params,
-                context.spec,
-                times,
-                structure_runtime=context.structure_runtime,
-                observation_support=getattr(model, "observation_support", None),
-            )
-        )
-        return _moment_summary_row_scales(obs_noise_sd)
 
     # Helper to compute per-parameter effective SVs from V matrix and sv vector
     def _per_param_effective_sv(V, sv):
@@ -2059,7 +2074,7 @@ def output_sensitivity_analysis(
 
         # --- Normalized SVD ---
         # S_norm[i,j] = (prior_std[j] / obs_scale[i]) * S[i,j]
-        row_scales = _get_obs_noise_scales(z_0)
+        row_scales = context.row_scales_fn(z_0, times)
         if output_mask is not None:
             row_scales = row_scales[output_mask]
         row_scales = jnp.maximum(row_scales, NUMERICAL_EPSILON)
