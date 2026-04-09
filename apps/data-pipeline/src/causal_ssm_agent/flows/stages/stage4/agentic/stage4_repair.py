@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
     from causal_ssm_agent.workers.schemas_prior import (
@@ -77,6 +77,23 @@ class Stage4FailureLocalization:
 
 
 @dataclass(frozen=True)
+class Stage4FailureEvidence:
+    """Normalized diagnostic evidence for one failed prior-predictive validation."""
+
+    topology: Stage4RepairTopology
+    failed_diagnostics: tuple[PriorValidationResult, ...]
+    supporting_compile_diagnostics: tuple[PriorValidationResult, ...]
+    diagnostic_codes: tuple[str, ...]
+    supporting_codes: tuple[str, ...]
+    global_failure_sites: frozenset[str]
+
+    @property
+    def all_reason_diagnostics(self) -> tuple[PriorValidationResult, ...]:
+        """Return diagnostics eligible to contribute user-facing repair reasons."""
+        return (*self.failed_diagnostics, *self.supporting_compile_diagnostics)
+
+
+@dataclass(frozen=True)
 class ResolvedRepairScope:
     """Deterministic structural repair scope independent of prompt blocks."""
 
@@ -93,12 +110,51 @@ class ResolvedRepairScope:
 
 
 @dataclass(frozen=True)
+class Stage4RepairScopeStrategy:
+    """Strategy for projecting one structural repair scope into prompt execution."""
+
+    scope_kind: str
+    resolve_prompt_block_ids: Callable[[Stage4Plan, ResolvedRepairScope], tuple[str, ...]]
+    project_prompt_block: Callable[
+        [Stage4Plan, Stage4FrontierBlock, ResolvedRepairScope],
+        Stage4FrontierBlock | None,
+    ]
+    uses_repair_campaign: bool = False
+
+
+@dataclass(frozen=True)
+class Stage4ScopeCandidateSpec:
+    """Candidate structural scope emitted before prompt-block projection."""
+
+    scope_kind: str
+    scope_rank: int
+    reason: str
+    parameter_names: tuple[str, ...] = ()
+    construct_names: tuple[str, ...] = ()
+    prompt_block_hints: tuple[str, ...] = ()
+    scope_token: str | None = None
+
+
+@dataclass(frozen=True)
+class Stage4ScopeCandidateStrategy:
+    """Strategy for emitting candidate repair scopes from localized evidence."""
+
+    name: str
+    build_specs: Callable[
+        [Stage4Plan, Stage4FailureLocalization],
+        tuple[Stage4ScopeCandidateSpec, ...],
+    ]
+    stop_after_match: bool = False
+
+
+@dataclass(frozen=True)
 class ResolvedRepairPlan:
     """Prompt execution plan for one resolved structural repair scope."""
 
     scope: ResolvedRepairScope
     prompt_blocks: tuple[Stage4FrontierBlock, ...]
     requires_barrier_validation: bool = False
+    uses_repair_campaign: bool = False
 
     @property
     def block_ids(self) -> tuple[str, ...]:
@@ -187,16 +243,42 @@ def _resolved_repair_scope(
     )
 
 
-def _effect_prompt_block_for_structural_scope(
+def _materialize_scope_candidate(
+    localization: Stage4FailureLocalization,
+    spec: Stage4ScopeCandidateSpec,
+) -> ResolvedRepairScope:
+    """Materialize one candidate scope spec with localization-owned metadata."""
+    return _resolved_repair_scope(
+        scope_kind=spec.scope_kind,
+        scope_rank=spec.scope_rank,
+        reason=spec.reason,
+        failure_family=localization.failure_family,
+        parameter_names=spec.parameter_names,
+        construct_names=spec.construct_names,
+        prompt_block_hints=spec.prompt_block_hints,
+        diagnostic_codes=localization.diagnostic_codes,
+        pathology_certificate=localization.pathology_certificate,
+        scope_token=spec.scope_token,
+    )
+
+
+def _identity_prompt_block_projection(
+    plan: Stage4Plan,
+    block: Stage4FrontierBlock,
+    scope: ResolvedRepairScope,
+) -> Stage4FrontierBlock | None:
+    """Keep the authored prompt block unchanged for this repair scope."""
+    del plan, scope
+    return block
+
+
+def _narrow_effect_prompt_block_to_scc(
     plan: Stage4Plan,
     block: Stage4FrontierBlock,
     scope: ResolvedRepairScope,
 ) -> Stage4FrontierBlock | None:
     """Project a structural drift scope onto the narrowest authored effect prompt."""
-    if block.kind != "effect_prior" or scope.scope_kind not in {
-        "scc_drift_subsystem",
-        "validator_scope",
-    }:
+    if block.kind != "effect_prior":
         return block
 
     allowed_constructs = set(scope.construct_names)
@@ -238,56 +320,6 @@ def _effect_prompt_block_for_structural_scope(
         variable_names=prompt_variable_names,
         parameter_names=allowed_parameter_names,
         expand_neighbor_topology=False,
-    )
-
-
-def build_repair_plan(
-    plan: Stage4Plan,
-    scope: ResolvedRepairScope,
-    *,
-    prompt_block_ids: tuple[str, ...] | None = None,
-    requires_barrier_validation: bool | None = None,
-) -> ResolvedRepairPlan:
-    """Project a structural scope into the prompt blocks Stage 4 should run."""
-    if prompt_block_ids is None:
-        if scope.prompt_block_hints:
-            prompt_block_ids = scope.prompt_block_hints
-        elif scope.scope_kind == "local_drift_motif":
-            prompt_block_ids = _local_drift_motif_block_ids(plan, scope.parameter_names)
-        elif scope.scope_kind == "reciprocal_pair":
-            prompt_block_ids = _reciprocal_pair_block_ids(plan, scope.parameter_names)
-        elif scope.scope_kind in {"scc_drift_subsystem", "validator_scope"}:
-            prompt_block_ids = _scc_drift_subsystem_block_ids(plan, scope.construct_names)
-        elif scope.scope_kind == "direct_writer_blocks":
-            prompt_block_ids = _ordered_block_ids(
-                plan,
-                {
-                    block.id
-                    for parameter_name in scope.parameter_names
-                    if (block := _find_block_for_parameter(plan, parameter_name)) is not None
-                },
-            )
-        elif scope.scope_kind == "global_prior_review":
-            prior_review_id = plan.prior_review_block_id
-            prompt_block_ids = () if prior_review_id is None else (prior_review_id,)
-        else:
-            prompt_block_ids = ()
-
-    prompt_blocks: list[Stage4FrontierBlock] = []
-    for block_id in prompt_block_ids:
-        block = plan.get_block(block_id)
-        if block is None:
-            raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
-        prompt_block = _effect_prompt_block_for_structural_scope(plan, block, scope)
-        if prompt_block is not None:
-            prompt_blocks.append(prompt_block)
-
-    if requires_barrier_validation is None:
-        requires_barrier_validation = len(prompt_blocks) > 1
-    return ResolvedRepairPlan(
-        scope=scope,
-        prompt_blocks=tuple(prompt_blocks),
-        requires_barrier_validation=requires_barrier_validation,
     )
 
 
@@ -467,7 +499,7 @@ def _format_diagnostic_reason(result: PriorValidationResult) -> str | None:
 
 
 def _first_diagnostic_reason(
-    diagnostics: list[PriorValidationResult],
+    diagnostics: Sequence[PriorValidationResult],
     *,
     predicate: Callable[[PriorValidationResult], bool] | None = None,
 ) -> str | None:
@@ -573,151 +605,209 @@ def _validator_scope_construct_names(repair_scope: PriorRepairScope | None) -> t
     return tuple(getattr(repair_scope, "construct_names", ()) or ())
 
 
+def build_stage4_failure_evidence(
+    plan: Stage4Plan,
+    validation: AssemblyValidation,
+) -> Stage4FailureEvidence:
+    """Build the normalized evidence surface for a failed PP validation."""
+    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+
+    failed_diagnostics = tuple(
+        result for result in validation.prior_predictive_diagnostics if not result.is_valid
+    )
+    diagnostic_codes = tuple(
+        sorted(dict.fromkeys(result.code for result in failed_diagnostics if result.code))
+    )
+    supporting_codes = tuple(
+        sorted({code for result in failed_diagnostics for code in result.supporting_codes if code})
+    )
+    supporting_compile_diagnostics = tuple(
+        _compile_diagnostics_for_supporting_codes(
+            validation,
+            supporting_codes=set(supporting_codes),
+        )
+    )
+    return Stage4FailureEvidence(
+        topology=plan.repair_topology,
+        failed_diagnostics=failed_diagnostics,
+        supporting_compile_diagnostics=supporting_compile_diagnostics,
+        diagnostic_codes=diagnostic_codes,
+        supporting_codes=supporting_codes,
+        global_failure_sites=frozenset(GLOBAL_FAILURE_SITES),
+    )
+
+
+def _diagnostic_parameter_names(
+    plan: Stage4Plan,
+    diagnostics: tuple[PriorValidationResult, ...],
+) -> tuple[str, ...]:
+    """Return authored parameter names referenced by diagnostics in sorted order."""
+    return tuple(
+        sorted(
+            dict.fromkeys(
+                parameter_name
+                for result in diagnostics
+                for parameter_name in (
+                    result.related_parameters or ([result.parameter] if result.parameter else [])
+                )
+                if parameter_name and _find_block_for_parameter(plan, parameter_name) is not None
+            )
+        )
+    )
+
+
+def _validator_scope_from_failure_evidence(
+    evidence: Stage4FailureEvidence,
+) -> PriorRepairScope | None:
+    """Return the first validator-owned repair scope from failed diagnostics."""
+    return next(
+        (
+            result.repair_scope
+            for result in evidence.failed_diagnostics
+            if result.repair_scope is not None
+        ),
+        None,
+    )
+
+
+def _pathology_certificate_from_failure_evidence(
+    evidence: Stage4FailureEvidence,
+) -> PriorPathologyCertificate | None:
+    """Return the dominant pathology certificate for same-scope retry gating."""
+    failed_certificates = [
+        result.pathology_certificate
+        for result in evidence.failed_diagnostics
+        if result.pathology_certificate is not None
+    ]
+    supporting_certificates = [
+        diagnostic.pathology_certificate
+        for diagnostic in evidence.supporting_compile_diagnostics
+        if diagnostic.pathology_certificate is not None
+    ]
+    if failed_certificates:
+        return max(failed_certificates, key=_certificate_order_key)
+    if supporting_certificates:
+        # Same-scope retry gating should prefer the certificate for the actual
+        # failed PP pathology, not the supporting compile warning. Compile-side
+        # certificates are only a fallback when PP has no comparable metric.
+        return max(supporting_certificates, key=_certificate_order_key)
+    return None
+
+
+def _construct_names_from_failure_evidence(
+    evidence: Stage4FailureEvidence,
+    *,
+    direct_parameters: tuple[str, ...],
+    supporting_parameters: tuple[str, ...],
+    validator_repair_scope: PriorRepairScope | None,
+) -> tuple[str, ...]:
+    """Return construct hints synthesized from authored parameters and validator scope."""
+    construct_names = tuple(
+        dict.fromkeys(
+            [
+                *_parameter_construct_names(evidence.topology, direct_parameters),
+                *_parameter_construct_names(evidence.topology, supporting_parameters),
+                *_validator_scope_construct_names(validator_repair_scope),
+            ]
+        )
+    )
+    if construct_names:
+        return construct_names
+    return tuple(
+        dict.fromkeys(
+            name
+            for result in evidence.failed_diagnostics
+            for parameter_name in (result.related_parameters or [])
+            for name in evidence.topology.parameter_construct_names.get(parameter_name, ())
+        )
+    )
+
+
+def _issues_text_from_failure_evidence(evidence: Stage4FailureEvidence) -> str:
+    """Return the normalized lower-cased issue text across failed diagnostics."""
+    return " ".join(result.issue or "" for result in evidence.failed_diagnostics).lower()
+
+
+def _has_global_failure(evidence: Stage4FailureEvidence) -> bool:
+    """Whether any failed diagnostic is a whole-system global failure."""
+    return any(
+        result.parameter in evidence.global_failure_sites for result in evidence.failed_diagnostics
+    )
+
+
+def _is_support_issue(result: PriorValidationResult) -> bool:
+    """Whether the diagnostic describes a likelihood support violation."""
+    issue = (result.issue or "").lower()
+    return "support check" in issue or "outside support" in issue
+
+
+def _reasons_from_failure_evidence(evidence: Stage4FailureEvidence) -> RepairReasons:
+    """Extract user-facing repair reasons from the normalized evidence surface."""
+    return RepairReasons(
+        default=_first_diagnostic_reason(evidence.all_reason_diagnostics),
+        support=_first_diagnostic_reason(
+            evidence.all_reason_diagnostics,
+            predicate=_is_support_issue,
+        ),
+        drift=_first_diagnostic_reason(
+            evidence.all_reason_diagnostics,
+            predicate=lambda result: (
+                result.repair_scope is not None
+                or result.code in _DRIFT_RELATED_CODES
+                or any(
+                    parameter_name.startswith("beta_")
+                    for parameter_name in (
+                        result.related_parameters
+                        or ([result.parameter] if result.parameter else [])
+                    )
+                )
+            ),
+        ),
+        validator=_first_diagnostic_reason(
+            evidence.failed_diagnostics,
+            predicate=lambda result: result.repair_scope is not None,
+        ),
+        global_=_first_diagnostic_reason(
+            evidence.failed_diagnostics,
+            predicate=lambda result: result.parameter in evidence.global_failure_sites,
+        ),
+    )
+
+
 def _localize_prior_failure(
     plan: Stage4Plan,
     validation: AssemblyValidation,
 ) -> Stage4FailureLocalization:
     """Localize a failed PP validation into deterministic structural evidence."""
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
-
-    failed = [result for result in validation.prior_predictive_diagnostics if not result.is_valid]
-    diagnostic_codes = tuple(sorted(dict.fromkeys(result.code for result in failed if result.code)))
-    supporting_codes = {code for result in failed for code in result.supporting_codes if code}
-
-    direct_parameters = tuple(
-        sorted(
-            dict.fromkeys(
-                parameter_name
-                for result in failed
-                for parameter_name in (
-                    result.related_parameters or ([result.parameter] if result.parameter else [])
-                )
-                if parameter_name and _find_block_for_parameter(plan, parameter_name) is not None
-            )
-        )
+    evidence = build_stage4_failure_evidence(plan, validation)
+    direct_parameters = _diagnostic_parameter_names(plan, evidence.failed_diagnostics)
+    supporting_parameters = _diagnostic_parameter_names(
+        plan,
+        evidence.supporting_compile_diagnostics,
     )
-
-    supporting_parameters = tuple(
-        sorted(
-            dict.fromkeys(
-                parameter_name
-                for diagnostic in _compile_diagnostics_for_supporting_codes(
-                    validation,
-                    supporting_codes=supporting_codes,
-                )
-                for parameter_name in (
-                    diagnostic.related_parameters
-                    or ([diagnostic.parameter] if diagnostic.parameter else [])
-                )
-                if parameter_name and _find_block_for_parameter(plan, parameter_name) is not None
-            )
-        )
+    validator_repair_scope = _validator_scope_from_failure_evidence(evidence)
+    construct_names = _construct_names_from_failure_evidence(
+        evidence,
+        direct_parameters=direct_parameters,
+        supporting_parameters=supporting_parameters,
+        validator_repair_scope=validator_repair_scope,
     )
-
-    validator_repair_scope = next(
-        (result.repair_scope for result in failed if result.repair_scope is not None),
-        None,
-    )
-    supporting_compile_diagnostics = _compile_diagnostics_for_supporting_codes(
-        validation,
-        supporting_codes=supporting_codes,
-    )
-    all_reason_diagnostics = [*failed, *supporting_compile_diagnostics]
-    pp_certificates = [
-        result.pathology_certificate
-        for result in failed
-        if result.pathology_certificate is not None
-    ]
-    supporting_compile_certificates = [
-        diagnostic.pathology_certificate
-        for diagnostic in supporting_compile_diagnostics
-        if diagnostic.pathology_certificate is not None
-    ]
-    pathology_certificate = None
-    if pp_certificates:
-        pathology_certificate = max(pp_certificates, key=_certificate_order_key)
-    elif supporting_compile_certificates:
-        # Same-scope retry gating should prefer the certificate for the actual
-        # failed PP pathology, not the supporting compile warning. Compile-side
-        # certificates are only a fallback when PP has no comparable metric.
-        pathology_certificate = max(
-            supporting_compile_certificates,
-            key=_certificate_order_key,
-        )
-
-    topology = plan.repair_topology
-    construct_names = tuple(
-        dict.fromkeys(
-            [
-                *_parameter_construct_names(topology, direct_parameters),
-                *_parameter_construct_names(topology, supporting_parameters),
-                *_validator_scope_construct_names(validator_repair_scope),
-            ]
-        )
-    )
-    if not construct_names:
-        construct_names = tuple(
-            dict.fromkeys(
-                name
-                for result in failed
-                for parameter_name in (result.related_parameters or [])
-                for name in topology.parameter_construct_names.get(parameter_name, ())
-            )
-        )
-
     failure_family = (
-        tuple(diagnostic_codes),
-        tuple(sorted(supporting_codes)),
+        evidence.diagnostic_codes,
+        evidence.supporting_codes,
         tuple(sorted(construct_names)),
-    )
-    issues_text = " ".join(result.issue or "" for result in failed).lower()
-    has_global_failure = any(result.parameter in GLOBAL_FAILURE_SITES for result in failed)
-    default_reason = _first_diagnostic_reason(all_reason_diagnostics)
-    support_reason = _first_diagnostic_reason(
-        all_reason_diagnostics,
-        predicate=lambda result: (
-            "support check" in (result.issue or "").lower()
-            or "outside support" in (result.issue or "").lower()
-        ),
-    )
-    validator_reason = _first_diagnostic_reason(
-        failed,
-        predicate=lambda result: result.repair_scope is not None,
-    )
-    drift_reason = _first_diagnostic_reason(
-        all_reason_diagnostics,
-        predicate=lambda result: (
-            result.repair_scope is not None
-            or result.code in _DRIFT_RELATED_CODES
-            or any(
-                parameter_name.startswith("beta_")
-                for parameter_name in (
-                    result.related_parameters or ([result.parameter] if result.parameter else [])
-                )
-            )
-        ),
-    )
-    global_reason = _first_diagnostic_reason(
-        failed,
-        predicate=lambda result: result.parameter in GLOBAL_FAILURE_SITES,
     )
     return Stage4FailureLocalization(
         failure_family=failure_family,
-        diagnostic_codes=diagnostic_codes,
+        diagnostic_codes=evidence.diagnostic_codes,
         direct_parameters=direct_parameters,
         supporting_parameters=supporting_parameters,
         construct_names=construct_names,
         validator_repair_scope=validator_repair_scope,
-        pathology_certificate=pathology_certificate,
-        has_global_failure=has_global_failure,
-        issues_text=issues_text,
-        reasons=RepairReasons(
-            default=default_reason,
-            support=support_reason,
-            drift=drift_reason,
-            validator=validator_reason,
-            global_=global_reason,
-        ),
+        pathology_certificate=_pathology_certificate_from_failure_evidence(evidence),
+        has_global_failure=_has_global_failure(evidence),
+        issues_text=_issues_text_from_failure_evidence(evidence),
+        reasons=_reasons_from_failure_evidence(evidence),
     )
 
 
@@ -801,10 +891,174 @@ def _scc_drift_subsystem_block_ids(
     return _ordered_block_ids(plan, bundle_block_ids)
 
 
+def _direct_writer_block_ids(
+    plan: Stage4Plan,
+    parameter_names: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return authored blocks that directly write the named parameters."""
+    return _ordered_block_ids(
+        plan,
+        {
+            block.id
+            for parameter_name in parameter_names
+            if (block := _find_block_for_parameter(plan, parameter_name)) is not None
+        },
+    )
+
+
+def _global_prior_review_block_ids(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+) -> tuple[str, ...]:
+    """Return the whole-system prior-review block when configured."""
+    del scope
+    prior_review_id = plan.prior_review_block_id
+    return () if prior_review_id is None else (prior_review_id,)
+
+
+def _prompt_hint_block_ids(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+) -> tuple[str, ...]:
+    """Return prompt-block hints already embedded in the structural scope."""
+    del plan
+    return scope.prompt_block_hints
+
+
+def _local_drift_motif_strategy_block_ids(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+) -> tuple[str, ...]:
+    """Resolve the local drift motif for the scope's parameter hints."""
+    return _local_drift_motif_block_ids(plan, scope.parameter_names)
+
+
+def _reciprocal_pair_strategy_block_ids(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+) -> tuple[str, ...]:
+    """Resolve the reciprocal-pair motif for the scope's parameter hints."""
+    return _reciprocal_pair_block_ids(plan, scope.parameter_names)
+
+
+def _scc_strategy_block_ids(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+) -> tuple[str, ...]:
+    """Resolve the SCC-closed drift subsystem for the scope's construct hints."""
+    return _scc_drift_subsystem_block_ids(plan, scope.construct_names)
+
+
+def _direct_writer_strategy_block_ids(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+) -> tuple[str, ...]:
+    """Resolve authored writer blocks for the scope's parameters."""
+    return _direct_writer_block_ids(plan, scope.parameter_names)
+
+
+_REPAIR_SCOPE_STRATEGIES: dict[str, Stage4RepairScopeStrategy] = {
+    scope_kind: Stage4RepairScopeStrategy(
+        scope_kind=scope_kind,
+        resolve_prompt_block_ids=_prompt_hint_block_ids,
+        project_prompt_block=_identity_prompt_block_projection,
+        uses_repair_campaign=False,
+    )
+    for scope_kind in (
+        "compile_local",
+        "compile_active_block",
+        "global_review",
+        "likelihood_support",
+        "model_spec_lock",
+    )
+}
+_REPAIR_SCOPE_STRATEGIES.update(
+    {
+        "local_drift_motif": Stage4RepairScopeStrategy(
+            scope_kind="local_drift_motif",
+            resolve_prompt_block_ids=_local_drift_motif_strategy_block_ids,
+            project_prompt_block=_identity_prompt_block_projection,
+            uses_repair_campaign=True,
+        ),
+        "reciprocal_pair": Stage4RepairScopeStrategy(
+            scope_kind="reciprocal_pair",
+            resolve_prompt_block_ids=_reciprocal_pair_strategy_block_ids,
+            project_prompt_block=_identity_prompt_block_projection,
+            uses_repair_campaign=True,
+        ),
+        "scc_drift_subsystem": Stage4RepairScopeStrategy(
+            scope_kind="scc_drift_subsystem",
+            resolve_prompt_block_ids=_scc_strategy_block_ids,
+            project_prompt_block=_narrow_effect_prompt_block_to_scc,
+            uses_repair_campaign=True,
+        ),
+        "validator_scope": Stage4RepairScopeStrategy(
+            scope_kind="validator_scope",
+            resolve_prompt_block_ids=_scc_strategy_block_ids,
+            project_prompt_block=_narrow_effect_prompt_block_to_scc,
+            uses_repair_campaign=True,
+        ),
+        "direct_writer_blocks": Stage4RepairScopeStrategy(
+            scope_kind="direct_writer_blocks",
+            resolve_prompt_block_ids=_direct_writer_strategy_block_ids,
+            project_prompt_block=_identity_prompt_block_projection,
+            uses_repair_campaign=True,
+        ),
+        "global_prior_review": Stage4RepairScopeStrategy(
+            scope_kind="global_prior_review",
+            resolve_prompt_block_ids=_global_prior_review_block_ids,
+            project_prompt_block=_identity_prompt_block_projection,
+            uses_repair_campaign=True,
+        ),
+    }
+)
+
+
+def get_stage4_repair_scope_strategy(scope_kind: str) -> Stage4RepairScopeStrategy:
+    """Return the repair-scope strategy registered for one structural scope kind."""
+    strategy = _REPAIR_SCOPE_STRATEGIES.get(scope_kind)
+    if strategy is None:
+        raise ValueError(f"Unsupported Stage 4 repair scope kind {scope_kind!r}")
+    return strategy
+
+
+def build_repair_plan(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+    *,
+    prompt_block_ids: tuple[str, ...] | None = None,
+    requires_barrier_validation: bool | None = None,
+) -> ResolvedRepairPlan:
+    """Project a structural scope into the prompt blocks Stage 4 should run."""
+    strategy = get_stage4_repair_scope_strategy(scope.scope_kind)
+    if prompt_block_ids is None:
+        prompt_block_ids = scope.prompt_block_hints or strategy.resolve_prompt_block_ids(
+            plan, scope
+        )
+
+    prompt_blocks: list[Stage4FrontierBlock] = []
+    for block_id in prompt_block_ids:
+        block = plan.get_block(block_id)
+        if block is None:
+            raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
+        prompt_block = strategy.project_prompt_block(plan, block, scope)
+        if prompt_block is not None:
+            prompt_blocks.append(prompt_block)
+
+    if requires_barrier_validation is None:
+        requires_barrier_validation = len(prompt_blocks) > 1
+    return ResolvedRepairPlan(
+        scope=scope,
+        prompt_blocks=tuple(prompt_blocks),
+        requires_barrier_validation=requires_barrier_validation,
+        uses_repair_campaign=strategy.uses_repair_campaign,
+    )
+
+
 def _support_failure_scope(
     plan: Stage4Plan,
     localization: Stage4FailureLocalization,
-) -> ResolvedRepairScope | None:
+) -> Stage4ScopeCandidateSpec | None:
     """Localize support violations to indicator-decision blocks when possible."""
     if (
         "support check" not in localization.issues_text
@@ -815,31 +1069,27 @@ def _support_failure_scope(
     topology = plan.repair_topology
     for indicator_name, block_id in topology.indicator_to_decision_block_id.items():
         if indicator_name in localization.issues_text:
-            return _resolved_repair_scope(
+            return Stage4ScopeCandidateSpec(
                 scope_kind="likelihood_support",
                 scope_rank=0,
                 reason=_require_reason(
                     localization.reasons.support,
                     context="likelihood support repair",
                 ),
-                failure_family=localization.failure_family,
                 prompt_block_hints=(block_id,),
-                diagnostic_codes=localization.diagnostic_codes,
                 scope_token=block_id,
             )
 
     for block in plan.model_blocks:
         if block.kind == "indicator_decision":
-            return _resolved_repair_scope(
+            return Stage4ScopeCandidateSpec(
                 scope_kind="likelihood_support",
                 scope_rank=0,
                 reason=_require_reason(
                     localization.reasons.support,
                     context="likelihood support repair",
                 ),
-                failure_family=localization.failure_family,
                 prompt_block_hints=(block.id,),
-                diagnostic_codes=localization.diagnostic_codes,
                 scope_token=block.id,
             )
     return None
@@ -856,137 +1106,196 @@ def _is_drift_related(localization: Stage4FailureLocalization) -> bool:
     )
 
 
+def _support_scope_candidate_specs(
+    plan: Stage4Plan,
+    localization: Stage4FailureLocalization,
+) -> tuple[Stage4ScopeCandidateSpec, ...]:
+    """Emit support-driven candidate scopes, if any."""
+    support_scope = _support_failure_scope(plan, localization)
+    return () if support_scope is None else (support_scope,)
+
+
+def _validator_scope_candidate_specs(
+    plan: Stage4Plan,
+    localization: Stage4FailureLocalization,
+) -> tuple[Stage4ScopeCandidateSpec, ...]:
+    """Emit validator-owned candidate scopes."""
+    del plan
+    if localization.validator_repair_scope is not None:
+        return (
+            Stage4ScopeCandidateSpec(
+                scope_kind="validator_scope",
+                scope_rank=_VALIDATOR_SCOPE_RANK,
+                reason=_require_reason(
+                    localization.reasons.validator,
+                    localization.reasons.drift,
+                    context="validator_scope",
+                ),
+                construct_names=_validator_scope_construct_names(
+                    localization.validator_repair_scope
+                ),
+            ),
+        )
+    return ()
+
+
+def _drift_scope_candidate_specs(
+    plan: Stage4Plan,
+    localization: Stage4FailureLocalization,
+) -> tuple[Stage4ScopeCandidateSpec, ...]:
+    """Emit drift-structured candidate scopes."""
+    if _is_drift_related(localization) and localization.parameter_hints:
+        return (
+            Stage4ScopeCandidateSpec(
+                scope_kind="local_drift_motif",
+                scope_rank=0,
+                reason=_require_reason(
+                    localization.reasons.drift,
+                    localization.reasons.validator,
+                    context="local_drift_motif",
+                ),
+                parameter_names=localization.parameter_hints,
+                construct_names=_parameter_construct_names(
+                    plan.repair_topology, localization.parameter_hints
+                ),
+            ),
+            Stage4ScopeCandidateSpec(
+                scope_kind="reciprocal_pair",
+                scope_rank=1,
+                reason=_require_reason(
+                    localization.reasons.drift,
+                    localization.reasons.validator,
+                    context="reciprocal_pair",
+                ),
+                parameter_names=tuple(
+                    sorted(
+                        {
+                            *localization.parameter_hints,
+                            *(
+                                plan.repair_topology.reciprocal_parameter_by_parameter.get(
+                                    parameter_name
+                                )
+                                for parameter_name in localization.parameter_hints
+                            ),
+                        }
+                        - {None}
+                    )
+                ),
+                construct_names=_parameter_construct_names(
+                    plan.repair_topology, localization.parameter_hints
+                ),
+            ),
+            Stage4ScopeCandidateSpec(
+                scope_kind="scc_drift_subsystem",
+                scope_rank=2,
+                reason=_require_reason(
+                    localization.reasons.drift,
+                    localization.reasons.validator,
+                    context="scc_drift_subsystem",
+                ),
+                parameter_names=localization.parameter_hints,
+                construct_names=localization.construct_names,
+            ),
+        )
+    return ()
+
+
+def _direct_writer_scope_candidate_specs(
+    plan: Stage4Plan,
+    localization: Stage4FailureLocalization,
+) -> tuple[Stage4ScopeCandidateSpec, ...]:
+    """Emit direct-writer candidate scopes for non-drift failures."""
+    del plan
+    if not _is_drift_related(localization) and localization.direct_parameters:
+        return (
+            Stage4ScopeCandidateSpec(
+                scope_kind="direct_writer_blocks",
+                scope_rank=0,
+                reason=_require_reason(
+                    localization.reasons.default,
+                    context="direct_writer_blocks",
+                ),
+                parameter_names=localization.direct_parameters,
+                construct_names=localization.construct_names,
+            ),
+        )
+    return ()
+
+
+def _global_scope_candidate_specs(
+    plan: Stage4Plan,
+    localization: Stage4FailureLocalization,
+) -> tuple[Stage4ScopeCandidateSpec, ...]:
+    """Emit whole-system candidate scopes for unattributed global failures."""
+    del plan
+    if localization.has_global_failure:
+        return (
+            Stage4ScopeCandidateSpec(
+                scope_kind="global_prior_review",
+                scope_rank=_GLOBAL_REVIEW_SCOPE_RANK,
+                reason=_require_reason(
+                    localization.reasons.global_,
+                    localization.reasons.default,
+                    context="global_prior_review",
+                ),
+                parameter_names=localization.parameter_hints,
+                construct_names=localization.construct_names,
+                scope_token="prior_system",
+            ),
+        )
+    return ()
+
+
+_SCOPE_CANDIDATE_STRATEGIES: tuple[Stage4ScopeCandidateStrategy, ...] = (
+    Stage4ScopeCandidateStrategy(
+        name="support",
+        build_specs=_support_scope_candidate_specs,
+        stop_after_match=True,
+    ),
+    Stage4ScopeCandidateStrategy(
+        name="validator",
+        build_specs=_validator_scope_candidate_specs,
+    ),
+    Stage4ScopeCandidateStrategy(
+        name="drift",
+        build_specs=_drift_scope_candidate_specs,
+    ),
+    Stage4ScopeCandidateStrategy(
+        name="direct_writer",
+        build_specs=_direct_writer_scope_candidate_specs,
+    ),
+    Stage4ScopeCandidateStrategy(
+        name="global",
+        build_specs=_global_scope_candidate_specs,
+    ),
+)
+
+
 def _build_scope_candidates(
     plan: Stage4Plan,
-    active_block: Stage4FrontierBlock,
     localization: Stage4FailureLocalization,
 ) -> list[ResolvedRepairScope]:
     """Build ordered deterministic scope candidates for this failure family."""
-    del active_block
     candidates: list[ResolvedRepairScope] = []
-
-    def add_candidate(
-        *,
-        scope_kind: str,
-        scope_rank: int,
-        reason: str,
-        parameter_names: tuple[str, ...] = (),
-        construct_names: tuple[str, ...] = (),
-        scope_token: str | None = None,
-    ) -> None:
-        if not parameter_names and not construct_names and scope_token is None:
-            return
-        scope = _resolved_repair_scope(
-            scope_kind=scope_kind,
-            scope_rank=scope_rank,
-            reason=reason,
-            failure_family=localization.failure_family,
-            parameter_names=parameter_names,
-            construct_names=construct_names,
-            diagnostic_codes=localization.diagnostic_codes,
-            pathology_certificate=localization.pathology_certificate,
-            scope_token=scope_token,
-        )
-        if any(existing.scope_key == scope.scope_key for existing in candidates):
-            return
-        candidates.append(scope)
-
-    support_scope = _support_failure_scope(plan, localization)
-    if support_scope is not None:
-        candidates.append(support_scope)
-        return candidates
-
-    if localization.validator_repair_scope is not None:
-        add_candidate(
-            scope_kind="validator_scope",
-            scope_rank=_VALIDATOR_SCOPE_RANK,
-            reason=_require_reason(
-                localization.reasons.validator,
-                localization.reasons.drift,
-                context="validator_scope",
-            ),
-            construct_names=_validator_scope_construct_names(localization.validator_repair_scope),
-        )
-
-    if _is_drift_related(localization) and localization.parameter_hints:
-        add_candidate(
-            scope_kind="local_drift_motif",
-            scope_rank=0,
-            reason=_require_reason(
-                localization.reasons.drift,
-                localization.reasons.validator,
-                context="local_drift_motif",
-            ),
-            parameter_names=localization.parameter_hints,
-            construct_names=_parameter_construct_names(
-                plan.repair_topology, localization.parameter_hints
-            ),
-        )
-
-        add_candidate(
-            scope_kind="reciprocal_pair",
-            scope_rank=1,
-            reason=_require_reason(
-                localization.reasons.drift,
-                localization.reasons.validator,
-                context="reciprocal_pair",
-            ),
-            parameter_names=tuple(
-                sorted(
-                    {
-                        *localization.parameter_hints,
-                        *(
-                            plan.repair_topology.reciprocal_parameter_by_parameter.get(
-                                parameter_name
-                            )
-                            for parameter_name in localization.parameter_hints
-                        ),
-                    }
-                    - {None}
-                )
-            ),
-            construct_names=_parameter_construct_names(
-                plan.repair_topology, localization.parameter_hints
-            ),
-        )
-
-        add_candidate(
-            scope_kind="scc_drift_subsystem",
-            scope_rank=2,
-            reason=_require_reason(
-                localization.reasons.drift,
-                localization.reasons.validator,
-                context="scc_drift_subsystem",
-            ),
-            parameter_names=localization.parameter_hints,
-            construct_names=localization.construct_names,
-        )
-    elif localization.direct_parameters:
-        add_candidate(
-            scope_kind="direct_writer_blocks",
-            scope_rank=0,
-            reason=_require_reason(
-                localization.reasons.default,
-                context="direct_writer_blocks",
-            ),
-            parameter_names=localization.direct_parameters,
-            construct_names=localization.construct_names,
-        )
-
-    if localization.has_global_failure:
-        add_candidate(
-            scope_kind="global_prior_review",
-            scope_rank=_GLOBAL_REVIEW_SCOPE_RANK,
-            reason=_require_reason(
-                localization.reasons.global_,
-                localization.reasons.default,
-                context="global_prior_review",
-            ),
-            parameter_names=localization.parameter_hints,
-            construct_names=localization.construct_names,
-            scope_token="prior_system",
-        )
-
+    seen_scope_keys: set[str] = set()
+    for strategy in _SCOPE_CANDIDATE_STRATEGIES:
+        emitted = False
+        for spec in strategy.build_specs(plan, localization):
+            if (
+                not spec.parameter_names
+                and not spec.construct_names
+                and not spec.prompt_block_hints
+                and spec.scope_token is None
+            ):
+                continue
+            scope = _materialize_scope_candidate(localization, spec)
+            if scope.scope_key in seen_scope_keys:
+                continue
+            seen_scope_keys.add(scope.scope_key)
+            candidates.append(scope)
+            emitted = True
+        if emitted and strategy.stop_after_match:
+            break
     return candidates
 
 
@@ -1055,7 +1364,7 @@ def classify_prior_failure_blocks(
     from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     localization = _localize_prior_failure(plan, validation)
-    candidates = _build_scope_candidates(plan, active_block, localization)
+    candidates = _build_scope_candidates(plan, localization)
     chosen_scope = _advance_repair_scope(
         runtime,
         failure_family=localization.failure_family,

@@ -444,18 +444,6 @@ def _advance_repair_campaign_after_acceptance(
     return True
 
 
-def _uses_repair_campaign(repair_plan: ResolvedRepairPlan) -> bool:
-    """Whether a reopened scope should be managed as a structural repair campaign."""
-    return repair_plan.scope.scope_kind in {
-        "direct_writer_blocks",
-        "local_drift_motif",
-        "reciprocal_pair",
-        "scc_drift_subsystem",
-        "validator_scope",
-        "global_prior_review",
-    }
-
-
 def apply_stage4_block_acceptance(
     plan: Stage4Plan,
     runtime: Stage4Runtime,
@@ -478,7 +466,7 @@ def apply_stage4_repair_plan(
     accepted_block_id: str | None,
 ) -> None:
     """Apply a typed repair plan to runtime cursor and campaign state."""
-    if _uses_repair_campaign(repair_plan):
+    if repair_plan.uses_repair_campaign:
         _start_repair_campaign(
             plan,
             runtime,

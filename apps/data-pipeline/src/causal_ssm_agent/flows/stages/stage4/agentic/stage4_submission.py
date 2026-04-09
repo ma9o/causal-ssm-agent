@@ -22,6 +22,120 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from .stage4_orchestrator import Stage4FrontierBlock
+    from .stage4_state import Stage4Runtime
+
+
+def _project_default_model_topology(
+    model_topology: dict[str, Any],
+    block: Stage4FrontierBlock,
+) -> dict[str, Any]:
+    """Restrict model topology to the constructs directly visible in this block."""
+    if not model_topology:
+        return {}
+
+    filtered_edges = model_topology.get("latent_edges") or []
+    construct_names = set(block.construct_names)
+    if construct_names:
+        filtered_edges = [
+            edge
+            for edge in filtered_edges
+            if edge.get("cause") in construct_names and edge.get("effect") in construct_names
+        ]
+
+    return {
+        "model_clock": model_topology.get("model_clock"),
+        "model_interval_days": model_topology.get("model_interval_days"),
+        "outcome": model_topology.get("outcome"),
+        "latent_edges": filtered_edges,
+    }
+
+
+def _project_effect_prior_model_topology(
+    model_topology: dict[str, Any],
+    block: Stage4FrontierBlock,
+) -> dict[str, Any]:
+    """Expand effect-prior topology to immediate neighbors when requested."""
+    if not model_topology:
+        return {}
+
+    filtered_edges = model_topology.get("latent_edges") or []
+    construct_names = set(block.construct_names)
+    if construct_names and block.expand_neighbor_topology:
+        expanded_construct_names = set(construct_names)
+        for edge in filtered_edges:
+            cause = edge.get("cause")
+            effect = edge.get("effect")
+            if cause in construct_names or effect in construct_names:
+                if isinstance(cause, str):
+                    expanded_construct_names.add(cause)
+                if isinstance(effect, str):
+                    expanded_construct_names.add(effect)
+        construct_names = expanded_construct_names
+
+    if construct_names:
+        filtered_edges = [
+            edge
+            for edge in filtered_edges
+            if edge.get("cause") in construct_names and edge.get("effect") in construct_names
+        ]
+
+    return {
+        "model_clock": model_topology.get("model_clock"),
+        "model_interval_days": model_topology.get("model_interval_days"),
+        "outcome": model_topology.get("outcome"),
+        "latent_edges": filtered_edges,
+    }
+
+
+def _default_frontier_status_lines(
+    block: Stage4FrontierBlock,
+    runtime: Stage4Runtime,
+    *,
+    causal_spec: dict[str, Any] | None,
+) -> tuple[str, ...]:
+    """Return any block-family-specific frontier status lines."""
+    del block, runtime, causal_spec
+    return ()
+
+
+def _effect_prior_frontier_status_lines(
+    block: Stage4FrontierBlock,
+    runtime: Stage4Runtime,
+    *,
+    causal_spec: dict[str, Any] | None,
+) -> tuple[str, ...]:
+    """Return effect-row budget guidance for effect-prior blocks."""
+    from .stage4_partial_drift import build_effect_row_budget
+
+    target_construct = block.payload.get("target_construct")
+    if not isinstance(target_construct, str):
+        return ()
+
+    budget = build_effect_row_budget(
+        model_spec=runtime.accepted.model_spec,
+        authored_priors=runtime.accepted.authored_priors,
+        causal_spec=causal_spec,
+        target_construct=target_construct,
+    )
+    if budget is None:
+        return ()
+
+    return (
+        "- stability budget source: `compiled CT drift row` (advisory headroom guidance)",
+        (
+            f"- target row budget guidance: `{budget.diagonal_magnitude:.3f}` "
+            f"(conservative lower bound `{budget.diagonal_lower_bound:.3f}`)"
+        ),
+        (
+            f"- incoming effect mass currently used: `{budget.used_abs_mean:.3f}` "
+            f"(conservative `{budget.used_abs_upper:.3f}`) across "
+            f"`{budget.specified_incoming_edges}/{budget.total_incoming_edges}` edges"
+        ),
+        (
+            f"- remaining headroom guidance: `{budget.remaining_abs_mean:.3f}` "
+            f"(conservative `{budget.remaining_abs_upper:.3f}`)"
+        ),
+    )
 
 
 def _serialize_stage4_transition_priors(
@@ -299,6 +413,8 @@ class Stage4BlockHandler:
         [Stage4FrontierBlock, dict[str, Any]],
         tuple[dict[str, Any] | None, str | None],
     ]
+    project_model_topology: Callable[[dict[str, Any], Stage4FrontierBlock], dict[str, Any]]
+    build_frontier_status_lines: Callable[..., tuple[str, ...]]
 
     @property
     def kind(self) -> str:
@@ -361,6 +477,20 @@ class Stage4BlockHandler:
             prior_cards=prior_cards or [],
         )
         return _render_submission_example(self.submission_tool_name, example)
+
+    def render_frontier_status_lines(
+        self,
+        block: Stage4FrontierBlock,
+        runtime: Stage4Runtime,
+        *,
+        causal_spec: dict[str, Any] | None,
+    ) -> tuple[str, ...]:
+        """Render any block-family-specific frontier status lines."""
+        return self.build_frontier_status_lines(
+            block,
+            runtime,
+            causal_spec=causal_spec,
+        )
 
 
 def validate_stage4_submission_payload(
@@ -490,6 +620,16 @@ _BLOCK_HANDLERS: dict[str, Stage4BlockHandler] = {
     kind: Stage4BlockHandler(
         spec=spec,
         normalize_submission=_NORMALIZE_SUBMISSION_BY_PAYLOAD_KIND[spec.submission_payload_kind],
+        project_model_topology=(
+            _project_effect_prior_model_topology
+            if kind == "effect_prior"
+            else _project_default_model_topology
+        ),
+        build_frontier_status_lines=(
+            _effect_prior_frontier_status_lines
+            if kind == "effect_prior"
+            else _default_frontier_status_lines
+        ),
     )
     for kind in get_stage4_block_kinds()
     for spec in (get_stage4_block_kind_spec(kind),)
