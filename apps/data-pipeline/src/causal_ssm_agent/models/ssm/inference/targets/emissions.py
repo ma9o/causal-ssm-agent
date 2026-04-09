@@ -19,7 +19,6 @@ import jax.scipy.stats as jstats
 
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     CHOL_JITTER,
-    ETA_CLIP_MIN,
     MISSING_DATA_LARGE_VAR,
     NUMERICAL_EPSILON,
     PROB_CLIP_MIN,
@@ -58,6 +57,20 @@ def _normalize_discrete_observation(
 
 def _select_rowwise(values: jnp.ndarray, indices: jnp.ndarray) -> jnp.ndarray:
     return jnp.take_along_axis(values, indices[:, None], axis=1).squeeze(axis=1)
+
+
+def _sum_masked_log_probs(
+    log_probs: jnp.ndarray,
+    obs_mask_t: jnp.ndarray,
+    *,
+    valid_obs: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Sum observed-channel log-probs, returning ``-inf`` on support violations."""
+    observed = obs_mask_t > 0.5
+    valid = jnp.ones_like(observed, dtype=bool) if valid_obs is None else valid_obs
+    invalid_observed = observed & ~valid
+    total = jnp.sum(jnp.where(observed & valid, log_probs, 0.0))
+    return jnp.where(jnp.any(invalid_observed), -jnp.inf, total)
 
 
 def _discrete_moments_from_probs(probs: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -206,11 +219,10 @@ def emission_log_prob_gamma(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
     eta = H @ z_t + d
     mean = jnp.exp(eta)
     scale = mean / shape
-    # Clamp y_t away from 0 so gamma.logpdf doesn't produce -inf/+inf from
-    # log(0), which causes NaN gradients via JAX autodiff even when masked.
-    safe_y = jnp.maximum(y_t, NUMERICAL_EPSILON)
+    valid_y = jnp.isfinite(y_t) & (y_t > 0.0)
+    safe_y = jnp.where(valid_y, y_t, 1.0)
     log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y)
 
 
 def emission_log_prob_bernoulli(y_t, z_t, H, d, _R, obs_mask_t):
@@ -249,11 +261,10 @@ def emission_log_prob_beta(y_t, z_t, H, d, _R, obs_mask_t, concentration=10.0):
     mean = jax.nn.sigmoid(eta)
     alpha = mean * concentration
     beta_ = (1.0 - mean) * concentration
-    # Clamp y_t into (0, 1) so beta.logpdf doesn't produce -inf from log(0)
-    # or log(1-0), which causes NaN gradients via JAX autodiff even when masked.
-    safe_y = jnp.clip(y_t, NUMERICAL_EPSILON, 1.0 - NUMERICAL_EPSILON)
+    valid_y = jnp.isfinite(y_t) & (y_t > 0.0) & (y_t < 1.0)
+    safe_y = jnp.where(valid_y, y_t, 0.5)
     log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y)
 
 
 def emission_log_prob_ordered_logistic(
@@ -313,11 +324,14 @@ def emission_log_prob_gamma_inverse(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
     mean = 1 / eta (canonical link for Gamma).
     """
     eta = H @ z_t + d
-    mean = 1.0 / jnp.clip(eta, ETA_CLIP_MIN, None)
+    valid_eta = jnp.isfinite(eta) & (eta > 0.0)
+    safe_eta = jnp.where(valid_eta, eta, 1.0)
+    mean = 1.0 / safe_eta
     scale = mean / shape
-    safe_y = jnp.maximum(y_t, NUMERICAL_EPSILON)
+    valid_y = jnp.isfinite(y_t) & (y_t > 0.0)
+    safe_y = jnp.where(valid_y, y_t, 1.0)
     log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y & valid_eta)
 
 
 def emission_log_prob_beta_probit(y_t, z_t, H, d, _R, obs_mask_t, concentration=10.0):
@@ -331,9 +345,10 @@ def emission_log_prob_beta_probit(y_t, z_t, H, d, _R, obs_mask_t, concentration=
     mean = jnp.clip(mean, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
     alpha = mean * concentration
     beta_ = (1.0 - mean) * concentration
-    safe_y = jnp.clip(y_t, NUMERICAL_EPSILON, 1.0 - NUMERICAL_EPSILON)
+    valid_y = jnp.isfinite(y_t) & (y_t > 0.0) & (y_t < 1.0)
+    safe_y = jnp.where(valid_y, y_t, 0.5)
     log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
-    return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+    return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y)
 
 
 # =============================================================================
@@ -382,8 +397,15 @@ def _score_weight_gamma_log(y_t, eta, obs_mask_t, shape):
 
 def _score_weight_gamma_inverse(y_t, eta, obs_mask_t, shape):
     """Gamma (inverse link): score = a*(mu - y), neg-Hessian = a*mu^2."""
-    mu = 1.0 / jnp.clip(eta, ETA_CLIP_MIN, None)
-    return shape * (mu - y_t) * obs_mask_t, (shape * mu**2) * obs_mask_t
+    valid_eta = jnp.isfinite(eta) & (eta > 0.0)
+    safe_eta = jnp.where(valid_eta, eta, 1.0)
+    mu = 1.0 / safe_eta
+    g = shape * (mu - y_t) * obs_mask_t
+    w = (shape * mu**2) * obs_mask_t
+    invalid_observed = (obs_mask_t > 0.5) & ~valid_eta
+    g = jnp.where(invalid_observed, jnp.nan, g)
+    w = jnp.where(invalid_observed, jnp.nan, w)
+    return g, w
 
 
 def _score_weight_negative_binomial(y_t, eta, obs_mask_t, r):
@@ -562,26 +584,32 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
         return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
     def poisson(y_t, mean_t, _R, obs_mask_t):
-        rate = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
+        rate = jnp.where(valid_mean, mean_t, 1.0)
         log_probs = jax.scipy.stats.poisson.logpmf(y_t, rate)
-        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean)
 
     def gamma(y_t, mean_t, _R, obs_mask_t):
         shape = extra_params.get("obs_shape", 1.0)
-        safe_mean = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0)
+        safe_mean = jnp.where(valid_mean, mean_t, 1.0)
         scale = safe_mean / shape
-        safe_y = jnp.maximum(y_t, NUMERICAL_EPSILON)
+        valid_y = jnp.isfinite(y_t) & (y_t > 0.0)
+        safe_y = jnp.where(valid_y, y_t, 1.0)
         log_probs = jax.scipy.stats.gamma.logpdf(safe_y, shape, scale=scale)
-        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean & valid_y)
 
     def bernoulli(y_t, mean_t, _R, obs_mask_t):
-        p = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-        log_probs = y_t * jnp.log(p) + (1.0 - y_t) * jnp.log(1.0 - p)
-        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0) & (mean_t <= 1.0)
+        valid_y = jnp.isfinite(y_t) & (jnp.isclose(y_t, 0.0) | jnp.isclose(y_t, 1.0))
+        p = jnp.where(valid_mean, mean_t, 0.5)
+        log_probs = jnp.where(jnp.isclose(y_t, 1.0), jnp.log(p), jnp.log1p(-p))
+        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean & valid_y)
 
     def negative_binomial(y_t, mean_t, _R, obs_mask_t):
         r = extra_params.get("obs_r", 5.0)
-        mu = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
+        mu = jnp.where(valid_mean, mean_t, 1.0)
         log_probs = (
             jax.lax.lgamma(y_t + r)
             - jax.lax.lgamma(r)
@@ -589,16 +617,18 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
             + r * jnp.log(r / (r + mu))
             + y_t * jnp.log(mu / (r + mu) + NUMERICAL_EPSILON)
         )
-        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean)
 
     def beta(y_t, mean_t, _R, obs_mask_t):
         concentration = extra_params.get("obs_concentration", 10.0)
-        clipped_mean = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-        alpha = clipped_mean * concentration
-        beta_ = (1.0 - clipped_mean) * concentration
-        safe_y = jnp.clip(y_t, NUMERICAL_EPSILON, 1.0 - NUMERICAL_EPSILON)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0) & (mean_t < 1.0)
+        safe_mean = jnp.where(valid_mean, mean_t, 0.5)
+        alpha = safe_mean * concentration
+        beta_ = (1.0 - safe_mean) * concentration
+        valid_y = jnp.isfinite(y_t) & (y_t > 0.0) & (y_t < 1.0)
+        safe_y = jnp.where(valid_y, y_t, 0.5)
         log_probs = jax.scipy.stats.beta.logpdf(safe_y, alpha, beta_)
-        return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
+        return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_mean & valid_y)
 
     mean_log_prob_fns = {
         DistributionFamily.GAUSSIAN: gaussian,
@@ -638,40 +668,50 @@ def get_mean_param_sample_fn(manifest_dist, extra_params=None):
         return mean_t + scale * t_val
 
     def poisson(key, mean_t, _R):
-        rate = jnp.maximum(mean_t, NUMERICAL_EPSILON)
-        return jax.random.poisson(key, rate).astype(jnp.float32)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
+        safe_rate = jnp.where(valid_mean, mean_t, 1.0)
+        draw = jax.random.poisson(key, safe_rate).astype(jnp.float32)
+        return jnp.where(valid_mean, draw, jnp.nan)
 
     def gamma(key, mean_t, _R):
         shape = extra_params.get("obs_shape", 1.0)
-        safe_mean = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0)
+        safe_mean = jnp.where(valid_mean, mean_t, 1.0)
         scale = safe_mean / jnp.maximum(shape, NUMERICAL_EPSILON)
-        return jax.random.gamma(key, shape, shape=mean_t.shape) * scale
+        draw = jax.random.gamma(key, shape, shape=mean_t.shape) * scale
+        return jnp.where(valid_mean, draw, jnp.nan)
 
     def bernoulli(key, mean_t, _R):
-        p = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-        return jax.random.bernoulli(key, p).astype(jnp.float32)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0) & (mean_t <= 1.0)
+        safe_p = jnp.where(valid_mean, mean_t, 0.5)
+        draw = jax.random.bernoulli(key, safe_p).astype(jnp.float32)
+        return jnp.where(valid_mean, draw, jnp.nan)
 
     def negative_binomial(key, mean_t, _R):
         r = extra_params.get("obs_r", 5.0)
-        safe_mean = jnp.maximum(mean_t, NUMERICAL_EPSILON)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t >= 0.0)
+        safe_mean = jnp.where(valid_mean, mean_t, 1.0)
         key_gamma, key_poisson = jax.random.split(key)
         gamma_draw = (
             jax.random.gamma(key_gamma, r, shape=mean_t.shape) * safe_mean / jnp.maximum(r, 1e-8)
         )
-        return jax.random.poisson(
+        draw = jax.random.poisson(
             key_poisson,
             jnp.maximum(gamma_draw, NUMERICAL_EPSILON),
         ).astype(jnp.float32)
+        return jnp.where(valid_mean, draw, jnp.nan)
 
     def beta(key, mean_t, _R):
         concentration = extra_params.get("obs_concentration", 10.0)
-        clipped_mean = jnp.clip(mean_t, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-        alpha = jnp.maximum(clipped_mean * concentration, 1e-4)
-        beta_param = jnp.maximum((1.0 - clipped_mean) * concentration, 1e-4)
+        valid_mean = jnp.isfinite(mean_t) & (mean_t > 0.0) & (mean_t < 1.0)
+        safe_mean = jnp.where(valid_mean, mean_t, 0.5)
+        alpha = jnp.maximum(safe_mean * concentration, 1e-4)
+        beta_param = jnp.maximum((1.0 - safe_mean) * concentration, 1e-4)
         key_alpha, key_beta = jax.random.split(key)
         gamma_alpha = jax.random.gamma(key_alpha, alpha)
         gamma_beta = jax.random.gamma(key_beta, beta_param)
-        return gamma_alpha / jnp.maximum(gamma_alpha + gamma_beta, NUMERICAL_EPSILON)
+        draw = gamma_alpha / jnp.maximum(gamma_alpha + gamma_beta, NUMERICAL_EPSILON)
+        return jnp.where(valid_mean, draw, jnp.nan)
 
     mean_sample_fns = {
         DistributionFamily.GAUSSIAN: gaussian,

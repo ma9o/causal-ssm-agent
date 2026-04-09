@@ -105,6 +105,16 @@ class TestBuildObservationKernel:
                 extra_params={"obs_concentration": 0.0},
             )
 
+    def test_gamma_inverse_response_marks_invalid_eta_as_nan(self):
+        kernel = build_observation_kernel(
+            DistributionFamily.GAMMA,
+            LinkFunction.INVERSE,
+            extra_params={"obs_shape": 2.0},
+        )
+        response = kernel.response_fn(jnp.array([2.0, -0.5]))
+        assert jnp.isclose(response[0], 0.5)
+        assert jnp.isnan(response[1])
+
     def test_ordered_logistic_variance(self):
         kernel = build_observation_kernel(
             DistributionFamily.ORDERED_LOGISTIC,
