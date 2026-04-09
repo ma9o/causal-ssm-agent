@@ -158,10 +158,11 @@ def simple_priors() -> dict:
 def simple_data() -> pd.DataFrame:
     """Simple test data with lagged columns."""
     n = 50
+    rng = np.random.default_rng(0)
     return pd.DataFrame(
         {
-            "mood_score": np.random.randn(n) * 1.5 + 5,
-            "mood_score_lag1": np.random.randn(n) * 1.5 + 5,
+            "mood_score": rng.normal(5, 1.5, n),
+            "mood_score_lag1": rng.normal(5, 1.5, n),
             "subject_id": np.repeat(np.arange(5), 10),
         }
     )
@@ -1963,7 +1964,8 @@ def _make_scripted_stage4_generate_by_block(
 
     async def _generate(messages, tools, rewrite_messages=None, rewrite_tools=None, label=None):
         del messages, rewrite_messages, rewrite_tools
-        assert label is not None and label.startswith("stage-4:")
+        assert label is not None
+        assert label.startswith("stage-4:")
         block_id = label.removeprefix("stage-4:")
         submission = submissions_by_block[block_id]
         visited_blocks.append(block_id)
@@ -2751,7 +2753,7 @@ class TestSSMPriorConversion:
         }
         ssm_spec = make_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Prior compilation failed") as exc_info:
             compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
 
         message = str(exc_info.value)
@@ -2868,7 +2870,7 @@ class TestSSMPriorConversion:
             },
         }
 
-        with pytest.raises(ValueError) as exc_info:
+        with pytest.raises(ValueError, match="Prior index binding failed") as exc_info:
             compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
 
         message = str(exc_info.value)
@@ -6819,7 +6821,8 @@ class TestStage4Mechanics:
             label=None,
         ):
             del messages, rewrite_messages, rewrite_tools
-            assert label is not None and label.startswith("stage-4:")
+            assert label is not None
+            assert label.startswith("stage-4:")
             block_id = label.removeprefix("stage-4:")
             first_run_blocks.append(block_id)
             if block_id == "review:model_spec":
@@ -6855,7 +6858,8 @@ class TestStage4Mechanics:
             label=None,
         ):
             del messages, rewrite_messages, rewrite_tools
-            assert label is not None and label.startswith("stage-4:")
+            assert label is not None
+            assert label.startswith("stage-4:")
             block_id = label.removeprefix("stage-4:")
             second_run_blocks.append(block_id)
             submission = (

@@ -349,8 +349,7 @@ class StructuredVILikelihood:
 
         # Final ELBO estimate with more samples
         rng_key, eval_key = random.split(rng_key)
-        final_elbo = _mc_elbo(phi, eval_key)
-        return final_elbo
+        return _mc_elbo(phi, eval_key)
 
 
 # ---------------------------------------------------------------------------

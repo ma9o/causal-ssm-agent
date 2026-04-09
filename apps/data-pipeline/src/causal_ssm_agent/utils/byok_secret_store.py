@@ -22,6 +22,12 @@ BYOK_SECRET_TABLE = "byok_secret_refs"
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DEFAULT_BYOK_SECRET_STORE_PATH = REPO_ROOT / ".local" / "byok-secret-store.db"
 DEFAULT_BYOK_SECRET_STORE_URL = f"file:{DEFAULT_BYOK_SECRET_STORE_PATH}"
+DELETE_ACTIVE_BYOK_SECRET_SQL = """
+DELETE FROM byok_secret_refs
+WHERE ref = ? AND expires_at_ms > ?
+RETURNING ciphertext
+"""
+PURGE_EXPIRED_BYOK_SECRET_SQL = "DELETE FROM byok_secret_refs WHERE expires_at_ms <= ?"
 
 
 def _get_store_url() -> str:
@@ -120,17 +126,10 @@ def consume_byok_secret_ref(ref: str) -> str | None:
 
     with closing(_connect()) as connection:
         row = connection.execute(
-            f"""
-            DELETE FROM {BYOK_SECRET_TABLE}
-            WHERE ref = ? AND expires_at_ms > ?
-            RETURNING ciphertext
-            """,
+            DELETE_ACTIVE_BYOK_SECRET_SQL,
             (ref, now_ms),
         ).fetchone()
-        connection.execute(
-            f"DELETE FROM {BYOK_SECRET_TABLE} WHERE expires_at_ms <= ?",
-            (now_ms,),
-        )
+        connection.execute(PURGE_EXPIRED_BYOK_SECRET_SQL, (now_ms,))
         connection.commit()
 
     if row is None:

@@ -2389,7 +2389,7 @@ class TestTemperedSMCVariants:
     @pytest.mark.slow
     @pytest.mark.timeout(60)
     @pytest.mark.parametrize(
-        "variant, extra_kwargs",
+        ("variant", "extra_kwargs"),
         [
             pytest.param(
                 "adaptive",
@@ -2489,7 +2489,7 @@ class TestPGASVariants:
     @pytest.mark.slow
     @pytest.mark.timeout(60)
     @pytest.mark.parametrize(
-        "variant, extra_kwargs",
+        ("variant", "extra_kwargs"),
         [
             pytest.param(
                 "preconditioned",
@@ -2550,7 +2550,7 @@ class TestPGASVariants:
             # Should have per-block rates for each parameter site
             block_rates = result.diagnostics["block_accept_rates"]
             assert len(block_rates) > 0
-            for _name, rates in block_rates.items():
+            for rates in block_rates.values():
                 assert len(rates) == 10  # n_outer iterations
 
     @pytest.mark.slow

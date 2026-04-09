@@ -6,7 +6,8 @@ import json
 from inspect import isawaitable
 from typing import Any
 
-from ...run_store import load_pickle, unwrap_task_result
+from causal_ssm_agent.flows.run_store import load_pickle, unwrap_task_result
+
 from .interventions import run_interventions
 
 
@@ -40,11 +41,10 @@ async def run_stage6(
     """Run interventions and synthesize the Stage 6 commentary payload."""
     from prefect.artifacts import create_table_artifact
 
+    from causal_ssm_agent.flows import get_prefect_logger
     from causal_ssm_agent.utils.causal_spec import get_outcome_name
     from causal_ssm_agent.utils.config import get_config
     from causal_ssm_agent.utils.llm import LLMStageContext
-
-    from ... import get_prefect_logger
 
     logger = get_prefect_logger(__name__)
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])

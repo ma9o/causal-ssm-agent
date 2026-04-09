@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from ... import get_prefect_logger
-from ...run_store import load_parquet, unwrap_task_result
+from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.run_store import load_parquet, unwrap_task_result
 
 logger = get_prefect_logger(__name__)
 
@@ -54,7 +54,7 @@ def run_stage5a_preflight(
     stage2: dict,
 ) -> dict:
     """Run Stage 5a SVI preflight with a bounded attempt ladder."""
-    from ..stage5b.fit import fit_model
+    from causal_ssm_agent.flows.stages.stage5b.fit import fit_model
 
     data_for_model = load_parquet(stage2["_data_for_model_path"])
 

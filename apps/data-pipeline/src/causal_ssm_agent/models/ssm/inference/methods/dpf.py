@@ -838,7 +838,7 @@ class DPFLikelihood:
                 training=False,
             )
 
-        log_Z = _dpf_forward(
+        return _dpf_forward(
             self.proposal_net,
             clean_obs,
             obs_mask,
@@ -855,7 +855,6 @@ class DPFLikelihood:
             self.rng_key,
             training=False,
         )
-        return log_Z
 
 
 # ---------------------------------------------------------------------------

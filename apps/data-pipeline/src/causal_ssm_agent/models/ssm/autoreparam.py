@@ -100,9 +100,8 @@ class Strategy(ABC):
             result = self.configure(msg)
             self.config[name] = result
             return result
-        else:
-            fn = msg_or_fn
-            return numpyro.handlers.reparam(fn, config=self)
+        fn = msg_or_fn
+        return numpyro.handlers.reparam(fn, config=self)
 
 
 class MinimalReparam(Strategy):
@@ -230,8 +229,7 @@ def _minimal_reparam(fn: dist.Distribution, is_observed: bool) -> Reparam | None
         if isinstance(inner, dist.TransformedDistribution):
             if _minimal_reparam(inner.base_dist, is_observed) is None:
                 return None
-            else:
-                return TransformReparam()
+            return TransformReparam()
         if isinstance(
             inner, (dist.Independent, dist.ExpandedDistribution, dist.MaskedDistribution)
         ):

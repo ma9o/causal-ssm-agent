@@ -72,7 +72,7 @@ def _make_separable_spec(first_pass_rb: bool = True) -> SSMSpec:
 
 class TestStage4bInferenceStructurePayload:
     @pytest.mark.parametrize(
-        "label, spec_factory, obs_support, expected_reason",
+        ("label", "spec_factory", "obs_support", "expected_reason"),
         [
             (
                 "disabled_in_spec",

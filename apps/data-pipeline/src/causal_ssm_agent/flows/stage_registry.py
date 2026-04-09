@@ -17,7 +17,8 @@ import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from ..utils.openrouter_client import use_openrouter_api_key
+from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
+
 from . import get_prefect_logger
 from .run_store import (
     STAGE0_PARQUET_FILENAMES,
@@ -173,7 +174,7 @@ async def run_stage_flow(
     extras = defn.materializer.finalize_extras(result, ctx.workspace_id)
 
     # Finalize (validate contract, persist JSON, save snapshot)
-    state = finalize_stage(
+    return finalize_stage(
         defn.stage_id,
         result,
         ctx.workspace_id,
@@ -181,7 +182,6 @@ async def run_stage_flow(
         contract=defn.contract,
     )
 
-    return state
 
 
 def load_stage_state(
@@ -380,7 +380,7 @@ def _bind_stage1b(ctx: PipelineContext, states: dict) -> dict:
 
 
 def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
-    from ..utils.config import get_config
+    from causal_ssm_agent.utils.config import get_config
 
     return {
         "question": ctx.question,

@@ -236,8 +236,8 @@ __all__ = [
     "emit_stage2_plan_event",
     "emit_stage2_snapshot_event",
     "emit_stage2_worker_event",
-    "emit_stage4_graph_event",
     "emit_stage4_block_transition_event",
+    "emit_stage4_graph_event",
     "emit_stage4_snapshot_event",
     "emit_stage_progress_event",
 ]

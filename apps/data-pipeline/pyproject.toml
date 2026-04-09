@@ -67,7 +67,16 @@ select = [
     "F",      # Pyflakes
     "I",      # isort
     "B",      # flake8-bugbear
+    "BLE",    # flake8-blind-except
     "C4",     # flake8-comprehensions
+    "DTZ",    # flake8-datetimez
+    "NPY",    # NumPy-specific rules
+    "PERF",   # Perflint
+    "PT",     # flake8-pytest-style
+    "RET",    # flake8-return
+    "S324",   # insecure hash functions
+    "S608",   # string-built SQL
+    "TID",    # flake8-tidy-imports
     "UP",     # pyupgrade
     "ARG",    # flake8-unused-arguments
     "SIM",    # flake8-simplify
@@ -80,6 +89,8 @@ ignore = [
     "B008",   # do not perform function calls in argument defaults (needed for Prefect)
     "B904",   # raise from err (too noisy)
     "B905",   # zip() without strict= (often unnecessary)
+    "PERF401",# list/dict comprehension nudges are too noisy for legacy code
+    "PERF403",# dict comprehension nudges are too noisy for legacy code
     "SIM108", # use ternary operator (not always clearer)
     "RUF001", # ambiguous unicode (intentional for display)
     "RUF022", # __all__ not sorted (comments prevent auto-sort)
@@ -89,7 +100,27 @@ ignore = [
 "tests/*" = [
     "ARG001",  # unused function arguments (pytest fixtures)
     "ARG002",  # unused method arguments (pytest fixtures)
+    "DTZ001",  # tests intentionally use naive datetimes as compact fixtures
 ]
+"src/causal_ssm_agent/__init__.py" = ["BLE001"]
+"src/causal_ssm_agent/flows/stages/stage0/tools.py" = ["BLE001"]
+"src/causal_ssm_agent/flows/stages/stage2/flow.py" = ["BLE001"]
+"src/causal_ssm_agent/flows/stages/stage4/assembly.py" = ["BLE001"]
+"src/causal_ssm_agent/models/prior_predictive.py" = ["BLE001"]
+"src/causal_ssm_agent/orchestrator/schemas.py" = ["BLE001"]
+"src/causal_ssm_agent/orchestrator/schemas_model.py" = ["BLE001"]
+"src/causal_ssm_agent/orchestrator/stage4_reducer.py" = ["BLE001"]
+"src/causal_ssm_agent/orchestrator/stage4_submission.py" = ["BLE001"]
+"src/causal_ssm_agent/utils/openrouter_client.py" = ["BLE001"]
+"src/causal_ssm_agent/workers/prior_research.py" = ["BLE001"]
+"src/causal_ssm_agent/workers/schemas.py" = ["BLE001"]
+"tests/test_stage0_ingest.py" = ["BLE001"]
+
+[tool.ruff.lint.flake8-pytest-style]
+parametrize-names-type = "tuple"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
 
 [tool.ruff.lint.isort]
 known-first-party = ["causal_ssm_agent"]
