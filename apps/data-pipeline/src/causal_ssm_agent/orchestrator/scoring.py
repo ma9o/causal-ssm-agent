@@ -13,9 +13,7 @@ import logging
 
 from pydantic import ValidationError
 
-from causal_ssm_agent.orchestrator.schemas import (
-    LatentModel,
-)
+from causal_ssm_agent.artifacts.latent_model import LatentModel, Role
 
 _logger = logging.getLogger(__name__)
 
@@ -67,8 +65,6 @@ def _count_rule_points(structure: LatentModel) -> float:
     - +1 effect exists in constructs
     - +1 effect is endogenous
     """
-    from causal_ssm_agent.orchestrator.schemas import Role
-
     points = 0.0
     construct_map = {c.name: c for c in structure.constructs}
 

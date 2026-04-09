@@ -279,8 +279,8 @@ def build_site_registry(
     No model tracing needed.  The returned list is sorted by site name
     (matching JAX pytree dict-key ordering used by ``ravel_pytree``).
     """
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
     from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     if structure_runtime is None:
         structure_runtime = SSMStructureRuntime(spec)
@@ -1074,7 +1074,7 @@ def sample_prior_unconstrained(
     not inner-loop hot paths.
     """
     if not registry:
-        return jnp.zeros((n_samples, 0), dtype=jnp.float32), rng_key
+        return jnp.zeros((n_samples, 0), dtype=jnp.float64), rng_key
 
     all_samples = []
     for _ in range(n_samples):
@@ -1154,8 +1154,8 @@ def sample_prior_unconstrained(
                 if not jnp.all((family == 0) | (family == 1) | (family == 2)):
                     raise ValueError(f"Unknown CORRELATION family index in site {site.name}")
 
-                low = params.get("low", jnp.full(shape or (), -1.0, dtype=jnp.float32))
-                high = params.get("high", jnp.full(shape or (), 1.0, dtype=jnp.float32))
+                low = params.get("low", jnp.full(shape or (), -1.0, dtype=jnp.float64))
+                high = params.get("high", jnp.full(shape or (), 1.0, dtype=jnp.float64))
                 sk_normal, sk_trunc, sk_uniform = random.split(sk, 3)
                 normal_sample = params["loc"] + params["scale"] * random.normal(
                     sk_normal, shape=shape
@@ -1182,7 +1182,7 @@ def sample_prior_unconstrained(
         if parts:
             all_samples.append(jnp.concatenate(parts))
         else:
-            all_samples.append(jnp.zeros((0,), dtype=jnp.float32))
+            all_samples.append(jnp.zeros((0,), dtype=jnp.float64))
 
     return jnp.stack(all_samples), rng_key
 
@@ -1220,10 +1220,10 @@ def _make_positive_params(
     s = shape or ()
     return {
         "family": jnp.array(family, dtype=jnp.int32),
-        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
-        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float32), s),
-        "concentration": jnp.broadcast_to(jnp.asarray(concentration, dtype=jnp.float32), s),
-        "rate": jnp.broadcast_to(jnp.asarray(rate, dtype=jnp.float32), s),
+        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float64), s),
+        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
+        "concentration": jnp.broadcast_to(jnp.asarray(concentration, dtype=jnp.float64), s),
+        "rate": jnp.broadcast_to(jnp.asarray(rate, dtype=jnp.float64), s),
     }
 
 
@@ -1240,12 +1240,12 @@ def _make_real_params(
     s = shape or ()
     params = {
         "family": jnp.array(family, dtype=jnp.int32),
-        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
-        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float32), s),
+        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float64), s),
+        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
     }
     if low is not None and high is not None:
-        params["low"] = jnp.broadcast_to(jnp.asarray(low, dtype=jnp.float32), s)
-        params["high"] = jnp.broadcast_to(jnp.asarray(high, dtype=jnp.float32), s)
+        params["low"] = jnp.broadcast_to(jnp.asarray(low, dtype=jnp.float64), s)
+        params["high"] = jnp.broadcast_to(jnp.asarray(high, dtype=jnp.float64), s)
     return params
 
 
@@ -1437,7 +1437,7 @@ def deserialize_prior_runtime_state(
     """Restore prior runtime state from serialized form.
 
     Uses the registry to determine correct dtypes (int32 for family,
-    float32 for all others).
+    float64 for all others).
     """
     state: PriorRuntimeState = {}
     for site in registry:
@@ -1447,7 +1447,7 @@ def deserialize_prior_runtime_state(
             if k == "family":
                 params[k] = jnp.array(v, dtype=jnp.int32)
             else:
-                params[k] = jnp.asarray(v, dtype=jnp.float32)
+                params[k] = jnp.asarray(v, dtype=jnp.float64)
         state[site.name] = params
     return state
 

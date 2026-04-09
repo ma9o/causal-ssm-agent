@@ -12,16 +12,23 @@ import jax.numpy as jnp
 import numpy as np
 from pydantic import BaseModel
 
-from causal_ssm_agent.distributions import PriorDistributionFamily
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm import SSMSpec
-from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
-from causal_ssm_agent.orchestrator.schemas_model import (
+from causal_ssm_agent.artifacts.latent_model import LatentModel
+from causal_ssm_agent.artifacts.measurement_model import (
+    MeasurementModel,
+    check_semantic_collisions,
+    validate_measurement_model,
+)
+from causal_ssm_agent.artifacts.model_spec import (
     DistributionFamily,
     LinkFunction,
     ModelSpec,
     ParameterRole,
+    validate_model_spec_dict,
 )
+from causal_ssm_agent.distributions import PriorDistributionFamily
+from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.ssm import SSMSpec
+from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
 
 logger = get_prefect_logger(__name__)
 
@@ -30,7 +37,6 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
     from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 CompiledSSMArtifact = dict[str, Any]
@@ -193,7 +199,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
 
     for key, value in payload.items():
         if key in _SPEC_ARRAY_FIELDS and isinstance(value, list):
-            kwargs[key] = jnp.asarray(value, dtype=jnp.float32)
+            kwargs[key] = jnp.asarray(value, dtype=jnp.float64)
         elif key in _SPEC_BOOL_ARRAY_FIELDS and value is not None:
             kwargs[key] = np.asarray(value, dtype=bool)
         elif key in _SPEC_ENUM_LIST_FIELDS and value is not None:
@@ -215,8 +221,6 @@ def _collect_measurement_compile_errors(
     latent: LatentModel,
 ) -> list[str]:
     """Collect deterministic measurement checks best handled at compile time."""
-    from causal_ssm_agent.orchestrator.schemas import check_semantic_collisions
-
     errors: list[str] = []
 
     if not measurement.indicators:
@@ -264,13 +268,8 @@ def validate_measurement_model_for_compilation(
     latent_model: LatentModel | dict,
 ) -> tuple[MeasurementModel | None, list[str]]:
     """Validate measurement output against schema and compile-time constraints."""
-    from causal_ssm_agent.orchestrator.schemas import LatentModel as LatentModelCls
-    from causal_ssm_agent.orchestrator.schemas import validate_measurement_model
-
     latent = (
-        LatentModelCls.model_validate(latent_model)
-        if isinstance(latent_model, dict)
-        else latent_model
+        LatentModel.model_validate(latent_model) if isinstance(latent_model, dict) else latent_model
     )
     measurement, errors = validate_measurement_model(measurement_model, latent)
     if measurement is None:
@@ -396,8 +395,6 @@ def validate_model_spec_for_compilation(
     causal_spec: dict | None = None,
 ) -> tuple[ModelSpec | None, list[str]]:
     """Validate model-spec schema/domain rules plus compiler-owned invariants."""
-    from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_dict
-
     indicators = None
     if causal_spec is not None:
         from causal_ssm_agent.utils.causal_spec import get_indicators

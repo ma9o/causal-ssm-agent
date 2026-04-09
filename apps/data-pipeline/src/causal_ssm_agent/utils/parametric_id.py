@@ -30,6 +30,7 @@ import numpy as np
 from jax import lax
 from pydantic import BaseModel
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import (
@@ -48,7 +49,6 @@ from causal_ssm_agent.models.ssm.parameterization import (
     sample_prior_unconstrained,
 )
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -438,7 +438,7 @@ def simulate_ssm(
         def _sample_observation(key: jnp.ndarray, mean: jnp.ndarray) -> jnp.ndarray:
             gaussian_key, poisson_key = random.split(key)
             gaussian_obs = mean + manifest_sd * random.normal(gaussian_key, (n_manifest,))
-            poisson_obs = random.poisson(poisson_key, jax.nn.softplus(mean)).astype(jnp.float32)
+            poisson_obs = random.poisson(poisson_key, jax.nn.softplus(mean)).astype(jnp.float64)
             return jnp.where(poisson_mask_array, poisson_obs, gaussian_obs)
 
     # First observation from x_0
@@ -511,11 +511,11 @@ def _chi_squared_uniformity_pvalue(ranks: jnp.ndarray, max_rank: int, n_bins: in
 
     Uses regularized incomplete gamma for p-value (no scipy needed).
     """
-    ranks = jnp.asarray(ranks, dtype=jnp.float32)
+    ranks = jnp.asarray(ranks, dtype=jnp.float64)
     n = ranks.shape[0]
     bin_width = (max_rank + 1) / n_bins
     bin_idx = jnp.clip((ranks / bin_width).astype(jnp.int32), 0, n_bins - 1)
-    observed = jnp.array([float(jnp.sum(bin_idx == i)) for i in range(n_bins)], dtype=jnp.float32)
+    observed = jnp.array([float(jnp.sum(bin_idx == i)) for i in range(n_bins)], dtype=jnp.float64)
     expected = float(n) / n_bins
     chi2 = jnp.sum((observed - expected) ** 2 / jnp.maximum(expected, NUMERICAL_EPSILON))
     df = n_bins - 1
@@ -564,7 +564,7 @@ def _response_latent_variance_diag(
     manifest_links,
 ) -> jnp.ndarray:
     """Approximate latent-induced variance on the observation-mean scale."""
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 
     unsupported_response_families = {
         DistributionFamily.ORDERED_LOGISTIC,
@@ -676,11 +676,11 @@ def _point_observation_noise_var_diag(
     allow_discrete_mean_space: bool,
 ) -> jnp.ndarray:
     """Return diagonal observation noise variances on the emitted observation scale."""
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
     from causal_ssm_agent.models.ssm.inference.targets.emissions import (
         categorical_moments,
         ordered_logistic_moments,
     )
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
     variances = []
     for idx, dist in enumerate(manifest_dists):
@@ -1738,7 +1738,7 @@ def _observation_semantic_mask(
         return None
 
     _, semantic_mask = observation_operator.project_response_trajectory(
-        jnp.zeros((times.shape[0], spec.n_manifest), dtype=jnp.float32)
+        jnp.zeros((times.shape[0], spec.n_manifest), dtype=jnp.float64)
     )
     return np.asarray(semantic_mask > 0.5)
 
@@ -1781,7 +1781,7 @@ def _spectral_svd_from_gram(S: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
 
 def _validate_output_sensitivity_supported(model: SSMModel) -> None:
     """Validate preconditions for the observation-space sensitivity map."""
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 
     observation_support = getattr(model, "observation_support", None)
     if observation_support is None or not observation_support.requires_interval_summary_handling:
@@ -2514,7 +2514,7 @@ def sbc_check(
     from causal_ssm_agent.models.ssm.inference import fit
 
     rng_key = random.PRNGKey(seed)
-    times = jnp.arange(T, dtype=jnp.float32) * dt
+    times = jnp.arange(T, dtype=jnp.float64) * dt
 
     # Build registry-based runtime (no model tracing needed).
     # The log_lik_fn is compiled once and reused across all replicates.

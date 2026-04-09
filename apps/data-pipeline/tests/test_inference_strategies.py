@@ -28,6 +28,7 @@ import pytest
 from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
+from causal_ssm_agent.artifacts import LinkFunction
 from causal_ssm_agent.models.ssm import DistributionFamily, InferenceResult, SSMModel, fit
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
@@ -65,7 +66,6 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 )
 from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discover_sites
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 from tests.ssm_test_utils import diagonal_diffusion_kwargs, make_ssm_spec
 
 

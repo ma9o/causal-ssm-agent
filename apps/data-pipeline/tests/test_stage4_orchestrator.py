@@ -2,12 +2,15 @@
 
 import polars as pl
 
-from causal_ssm_agent.orchestrator.stage4_feedback import (
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_grounding_result,
     make_stage4_validation_packet,
 )
-from causal_ssm_agent.orchestrator.stage4_navigation import _set_block_cursor, make_stage4_runtime
-from causal_ssm_agent.orchestrator.stage4_orchestrator import (
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
+    _set_block_cursor,
+    make_stage4_runtime,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
     Stage4Skeleton,
@@ -19,10 +22,13 @@ from causal_ssm_agent.orchestrator.stage4_orchestrator import (
     derive_deterministic_spec,
     get_stage4_prompt_scope_policy,
 )
-from causal_ssm_agent.orchestrator.stage4_prompt_context import Stage4Messages
-from causal_ssm_agent.orchestrator.stage4_session import Stage4Session
-from causal_ssm_agent.orchestrator.stage4_state import Stage4AcceptedState, Stage4Runtime
-from causal_ssm_agent.orchestrator.stage4_types import Stage4Deps
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import Stage4Messages
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+    Stage4AcceptedState,
+    Stage4Runtime,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
 from tests.helpers import make_stage4_plan as _make_plan
 
 

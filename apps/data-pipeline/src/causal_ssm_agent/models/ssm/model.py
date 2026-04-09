@@ -22,6 +22,7 @@ import numpyro.distributions as dist
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.distributions import (
     PriorRuntimeKind,
     get_positive_runtime_family_index,
@@ -48,7 +49,6 @@ from causal_ssm_agent.models.ssm.parameterization import (
     build_site_prior_distribution,
 )
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
 @jax.custom_vjp

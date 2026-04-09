@@ -21,9 +21,9 @@ import numpy as np
 import pytest
 from jax.flatten_util import ravel_pytree
 
+from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
 from causal_ssm_agent.models.ssm.model import SSMModel, SSMPriors, full_vector_mask
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 from tests.ssm_test_utils import (
     diagonal_diffusion_kwargs,
     diagonal_manifest_var_kwargs,

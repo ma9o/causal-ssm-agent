@@ -40,6 +40,7 @@ from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, init_to_media
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import ClippedAdam
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
@@ -52,7 +53,6 @@ from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measur
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_probs,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 logger = get_prefect_logger(__name__)
 

@@ -4,15 +4,17 @@ from typing import Any
 
 import pytest
 
-from causal_ssm_agent.orchestrator.schemas_model import (
-    DistributionChoice,
+from causal_ssm_agent.artifacts import (
     DistributionFamily,
     LinkFunction,
-    ModelSpecDecisions,
     ParameterConstraint,
+    validate_model_spec_dict,
+)
+from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
+    DistributionChoice,
+    ModelSpecDecisions,
     merge_decisions_to_spec,
     validate_model_spec_decisions_dict,
-    validate_model_spec_dict,
 )
 
 

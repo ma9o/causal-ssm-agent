@@ -7,14 +7,14 @@ from typing import Any
 
 def stage1b_grounding(data: dict, latent_model: dict) -> tuple[dict | None, str]:
     """Validate measurement model, check identifiability, build CausalSpec."""
+    from causal_ssm_agent.artifacts.latent_model import LatentModel
     from causal_ssm_agent.models.ssm_compiler import (
         collect_estimation_projection_compile_errors,
         validate_measurement_model_for_compilation,
     )
-    from causal_ssm_agent.orchestrator.schemas import LatentModel
     from causal_ssm_agent.utils.identifiability import check_identifiability
 
-    from .flow import build_causal_spec
+    from .assemble import build_causal_spec
 
     latent = LatentModel.model_validate(latent_model)
     validated, errors = validate_measurement_model_for_compilation(data, latent)

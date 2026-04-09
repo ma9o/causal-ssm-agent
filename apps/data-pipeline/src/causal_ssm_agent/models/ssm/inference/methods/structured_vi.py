@@ -24,13 +24,13 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
 from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_prob,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

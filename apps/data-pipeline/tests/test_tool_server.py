@@ -149,7 +149,9 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
 
 def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypatch):
     import causal_ssm_agent.flows.stage_registry as stage_registry
-    from causal_ssm_agent.orchestrator.stage4_feedback import make_stage4_grounding_result
+    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+        make_stage4_grounding_result,
+    )
 
     expected_data_for_model = object()
     captured: dict[str, object] = {}

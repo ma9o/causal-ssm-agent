@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-    from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily
 
 import jax.numpy as jnp
 from pydantic import BaseModel, Field

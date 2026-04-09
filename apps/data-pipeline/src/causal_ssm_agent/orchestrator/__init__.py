@@ -5,18 +5,19 @@ Two-stage approach following Anderson & Gerbing (1988):
 2. Measurement Model - observed indicators that reflect constructs (data-driven)
 """
 
-from .agents import (
-    build_causal_spec,
-    propose_latent_model,
-    propose_measurement_model,
-)
-from .schemas import (
+from causal_ssm_agent.artifacts import (
     CausalEdge,
     CausalSpec,
     Construct,
     Indicator,
     LatentModel,
     MeasurementModel,
+)
+
+from .agents import (
+    build_causal_spec,
+    propose_latent_model,
+    propose_measurement_model,
 )
 
 __all__ = [

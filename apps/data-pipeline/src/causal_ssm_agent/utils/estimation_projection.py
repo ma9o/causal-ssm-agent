@@ -6,7 +6,7 @@ from collections import defaultdict
 from itertools import combinations
 from typing import Any
 
-from causal_ssm_agent.orchestrator.schemas import Role, TemporalStatus
+from causal_ssm_agent.artifacts.latent_model import Role, TemporalStatus
 from causal_ssm_agent.utils.identifiability import (
     analyze_unobserved_constructs,
 )

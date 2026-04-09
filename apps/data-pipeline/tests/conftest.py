@@ -14,6 +14,13 @@ import jax.random as random
 import numpy as np
 import pytest
 
+from causal_ssm_agent.artifacts import (
+    Construct,
+    Indicator,
+    IndicatorPolarity,
+    Role,
+    TemporalStatus,
+)
 from causal_ssm_agent.models.ssm import (
     SSMSpec,
     full_diagonal_mask,
@@ -22,13 +29,6 @@ from causal_ssm_agent.models.ssm import (
     zero_loading_mask,
     zero_square_mask,
     zero_vector_mask,
-)
-from causal_ssm_agent.orchestrator.schemas import (
-    Construct,
-    Indicator,
-    IndicatorPolarity,
-    Role,
-    TemporalStatus,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════

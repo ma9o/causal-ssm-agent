@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
+from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
+    validate_model_spec_decisions_dict,
+)
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.orchestrator.schemas_model import validate_model_spec_decisions_dict
 
 from .stage4_events import (
     Stage4AcceptedStatePersistedEvent,

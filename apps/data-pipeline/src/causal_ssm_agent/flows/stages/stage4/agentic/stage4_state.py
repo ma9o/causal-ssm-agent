@@ -13,9 +13,10 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
-    from causal_ssm_agent.orchestrator.stage4_feedback import Stage4ValidationPacket
-    from causal_ssm_agent.orchestrator.stage4_orchestrator import Stage4FrontierBlock
     from causal_ssm_agent.workers.schemas_prior import PriorPathologyCertificate
+
+    from .stage4_feedback import Stage4ValidationPacket
+    from .stage4_orchestrator import Stage4FrontierBlock
 
 
 # ---------------------------------------------------------------------------

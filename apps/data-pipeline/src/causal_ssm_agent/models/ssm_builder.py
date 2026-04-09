@@ -49,7 +49,7 @@ from causal_ssm_agent.utils.data import pivot_to_wide
 if TYPE_CHECKING:
     import numpy as np
 
-    from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+    from causal_ssm_agent.artifacts.model_spec import ModelSpec
     from causal_ssm_agent.workers.schemas_prior import PriorProposal
 
 logger = logging.getLogger(__name__)
@@ -322,12 +322,12 @@ class SSMModelBuilder:
         else:
             manifest_cols = default_manifest_columns(X)
 
-        observations = jnp.array(X.select(manifest_cols).to_numpy(), dtype=jnp.float32)
+        observations = jnp.array(X.select(manifest_cols).to_numpy(), dtype=jnp.float64)
 
         if "time" in X.columns:
-            times = jnp.array(X["time"].to_numpy(), dtype=jnp.float32)
+            times = jnp.array(X["time"].to_numpy(), dtype=jnp.float64)
         else:
-            times = jnp.arange(X.height, dtype=jnp.float32)
+            times = jnp.arange(X.height, dtype=jnp.float64)
 
         return observations, times, manifest_cols
 
@@ -349,7 +349,7 @@ class SSMModelBuilder:
             if prepared_times is not None:
                 times = prepared_times
             else:
-                times = jnp.arange(10, dtype=jnp.float32)
+                times = jnp.arange(10, dtype=jnp.float64)
 
         use_prepared_schedule = (
             prepared_times is not None

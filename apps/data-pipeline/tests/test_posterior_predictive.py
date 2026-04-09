@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 import causal_ssm_agent.models.predictive_simulation as predictive_simulation_module
+from causal_ssm_agent.artifacts import LinkFunction
 from causal_ssm_agent.models.posterior_predictive import (
     PPCResult,
     _check_calibration,
@@ -24,7 +25,6 @@ from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from causal_ssm_agent.orchestrator.schemas_model import LinkFunction
 
 
 def _make_samples(
@@ -439,7 +439,7 @@ class TestForwardSimulation:
             "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
             "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
             "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
-            "t0_means": jnp.array([[100.0]], dtype=jnp.float32),
+            "t0_means": jnp.array([[1000.0]], dtype=jnp.float64),
             "t0_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
             "obs_shape": jnp.array(2.0, dtype=jnp.float32),
         }

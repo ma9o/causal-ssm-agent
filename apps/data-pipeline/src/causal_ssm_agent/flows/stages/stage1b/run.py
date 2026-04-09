@@ -1,12 +1,4 @@
-"""Stage 1b: Measurement Model with Identifiability.
-
-Core logic for Stage 1b, decoupled from Prefect and model-client frameworks.
-Uses dependency injection for the LLM generate function.
-
-The fat validation tool checks both structural validity AND causal identifiability,
-giving the LLM rich feedback to self-correct (add proxies, fix indicators) within
-a single tool loop — no imperative multi-step orchestration.
-"""
+"""Stage 1b: Measurement Model with Identifiability."""
 
 import json
 from dataclasses import dataclass
@@ -14,7 +6,7 @@ from dataclasses import dataclass
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils.llm import GenerateFn
 
-from .prompts import measurement_model
+from .prompting import templates
 
 logger = get_prefect_logger(__name__)
 
@@ -40,10 +32,10 @@ class Stage1bMessages:
     def proposal_messages(self) -> list[dict]:
         """Build messages for initial measurement proposal."""
         return [
-            {"role": "system", "content": measurement_model.SYSTEM},
+            {"role": "system", "content": templates.SYSTEM},
             {
                 "role": "user",
-                "content": measurement_model.USER.format(
+                "content": templates.USER.format(
                     question=self.question,
                     latent_model_json=json.dumps(self.latent_model, indent=2),
                     dataset_summary=self.dataset_summary or "Not provided",
@@ -65,7 +57,7 @@ async def run_stage1b(
 
     The fat validation tool checks both structural validity and causal identifiability.
     When identifiability fails, it returns rich feedback so the LLM can add proxy
-    indicators and resubmit — all within a single tool loop.
+    indicators and resubmit - all within a single tool loop.
 
     Args:
         question: The causal research question
@@ -82,7 +74,6 @@ async def run_stage1b(
 
     msgs = Stage1bMessages(question, latent_model, chunks, dataset_summary)
 
-    # Single fat tool — validates structure + checks identifiability
     tool, capture = make_stage_tool(
         name="validate_measurement_model",
         description="Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
@@ -91,20 +82,18 @@ async def run_stage1b(
         compute_fn=lambda data: stage1b_grounding(data, latent_model),
     )
 
-    await generate(msgs.proposal_messages(), [tool], [measurement_model.REVIEW])
+    await generate(msgs.proposal_messages(), [tool], [templates.REVIEW])
 
     causal_spec = capture.get("causal_spec")
     if causal_spec is None:
         raise ValueError("No valid measurement model produced")
 
-    # Extract fields from the captured causal_spec
     measurement = causal_spec.get("measurement", {})
     id_info = causal_spec.get("identifiability") or {}
     id_status = {
         "identifiable_treatments": id_info.get("identifiable_treatments", {}),
         "non_identifiable_treatments": id_info.get("non_identifiable_treatments", {}),
     }
-    # graph_info is preserved in capture (not in the Pydantic model) for downstream analysis
     graph_info = capture.get("graph_info")
     if graph_info is not None:
         id_status["graph_info"] = graph_info

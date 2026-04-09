@@ -33,6 +33,7 @@ import jax.random as random
 import jax.scipy.linalg as jla
 from numpyro.distributions import MultivariateNormal, Normal
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
@@ -48,7 +49,6 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     project_response_trajectory,
     support_observation_log_prob,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 logger = get_prefect_logger(__name__)
 
@@ -223,7 +223,7 @@ def _dpf_forward(
     )  # (N, D)
 
     # Weight against first observation
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
     log_weights = jax.vmap(
         lambda z: emission_log_prob_fn(observations[0], z, H, d_meas, R, mask_float[0])
     )(particles)  # (N,)
@@ -315,10 +315,20 @@ def _dpf_forward_support_aware(
     training=True,
 ):
     """Run DPF with interval-summary observation semantics."""
+    observations = jnp.asarray(observations, dtype=jnp.float64)
+    Ad = jnp.asarray(Ad, dtype=jnp.float64)
+    Qd = jnp.asarray(Qd, dtype=jnp.float64)
+    cd = jnp.asarray(cd, dtype=jnp.float64)
+    H = jnp.asarray(H, dtype=jnp.float64)
+    d_meas = jnp.asarray(d_meas, dtype=jnp.float64)
+    R = jnp.asarray(R, dtype=jnp.float64)
+    init_mean = jnp.asarray(init_mean, dtype=jnp.float64)
+    init_cov = jnp.asarray(init_cov, dtype=jnp.float64)
     T, _n_manifest = observations.shape
     D = init_mean.shape[0]
     jitter = jnp.eye(D) * 1e-6
-    mask_float = obs_mask.astype(jnp.float32)
+    mask_float = obs_mask.astype(jnp.float64)
+    runtime_dtype = observations.dtype
     obs_kernel = measurement_semantics.obs_kernel
     observation_operator = measurement_semantics.observation_operator
     mean_log_prob_fn = measurement_semantics.mean_log_prob_fn
@@ -330,9 +340,9 @@ def _dpf_forward_support_aware(
     assert observation_operator.curr_coeffs is not None
     assert observation_operator.interval_weights is not None
     assert observation_operator.emission_slots is not None
-    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=observations.dtype)
-    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=observations.dtype)
-    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=observations.dtype)
+    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=runtime_dtype)
+    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=runtime_dtype)
+    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=runtime_dtype)
     emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
 
     key_init, rng_key = random.split(rng_key)
@@ -340,7 +350,7 @@ def _dpf_forward_support_aware(
     init_keys = random.split(key_init, n_particles)
     init_latents = jax.vmap(lambda k: init_mean + chol_P0 @ random.normal(k, (D,)))(init_keys)
     init_responses = jax.vmap(lambda z: obs_kernel.response_fn(H @ z + d_meas))(init_latents)
-    zeros = observation_operator.empty_accumulators(observations.dtype, (n_particles,))
+    zeros = observation_operator.empty_accumulators(runtime_dtype, (n_particles,))
     states = _SupportAwareDPFState(
         latent=init_latents,
         response=init_responses,
@@ -505,13 +515,13 @@ def _simulate_from_prior(
     diffusion_cov = jnp.diag(diff_diag**2)
 
     if time_intervals is None:
-        time_intervals = jnp.ones((T,), dtype=jnp.float32)
+        time_intervals = jnp.ones((T,), dtype=jnp.float64)
     else:
-        time_intervals = jnp.asarray(time_intervals, dtype=jnp.float32)
+        time_intervals = jnp.asarray(time_intervals, dtype=jnp.float64)
 
     Ad_all, Qd_all, cd_all = discretize_system_batched(drift, diffusion_cov, None, time_intervals)
     if cd_all is None:
-        cd_all = jnp.zeros((T, D), dtype=jnp.float32)
+        cd_all = jnp.zeros((T, D), dtype=jnp.float64)
     jitter = jnp.eye(D) * 1e-6
     chol_Qd = jax.vmap(lambda q_t: jla.cholesky(q_t + jitter, lower=True))(Qd_all)
 
@@ -794,6 +804,8 @@ class DPFLikelihood:
         extra_params: dict | None = None,
     ) -> float:
         """Compute log-likelihood via DPF with learned proposals."""
+        observations = jnp.asarray(observations, dtype=jnp.float64)
+        time_intervals = jnp.asarray(time_intervals, dtype=jnp.float64)
         n = self.n_latent
         T = observations.shape[0]
 

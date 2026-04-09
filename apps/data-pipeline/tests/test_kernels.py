@@ -9,11 +9,11 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from causal_ssm_agent.artifacts import DistributionFamily, LinkFunction
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
     build_transition_kernel,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 
 class TestBuildObservationKernel:

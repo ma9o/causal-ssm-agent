@@ -62,8 +62,8 @@ graph TD
 
 | Type | Defined in | Purpose |
 |------|-----------|---------|
-| [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) | `orchestrator/schemas_model.py` | User-facing model spec: parameters, likelihoods, roles |
-| [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | `utils/causal_spec.py` | DAG edges, construct metadata, temporal granularity |
+| [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) | `artifacts/model_spec.py` | User-facing model spec: parameters, likelihoods, roles |
+| [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | `artifacts/causal_spec.py` | DAG edges, construct metadata, temporal granularity |
 | `SSMSpec` | `models/ssm/model.py` | Flat structural SSM artifact: dimensions, numeric templates, boolean masks, distributions |
 | `SSMPriors` | `models/ssm/model.py` | Prior distributions for all SSM parameters |
 | `SSMStructureRuntime` | `models/ssm/structure_runtime.py` | Derived runtime structure view: canonical free-entry order, index maps, assembly helpers, cached covariance templates |

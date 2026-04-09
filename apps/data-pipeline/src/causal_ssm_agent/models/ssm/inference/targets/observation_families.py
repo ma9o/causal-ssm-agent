@@ -23,15 +23,15 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core as jax_core
 
+from causal_ssm_agent.artifacts.model_spec import (
+    VALID_LINKS_FOR_DISTRIBUTION,
+    DistributionFamily,
+    LinkFunction,
+)
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.inference.targets.emissions import (
     categorical_probabilities,
     ordered_logistic_probabilities,
-)
-from causal_ssm_agent.orchestrator.schemas_model import (
-    VALID_LINKS_FOR_DISTRIBUTION,
-    DistributionFamily,
-    LinkFunction,
 )
 
 if TYPE_CHECKING:
@@ -416,7 +416,7 @@ def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarr
         key,
         jnp.log(jnp.maximum(probs, NUMERICAL_EPSILON)),
         axis=-1,
-    ).astype(jnp.float32)
+    ).astype(jnp.float64)
 
 
 def _ppc_gaussian(
@@ -439,7 +439,7 @@ def _ppc_poisson(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     rate = jnp.exp(loc)
-    return jax.random.poisson(key, rate).astype(jnp.float32)
+    return jax.random.poisson(key, rate).astype(jnp.float64)
 
 
 def _ppc_gamma_log(
@@ -464,13 +464,13 @@ def _ppc_gamma_inverse(
 def _ppc_bernoulli_logit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return jax.random.bernoulli(key, jax.nn.sigmoid(loc)).astype(jnp.float32)
+    return jax.random.bernoulli(key, jax.nn.sigmoid(loc)).astype(jnp.float64)
 
 
 def _ppc_bernoulli_probit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return jax.random.bernoulli(key, jax.scipy.stats.norm.cdf(loc)).astype(jnp.float32)
+    return jax.random.bernoulli(key, jax.scipy.stats.norm.cdf(loc)).astype(jnp.float64)
 
 
 def _ppc_negative_binomial(
@@ -482,7 +482,7 @@ def _ppc_negative_binomial(
     return jax.random.poisson(
         key_poisson,
         jnp.maximum(gamma_draw, NUMERICAL_EPSILON),
-    ).astype(jnp.float32)
+    ).astype(jnp.float64)
 
 
 def _ppc_beta_logit(

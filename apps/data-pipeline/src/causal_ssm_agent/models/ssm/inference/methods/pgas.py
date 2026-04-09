@@ -35,6 +35,7 @@ from numpyro.infer import SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoMultivariateNormal
 from numpyro.optim import ClippedAdam
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
@@ -64,7 +65,6 @@ from causal_ssm_agent.models.ssm.inference.utils import (
     _discover_sites,
     extract_constrained_samples,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
@@ -427,7 +427,7 @@ def _csmc_sweep(
     # ---- Select trajectory from final weights ----
     _, final_log_w, final_key = final_carry
     sel_key, out_key = random.split(final_key)
-    selected = random.categorical(sel_key, final_log_w)
+    selected = random.categorical(sel_key, final_log_w).astype(all_ancestors.dtype)
 
     # ---- Trace back through ancestor indices ----
     def traceback_step(k, inputs):
@@ -467,6 +467,18 @@ def _csmc_sweep_support_aware(
     manifest_cov,
 ):
     """PGAS CSMC sweep for interval-summary observation semantics."""
+    ref_traj = jnp.asarray(ref_traj, dtype=jnp.float64)
+    Ad = jnp.asarray(Ad, dtype=jnp.float64)
+    Qd = jnp.asarray(Qd, dtype=jnp.float64)
+    chol_Qd = jnp.asarray(chol_Qd, dtype=jnp.float64)
+    cd = jnp.asarray(cd, dtype=jnp.float64)
+    t0_mean = jnp.asarray(t0_mean, dtype=jnp.float64)
+    t0_cov = jnp.asarray(t0_cov, dtype=jnp.float64)
+    observations = jnp.asarray(observations, dtype=jnp.float64)
+    obs_mask_float = jnp.asarray(obs_mask_float, dtype=jnp.float64)
+    lambda_mat = jnp.asarray(lambda_mat, dtype=jnp.float64)
+    manifest_means = jnp.asarray(manifest_means, dtype=jnp.float64)
+    manifest_cov = jnp.asarray(manifest_cov, dtype=jnp.float64)
     _T, n_l = ref_traj.shape
     N = n_particles
     jitter = jnp.eye(n_l) * 1e-6
@@ -481,9 +493,10 @@ def _csmc_sweep_support_aware(
     assert observation_operator.curr_coeffs is not None
     assert observation_operator.interval_weights is not None
     assert observation_operator.emission_slots is not None
-    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=observations.dtype)
-    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=observations.dtype)
-    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=observations.dtype)
+    runtime_dtype = observations.dtype
+    prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=runtime_dtype)
+    curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=runtime_dtype)
+    interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=runtime_dtype)
     emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
 
     def _obs_increment(
@@ -542,7 +555,7 @@ def _csmc_sweep_support_aware(
     responses_0 = jax.vmap(lambda x: obs_kernel.response_fn(lambda_mat @ x + manifest_means))(
         particles_0
     )
-    zeros = observation_operator.empty_accumulators(observations.dtype, (N,))
+    zeros = observation_operator.empty_accumulators(runtime_dtype, (N,))
     state_0 = _SupportAwarePGASState(
         latent=particles_0,
         response=responses_0,
@@ -557,7 +570,7 @@ def _csmc_sweep_support_aware(
             lambda_mat,
             manifest_means,
             manifest_cov,
-            obs_mask_float[0] * observation_operator.point_like_mask(observations.dtype),
+            obs_mask_float[0] * observation_operator.point_like_mask(runtime_dtype),
         )
     )(particles_0)
 
@@ -770,7 +783,7 @@ def _csmc_sweep_support_aware(
     all_particles_full = jnp.concatenate([state_0.latent[None], all_particles], axis=0)
     _, final_log_w, final_key = final_carry
     sel_key, out_key = random.split(final_key)
-    selected = random.categorical(sel_key, final_log_w)
+    selected = random.categorical(sel_key, final_log_w).astype(all_ancestors.dtype)
 
     def traceback_step(k, inputs):
         ancestors_t, particles_t = inputs
@@ -967,7 +980,7 @@ def fit_pgas(
 
     # Observation mask
     obs_mask = ~jnp.isnan(observations)
-    obs_mask_float = obs_mask.astype(jnp.float32)
+    obs_mask_float = obs_mask.astype(jnp.float64)
     clean_obs = jnp.nan_to_num(observations, nan=0.0)
 
     # Time intervals

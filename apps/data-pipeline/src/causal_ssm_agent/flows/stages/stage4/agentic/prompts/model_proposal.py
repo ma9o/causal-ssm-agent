@@ -4,7 +4,7 @@ The Stage 4 prompt builders narrow the LLM context to one active decision scope
 at a time.
 
 NOTE: Keep distributions/links in sync with VALID_LIKELIHOODS_FOR_DTYPE
-and VALID_LINKS_FOR_DISTRIBUTION in schemas_model.py, and prior families
+and VALID_LINKS_FOR_DISTRIBUTION in artifacts/model_spec.py, and prior families
 in causal_ssm_agent.distributions.PriorDistributionFamily
 """
 
@@ -18,7 +18,7 @@ from causal_ssm_agent.distributions import (
     render_observation_link_guidance_bullets,
     render_prior_distribution_guidance_bullets,
 )
-from causal_ssm_agent.orchestrator.stage4_feedback import (
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4ScopeSnapshot,
     render_stage4_validation_feedback,
 )

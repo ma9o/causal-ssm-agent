@@ -23,6 +23,7 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.models.ssm.discretization import discretize_system, discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_transition_kernel,
@@ -35,7 +36,6 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     summarize_support_observation,
     support_observation_log_prob,
 )
-from causal_ssm_agent.orchestrator.schemas_model import DistributionFamily, LinkFunction
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -82,7 +82,7 @@ def _systematic_resampling(key: KeyArray, logits: ArrayLike, n: int) -> Array:  
     cumsum = jnp.cumsum(weights)
     us = (random.uniform(key, ()) + jnp.arange(N)) / N
     idx = jnp.searchsorted(cumsum, us)
-    return jnp.clip(idx, 0, N - 1)
+    return jnp.clip(idx, 0, N - 1).astype(jnp.int64)
 
 
 # =============================================================================
@@ -166,7 +166,7 @@ class SSMAdapter:
         H = params["lambda_mat"]
         d = params["manifest_means"]
         R = params["manifest_cov"]
-        mask_float = obs_mask.astype(jnp.float32)
+        mask_float = obs_mask.astype(jnp.float64)
         extra = {k: v for k, v in params.items() if k.startswith("obs_")}
         measurement_semantics = compile_measurement_semantics(
             self.manifest_dists,
@@ -302,6 +302,8 @@ class ParticleLikelihood:
 
         n = self.n_latent
 
+        observations = jnp.asarray(observations, dtype=jnp.float64)
+        time_intervals = jnp.asarray(time_intervals, dtype=jnp.float64)
         if obs_mask is None:
             obs_mask = ~jnp.isnan(observations)
 
@@ -409,13 +411,13 @@ class ParticleLikelihood:
             ) -> ScalarArray:
                 obs = model_inputs["observation"]
                 mask = model_inputs["obs_mask"]
-                mask_float = mask.astype(jnp.float32)
+                mask_float = mask.astype(jnp.float64)
                 return obs_kernel.emission_fn(obs, state, H, d_meas, R, mask_float)
 
         # Build model_inputs with leading temporal dimension T.
         model_inputs = {
             "observation": clean_obs,
-            "obs_mask": obs_mask.astype(jnp.float32),
+            "obs_mask": obs_mask.astype(jnp.float64),
             "Ad": Ad,
             "cd": cd,
             "Qd": Qd,
@@ -564,7 +566,7 @@ class ParticleLikelihood:
             model_inputs: ArrayTreeLike,
         ) -> ScalarArray:
             obs = model_inputs["observation"]
-            mask_float = model_inputs["obs_mask"].astype(jnp.float32)
+            mask_float = model_inputs["obs_mask"].astype(jnp.float64)
             emission_slots = model_inputs["support_emission_slot"]
             summary = summarize_support_observation(
                 observation_operator,
@@ -590,14 +592,14 @@ class ParticleLikelihood:
 
         model_inputs = {
             "observation": observations,
-            "obs_mask": obs_mask.astype(jnp.float32),
+            "obs_mask": obs_mask.astype(jnp.float64),
             "Ad": Ad,
             "cd": cd,
             "Qd": Qd,
             "chol_Qd": chol_Qd,
-            "support_prev_coeff": jnp.asarray(observation_operator.prev_coeffs, dtype=jnp.float32),
-            "support_curr_coeff": jnp.asarray(observation_operator.curr_coeffs, dtype=jnp.float32),
-            "support_weight": jnp.asarray(observation_operator.interval_weights, dtype=jnp.float32),
+            "support_prev_coeff": jnp.asarray(observation_operator.prev_coeffs, dtype=jnp.float64),
+            "support_curr_coeff": jnp.asarray(observation_operator.curr_coeffs, dtype=jnp.float64),
+            "support_weight": jnp.asarray(observation_operator.interval_weights, dtype=jnp.float64),
             "support_emission_slot": jnp.asarray(
                 observation_operator.emission_slots, dtype=jnp.int32
             ),

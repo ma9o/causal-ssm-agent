@@ -24,6 +24,54 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows import stage_registry
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+    Stage4GroundingResult,
+    make_stage4_grounding_result,
+    make_stage4_validation_packet,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
+    _activate_prior_phase,
+    _set_block_cursor,
+    _set_done_cursor,
+    _set_model_spec_lock_cursor,
+    _set_repair_barrier_cursor,
+    get_active_plan_block,
+    get_stage4_phase,
+    make_stage4_runtime,
+    project_stage4_graph,
+    project_stage4_initial_state,
+    project_stage4_snapshot,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    Stage4FrontierBlock,
+    Stage4Plan,
+    Stage4Skeleton,
+    build_prior_cards,
+    build_stage4_plan,
+    derive_deterministic_spec,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import (
+    Stage4Messages,
+    format_stage4_plan_status,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer import (
+    _build_model_spec_from_decisions,
+    _compute_stage4_validate_step_with_transitions,
+    compute_stage4_validate_step,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+    ResolvedRepairScope,
+    _classify_prior_failure_blocks,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+    Stage4AcceptedState,
+    Stage4RepairCampaignState,
+    Stage4Runtime,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_submission import get_stage4_block_handler
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
 from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 from causal_ssm_agent.flows.stages.stage4.flow import (
     _stage4_generate_config,
@@ -41,54 +89,6 @@ from causal_ssm_agent.models.ssm_compilation import (
 from causal_ssm_agent.models.ssm_compilation import (
     compile_ssm_inputs_from_model_spec,
 )
-from causal_ssm_agent.orchestrator.stage4_agent_loop import run_stage4
-from causal_ssm_agent.orchestrator.stage4_feedback import (
-    Stage4GroundingResult,
-    make_stage4_grounding_result,
-    make_stage4_validation_packet,
-)
-from causal_ssm_agent.orchestrator.stage4_navigation import (
-    _activate_prior_phase,
-    _set_block_cursor,
-    _set_done_cursor,
-    _set_model_spec_lock_cursor,
-    _set_repair_barrier_cursor,
-    get_active_plan_block,
-    get_stage4_phase,
-    make_stage4_runtime,
-    project_stage4_graph,
-    project_stage4_initial_state,
-    project_stage4_snapshot,
-)
-from causal_ssm_agent.orchestrator.stage4_orchestrator import (
-    Stage4FrontierBlock,
-    Stage4Plan,
-    Stage4Skeleton,
-    build_prior_cards,
-    build_stage4_plan,
-    derive_deterministic_spec,
-)
-from causal_ssm_agent.orchestrator.stage4_prompt_context import (
-    Stage4Messages,
-    format_stage4_plan_status,
-)
-from causal_ssm_agent.orchestrator.stage4_reducer import (
-    _build_model_spec_from_decisions,
-    _compute_stage4_validate_step_with_transitions,
-    compute_stage4_validate_step,
-)
-from causal_ssm_agent.orchestrator.stage4_repair import (
-    ResolvedRepairScope,
-    _classify_prior_failure_blocks,
-)
-from causal_ssm_agent.orchestrator.stage4_session import Stage4Session
-from causal_ssm_agent.orchestrator.stage4_state import (
-    Stage4AcceptedState,
-    Stage4RepairCampaignState,
-    Stage4Runtime,
-)
-from causal_ssm_agent.orchestrator.stage4_submission import get_stage4_block_handler
-from causal_ssm_agent.orchestrator.stage4_types import Stage4Deps
 from causal_ssm_agent.utils.llm import LLMTrace, make_generate_fn
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 from causal_ssm_agent.workers.schemas_prior import (
@@ -2679,7 +2679,7 @@ class TestSSMPriorConversion:
 
     def test_compile_ssm_inputs_validates_dict_once(self, simple_model_spec, simple_priors):
         """Compilation should validate a dict spec once, then pass the parsed object through."""
-        from causal_ssm_agent.orchestrator.schemas_model import ModelSpec
+        from causal_ssm_agent.artifacts import ModelSpec
 
         with patch.object(ModelSpec, "model_validate", wraps=ModelSpec.model_validate) as validate:
             compile_ssm_inputs_from_model_spec(simple_model_spec, simple_priors)
@@ -3659,27 +3659,27 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         return []
 
     monkeypatch.setattr(
-        "causal_ssm_agent.orchestrator.stage4_agent_loop.derive_deterministic_spec",
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.derive_deterministic_spec",
         stub_derive_deterministic_spec,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_model_topology",
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_model_topology",
         stub_build_model_topology,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_distribution_cards",
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_distribution_cards",
         stub_build_distribution_cards,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_construct_scale_cards",
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_construct_scale_cards",
         stub_build_construct_scale_cards,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_prior_cards",
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_prior_cards",
         stub_build_prior_cards,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.orchestrator.stage4_agent_loop.build_stage4_plan",
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_stage4_plan",
         lambda _causal_spec, _skeleton: _make_plan(),
     )
 
@@ -4120,7 +4120,7 @@ class TestStage4Mechanics:
             }, "BLOCK ACCEPTED"
 
         monkeypatch.setattr(
-            "causal_ssm_agent.orchestrator.stage4_partial_drift.validate_dynamics_block_partial_drift",
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_partial_drift.validate_dynamics_block_partial_drift",
             lambda **_kwargs: (
                 PriorValidationResult(
                     parameter="rho_sleep",
@@ -4859,7 +4859,7 @@ class TestStage4Mechanics:
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.orchestrator.stage4_partial_drift.validate_effect_block_partial_drift",
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_partial_drift.validate_effect_block_partial_drift",
             lambda **_kwargs: None,
         )
 
@@ -5176,7 +5176,7 @@ class TestStage4Mechanics:
         assert repair_plan.block_ids == ("dynamics:activity+sleep", "effects:sleep")
 
     def test_scc_repair_plan_narrows_effect_prompt_to_internal_scc_parameters(self):
-        from causal_ssm_agent.orchestrator.stage4_repair import build_repair_plan
+        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import build_repair_plan
 
         causal_spec = _with_positive_indicator_polarity(
             {
@@ -5302,7 +5302,9 @@ class TestStage4Mechanics:
     def test_validate_dynamics_block_partial_drift_treats_budget_overrun_as_advisory(
         self, monkeypatch
     ):
-        from causal_ssm_agent.orchestrator import stage4_partial_drift as partial_drift_module
+        from causal_ssm_agent.flows.stages.stage4.agentic import (
+            stage4_partial_drift as partial_drift_module,
+        )
 
         state = partial_drift_module._PartialDriftState(
             latent_names=("activity", "sleep"),
@@ -5340,7 +5342,9 @@ class TestStage4Mechanics:
     def test_validate_effect_block_partial_drift_treats_budget_overrun_as_advisory(
         self, monkeypatch
     ):
-        from causal_ssm_agent.orchestrator import stage4_partial_drift as partial_drift_module
+        from causal_ssm_agent.flows.stages.stage4.agentic import (
+            stage4_partial_drift as partial_drift_module,
+        )
 
         state = partial_drift_module._PartialDriftState(
             latent_names=("activity", "sleep"),
@@ -5376,7 +5380,9 @@ class TestStage4Mechanics:
         assert result is None
 
     def test_compile_failure_route_prefers_true_indicator_owner_for_exact_match(self):
-        from causal_ssm_agent.orchestrator.stage4_repair import _classify_compile_failure_route
+        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+            _classify_compile_failure_route,
+        )
 
         causal_spec, skeleton, plan, _runtime, _data_for_model = _make_stage4_mechanics_context()
         del causal_spec, skeleton
