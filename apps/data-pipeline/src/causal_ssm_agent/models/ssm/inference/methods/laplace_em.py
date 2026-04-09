@@ -41,12 +41,12 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 
 if TYPE_CHECKING:
     from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-    from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm.inference.targets.base import (
         CTParams,
         InitialStateParams,
         MeasurementParams,
     )
+    from causal_ssm_agent.models.ssm.inference.types import InferenceResult
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
 logger = get_prefect_logger(__name__)

@@ -35,12 +35,12 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from causal_ssm_agent.models.ssm.inference import InferenceResult
     from causal_ssm_agent.models.ssm.inference.targets.base import (
         CTParams,
         InitialStateParams,
         MeasurementParams,
     )
+    from causal_ssm_agent.models.ssm.inference.types import InferenceResult
 # ---------------------------------------------------------------------------
 # Variational parameters and sampling
 # ---------------------------------------------------------------------------

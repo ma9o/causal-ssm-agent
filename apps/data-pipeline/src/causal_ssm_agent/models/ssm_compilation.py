@@ -25,7 +25,8 @@ from causal_ssm_agent.models.ssm_spec_translation import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from causal_ssm_agent.models.ssm.priors import SSMPriors
     from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
 
@@ -162,7 +163,7 @@ def compile_ssm_inputs_from_spec(
     dict[tuple[int, int], float],
 ]:
     """Finalize executable SSM inputs from an explicit translated SSMSpec surface."""
-    from causal_ssm_agent.models.ssm.model import SSMPriors
+    from causal_ssm_agent.models.ssm.priors import SSMPriors
 
     resolved_model_spec = (
         ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec

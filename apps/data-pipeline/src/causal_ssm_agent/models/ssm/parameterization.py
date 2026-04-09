@@ -37,7 +37,8 @@ from causal_ssm_agent.models.ssm.covariance_utils import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from causal_ssm_agent.models.ssm.priors import SSMPriors
     from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 
 
@@ -842,7 +843,7 @@ def assemble_extra_params_from_registry(
     registry: list[SiteDescriptor],
 ) -> dict[str, jnp.ndarray]:
     """Assemble likelihood extra parameters using registry metadata as authority."""
-    from causal_ssm_agent.models.ssm.model import assemble_sampled_extra_params
+    from causal_ssm_agent.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 
     return assemble_sampled_extra_params(
         spec,
@@ -1258,7 +1259,7 @@ def build_prior_runtime_state(
     The returned dict has fixed structure per topology — only leaf values
     change when priors change.
     """
-    from causal_ssm_agent.models.ssm.model import SSMPriors as SSMPriorsClass
+    from causal_ssm_agent.models.ssm.priors import SSMPriors as SSMPriorsClass
 
     if priors is None:
         priors = SSMPriorsClass()

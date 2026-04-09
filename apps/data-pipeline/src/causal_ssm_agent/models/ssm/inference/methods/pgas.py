@@ -39,7 +39,6 @@ from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFuncti
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.inference.engines.mcmc_utils import (
     HMC_TARGET_ACCEPT,
     MALA_TARGET_ACCEPT,
@@ -59,6 +58,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     support_observation_log_prob,
     trajectory_observation_log_prob,
 )
+from causal_ssm_agent.models.ssm.inference.types import InferenceResult
 from causal_ssm_agent.models.ssm.inference.utils import (
     _assemble_deterministics,
     _deterministics_to_likelihood_inputs,

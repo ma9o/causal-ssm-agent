@@ -44,8 +44,8 @@ from blackjax.smc.resampling import systematic as _systematic_resample
 from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference import InferenceResult
 from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
+from causal_ssm_agent.models.ssm.inference.types import InferenceResult
 from causal_ssm_agent.models.ssm.inference.utils import (
     _build_eval_fns,
     _discover_sites,
