@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -9,24 +10,37 @@ from pydantic import ValidationError
 
 from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import DistributionChoice
 
-from .stage4_orchestrator import (
-    Stage4FrontierBlock,
+from .stage4_block_specs import (
+    Stage4BlockKindSpec,
     Stage4PromptScopePolicy,
-    get_stage4_prompt_scope_policy,
+    get_stage4_block_kind_spec,
+    get_stage4_block_kinds,
 )
+from .stage4_text import summarize_stage4_names
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from .stage4_orchestrator import Stage4FrontierBlock
 
-def _summarize_names(names: list[str], *, limit: int = 8) -> str:
-    """Render a compact preview of names."""
-    if not names:
-        return "(none)"
-    preview = ", ".join(f"`{name}`" for name in names[:limit])
-    if len(names) <= limit:
-        return preview
-    return f"{preview}, ... (+{len(names) - limit} more)"
+
+def _serialize_stage4_transition_priors(
+    block: Stage4FrontierBlock,
+    priors: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Serialize one block's accepted priors for transition events."""
+    serialized: list[dict[str, Any]] = []
+    for parameter_name in block.parameter_names:
+        prior = priors.get(parameter_name)
+        if not isinstance(prior, dict):
+            continue
+        item: dict[str, Any] = {"parameter": parameter_name}
+        for key in ("distribution", "params", "reasoning"):
+            value = prior.get(key)
+            if value is not None:
+                item[key] = value
+        serialized.append(item)
+    return serialized
 
 
 def _enabled_block_tool_names(
@@ -46,22 +60,265 @@ def _enabled_block_tool_names(
     return tuple(enabled)
 
 
+def _build_indicator_choice_transition(
+    block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build the accepted transition payload for an indicator decision."""
+    choice = normalized.get("distribution_choice")
+    if not isinstance(choice, dict):
+        return None
+    return {
+        "block_id": block.id,
+        "status": "accepted",
+        "detail_kind": "indicator_choice",
+        "variable": choice.get("variable"),
+        "distribution": choice.get("distribution"),
+        "link": choice.get("link"),
+        "reasoning": choice.get("reasoning"),
+    }
+
+
+def _build_review_approval_transition(
+    block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build the accepted transition payload for a global review approval."""
+    if normalized.get("decision") != "approve":
+        return None
+    return {
+        "block_id": block.id,
+        "status": "accepted",
+        "detail_kind": "review_approval",
+        "reasoning": normalized.get("reasoning"),
+    }
+
+
+def _build_prior_bundle_transition(
+    block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build the accepted transition payload for one prior bundle."""
+    priors = normalized.get("priors")
+    if not isinstance(priors, dict):
+        return None
+    return {
+        "block_id": block.id,
+        "status": "accepted",
+        "detail_kind": "prior_bundle",
+        "parameter_names": list(block.parameter_names),
+        "priors": _serialize_stage4_transition_priors(block, priors),
+    }
+
+
+def _indicator_submission_example(
+    block: Stage4FrontierBlock,
+    *,
+    prior_cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Example payload for indicator-decision blocks."""
+    del prior_cards
+    payload = block.payload
+    variable = block.variable_names[0]
+    distribution = payload.get("fixed_distribution")
+    if not isinstance(distribution, str):
+        valid_distributions = payload.get("valid_distributions")
+        if not isinstance(valid_distributions, list) or not valid_distributions:
+            raise ValueError(f"Indicator block {block.id!r} is missing valid distributions")
+        distribution = str(valid_distributions[0])
+
+    valid_links = payload.get("valid_links")
+    if isinstance(valid_links, list) and valid_links:
+        link = str(valid_links[0])
+    else:
+        link_options = payload.get("link_options")
+        if not isinstance(link_options, dict):
+            raise ValueError(f"Indicator block {block.id!r} is missing link options")
+        candidate_links = link_options.get(distribution)
+        if not isinstance(candidate_links, list) or not candidate_links:
+            raise ValueError(
+                f"Indicator block {block.id!r} is missing links for distribution {distribution!r}"
+            )
+        link = str(candidate_links[0])
+
+    return {
+        "variable": variable,
+        "distribution": distribution,
+        "link": link,
+        "reasoning": "Example only: choose one allowed distribution/link pair for the active indicator.",
+    }
+
+
+def _example_prior_payload(prior_card: dict[str, Any]) -> dict[str, Any]:
+    """Return one valid example prior payload for a concrete prompt-local prior card."""
+    parameter = str(prior_card["parameter"])
+    role = str(prior_card.get("role") or "")
+    constraint = str(prior_card.get("constraint") or "")
+
+    if role == "ar_coefficient" or constraint == "unit_interval":
+        dist, params, reason = (
+            "Beta",
+            {"alpha": 2.0, "beta": 2.0},
+            "unit-interval persistence prior for the active AR parameter.",
+        )
+    elif role == "fixed_effect":
+        dist, params, reason = (
+            "Normal",
+            {"mu": 0.0, "sigma": 0.2},
+            "conservative zero-centered lagged-effect prior for the active edge.",
+        )
+    elif role == "initial_state_mean":
+        dist, params, reason = (
+            "Normal",
+            {"mu": 0.0, "sigma": 1.0},
+            (
+                "weakly informative latent-scale initial-state mean; do not copy "
+                "raw indicator means or log-means unless the construct is explicitly identified "
+                "on that observed scale."
+            ),
+        )
+    elif role in {"residual_sd", "initial_state_sd", "static_state_sd", "measurement_error_sd"}:
+        dist, params, reason = (
+            "HalfNormal",
+            {"sigma": 1.0},
+            "positive scale prior for the active variance or measurement-noise parameter.",
+        )
+    elif role == "observation_hyperparameter_positive":
+        dist, params, reason = (
+            "Gamma",
+            {"concentration": 5.0, "rate": 1.0},
+            "positive observation-family hyperparameter prior.",
+        )
+    elif role == "observation_hyperparameter":
+        dist, params, reason = (
+            "Normal",
+            {"mu": 0.0, "sigma": 1.0},
+            "real-valued observation-family hyperparameter prior.",
+        )
+    elif role == "loading" and constraint == "negative":
+        dist, params, reason = (
+            "TruncatedNormal",
+            {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0},
+            "negative loading prior consistent with the locked indicator polarity.",
+        )
+    elif role == "loading":
+        dist, params, reason = (
+            "HalfNormal",
+            {"sigma": 1.0},
+            "positive loading prior consistent with the locked indicator polarity.",
+        )
+    elif role in {"correlation", "initial_state_correlation"} or constraint == "correlation":
+        dist, params, reason = (
+            "TruncatedNormal",
+            {"mu": 0.0, "sigma": 0.3, "lower": -1.0, "upper": 1.0},
+            "bounded correlation prior centered at zero.",
+        )
+    elif constraint == "positive":
+        dist, params, reason = (
+            "HalfNormal",
+            {"sigma": 1.0},
+            "positive scale prior for the active parameter.",
+        )
+    elif constraint == "negative":
+        dist, params, reason = (
+            "TruncatedNormal",
+            {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0},
+            "negative prior consistent with the active parameter constraint.",
+        )
+    else:
+        dist, params, reason = (
+            "Normal",
+            {"mu": 0.0, "sigma": 1.0},
+            "weakly informative unconstrained prior for the active parameter.",
+        )
+
+    return {
+        "parameter": parameter,
+        "distribution": dist,
+        "params": params,
+        "sources": [],
+        "reasoning": f"Example only: {reason}",
+    }
+
+
+def _prior_submission_example(
+    block: Stage4FrontierBlock,
+    *,
+    prior_cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Example payload for prior-authoring blocks."""
+    if not prior_cards:
+        raise ValueError(f"Prior block {block.id!r} is missing prompt-local prior cards")
+    prior_payload = _example_prior_payload(prior_cards[0])
+    parameter = str(prior_payload["parameter"])
+    return {"priors": {parameter: prior_payload}}
+
+
+def _global_review_submission_example(
+    block: Stage4FrontierBlock,
+    *,
+    prior_cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Example payload for compact global-review blocks."""
+    del block, prior_cards
+    return {
+        "decision": "approve",
+        "reasoning": "The locked likelihoods and loading orientations are coherent for prior elicitation.",
+    }
+
+
+def _render_submission_example(
+    submission_tool_name: str,
+    example: dict[str, Any],
+) -> str:
+    """Render one block-local submit-tool example payload."""
+    return (
+        f"Use `{submission_tool_name}` with exactly this argument object:\n\n"
+        "```json\n" + json.dumps(example, indent=2) + "\n```"
+    )
+
+
+_ACCEPTED_TRANSITION_BUILDERS = {
+    "indicator_choice": _build_indicator_choice_transition,
+    "review_approval": _build_review_approval_transition,
+    "prior_bundle": _build_prior_bundle_transition,
+}
+_SUBMISSION_EXAMPLE_BUILDERS = {
+    "indicator_choice": _indicator_submission_example,
+    "global_review_decision": _global_review_submission_example,
+    "prior_bundle": _prior_submission_example,
+}
+
+
 @dataclass(frozen=True)
 class Stage4BlockHandler:
     """Per-kind Stage 4 prompt and submission behavior."""
 
-    kind: str
-    prompt_policy: Stage4PromptScopePolicy
+    spec: Stage4BlockKindSpec
     normalize_submission: Callable[
         [Stage4FrontierBlock, dict[str, Any]],
         tuple[dict[str, Any] | None, str | None],
     ]
-    include_prior_source_guidance: bool = False
+
+    @property
+    def kind(self) -> str:
+        """Return the block kind handled by this object."""
+        return self.spec.kind
+
+    @property
+    def prompt_policy(self) -> Stage4PromptScopePolicy:
+        """Return the prompt policy for this handler."""
+        return self.spec.prompt_policy
+
+    @property
+    def submission_payload_kind(self) -> str:
+        """Return the normalized submission payload kind for this block kind."""
+        return self.spec.submission_payload_kind
 
     @property
     def submission_tool_name(self) -> str:
         """Return the primary submit tool required for this block kind."""
-        return self.prompt_policy.allowed_tool_names[0]
+        return self.spec.prompt_policy.allowed_tool_names[0]
 
     def allowed_tool_names(
         self,
@@ -82,7 +339,28 @@ class Stage4BlockHandler:
         enable_literature: bool,
     ) -> bool:
         """Whether the prompt should mention authored literature-source payloads."""
-        return self.include_prior_source_guidance and enable_literature
+        return self.spec.include_prior_source_guidance and enable_literature
+
+    def build_accepted_transition(
+        self,
+        block: Stage4FrontierBlock,
+        normalized: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Build the accepted transition payload for one normalized submission."""
+        return _ACCEPTED_TRANSITION_BUILDERS[self.spec.accepted_transition_kind](block, normalized)
+
+    def render_submission_example(
+        self,
+        block: Stage4FrontierBlock,
+        *,
+        prior_cards: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Render the block-local submit-tool example payload."""
+        example = _SUBMISSION_EXAMPLE_BUILDERS[self.submission_payload_kind](
+            block,
+            prior_cards=prior_cards or [],
+        )
+        return _render_submission_example(self.submission_tool_name, example)
 
 
 def validate_stage4_submission_payload(
@@ -149,7 +427,8 @@ def _normalize_prior_submission(
     if invalid:
         return (
             None,
-            f"VALIDATION ERRORS:\n- priors outside the active block: {_summarize_names(invalid)}",
+            "VALIDATION ERRORS:\n- priors outside the active block: "
+            f"{summarize_stage4_names(invalid)}",
         )
     return {"priors": raw_priors}, None
 
@@ -191,7 +470,7 @@ def _normalize_global_review_submission(
         return (
             None,
             "VALIDATION ERRORS:\n"
-            f"- `reopen_block_ids` must be drawn from {_summarize_names(sorted(allowed_ids))}",
+            f"- `reopen_block_ids` must be drawn from {summarize_stage4_names(sorted(allowed_ids))}",
         )
     return {
         "decision": decision,
@@ -202,32 +481,19 @@ def _normalize_global_review_submission(
     }, None
 
 
-_BLOCK_HANDLERS: dict[str, Stage4BlockHandler] = {
-    "indicator_decision": Stage4BlockHandler(
-        kind="indicator_decision",
-        prompt_policy=get_stage4_prompt_scope_policy("indicator_decision"),
-        normalize_submission=_normalize_indicator_submission,
-    ),
-    "global_review": Stage4BlockHandler(
-        kind="global_review",
-        prompt_policy=get_stage4_prompt_scope_policy("global_review"),
-        normalize_submission=_normalize_global_review_submission,
-    ),
+_NORMALIZE_SUBMISSION_BY_PAYLOAD_KIND = {
+    "indicator_choice": _normalize_indicator_submission,
+    "global_review_decision": _normalize_global_review_submission,
+    "prior_bundle": _normalize_prior_submission,
 }
-for _prior_kind in (
-    "measurement_prior",
-    "observation_prior",
-    "dynamics_prior",
-    "effect_prior",
-    "correlation_prior",
-    "global_prior_review",
-):
-    _BLOCK_HANDLERS[_prior_kind] = Stage4BlockHandler(
-        kind=_prior_kind,
-        prompt_policy=get_stage4_prompt_scope_policy(_prior_kind),
-        normalize_submission=_normalize_prior_submission,
-        include_prior_source_guidance=True,
+_BLOCK_HANDLERS: dict[str, Stage4BlockHandler] = {
+    kind: Stage4BlockHandler(
+        spec=spec,
+        normalize_submission=_NORMALIZE_SUBMISSION_BY_PAYLOAD_KIND[spec.submission_payload_kind],
     )
+    for kind in get_stage4_block_kinds()
+    for spec in (get_stage4_block_kind_spec(kind),)
+}
 
 
 def get_stage4_block_handler(kind: str) -> Stage4BlockHandler:

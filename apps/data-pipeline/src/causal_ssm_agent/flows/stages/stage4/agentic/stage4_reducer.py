@@ -21,20 +21,19 @@ from .stage4_events import (
 )
 from .stage4_feedback import (
     Stage4ValidationPacket,
-    Stage4ValidationStatus,
-    make_stage4_validation_packet,
+    build_validation_packet_for_block,
     render_stage4_validation_feedback,
     should_store_stage4_validation_packet,
 )
 from .stage4_navigation import (
-    _block_is_accepted,
-    _next_pending_block,
-    _pending_repair_campaign_block_ids,
     apply_stage4_barrier_validation_success,
     apply_stage4_block_acceptance,
     apply_stage4_repair_plan,
+    block_is_accepted,
     get_active_plan_block,
     get_active_prompt_block,
+    next_pending_block,
+    pending_repair_campaign_block_ids,
 )
 from .stage4_repair import (
     ResolvedRepairPlan,
@@ -52,11 +51,14 @@ from .stage4_state import (
     Stage4Runtime,
 )
 from .stage4_submission import get_stage4_block_handler, validate_stage4_submission_payload
+from .stage4_text import summarize_stage4_names
 
 if TYPE_CHECKING:
     from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 
-    from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan, Stage4Skeleton
+    from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan
+    from .stage4_skeleton import Stage4Skeleton
+    from .stage4_submission import Stage4BlockHandler
     from .stage4_types import Stage4Deps
 
 _RECOVERABLE_STAGE4_REDUCER_ERRORS = (
@@ -128,39 +130,6 @@ class _Stage4PriorSubmissionState:
         return render_stage4_validation_feedback(self.validation_packet)
 
 
-def _summarize_names(names: list[str], *, limit: int = 8) -> str:
-    """Render a compact preview of names."""
-    if not names:
-        return "(none)"
-    preview = ", ".join(f"`{name}`" for name in names[:limit])
-    if len(names) <= limit:
-        return preview
-    return f"{preview}, ... (+{len(names) - limit} more)"
-
-
-def _build_validation_packet_for_block(
-    *,
-    block: Stage4FrontierBlock | None,
-    status: Stage4ValidationStatus,
-    feedback: str,
-    validation: AssemblyValidation | None = None,
-    changed_parameters: tuple[str, ...] = (),
-    state_retained: bool = False,
-    retain_for_next_prompt: bool = True,
-    capture_stage_output: bool = False,
-) -> Stage4ValidationPacket:
-    """Build the typed validation packet owned by the reducer."""
-    return make_stage4_validation_packet(
-        status=status,
-        feedback=feedback,
-        validation=validation,
-        active_scope_id=None if block is None else block.id,
-        changed_parameters=changed_parameters,
-        state_retained=state_retained,
-        retain_for_next_prompt=retain_for_next_prompt,
-        capture_stage_output=capture_stage_output,
-    )
-
 
 def _format_repair_campaign_feedback(
     repair_plan: ResolvedRepairPlan,
@@ -171,8 +140,8 @@ def _format_repair_campaign_feedback(
     """Render bounded repair-campaign progress for the LLM."""
     lines = [
         "REPAIR CAMPAIGN ACTIVE:",
-        f"- scope: `{repair_plan.scope_key}`",
-        f"- reason: {repair_plan.reason}",
+        f"- scope: `{repair_plan.scope.scope_key}`",
+        f"- reason: {repair_plan.scope.reason}",
     ]
     if accepted_block_id is not None:
         lines.append(f"- kept `{accepted_block_id}` as part of the repair scope")
@@ -199,80 +168,12 @@ def _format_block_saved_feedback(
     return "\n".join(lines)
 
 
-def _persist_stage4_stage_output(
+def persist_stage4_stage_output(
     runtime: Stage4Runtime,
     stage_output: dict[str, Any] | None,
 ) -> None:
     """Merge accepted Stage 4 output into reducer-owned state."""
     runtime.accepted.apply_stage_output(stage_output)
-
-
-def _serialize_stage4_transition_priors(
-    block: Stage4FrontierBlock,
-    priors: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Serialize one block's accepted priors for transition events."""
-    serialized: list[dict[str, Any]] = []
-    for parameter_name in block.parameter_names:
-        prior = priors.get(parameter_name)
-        if not isinstance(prior, dict):
-            continue
-        item: dict[str, Any] = {"parameter": parameter_name}
-        for key in ("distribution", "params", "reasoning"):
-            value = prior.get(key)
-            if value is not None:
-                item[key] = value
-        serialized.append(item)
-    return serialized
-
-
-def _make_stage4_accepted_transition(
-    block: Stage4FrontierBlock,
-    normalized: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Build the accepted transition payload for one Stage 4 block."""
-    if block.kind == "indicator_decision":
-        choice = normalized.get("distribution_choice")
-        if not isinstance(choice, dict):
-            return None
-        return {
-            "block_id": block.id,
-            "status": "accepted",
-            "detail_kind": "indicator_choice",
-            "variable": choice.get("variable"),
-            "distribution": choice.get("distribution"),
-            "link": choice.get("link"),
-            "reasoning": choice.get("reasoning"),
-        }
-
-    if block.kind == "global_review":
-        if normalized.get("decision") != "approve":
-            return None
-        return {
-            "block_id": block.id,
-            "status": "accepted",
-            "detail_kind": "review_approval",
-            "reasoning": normalized.get("reasoning"),
-        }
-
-    priors = normalized.get("priors")
-    if block.kind in {
-        "measurement_prior",
-        "observation_prior",
-        "dynamics_prior",
-        "effect_prior",
-        "correlation_prior",
-        "global_prior_review",
-    } and isinstance(priors, dict):
-        return {
-            "block_id": block.id,
-            "status": "accepted",
-            "detail_kind": "prior_bundle",
-            "parameter_names": list(block.parameter_names),
-            "priors": _serialize_stage4_transition_priors(block, priors),
-        }
-
-    return None
 
 
 def _make_stage4_reopened_transitions(
@@ -286,8 +187,8 @@ def _make_stage4_reopened_transitions(
             "block_id": block_id,
             "status": "reopened",
             "detail_kind": "revision",
-            "reason": repair_plan.reason,
-            "scope_kind": repair_plan.scope_kind,
+            "reason": repair_plan.scope.reason,
+            "scope_kind": repair_plan.scope.scope_kind,
         }
         for block_id in repair_plan.block_ids
         if block_id != accepted_block_id
@@ -296,7 +197,7 @@ def _make_stage4_reopened_transitions(
 
 def _all_model_blocks_accepted(plan: Stage4Plan, runtime: Stage4Runtime) -> bool:
     """Whether every model-decision block is accepted in runtime state."""
-    return all(_block_is_accepted(runtime, block.id) for block in plan.model_blocks)
+    return all(block_is_accepted(runtime, block.id) for block in plan.model_blocks)
 
 
 def _make_stage4_block_accepted_event(
@@ -306,12 +207,13 @@ def _make_stage4_block_accepted_event(
     stage_output: dict[str, Any] | None = None,
 ) -> Stage4BlockAcceptedEvent:
     """Build the explicit reducer event for one accepted block."""
+    handler = get_stage4_block_handler(block.kind)
     distribution_choice = normalized.get("distribution_choice")
     if not isinstance(distribution_choice, dict):
         distribution_choice = None
     return Stage4BlockAcceptedEvent(
         block_id=block.id,
-        transition_payload=_make_stage4_accepted_transition(block, normalized),
+        transition_payload=handler.build_accepted_transition(block, normalized),
         distribution_choice=distribution_choice,
         stage_output=stage_output,
     )
@@ -343,7 +245,7 @@ def _apply_stage4_event(
 ) -> tuple[dict[str, Any], ...]:
     """Apply one typed Stage 4 reducer event."""
     if isinstance(event, Stage4AcceptedStatePersistedEvent):
-        _persist_stage4_stage_output(runtime, event.stage_output)
+        persist_stage4_stage_output(runtime, event.stage_output)
         return ()
 
     if isinstance(event, Stage4BlockAcceptedEvent):
@@ -352,7 +254,7 @@ def _apply_stage4_event(
                 event.distribution_choice
             )
         if event.stage_output is not None:
-            _persist_stage4_stage_output(runtime, event.stage_output)
+            persist_stage4_stage_output(runtime, event.stage_output)
         runtime.block_status[event.block_id] = "accepted"
         transitions = () if event.transition_payload is None else (event.transition_payload,)
         apply_stage4_block_acceptance(plan, runtime, event.block_id)
@@ -364,7 +266,7 @@ def _apply_stage4_event(
                 event.distribution_choice
             )
         if event.stage_output is not None:
-            _persist_stage4_stage_output(runtime, event.stage_output)
+            persist_stage4_stage_output(runtime, event.stage_output)
         if event.accepted_block_id is not None:
             runtime.block_status[event.accepted_block_id] = "accepted"
         transitions = list(
@@ -393,8 +295,8 @@ def _apply_stage4_event(
                     "Unknown Stage 4 representative block "
                     f"{event.representative_block_id!r} after barrier validation"
                 )
-            packet = _build_validation_packet_for_block(
-                block=representative_block,
+            packet = build_validation_packet_for_block(
+                block_id=representative_block.id,
                 status="accepted",
                 feedback=_format_block_saved_feedback(
                     representative_block,
@@ -450,11 +352,11 @@ def _apply_indicator_submission(
     del deps
     feedback = _format_block_saved_feedback(
         active_block,
-        _next_pending_block(plan.model_blocks, runtime, skip_id=active_block.id),
+        next_pending_block(plan.model_blocks, runtime, skip_id=active_block.id),
     )
     return Stage4StepResult(
-        validation_packet=_build_validation_packet_for_block(
-            block=active_block,
+        validation_packet=build_validation_packet_for_block(
+            block_id=active_block.id,
             status="accepted",
             feedback=feedback,
             retain_for_next_prompt=True,
@@ -470,7 +372,7 @@ def _build_prior_campaign_context(
 ) -> _Stage4PriorCampaignContext:
     """Project the active repair-campaign context for one prior submission."""
     campaign = runtime.repair_campaign
-    pending_block_ids = () if campaign is None else _pending_repair_campaign_block_ids(campaign)
+    pending_block_ids = () if campaign is None else pending_repair_campaign_block_ids(campaign)
     in_active_campaign = campaign is not None and active_block.id in pending_block_ids
     final_campaign_block = (
         in_active_campaign and campaign is not None and pending_block_ids == (active_block.id,)
@@ -541,8 +443,8 @@ def _apply_prior_partial_drift_guard(
         validate_effect_block_partial_drift,
     )
     from .stage4_repair import (
-        _classify_compile_failure_route,
-        _classify_prior_failure_blocks,
+        classify_compile_failure_route,
+        classify_prior_failure_blocks,
     )
 
     if not _should_run_partial_drift_guard(active_block=active_block, state=state):
@@ -573,15 +475,15 @@ def _apply_prior_partial_drift_guard(
             state,
             stage_output=None,
             validation=None,
-            validation_packet=_build_validation_packet_for_block(
-                block=active_block,
+            validation_packet=build_validation_packet_for_block(
+                block_id=active_block.id,
                 status="compile_error",
                 feedback=feedback,
                 changed_parameters=state.changed_parameters,
                 retain_for_next_prompt=True,
                 capture_stage_output=False,
             ),
-            repair_plan=_classify_compile_failure_route(plan, active_block, str(exc)),
+            repair_plan=classify_compile_failure_route(plan, active_block, str(exc)),
         )
 
     if partial_guard is None:
@@ -603,8 +505,8 @@ def _apply_prior_partial_drift_guard(
         state,
         stage_output=None,
         validation=validation,
-        validation_packet=_build_validation_packet_for_block(
-            block=active_block,
+        validation_packet=build_validation_packet_for_block(
+            block_id=active_block.id,
             status="partial_drift_failure",
             feedback=partial_feedback,
             validation=validation,
@@ -612,7 +514,7 @@ def _apply_prior_partial_drift_guard(
             retain_for_next_prompt=True,
             capture_stage_output=False,
         ),
-        repair_plan=_classify_prior_failure_blocks(
+        repair_plan=classify_prior_failure_blocks(
             plan,
             active_block,
             validation,
@@ -704,8 +606,8 @@ def _build_campaign_progress_result(
         )
         return Stage4StepResult(
             stage_output=state.stage_output,
-            validation_packet=_build_validation_packet_for_block(
-                block=active_block,
+            validation_packet=build_validation_packet_for_block(
+                block_id=active_block.id,
                 status="repair_campaign_progress",
                 feedback=feedback,
                 validation=state.validation,
@@ -725,8 +627,8 @@ def _build_campaign_progress_result(
     feedback = f"REPAIR CAMPAIGN READY FOR VALIDATION:\n- completed `{campaign.scope_key}`"
     return Stage4StepResult(
         stage_output=state.stage_output,
-        validation_packet=_build_validation_packet_for_block(
-            block=active_block,
+        validation_packet=build_validation_packet_for_block(
+            block_id=active_block.id,
             status="repair_campaign_ready",
             feedback=feedback,
             validation=state.validation,
@@ -779,8 +681,8 @@ def _promote_multi_block_repair_feedback(
     )
     return replace(
         state,
-        validation_packet=_build_validation_packet_for_block(
-            block=active_block,
+        validation_packet=build_validation_packet_for_block(
+            block_id=active_block.id,
             status="repair_campaign_active",
             feedback=feedback,
             validation=state.validation,
@@ -895,11 +797,11 @@ def _apply_global_review_submission(
     if normalized["decision"] == "approve":
         feedback = _format_block_saved_feedback(
             active_block,
-            _next_pending_block(plan.prior_blocks, runtime),
+            next_pending_block(plan.prior_blocks, runtime),
         )
         return Stage4StepResult(
-            validation_packet=_build_validation_packet_for_block(
-                block=active_block,
+            validation_packet=build_validation_packet_for_block(
+                block_id=active_block.id,
                 status="accepted",
                 feedback=feedback,
                 retain_for_next_prompt=True,
@@ -910,12 +812,12 @@ def _apply_global_review_submission(
     reopen_block_ids = normalized["reopen_block_ids"]
     feedback = (
         "MODEL REVIEW REOPENED:\n"
-        f"- reopening {_summarize_names(list(reopen_block_ids))}\n"
+        f"- reopening {summarize_stage4_names(list(reopen_block_ids))}\n"
         f"- reason: {normalized['reasoning']}"
     )
     return Stage4StepResult(
-        validation_packet=_build_validation_packet_for_block(
-            block=active_block,
+        validation_packet=build_validation_packet_for_block(
+            block_id=active_block.id,
             status="model_review_reopened",
             feedback=feedback,
             retain_for_next_prompt=True,
@@ -941,7 +843,14 @@ def _apply_global_review_submission(
     )
 
 
-def _build_model_spec_from_decisions(
+_APPLY_STAGE4_SUBMISSION_BY_PAYLOAD_KIND = {
+    "indicator_choice": _apply_indicator_submission,
+    "global_review_decision": _apply_global_review_submission,
+    "prior_bundle": _apply_prior_submission,
+}
+
+
+def build_model_spec_from_decisions(
     decisions: Stage4DecisionState,
     skeleton: Stage4Skeleton,
 ) -> tuple[dict[str, Any] | None, list[str]]:
@@ -965,27 +874,17 @@ def _apply_submission_by_kind(
     plan: Stage4Plan,
     runtime: Stage4Runtime,
     active_block: Stage4FrontierBlock,
+    handler: Stage4BlockHandler,
     normalized: dict[str, Any],
     deps: Stage4Deps,
 ) -> Stage4StepResult:
     """Apply one normalized submission to the reducer."""
-    if active_block.kind == "indicator_decision":
-        return _apply_indicator_submission(
-            plan=plan,
-            runtime=runtime,
-            active_block=active_block,
-            normalized=normalized,
-            deps=deps,
+    applier = _APPLY_STAGE4_SUBMISSION_BY_PAYLOAD_KIND.get(handler.submission_payload_kind)
+    if applier is None:
+        raise ValueError(
+            f"Unsupported Stage 4 submission payload kind {handler.submission_payload_kind!r}"
         )
-    if active_block.kind == "global_review":
-        return _apply_global_review_submission(
-            plan=plan,
-            runtime=runtime,
-            active_block=active_block,
-            normalized=normalized,
-            deps=deps,
-        )
-    return _apply_prior_submission(
+    return applier(
         plan=plan,
         runtime=runtime,
         active_block=active_block,
@@ -994,7 +893,7 @@ def _apply_submission_by_kind(
     )
 
 
-def _compute_stage4_validate_step_with_transitions(
+def compute_stage4_validate_step_with_transitions(
     data: dict[str, Any],
     *,
     plan: Stage4Plan,
@@ -1018,8 +917,8 @@ def _compute_stage4_validate_step_with_transitions(
 
     error_feedback = validate_stage4_submission_payload(data)
     if error_feedback is not None:
-        runtime.last_validation_packet = _build_validation_packet_for_block(
-            block=active_block,
+        runtime.last_validation_packet = build_validation_packet_for_block(
+            block_id=active_block.id,
             status="validation_error",
             feedback=error_feedback,
             retain_for_next_prompt=True,
@@ -1030,8 +929,8 @@ def _compute_stage4_validate_step_with_transitions(
     handler = get_stage4_block_handler(active_block.kind)
     normalized, error_feedback = handler.normalize_submission(active_block, data)
     if error_feedback is not None:
-        runtime.last_validation_packet = _build_validation_packet_for_block(
-            block=active_block,
+        runtime.last_validation_packet = build_validation_packet_for_block(
+            block_id=active_block.id,
             status="validation_error",
             feedback=error_feedback,
             retain_for_next_prompt=True,
@@ -1044,6 +943,7 @@ def _compute_stage4_validate_step_with_transitions(
         plan=plan,
         runtime=runtime,
         active_block=active_block,
+        handler=handler,
         normalized=normalized,
         deps=deps,
     )
@@ -1071,9 +971,9 @@ def _compute_stage4_validate_step_with_transitions(
         )
         transitions.extend(_apply_stage4_step_result(plan, runtime, lock_result))
         if lock_result.repair_plan is None:
-            from .stage4_navigation import _activate_review_phase
+            from .stage4_navigation import activate_review_phase
 
-            _activate_review_phase(plan, runtime)
+            activate_review_phase(plan, runtime)
         return (
             lock_result.stage_output,
             render_stage4_validation_feedback(lock_result.validation_packet),
@@ -1089,23 +989,6 @@ def _compute_stage4_validate_step_with_transitions(
     )
 
 
-def compute_stage4_validate_step(
-    data: dict[str, Any],
-    *,
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    deps: Stage4Deps,
-) -> tuple[dict | None, str]:
-    """Advance the reducer by one block-local Stage 4 submit-tool call."""
-    stage_output, feedback, _transitions = _compute_stage4_validate_step_with_transitions(
-        data,
-        plan=plan,
-        runtime=runtime,
-        deps=deps,
-    )
-    return stage_output, feedback
-
-
 def _lock_stage4_model_spec(
     *,
     plan: Stage4Plan,
@@ -1114,12 +997,12 @@ def _lock_stage4_model_spec(
     failed_block: Stage4FrontierBlock,
 ) -> Stage4StepResult:
     """Materialize and validate the locked model spec after model decisions."""
-    model_spec, errors = _build_model_spec_from_decisions(runtime.decisions, deps.skeleton)
+    model_spec, errors = build_model_spec_from_decisions(runtime.decisions, deps.skeleton)
     if model_spec is None:
         feedback = "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
         return Stage4StepResult(
-            validation_packet=_build_validation_packet_for_block(
-                block=failed_block,
+            validation_packet=build_validation_packet_for_block(
+                block_id=failed_block.id,
                 status="validation_error",
                 feedback=feedback,
                 retain_for_next_prompt=True,
@@ -1225,7 +1108,7 @@ def _finalize_repair_campaign_if_complete(
     if (
         campaign is None
         or not campaign.requires_barrier_validation
-        or _pending_repair_campaign_block_ids(campaign)
+        or pending_repair_campaign_block_ids(campaign)
     ):
         return ()
     if runtime.accepted.model_spec is None or not runtime.accepted.authored_priors:
@@ -1262,8 +1145,8 @@ def _finalize_repair_campaign_if_complete(
             plan,
             runtime,
             Stage4StepResult(
-                validation_packet=_build_validation_packet_for_block(
-                    block=representative_block,
+                validation_packet=build_validation_packet_for_block(
+                    block_id=representative_block.id,
                     status="compile_error",
                     feedback=feedback,
                     validation=validation,
@@ -1281,8 +1164,8 @@ def _finalize_repair_campaign_if_complete(
             plan,
             runtime,
             Stage4StepResult(
-                validation_packet=_build_validation_packet_for_block(
-                    block=representative_block,
+                validation_packet=build_validation_packet_for_block(
+                    block_id=representative_block.id,
                     status="prior_predictive_failure",
                     feedback=feedback,
                     validation=validation,
@@ -1295,8 +1178,8 @@ def _finalize_repair_campaign_if_complete(
             ),
         )
 
-    success_packet = _build_validation_packet_for_block(
-        block=representative_block,
+    success_packet = build_validation_packet_for_block(
+        block_id=representative_block.id,
         status="accepted",
         feedback=feedback,
         validation=validation,

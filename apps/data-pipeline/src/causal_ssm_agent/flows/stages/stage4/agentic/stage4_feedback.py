@@ -178,6 +178,30 @@ def should_store_stage4_validation_packet(packet: Stage4ValidationPacket | None)
     return packet is not None and packet.retain_for_next_prompt
 
 
+def build_validation_packet_for_block(
+    *,
+    block_id: str | None,
+    status: Stage4ValidationStatus,
+    feedback: str,
+    validation: AssemblyValidation | None = None,
+    changed_parameters: tuple[str, ...] = (),
+    state_retained: bool = False,
+    retain_for_next_prompt: bool = True,
+    capture_stage_output: bool = False,
+) -> Stage4ValidationPacket:
+    """Build a typed validation packet scoped to one Stage 4 block."""
+    return make_stage4_validation_packet(
+        status=status,
+        feedback=feedback,
+        validation=validation,
+        active_scope_id=block_id,
+        changed_parameters=changed_parameters,
+        state_retained=state_retained,
+        retain_for_next_prompt=retain_for_next_prompt,
+        capture_stage_output=capture_stage_output,
+    )
+
+
 def _collect_failure_context(
     diagnostics: tuple[PriorValidationResult, ...],
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:

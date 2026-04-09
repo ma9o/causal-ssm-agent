@@ -45,6 +45,17 @@ Stage4ValidationOutcome = Literal[
 
 
 @dataclass(frozen=True)
+class RepairReasons:
+    """Candidate repair reasons extracted from diagnostic evidence."""
+
+    default: str | None
+    support: str | None
+    drift: str | None
+    validator: str | None
+    global_: str | None
+
+
+@dataclass(frozen=True)
 class Stage4FailureLocalization:
     """Localized evidence for one Stage 4 prior-validation failure family."""
 
@@ -57,11 +68,7 @@ class Stage4FailureLocalization:
     pathology_certificate: PriorPathologyCertificate | None
     has_global_failure: bool
     issues_text: str
-    default_reason: str | None
-    support_reason: str | None
-    drift_reason: str | None
-    validator_reason: str | None
-    global_reason: str | None
+    reasons: RepairReasons
 
     @property
     def parameter_hints(self) -> tuple[str, ...]:
@@ -92,34 +99,6 @@ class ResolvedRepairPlan:
     scope: ResolvedRepairScope
     prompt_blocks: tuple[Stage4FrontierBlock, ...]
     requires_barrier_validation: bool = False
-
-    @property
-    def scope_kind(self) -> str:
-        return self.scope.scope_kind
-
-    @property
-    def scope_rank(self) -> int:
-        return self.scope.scope_rank
-
-    @property
-    def scope_key(self) -> str:
-        return self.scope.scope_key
-
-    @property
-    def reason(self) -> str:
-        return self.scope.reason
-
-    @property
-    def failure_family(self) -> tuple[Any, ...]:
-        return self.scope.failure_family
-
-    @property
-    def diagnostic_codes(self) -> tuple[str, ...]:
-        return self.scope.diagnostic_codes
-
-    @property
-    def pathology_certificate(self) -> PriorPathologyCertificate | None:
-        return self.scope.pathology_certificate
 
     @property
     def block_ids(self) -> tuple[str, ...]:
@@ -325,7 +304,7 @@ def classify_validation_outcome(
     if validation is not None and getattr(validation, "compile_ok", True) is False:
         return Stage4ValidationOutcomeDecision(
             outcome="compile_error",
-            repair_plan=_classify_compile_failure_route(
+            repair_plan=classify_compile_failure_route(
                 plan,
                 active_block,
                 getattr(validation, "compile_error", None) or feedback,
@@ -339,7 +318,7 @@ def classify_validation_outcome(
     ):
         return Stage4ValidationOutcomeDecision(
             outcome="prior_predictive_failure",
-            repair_plan=_classify_prior_failure_blocks(
+            repair_plan=classify_prior_failure_blocks(
                 plan,
                 active_block,
                 validation,
@@ -372,7 +351,7 @@ def resolve_prior_repair_decision(
 
     widening_scope = (
         campaign is not None
-        and repair_plan.scope_rank > campaign.scope_rank
+        and repair_plan.scope.scope_rank > campaign.scope_rank
         and active_block.id in repair_plan.block_ids
     )
     accepted_block_id = None
@@ -389,7 +368,7 @@ def resolve_prior_repair_decision(
     )
 
 
-def _classify_compile_failure_route(
+def classify_compile_failure_route(
     plan: Stage4Plan,
     active_block: Stage4FrontierBlock,
     feedback: str | None,
@@ -732,11 +711,13 @@ def _localize_prior_failure(
         pathology_certificate=pathology_certificate,
         has_global_failure=has_global_failure,
         issues_text=issues_text,
-        default_reason=default_reason,
-        support_reason=support_reason,
-        drift_reason=drift_reason,
-        validator_reason=validator_reason,
-        global_reason=global_reason,
+        reasons=RepairReasons(
+            default=default_reason,
+            support=support_reason,
+            drift=drift_reason,
+            validator=validator_reason,
+            global_=global_reason,
+        ),
     )
 
 
@@ -838,7 +819,7 @@ def _support_failure_scope(
                 scope_kind="likelihood_support",
                 scope_rank=0,
                 reason=_require_reason(
-                    localization.support_reason,
+                    localization.reasons.support,
                     context="likelihood support repair",
                 ),
                 failure_family=localization.failure_family,
@@ -853,7 +834,7 @@ def _support_failure_scope(
                 scope_kind="likelihood_support",
                 scope_rank=0,
                 reason=_require_reason(
-                    localization.support_reason,
+                    localization.reasons.support,
                     context="likelihood support repair",
                 ),
                 failure_family=localization.failure_family,
@@ -920,8 +901,8 @@ def _build_scope_candidates(
             scope_kind="validator_scope",
             scope_rank=_VALIDATOR_SCOPE_RANK,
             reason=_require_reason(
-                localization.validator_reason,
-                localization.drift_reason,
+                localization.reasons.validator,
+                localization.reasons.drift,
                 context="validator_scope",
             ),
             construct_names=_validator_scope_construct_names(localization.validator_repair_scope),
@@ -932,8 +913,8 @@ def _build_scope_candidates(
             scope_kind="local_drift_motif",
             scope_rank=0,
             reason=_require_reason(
-                localization.drift_reason,
-                localization.validator_reason,
+                localization.reasons.drift,
+                localization.reasons.validator,
                 context="local_drift_motif",
             ),
             parameter_names=localization.parameter_hints,
@@ -946,8 +927,8 @@ def _build_scope_candidates(
             scope_kind="reciprocal_pair",
             scope_rank=1,
             reason=_require_reason(
-                localization.drift_reason,
-                localization.validator_reason,
+                localization.reasons.drift,
+                localization.reasons.validator,
                 context="reciprocal_pair",
             ),
             parameter_names=tuple(
@@ -973,8 +954,8 @@ def _build_scope_candidates(
             scope_kind="scc_drift_subsystem",
             scope_rank=2,
             reason=_require_reason(
-                localization.drift_reason,
-                localization.validator_reason,
+                localization.reasons.drift,
+                localization.reasons.validator,
                 context="scc_drift_subsystem",
             ),
             parameter_names=localization.parameter_hints,
@@ -985,7 +966,7 @@ def _build_scope_candidates(
             scope_kind="direct_writer_blocks",
             scope_rank=0,
             reason=_require_reason(
-                localization.default_reason,
+                localization.reasons.default,
                 context="direct_writer_blocks",
             ),
             parameter_names=localization.direct_parameters,
@@ -997,8 +978,8 @@ def _build_scope_candidates(
             scope_kind="global_prior_review",
             scope_rank=_GLOBAL_REVIEW_SCOPE_RANK,
             reason=_require_reason(
-                localization.global_reason,
-                localization.default_reason,
+                localization.reasons.global_,
+                localization.reasons.default,
                 context="global_prior_review",
             ),
             parameter_names=localization.parameter_hints,
@@ -1058,7 +1039,7 @@ def _advance_repair_scope(
     return None
 
 
-def _classify_prior_failure_blocks(
+def classify_prior_failure_blocks(
     plan: Stage4Plan,
     active_block: Stage4FrontierBlock,
     validation: AssemblyValidation | None,

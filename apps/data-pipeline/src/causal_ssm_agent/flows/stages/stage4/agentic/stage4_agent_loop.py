@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from .stage4_feedback import should_store_stage4_validation_packet
-from .stage4_navigation import _activate_review_phase, make_stage4_runtime
-from .stage4_orchestrator import (
+from .stage4_cards import (
     build_construct_scale_cards,
     build_distribution_cards,
     build_model_topology,
     build_prior_cards,
-    build_stage4_plan,
-    derive_deterministic_spec,
 )
+from .stage4_feedback import should_store_stage4_validation_packet
+from .stage4_navigation import activate_review_phase, make_stage4_runtime
+from .stage4_orchestrator import build_stage4_plan
 from .stage4_prompt_context import Stage4Messages
-from .stage4_reducer import _build_model_spec_from_decisions, _persist_stage4_stage_output
+from .stage4_reducer import build_model_spec_from_decisions, persist_stage4_stage_output
 from .stage4_session import Stage4Session
+from .stage4_skeleton import derive_deterministic_spec
 from .stage4_state import (
     Stage4BlockCursor,
     Stage4DoneCursor,
@@ -293,7 +293,7 @@ async def run_stage4(
     deps = session.deps
 
     if not plan.model_blocks and session.accepted.model_spec is None:
-        initial_model_spec, errors = _build_model_spec_from_decisions(runtime.decisions, skeleton)
+        initial_model_spec, errors = build_model_spec_from_decisions(runtime.decisions, skeleton)
         if initial_model_spec is None:
             raise ValueError(
                 "Stage 4 could not materialize an initial ModelSpec: " + "; ".join(errors)
@@ -311,12 +311,12 @@ async def run_stage4(
             raise ValueError(
                 f"Stage 4 could not lock the initial ModelSpec: {validation.compile_error}"
             )
-        _persist_stage4_stage_output(session.runtime, stage_output)
+        persist_stage4_stage_output(session.runtime, stage_output)
         initial_packet = grounding_result.validation_packet
         session.runtime.last_validation_packet = (
             initial_packet if should_store_stage4_validation_packet(initial_packet) else None
         )
-        _activate_review_phase(plan, session.runtime)
+        activate_review_phase(plan, session.runtime)
         if persist_runtime is not None:
             persist_runtime(session.runtime, ())
 

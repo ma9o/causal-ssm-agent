@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -17,15 +16,18 @@ from .stage4_feedback import (
     render_stage4_validation_feedback,
 )
 from .stage4_navigation import (
-    _block_is_accepted,
-    _pending_repair_campaign_block_ids,
+    active_prior_parameter_names,
+    block_is_accepted,
     get_stage4_phase,
+    pending_repair_campaign_block_ids,
 )
 from .stage4_partial_drift import build_effect_row_budget
+from .stage4_text import summarize_stage4_names
 
 if TYPE_CHECKING:
+    from .stage4_block_specs import Stage4PromptScopePolicy
     from .stage4_feedback import Stage4ValidationPacket
-    from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan, Stage4PromptScopePolicy
+    from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan
     from .stage4_state import Stage4Runtime
     from .stage4_submission import Stage4BlockHandler
 
@@ -45,16 +47,6 @@ class Stage4Turn:
     phase: str
 
 
-def _summarize_names(names: list[str], *, limit: int = 8) -> str:
-    """Render a compact preview of names."""
-    if not names:
-        return "(none)"
-    preview = ", ".join(f"`{name}`" for name in names[:limit])
-    if len(names) <= limit:
-        return preview
-    return f"{preview}, ... (+{len(names) - limit} more)"
-
-
 def _filter_cards(
     items: list[dict[str, Any]],
     key: str,
@@ -63,18 +55,6 @@ def _filter_cards(
     """Filter a list of card dicts to those whose *key* is in *wanted_names*."""
     wanted = set(wanted_names)
     return [item for item in items if item[key] in wanted]
-
-
-def _active_prior_parameter_names(runtime: Stage4Runtime) -> set[str] | None:
-    """Return the locked active prior surface, or ``None`` before model lock."""
-    model_spec = runtime.accepted.model_spec
-    if not isinstance(model_spec, dict):
-        return None
-    return {
-        str(parameter["name"])
-        for parameter in (model_spec.get("parameters") or [])
-        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
-    }
 
 
 def _filter_model_topology(
@@ -130,7 +110,7 @@ def _count_accepted_blocks(
     runtime: Stage4Runtime,
 ) -> int:
     """Count accepted blocks in a deterministic block family."""
-    return sum(_block_is_accepted(runtime, block.id) for block in blocks)
+    return sum(block_is_accepted(runtime, block.id) for block in blocks)
 
 
 def _count_reachable_blocks(
@@ -179,12 +159,13 @@ def format_stage4_plan_status(
         ),
         f"- model_spec locked: `{'yes' if runtime.accepted.model_spec is not None else 'no'}`",
         f"- active prompt scope: `{block.kind}`",
-        f"- active scope names: {_summarize_names(list(block.variable_names or block.parameter_names))}",
+        "- active scope names: "
+        f"{summarize_stage4_names(list(block.variable_names or block.parameter_names))}",
     ]
     if runtime.block_status.get(block.id) == "reopened":
         lines.append("- block mode: `reopened`")
     if runtime.repair_campaign is not None:
-        pending_block_ids = _pending_repair_campaign_block_ids(runtime.repair_campaign)
+        pending_block_ids = pending_repair_campaign_block_ids(runtime.repair_campaign)
         lines.append(
             f"- active repair scope: `{runtime.repair_campaign.scope_key}` "
             f"({len(pending_block_ids)} remaining)"
@@ -218,194 +199,6 @@ def format_stage4_plan_status(
                     ]
                 )
     return "\n".join(lines)
-
-
-def _indicator_submission_example(block: Stage4FrontierBlock) -> dict[str, Any]:
-    """Example payload for indicator-decision blocks."""
-    payload = block.payload
-    variable = block.variable_names[0]
-    distribution = payload.get("fixed_distribution")
-    if not isinstance(distribution, str):
-        valid_distributions = payload.get("valid_distributions")
-        if not isinstance(valid_distributions, list) or not valid_distributions:
-            raise ValueError(f"Indicator block {block.id!r} is missing valid distributions")
-        distribution = str(valid_distributions[0])
-
-    valid_links = payload.get("valid_links")
-    if isinstance(valid_links, list) and valid_links:
-        link = str(valid_links[0])
-    else:
-        link_options = payload.get("link_options")
-        if not isinstance(link_options, dict):
-            raise ValueError(f"Indicator block {block.id!r} is missing link options")
-        candidate_links = link_options.get(distribution)
-        if not isinstance(candidate_links, list) or not candidate_links:
-            raise ValueError(
-                f"Indicator block {block.id!r} is missing links for distribution {distribution!r}"
-            )
-        link = str(candidate_links[0])
-
-    return {
-        "variable": variable,
-        "distribution": distribution,
-        "link": link,
-        "reasoning": "Example only: choose one allowed distribution/link pair for the active indicator.",
-    }
-
-
-def _example_prior_payload(prior_card: dict[str, Any]) -> dict[str, Any]:
-    """Return one valid example prior payload for a concrete prompt-local prior card."""
-    parameter = str(prior_card["parameter"])
-    role = str(prior_card.get("role") or "")
-    constraint = str(prior_card.get("constraint") or "")
-
-    if role == "ar_coefficient" or constraint == "unit_interval":
-        dist, params, reason = (
-            "Beta",
-            {"alpha": 2.0, "beta": 2.0},
-            "unit-interval persistence prior for the active AR parameter.",
-        )
-    elif role == "fixed_effect":
-        dist, params, reason = (
-            "Normal",
-            {"mu": 0.0, "sigma": 0.2},
-            "conservative zero-centered lagged-effect prior for the active edge.",
-        )
-    elif role == "initial_state_mean":
-        dist, params, reason = (
-            "Normal",
-            {"mu": 0.0, "sigma": 1.0},
-            (
-                "weakly informative latent-scale initial-state mean; do not copy "
-                "raw indicator means or log-means unless the construct is explicitly identified "
-                "on that observed scale."
-            ),
-        )
-    elif role in {"residual_sd", "initial_state_sd", "static_state_sd", "measurement_error_sd"}:
-        dist, params, reason = (
-            "HalfNormal",
-            {"sigma": 1.0},
-            "positive scale prior for the active variance or measurement-noise parameter.",
-        )
-    elif role == "observation_hyperparameter_positive":
-        dist, params, reason = (
-            "Gamma",
-            {"concentration": 5.0, "rate": 1.0},
-            "positive observation-family hyperparameter prior.",
-        )
-    elif role == "observation_hyperparameter":
-        dist, params, reason = (
-            "Normal",
-            {"mu": 0.0, "sigma": 1.0},
-            "real-valued observation-family hyperparameter prior.",
-        )
-    elif role == "loading" and constraint == "negative":
-        dist, params, reason = (
-            "TruncatedNormal",
-            {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0},
-            "negative loading prior consistent with the locked indicator polarity.",
-        )
-    elif role == "loading":
-        dist, params, reason = (
-            "HalfNormal",
-            {"sigma": 1.0},
-            "positive loading prior consistent with the locked indicator polarity.",
-        )
-    elif role in {"correlation", "initial_state_correlation"} or constraint == "correlation":
-        dist, params, reason = (
-            "TruncatedNormal",
-            {"mu": 0.0, "sigma": 0.3, "lower": -1.0, "upper": 1.0},
-            "bounded correlation prior centered at zero.",
-        )
-    elif constraint == "positive":
-        dist, params, reason = (
-            "HalfNormal",
-            {"sigma": 1.0},
-            "positive scale prior for the active parameter.",
-        )
-    elif constraint == "negative":
-        dist, params, reason = (
-            "TruncatedNormal",
-            {"mu": -1.0, "sigma": 0.5, "lower": -5.0, "upper": 0.0},
-            "negative prior consistent with the active parameter constraint.",
-        )
-    else:
-        dist, params, reason = (
-            "Normal",
-            {"mu": 0.0, "sigma": 1.0},
-            "weakly informative unconstrained prior for the active parameter.",
-        )
-
-    return {
-        "parameter": parameter,
-        "distribution": dist,
-        "params": params,
-        "sources": [],
-        "reasoning": f"Example only: {reason}",
-    }
-
-
-def _prior_submission_example(
-    block: Stage4FrontierBlock,
-    *,
-    prior_cards: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Example payload for prior-authoring blocks."""
-    if not prior_cards:
-        raise ValueError(f"Prior block {block.id!r} is missing prompt-local prior cards")
-    prior_payload = _example_prior_payload(prior_cards[0])
-    parameter = str(prior_payload["parameter"])
-    return {"priors": {parameter: prior_payload}}
-
-
-def _global_review_submission_example(block: Stage4FrontierBlock) -> dict[str, Any]:
-    """Example payload for compact global-review blocks."""
-    del block
-    return {
-        "decision": "approve",
-        "reasoning": "The locked likelihoods and loading orientations are coherent for prior elicitation.",
-    }
-
-
-def _prior_review_submission_example(
-    block: Stage4FrontierBlock,
-    *,
-    prior_cards: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Example payload for whole-system prior-review work items."""
-    return _prior_submission_example(block, prior_cards=prior_cards)
-
-
-def _format_submission_example(
-    block: Stage4FrontierBlock,
-    *,
-    submission_tool_name: str,
-    prior_cards: list[dict[str, Any]] | None = None,
-    fallback_submission_example: str | None = None,
-) -> str:
-    """Render a block-local submit-tool example payload."""
-    if block.kind == "indicator_decision":
-        example = _indicator_submission_example(block)
-    elif block.kind == "global_review":
-        example = _global_review_submission_example(block)
-    elif block.kind == "global_prior_review":
-        example = _prior_review_submission_example(block, prior_cards=prior_cards or [])
-    elif block.kind in {
-        "measurement_prior",
-        "observation_prior",
-        "dynamics_prior",
-        "effect_prior",
-        "correlation_prior",
-    }:
-        example = _prior_submission_example(block, prior_cards=prior_cards or [])
-    elif fallback_submission_example is not None:
-        return fallback_submission_example
-    else:
-        raise ValueError(f"Unsupported Stage 4 block kind {block.kind!r}")
-    return (
-        f"Use `{submission_tool_name}` with exactly this argument object:\n\n"
-        "```json\n" + json.dumps(example, indent=2) + "\n```"
-    )
 
 
 @dataclass
@@ -496,12 +289,11 @@ class Stage4Messages:
         block: Stage4FrontierBlock,
         plan: Stage4Plan,
         runtime: Stage4Runtime,
-        policy: Stage4PromptScopePolicy,
-        submission_tool_name: str,
-        submission_example: str,
+        handler: Stage4BlockHandler,
         include_prior_source_guidance: bool,
     ) -> Stage4ScopeSnapshot:
         """Build the typed LLM-visible snapshot for one active Stage 4 block."""
+        policy = handler.prompt_policy
         distribution_cards = self._distribution_cards_for_runtime(runtime)
         loading_params = deepcopy(self.loading_params)
         construct_scale_cards = self._construct_scale_cards_for_runtime(runtime)
@@ -526,7 +318,7 @@ class Stage4Messages:
             "prior_cards",
             _filter_cards(prior_cards, "parameter", block.parameter_names),
         )
-        active_parameter_names = _active_prior_parameter_names(runtime)
+        active_parameter_names = active_prior_parameter_names(runtime)
         if active_parameter_names is not None:
             visible_prior_cards = [
                 card
@@ -568,11 +360,9 @@ class Stage4Messages:
             construct_scale_cards=visible_construct_scale_cards,
             prior_cards=visible_prior_cards,
             coupled_prior_cards=coupled_prior_cards,
-            submission_example=_format_submission_example(
+            submission_example=handler.render_submission_example(
                 block,
-                submission_tool_name=submission_tool_name,
                 prior_cards=visible_prior_cards,
-                fallback_submission_example=submission_example,
             ),
             include_prior_source_guidance=include_prior_source_guidance,
             latest_validation=latest_validation,
@@ -587,20 +377,17 @@ class Stage4Messages:
         plan: Stage4Plan,
         runtime: Stage4Runtime,
         *,
-        policy: Stage4PromptScopePolicy,
-        submission_tool_name: str,
+        handler: Stage4BlockHandler,
         enabled_tool_names: tuple[str, ...],
-        submission_example: str,
         include_prior_source_guidance: bool,
     ) -> list[dict]:
         """Build the model-facing prompt for one active Stage 4 scope."""
+        policy = handler.prompt_policy
         snapshot = self._scope_snapshot_for_block(
             block=block,
             plan=plan,
             runtime=runtime,
-            policy=policy,
-            submission_tool_name=submission_tool_name,
-            submission_example=submission_example,
+            handler=handler,
             include_prior_source_guidance=include_prior_source_guidance,
         )
         return [
@@ -610,7 +397,7 @@ class Stage4Messages:
                     system_task=policy.system_task,
                     guidance_section_keys=policy.guidance_section_keys,
                     parameter_guidance_prefixes=policy.parameter_guidance_prefixes,
-                    submission_tool_name=submission_tool_name,
+                    submission_tool_name=handler.submission_tool_name,
                     enabled_tool_names=enabled_tool_names,
                 ),
             },
@@ -639,10 +426,8 @@ class Stage4Messages:
             block,
             plan,
             runtime,
-            policy=handler.prompt_policy,
-            submission_tool_name=handler.submission_tool_name,
+            handler=handler,
             enabled_tool_names=enabled_tool_names,
-            submission_example="",
             include_prior_source_guidance=handler.include_prior_source_guidance_for_prompt(
                 enable_literature=self.enable_literature,
             ),

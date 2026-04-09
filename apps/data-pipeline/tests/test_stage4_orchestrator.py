@@ -2,6 +2,15 @@
 
 import polars as pl
 
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_block_specs import (
+    get_stage4_prompt_scope_policy,
+)
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_cards import (
+    build_construct_scale_cards,
+    build_distribution_cards,
+    build_model_topology,
+    build_prior_cards,
+)
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_grounding_result,
     make_stage4_validation_packet,
@@ -13,17 +22,14 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
-    Stage4Skeleton,
-    build_construct_scale_cards,
-    build_distribution_cards,
-    build_model_topology,
-    build_prior_cards,
     build_stage4_plan,
-    derive_deterministic_spec,
-    get_stage4_prompt_scope_policy,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import Stage4Messages
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
+    Stage4Skeleton,
+    derive_deterministic_spec,
+)
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
     Stage4AcceptedState,
     Stage4Runtime,
