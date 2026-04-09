@@ -25,6 +25,7 @@ import jax.numpy as jnp
 import jax.random as random
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
 from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
@@ -205,7 +206,7 @@ def _compute_elbo(
     # Initial state: z_0 | prior
     z0_pred = Ad[0] @ init_mean + cd[0]
     P0_pred = Ad[0] @ init_cov @ Ad[0].T + Qd[0]
-    P0_pred = 0.5 * (P0_pred + P0_pred.T) + jitter
+    P0_pred = symmetrize_with_jitter(P0_pred, jitter=1e-6)
     init_ll = MultivariateNormal(z0_pred, covariance_matrix=P0_pred).log_prob(z[0])
 
     if T > 1:

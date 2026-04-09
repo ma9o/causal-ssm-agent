@@ -27,6 +27,7 @@ import jax.scipy.linalg as jla
 import numpy as np
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
 from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
@@ -636,7 +637,7 @@ def _compute_laplace_log_lik(
         P_pred_inv = jla.solve(P_pred_reg, jnp.eye(D), assume_a="pos")
         P_filt_inv = P_pred_inv + J_obs
         P_filt = jla.solve(P_filt_inv + jitter, jnp.eye(D), assume_a="pos")
-        P_filt = 0.5 * (P_filt + P_filt.T) + jitter
+        P_filt = symmetrize_with_jitter(P_filt, jitter=1e-6)
 
         # Filter mean: z_filt = P_filt @ (P_pred_inv @ z_pred + tilde_y)
         tilde_y = J_obs @ z_lin + grad_obs
@@ -660,7 +661,7 @@ def _compute_laplace_log_lik(
     # Time 0: predict from initial state
     z_pred_0 = Ad[0] @ init_mean + cd[0]
     P_pred_0 = Ad[0] @ init_cov @ Ad[0].T + Qd[0]
-    P_pred_0 = 0.5 * (P_pred_0 + P_pred_0.T)
+    P_pred_0 = symmetrize(P_pred_0)
 
     ll_0, z_filt_0, P_filt_0 = _step_ll(
         observations[0], mask_float[0], z_pred_0, P_pred_0, J_t[0], grads[0], z_smooth[0]
@@ -677,7 +678,7 @@ def _compute_laplace_log_lik(
         # Predict
         z_pred = Ad_t @ z_filt_prev + cd_t
         P_pred = Ad_t @ P_filt_prev @ Ad_t.T + Qd_t
-        P_pred = 0.5 * (P_pred + P_pred.T)
+        P_pred = symmetrize(P_pred)
 
         ll_t, z_filt, P_filt = _step_ll(y_t, mask_t, z_pred, P_pred, J_obs_t, grad_t, z_lin_t)
 
@@ -715,12 +716,11 @@ def _trajectory_prior_log_prob(
     """Return log p(z_{1:T} | theta) under the discretized latent dynamics."""
     from numpyro.distributions import MultivariateNormal
 
-    T, D = latent_trajectory.shape
-    jitter = jnp.eye(D, dtype=latent_trajectory.dtype) * 1e-6
+    T, _D = latent_trajectory.shape
 
     z0_pred = Ad[0] @ init_mean + cd[0]
     P0_pred = Ad[0] @ init_cov @ Ad[0].T + Qd[0]
-    P0_pred = 0.5 * (P0_pred + P0_pred.T) + jitter
+    P0_pred = symmetrize_with_jitter(P0_pred, jitter=1e-6)
     init_ll = MultivariateNormal(z0_pred, covariance_matrix=P0_pred).log_prob(latent_trajectory[0])
 
     if T == 1:
@@ -728,7 +728,7 @@ def _trajectory_prior_log_prob(
 
     def _transition_ll(z_t, z_tm1, Ad_t, Qd_t, cd_t):
         mean = Ad_t @ z_tm1 + cd_t
-        cov = 0.5 * (Qd_t + Qd_t.T) + jitter
+        cov = symmetrize_with_jitter(Qd_t, jitter=1e-6)
         return MultivariateNormal(mean, covariance_matrix=cov).log_prob(z_t)
 
     trans_ll = jax.vmap(_transition_ll)(
@@ -1094,7 +1094,6 @@ def _dense_support_laplace_log_lik(
     """Dense Laplace approximation for interval-summary observation semantics."""
     T, D = observations.shape[0], init_mean.shape[0]
     flat_dim = T * D
-    eye = jnp.eye(flat_dim, dtype=observations.dtype)
 
     def _predictive_init():
         z0 = Ad[0] @ init_mean + cd[0]
@@ -1138,7 +1137,7 @@ def _dense_support_laplace_log_lik(
         for _ in range(max(n_newton_iters, 1)):
             grad = jax.grad(_neg_log_prob)(z_flat)
             hess = jax.hessian(_neg_log_prob)(z_flat)
-            hess = 0.5 * (hess + hess.T) + 1e-4 * eye
+            hess = symmetrize_with_jitter(hess, jitter=1e-4)
             step = jla.solve(hess, grad, assume_a="sym")
             # Backtracking: halve the step until the objective improves or
             # the step is too small.  Prevents the Newton iterate from
@@ -1161,7 +1160,7 @@ def _dense_support_laplace_log_lik(
     with jax.named_scope("laplace_em/dense_support_curvature"):
         mode_log_joint = _joint_log_prob(z_flat)
         hess = jax.hessian(_neg_log_prob)(z_flat)
-        hess = 0.5 * (hess + hess.T)
+        hess = symmetrize(hess)
         eigvals = jnp.linalg.eigvalsh(hess)
         logdet = jnp.sum(jnp.log(jnp.maximum(eigvals, 1e-6)))
     return mode_log_joint + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi) - 0.5 * logdet

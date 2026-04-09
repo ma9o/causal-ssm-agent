@@ -4,9 +4,32 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
+# Defined locally to avoid circular import with inference.targets.base.
+CHOL_JITTER = 1e-8
 
 INITIAL_STATE_COV_MIN_EIGENVALUE = 1e-6
+
+
+def symmetrize(M: jnp.ndarray) -> jnp.ndarray:
+    """Symmetrize a matrix: 0.5 * (M + M.T)."""
+    return 0.5 * (M + M.T)
+
+
+def symmetrize_with_jitter(M: jnp.ndarray, *, jitter: float = CHOL_JITTER) -> jnp.ndarray:
+    """Symmetrize a matrix and add diagonal jitter for Cholesky stability."""
+    return 0.5 * (M + M.T) + jnp.eye(M.shape[0], dtype=M.dtype) * jitter
+
+
+def inflate_missing_variance(cov: jnp.ndarray, mask_float: jnp.ndarray) -> jnp.ndarray:
+    """Inflate covariance diagonal for unobserved channels.
+
+    Args:
+        cov: Covariance matrix to inflate.
+        mask_float: Float observation mask (1.0 = observed, 0.0 = missing).
+    """
+    from causal_ssm_agent.models.ssm.inference.targets.base import MISSING_DATA_LARGE_VAR
+
+    return cov + jnp.diag((1.0 - mask_float) * MISSING_DATA_LARGE_VAR)
 
 
 def stabilize_covariance_for_cholesky(

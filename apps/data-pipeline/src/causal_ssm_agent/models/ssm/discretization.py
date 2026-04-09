@@ -17,6 +17,8 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 from jax import lax, vmap
 
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize
+
 
 def _kron_lyapunov_solve(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
     """Solve AX + XA' = -Q via Kronecker vectorization.
@@ -126,7 +128,7 @@ def compute_discrete_diffusion(
     Q_dt = Q_inf - discrete_drift @ Q_inf @ discrete_drift.T
 
     # Ensure symmetry
-    return 0.5 * (Q_dt + Q_dt.T)
+    return symmetrize(Q_dt)
 
 
 def compute_discrete_cint(

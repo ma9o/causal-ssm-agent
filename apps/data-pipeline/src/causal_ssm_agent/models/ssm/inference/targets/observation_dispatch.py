@@ -9,8 +9,9 @@ import jax
 import jax.numpy as jnp
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
 
-from .base import CHOL_JITTER, NUMERICAL_EPSILON
+from .base import NUMERICAL_EPSILON
 from .emissions import build_composite_mean_sample_fn
 from .observation_families import (
     FAMILY_REGISTRY,
@@ -113,10 +114,7 @@ def build_predictive_observation_sampler(
         return jax.vmap(_sample_mean_vector)(mean_keys, mean_trajectory)
 
     if all_gaussian:
-        manifest_cov_adj = (
-            0.5 * (manifest_cov + manifest_cov.T)
-            + jnp.eye(n_manifest, dtype=manifest_cov.dtype) * CHOL_JITTER
-        )
+        manifest_cov_adj = symmetrize_with_jitter(manifest_cov)
         manifest_chol = jnp.linalg.cholesky(manifest_cov_adj)
 
         def _sample_point_vector(key, linear_predictor):

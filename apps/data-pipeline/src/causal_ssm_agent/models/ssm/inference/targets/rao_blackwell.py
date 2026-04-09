@@ -24,6 +24,11 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
+from causal_ssm_agent.models.ssm.covariance_utils import (
+    inflate_missing_variance,
+    symmetrize,
+    symmetrize_with_jitter,
+)
 from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
 
 if TYPE_CHECKING:
@@ -148,7 +153,7 @@ def _kalman_predict(
     m_pred = F @ m + c
     P_pred = F @ P @ F.T + Q
     # Symmetrize for numerical stability
-    P_pred = 0.5 * (P_pred + P_pred.T)
+    P_pred = symmetrize(P_pred)
     return m_pred, P_pred
 
 
@@ -169,12 +174,10 @@ def _kalman_update_gaussian(
     Returns updated (m, P) and the log marginal likelihood of y.
     """
     n_manifest = H.shape[0]
-    large_var = MISSING_DATA_LARGE_VAR
     mask_float = obs_mask.astype(jnp.float64)
 
     # Inflate R for missing observations
-    R_adj = R + jnp.diag((1.0 - mask_float) * large_var)
-    R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(n_manifest) * CHOL_JITTER
+    R_adj = symmetrize_with_jitter(inflate_missing_variance(R, mask_float))
 
     # Innovation
     y_pred = H @ m + d
@@ -182,7 +185,7 @@ def _kalman_update_gaussian(
 
     # Innovation covariance S = H P H' + R_adj
     S = H @ P @ H.T + R_adj
-    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * CHOL_JITTER
+    S = symmetrize_with_jitter(S)
 
     # Kalman gain K = P H' S^{-1}
     K = P @ H.T @ jnp.linalg.inv(S)
@@ -190,14 +193,14 @@ def _kalman_update_gaussian(
     # Update
     m_upd = m + K @ v
     P_upd = P - K @ S @ K.T
-    P_upd = 0.5 * (P_upd + P_upd.T)
+    P_upd = symmetrize(P_upd)
 
     # Log marginal likelihood: log N(v | 0, S)
     n_observed = jnp.sum(mask_float)
     _sign, logdet = jnp.linalg.slogdet(S)
     # Subtract out the contribution of inflated missing dimensions
     n_missing = n_manifest - n_observed
-    logdet = logdet - n_missing * jnp.log(large_var)
+    logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
 
     mahal = v @ jnp.linalg.solve(S, v)
     log_marg = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
@@ -231,17 +234,16 @@ def _linearized_update(
     v = (y - mean) * mask_float
 
     # Inflate for missing
-    large_var = MISSING_DATA_LARGE_VAR
-    R_pseudo = R_pseudo + jnp.diag((1.0 - mask_float) * large_var)
+    R_pseudo = inflate_missing_variance(R_pseudo, mask_float)
 
     # Standard Kalman update with pseudo-observation model
     S = H @ P @ H.T + R_pseudo
-    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * CHOL_JITTER
+    S = symmetrize_with_jitter(S)
     K = P @ H.T @ jnp.linalg.inv(S)
 
     m_upd = m + K @ v
     P_upd = P - K @ S @ K.T
-    P_upd = 0.5 * (P_upd + P_upd.T)
+    P_upd = symmetrize(P_upd)
 
     # Ensure P stays positive definite
     P_upd = P_upd + jnp.eye(n) * CHOL_JITTER
@@ -271,16 +273,15 @@ def _obs_weight_gaussian(
     v = (y - y_pred) * mask_float
 
     S = H @ pred_cov @ H.T + R
-    S = 0.5 * (S + S.T) + jnp.eye(n_manifest) * CHOL_JITTER
+    S = symmetrize_with_jitter(S)
 
     # Inflate for missing
-    large_var = MISSING_DATA_LARGE_VAR
-    S = S + jnp.diag((1.0 - mask_float) * large_var)
+    S = inflate_missing_variance(S, mask_float)
 
     n_observed = jnp.sum(mask_float)
     _, logdet = jnp.linalg.slogdet(S)
     n_missing = n_manifest - n_observed
-    logdet = logdet - n_missing * jnp.log(large_var)
+    logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
 
     mahal = v @ jnp.linalg.solve(S, v)
     log_w = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
