@@ -229,6 +229,65 @@ class TestDeriveDeterministicSpec:
         sigma_params = [p for p in skeleton.parameters if p["role"] == "residual_sd"]
         assert len(sigma_params) == 2
 
+    def test_time_invariant_targets_do_not_expose_drift_surfaces(self):
+        """Static states should not expose fixed-effect or diffusion surfaces."""
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "stable_trait",
+                    "role": "exogenous",
+                    "temporal_status": "time_invariant",
+                },
+                {
+                    "name": "mood",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                },
+                {
+                    "name": "baseline_severity",
+                    "role": "endogenous",
+                    "temporal_status": "time_invariant",
+                },
+            ],
+            edges=[
+                {"cause": "stable_trait", "effect": "mood"},
+                {"cause": "stable_trait", "effect": "baseline_severity"},
+            ],
+            indicators=[
+                {
+                    "name": "trait_score",
+                    "construct_name": "stable_trait",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Trait score",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "mood_rating",
+                    "construct_name": "mood",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Mood rating",
+                    "aggregation": "mean",
+                },
+                {
+                    "name": "severity_score",
+                    "construct_name": "baseline_severity",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Severity score",
+                    "aggregation": "mean",
+                },
+            ],
+        )
+
+        skeleton = derive_deterministic_spec(spec)
+        parameter_names = {parameter["name"] for parameter in skeleton.parameters}
+
+        assert "beta_stable_trait_mood" in parameter_names
+        assert "beta_stable_trait_baseline_severity" not in parameter_names
+        assert "sigma_mood" in parameter_names
+        assert "sigma_stable_trait" not in parameter_names
+        assert "sigma_baseline_severity" not in parameter_names
+
     def test_compiler_derived_initial_state_params_are_exposed(self):
         """Compiler-owned initial-state priors should appear in the Stage 4 inventory."""
         skeleton = derive_deterministic_spec(_simple_spec())

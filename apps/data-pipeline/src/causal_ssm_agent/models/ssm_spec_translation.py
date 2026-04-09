@@ -101,6 +101,44 @@ def get_estimation_latent_layout(
     return state_order, time_invariant_mask
 
 
+def _mask_time_invariant_vector_support(
+    mask: np.ndarray,
+    time_invariant_mask: np.ndarray | None,
+) -> np.ndarray:
+    """Drop free vector entries for quasi-static latent states."""
+    masked = np.asarray(mask, dtype=bool).copy()
+    if time_invariant_mask is None:
+        return masked
+    masked[np.asarray(time_invariant_mask, dtype=bool)] = False
+    return masked
+
+
+def _mask_time_invariant_drift_targets(
+    mask: np.ndarray,
+    time_invariant_mask: np.ndarray | None,
+) -> np.ndarray:
+    """Drop drift off-diagonal entries whose effect state is quasi-static."""
+    masked = np.asarray(mask, dtype=bool).copy()
+    if time_invariant_mask is None:
+        return masked
+    masked[np.asarray(time_invariant_mask, dtype=bool), :] = False
+    return masked
+
+
+def _mask_time_invariant_diffusion_support(
+    mask: np.ndarray,
+    time_invariant_mask: np.ndarray | None,
+) -> np.ndarray:
+    """Drop diffusion entries that touch quasi-static latent states."""
+    masked = np.asarray(mask, dtype=bool).copy()
+    if time_invariant_mask is None:
+        return masked
+    ti = np.asarray(time_invariant_mask, dtype=bool)
+    masked[ti, :] = False
+    masked[:, ti] = False
+    return masked
+
+
 def build_masks_from_causal_spec(
     latent_names: list[str] | None,
     manifest_cols: list[str],
@@ -122,6 +160,9 @@ def build_masks_from_causal_spec(
         edges = get_estimation_edges(causal_spec)
     except ValueError as exc:
         raise SpecTranslationError([str(exc)]) from exc
+    latent_construct_lookup = {
+        construct["name"]: construct for construct in get_constructs(causal_spec)
+    }
     indicators = get_indicators(causal_spec)
     errors: list[str] = []
 
@@ -145,6 +186,8 @@ def build_masks_from_causal_spec(
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
         if cause not in latent_idx or effect not in latent_idx:
+            continue
+        if latent_construct_lookup.get(effect, {}).get("temporal_status") == "time_invariant":
             continue
         effect_idx, cause_idx = latent_idx[effect], latent_idx[cause]
         drift_mask[effect_idx, cause_idx] = True
@@ -390,8 +433,13 @@ def translate_spec(
         edge_lag_days = {}
 
     drift_diag_mask = np.diag(drift_mask).copy()
+    drift_diag_mask = _mask_time_invariant_vector_support(drift_diag_mask, time_invariant_mask)
     drift_offdiag_mask = np.asarray(drift_mask, dtype=bool).copy()
     np.fill_diagonal(drift_offdiag_mask, False)
+    drift_offdiag_mask = _mask_time_invariant_drift_targets(
+        drift_offdiag_mask,
+        time_invariant_mask,
+    )
 
     manifest_chol, manifest_chol_diag_mask = build_manifest_variance_from_causal_spec(
         latent_names,
@@ -421,9 +469,14 @@ def translate_spec(
         if has_innovation_correlation
         else np.diag(full_diagonal_mask(n_latent))
     )
+    diffusion_chol_mask = _mask_time_invariant_diffusion_support(
+        diffusion_chol_mask,
+        time_invariant_mask,
+    )
     if t0_correlation_mask is None:
         t0_correlation_mask = zero_square_mask(n_latent)
     t0_chol_diag_mask = full_diagonal_mask(n_latent)
+    cint_mask = _mask_time_invariant_vector_support(full_vector_mask(n_latent), time_invariant_mask)
 
     if errors:
         raise SpecTranslationError(errors)
@@ -434,7 +487,7 @@ def translate_spec(
         drift_diag_mask=drift_diag_mask,
         drift_offdiag_mask=drift_offdiag_mask,
         drift=jnp.zeros((n_latent, n_latent)),
-        cint_mask=full_vector_mask(n_latent),
+        cint_mask=cint_mask,
         cint=jnp.zeros(n_latent),
         lambda_mat=lambda_mat,
         diffusion_chol_mask=diffusion_chol_mask,
