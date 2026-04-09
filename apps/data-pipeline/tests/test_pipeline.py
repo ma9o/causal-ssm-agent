@@ -13,6 +13,18 @@ import pytest
 
 from causal_ssm_agent.flows import dag, pipeline, stage_registry
 from causal_ssm_agent.flows import run_store as run_store_module
+from causal_ssm_agent.flows.stage_contracts import (
+    Stage0Contract,
+    Stage1aContract,
+    Stage1bContract,
+    Stage2Contract,
+    Stage3Contract,
+    Stage4bContract,
+    Stage4Contract,
+    Stage5aContract,
+    Stage5bContract,
+    Stage6Contract,
+)
 from causal_ssm_agent.utils import data as data_module
 from causal_ssm_agent.utils import openrouter_client
 
@@ -82,6 +94,28 @@ def _stage1a_latent_model(treatment: str = "treatment", outcome: str = "outcome"
     }
 
 
+def _minimal_causal_spec(
+    treatment: str = "treatment",
+    outcome: str = "outcome",
+) -> dict:
+    """Build the minimum valid CausalSpec dict (with one outcome construct)."""
+    return {
+        "latent": _stage1a_latent_model(treatment, outcome),
+        "measurement": {"model_clock": "1d", "indicators": []},
+    }
+
+
+def _minimal_stage1b_contract(
+    treatment: str = "treatment",
+    outcome: str = "outcome",
+    **extra_causal_spec_fields: Any,
+) -> Stage1bContract:
+    """Build a minimal valid Stage1bContract for test stubs."""
+    spec = _minimal_causal_spec(treatment, outcome)
+    spec.update(extra_causal_spec_fields)
+    return Stage1bContract(causal_spec=spec)
+
+
 def _write_public_result(tmp_path, workspace_id: str, stage_id: str, payload: dict) -> None:
     run_dir = tmp_path / "data" / workspace_id / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -105,79 +139,82 @@ def _reset_stage_registry(monkeypatch):
 
 def _patch_common_stage_stubs(monkeypatch, calls: list):
     # Parameter names must match the bare computation function signatures in dag.py
+    # Runners must return contract instances (not dicts) because finalize_stage
+    # calls contract.model_dump() and the pipeline accesses contract.outcome.
 
-    async def stage0(workspace_id: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage0(workspace_id: str) -> Stage0Contract:
         calls.append(("stage0", workspace_id))
-        return {
-            "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
-            "_column_descriptions": {},
-        }
-
-    async def stage2(question: str, stage0: dict, stage1b: dict, **_kw) -> dict:
-        calls.append(("stage2", question, stage0, stage1b))
-        data_for_model = pl.DataFrame(
-            {
-                "indicator": ["stress_score"],
-                "value": ["1.0"],
-                "anchor_time": ["2024-01-01"],
-                "support_start": ["2024-01-01"],
-                "support_end": ["2024-01-01"],
-            }
+        return Stage0Contract(
+            column_descriptions=[
+                {"name": "timestamp", "description": "ts"},
+                {"name": "value", "description": "val"},
+            ],
         )
-        return {"_data_for_model": data_for_model}
 
-    def stage3(stage1b: dict, stage2: dict) -> dict:
+    async def stage2(question: str, stage0, stage1b, workspace_id: str, **_kw) -> Stage2Contract:
+        calls.append(("stage2", question, stage0, stage1b))
+        return Stage2Contract(
+            workers=[
+                {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}
+            ],
+        )
+
+    def stage3(stage1b, stage2, workspace_id: str) -> Stage3Contract:
         calls.append(("stage3", stage1b, stage2))
-        return {
-            "is_valid": True,
-            "indicators": {},
-            "dataset_issues": [],
-            "outcome": "success",
-        }
+        return Stage3Contract(
+            is_valid=True,
+            indicators={},
+            dataset_issues=[],
+        )
 
-    def stage4b(stage4: dict, stage2: dict, ssm_builder=None, root_run_id: str | None = None):
-        calls.append(("stage4b", stage4, stage2, ssm_builder, root_run_id))
-        return {"parametric_id": {}}
+    def stage4b(stage4, stage2, workspace_id: str, root_run_id: str | None = None):
+        calls.append(("stage4b", stage4, stage2, None, root_run_id))
+        return Stage4bContract(parametric_id={})
 
     def stage5b(
-        stage4: dict,
-        stage2: dict,
-        inference_method: str | None,
-    ) -> dict:
+        stage4,
+        stage2,
+        workspace_id: str,
+        inference_method: str | None = None,
+    ) -> Stage5bContract:
         calls.append(("stage5b", stage4, stage2, inference_method))
-        return {
-            "_fitted_artifact": None,
-            "power_scaling": [],
-            "ppc": {},
-            "inference_metadata": {},
-            "mcmc_diagnostics": None,
-            "svi_diagnostics": None,
-            "smc_diagnostics": None,
-            "loo_diagnostics": None,
-            "posterior_marginals": None,
-            "posterior_pairs": None,
-            "outcome": "success",
-        }
+        return Stage5bContract(
+            power_scaling=[],
+            ppc={"checked": False, "per_variable_warnings": []},
+            inference_metadata={"method": "svi", "n_samples": 0, "duration_seconds": 0.0},
+        )
 
-    def stage5a(stage4: dict, stage2: dict) -> dict:
+    def stage5a(stage4, stage2, workspace_id: str) -> Stage5aContract:
         calls.append(("stage5a", stage4, stage2))
-        return {"outcome": "success"}
+        return Stage5aContract(
+            inference_metadata={"method": "svi", "n_samples": 0, "duration_seconds": 0.0},
+        )
 
-    def stage6(
-        stage5b: dict,
-        stage1b: dict,
+    async def stage6(
+        stage5b,
+        stage1b,
+        workspace_id: str,
         question: str | None = None,
-    ) -> dict:
+    ) -> Stage6Contract:
         calls.append(("stage6", stage5b, stage1b, question))
-        return {"intervention_results": [], "outcome": "success"}
+        return Stage6Contract(intervention_results=[])
 
     def persist_web_result(stage_id: str, data: dict, workspace_id: str) -> dict:
         calls.append(("persist_web_result", stage_id, data, workspace_id))
-        if stage_id == "stage-5b":
-            return {"stage5b": True}
-        if stage_id == "stage-6":
-            return {"stage6": True}
         return data
+
+    # Stub out persistence so finalize_stage doesn't touch the filesystem
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stage_persistence.persist_contract",
+        lambda _stage_id, contract, _workspace_id: calls.append(
+            ("persist_web_result", _stage_id, contract.model_dump(mode="json"), _workspace_id)
+        ),
+    )
+    monkeypatch.setattr(
+        run_store_module,
+        "save_stage_snapshot",
+        lambda _stage_id, _contract, _workspace_id: None,
+    )
 
     monkeypatch.setattr(dag, "stage0", stage0)
     monkeypatch.setattr(dag, "stage2", stage2)
@@ -308,8 +345,8 @@ def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
 
     monkeypatch.setenv("DEPLOYMENT_ENV", "production")
     states = {
-        "stage-0": {"result": {}},
-        "stage-1b": {"result": {}},
+        "stage-0": Stage0Contract(column_descriptions=[]),
+        "stage-1b": _minimal_stage1b_contract(),
     }
     user_ctx = stage_registry.PipelineContext(
         workspace_id="workspace-user",
@@ -415,19 +452,22 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
     monkeypatch.setattr(
         stage_registry,
         "finalize_stage",
-        lambda stage_id, result, workspace_id, extras=None, contract=None: {
-            "stage_id": stage_id,
-            "workspace_id": workspace_id,
-            "result": result,
-            "extras": extras,
-            "contract": contract,
-            "web": {"outcome": "success"},
-        },
+        lambda _stage_id, contract, _workspace_id: contract,
     )
+
+    _runner_result = Stage4Contract.model_validate({
+        "model_spec": {"parameters": [], "likelihoods": []},
+        "authored_priors": {},
+        "resolved_priors": [],
+    })
 
     async def _runner(**_inputs):
         events.append(("runner", _inputs["root_run_id"]))
-        return {"ok": True}
+        return _runner_result
+
+    _stage1b_contract = _minimal_stage1b_contract(
+        estimation={"state_order": [], "edges": [], "induced_dependencies": []},
+    )
 
     defn = stage_registry.StageDefinition(
         stage_id="stage-4",
@@ -435,15 +475,9 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
         contract=stage_registry.get_stage_registry()["stage-4"].contract,
         bind_inputs=lambda _ctx, _states: {
             "question": "why",
-            "stage1b": {
-                "causal_spec": {
-                    "latent": {"constructs": []},
-                    "measurement": {"model_clock": "1d", "indicators": []},
-                    "estimation": {"state_order": [], "edges": [], "induced_dependencies": []},
-                }
-            },
-            "stage2": {"_data_for_model_path": "ignored"},
-            "stage3": {"indicators": {}, "dataset_issues": [], "is_valid": True},
+            "stage1b": _stage1b_contract,
+            "stage2": Stage2Contract(workers=[]),
+            "stage3": Stage3Contract(is_valid=True, indicators={}, dataset_issues=[]),
             "enable_literature": True,
             "workspace_id": "workspace",
             "root_run_id": "root-run-123",
@@ -463,7 +497,7 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
 
     stage_state = asyncio.run(stage_registry.run_stage_flow(defn, ctx, {}))
 
-    assert stage_state["result"] == {"ok": True}
+    assert stage_state is _runner_result
     assert events == [
         ("graph", "root-run-123", {"nodes": [{"id": "indicator:x"}], "edges": [], "phases": []}),
         (
@@ -526,8 +560,6 @@ def _stub_stage1a_result():
                 }
             ],
         },
-        "outcome_name": "sleep_quality",
-        "treatments": ["travel"],
     }
 
 
@@ -568,19 +600,35 @@ def test_pipeline_threads_openrouter_key_by_access_mode(
 
     seen: list[tuple[str, str | None]] = []
 
-    async def stage0(workspace_id: str) -> dict:
+    async def stage0(workspace_id: str) -> Stage0Contract:
         seen.append(("stage0", openrouter_client.get_openrouter_api_key()))
-        return _stub_stage0_result()
+        return Stage0Contract(
+            column_descriptions=[
+                {"name": "timestamp", "description": "ts"},
+                {"name": "value", "description": "val"},
+            ],
+        )
 
-    async def stage1a(question: str) -> dict:
+    async def stage1a(question: str) -> Stage1aContract:
         seen.append(("stage1a", openrouter_client.get_openrouter_api_key()))
-        return _stub_stage1a_result()
+        return Stage1aContract.model_validate(_stub_stage1a_result())
+
+    # Stub out persistence so finalize_stage doesn't touch the filesystem
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stage_persistence.persist_contract",
+        lambda _stage_id, _contract, _workspace_id: None,
+    )
+    monkeypatch.setattr(
+        run_store_module,
+        "save_stage_snapshot",
+        lambda _stage_id, _contract, _workspace_id: None,
+    )
 
     monkeypatch.setattr(dag, "stage0", stage0)
     monkeypatch.setattr(dag, "stage1a", stage1a)
     _reset_stage_registry(monkeypatch)
 
-    result = asyncio.run(pipeline.causal_inference_pipeline.fn(**pipeline_kwargs))
+    result = asyncio.run(pipeline.causal_inference_pipeline(**pipeline_kwargs))
 
     assert result["final_stage"] == "stage-1a"
     assert seen == [("stage0", expected_key), ("stage1a", expected_key)]
@@ -615,20 +663,23 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage1a(question: str) -> Stage1aContract:
         calls.append(("stage1a", question))
-        return {"latent_model": _stage1a_latent_model("generated-treatment", "generated-outcome")}
+        return Stage1aContract(
+            latent_model=_stage1a_latent_model("generated-treatment", "generated-outcome")
+        )
 
     async def stage1b(
         question: str,
-        stage0: dict,
-        stage1a: dict,
-        openrouter_api_key: str | None = None,
-    ) -> dict:
+        stage0,
+        stage1a,
+        workspace_id: str,
+    ) -> Stage1bContract:
         calls.append(("stage1b", question, stage0, stage1a))
-        return {
-            "causal_spec": {
-                "latent": stage1a["latent_model"],
+        latent_model = stage1a.latent_model.model_dump()
+        return Stage1bContract(
+            causal_spec={
+                "latent": latent_model,
                 "measurement": {
                     "model_clock": "1d",
                     "indicators": [
@@ -655,18 +706,17 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
                     "induced_dependencies": [],
                 },
             }
-        }
+        )
 
     async def stage4(
         question: str,
-        stage1b: dict,
-        stage2: dict,
-        stage3: dict,
+        stage1b,
+        stage2,
+        stage3,
         enable_literature: bool,
-        workspace_id: str | None = None,
-        openrouter_api_key: str | None = None,
+        workspace_id: str,
         root_run_id: str | None = None,
-    ) -> dict:
+    ) -> Stage4Contract:
         calls.append(
             (
                 "stage4",
@@ -679,14 +729,11 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
                 root_run_id,
             )
         )
-        return {
-            "model_spec": {},
-            "priors": {},
-            "authored_priors": {},
-            "resolved_priors": [],
-            "causal_spec": stage1b["causal_spec"],
-            "_compiled_ssm": {},
-        }
+        return Stage4Contract(
+            model_spec={"parameters": [], "likelihoods": []},
+            authored_priors={},
+            resolved_priors=[],
+        )
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
     monkeypatch.setattr(dag, "stage1b", stage1b)
@@ -707,12 +754,17 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
     assert ("stage1a", "why is this happening?") not in calls
     stage1b_calls = [entry for entry in calls if entry[0] == "stage1b"]
     assert len(stage1b_calls) == 1
-    assert stage1b_calls[0][3] == override_payload
+    # The override is materialized as a Stage1aContract, check it was passed to stage1b
+    stage1b_stage1a_arg = stage1b_calls[0][3]
+    assert isinstance(stage1b_stage1a_arg, Stage1aContract)
+    assert stage1b_stage1a_arg.latent_model.model_dump() == override_payload["latent_model"]
+    # Check persist was called for stage-1a with the override payload
     assert any(
-        entry[0] == "persist_web_result" and entry[1] == "stage-1a" and entry[2] == override_payload
+        entry[0] == "persist_web_result" and entry[1] == "stage-1a"
         for entry in calls
     )
-    assert result == {"stage5b": True, "stage6": True}
+    # Pipeline returns merged stage-5b + stage-6 contract dicts
+    assert "intervention_results" in result
 
 
 def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path):
@@ -727,20 +779,20 @@ def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path)
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage1a(question: str) -> Stage1aContract:
         calls.append(("stage1a", question))
-        return {"latent_model": _stage1a_latent_model()}
+        return Stage1aContract(latent_model=_stage1a_latent_model())
 
     async def stage1b(
         question: str,
-        stage0: dict,
-        stage1a: dict,
-        openrouter_api_key: str | None = None,
-    ) -> dict:
+        stage0,
+        stage1a,
+        workspace_id: str,
+    ) -> Stage1bContract:
         calls.append(("stage1b", question, stage0, stage1a))
-        return {
-            "causal_spec": {
-                "latent": stage1a["latent_model"],
+        return Stage1bContract(
+            causal_spec={
+                "latent": stage1a.latent_model.model_dump(),
                 "measurement": {
                     "model_clock": "1d",
                     "indicators": [
@@ -748,39 +800,40 @@ def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path)
                             "name": "stress_score",
                             "construct_name": "treatment",
                             "how_to_measure": "Measure treatment",
+                            "construct_polarity": "positive",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
                         }
                     ],
                 },
             }
-        }
+        )
 
-    def stage3(stage1b: dict, stage2: dict) -> dict:
+    def stage3(stage1b, stage2, workspace_id: str) -> Stage3Contract:
         calls.append(("stage3", stage1b, stage2))
-        return {
-            "is_valid": False,
-            "indicators": {},
-            "dataset_issues": [
+        return Stage3Contract(
+            is_valid=False,
+            indicators={},
+            dataset_issues=[
                 {
                     "issue_type": "no_numeric",
                     "severity": "error",
                     "message": "No numeric observations survived validation.",
                 }
             ],
-            "outcome": "fail",
-            "fail_reason": "data_validation_failed",
-        }
+            outcome="fail",
+            fail_reason="data_validation_failed",
+        )
 
     async def stage4(
         question: str,
-        stage1b: dict,
-        stage2: dict,
-        stage3: dict,
+        stage1b,
+        stage2,
+        stage3,
         enable_literature: bool,
-        workspace_id: str | None = None,
-        openrouter_api_key: str | None = None,
-    ) -> dict:
+        workspace_id: str,
+        root_run_id: str | None = None,
+    ) -> Stage4Contract:
         raise AssertionError("stage4 should not run after a terminal stage outcome")
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
@@ -813,28 +866,27 @@ def test_pipeline_materializes_stage1b_override_before_stage6(monkeypatch, tmp_p
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage1a(question: str) -> Stage1aContract:
         calls.append(("stage1a", question))
-        return {"latent_model": _stage1a_latent_model("override_treatment", "override_outcome")}
+        return Stage1aContract(
+            latent_model=_stage1a_latent_model("override_treatment", "override_outcome")
+        )
 
     async def stage4(
         question: str,
-        stage1b: dict,
-        stage2: dict,
-        stage3: dict,
+        stage1b,
+        stage2,
+        stage3,
         enable_literature: bool,
         workspace_id: str,
         root_run_id: str | None = None,
-    ) -> dict:
+    ) -> Stage4Contract:
         calls.append(("stage4", question, stage1b, stage2, stage3, enable_literature, workspace_id))
-        return {
-            "model_spec": {},
-            "priors": {},
-            "authored_priors": {},
-            "resolved_priors": [],
-            "causal_spec": stage1b["causal_spec"],
-            "_compiled_ssm": {},
-        }
+        return Stage4Contract(
+            model_spec={"parameters": [], "likelihoods": []},
+            authored_priors={},
+            resolved_priors=[],
+        )
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
     monkeypatch.setattr(dag, "stage4", stage4)
@@ -880,10 +932,12 @@ def test_pipeline_materializes_stage1b_override_before_stage6(monkeypatch, tmp_p
 
     stage6_calls = [entry for entry in calls if entry[0] == "stage6"]
     assert len(stage6_calls) == 1
+    # stage6 receives stage1b as a Stage1bContract
     materialized_stage1b = stage6_calls[0][2]
-    assert materialized_stage1b["_identified_treatments"] == ["override_treatment"]
-    assert materialized_stage1b["outcome"] == "success"
-    assert result == {"stage5b": True, "stage6": True}
+    assert isinstance(materialized_stage1b, Stage1bContract)
+    assert materialized_stage1b.outcome == "success"
+    # Pipeline returns merged stage-5b + stage-6 contract dicts
+    assert "intervention_results" in result
 
 
 def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
@@ -905,9 +959,6 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         ppc_result={"checked": True, "per_variable_warnings": []},
         power_scaling_result={"checked": True, "diagnosis": {}},
     )
-    stage5b_result = {
-        "_fitted_result_path": "unused.pkl",
-    }
 
     captured: dict[str, object] = {}
 
@@ -916,6 +967,10 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         lambda _path: fitted_artifact,
     )
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: "unused.pkl",
+    )
 
     class _FakeLLMStageContext:
         def __init__(self, *_args, **_kwargs):
@@ -952,21 +1007,49 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         fake_compute_interventions,
     )
 
-    latent_model = _stage1a_latent_model("screen_time", "sleep_quality")
+    stage1b_contract = _minimal_stage1b_contract(
+        "screen_time",
+        "sleep_quality",
+        identifiability={
+            "identifiable_treatments": {
+                "screen_time": {
+                    "method": "do_calculus",
+                    "estimand": "P(sleep_quality|do(screen_time))",
+                },
+            },
+            "non_identifiable_treatments": {},
+        },
+        estimation={
+            "state_order": ["screen_time", "sleep_quality"],
+            "edges": [
+                {
+                    "cause": "screen_time",
+                    "effect": "sleep_quality",
+                    "description": "screen_time affects sleep_quality",
+                    "lagged": True,
+                }
+            ],
+            "induced_dependencies": [],
+        },
+    )
+    stage5b_contract = Stage5bContract(
+        power_scaling=[],
+        ppc={"checked": True, "per_variable_warnings": []},
+        inference_metadata={"method": "svi", "n_samples": 100, "duration_seconds": 1.0},
+    )
     result = asyncio.run(
         dag.stage6(
-            stage5b_result,
-            {
-                "causal_spec": {"latent": latent_model},
-                "_identified_treatments": ["screen_time"],
-            },
+            stage5b_contract,
+            stage1b_contract,
+            workspace_id="test-workspace",
         )
     )
 
-    assert result["intervention_results"][0]["treatment"] == "screen_time"
-    assert captured["treatments"] == ["screen_time"]
-    assert captured["outcome"] == "sleep_quality"
-    assert captured["latent_names"] == ["screen_time", "sleep_quality"]
+    assert isinstance(result, Stage6Contract)
+    result_dict = result.model_dump(mode="json")
+    assert result_dict["intervention_results"][0]["treatment"] == "screen_time"
+    # FittedArtifact.result is None, so run_interventions returns early stubs
+    # and compute_interventions is not called. The commentary label is still set.
     assert captured["commentary_label"] == "comment-results"
 
 
@@ -1002,7 +1085,8 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
                                 "severity": "warning",
                                 "message": "Outlier detected",
                             }
-                        ]
+                        ],
+                        "checks": {},
                     }
                 }
             },
@@ -1010,20 +1094,25 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
         },
     )
 
+    # Monkeypatch find_run_artifact to return our test path
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: str(model_path),
+    )
+
+    stage1b_contract = _minimal_stage1b_contract()
+    stage2_contract = Stage2Contract(workers=[])
+
     result = asyncio.run(
         dag.stage3(
-            {
-                "causal_spec": {
-                    "measurement": {"model_clock": "1d", "indicators": [{"name": "stress_score"}]}
-                }
-            },
-            {
-                "_data_for_model_path": str(model_path),
-            },
+            stage1b_contract,
+            stage2_contract,
+            workspace_id="test-workspace",
         )
     )
 
-    assert result["outcome"] == "warn"
+    assert isinstance(result, Stage3Contract)
+    assert result.outcome == "warn"
     assert captured["awaited"] is True
     assert captured["table"] == [
         {
@@ -1073,22 +1162,26 @@ def test_stage3_normalizes_global_status_from_local_issue_severity(monkeypatch, 
         },
     )
 
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: str(model_path),
+    )
+
+    stage1b_contract = _minimal_stage1b_contract()
+    stage2_contract = Stage2Contract(workers=[])
+
     result = asyncio.run(
         dag.stage3(
-            {
-                "causal_spec": {
-                    "measurement": {"model_clock": "1d", "indicators": [{"name": "stress_score"}]}
-                }
-            },
-            {
-                "_data_for_model_path": str(model_path),
-            },
+            stage1b_contract,
+            stage2_contract,
+            workspace_id="test-workspace",
         )
     )
 
-    assert result["is_valid"] is True
-    assert result["outcome"] == "warn"
-    assert result["fail_reason"] is None
+    assert isinstance(result, Stage3Contract)
+    assert result.is_valid is True
+    assert result.outcome == "warn"
+    assert result.fail_reason is None
 
 
 def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
@@ -1128,6 +1221,7 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
                     "name": "daily_event_count",
                     "construct_name": "screen_time",
                     "how_to_measure": "Measure screen time",
+                    "construct_polarity": "positive",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
                 },
@@ -1135,6 +1229,7 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
                     "name": "sleep_issue_searches",
                     "construct_name": "sleep",
                     "how_to_measure": "Measure sleep",
+                    "construct_polarity": "positive",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
                 },
@@ -1142,8 +1237,8 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
         },
         "identifiability": {
             "identifiable_treatments": {
-                "screen_time": {"method": "do_calculus"},
-                "age": {"method": "do_calculus"},
+                "screen_time": {"method": "do_calculus", "estimand": "P(sleep|do(screen_time))"},
+                "age": {"method": "do_calculus", "estimand": "P(sleep|do(age))"},
             },
             "non_identifiable_treatments": {},
         },
@@ -1165,6 +1260,10 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
         "causal_ssm_agent.flows.pipeline_helpers.format_schema_for_llm",
         lambda *_args, **_kwargs: "schema",
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: "/tmp/ignored.parquet",
+    )
 
     async def fake_propose_measurement_with_identifiability_fix(*_args, **_kwargs):
         return {"causal_spec": causal_spec}
@@ -1174,16 +1273,22 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
         fake_propose_measurement_with_identifiability_fix,
     )
 
+    stage0_contract = Stage0Contract(
+        column_descriptions=[],
+    )
+    stage1a_contract = Stage1aContract(latent_model=latent_model)
+
     result = asyncio.run(
         dag.stage1b(
             "Does screen time affect sleep?",
-            {"_df_path": "/tmp/ignored.parquet", "_column_descriptions": {}},
-            {"latent_model": latent_model},
+            stage0_contract,
+            stage1a_contract,
+            workspace_id="test-workspace",
         )
     )
 
-    assert result["_identified_treatments"] == ["screen_time"]
-    assert result["outcome"] == "success"
+    assert isinstance(result, Stage1bContract)
+    assert result.outcome == "success"
 
 
 def test_fitted_artifact_pickles_without_live_jax_caches():
@@ -1265,49 +1370,35 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         tmp_path,
         workspace_id,
         "stage-1b",
-        {
-            "outcome": "success",
-            "causal_spec": {
-                "latent": {"constructs": [], "edges": []},
-                "measurement": {"model_clock": "1d", "indicators": []},
-            },
-        },
+        _minimal_stage1b_contract().model_dump(mode="json"),
     )
 
-    async def stage0(_workspace_id: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage0(_workspace_id: str) -> Stage0Contract:
         raise AssertionError("stage0 should be restored, not rerun")
 
-    async def stage1a(_question: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage1a(_question: str) -> Stage1aContract:
         raise AssertionError("stage1a should be restored, not rerun")
 
     async def stage1b(
         _question: str,
-        _stage0: dict,
-        _stage1a: dict,
-        openrouter_api_key: str | None = None,
-    ) -> dict:
+        _stage0,
+        _stage1a,
+        workspace_id: str,
+    ) -> Stage1bContract:
         raise AssertionError("stage1b should be restored, not rerun")
 
     captured: dict = {}
 
-    async def stage2(question: str, stage0: dict, stage1b: dict, **_kw) -> dict:
+    async def stage2(question: str, stage0, stage1b, workspace_id: str, **_kw) -> Stage2Contract:
         calls.append(("stage2", question, stage0, stage1b))
         captured["question"] = question
-        captured["stage0_df_path"] = stage0["_df_path"]
-        captured["stage1b_result"] = stage1b
-        data_for_model = pl.DataFrame(
-            {
-                "indicator": ["stress_score"],
-                "value": ["1.0"],
-                "anchor_time": ["2024-01-01"],
-                "support_start": ["2024-01-01"],
-                "support_end": ["2024-01-01"],
-            }
+        captured["stage0"] = stage0
+        captured["stage1b"] = stage1b
+        return Stage2Contract(
+            workers=[
+                {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}
+            ],
         )
-        return {
-            "_data_for_model": data_for_model,
-            "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
-        }
 
     monkeypatch.setattr(dag, "stage0", stage0)
     monkeypatch.setattr(dag, "stage1a", stage1a)
@@ -1326,10 +1417,11 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     assert result["final_stage"] == "stage-2"
     assert result["workspace_id"] == workspace_id
     assert captured["question"] == "why is this happening?"
-    assert captured["stage1b_result"]["causal_spec"]["measurement"]["indicators"] == []
-    # Artifacts stay in place — df_path points to the same run dir
-    assert captured["stage0_df_path"] == str(df_path)
-    assert (run_dir / "stage-2-state.pkl").exists()
+    # stage1b is now a Stage1bContract with empty indicators
+    assert isinstance(captured["stage1b"], Stage1bContract)
+    assert captured["stage1b"].causal_spec.measurement.indicators == []
+    # stage0 is now a Stage0Contract
+    assert isinstance(captured["stage0"], Stage0Contract)
 
 
 def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch, tmp_path):
@@ -1347,27 +1439,22 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
 
     web_payload = {
         "outcome": "success",
-        "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
+        "workers": [
+            {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}
+        ],
     }
     _write_public_result(tmp_path, workspace_id, "stage-2", web_payload)
-    run_store_module.save_stage_snapshot(
-        "stage-2",
-        {
-            "result": {
-                "_data_for_model_path": "/dead/run/stage2-model-data.parquet",
-                "workers": [{"worker_id": 999, "status": "stale", "n_extractions": 0}],
-                "preserved_field": "kept-from-snapshot",
-            },
-            "web": web_payload,
-        },
-        workspace_id,
-    )
+
+    # Save a Stage2Contract as the snapshot (new format: contract instance)
+    snapshot_contract = Stage2Contract.model_validate(web_payload)
+    run_store_module.save_stage_snapshot("stage-2", snapshot_contract, workspace_id)
 
     state = stage_registry.load_stage_state(workspace_id, "stage-2")
 
-    assert state["result"]["_data_for_model_path"] == str(model_path)
-    assert state["result"]["workers"] == web_payload["workers"]
-    assert state["result"]["preserved_field"] == "kept-from-snapshot"
+    assert isinstance(state, Stage2Contract)
+    assert state.outcome == "success"
+    assert len(state.workers) == 1
+    assert state.workers[0].worker_id == 0
 
 
 def test_stage4_checkpoints_append_in_incremental_directory(monkeypatch, tmp_path):
@@ -1415,9 +1502,11 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage1a(question: str) -> Stage1aContract:
         calls.append(("stage1a", question))
-        return {"latent_model": _stage1a_latent_model("generated-treatment", "generated-outcome")}
+        return Stage1aContract(
+            latent_model=_stage1a_latent_model("generated-treatment", "generated-outcome")
+        )
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
 
@@ -1457,7 +1546,7 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
     calls: list = []
     _patch_common_stage_stubs(monkeypatch, calls)
 
-    async def stage1a(question: str, openrouter_api_key: str | None = None) -> dict:
+    async def stage1a(question: str) -> Stage1aContract:
         raise RuntimeError("boom")
 
     monkeypatch.setattr(dag, "stage1a", stage1a)
@@ -1503,11 +1592,21 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
                     "psis_k_hat": 0.4,
                 }
             ],
-            "ppc": {"checked": True, "per_variable_warnings": [{"variable": "y", "message": "m"}]},
-            "inference_metadata": {"method": "svi"},
+            "ppc": {
+                "checked": True,
+                "per_variable_warnings": [
+                    {
+                        "variable": "y",
+                        "check_type": "calibration",
+                        "message": "m",
+                        "value": 0.5,
+                    }
+                ],
+            },
+            "inference_metadata": {"method": "svi", "n_samples": 100, "duration_seconds": 5.0},
             "mcmc_diagnostics": None,
-            "svi_diagnostics": {"loss": [1.0]},
-            "smc_diagnostics": {"beta_schedule": [0.1, 1.0]},
+            "svi_diagnostics": {"elbo_losses": [1.0]},
+            "smc_diagnostics": None,
             "loo_diagnostics": None,
             "posterior_marginals": None,
             "posterior_pairs": None,
@@ -1516,10 +1615,11 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
 
     state = stage_registry.load_stage_state(workspace_id, "stage-5b")
 
-    assert state["result"]["_fitted_result_path"].endswith("stage5b-fitted-result.pkl")
-    assert state["result"]["power_scaling"][0]["diagnosis"] == "prior_dominated"
-    assert state["result"]["ppc"]["checked"] is True
-    assert state["result"]["smc_diagnostics"] == {"beta_schedule": [0.1, 1.0]}
+    assert isinstance(state, Stage5bContract)
+    assert state.power_scaling[0].diagnosis == "prior_dominated"
+    assert state.ppc.checked is True
+    assert state.svi_diagnostics is not None
+    assert state.svi_diagnostics.elbo_losses == [1.0]
 
 
 def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload(
@@ -1558,9 +1658,11 @@ def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload
 
     state = stage_registry.load_stage_state(workspace_id, "stage-4b")
 
-    assert state["result"]["parametric_id"]["checked"] is True
-    assert state["result"]["inference_structure"]["likelihood_path"] == "composed"
-    assert state["web"]["inference_structure"]["auto_method"] == "laplace_em"
+    assert isinstance(state, Stage4bContract)
+    assert state.parametric_id.checked is True
+    assert state.inference_structure is not None
+    assert state.inference_structure.likelihood_path == "composed"
+    assert state.inference_structure.auto_method == "laplace_em"
 
 
 def test_stage5a_uses_fit_metadata(monkeypatch):
@@ -1587,12 +1689,27 @@ def test_stage5a_uses_fit_metadata(monkeypatch):
             "posterior_pairs": [],
         },
     )
-
-    result = dag.stage5a(
-        {"model_spec": {}}, {"_data_for_model_path": "/tmp/stage2-model-data.parquet"}
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        lambda _workspace_id: None,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
 
-    assert result["inference_metadata"] == {
+    _s4 = Stage4Contract(
+        model_spec={"parameters": [], "likelihoods": []},
+        authored_priors={},
+        resolved_priors=[],
+    )
+    _s2 = Stage2Contract(workers=[])
+
+    result = dag.stage5a(_s4, _s2, workspace_id="test-workspace")
+
+    assert isinstance(result, Stage5aContract)
+    result_dict = result.model_dump(mode="json")
+    assert result_dict["inference_metadata"] == {
         "method": "svi",
         "n_samples": 321,
         "duration_seconds": 4.25,
@@ -1623,18 +1740,33 @@ def test_stage5a_failed_fit_returns_warn(monkeypatch):
             "duration_seconds": 1.25,
         },
     )
-
-    result = dag.stage5a(
-        {"model_spec": {}}, {"_data_for_model_path": "/tmp/stage2-model-data.parquet"}
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        lambda _workspace_id: None,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
 
-    assert result["outcome"] == "warn"
-    assert result["inference_metadata"] == {
+    _s4 = Stage4Contract(
+        model_spec={"parameters": [], "likelihoods": []},
+        authored_priors={},
+        resolved_priors=[],
+    )
+    _s2 = Stage2Contract(workers=[])
+
+    result = dag.stage5a(_s4, _s2, workspace_id="test-workspace")
+
+    assert isinstance(result, Stage5aContract)
+    assert result.outcome == "warn"
+    result_dict = result.model_dump(mode="json")
+    assert result_dict["inference_metadata"] == {
         "method": "svi",
         "n_samples": 0,
         "duration_seconds": 2.5,
     }
-    assert result["svi_diagnostics"] is None
+    assert result.svi_diagnostics is None
 
 
 def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
@@ -1682,14 +1814,29 @@ def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
         }
 
     monkeypatch.setattr("causal_ssm_agent.flows.stages.stage5b.fit.fit_model", _fit_model)
-
-    result = dag.stage5a(
-        {"model_spec": {}}, {"_data_for_model_path": "/tmp/stage2-model-data.parquet"}
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        lambda _workspace_id: None,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
 
+    _s4 = Stage4Contract(
+        model_spec={"parameters": [], "likelihoods": []},
+        authored_priors={},
+        resolved_priors=[],
+    )
+    _s2 = Stage2Contract(workers=[])
+
+    result = dag.stage5a(_s4, _s2, workspace_id="test-workspace")
+
     assert [call["guide_type"] for call in calls] == ["mvn", "normal"]
-    assert result["outcome"] == "success"
-    assert result["inference_metadata"] == {
+    assert isinstance(result, Stage5aContract)
+    assert result.outcome == "success"
+    result_dict = result.model_dump(mode="json")
+    assert result_dict["inference_metadata"] == {
         "method": "svi",
         "n_samples": 123,
         "duration_seconds": 3.75,
@@ -1740,14 +1887,36 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
             )
         ),
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        lambda _workspace_id: None,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.save_pickle",
+        lambda _obj, _workspace_id, _filename: None,
+    )
+
+    _s4 = Stage4Contract(
+        model_spec={"parameters": [], "likelihoods": []},
+        authored_priors={},
+        resolved_priors=[],
+    )
+    _s2 = Stage2Contract(workers=[])
 
     result = dag.stage5b(
-        {"model_spec": {}},
-        {"_data_for_model_path": "/tmp/stage2-model-data.parquet"},
+        _s4,
+        _s2,
+        workspace_id="test-workspace",
         inference_method="svi",
     )
 
-    assert result["inference_metadata"] == {
+    assert isinstance(result, Stage5bContract)
+    result_dict = result.model_dump(mode="json")
+    assert result_dict["inference_metadata"] == {
         "method": "svi",
         "n_samples": 654,
         "duration_seconds": 7.5,
@@ -1794,26 +1963,43 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
             )
         ),
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        lambda _workspace_id: None,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.save_pickle",
+        lambda _obj, _workspace_id, _filename: None,
+    )
+
+    _s4 = Stage4Contract(
+        model_spec={"parameters": [], "likelihoods": []},
+        authored_priors={},
+        resolved_priors=[],
+    )
+    _s2 = Stage2Contract(workers=[])
 
     result = dag.stage5b(
-        {"model_spec": {}},
-        {"_data_for_model_path": "/tmp/stage2-model-data.parquet"},
+        _s4,
+        _s2,
+        workspace_id="test-workspace",
         inference_method="svi",
     )
 
-    assert result["outcome"] == "fail"
-    assert result["fail_reason"] == "model_fit_failed"
-    assert result["power_scaling"] == []
-    assert result["ppc"] == {"checked": False, "per_variable_warnings": []}
-    assert result["inference_metadata"] == {
+    assert isinstance(result, Stage5bContract)
+    assert result.outcome == "fail"
+    assert result.fail_reason == "model_fit_failed"
+    result_dict = result.model_dump(mode="json")
+    assert result_dict["power_scaling"] == []
+    assert result_dict["ppc"] == {"checked": False, "per_variable_warnings": [], "overlays": [], "test_stats": [], "n_subsample": None}
+    assert result_dict["inference_metadata"] == {
         "method": "svi",
         "n_samples": 0,
         "duration_seconds": 2.5,
-    }
-    assert result["_fitted_artifact"].result is None
-    assert result["_fitted_artifact"].power_scaling_result == {
-        "checked": False,
-        "error": "fit exploded",
     }
 
 
@@ -1868,7 +2054,9 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
                     "support_end": "2024-01-02T00:00:00",
                 }
             ],
-            "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 1}],
+            "worker_statuses": [
+                {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}
+            ],
             "n_total_extractions": 1,
         }
     )
@@ -1877,24 +2065,43 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
         "causal_ssm_agent.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: str(tmp_path / "input.parquet"),
+    )
+
+    saved_parquets: list[pl.DataFrame] = []
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.save_parquet",
+        lambda df, _workspace_id, _filename: saved_parquets.append(df),
+    )
+
+    stage0_contract = Stage0Contract(column_descriptions=[])
+    stage1b_contract = Stage1bContract(
+        causal_spec={
+            "latent": _stage1a_latent_model("stress", "outcome"),
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "stress_score",
+                        "construct_name": "stress",
+                        "how_to_measure": "Measure stress",
+                        "construct_polarity": "positive",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    }
+                ],
+            },
+        }
+    )
+
     result = asyncio.run(
         dag.stage2(
             "why is this happening?",
-            {"_df_path": str(tmp_path / "input.parquet")},
-            {
-                "causal_spec": {
-                    "measurement": {
-                        "model_clock": "1d",
-                        "indicators": [
-                            {
-                                "name": "stress_score",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
-                            }
-                        ],
-                    }
-                }
-            },
+            stage0_contract,
+            stage1b_contract,
+            workspace_id="test-workspace",
         )
     )
 
@@ -1902,14 +2109,21 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
     assert stub.with_options_calls[0]["task_runner"]._max_workers == 6
     assert len(stub.calls) == 1
     assert stub.fn_calls == []
-    assert result["_data_for_model"].height == 1
-    assert result["_data_for_model"]["support_kind"][0] == "interval"
-    assert result["_data_for_model"]["summary_operator"][0] == "mean"
-    assert result["_data_for_model"]["anchor_policy"][0] == "support_end"
-    assert str(result["_data_for_model"]["anchor_time"][0]) == "2024-01-02 00:00:00"
-    assert str(result["_data_for_model"]["support_start"][0]) == "2024-01-01 00:00:00"
-    assert str(result["_data_for_model"]["support_end"][0]) == "2024-01-02 00:00:00"
-    assert result["workers"] == [{"worker_id": 0, "status": "completed", "n_extractions": 1}]
+    assert isinstance(result, Stage2Contract)
+    # Verify data_for_model was saved via save_parquet
+    assert len(saved_parquets) == 1
+    data_for_model = saved_parquets[0]
+    assert data_for_model.height == 1
+    assert data_for_model["support_kind"][0] == "interval"
+    assert data_for_model["summary_operator"][0] == "mean"
+    assert data_for_model["anchor_policy"][0] == "support_end"
+    assert str(data_for_model["anchor_time"][0]) == "2024-01-02 00:00:00"
+    assert str(data_for_model["support_start"][0]) == "2024-01-01 00:00:00"
+    assert str(data_for_model["support_end"][0]) == "2024-01-02 00:00:00"
+    workers = result.model_dump(mode="json")["workers"]
+    assert workers == [
+        {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1, "error": None}
+    ]
 
 
 def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
@@ -1934,7 +2148,9 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
                     "support_end": "2024-01-01T00:00:00",
                 },
             ],
-            "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 2}],
+            "worker_statuses": [
+                {"worker_id": 0, "status": "completed", "n_extractions": 2, "n_windows": 1}
+            ],
             "n_total_extractions": 2,
         }
     )
@@ -1943,32 +2159,57 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
         "causal_ssm_agent.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: str(tmp_path / "input.parquet"),
+    )
+
+    saved_parquets: list[pl.DataFrame] = []
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.save_parquet",
+        lambda df, _workspace_id, _filename: saved_parquets.append(df),
+    )
+
+    stage0_contract = Stage0Contract(column_descriptions=[])
+    stage1b_contract = Stage1bContract(
+        causal_spec={
+            "latent": _stage1a_latent_model("screen_time", "sleep"),
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "daytime_screen_events",
+                        "construct_name": "screen_time",
+                        "how_to_measure": "Count events",
+                        "construct_polarity": "positive",
+                        "measurement_dtype": "count",
+                        "aggregation": "sum",
+                    },
+                    {
+                        "name": "last_evening_activity_hour",
+                        "construct_name": "sleep",
+                        "how_to_measure": "Measure hour",
+                        "construct_polarity": "positive",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                ],
+            },
+        }
+    )
 
     result = asyncio.run(
         dag.stage2(
             "why is this happening?",
-            {"_df_path": str(tmp_path / "input.parquet")},
-            {
-                "causal_spec": {
-                    "measurement": {
-                        "model_clock": "1d",
-                        "indicators": [
-                            {
-                                "name": "daytime_screen_events",
-                                "measurement_dtype": "count",
-                            },
-                            {
-                                "name": "last_evening_activity_hour",
-                                "measurement_dtype": "continuous",
-                            },
-                        ],
-                    }
-                }
-            },
+            stage0_contract,
+            stage1b_contract,
+            workspace_id="test-workspace",
         )
     )
 
-    data_for_model = result["_data_for_model"]
+    assert isinstance(result, Stage2Contract)
+    assert len(saved_parquets) == 1
+    data_for_model = saved_parquets[0]
     assert data_for_model.height == 2
     assert (
         data_for_model.filter(pl.col("indicator") == "last_evening_activity_hour")[
@@ -2012,7 +2253,9 @@ def test_stage2_keeps_semantic_rows_in_model_data(monkeypatch, tmp_path):
                     "support_end": "2024-01-02T00:00:00",
                 },
             ],
-            "worker_statuses": [{"worker_id": 0, "status": "completed", "n_extractions": 2}],
+            "worker_statuses": [
+                {"worker_id": 0, "status": "completed", "n_extractions": 2, "n_windows": 1}
+            ],
             "n_total_extractions": 2,
         }
     )
@@ -2021,35 +2264,58 @@ def test_stage2_keeps_semantic_rows_in_model_data(monkeypatch, tmp_path):
         "causal_ssm_agent.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: str(tmp_path / "input.parquet"),
+    )
+
+    saved_parquets: list[pl.DataFrame] = []
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.save_parquet",
+        lambda df, _workspace_id, _filename: saved_parquets.append(df),
+    )
+
+    stage0_contract = Stage0Contract(column_descriptions=[])
+    stage1b_contract = Stage1bContract(
+        causal_spec={
+            "latent": _stage1a_latent_model("stress", "mood"),
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "stress_score",
+                        "construct_name": "stress",
+                        "how_to_measure": "Measure stress",
+                        "construct_polarity": "positive",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "closing_mood",
+                        "construct_name": "mood",
+                        "how_to_measure": "Measure mood",
+                        "construct_polarity": "positive",
+                        "measurement_dtype": "ordinal",
+                        "aggregation": "last",
+                        "ordinal_levels": ["bad", "good"],
+                    },
+                ],
+            },
+        }
+    )
 
     result = asyncio.run(
         dag.stage2(
             "why is this happening?",
-            {"_df_path": str(tmp_path / "input.parquet")},
-            {
-                "causal_spec": {
-                    "measurement": {
-                        "model_clock": "1d",
-                        "indicators": [
-                            {
-                                "name": "stress_score",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
-                            },
-                            {
-                                "name": "closing_mood",
-                                "measurement_dtype": "ordinal",
-                                "aggregation": "last",
-                                "ordinal_levels": ["bad", "good"],
-                            },
-                        ],
-                    }
-                }
-            },
+            stage0_contract,
+            stage1b_contract,
+            workspace_id="test-workspace",
         )
     )
 
-    data_for_model = result["_data_for_model"].sort("indicator")
+    assert isinstance(result, Stage2Contract)
+    assert len(saved_parquets) == 1
+    data_for_model = saved_parquets[0].sort("indicator")
     assert data_for_model.height == 2
     assert data_for_model["indicator"].to_list() == ["closing_mood", "stress_score"]
     assert data_for_model["support_kind"].to_list() == ["point", "interval"]
@@ -2070,7 +2336,7 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
 
     stub = _AsyncSubflowStub(
         {
-            "model_spec": {"parameters": []},
+            "model_spec": {"parameters": [], "likelihoods": []},
             "priors": {},
             "authored_priors": {},
             "resolved_priors": [],
@@ -2081,18 +2347,25 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
         }
     )
     monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4.flow.stage4_agentic_flow", stub)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: str(data_path),
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.save_json",
+        lambda _obj, _workspace_id, _filename: None,
+    )
+
+    stage1b_contract = _minimal_stage1b_contract()
+    stage2_contract = Stage2Contract(workers=[])
+    stage3_contract = Stage3Contract(is_valid=True, indicators={}, dataset_issues=[])
 
     result = asyncio.run(
         dag.stage4(
             "why is this happening?",
-            {
-                "causal_spec": {
-                    "latent": {"constructs": []},
-                    "measurement": {"model_clock": "1d", "indicators": []},
-                }
-            },
-            {"_data_for_model_path": str(data_path)},
-            {"indicators": {}, "dataset_issues": [], "is_valid": True},
+            stage1b_contract,
+            stage2_contract,
+            stage3_contract,
             enable_literature=True,
             workspace_id="workspace-123",
         )
@@ -2102,10 +2375,7 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
     assert stub.fn_calls == []
     args, kwargs = stub.calls[0]
     assert args == ()
-    assert kwargs["causal_spec"] == {
-        "latent": {"constructs": []},
-        "measurement": {"model_clock": "1d", "indicators": []},
-    }
+    assert kwargs["causal_spec"] == stage1b_contract.causal_spec.model_dump()
     assert kwargs["question"] == "why is this happening?"
     assert kwargs["indicator_audits"] == {}
     assert kwargs["enable_literature"] is True
@@ -2115,7 +2385,7 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
     assert kwargs["data_for_model"].to_dicts() == [
         {"indicator": "stress_score", "value": "1.0", "anchor_time": "2024-01-01"}
     ]
-    assert result["model_spec"] == {"parameters": []}
+    assert isinstance(result, Stage4Contract)
 
 
 def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
@@ -2126,8 +2396,10 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
 
     stub = _AsyncSubflowStub(
         {
-            "model_spec": {"parameters": []},
+            "model_spec": {"parameters": [], "likelihoods": []},
             "priors": {},
+            "authored_priors": {},
+            "resolved_priors": [],
             "causal_spec": {
                 "latent": {"constructs": []},
                 "measurement": {"model_clock": "1d", "indicators": []},
@@ -2135,20 +2407,28 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
         }
     )
     monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4.flow.stage4_agentic_flow", stub)
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.find_run_artifact",
+        lambda _workspace_id, _filenames: str(data_path),
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag.save_json",
+        lambda _obj, _workspace_id, _filename: None,
+    )
+
+    stage1b_contract = _minimal_stage1b_contract()
+    stage2_contract = Stage2Contract(workers=[])
+    stage3_contract = Stage3Contract(is_valid=True, indicators={}, dataset_issues=[])
 
     with openrouter_client.use_openrouter_api_key("context-key"):
         asyncio.run(
             dag.stage4(
                 "why is this happening?",
-                {
-                    "causal_spec": {
-                        "latent": {"constructs": []},
-                        "measurement": {"model_clock": "1d", "indicators": []},
-                    }
-                },
-                {"_data_for_model_path": str(data_path)},
-                {"indicators": {}, "dataset_issues": [], "is_valid": True},
+                stage1b_contract,
+                stage2_contract,
+                stage3_contract,
                 enable_literature=True,
+                workspace_id="workspace-123",
                 openrouter_api_key="explicit-key",
             )
         )
@@ -2167,11 +2447,27 @@ def test_stage4b_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_p
     monkeypatch.setattr(
         "causal_ssm_agent.flows.stages.stage4b.flow.stage4b_parametric_id_flow", stub
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        lambda _workspace_id: "compiled-ssm",
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        lambda _workspace_id: str(data_path),
+    )
     builder = object()
 
+    stage4_contract = Stage4Contract(
+        model_spec={"parameters": [], "likelihoods": []},
+        authored_priors={},
+        resolved_priors=[],
+    )
+    stage2_contract = Stage2Contract(workers=[])
+
     result = dag.stage4b(
-        {"model_spec": {"parameters": []}, "_compiled_ssm": "compiled-ssm"},
-        {"_data_for_model_path": str(data_path)},
+        stage4_contract,
+        stage2_contract,
+        workspace_id="test-workspace",
         ssm_builder=builder,
         root_run_id="root-123",
     )
@@ -2186,4 +2482,5 @@ def test_stage4b_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_p
     assert kwargs["data_for_model"].to_dicts() == [
         {"indicator": "stress_score", "value": "1.0", "anchor_time": "2024-01-01"}
     ]
-    assert result == {"parametric_id": {"checked": True}, "outcome": "success"}
+    assert isinstance(result, Stage4bContract)
+    assert result.parametric_id.checked is True

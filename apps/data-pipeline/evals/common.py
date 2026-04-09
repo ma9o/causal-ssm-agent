@@ -482,8 +482,8 @@ def load_workspace_question(workspace_id: str | None = None) -> str:
     return storage.read_text(query_path).strip()
 
 
-def load_workspace_stage_state(stage_id: str, workspace_id: str | None = None) -> dict[str, Any]:
-    """Restore a persisted stage state for an eval workspace."""
+def load_workspace_stage_state(stage_id: str, workspace_id: str | None = None) -> Any:
+    """Restore a persisted stage contract for an eval workspace."""
     from causal_ssm_agent.flows.stage_registry import load_stage_state
 
     resolved = resolve_eval_workspace_id(workspace_id)
@@ -493,21 +493,26 @@ def load_workspace_stage_state(stage_id: str, workspace_id: str | None = None) -
 def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, Any]:
     """Load the exact Stage 1b inputs from a persisted workspace run."""
     from causal_ssm_agent.flows.pipeline_helpers import format_schema_for_llm
-    from causal_ssm_agent.flows.run_store import load_parquet
+    from causal_ssm_agent.flows.run_store import (
+        STAGE0_PARQUET_FILENAMES,
+        find_run_artifact,
+        load_parquet,
+    )
 
     resolved = resolve_eval_workspace_id(workspace_id)
     question = load_workspace_question(resolved)
     stage0 = load_workspace_stage_state("stage-0", resolved)
     stage1a = load_workspace_stage_state("stage-1a", resolved)
 
-    raw_df = load_parquet(stage0["result"]["_df_path"])
-    column_descriptions = stage0["result"].get("_column_descriptions", {})
+    raw_df_path = find_run_artifact(resolved, STAGE0_PARQUET_FILENAMES)
+    raw_df = load_parquet(raw_df_path)
+    column_descriptions = {c.name: c.description for c in stage0.column_descriptions}
     dataset_schema = format_schema_for_llm(raw_df, column_descriptions)
 
     return {
         "workspace_id": resolved,
         "question": question,
-        "latent_model": stage1a["result"]["latent_model"],
+        "latent_model": stage1a.latent_model.model_dump(),
         "chunks": [dataset_schema],
         "dataset_summary": f"{raw_df.shape[0]} rows x {raw_df.shape[1]} columns",
     }
@@ -515,17 +520,21 @@ def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, 
 
 def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, Any]:
     """Load the exact Stage 2 semantic-worker inputs from a persisted workspace run."""
-    from causal_ssm_agent.flows.run_store import load_parquet
+    from causal_ssm_agent.flows.run_store import (
+        STAGE0_PARQUET_FILENAMES,
+        find_run_artifact,
+        load_parquet,
+    )
     from causal_ssm_agent.flows.stages.stage2_extract import _prepare_semantic_chunks
     from causal_ssm_agent.utils.config import get_config
 
     resolved = resolve_eval_workspace_id(workspace_id)
     question = load_workspace_question(resolved)
-    stage0 = load_workspace_stage_state("stage-0", resolved)
     stage1b = load_workspace_stage_state("stage-1b", resolved)
 
-    raw_df = load_parquet(stage0["result"]["_df_path"])
-    causal_spec = stage1b["result"]["causal_spec"]
+    raw_df_path = find_run_artifact(resolved, STAGE0_PARQUET_FILENAMES)
+    raw_df = load_parquet(raw_df_path)
+    causal_spec = stage1b.causal_spec.model_dump()
     semantic_inds = [
         indicator
         for indicator in causal_spec.get("measurement", {}).get("indicators", [])

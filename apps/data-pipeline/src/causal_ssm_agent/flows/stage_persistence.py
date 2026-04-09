@@ -4,9 +4,11 @@ Writes stage results as JSON to a well-known path so the web frontend
 can fetch them via /api/results/[workspace_id]/[stage].
 """
 
+from __future__ import annotations
+
 import json
 import math
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from prefect import task
 
@@ -15,6 +17,9 @@ from causal_ssm_agent.utils.data import runs_dir
 
 from . import get_prefect_logger
 from .stage_contracts import _validate_stage_model
+
+if TYPE_CHECKING:
+    from .stage_contracts import BaseStageContract
 
 logger = get_prefect_logger(__name__)
 
@@ -32,16 +37,31 @@ def _normalize_nonfinite_json_values(value: Any) -> Any:
     return value
 
 
-def persist_validated_web_result(stage_id: str, data: dict, workspace_id: str) -> dict:
-    """Validate and persist a stage's public web payload."""
-    model = _validate_stage_model(stage_id, data)
-    payload = _normalize_nonfinite_json_values(model.model_dump(mode="json"))
-
+def _persist_payload(stage_id: str, payload: dict, workspace_id: str) -> None:
+    """Write a validated JSON payload to the well-known stage result path."""
     path = storage.join(runs_dir(workspace_id), f"{stage_id}.json")
     storage.makedirs(runs_dir(workspace_id))
     storage.write_text(path, json.dumps(payload, allow_nan=False))
-
     logger.debug("Persisted %s result to %s", stage_id, path)
+
+
+def persist_contract(stage_id: str, contract: BaseStageContract, workspace_id: str) -> None:
+    """Persist a contract instance as a web-facing JSON payload."""
+    payload = _normalize_nonfinite_json_values(contract.model_dump(mode="json"))
+    _persist_payload(stage_id, payload, workspace_id)
+
+    summarize = getattr(contract, "summarize", None)
+    if callable(summarize):
+        level, summary = summarize()
+        logger.log(level, summary)
+
+
+def persist_validated_web_result(stage_id: str, data: dict, workspace_id: str) -> dict:
+    """Validate a raw dict and persist the stage's public web payload."""
+    model = _validate_stage_model(stage_id, data)
+    payload = _normalize_nonfinite_json_values(model.model_dump(mode="json"))
+    _persist_payload(stage_id, payload, workspace_id)
+
     summarize = getattr(model, "summarize", None)
     if callable(summarize):
         level, summary = summarize()
@@ -50,19 +70,20 @@ def persist_validated_web_result(stage_id: str, data: dict, workspace_id: str) -
 
 
 def persist_web_patch(stage_id: str, patch: dict, workspace_id: str) -> dict:
-    """Merge a web-payload patch, validate it, persist it, and refresh the snapshot web state."""
+    """Merge a web-payload patch, validate it, persist it, and refresh the snapshot."""
     from .run_store import load_public_payload, load_stage_snapshot, save_stage_snapshot
 
     current = load_public_payload(workspace_id, stage_id)
     payload = persist_validated_web_result(stage_id, {**current, **patch}, workspace_id)
 
     try:
-        snapshot = load_stage_snapshot(workspace_id, stage_id)
+        load_stage_snapshot(workspace_id, stage_id)
     except FileNotFoundError:
         return payload
 
-    snapshot["web"] = payload
-    save_stage_snapshot(stage_id, snapshot, workspace_id)
+    # Re-validate the patched contract and save the updated snapshot
+    contract = _validate_stage_model(stage_id, payload)
+    save_stage_snapshot(stage_id, contract, workspace_id)
     return payload
 
 

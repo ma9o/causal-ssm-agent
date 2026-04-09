@@ -9,7 +9,7 @@ should import from here instead of duplicating path logic.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import cloudpickle
 
@@ -21,7 +21,7 @@ from . import get_prefect_logger
 logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
-    from pydantic import BaseModel
+    from .stage_contracts import BaseStageContract
 
 # ---------------------------------------------------------------------------
 # Filename constants for run artifacts
@@ -243,37 +243,17 @@ def find_run_artifact(workspace_id: str, filenames: tuple[str, ...]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def stage_state(result: dict[str, Any], web: dict[str, Any]) -> dict[str, Any]:
-    """Build the canonical stage state dict."""
-    return {"result": result, "web": web}
-
-
 def finalize_stage(
     stage_id: str,
-    result: dict[str, Any],
+    contract: BaseStageContract,
     workspace_id: str,
-    *,
-    extras: dict[str, Any] | None = None,
-    contract: type[BaseModel] | None = None,
-) -> dict[str, Any]:
-    """Build web payload, persist it, save snapshot, return stage state.
+) -> BaseStageContract:
+    """Persist contract as web JSON, save snapshot, return contract."""
+    from .stage_persistence import persist_contract
 
-    Combines the former ``_web_payload`` + ``_stage_state`` +
-    ``_finalize_stage_state`` into a single call.
-    """
-    from .stage_contracts import STAGE_CONTRACTS, StageId
-    from .stage_persistence import persist_web_result
-
-    stage_contract = contract or STAGE_CONTRACTS[cast("StageId", stage_id)]
-    contract_fields = set(stage_contract.model_fields.keys())
-    web = {k: v for k, v in result.items() if k in contract_fields}
-    if extras:
-        web.update(extras)
-    web = persist_web_result(stage_id, web, workspace_id)
-
-    state = stage_state(result, web)
-    save_stage_snapshot(stage_id, state, workspace_id)
-    return state
+    persist_contract(stage_id, contract, workspace_id)
+    save_stage_snapshot(stage_id, contract, workspace_id)
+    return contract
 
 
 # ---------------------------------------------------------------------------

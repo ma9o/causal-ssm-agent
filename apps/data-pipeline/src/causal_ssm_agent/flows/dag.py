@@ -1,9 +1,13 @@
 """Stage computation functions for the causal inference pipeline.
 
 Each function (stage0, stage1a, …, stage6) implements the core logic
-for one pipeline stage. Wrapper flows and artifact persistence are
-handled by the stage registry (``stage_registry.py``).
+for one pipeline stage and returns a typed contract instance.
+Artifact persistence is handled by each runner (parquet, json, pickle).
+
+Contract arguments (stage0, stage2, stage4) are present in runner signatures
+because bind_inputs passes them — artifacts are loaded by workspace_id instead.
 """
+# ruff: noqa: ARG001
 
 from __future__ import annotations
 
@@ -13,11 +17,38 @@ from typing import Any, cast
 
 from . import get_prefect_logger
 from .run_store import (
+    STAGE0_PARQUET_FILENAMES,
+    STAGE2_MODEL_PARQUET_FILENAMES,
+    STAGE4_COMPILED_SSM_FILENAMES,
+    STAGE5B_PICKLE_FILENAMES,
+    find_run_artifact,
+    load_json,
     load_parquet,
+    save_json,
+    save_parquet,
+    save_pickle,
     unwrap_task_result,
+)
+from .stage_contracts import (
+    Stage0Contract,
+    Stage1aContract,
+    Stage1bContract,
+    Stage2Contract,
+    Stage3Contract,
+    Stage4bContract,
+    Stage4Contract,
+    Stage5aContract,
+    Stage5bContract,
+    Stage6Contract,
 )
 
 logger = get_prefect_logger(__name__)
+
+
+def _filter_to_contract(cls: type, data: dict[str, Any]) -> dict[str, Any]:
+    """Filter a dict to only the fields known by a contract class."""
+    fields = set(cls.model_fields.keys())
+    return {k: v for k, v in data.items() if k in fields}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -25,25 +56,16 @@ logger = get_prefect_logger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage0(workspace_id: str) -> dict:
-    """Agentic ingestion of raw data.
-
-    Returns dict with web-serializable fields PLUS internal data:
-    - ``_df``: Polars DataFrame (not web-serializable)
-    - ``_column_descriptions``: dict mapping col -> description
-    """
+async def stage0(workspace_id: str) -> Stage0Contract:
+    """Agentic ingestion of raw data."""
     from .pipeline_helpers import build_stage0_payload
     from .stages.stage0.flow import agentic_ingest
 
     result = await agentic_ingest(workspace_id)
-    df = result.dataframe
+    save_parquet(result.dataframe, workspace_id, "stage0-raw-input.parquet")
 
     payload = build_stage0_payload(result)
-    return {
-        **payload,
-        "_df": df,
-        "_column_descriptions": result.column_descriptions,
-    }
+    return Stage0Contract.model_validate(payload)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -51,14 +73,12 @@ async def stage0(workspace_id: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage1a(question: str) -> dict:
-    """Propose theoretical constructs and causal edges (latent model).
-
-    Returns: {latent_model, llm_trace?}
-    """
+async def stage1a(question: str) -> Stage1aContract:
+    """Propose theoretical constructs and causal edges (latent model)."""
     from .stages.stage1a.flow import propose_latent_model
 
-    return await propose_latent_model(question)
+    result = await propose_latent_model(question)
+    return Stage1aContract.model_validate(result)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -68,20 +88,19 @@ async def stage1a(question: str) -> dict:
 
 async def stage1b(
     question: str,
-    stage0: dict,
-    stage1a: dict,
-) -> dict:
-    """Propose measurement model and check identifiability.
-
-    Returns: {causal_spec, measurement_model, identifiability_status, llm_trace?}
-    """
+    stage0: Stage0Contract,
+    stage1a: Stage1aContract,
+    workspace_id: str,
+) -> Stage1bContract:
+    """Propose measurement model and check identifiability."""
     from .pipeline_helpers import format_schema_for_llm
     from .stages.stage1b.flow import propose_measurement_with_identifiability_fix
     from .stages.stage1b.result import finalize_stage1b_result
 
-    ingested_df = load_parquet(stage0["_df_path"])
-    column_descriptions = stage0["_column_descriptions"]
-    latent_model = stage1a["latent_model"]
+    df_path = find_run_artifact(workspace_id, STAGE0_PARQUET_FILENAMES)
+    ingested_df = load_parquet(df_path)
+    column_descriptions = {c.name: c.description for c in stage0.column_descriptions}
+    latent_model = stage1a.latent_model.model_dump()
 
     dataset_schema = format_schema_for_llm(ingested_df, column_descriptions)
     result = await propose_measurement_with_identifiability_fix(
@@ -90,7 +109,8 @@ async def stage1b(
         [dataset_schema],
         dataset_summary=f"{ingested_df.shape[0]} rows x {ingested_df.shape[1]} columns",
     )
-    return finalize_stage1b_result(result, latent_model=latent_model)
+    finalized = finalize_stage1b_result(result, latent_model=latent_model)
+    return Stage1bContract.model_validate(_filter_to_contract(Stage1bContract, finalized))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -100,17 +120,13 @@ async def stage1b(
 
 async def stage2(
     question: str,
-    stage0: dict,
-    stage1b: dict,
+    stage0: Stage0Contract,
+    stage1b: Stage1bContract,
+    workspace_id: str,
     root_run_id: str | None = None,
     max_windows: int | None = None,
-) -> dict:
-    """Extract indicator values from data using LLM workers.
-
-    Returns dict with:
-    - ``_data_for_model``: encoded DataFrame for modeling (non-continuous types → numeric)
-    - plus web-serializable worker metadata
-    """
+) -> Stage2Contract:
+    """Extract indicator values from data using LLM workers."""
     from prefect.task_runners import ThreadPoolTaskRunner
 
     from causal_ssm_agent.utils.config import get_config
@@ -118,8 +134,8 @@ async def stage2(
     from .stages.stage2.flow import materialize_stage2_outputs, stage2_extraction_flow
 
     config = get_config()
-    causal_spec = stage1b["causal_spec"]
-    raw_df_path = Path(stage0["_df_path"])
+    causal_spec = stage1b.causal_spec.model_dump()
+    raw_df_path = Path(find_run_artifact(workspace_id, STAGE0_PARQUET_FILENAMES))
     stage2_subflow = stage2_extraction_flow.with_options(
         task_runner=cast(
             "Any", ThreadPoolTaskRunner(max_workers=config.stage2_workers.max_concurrent_workers)
@@ -145,13 +161,16 @@ async def stage2(
         n_unique_indicators,
     )
 
-    result = {
-        "_data_for_model": data_for_model,
-        "workers": worker_statuses,
-    }
-    if "llm_trace" in stage2_result:
-        result["llm_trace"] = stage2_result["llm_trace"]
-    return result
+    save_parquet(data_for_model, workspace_id, "stage2-model-data.parquet")
+
+    llm_trace = stage2_result.get("llm_trace") if isinstance(stage2_result, dict) else None
+    contract_data: dict[str, Any] = {"workers": worker_statuses}
+    if llm_trace is not None:
+        contract_data["llm_trace"] = llm_trace
+    if n_observations == 0:
+        contract_data["outcome"] = "fail"
+        contract_data["fail_reason"] = "no_observations_extracted"
+    return Stage2Contract.model_validate(contract_data)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -164,17 +183,19 @@ async def _await_artifact(artifact: Any) -> None:
         await artifact
 
 
-async def stage3(stage1b: dict, stage2: dict) -> dict:
-    """Audit extracted data: validation plus per-indicator empirical profiles.
-
-    Returns: {is_valid, indicators, dataset_issues, outcome}
-    """
+async def stage3(
+    stage1b: Stage1bContract,
+    stage2: Stage2Contract,
+    workspace_id: str,
+) -> Stage3Contract:
+    """Audit extracted data: validation plus per-indicator empirical profiles."""
     from prefect.artifacts import create_table_artifact
 
     from .stages.stage3.flow import derive_validation_status, validate_extraction
 
-    causal_spec = stage1b["causal_spec"]
-    data_for_model = load_parquet(stage2["_data_for_model_path"])
+    causal_spec = stage1b.causal_spec.model_dump()
+    data_for_model_path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
+    data_for_model = load_parquet(data_for_model_path)
 
     validation_task = validate_extraction(causal_spec, [data_for_model])
     audit_result = unwrap_task_result(validation_task)
@@ -237,8 +258,11 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
         "indicators": {},
         "dataset_issues": [],
     }
+    report["outcome"] = outcome
+    if fail_reason is not None:
+        report["fail_reason"] = fail_reason
 
-    return {**report, "outcome": outcome, "fail_reason": fail_reason}
+    return Stage3Contract.model_validate(_filter_to_contract(Stage3Contract, report))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -248,30 +272,45 @@ async def stage3(stage1b: dict, stage2: dict) -> dict:
 
 async def stage4(
     question: str,
-    stage1b: dict,
-    stage2: dict,
-    stage3: dict,
+    stage1b: Stage1bContract,
+    stage2: Stage2Contract,
+    stage3: Stage3Contract,
     enable_literature: bool,
-    workspace_id: str | None = None,
+    workspace_id: str,
     openrouter_api_key: str | None = None,
     root_run_id: str | None = None,
-) -> dict:
+) -> Stage4Contract:
     """Propose model spec, elicit priors, and return the grounded stage-4 result."""
     from .stages.stage4.flow import stage4_agentic_flow
 
-    causal_spec = stage1b["causal_spec"]
-    data_for_model = load_parquet(stage2["_data_for_model_path"])
+    causal_spec = stage1b.causal_spec.model_dump()
+    data_for_model_path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
+    data_for_model = load_parquet(data_for_model_path)
 
-    return await stage4_agentic_flow(
+    result = await stage4_agentic_flow(
         causal_spec=causal_spec,
         question=question,
         data_for_model=data_for_model,
-        indicator_audits=stage3["indicators"],
+        indicator_audits={k: v.model_dump() for k, v in stage3.indicators.items()},
         enable_literature=enable_literature,
         workspace_id=workspace_id,
         openrouter_api_key=openrouter_api_key,
         root_run_id=root_run_id,
     )
+
+    # Save compiled SSM artifact
+    compiled_ssm = result.pop("_compiled_ssm", None)
+    if compiled_ssm is not None:
+        save_json(compiled_ssm, workspace_id, "stage4-compiled-ssm.json")
+
+    # Determine outcome based on compilation success
+    if compiled_ssm is not None:
+        result["outcome"] = "success"
+    else:
+        result["outcome"] = "fail"
+        result["fail_reason"] = "model_compile_failed"
+
+    return Stage4Contract.model_validate(_filter_to_contract(Stage4Contract, result))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -279,19 +318,42 @@ async def stage4(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
+def _load_compiled_ssm(workspace_id: str) -> dict[str, Any] | None:
+    """Load the compiled SSM artifact, or None if not found."""
+    try:
+        path = find_run_artifact(workspace_id, STAGE4_COMPILED_SSM_FILENAMES)
+        return load_json(path)
+    except FileNotFoundError:
+        return None
+
+
+def _load_data_for_model_path(workspace_id: str) -> str:
+    """Resolve the data-for-model parquet path."""
+    return find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
+
+
 def stage4b(
-    stage4: dict,
-    stage2: dict,
+    stage4: Stage4Contract,
+    stage2: Stage2Contract,
+    workspace_id: str,
     ssm_builder: Any = None,
     root_run_id: str | None = None,
-) -> dict:
-    """Parametric identifiability diagnostics.
-
-    Returns: {parametric_id, inference_structure, outcome}
-    """
+) -> Stage4bContract:
+    """Parametric identifiability diagnostics."""
     from .stages.stage4b.flow import run_stage4b
 
-    return run_stage4b(stage4, stage2, ssm_builder=ssm_builder, root_run_id=root_run_id)
+    compiled_ssm = _load_compiled_ssm(workspace_id)
+    data_for_model_path = _load_data_for_model_path(workspace_id)
+
+    # Bridge to internal flow that expects dicts
+    result = run_stage4b(
+        {"_compiled_ssm": compiled_ssm},
+        {"_data_for_model_path": data_for_model_path},
+        ssm_builder=ssm_builder,
+        root_run_id=root_run_id,
+    )
+
+    return Stage4bContract.model_validate(_filter_to_contract(Stage4bContract, result))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -300,29 +362,48 @@ def stage4b(
 
 
 def stage5a(
-    stage4: dict,
-    stage2: dict,
-) -> dict:
+    stage4: Stage4Contract,
+    stage2: Stage2Contract,
+    workspace_id: str,
+) -> Stage5aContract:
     """SVI preflight: fast approximate fit before expensive inference."""
     from .stages.stage5a.flow import run_stage5a_preflight
 
-    return run_stage5a_preflight(stage4, stage2)
+    compiled_ssm = _load_compiled_ssm(workspace_id)
+    data_for_model_path = _load_data_for_model_path(workspace_id)
+
+    result = run_stage5a_preflight(
+        {"_compiled_ssm": compiled_ssm},
+        {"_data_for_model_path": data_for_model_path},
+    )
+
+    return Stage5aContract.model_validate(_filter_to_contract(Stage5aContract, result))
 
 
 def stage5b(
-    stage4: dict,
-    stage2: dict,
-    inference_method: str | None,
-) -> dict:
-    """Fit model, run power-scaling and posterior predictive checks.
-
-    Returns: {_fitted_artifact, power_scaling, ppc,
-              inference_metadata, mcmc_diagnostics, svi_diagnostics, smc_diagnostics,
-              loo_diagnostics, posterior_marginals, posterior_pairs, outcome}
-    """
+    stage4: Stage4Contract,
+    stage2: Stage2Contract,
+    workspace_id: str,
+    inference_method: str | None = None,
+) -> Stage5bContract:
+    """Fit model, run power-scaling and posterior predictive checks."""
     from .stages.stage5b.flow import run_stage5b
 
-    return run_stage5b(stage4, stage2, inference_method)
+    compiled_ssm = _load_compiled_ssm(workspace_id)
+    data_for_model_path = _load_data_for_model_path(workspace_id)
+
+    result = run_stage5b(
+        {"_compiled_ssm": compiled_ssm},
+        {"_data_for_model_path": data_for_model_path},
+        inference_method,
+    )
+
+    # Save fitted artifact
+    fitted_artifact = result.pop("_fitted_artifact", None)
+    if fitted_artifact is not None:
+        save_pickle(fitted_artifact, workspace_id, "stage5b-fitted-result.pkl")
+
+    return Stage5bContract.model_validate(_filter_to_contract(Stage5bContract, result))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -330,15 +411,43 @@ def stage5b(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-async def stage6(
-    stage5b: dict,
-    stage1b: dict,
-    question: str | None = None,
-) -> dict:
-    """Run do-operator interventions and rank treatments.
+def _derive_identified_treatments(causal_spec: Any) -> list[str]:
+    """Derive identified treatments from a CausalSpec contract."""
+    from causal_ssm_agent.utils.causal_spec import get_estimable_treatments
 
-    Returns: {intervention_results, outcome}
-    """
+    causal_spec_dict = causal_spec.model_dump() if hasattr(causal_spec, "model_dump") else causal_spec
+    all_treatments = list(get_estimable_treatments(causal_spec_dict))
+    non_id: dict[str, Any] = {}
+    if hasattr(causal_spec, "identifiability") and causal_spec.identifiability:
+        non_id = causal_spec.identifiability.non_identifiable_treatments or {}
+    elif isinstance(causal_spec_dict, dict):
+        non_id = (causal_spec_dict.get("identifiability") or {}).get(
+            "non_identifiable_treatments", {}
+        ) or {}
+    return [t for t in all_treatments if t not in non_id]
+
+
+async def stage6(
+    stage5b: Stage5bContract,
+    stage1b: Stage1bContract,
+    workspace_id: str,
+    question: str | None = None,
+) -> Stage6Contract:
+    """Run do-operator interventions and rank treatments."""
     from .stages.stage6.flow import run_stage6
 
-    return await run_stage6(stage5b, stage1b, question=question)
+    fitted_result_path = find_run_artifact(workspace_id, STAGE5B_PICKLE_FILENAMES)
+    identified_treatments = _derive_identified_treatments(stage1b.causal_spec)
+
+    # Bridge to internal flow that expects dicts
+    stage5b_dict = {
+        **stage5b.model_dump(),
+        "_fitted_result_path": fitted_result_path,
+    }
+    stage1b_dict = {
+        "causal_spec": stage1b.causal_spec.model_dump(),
+        "_identified_treatments": identified_treatments,
+    }
+    result = await run_stage6(stage5b_dict, stage1b_dict, question=question)
+
+    return Stage6Contract.model_validate(_filter_to_contract(Stage6Contract, result))

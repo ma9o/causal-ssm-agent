@@ -14,32 +14,22 @@ from __future__ import annotations
 import graphlib
 import inspect
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
 from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 from . import get_prefect_logger
 from .run_store import (
-    STAGE0_PARQUET_FILENAMES,
-    STAGE2_MODEL_PARQUET_FILENAMES,
-    STAGE4_COMPILED_SSM_FILENAMES,
-    STAGE5B_PICKLE_FILENAMES,
     finalize_stage,
-    find_run_artifact,
-    load_json,
     load_public_payload,
     load_stage_snapshot,
-    save_json,
-    save_parquet,
-    save_pickle,
-    stage_state,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from pydantic import BaseModel
+    from .stage_contracts import BaseStageContract
 
 logger = get_prefect_logger(__name__)
 OpenRouterAccessMode = Literal["user", "anonymous", "local"]
@@ -66,10 +56,9 @@ def _emit_stage4_initial_replay_state(inputs: dict[str, Any]) -> None:
         raise ValueError("Stage 4 initial replay emission requires a non-empty root_run_id")
 
     stage1b = inputs["stage1b"]
-    if not isinstance(stage1b, dict) or not isinstance(stage1b.get("causal_spec"), dict):
-        raise ValueError("Stage 4 initial replay emission requires stage1b.causal_spec")
+    causal_spec_dict = stage1b.causal_spec.model_dump()
 
-    graph, snapshot = project_stage4_initial_state(stage1b["causal_spec"])
+    graph, snapshot = project_stage4_initial_state(causal_spec_dict)
     emit_stage4_graph_event(root_run_id, graph=graph)
     emit_stage4_snapshot_event(root_run_id, snapshot=snapshot)
 
@@ -89,24 +78,14 @@ class PipelineContext:
 
 
 @dataclass(frozen=True)
-class StageMaterializer:
-    """Restore/persist/finalize behavior for a stage as one cohesive concern."""
-
-    restore: Callable[[str, dict, dict[str, dict]], dict] = field(
-        default_factory=lambda: _restore_default
-    )
-    persist: Callable[[dict, str], dict] = field(default_factory=lambda: _persist_noop)
-    finalize_extras: Callable[[dict, str], dict[str, Any]] = field(
-        default_factory=lambda: _finalize_noop
-    )
-
-
-@dataclass(frozen=True)
 class StageOverrideAdapter:
-    """Stage-owned replay adapter: public/editable payload -> runtime result."""
+    """Stage-owned replay adapter: public/editable payload -> contract."""
 
     coerce_editable: Callable[[dict[str, Any]], dict[str, Any]]
-    materialize: Callable[[dict[str, Any], PipelineContext, dict[str, dict]], dict[str, Any]]
+    materialize: Callable[
+        [dict[str, Any], PipelineContext, dict[str, BaseStageContract]],
+        BaseStageContract,
+    ]
 
 
 @dataclass(frozen=True)
@@ -119,15 +98,13 @@ class StageDefinition:
 
     stage_id: str
     depends_on: frozenset[str]
-    contract: type[BaseModel]
+    contract: type[BaseStageContract]
 
     # (PipelineContext, stage_states) -> kwargs for runner
-    bind_inputs: Callable[[PipelineContext, dict[str, dict]], dict[str, Any]]
+    bind_inputs: Callable[[PipelineContext, dict[str, BaseStageContract]], dict[str, Any]]
 
-    # Bare stage computation function
-    runner: Callable[..., dict | Awaitable[dict]]
-
-    materializer: StageMaterializer = field(default_factory=StageMaterializer)
+    # Bare stage computation function — returns a contract instance
+    runner: Callable[..., BaseStageContract | Awaitable[BaseStageContract]]
 
     question_required: bool = False
     override_eligible: bool = False
@@ -146,8 +123,8 @@ class StageDefinition:
 async def run_stage_flow(
     defn: StageDefinition,
     ctx: PipelineContext,
-    stage_states: dict[str, dict],
-) -> dict[str, Any]:
+    stage_states: dict[str, BaseStageContract],
+) -> BaseStageContract:
     """Execute a single stage: bind inputs, run, persist, finalize."""
 
     # Check for override
@@ -157,7 +134,7 @@ async def run_stage_flow(
 
     if override_payload is not None and defn.override_adapter is not None:
         editable = defn.override_adapter.coerce_editable(dict(override_payload))
-        result = defn.override_adapter.materialize(editable, ctx, stage_states)
+        contract = defn.override_adapter.materialize(editable, ctx, stage_states)
     elif override_payload is not None:
         raise ValueError(
             f"Stage {defn.stage_id} received an override without an explicit materialization policy"
@@ -167,192 +144,32 @@ async def run_stage_flow(
         if defn.stage_id == "stage-4":
             _emit_stage4_initial_replay_state(inputs)
         with use_openrouter_api_key(ctx.openrouter_api_key):
-            result = defn.runner(**inputs)
-            if inspect.isawaitable(result):
-                result = await result
+            contract = defn.runner(**inputs)
+            if inspect.isawaitable(contract):
+                contract = await contract
 
-    # Persist artifacts (save_parquet, save_pickle, etc.)
-    result = defn.materializer.persist(result, ctx.workspace_id)
-    extras = defn.materializer.finalize_extras(result, ctx.workspace_id)
-
-    # Finalize (validate contract, persist JSON, save snapshot)
-    return finalize_stage(
-        defn.stage_id,
-        result,
-        ctx.workspace_id,
-        extras=extras or None,
-        contract=defn.contract,
-    )
+    # Persist web JSON and save snapshot
+    return finalize_stage(defn.stage_id, contract, ctx.workspace_id)
 
 
 def load_stage_state(
     workspace_id: str,
     stage_id: str,
-    prior_states: dict[str, dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    """Load a stage state snapshot, reconstructing from public payloads when needed."""
-    prior_states = prior_states or {}
+    prior_states: dict[str, BaseStageContract] | None = None,
+) -> BaseStageContract:
+    """Load a stage state, preferring snapshot then falling back to web JSON."""
+    from .stage_contracts import BaseStageContract as _BaseStageContract
+
     defn = get_stage_registry()[stage_id]
     try:
         snapshot = load_stage_snapshot(workspace_id, stage_id)
-        web = snapshot.get("web") or load_public_payload(workspace_id, stage_id)
-        restored = defn.materializer.restore(workspace_id, web, prior_states)
-        result = dict(snapshot.get("result", {}) or {})
-        result.update(restored)
-        return stage_state(result, web)
+        if isinstance(snapshot, _BaseStageContract):
+            return snapshot
     except FileNotFoundError:
-        logger.info(
-            "Reconstructing %s state from public payloads for workspace_id %s",
-            stage_id,
-            workspace_id,
-        )
+        pass
 
     web = load_public_payload(workspace_id, stage_id)
-    result = defn.materializer.restore(workspace_id, web, prior_states)
-    return stage_state(result, web)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Shared helpers for persist / restore / log
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _persist_noop(result: dict, workspace_id: str) -> dict:
-    return result
-
-
-def _finalize_noop(result: dict, workspace_id: str) -> dict[str, Any]:
-    return {}
-
-
-def _restore_default(workspace_id: str, web: dict, prior_states: dict) -> dict:
-    return dict(web)
-
-
-def _column_descriptions_from_web(web: dict[str, Any]) -> dict[str, str]:
-    column_descriptions = web.get("column_descriptions", [])
-    if not isinstance(column_descriptions, list):
-        return {}
-    return {
-        str(item.get("name")): str(item.get("description", ""))
-        for item in column_descriptions
-        if isinstance(item, dict) and item.get("name")
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Per-stage persist callbacks
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _persist_stage0(result: dict, workspace_id: str) -> dict:
-    raw_df = result.pop("_df")
-    result["_df_path"] = save_parquet(raw_df, workspace_id, "stage0-raw-input.parquet")
-    return result
-
-
-def _persist_stage2(result: dict, workspace_id: str) -> dict:
-    data_for_model = result.pop("_data_for_model")
-    result["_data_for_model_row_count"] = len(data_for_model)
-    result["_data_for_model_path"] = save_parquet(
-        data_for_model, workspace_id, "stage2-model-data.parquet"
-    )
-    return result
-
-
-def _finalize_stage2_extras(result: dict, workspace_id: str) -> dict[str, Any]:
-    row_count = int(result.get("_data_for_model_row_count", 0))
-    if row_count > 0:
-        return {"outcome": "success"}
-    return {
-        "outcome": "fail",
-        "fail_reason": "no_observations_extracted",
-    }
-
-
-def _finalize_stage4_extras(result: dict, workspace_id: str) -> dict[str, Any]:
-    if result.get("_compiled_ssm") is not None:
-        return {"outcome": "success"}
-    return {
-        "outcome": "fail",
-        "fail_reason": "model_compile_failed",
-    }
-
-
-def _persist_stage5b(result: dict, workspace_id: str) -> dict:
-    fitted_artifact = result.pop("_fitted_artifact")
-    result["_fitted_result_path"] = save_pickle(
-        fitted_artifact, workspace_id, "stage5b-fitted-result.pkl"
-    )
-    return result
-
-
-def _persist_stage4(result: dict, workspace_id: str) -> dict:
-    compiled_ssm = result.get("_compiled_ssm")
-    if compiled_ssm is not None:
-        result["_compiled_ssm_path"] = save_json(
-            compiled_ssm, workspace_id, "stage4-compiled-ssm.json"
-        )
-    return result
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Per-stage restore callbacks
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def _restore_stage0(workspace_id: str, web: dict, prior_states: dict) -> dict:
-    result = dict(web)
-    result["_df_path"] = find_run_artifact(workspace_id, STAGE0_PARQUET_FILENAMES)
-    result["_column_descriptions"] = _column_descriptions_from_web(web)
-    return result
-
-
-def _restore_stage2(workspace_id: str, web: dict, prior_states: dict) -> dict:
-    workers = list(web.get("workers", []) or [])
-    result = dict(web)
-    result["workers"] = workers
-    result["_data_for_model_path"] = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
-    return result
-
-
-def _restore_stage4(workspace_id: str, web: dict, prior_states: dict) -> dict:
-    result = dict(web)
-    result["authored_priors"] = dict(web.get("authored_priors", {}) or {})
-    stage1b_state = prior_states.get("stage-1b")
-    if stage1b_state is not None:
-        result.setdefault("_causal_spec", stage1b_state["result"]["causal_spec"])
-    try:
-        compiled_ssm_path = find_run_artifact(workspace_id, STAGE4_COMPILED_SSM_FILENAMES)
-    except FileNotFoundError:
-        return result
-    result["_compiled_ssm_path"] = compiled_ssm_path
-    result["_compiled_ssm"] = load_json(compiled_ssm_path)
-    return result
-
-
-def _restore_stage4b(workspace_id: str, web: dict, prior_states: dict) -> dict:
-    return {
-        "parametric_id": web.get("parametric_id", {}),
-        "inference_structure": web.get("inference_structure"),
-    }
-
-
-def _restore_stage5b(workspace_id: str, web: dict, prior_states: dict) -> dict:
-    power_scaling = list(web.get("power_scaling", []) or [])
-    return {
-        "outcome": web.get("outcome", "success"),
-        "power_scaling": power_scaling,
-        "ppc": dict(web.get("ppc", {}) or {}),
-        "inference_metadata": dict(web.get("inference_metadata", {}) or {}),
-        "mcmc_diagnostics": web.get("mcmc_diagnostics"),
-        "svi_diagnostics": web.get("svi_diagnostics"),
-        "smc_diagnostics": web.get("smc_diagnostics"),
-        "loo_diagnostics": web.get("loo_diagnostics"),
-        "posterior_marginals": web.get("posterior_marginals"),
-        "posterior_pairs": web.get("posterior_pairs"),
-        "_fitted_result_path": find_run_artifact(workspace_id, STAGE5B_PICKLE_FILENAMES),
-    }
+    return defn.contract.model_validate(web)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -375,8 +192,9 @@ def _bind_stage1a(ctx: PipelineContext, states: dict) -> dict:
 def _bind_stage1b(ctx: PipelineContext, states: dict) -> dict:
     return {
         "question": ctx.question,
-        "stage0": states["stage-0"]["result"],
-        "stage1a": states["stage-1a"]["result"],
+        "stage0": states["stage-0"],
+        "stage1a": states["stage-1a"],
+        "workspace_id": ctx.workspace_id,
     }
 
 
@@ -385,8 +203,9 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
 
     return {
         "question": ctx.question,
-        "stage0": states["stage-0"]["result"],
-        "stage1b": states["stage-1b"]["result"],
+        "stage0": states["stage-0"],
+        "stage1b": states["stage-1b"],
+        "workspace_id": ctx.workspace_id,
         "root_run_id": ctx.prefect_run_id,
         "max_windows": None
         if ctx.openrouter_access_mode in {"user", "local"}
@@ -397,17 +216,18 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
 
 def _bind_stage3(ctx: PipelineContext, states: dict) -> dict:
     return {
-        "stage1b": states["stage-1b"]["result"],
-        "stage2": states["stage-2"]["result"],
+        "stage1b": states["stage-1b"],
+        "stage2": states["stage-2"],
+        "workspace_id": ctx.workspace_id,
     }
 
 
 def _bind_stage4(ctx: PipelineContext, states: dict) -> dict:
     return {
         "question": ctx.question,
-        "stage1b": states["stage-1b"]["result"],
-        "stage2": states["stage-2"]["result"],
-        "stage3": states["stage-3"]["result"],
+        "stage1b": states["stage-1b"],
+        "stage2": states["stage-2"],
+        "stage3": states["stage-3"],
         "enable_literature": ctx.lit_enabled,
         "workspace_id": ctx.workspace_id,
         "root_run_id": ctx.prefect_run_id,
@@ -416,23 +236,26 @@ def _bind_stage4(ctx: PipelineContext, states: dict) -> dict:
 
 def _bind_stage4b(ctx: PipelineContext, states: dict) -> dict:
     return {
-        "stage4": states["stage-4"]["result"],
-        "stage2": states["stage-2"]["result"],
+        "stage4": states["stage-4"],
+        "stage2": states["stage-2"],
+        "workspace_id": ctx.workspace_id,
         "root_run_id": ctx.prefect_run_id,
     }
 
 
 def _bind_stage5a(ctx: PipelineContext, states: dict) -> dict:
     return {
-        "stage4": states["stage-4"]["result"],
-        "stage2": states["stage-2"]["result"],
+        "stage4": states["stage-4"],
+        "stage2": states["stage-2"],
+        "workspace_id": ctx.workspace_id,
     }
 
 
 def _bind_stage5b(ctx: PipelineContext, states: dict) -> dict:
     return {
-        "stage4": states["stage-4"]["result"],
-        "stage2": states["stage-2"]["result"],
+        "stage4": states["stage-4"],
+        "stage2": states["stage-2"],
+        "workspace_id": ctx.workspace_id,
         "inference_method": ctx.inference_method,
     }
 
@@ -440,8 +263,9 @@ def _bind_stage5b(ctx: PipelineContext, states: dict) -> dict:
 def _bind_stage6(ctx: PipelineContext, states: dict) -> dict:
     return {
         "question": ctx.question,
-        "stage5b": states["stage-5b"]["result"],
-        "stage1b": states["stage-1b"]["result"],
+        "stage5b": states["stage-5b"],
+        "stage1b": states["stage-1b"],
+        "workspace_id": ctx.workspace_id,
     }
 
 
@@ -469,10 +293,12 @@ def _coerce_override_stage1a(payload: dict[str, Any]) -> dict[str, Any]:
 def _materialize_override_identity(
     editable: dict[str, Any],
     ctx: PipelineContext,
-    states: dict[str, dict],
-) -> dict[str, Any]:
+    states: dict[str, BaseStageContract],
+) -> BaseStageContract:
     """Use the authored editable payload directly as the runtime result."""
-    return dict(editable)
+    from .stage_contracts import Stage1aContract
+
+    return Stage1aContract.model_validate(editable)
 
 
 def _coerce_override_stage1b(payload: dict[str, Any]) -> dict[str, Any]:
@@ -501,36 +327,60 @@ def _coerce_override_stage4(payload: dict[str, Any]) -> dict[str, Any]:
 def _materialize_override_stage1b(
     editable: dict[str, Any],
     ctx: PipelineContext,
-    states: dict[str, dict],
-) -> dict[str, Any]:
+    states: dict[str, BaseStageContract],
+) -> BaseStageContract:
     """Materialize a stage-1b override via the same derived-field finalizer as normal runs."""
+    from .stage_contracts import Stage1bContract
     from .stages.stage1b.result import finalize_stage1b_result
 
-    latent_model = ((states.get("stage-1a") or {}).get("result") or {}).get("latent_model")
-    return finalize_stage1b_result(dict(editable), latent_model=latent_model)
+    stage1a = states.get("stage-1a")
+    latent_model = stage1a.latent_model.model_dump() if stage1a else None  # type: ignore[union-attr]
+    finalized = finalize_stage1b_result(dict(editable), latent_model=latent_model)
+    fields = set(Stage1bContract.model_fields.keys())
+    return Stage1bContract.model_validate({k: v for k, v in finalized.items() if k in fields})
 
 
 def _materialize_override_stage4(
     editable: dict[str, Any],
     ctx: PipelineContext,
-    states: dict[str, dict],
-) -> dict[str, Any]:
+    states: dict[str, BaseStageContract],
+) -> BaseStageContract:
     """Prepare a stage-4 override via the same stage-owned finalizer as normal runs."""
-    from .run_store import load_parquet
+    from .run_store import (
+        STAGE2_MODEL_PARQUET_FILENAMES,
+        find_run_artifact,
+        load_parquet,
+        save_json,
+    )
+    from .stage_contracts import Stage4Contract
     from .stages.stage4.assembly import materialize_stage4_result
 
-    stage1b_result = states["stage-1b"]["result"]
-    stage2_result = states["stage-2"]["result"]
-    stage3_result = states["stage-3"]["result"]
+    stage1b = states["stage-1b"]
+    stage3 = states["stage-3"]
+    data_for_model_path = find_run_artifact(ctx.workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
     authored = dict(editable)
-    return materialize_stage4_result(
+    materialized = materialize_stage4_result(
         model_spec=authored["model_spec"],
         authored_priors=authored["authored_priors"],
-        data_for_model=load_parquet(stage2_result["_data_for_model_path"]),
-        indicator_audits=stage3_result["indicators"],
-        causal_spec=stage1b_result["causal_spec"],
+        data_for_model=load_parquet(data_for_model_path),
+        indicator_audits={k: v.model_dump() for k, v in stage3.indicators.items()},  # type: ignore[union-attr]
+        causal_spec=stage1b.causal_spec.model_dump(),  # type: ignore[union-attr]
         llm_trace=authored.get("llm_trace"),
     )
+
+    # Save compiled SSM artifact
+    compiled_ssm = materialized.pop("_compiled_ssm", None)
+    if compiled_ssm is not None:
+        save_json(compiled_ssm, ctx.workspace_id, "stage4-compiled-ssm.json")
+
+    if compiled_ssm is not None:
+        materialized["outcome"] = "success"
+    else:
+        materialized["outcome"] = "fail"
+        materialized["fail_reason"] = "model_compile_failed"
+
+    fields = set(Stage4Contract.model_fields.keys())
+    return Stage4Contract.model_validate({k: v for k, v in materialized.items() if k in fields})
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -552,10 +402,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-0"],
             bind_inputs=_bind_stage0,
             runner=dag.stage0,
-            materializer=StageMaterializer(
-                restore=_restore_stage0,
-                persist=_persist_stage0,
-            ),
         ),
         "stage-1a": StageDefinition(
             stage_id="stage-1a",
@@ -589,11 +435,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-2"],
             bind_inputs=_bind_stage2,
             runner=dag.stage2,
-            materializer=StageMaterializer(
-                restore=_restore_stage2,
-                persist=_persist_stage2,
-                finalize_extras=_finalize_stage2_extras,
-            ),
             question_required=True,
         ),
         "stage-3": StageDefinition(
@@ -609,11 +450,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-4"],
             bind_inputs=_bind_stage4,
             runner=dag.stage4,
-            materializer=StageMaterializer(
-                restore=_restore_stage4,
-                persist=_persist_stage4,
-                finalize_extras=_finalize_stage4_extras,
-            ),
             question_required=True,
             override_eligible=True,
             override_adapter=StageOverrideAdapter(
@@ -627,7 +463,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-4b"],
             bind_inputs=_bind_stage4b,
             runner=dag.stage4b,
-            materializer=StageMaterializer(restore=_restore_stage4b),
         ),
         "stage-5a": StageDefinition(
             stage_id="stage-5a",
@@ -643,10 +478,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             contract=STAGE_CONTRACTS["stage-5b"],
             bind_inputs=_bind_stage5b,
             runner=dag.stage5b,
-            materializer=StageMaterializer(
-                restore=_restore_stage5b,
-                persist=_persist_stage5b,
-            ),
         ),
         "stage-6": StageDefinition(
             stage_id="stage-6",
@@ -672,19 +503,18 @@ def _build_registry() -> dict[str, StageDefinition]:
         from .modal_runners import (
             modal_stage4_runner,
             modal_stage5b_runner,
-            persist_noop,
         )
 
         async def _run_stage4_modal_or_local(
             question: str,
-            stage1b: dict,
-            stage2: dict,
-            stage3: dict,
+            stage1b: BaseStageContract,
+            stage2: BaseStageContract,
+            stage3: BaseStageContract,
             enable_literature: bool,
             workspace_id: str,
             openrouter_access_mode: OpenRouterAccessMode | None,
             root_run_id: str | None,
-        ) -> dict:
+        ) -> BaseStageContract:
             if openrouter_access_mode == "local":
                 return await dag.stage4(
                     question,
@@ -706,9 +536,7 @@ def _build_registry() -> dict[str, StageDefinition]:
             )
 
         def _bind_stage5b_modal(ctx: PipelineContext, states: dict) -> dict:
-            base = _bind_stage5b(ctx, states)
-            base["workspace_id"] = ctx.workspace_id
-            return base
+            return _bind_stage5b(ctx, states)
 
         def _bind_stage4_modal_or_local(ctx: PipelineContext, states: dict) -> dict:
             base = _bind_stage4(ctx, states)
@@ -719,10 +547,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             registry["stage-5b"],
             bind_inputs=_bind_stage5b_modal,
             runner=modal_stage5b_runner,
-            materializer=StageMaterializer(
-                restore=_restore_stage5b,
-                persist=persist_noop,
-            ),
         )
         registry["stage-4"] = replace(
             registry["stage-4"],

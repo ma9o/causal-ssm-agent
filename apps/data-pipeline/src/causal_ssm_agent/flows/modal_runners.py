@@ -1,4 +1,3 @@
-# ruff: noqa: ARG001
 """Modal-backed runners for expensive pipeline stages.
 
 When DEPLOYMENT_ENV=production, the stage registry swaps local runners for
@@ -9,8 +8,12 @@ remaining stages run locally on Prefect.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import modal
+
+if TYPE_CHECKING:
+    from .stage_contracts import BaseStageContract
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Modal image (CPU-only)
@@ -40,30 +43,28 @@ secrets = modal.Secret.from_name("causal-ssm-pipeline-secrets")
 
 @app.function(timeout=3600, cpu=8, memory=16384, secrets=[secrets])
 def _run_stage5b(
-    stage4: dict,
-    stage2: dict,
+    stage4: BaseStageContract,
+    stage2: BaseStageContract,
     inference_method: str | None,
     workspace_id: str,
-) -> dict:
+) -> BaseStageContract:
     """Run stage 5b on Modal and persist artifacts to R2."""
     from causal_ssm_agent.flows.dag import stage5b
-    from causal_ssm_agent.flows.stage_registry import _persist_stage5b
 
-    result = stage5b(stage4, stage2, inference_method)
-    return _persist_stage5b(result, workspace_id)
+    return stage5b(stage4, stage2, workspace_id, inference_method)
 
 
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
 async def _run_stage4(
     question: str,
-    stage1b: dict,
-    stage2: dict,
-    stage3: dict,
+    stage1b: BaseStageContract,
+    stage2: BaseStageContract,
+    stage3: BaseStageContract,
     enable_literature: bool,
     workspace_id: str,
     openrouter_api_key: str | None,
     root_run_id: str | None,
-) -> dict:
+) -> BaseStageContract:
     """Run stage 4 on Modal."""
     from causal_ssm_agent.flows.dag import stage4
 
@@ -85,24 +86,24 @@ async def _run_stage4(
 
 
 def modal_stage5b_runner(
-    stage4: dict,
-    stage2: dict,
-    inference_method: str | None,
+    stage4: BaseStageContract,
+    stage2: BaseStageContract,
     workspace_id: str = "",
-) -> dict:
+    inference_method: str | None = None,
+) -> BaseStageContract:
     """Invoke stage 5b on Modal."""
     return _run_stage5b.remote(stage4, stage2, inference_method, workspace_id)
 
 
 async def modal_stage4_runner(
     question: str,
-    stage1b: dict,
-    stage2: dict,
-    stage3: dict,
+    stage1b: BaseStageContract,
+    stage2: BaseStageContract,
+    stage3: BaseStageContract,
     enable_literature: bool,
     workspace_id: str,
     root_run_id: str | None = None,
-) -> dict:
+) -> BaseStageContract:
     """Invoke stage 4 on Modal."""
     from causal_ssm_agent.utils.openrouter_client import get_openrouter_api_key
 
@@ -116,13 +117,3 @@ async def modal_stage4_runner(
         get_openrouter_api_key(),
         root_run_id,
     )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# No-op persist (Modal already persisted artifacts before returning)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-def persist_noop(result: dict, workspace_id: str) -> dict:
-    """Pass through — artifacts were already persisted inside Modal."""
-    return result

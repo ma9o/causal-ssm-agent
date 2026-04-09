@@ -870,7 +870,7 @@ class Stage6Contract(LLMStageContract):
         )
 
 
-STAGE_CONTRACTS: dict[StageId, type[BaseModel]] = {
+STAGE_CONTRACTS: dict[StageId, type[BaseStageContract]] = {
     "stage-0": Stage0Contract,
     "stage-1a": Stage1aContract,
     "stage-1b": Stage1bContract,
