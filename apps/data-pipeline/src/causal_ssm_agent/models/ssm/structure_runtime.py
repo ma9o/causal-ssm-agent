@@ -17,6 +17,8 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -170,7 +172,7 @@ class SSMStructureRuntime:
             self.t0_cov_template / denom,
             jnp.eye(spec.n_latent, dtype=self.t0_cov_template.dtype),
         )
-        self.t0_base_corr = 0.5 * (self.t0_base_corr + self.t0_base_corr.T)
+        self.t0_base_corr = symmetrize(self.t0_base_corr)
         self.t0_base_corr = self.t0_base_corr.at[jnp.diag_indices(spec.n_latent)].set(1.0)
 
     def drift_support_mask(self) -> jnp.ndarray:
@@ -253,7 +255,7 @@ class SSMStructureRuntime:
                 corr = corr.at[row, col].set(t0_correlation[idx])
                 corr = corr.at[col, row].set(t0_correlation[idx])
         cov = corr * (std[:, None] * std[None, :])
-        return 0.5 * (cov + cov.T)
+        return symmetrize(cov)
 
     def assemble_lambda(self, free_loadings: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build lambda (factor loading) matrix from template + explicit mask."""

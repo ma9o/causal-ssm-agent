@@ -22,6 +22,7 @@ import jax.scipy.stats as jstats
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 
 from .emissions import (
     build_composite_mean_log_prob_fn,
@@ -206,7 +207,7 @@ def _make_glm_grad_hess(score_weight_fn: Callable) -> Callable:
         g_eta, w_eta = score_weight_fn(y_t, eta, mask_t)
         g_z = H.T @ g_eta
         neg_H_z = H.T @ (w_eta[:, None] * H)
-        return g_z, 0.5 * (neg_H_z + neg_H_z.T)
+        return g_z, symmetrize(neg_H_z)
 
     return emission_grad_hess_fn
 
@@ -224,7 +225,7 @@ def _make_student_t_grad_hess(df: float) -> Callable:
         w_eta = jnp.maximum((df + 1.0) * (df * sig2 - residual**2) / (denom**2), 0.0) * mask_t
         g_z = H.T @ g_eta
         neg_H_z = H.T @ (w_eta[:, None] * H)
-        return g_z, 0.5 * (neg_H_z + neg_H_z.T)
+        return g_z, symmetrize(neg_H_z)
 
     return emission_grad_hess_fn
 
@@ -232,19 +233,17 @@ def _make_student_t_grad_hess(df: float) -> Callable:
 def _make_gaussian_grad_hess() -> Callable:
     """Build emission_grad_hess_fn for Gaussian (full R, exact analytical form)."""
     from causal_ssm_agent.models.ssm.inference.targets.base import (
-        CHOL_JITTER,
         MISSING_DATA_LARGE_VAR,
     )
 
     def emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
         eta = H @ z_t + d
         residual = (y_t - eta) * mask_t
-        n = R.shape[0]
         R_adj = R + jnp.diag((1.0 - mask_t) * MISSING_DATA_LARGE_VAR)
-        R_adj = 0.5 * (R_adj + R_adj.T) + jnp.eye(n) * CHOL_JITTER
+        R_adj = symmetrize_with_jitter(R_adj)
         g_z = H.T @ jla.solve(R_adj, residual, assume_a="pos")
         neg_H_z = H.T @ jla.solve(R_adj, H, assume_a="pos")
-        return g_z, 0.5 * (neg_H_z + neg_H_z.T)
+        return g_z, symmetrize(neg_H_z)
 
     return emission_grad_hess_fn
 

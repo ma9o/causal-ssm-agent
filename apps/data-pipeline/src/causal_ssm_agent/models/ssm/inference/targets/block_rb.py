@@ -29,6 +29,10 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
+from causal_ssm_agent.models.ssm.covariance_utils import (
+    inflate_missing_variance,
+    symmetrize_with_jitter,
+)
 from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
 from causal_ssm_agent.models.ssm.inference.targets.rao_blackwell import (
     _kalman_predict,
@@ -287,15 +291,13 @@ def make_block_rb_callbacks(
             y_pred = H_g @ state.g_pred_mean + H_s @ x_s + d
             S = H_g @ state.g_pred_cov @ H_g.T + R
 
-            n_m = H.shape[0]
-            large_var = MISSING_DATA_LARGE_VAR
-            S = 0.5 * (S + S.T) + jnp.eye(n_m) * CHOL_JITTER
-            S = S + jnp.diag((1.0 - mask_float) * large_var)
+            S = symmetrize_with_jitter(S)
+            S = inflate_missing_variance(S, mask_float)
 
             v = (y_t - y_pred) * mask_float
             _, logdet = jnp.linalg.slogdet(S)
-            n_missing = n_m - n_observed
-            logdet = logdet - n_missing * jnp.log(large_var)
+            n_missing = H.shape[0] - n_observed
+            logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
             mahal = v @ jnp.linalg.solve(S, v)
             log_w = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
             return jnp.where(n_observed > 0, log_w, 0.0)

@@ -9,6 +9,7 @@ from typing import Any
 from causal_ssm_agent.artifacts.latent_model import Role, TemporalStatus
 from causal_ssm_agent.utils.identifiability import (
     analyze_unobserved_constructs,
+    get_observed_constructs,
 )
 
 
@@ -49,11 +50,7 @@ def build_estimation_projection(
             parents_by_construct[effect].add(cause)
             children_by_construct[cause].add(effect)
 
-    observed_constructs = {
-        indicator.get("construct_name")
-        for indicator in measurement_model.get("indicators", [])
-        if isinstance(indicator, dict) and isinstance(indicator.get("construct_name"), str)
-    }
+    observed_constructs = get_observed_constructs(measurement_model)
 
     analysis = analyze_unobserved_constructs(
         latent_model,

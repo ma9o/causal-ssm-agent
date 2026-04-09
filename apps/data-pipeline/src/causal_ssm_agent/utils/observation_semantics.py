@@ -135,29 +135,9 @@ def derive_indicator_observation_semantics(
     )
 
 
-def get_observation_semantics(indicator: dict) -> tuple[str, str, str]:
-    """Return (support_kind, summary_operator, anchor_policy) for an indicator."""
-    semantics = derive_indicator_observation_semantics(
+def get_observation_semantics(indicator: dict) -> IndicatorObservationSemantics:
+    """Derive canonical observation semantics for an indicator dict."""
+    return derive_indicator_observation_semantics(
         indicator["aggregation"],
         indicator["measurement_dtype"],
     )
-    return (
-        semantics.support_kind.value,
-        semantics.summary_operator.value,
-        semantics.anchor_policy.value,
-    )
-
-
-def get_summary_operator(indicator: dict) -> str:
-    """Return an indicator's summary operator as a string."""
-    return get_observation_semantics(indicator)[1]
-
-
-def get_support_kind(indicator: dict) -> str:
-    """Return an indicator's support kind as a string."""
-    return get_observation_semantics(indicator)[0]
-
-
-def get_anchor_policy(indicator: dict) -> str:
-    """Return an indicator's anchor policy as a string."""
-    return get_observation_semantics(indicator)[2]

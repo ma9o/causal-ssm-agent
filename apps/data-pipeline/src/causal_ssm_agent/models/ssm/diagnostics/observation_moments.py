@@ -11,10 +11,10 @@ import numpy as np
 from jax import lax
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     NUMERICAL_EPSILON,
-    PROB_CLIP_MIN,
 )
 from causal_ssm_agent.models.ssm.likelihood_extra_params import (
     assemble_sampled_extra_params,
@@ -97,11 +97,6 @@ def _response_latent_variance_diag(
     return jnp.maximum(jnp.diag(response_cov), 0.0)
 
 
-def _symmetrize_covariance(cov: jnp.ndarray) -> jnp.ndarray:
-    """Numerically symmetrize one covariance-like matrix."""
-    return 0.5 * (cov + cov.T)
-
-
 def _response_latent_covariance(
     eta_mean: jnp.ndarray,
     eta_cov: jnp.ndarray,
@@ -111,7 +106,7 @@ def _response_latent_covariance(
     """Approximate response-scale covariance and Jacobian at one predictor mean."""
     response_jacobian = jax.jacfwd(obs_kernel.response_fn)(eta_mean)
     response_cov = response_jacobian @ eta_cov @ response_jacobian.T
-    response_cov = _symmetrize_covariance(response_cov)
+    response_cov = symmetrize(response_cov)
     diag_idx = jnp.diag_indices(response_cov.shape[0])
     response_cov = response_cov.at[diag_idx].set(jnp.maximum(jnp.diag(response_cov), 0.0))
     return response_cov, response_jacobian
@@ -142,7 +137,7 @@ def _observation_noise_covariance(
     obs_kernel,
 ) -> jnp.ndarray:
     """Return one same-row observation-noise covariance matrix."""
-    observation_noise_cov = _symmetrize_covariance(obs_kernel.variance_fn(variance_args))
+    observation_noise_cov = symmetrize(obs_kernel.variance_fn(variance_args))
     diag_idx = jnp.diag_indices(observation_noise_cov.shape[0])
     return observation_noise_cov.at[diag_idx].set(
         jnp.maximum(jnp.diag(observation_noise_cov), NUMERICAL_EPSILON)
@@ -161,84 +156,6 @@ def _extra_param_at(
     if value_arr.ndim == 0:
         return value_arr
     return value_arr[index]
-
-
-def _point_observation_noise_var_diag(
-    eta_mean: jnp.ndarray,
-    response_mean: jnp.ndarray,
-    *,
-    manifest_dists,
-    manifest_cov: jnp.ndarray,
-    extra_params: dict,
-    allow_discrete_mean_space: bool,
-) -> jnp.ndarray:
-    """Return diagonal observation noise variances on the emitted observation scale."""
-    from causal_ssm_agent.models.ssm.inference.targets.emissions import (
-        categorical_moments,
-        ordered_logistic_moments,
-    )
-
-    variances = []
-    for idx, dist in enumerate(manifest_dists):
-        mean_j = response_mean[idx]
-        eta_j = eta_mean[idx]
-        if dist in {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}:
-            variances.append(manifest_cov[idx, idx])
-        elif dist == DistributionFamily.POISSON:
-            variances.append(jnp.maximum(mean_j, NUMERICAL_EPSILON))
-        elif dist == DistributionFamily.GAMMA:
-            shape = _extra_param_at(extra_params, "obs_shape", idx, 1.0)
-            mu = jnp.maximum(mean_j, NUMERICAL_EPSILON)
-            variances.append(mu**2 / jnp.maximum(shape, NUMERICAL_EPSILON))
-        elif dist == DistributionFamily.BERNOULLI:
-            p = jnp.clip(mean_j, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-            variances.append(p * (1.0 - p))
-        elif dist == DistributionFamily.NEGATIVE_BINOMIAL:
-            r = _extra_param_at(extra_params, "obs_r", idx, 5.0)
-            mu = jnp.maximum(mean_j, NUMERICAL_EPSILON)
-            variances.append(mu + mu**2 / jnp.maximum(r, NUMERICAL_EPSILON))
-        elif dist == DistributionFamily.BETA:
-            concentration = _extra_param_at(extra_params, "obs_concentration", idx, 10.0)
-            p = jnp.clip(mean_j, PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
-            variances.append(p * (1.0 - p) / (jnp.maximum(concentration, NUMERICAL_EPSILON) + 1.0))
-        elif dist == DistributionFamily.ORDERED_LOGISTIC:
-            if not allow_discrete_mean_space:
-                raise OutputSensitivityUnsupportedError(
-                    "interval-summary sensitivity is not defined for ordered_logistic observations"
-                )
-            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[
-                idx : idx + 1
-            ]
-            cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])[idx : idx + 1]
-            _mean, variance = ordered_logistic_moments(
-                jnp.asarray([eta_j]),
-                cutpoints,
-                level_counts,
-            )
-            variances.append(jnp.maximum(variance[0], NUMERICAL_EPSILON))
-        elif dist == DistributionFamily.CATEGORICAL:
-            if not allow_discrete_mean_space:
-                raise OutputSensitivityUnsupportedError(
-                    "interval-summary sensitivity is not defined for categorical observations"
-                )
-            level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)[
-                idx : idx + 1
-            ]
-            intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])[idx : idx + 1]
-            slopes = jnp.asarray(extra_params["obs_cat_slopes"])[idx : idx + 1]
-            _mean, variance = categorical_moments(
-                jnp.asarray([eta_j]),
-                intercepts,
-                slopes,
-                level_counts,
-            )
-            variances.append(jnp.maximum(variance[0], NUMERICAL_EPSILON))
-        else:
-            raise OutputSensitivityUnsupportedError(
-                f"output sensitivity does not support manifest_dist={dist.value!r}"
-            )
-
-    return jnp.stack(variances)
 
 
 def _select_support_slot(stat: jnp.ndarray, emission_slot_indices: jnp.ndarray) -> jnp.ndarray:

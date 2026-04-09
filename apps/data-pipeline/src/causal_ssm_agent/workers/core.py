@@ -20,10 +20,7 @@ from causal_ssm_agent.utils.llm import (
     parse_json_response,
     scoped_log,
 )
-from causal_ssm_agent.utils.observation_semantics import (
-    get_summary_operator,
-    get_support_kind,
-)
+from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
 
 from .prompts.extraction import SYSTEM, USER
 from .schemas import WorkerOutput
@@ -50,8 +47,9 @@ def _format_indicators(causal_spec: dict) -> str:
         name = ind.get("name", "unknown")
         how_to_measure = ind.get("how_to_measure", "")
         dtype = ind.get("measurement_dtype", "")
-        support_kind = ind.get("support_kind") or get_support_kind(ind)
-        summary_operator = ind.get("summary_operator") or get_summary_operator(ind)
+        sem = get_observation_semantics(ind)
+        support_kind = ind.get("support_kind") or sem.support_kind.value
+        summary_operator = ind.get("summary_operator") or sem.summary_operator.value
         window = ind.get("observation_window") or model_clock
         ordinal_levels = ind.get("ordinal_levels") or []
 

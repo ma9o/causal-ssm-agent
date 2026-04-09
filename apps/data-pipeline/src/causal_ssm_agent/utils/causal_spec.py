@@ -122,14 +122,14 @@ def get_indicator_info(causal_spec: dict) -> dict[str, dict]:
     """
     result: dict[str, dict] = {}
     for ind in get_indicators(causal_spec):
-        support_kind, summary_operator, anchor_policy = get_observation_semantics(ind)
+        sem = get_observation_semantics(ind)
         result[ind["name"]] = {
             "dtype": ind.get("measurement_dtype"),
             "construct_name": ind.get("construct_name"),
             "ordinal_levels": ind.get("ordinal_levels"),
-            "support_kind": support_kind,
-            "summary_operator": summary_operator,
-            "anchor_policy": anchor_policy,
+            "support_kind": sem.support_kind.value,
+            "summary_operator": sem.summary_operator.value,
+            "anchor_policy": sem.anchor_policy.value,
             "observation_window": ind.get("observation_window"),
         }
     return result
@@ -173,12 +173,12 @@ def make_extraction_context(causal_spec: dict) -> dict:
     model_clock = causal_spec.get("measurement", {}).get("model_clock")
     slim_indicators = []
     for ind in get_indicators(causal_spec):
-        support_kind, summary_operator, anchor_policy = get_observation_semantics(ind)
+        sem = get_observation_semantics(ind)
         entry = {
             **{k: ind[k] for k in _WORKER_INDICATOR_KEYS if k in ind},
-            "support_kind": support_kind,
-            "summary_operator": summary_operator,
-            "anchor_policy": anchor_policy,
+            "support_kind": sem.support_kind.value,
+            "summary_operator": sem.summary_operator.value,
+            "anchor_policy": sem.anchor_policy.value,
         }
         effective_window = get_effective_observation_window(ind, model_clock)
         if effective_window:
