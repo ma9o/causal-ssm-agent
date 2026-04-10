@@ -211,14 +211,6 @@ def valid_stage_payloads() -> dict[str, dict]:
         "stage-4b": {
             "parametric_id": {
                 "checked": True,
-                "t_rule": {
-                    "satisfies": True,
-                    "n_free_params": 2,
-                    "n_manifest": 1,
-                    "n_timepoints": 10,
-                    "n_moments": 10,
-                    "param_counts": {"ar_coefficient": 1, "residual_sd": 1},
-                },
                 "summary": {"structural_issues": [], "boundary_issues": [], "weak_params": []},
             }
         },

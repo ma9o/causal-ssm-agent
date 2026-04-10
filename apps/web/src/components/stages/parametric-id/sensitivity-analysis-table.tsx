@@ -90,13 +90,11 @@ export function SensitivityAnalysisTable({
           </span>
 
           <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <span>Condition:</span>
+            <span>Deficient directions:</span>
             <span className="tabular-nums text-foreground">
-              {result.condition_number < 1e6
-                ? formatNumber(result.condition_number, 1)
-                : result.condition_number.toExponential(1)}
+              {result.deficiency_count}/{result.n_parameters}
             </span>
-            <StatTooltip explanation="Condition number of the sensitivity matrix (max/min singular value). Values near 1 indicate excellent identifiability. Very large values (>10⁶) suggest near-singular directions where parameter combinations are aliased." />
+            <StatTooltip explanation="Number of parameter-space directions whose normalized singular value falls below 1 (less than one noise-SD of moment change per prior-SD of parameter change). Zero means all directions are structurally identifiable." />
           </span>
 
           <Badge variant="secondary">params: {result.n_parameters}</Badge>

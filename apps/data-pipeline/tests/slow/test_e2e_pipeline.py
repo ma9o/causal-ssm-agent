@@ -467,19 +467,6 @@ class TestE2EPipeline:
         present = {i["indicator"] for i in issues if i["issue_type"] == "missing"}
         assert len(present) == 0  # None missing
 
-    def test_stage4b_t_rule(self, model_spec, priors, daily_data):
-        """T-rule check passes (necessary condition for identifiability)."""
-        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-        from causal_ssm_agent.utils.data import pivot_to_wide
-
-        builder = SSMModelBuilder(model_spec=model_spec, priors=priors)
-        builder.build_model(pivot_to_wide(daily_data))
-        assert builder._spec is not None
-        t_rule = check_t_rule(builder._spec, T=T)
-        assert t_rule.satisfies is True
-        assert t_rule.n_free_params < t_rule.n_moments
-
     # ------------------------------------------------------------------
     # Stage 5: inference (SVI for speed)
     # ------------------------------------------------------------------

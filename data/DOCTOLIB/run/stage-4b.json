@@ -35,7 +35,7 @@
         0.14,
         0.003
       ],
-      "condition_number": 2807,
+      "deficiency_count": 2,
       "per_parameter": [
         {
           "parameter": "beta_lipid_inflammation",

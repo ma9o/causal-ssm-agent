@@ -280,6 +280,7 @@ def output_sensitivity_analysis(
     all_sv = []
     all_col_norms = []
     all_effective_sv = []
+    all_norm_sv = []
     all_norm_effective_sv = []
     skipped_nonfinite_draws = 0
 
@@ -319,6 +320,7 @@ def output_sensitivity_analysis(
             all_col_norms.pop()
             all_effective_sv.pop()
             continue
+        all_norm_sv.append(sv_n)
         all_norm_effective_sv.append(_per_param_effective_sv(V_n, sv_n))
 
     if not all_sv:
@@ -343,8 +345,8 @@ def output_sensitivity_analysis(
     median_norm_eff_sv = jnp.median(norm_eff_sv_matrix, axis=0)
 
     sv_max = float(jnp.max(median_sv))
-    sv_min = float(jnp.min(median_sv))
-    condition_number = sv_max / max(sv_min, 1e-30)
+    median_norm_sv = jnp.median(jnp.stack(all_norm_sv), axis=0)
+    deficiency_count = int(jnp.sum(median_norm_sv < 1.0))
 
     interpretable_names = _interpretable_parameter_name_map(model, scalar_names)
     per_param = []
@@ -382,7 +384,7 @@ def output_sensitivity_analysis(
 
     return OutputSensitivityResult(
         singular_values=[float(value) for value in median_sv],
-        condition_number=condition_number,
+        deficiency_count=deficiency_count,
         per_parameter=per_param,
         n_draws=len(all_sv),
         n_observations=n_observations,

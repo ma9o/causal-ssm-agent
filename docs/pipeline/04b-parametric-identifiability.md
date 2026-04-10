@@ -2,7 +2,7 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Computed | No | [`ParametricIdResult`](#parametricidresulttruleresult), [`InferenceStructureResult`](#inferencestructureresult) |
+| Computed | No | [`ParametricIdResult`](#parametricidresult), [`InferenceStructureResult`](#inferencestructureresult) |
 
 Checks whether the [Stage 4 functional specification](04-model-specification-priors.md) passes conservative parametric identification diagnostics before committing to expensive inference, and plans the [inference routing](../reference/inference-routing.md) that downstream stages will use.
 
@@ -13,27 +13,18 @@ Checks whether the [Stage 4 functional specification](04-model-specification-pri
 | `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
 
-Stage 4 provided the parametric model and priors without seeing how tightly the data constrain them. Stage 4b is the first point where the pipeline evaluates three distinct questions: a conservative `t`-rule screen, local structural identifiability via a Jacobian rank diagnostic, and practical identifiability via profile likelihood, following the standard SEM and dynamical-systems terminology in Hunter et al. (2025)[^hunter2025] and Raue et al. (2009)[^raue2009]. This is distinct from [Stage 1b](01b-measurement-identifiability.md) causal identifiability, which asks whether the treatment effect is identified from the causal graph; Stage 4b addresses the complementary question of whether the parameterization is estimable under the available data.
+Stage 4 provided the parametric model and priors without seeing how tightly the data constrain them. Stage 4b is the first point where the pipeline evaluates two complementary questions: local structural identifiability via a Jacobian rank diagnostic and practical identifiability via profile likelihood, following the standard SEM and dynamical-systems terminology in Hunter et al. (2025)[^hunter2025] and Raue et al. (2009)[^raue2009]. This is distinct from [Stage 1b](01b-measurement-identifiability.md) causal identifiability, which asks whether the treatment effect is identified from the causal graph; Stage 4b addresses the complementary question of whether the parameterization is estimable under the available data.
 
 ## Process
 
-Stage 4b is a fully deterministic diagnostics stage (no LLM). It prepares the model for evaluation and runs three diagnostic phases in sequence. If a diagnostic fails or is uninformative, the stage degrades gracefully and continues to the next check.
+Stage 4b is a fully deterministic diagnostics stage (no LLM). It prepares the model for evaluation and runs two diagnostic phases in sequence. If a diagnostic fails or is uninformative, the stage degrades gracefully and continues with whatever downstream checks remain valid.
 
 ```mermaid
 flowchart LR
-    M[Model preparation] --> T{T-rule} -- fail --> R([ParametricIdResult])
-    T -- pass --> S[Sensitivity analysis] --> P[Profile likelihood] --> R
+    M[Model preparation] --> S[Sensitivity analysis] --> P[Profile likelihood] --> R([ParametricIdResult])
 ```
 
 **Model preparation:** The compiled SSM from Stage 4 is built into a runnable model and the observation data are aligned to it. This step also resolves the [inference structure](#inferencestructureresult)—the likelihood path, auto-selected inference method, and first-pass Rao-Blackwellization plan—which is emitted as a co-output alongside the diagnostics.
-
-**T-rule:** A fast necessary-condition check that compares the number of free parameters against a conservative lower bound on the number of independent moment conditions available from the data. In SEM terms this borrows the `t`-rule or positive-degrees-of-freedom intuition[^hunter2025]. For this longitudinal SSM setting, the stage uses the following conservative project-specific lower-bound heuristic for available moments:
-
-- `p` means
-- `p(p+1)/2` contemporaneous covariance entries
-- `(T−1)·p` lagged autocovariance entries (a conservative count using `p` per lag rather than the full `p²` cross-autocovariance)
-
-If the free-parameter count exceeds this lower bound, the model is at high risk of non-identifiability. This screen is warning-only: passing does not guarantee identification, and failing does not halt inference. When the T-rule fails, the stage short-circuits and skips the more expensive sensitivity and profile-likelihood analyses.
 
 **Sensitivity analysis:** A local structural-identifiability check via the Jacobian rank criterion. For each of several prior draws (default 8), the stage computes the sensitivity matrix `S[i,j] = ∂yᵢ/∂θⱼ` where `y` is an emitted-observation moment summary built from the [Kalman prediction equations](../reference/estimation.md#kalman-backend) without data updates: emitted means, same-row covariance entries, and adjacent-row lagged cross-covariance entries on the observed grid. This follows the same general logic as the Jacobian mapping from free parameters to model-implied moments in Hunter et al. (2025)[^hunter2025]: near-zero singular values reveal locally non-identifiable parameter directions.
 
@@ -63,26 +54,34 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 
 | Output | Type | Description |
 |---|---|---|
-| `parametric_id` | `ParametricIdResult` | Combined T-rule, sensitivity, and profile-likelihood diagnostics |
+| `parametric_id` | `ParametricIdResult` | Combined sensitivity and profile-likelihood diagnostics |
 | `inference_structure` | [`InferenceStructureResult`](#inferencestructureresult) | Resolved likelihood path and inference-routing plan; consumed by the web frontend — [Stage 5](05a-svi-preflight.md) re-derives the routing at fit time |
 
-### `ParametricIdResult.TRuleResult`
+### `ParametricIdResult`
 
 | Field | Type | Description |
 |---|---|---|
-| `n_free_params` | `int` | Total count of free parameters in the model |
-| `n_manifest` | `int` | Number of manifest (observed) variables |
-| `n_timepoints` | `int` | Number of observed time points |
-| `n_moments` | `int` | Conservative lower bound on independent moment conditions |
-| `satisfies` | `bool` | Whether `n_free_params` ≤ `n_moments` |
-| `param_counts` | `dict[str, int]` | Free-parameter count by site name (e.g. `drift: 4`, `diffusion: 3`, `lambda: 2`) |
+| `checked` | `bool` | Whether Stage 4b completed its diagnostics pass |
+| `sensitivity_analysis` | `SensitivityAnalysisResult \| null` | Output-space Jacobian sensitivity diagnostic |
+| `summary` | `ParametricIdSummary \| null` | Aggregated structural, boundary, and weak-parameter findings |
+| `per_param_classification` | `list[ParameterIdentification] \| null` | Per-parameter profile-likelihood classifications and optional profile traces |
+| `threshold` | `float \| null` | χ²-derived profile-likelihood threshold used for classification |
+| `error` | `str \| null` | Diagnostic failure message when Stage 4b could not complete |
+
+### `ParametricIdResult.ParametricIdSummary`
+
+| Field | Type | Description |
+|---|---|---|
+| `structural_issues` | `list[str]` | Parameters classified as structurally unidentifiable |
+| `boundary_issues` | `list[str]` | Parameters with boundary-pathology warnings |
+| `weak_params` | `list[str]` | Parameters flagged as weakly identified by sensitivity or profiling |
 
 ### `ParametricIdResult.SensitivityAnalysisResult`
 
 | Field | Type | Description |
 |---|---|---|
 | `singular_values` | `list[float]` | Median SVD spectrum across prior draws, descending |
-| `condition_number` | `float` | Ratio of max to min singular value |
+| `deficiency_count` | `int` | Number of normalized singular values below the fail threshold, counting non-identifiable directions in parameter space |
 | `per_parameter` | `list[dict]` | Per-parameter pass/warn/fail classification via effective singular value |
 
 ### `ParametricIdResult.ParameterIdentification`
@@ -92,6 +91,8 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 | `name` | `str` | Parameter name |
 | `classification` | `str` | One of `"identified"`, `"practically_unidentifiable"`, `"structurally_unidentifiable"` |
 | `contraction_ratio` | `float` \| `null` | Ratio measuring how much the data contract the prior |
+| `profile_x` | `list[float]` \| `null` | Grid of constrained parameter values used for the profile |
+| `profile_ll` | `list[float]` \| `null` | Profile log-likelihood values recentered at the local peak |
 
 ### `InferenceStructureResult`
 
