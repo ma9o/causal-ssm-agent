@@ -48,6 +48,7 @@ class ObservationFamilyCatalogEntry:
     family: DistributionFamily
     summary: str
     links: tuple[str, ...]
+    hyperparameters: tuple[str, ...] = ()
 
 
 class PriorDistributionFamily(StrEnum):
@@ -278,6 +279,7 @@ OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
         family=DistributionFamily.STUDENT_T,
         summary="Continuous data with heavy tails or outliers.",
         links=("identity",),
+        hyperparameters=("obs_df",),
     ),
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.POISSON,
@@ -288,6 +290,7 @@ OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
         family=DistributionFamily.GAMMA,
         summary="Positive continuous data such as durations or reaction times.",
         links=("log", "inverse"),
+        hyperparameters=("obs_shape",),
     ),
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.BERNOULLI,
@@ -298,21 +301,25 @@ OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
         family=DistributionFamily.NEGATIVE_BINOMIAL,
         summary="Overdispersed count data where variance exceeds the mean.",
         links=("log",),
+        hyperparameters=("obs_r",),
     ),
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.BETA,
         summary="Proportions or rates strictly inside the unit interval.",
         links=("logit", "probit"),
+        hyperparameters=("obs_concentration",),
     ),
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.ORDERED_LOGISTIC,
         summary="Ordered categorical outcomes with ranked levels.",
         links=("cumulative_logit",),
+        hyperparameters=("obs_ordered_base", "obs_ordered_gaps"),
     ),
     ObservationFamilyCatalogEntry(
         family=DistributionFamily.CATEGORICAL,
         summary="Unordered multi-class outcomes.",
         links=("softmax",),
+        hyperparameters=("obs_cat_intercepts", "obs_cat_slopes"),
     ),
 )
 
