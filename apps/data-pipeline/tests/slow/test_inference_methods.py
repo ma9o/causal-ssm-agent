@@ -10,10 +10,25 @@ import json
 from pathlib import Path
 
 import jax.numpy as jnp
+import jax.random as random
+import jax.scipy.linalg as jla
+import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.models.ssm import InferenceResult, SSMModel, fit
+from causal_ssm_agent.models.ssm import (
+    InferenceResult,
+    SSMModel,
+    SSMSpec,
+    discretize_system,
+    fit,
+    full_diagonal_mask,
+    full_drift_offdiag_mask,
+    zero_diagonal_mask,
+    zero_loading_mask,
+    zero_square_mask,
+    zero_vector_mask,
+)
 from tests.helpers import assert_recovery_ci
 
 pytestmark = pytest.mark.slow
@@ -69,6 +84,73 @@ def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], lgss_data) -> None:
     )
 
 
+def _make_laplace_em_recovery_data() -> dict:
+    """Build a more informative 1D LGSS for Laplace-EM recovery checks.
+
+    The shared ``lgss_data`` fixture is adequate for CI-coverage tests but the
+    optimizer status can be noisy for the canonical Laplace-EM path. This
+    synthetic dataset increases the signal-to-noise ratio and sample size so
+    the mode-finding and local Gaussian approximation are both meaningfully
+    exercised.
+    """
+    n_latent, n_manifest = 1, 1
+    T, dt = 250, 1.0
+    true_drift_diag = -0.3
+    true_diff_diag = 0.2
+    true_obs_sd = 0.25
+
+    true_drift = jnp.array([[true_drift_diag]])
+    true_diff_cov = jnp.array([[true_diff_diag**2]])
+    true_obs_var = jnp.array([[true_obs_sd**2]])
+
+    Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
+    Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
+    R_chol = jla.cholesky(true_obs_var, lower=True)
+
+    key = random.PRNGKey(42)
+    states = [jnp.zeros(n_latent)]
+    for _ in range(T - 1):
+        key, nk = random.split(key)
+        states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
+    latent = jnp.stack(states)
+
+    key, obs_key = random.split(key)
+    observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
+    times = jnp.arange(T, dtype=float) * dt
+
+    spec = SSMSpec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_diag_mask=full_diagonal_mask(n_latent),
+        drift_offdiag_mask=full_drift_offdiag_mask(n_latent),
+        drift=jnp.zeros((n_latent, n_latent)),
+        cint_mask=zero_vector_mask(n_latent),
+        cint=jnp.zeros(n_latent),
+        lambda_mask=zero_loading_mask(n_manifest, n_latent),
+        lambda_mat=jnp.eye(n_manifest, n_latent),
+        diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+        diffusion_chol=jnp.eye(n_latent),
+        manifest_means_mask=zero_vector_mask(n_manifest),
+        manifest_means=jnp.zeros(n_manifest),
+        manifest_chol_diag_mask=full_diagonal_mask(n_manifest),
+        manifest_chol=jnp.zeros((n_manifest, n_manifest)),
+        t0_means_mask=zero_vector_mask(n_latent),
+        t0_means=jnp.zeros(n_latent),
+        t0_chol_diag_mask=zero_diagonal_mask(n_latent),
+        t0_correlation_mask=zero_square_mask(n_latent),
+        t0_chol=jnp.eye(n_latent),
+    )
+
+    return {
+        "observations": observations,
+        "times": times,
+        "spec": spec,
+        "true_drift_diag": true_drift_diag,
+        "true_diff_diag": true_diff_diag,
+        "true_obs_sd": true_obs_sd,
+    }
+
+
 # =============================================================================
 # Smoke Tests
 # =============================================================================
@@ -101,7 +183,7 @@ def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], lgss_data) -> None:
             id="nuts_da",
         ),
         pytest.param(
-            "laplace_em",
+            "laplace_smc",
             lambda spec: SSMModel(spec, n_particles=50),
             {
                 "n_outer": 6,
@@ -116,7 +198,7 @@ def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], lgss_data) -> None:
             8,
             ("accept_rates", "n_ieks_iters"),
             6,
-            id="laplace_em",
+            id="laplace_smc",
         ),
         pytest.param(
             "structured_vi",
@@ -299,20 +381,20 @@ class TestTemperedSMCRecovery:
 
 
 # =============================================================================
-# Laplace-EM
+# Laplace-SMC
 # =============================================================================
 
 
-class TestLaplaceEM:
-    """Laplace-EM recovery tests on 1D LGSS."""
+class TestLaplaceSMC:
+    """Laplace-SMC recovery tests on 1D LGSS."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
-    def test_laplace_em_recovery(self, lgss_data):
-        """Laplace-EM recovers 1D LGSS params (D=3) within 90% CIs.
+    def test_laplace_smc_recovery(self, lgss_data):
+        """Laplace-SMC recovers 1D LGSS params (D=3) within 90% CIs.
 
         Uses Kalman likelihood backend (exact for linear Gaussian) for fast
-        evaluation. The Laplace-EM outer loop (tempered SMC over parameters)
+        evaluation. The Laplace-SMC outer loop (tempered SMC over parameters)
         is the same as tempered_smc -- the method's value is for non-Gaussian
         emissions where Laplace approximation replaces the PF.
         """
@@ -322,7 +404,7 @@ class TestLaplaceEM:
             model,
             observations=lgss_data["observations"],
             times=lgss_data["times"],
-            method="laplace_em",
+            method="laplace_smc",
             n_outer=100,
             n_csmc_particles=20,
             n_mh_steps=10,
@@ -336,6 +418,59 @@ class TestLaplaceEM:
         samples = result.get_samples()
 
         _assert_lgss_recovery(samples, lgss_data)
+
+
+# =============================================================================
+# Laplace-EM
+# =============================================================================
+
+
+class TestLaplaceEM:
+    """Canonical Laplace-EM recovery tests on an informative 1D LGSS."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(300)
+    def test_laplace_em_recovery(self):
+        """Laplace-EM recovers a well-identified 1D LGSS under Kalman likelihood.
+
+        This checks more than execution:
+        1. BFGS converges on a genuinely informative dataset.
+        2. The Gaussian parameter-space approximation contains the truth in its
+           90% intervals.
+        3. Posterior means stay close to the generating parameters, so the
+           approximation is not passing only because the intervals are overly
+           wide.
+        """
+        data = _make_laplace_em_recovery_data()
+        model = SSMModel(data["spec"], likelihood="kalman")
+
+        result = fit(
+            model,
+            observations=data["observations"],
+            times=data["times"],
+            method="laplace_em",
+            num_samples=1000,
+            n_ieks_iters=5,
+            maxiter=100,
+            tol=1e-5,
+            n_init_samples=64,
+            seed=0,
+        )
+
+        assert result.diagnostics["optimizer"] == "BFGS"
+        assert result.diagnostics["success"] is True
+        assert result.diagnostics["status"] == 0
+
+        samples = result.get_samples()
+        _assert_lgss_recovery(samples, data)
+
+        drift_mean = float(jnp.mean(-jnp.abs(samples["drift_diag_free"][:, 0])))
+        diff_mean = float(jnp.mean(samples["diffusion_diag_free"][:, 0]))
+        obs_mean = float(jnp.mean(samples["manifest_var_diag_free"][:, 0]))
+
+        assert abs(drift_mean - data["true_drift_diag"]) < 0.12
+        assert abs(diff_mean - data["true_diff_diag"]) < 0.08
+        assert abs(obs_mean - data["true_obs_sd"]) < 0.05
 
 
 # =============================================================================
@@ -625,13 +760,13 @@ def _build_executable_doctolib_fixture_v2() -> tuple[dict, dict, dict, pl.DataFr
     return causal_spec, model_spec, priors, data_for_model
 
 
-class TestLaplaceEMDoctolib:
-    """Fixture-backed Laplace-EM smoke tests on the Doctolib mock data."""
+class TestLaplaceSMCDoctolib:
+    """Fixture-backed Laplace-SMC smoke tests on the Doctolib mock data."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(180)
-    def test_laplace_em_doctolib_fixture_smoke(self):
-        """Laplace-EM fits the executable Doctolib fixture end-to-end."""
+    def test_laplace_smc_doctolib_fixture_smoke(self):
+        """Laplace-SMC fits the executable Doctolib fixture end-to-end."""
         from causal_ssm_agent.distributions import DistributionFamily
         from causal_ssm_agent.models.ssm.inference import select_default_method
         from causal_ssm_agent.models.ssm_builder import build_ssm_builder
@@ -651,7 +786,7 @@ class TestLaplaceEMDoctolib:
             wide_data=pivot_to_wide(data_for_model),
             compiled_ssm=compiled,
             sampler_config={
-                "method": "laplace_em",
+                "method": "laplace_smc",
                 "n_outer": 6,
                 "n_csmc_particles": 8,
                 "n_mh_steps": 3,
@@ -674,7 +809,7 @@ class TestLaplaceEMDoctolib:
         result = builder.fit(wide)
 
         assert isinstance(result, InferenceResult)
-        assert result.method == "laplace_em"
+        assert result.method == "laplace_smc"
 
         samples = result.get_samples()
         assert "drift_diag_free" in samples

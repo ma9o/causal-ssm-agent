@@ -62,7 +62,7 @@ For a time series with T observations and potentially irregular intervals, the d
 
 ## 3. State-Side Objectives
 
-The default marginalization backends implement a shared `compute_log_likelihood()` protocol and inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. Method-specific routines such as `laplace_em`, `structured_vi`, and `dpf` replace that inner objective with a Laplace approximation, a variational surrogate, or a learned particle filter while keeping the same high-level fit interface. The routing details live in [inference-routing.md](inference-routing.md).
+The default marginalization backends implement a shared `compute_log_likelihood()` protocol and inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. Method-specific routines such as `laplace_smc`, `laplace_em`, `structured_vi`, and `dpf` swap in IEKS/Laplace, variational, or learned-particle inner objectives while keeping the same high-level fit interface. The routing details live in [inference-routing.md](inference-routing.md).
 
 ### Default marginalization backends
 
@@ -92,7 +92,8 @@ When first-pass Rao-Blackwellization finds a decoupled linear-Gaussian sub-block
 
 Some methods do not use the generic `models/likelihoods` package as their inner objective:
 
-- **`laplace_em`** uses IEKS plus a Laplace approximation to build a smooth approximate marginal likelihood.
+- **`laplace_smc`** uses IEKS plus a Laplace approximation to build a smooth approximate marginal likelihood, then samples parameters with tempered SMC.
+- **`laplace_em`** uses the same IEKS/Laplace approximate marginal likelihood but replaces the outer sampler with KFAS-style mode finding and a parameter-space Laplace posterior approximation.
 - **`structured_vi`** uses a backward-factored variational smoother ELBO as a surrogate objective over latent trajectories.
 - **`dpf`** trains a proposal network, then uses a learned particle-filter likelihood estimate.
 

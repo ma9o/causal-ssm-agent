@@ -269,7 +269,7 @@ def run_tempered_smc(
 ) -> InferenceResult:
     """Run tempered SMC with preconditioned HMC/MALA mutations.
 
-    This is the shared implementation used by tempered_smc, laplace_em,
+    This is the shared implementation used by tempered_smc, laplace_smc,
     structured_vi, and dpf. Each method calls this with different
     method_name and extra_diagnostics.
 

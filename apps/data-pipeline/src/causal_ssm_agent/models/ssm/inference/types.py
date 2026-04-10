@@ -38,6 +38,7 @@ InferenceMethod = Literal[
     "hessmc2",
     "pgas",
     "tempered_smc",
+    "laplace_smc",
     "laplace_em",
     "structured_vi",
     "dpf",
