@@ -764,11 +764,9 @@ class Stage4bContract(BaseStageContract):
 
     def summary_message(self) -> str:
         pid = self.parametric_id
-        t_pass = "pass" if (pid.t_rule is None or pid.t_rule.satisfies) else "warn"
         s = pid.summary
         return (
             f"Stage 4b summary: checked={pid.checked} "
-            f"t_rule={t_pass} "
             f"structural_issues={len(s.structural_issues if s else [])} "
             f"boundary_issues={len(s.boundary_issues if s else [])} "
             f"weak_params={len(s.weak_params if s else [])} outcome={self.outcome}"

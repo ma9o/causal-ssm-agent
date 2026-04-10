@@ -129,7 +129,6 @@ def parametric_id_task(
 
     from causal_ssm_agent.models.ssm.diagnostics import (
         OutputSensitivityUnsupportedError,
-        check_t_rule,
         get_stage4b_sweep_context,
         output_sensitivity_analysis,
         profile_likelihood,
@@ -149,34 +148,11 @@ def parametric_id_task(
         ssm_model = runtime.builder._model
         observations = runtime.observations
         times = runtime.times
-        T = int(times.shape[0])
 
         inference_structure_payload = build_inference_structure_payload(
             ssm_model.spec,
             runtime.inference_structure,
         )
-
-        t_rule = check_t_rule(ssm_model.spec, T=T)
-        t_rule.print_report()
-
-        if not t_rule.satisfies:
-            return {
-                "parametric_id": {
-                    "checked": True,
-                    "t_rule": t_rule.model_dump(),
-                    "summary": {
-                        "structural_issues": [],
-                        "boundary_issues": [],
-                        "weak_params": [],
-                    },
-                    "error": (
-                        f"T-rule warning: {t_rule.n_free_params} free params "
-                        f"> conservative lower-bound {t_rule.n_moments} moment conditions. "
-                        "This screen is warning-only and does not halt inference."
-                    ),
-                },
-                "inference_structure": inference_structure_payload,
-            }
 
         sweep_context = get_stage4b_sweep_context(ssm_model)
 
@@ -194,7 +170,7 @@ def parametric_id_task(
             sa_result.print_report()
             sensitivity_payload = {
                 "singular_values": sa_result.singular_values,
-                "condition_number": sa_result.condition_number,
+                "deficiency_count": sa_result.deficiency_count,
                 "per_parameter": sa_result.per_parameter,
                 "n_draws": sa_result.n_draws,
                 "n_observations": sa_result.n_observations,
@@ -289,7 +265,6 @@ def parametric_id_task(
         return {
             "parametric_id": {
                 "checked": True,
-                "t_rule": t_rule.model_dump(),
                 "sensitivity_analysis": sensitivity_payload,
                 "summary": summary,
                 "per_param_classification": per_param,
@@ -357,16 +332,8 @@ def run_stage4b(
         root_run_id=root_run_id,
     )
     param_id = result.get("parametric_id") or {}
-    t_rule: dict[str, Any] = {}
 
     if param_id.get("checked", False):
-        t_rule = param_id.get("t_rule", {})
-        if not t_rule.get("satisfies", True):
-            logger.warning(
-                "Stage 4b warning: T-rule screen failed (%s free params > conservative lower-bound %s moments), continuing",
-                t_rule.get("n_free_params"),
-                t_rule.get("n_moments"),
-            )
         summary = param_id.get("summary", {})
         if summary.get("structural_issues"):
             logger.warning(
@@ -385,8 +352,7 @@ def run_stage4b(
     if param_id.get("checked", False):
         summary = param_id.get("summary", {})
         has_issues = (
-            not t_rule.get("satisfies", True)
-            or summary.get("structural_issues")
+            summary.get("structural_issues")
             or summary.get("boundary_issues")
             or summary.get("weak_params")
         )

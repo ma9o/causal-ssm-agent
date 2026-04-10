@@ -216,7 +216,7 @@ class SensitivityAnalysisResult(BaseModel):
     """
 
     singular_values: list[float]
-    condition_number: float
+    deficiency_count: int
     per_parameter: list[SensitivityEntry]
     n_draws: int
     n_observations: int
@@ -227,7 +227,6 @@ class ParametricIdResult(BaseModel):
     """Full parametric identifiability result (Stage 4b payload)."""
 
     checked: bool = False
-    t_rule: TRuleResult | None = None
     sensitivity_analysis: SensitivityAnalysisResult | None = None
     summary: ParametricIdSummary | None = None
     per_param_classification: list[ParameterIdentification] | None = None
@@ -314,7 +313,3 @@ AggregationFunction = Literal[
     "trend",
     "n_unique",
 ]
-
-from causal_ssm_agent.models.ssm.diagnostics import TRuleResult as TRuleResult  # noqa: E402, TC001
-
-ParametricIdResult.model_rebuild()

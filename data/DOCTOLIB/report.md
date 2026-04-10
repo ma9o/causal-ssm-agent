@@ -338,7 +338,7 @@ $$
 
 ### Sensitivity Analysis
 
-- **Condition number**: 2807.000
+- **Deficient directions**: 2/11
 - **Parameters**: 11
 - **Draws**: 8
 

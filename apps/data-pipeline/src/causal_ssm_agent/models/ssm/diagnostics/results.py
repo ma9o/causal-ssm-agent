@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 
 import jax
 import jax.numpy as jnp
-from pydantic import BaseModel
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
@@ -27,38 +26,12 @@ def _chi_squared_uniformity_pvalue(ranks: jnp.ndarray, max_rank: int, n_bins: in
     return float(1.0 - jax.scipy.special.gammainc(df / 2.0, chi2 / 2.0))
 
 
-class TRuleResult(BaseModel):
-    """Result of the t-rule (counting condition) check."""
-
-    n_free_params: int
-    n_manifest: int
-    n_timepoints: int | None
-    n_moments: int
-    satisfies: bool
-    param_counts: dict[str, int]
-
-    def print_report(self) -> None:
-        """Log a human-readable t-rule report."""
-        tag = "[ok]" if self.satisfies else "[FAIL]"
-        lines = [
-            "=== T-Rule (Counting Condition) ===",
-            f"  {tag} {self.n_free_params} free params vs {self.n_moments} moment conditions",
-        ]
-        if self.n_timepoints is not None:
-            lines.append(f"  Time points: {self.n_timepoints}")
-        lines.append(f"  Manifest variables: {self.n_manifest}")
-        lines.append("  Parameter breakdown:")
-        for name, count in sorted(self.param_counts.items()):
-            lines.append(f"    {name}: {count}")
-        logger.info("\n%s", "\n".join(lines))
-
-
 @dataclass
 class OutputSensitivityResult:
     """Results from output sensitivity analysis (pre-inference identifiability)."""
 
     singular_values: list[float]
-    condition_number: float
+    deficiency_count: int
     per_parameter: list[dict]
     n_draws: int
     n_observations: int
@@ -70,7 +43,7 @@ class OutputSensitivityResult:
         lines = [
             "=== Output Sensitivity Analysis ===",
             f"  Parameters: {self.n_parameters}, Observations: {self.n_observations}",
-            f"  Condition number: {self.condition_number:.2e}",
+            f"  Deficient directions: {self.deficiency_count}/{self.n_parameters}",
             f"  Prior draws: {self.n_draws}",
             f"  Rank: {n_nonsing}/{min(self.n_observations, self.n_parameters)}",
         ]

@@ -31,7 +31,6 @@ from tests.ssm_test_utils import (
     diagonal_diffusion_kwargs,
     diagonal_manifest_var_kwargs,
     diagonal_t0_var_kwargs,
-    full_diffusion_kwargs,
     make_ssm_spec,
 )
 
@@ -244,64 +243,12 @@ def _require_manifest_names(names: list[str] | None) -> list[str]:
     return names
 
 
-class TestTRule:
-    """Test t-rule (counting condition) for identification."""
+class TestSiteRegistry:
+    """Test canonical site-registry support implied by the compiled SSM."""
 
-    def test_identified_model_passes(self):
-        """Well-identified 2L/2M model should pass t-rule with time series."""
-        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
-
-        spec = make_ssm_spec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            **_diagonal_structure_kwargs(2, 2),
-        )
-        result = check_t_rule(spec, T=50)
-        assert result.satisfies
-        # p=2, T=50: moments = 2 + 3 + 49*2 = 103, plenty for ~12 params
-        assert result.n_moments > result.n_free_params
-
-    def test_overparameterized_model_fails_without_T(self):
-        """Model with many params fails cross-sectional t-rule (no T)."""
-        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
-
-        # 3 latent, 2 manifest: lots of drift params relative to cross-sectional moments
-        spec = make_ssm_spec(
-            n_latent=3,
-            n_manifest=2,
-            **full_diffusion_kwargs(3),
-            **_free_cint_kwargs(3),
-            lambda_mat=jnp.eye(2, 3),
-            **_free_manifest_means_kwargs(2),
-            **diagonal_manifest_var_kwargs(2),
-            **diagonal_t0_var_kwargs(3),
-        )
-        result = check_t_rule(spec, T=None)
-        # Cross-sectional only: p=2 -> 2 + 3 = 5 moments, way fewer than params
-        assert not result.satisfies
-
-    def test_overparameterized_rescued_by_time_series(self):
-        """Same model passes when T is large enough (autocovariance helps)."""
-        from causal_ssm_agent.models.ssm.diagnostics import check_t_rule
-
-        spec = make_ssm_spec(
-            n_latent=3,
-            n_manifest=2,
-            **full_diffusion_kwargs(3),
-            **_free_cint_kwargs(3),
-            lambda_mat=jnp.eye(2, 3),
-            **_free_manifest_means_kwargs(2),
-            **diagonal_manifest_var_kwargs(2),
-            **diagonal_t0_var_kwargs(3),
-        )
-        result = check_t_rule(spec, T=50)
-        # With T=50: moments = 2 + 3 + 49*2 = 103, should be enough
-        assert result.satisfies
-
-    def test_count_free_params_fixed_lambda(self):
-        """Fixed lambda should contribute 0 free params."""
-        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
+    def test_fixed_lambda_omits_loading_site(self):
+        """Fixed lambda should contribute no free loading site."""
+        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
 
         spec = make_ssm_spec(
             n_latent=2,
@@ -309,12 +256,12 @@ class TestTRule:
             lambda_mat=jnp.eye(3, 2),  # fixed
             **_diagonal_structure_kwargs(2, 3),
         )
-        counts = count_free_params(spec)
-        assert "lambda_free" not in counts
+        registry = {site.name: site for site in build_site_registry(spec)}
+        assert "lambda_free" not in registry
 
-    def test_count_free_params_free_lambda(self):
-        """Free lambda with n_m > n_l should have (n_m - n_l) * n_l free entries."""
-        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
+    def test_free_lambda_sizes_loading_site(self):
+        """Free lambda with n_m > n_l should size the loading site correctly."""
+        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
 
         spec = make_ssm_spec(
             n_latent=2,
@@ -331,13 +278,12 @@ class TestTRule:
             ),
             **_diagonal_structure_kwargs(2, 4),
         )
-        counts = count_free_params(spec)
-        # (4 - 2) * 2 = 4 free loadings
-        assert counts["lambda_free"] == 4
+        registry = {site.name: site for site in build_site_registry(spec)}
+        assert registry["lambda_free"].shape == (4,)
 
-    def test_count_free_params_drift_components(self):
-        """Drift should have n_l diagonal + n_l*(n_l-1) off-diagonal."""
-        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
+    def test_drift_sites_match_compiled_structure(self):
+        """Drift sites should reflect the compiled diagonal and off-diagonal counts."""
+        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
 
         spec = make_ssm_spec(
             n_latent=3,
@@ -345,13 +291,13 @@ class TestTRule:
             lambda_mat=jnp.eye(3),
             **_diagonal_structure_kwargs(3, 3),
         )
-        counts = count_free_params(spec)
-        assert counts["drift_diag_free"] == 3
-        assert counts["drift_offdiag_free"] == 6  # 3*3 - 3
+        registry = {site.name: site for site in build_site_registry(spec)}
+        assert registry["drift_diag_free"].shape == (3,)
+        assert registry["drift_offdiag_free"].shape == (6,)
 
-    def test_count_free_params_noise_hyperparams(self):
-        """Student-t manifest noise should add obs_df parameter."""
-        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
+    def test_student_t_manifest_noise_adds_obs_df_site(self):
+        """Student-t manifest noise should add the shared obs_df site."""
+        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -360,12 +306,12 @@ class TestTRule:
             **_diagonal_structure_kwargs(1, 1),
             manifest_dists=[DistributionFamily.STUDENT_T],
         )
-        counts = count_free_params(spec)
-        assert counts.get("obs_df") == 1
+        registry = {site.name: site for site in build_site_registry(spec)}
+        assert registry["obs_df"].shape == ()
 
-    def test_count_free_params_per_channel_noise_hyperparams(self):
-        """Per-channel manifest_dists should contribute registry-defined noise sites."""
-        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
+    def test_mixed_manifest_noise_adds_shared_obs_df_site(self):
+        """Per-channel manifest distributions should still expose the shared noise site."""
+        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
 
         spec = make_ssm_spec(
             n_latent=1,
@@ -377,8 +323,8 @@ class TestTRule:
                 DistributionFamily.STUDENT_T,
             ],
         )
-        counts = count_free_params(spec)
-        assert counts.get("obs_df") == 1
+        registry = {site.name: site for site in build_site_registry(spec)}
+        assert registry["obs_df"].shape == ()
 
 
 class TestSimulateSSM:
@@ -559,7 +505,7 @@ class TestOutputSensitivity:
         assert result.n_observations == (3 * T) - 1
         assert result.n_draws == 5
         assert len(result.singular_values) > 0
-        assert result.condition_number > 0
+        assert result.deficiency_count == 0
         assert all(jnp.isfinite(jnp.array(result.singular_values)))
 
         # All params should be identifiable for a well-specified 1D LGSS
@@ -579,9 +525,9 @@ class TestOutputSensitivity:
 
         result = output_sensitivity_analysis(model, times, n_draws=3, seed=42)
 
-        # Should have high condition number (near-singular directions)
-        assert result.condition_number > 100, (
-            f"Non-identified model should have high condition number, got {result.condition_number:.1f}"
+        # Should have deficient directions (near-singular in normalized space)
+        assert result.deficiency_count > 0, (
+            f"Non-identified model should have deficient directions, got {result.deficiency_count}"
         )
 
         # At least some parameters should be flagged as non-identifiable
@@ -644,7 +590,7 @@ class TestOutputSensitivity:
         assert result.n_observations == 14
         assert len(result.singular_values) > 0
         assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
-        assert jnp.isfinite(result.condition_number)
+        assert result.deficiency_count >= 0
 
     def test_discrete_point_observation_models_produce_finite_sensitivity(self):
         """Point-like ordered-logistic and categorical channels should be supported."""
@@ -703,7 +649,7 @@ class TestOutputSensitivity:
         assert result.n_observations == 50
         assert len(result.singular_values) > 0
         assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
-        assert jnp.isfinite(result.condition_number)
+        assert result.deficiency_count >= 0
 
     def test_interval_std_observation_models_produce_finite_sensitivity(self):
         """Interval-summary standard-deviation channels should produce finite sensitivities."""
@@ -751,7 +697,7 @@ class TestOutputSensitivity:
         assert result.n_observations == 5
         assert len(result.singular_values) > 0
         assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
-        assert jnp.isfinite(result.condition_number)
+        assert result.deficiency_count >= 0
 
     def test_interval_discrete_observation_models_raise_unsupported_error(self):
         """Interval summaries over discrete families should fail explicitly."""
@@ -833,7 +779,7 @@ class TestOutputSensitivity:
 
         assert result.n_draws == 1
         assert all(jnp.isfinite(jnp.asarray(result.singular_values)))
-        assert jnp.isfinite(result.condition_number)
+        assert result.deficiency_count >= 0
 
     def test_output_sensitivity_counts_only_observed_outputs_when_masked(self):
         """Missing observations should be excluded from the sensitivity output count."""

@@ -8,8 +8,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.flows.dag import stage4b
-from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task
+from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task, run_stage4b
 from causal_ssm_agent.models.ssm.inference.structure import (
     build_inference_structure_payload,
     plan_inference_structure,
@@ -148,7 +147,7 @@ class TestStage4bInferenceStructurePayload:
             {"name": "ys0", "method": "particle"},
         ]
 
-    def test_t_rule_failure_keeps_nested_stage4b_contract(self, monkeypatch):
+    def test_parametric_id_keeps_nested_stage4b_contract(self, monkeypatch):
         spec = _make_separable_spec()
         model = _make_model(spec)
         runtime = SimpleNamespace(
@@ -158,28 +157,29 @@ class TestStage4bInferenceStructurePayload:
             inference_structure=plan_inference_structure(spec),
         )
 
-        class StubTRule:
-            satisfies = False
-            n_free_params = 12
-            n_moments = 8
+        class StubSensitivityResult:
+            def __init__(self):
+                self.singular_values = [1.0]
+                self.deficiency_count = 0
+                self.per_parameter = []
+                self.n_draws = 8
+                self.n_observations = 12
+                self.n_parameters = 0
 
             def print_report(self):
                 return None
-
-            def model_dump(self):
-                return {
-                    "satisfies": self.satisfies,
-                    "n_free_params": self.n_free_params,
-                    "n_moments": self.n_moments,
-                }
 
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
-            lambda *_args, **_kwargs: StubTRule(),
+            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
+            lambda *_args, **_kwargs: SimpleNamespace(scalar_names=[]),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
+            lambda *_args, **_kwargs: StubSensitivityResult(),
         )
 
         result = parametric_id_task.fn(
@@ -188,7 +188,11 @@ class TestStage4bInferenceStructurePayload:
 
         assert set(result.keys()) == {"parametric_id", "inference_structure"}
         assert result["parametric_id"]["checked"] is True
-        assert result["parametric_id"]["t_rule"]["satisfies"] is False
+        assert result["parametric_id"]["summary"] == {
+            "structural_issues": [],
+            "boundary_issues": [],
+            "weak_params": [],
+        }
         assert result["inference_structure"]["likelihood_path"] == "composed"
 
     def test_profile_diagnostics_aggregate_into_contract_summary(self, monkeypatch):
@@ -201,25 +205,10 @@ class TestStage4bInferenceStructurePayload:
             inference_structure=plan_inference_structure(spec),
         )
 
-        class StubTRule:
-            satisfies = True
-            n_free_params = 4
-            n_moments = 8
-
-            def print_report(self):
-                return None
-
-            def model_dump(self):
-                return {
-                    "satisfies": self.satisfies,
-                    "n_free_params": self.n_free_params,
-                    "n_moments": self.n_moments,
-                }
-
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
-                self.condition_number = 10.0
+                self.deficiency_count = 1
                 self.per_parameter = [
                     {
                         "parameter": "drift_offdiag_free[0]",
@@ -278,10 +267,6 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
-            lambda *_args, **_kwargs: StubTRule(),
-        )
-        monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["drift_offdiag_free[0]", "lambda_free"]
@@ -327,25 +312,10 @@ class TestStage4bInferenceStructurePayload:
             inference_structure=plan_inference_structure(spec),
         )
 
-        class StubTRule:
-            satisfies = True
-            n_free_params = 4
-            n_moments = 8
-
-            def print_report(self):
-                return None
-
-            def model_dump(self):
-                return {
-                    "satisfies": self.satisfies,
-                    "n_free_params": self.n_free_params,
-                    "n_moments": self.n_moments,
-                }
-
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
-                self.condition_number = 10.0
+                self.deficiency_count = 1
                 self.per_parameter = [
                     {
                         "parameter": "diffusion_diag_free[0]",
@@ -378,10 +348,6 @@ class TestStage4bInferenceStructurePayload:
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
-            lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
@@ -420,25 +386,10 @@ class TestStage4bInferenceStructurePayload:
             inference_structure=plan_inference_structure(spec),
         )
 
-        class StubTRule:
-            satisfies = True
-            n_free_params = 4
-            n_moments = 8
-
-            def print_report(self):
-                return None
-
-            def model_dump(self):
-                return {
-                    "satisfies": self.satisfies,
-                    "n_free_params": self.n_free_params,
-                    "n_moments": self.n_moments,
-                }
-
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
-                self.condition_number = 10.0
+                self.deficiency_count = 1
                 self.per_parameter = [
                     {
                         "parameter": "diffusion_diag_free[0]",
@@ -508,10 +459,6 @@ class TestStage4bInferenceStructurePayload:
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
-            lambda *_args, **_kwargs: StubTRule(),
-        )
-        monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["diffusion_diag_free[0]", "drift_offdiag_free[0]", "lambda_free"]
@@ -552,25 +499,10 @@ class TestStage4bInferenceStructurePayload:
             ),
         )
 
-        class StubTRule:
-            satisfies = True
-            n_free_params = 4
-            n_moments = 8
-
-            def print_report(self):
-                return None
-
-            def model_dump(self):
-                return {
-                    "satisfies": self.satisfies,
-                    "n_free_params": self.n_free_params,
-                    "n_moments": self.n_moments,
-                }
-
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
-                self.condition_number = 10.0
+                self.deficiency_count = 1
                 self.per_parameter = [
                     {
                         "parameter": "lambda_free",
@@ -593,10 +525,6 @@ class TestStage4bInferenceStructurePayload:
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
-            lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
@@ -637,28 +565,9 @@ class TestStage4bInferenceStructurePayload:
             ),
         )
 
-        class StubTRule:
-            satisfies = True
-            n_free_params = 4
-            n_moments = 8
-
-            def print_report(self):
-                return None
-
-            def model_dump(self):
-                return {
-                    "satisfies": self.satisfies,
-                    "n_free_params": self.n_free_params,
-                    "n_moments": self.n_moments,
-                }
-
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.check_t_rule",
-            lambda *_args, **_kwargs: StubTRule(),
         )
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
@@ -687,21 +596,16 @@ class TestStage4bInferenceStructurePayload:
         assert pid["threshold"] is None
         assert pid["summary"]["weak_params"] == []
 
-    def test_stage4b_demotes_t_rule_failure_to_warning(self, monkeypatch):
+    def test_stage4b_warns_on_summary_issues(self, monkeypatch):
         monkeypatch.setattr(
             "causal_ssm_agent.flows.stages.stage4b.flow.stage4b_parametric_id_flow",
             lambda *_args, **_kwargs: {
                 "parametric_id": {
                     "checked": True,
-                    "t_rule": {
-                        "satisfies": False,
-                        "n_free_params": 12,
-                        "n_moments": 8,
-                    },
                     "summary": {
                         "structural_issues": [],
                         "boundary_issues": [],
-                        "weak_params": [],
+                        "weak_params": ["lambda_free"],
                     },
                 }
             },
@@ -711,6 +615,6 @@ class TestStage4bInferenceStructurePayload:
             lambda _path: pl.DataFrame(),
         )
 
-        result = stage4b({}, {"_data_for_model_path": "unused"})
+        result = run_stage4b({}, {"_data_for_model_path": "unused"})
 
         assert result["outcome"] == "warn"
