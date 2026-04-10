@@ -12,6 +12,16 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from causal_ssm_agent.measurement_types import (
+    AggregationFunction as _AggregationFunction,
+)
+from causal_ssm_agent.measurement_types import (
+    MeasurementDtype as _MeasurementDtype,
+)
+
+AggregationFunction = _AggregationFunction
+MeasurementDtype = _MeasurementDtype
+
 # ---------------------------------------------------------------------------
 # MCMC diagnostics
 # ---------------------------------------------------------------------------
@@ -305,32 +315,3 @@ class TemporalEffect(BaseModel):
 # ---------------------------------------------------------------------------
 # Named type aliases (formalized from inline constants)
 # ---------------------------------------------------------------------------
-
-MeasurementDtype = Literal["continuous", "binary", "count", "ordinal", "categorical"]
-
-AggregationFunction = Literal[
-    "mean",
-    "sum",
-    "min",
-    "max",
-    "std",
-    "var",
-    "last",
-    "first",
-    "count",
-    "median",
-    "p10",
-    "p25",
-    "p75",
-    "p90",
-    "p99",
-    "skew",
-    "kurtosis",
-    "iqr",
-    "range",
-    "cv",
-    "entropy",
-    "instability",
-    "trend",
-    "n_unique",
-]

@@ -17,7 +17,7 @@ from pydantic import (
 )
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.schemas import AggregationFunction, MeasurementDtype
+from causal_ssm_agent.measurement_types import AggregationFunction, MeasurementDtype
 from causal_ssm_agent.utils.aggregations import COMPUTED_RULE_FUNCTIONS
 from causal_ssm_agent.utils.observation_semantics import (
     AnchorPolicy,
