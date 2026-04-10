@@ -20,7 +20,7 @@ Every inference method makes three design choices:
 
 - **Axis A** — how to handle the latent-state integral (marginalize, augment, or Gibbs)
 - **Axis B** — what state-side objective drives parameter inference within the marginalize path (exact likelihood, approximate likelihood, stochastic estimate, or variational surrogate)
-- **Axis C** — how to explore the parameter posterior (MCMC, VI, SMC)
+- **Axis C** — how to approximate or explore the parameter posterior (MCMC, VI, SMC, or a local Gaussian approximation)
 
 These axes are conceptually distinct but not independent. In this repo, the main dependency is:
 
@@ -37,7 +37,7 @@ How to deal with the nested integral over latent states.
 
 | Strategy | Mechanism | Methods |
 |----------|-----------|---------|
-| **Marginalize** | Compute or approximate p(y\|theta) via a filter or analytical approximation, then do inference on theta alone | nuts, svi, tempered\_smc, hessmc2, laplace\_em, structured\_vi, dpf |
+| **Marginalize** | Compute or approximate p(y\|theta) via a filter or analytical approximation, then do inference on theta alone | nuts, svi, tempered\_smc, hessmc2, laplace\_smc, laplace\_em, structured\_vi, dpf |
 | **Augment** | Treat x\_{1:T} as parameters. Sample (theta, x\_{1:T}) jointly via NUTS on the augmented space. No filter needed. | nuts\_da |
 | **Gibbs** | Alternate between p(x\|theta,y) via conditional SMC and p(theta\|x,y) via HMC. Each conditional avoids the hard integral. | pgas |
 
@@ -48,7 +48,7 @@ When marginalizing (Axis A = Marginalize), parameter inference is driven by an e
 | Objective class | Mechanism | Resulting gradients | Structural requirement | Methods |
 |-----------------|-----------|-------------------|----------------------|---------|
 | **Closed-form marginal likelihood** | Kalman filter | Exact, smooth | All emissions Gaussian + identity link + Gaussian diffusion | nuts, svi, tempered\_smc, hessmc2 |
-| **Deterministic approximate marginal likelihood** | IEKS + Laplace | Smooth, approximate | Twice-differentiable emission log-density + linear dynamics | laplace\_em |
+| **Deterministic approximate marginal likelihood** | IEKS + Laplace | Smooth, approximate | Twice-differentiable emission log-density + linear dynamics | laplace\_smc, laplace\_em |
 | **Stochastic marginal-likelihood estimate** | Bootstrap / RB particle filter | Noisy, stochastic | Universal (any model) | nuts, svi, tempered\_smc, hessmc2 |
 | **Learned stochastic estimate** | Neural proposal particle filter | Lower variance, still stochastic | Universal (needs training phase) | dpf |
 | **Variational surrogate objective** | Backward-factored variational smoother ELBO | Biased surrogate; optimized by Monte Carlo gradients | Universal | structured\_vi |
@@ -57,7 +57,7 @@ Two critical observations:
 
 1. **Our CT-LTI framework guarantees linear dynamics** (drift is always a matrix A). So "linear dynamics" is always satisfied. The IEKS path is blocked only when the emission log-density isn't twice-differentiable.
 
-2. **All [supported emission families](model-spec/likelihoods.md#distribution-families) have twice-differentiable log-densities.** So laplace\_em is structurally available for every non-Kalman model we support -- it just might not be *accurate* enough for highly non-Gaussian state posteriors (e.g., very sparse count data).
+2. **All [supported emission families](model-spec/likelihoods.md#distribution-families) have twice-differentiable log-densities.** So the IEKS/Laplace family (`laplace_em` and `laplace_smc`) is structurally available for every non-Kalman model we support -- it just might not be *accurate* enough for highly non-Gaussian state posteriors (e.g., very sparse count data).
 
 ### Axis C: Parameter Posterior Method
 
@@ -67,7 +67,8 @@ Given the state handling from Axes A+B, how to explore the parameter posterior p
 |--------|-------------------|--------------------------------------|----------------------|---------|
 | **MCMC** (NUTS/HMC) | Yes | No -- HMC/NUTS leapfrog needs smooth gradients. (Pseudo-marginal MH with PF is valid but slow[^andrieu2010].) | No | nuts, nuts\_da, pgas |
 | **VI** (SVI) | No (variational bound) | Yes -- SGD is designed for noise | No | svi |
-| **SMC** (tempered, HessMC2) | Yes | Yes -- population-based | Yes | tempered\_smc, hessmc2, laplace\_em, structured\_vi, dpf |
+| **SMC** (tempered, HessMC2) | Yes | Yes -- population-based | Yes | tempered\_smc, hessmc2, laplace\_smc, structured\_vi, dpf |
+| **Local Gaussian approximation** | No -- local second-order approximation | Requires a deterministic smooth objective | No | laplace\_em |
 
 ### The B → C Routing Constraint
 
@@ -76,7 +77,7 @@ Axis B determines target smoothness and estimator noise, which strongly influenc
 | State-side objective (B) | Gradient quality | Routing guidance for parameter methods (C) |
 |--------------------------|-----------------|--------------------------------------------|
 | **Closed-form** (Kalman) | Exact, smooth | All are feasible; HMC/NUTS is the structural default |
-| **Deterministic approx** (IEKS/Laplace) | Smooth, approximate | MCMC, VI, and SMC are all conceivable; this repo currently pairs it with tempered SMC |
+| **Deterministic approx** (IEKS/Laplace) | Smooth, approximate | A local Gaussian approximation is the structural default via `laplace_em`; `laplace_smc` remains the population-based alternative when you want broader exploration |
 | **Stochastic** (PF / RBPF) | Noisy, estimator-dependent | The router prefers VI or SMC. PMCMC remains theoretically valid, but it is a different construction from autodiff-HMC on the PF target[^andrieu2010] |
 | **Learned stochastic** (DPF) | Lower variance, still stochastic | Same practical guidance as PF-backed targets |
 | **Variational surrogate** (structured VI) | Surrogate objective, not an exact likelihood | Interpreted here as an inner approximation paired with an outer SMC sampler |
@@ -85,7 +86,7 @@ These are routing rules for this implementation, not universal impossibility res
 
 ## Method Taxonomy
 
-The nine methods mapped to all three axes:
+The ten methods mapped to all three axes:
 
 | Method | A: Coupling | B: State-side objective | C: Param method | Key advantage |
 |--------|------------|--------------------------|----------------|---------------|
@@ -93,7 +94,8 @@ The nine methods mapped to all three axes:
 | `svi` | Marginalize | Closed-form (Kalman) or stochastic (PF) | VI | Fast, tolerates PF noise |
 | `tempered_smc` | Marginalize | Closed-form (Kalman) or stochastic (PF) | SMC | Multimodal, robust to noise |
 | `hessmc2` | Marginalize | Closed-form (Kalman) or stochastic (PF) | SMC (Hessian) | Curvature-adapted proposals |
-| `laplace_em` | Marginalize | Deterministic approx (IEKS) | SMC | Avoids PF entirely for non-Gaussian |
+| `laplace_smc` | Marginalize | Deterministic approx (IEKS) | SMC | Avoids PF noise while retaining population-based exploration |
+| `laplace_em` | Marginalize | Deterministic approx (IEKS) | Local Gaussian approximation | Fast approximate posterior around a dominant mode |
 | `structured_vi` | Marginalize | Variational surrogate (backward variational family) | SMC | Trajectory-aware state uncertainty |
 | `dpf` | Marginalize | Learned stochastic estimate (neural PF) | SMC | Lower-variance PF proposals |
 | `nuts_da` | Augment | Joint augmented target (no marginal-likelihood backend) | MCMC | Simple "just run NUTS", no filter tuning |
@@ -112,6 +114,7 @@ The structural routing picks the best default within A = Marginalize. Users can 
 | Exact posterior from non-Gaussian model | `pgas` | A → Gibbs, C = MCMC | Gibbs structure avoids differentiating through PF |
 | Simple setup, moderate T, Gaussian obs | `nuts_da` | A → Augment, C = MCMC | "Everything is parameters", no filter to configure |
 | Fast exploration, any model | `svi` | C → VI | Fastest wall-clock, good for model iteration |
+| Fast deterministic local approximation | `laplace_em` | C → local Gaussian approximation | Optimizer-backed mode finding plus a second-order posterior approximation |
 | Highly anisotropic posterior | `hessmc2` | C → SMC (Hessian) | Full Hessian proposals adapt to curvature |
 | PF with severe particle degeneracy | `dpf` | B → Learned | Learned proposals reduce weight variance |
 | Trajectory-aware state uncertainty | `structured_vi` | B → Variational surrogate | Backward-factored family captures temporal correlations |
@@ -156,7 +159,7 @@ Stochastic Variational Inference[^blei2017] via ELBO optimization. Fits an auto-
 
 **Axis position:** Marginalize + any likelihood computation + VI.
 
-**When to use:** Fast exploration with any likelihood backend. Fallback when laplace\_em struggles with non-Gaussian emissions.
+**When to use:** Fast exploration with any likelihood backend, especially when you want something cheaper than `laplace_smc` and less local than `laplace_em`.
 
 **Limitations:** Approximate posterior (Gaussian family). May underestimate posterior variance. Does not capture multimodality.
 
@@ -176,15 +179,25 @@ SMC sampler with gradient-based change-of-variables L-kernels[^murphy2025]. Prop
 
 **When to use:** Highly anisotropic posteriors where curvature information accelerates convergence.
 
-### Laplace-EM
+### Laplace-SMC
 
-Iterated Extended Kalman Smoother (IEKS) finds a local MAP latent trajectory[^bell1994], then a Laplace approximation provides the marginal likelihood. In the current implementation, the historical method name `laplace_em` refers to this IEKS/Laplace inner objective paired with a tempered SMC outer loop; it is not a classical outer EM optimizer.
+Iterated Extended Kalman Smoother (IEKS) finds a local MAP latent trajectory[^bell1994], then a Laplace approximation provides an approximate marginal likelihood. `laplace_smc` preserves the repo's historical behavior: that deterministic IEKS/Laplace target is passed to the tempered SMC outer loop for parameter inference.
 
 **Axis position:** Marginalize + Deterministic approx (IEKS) + SMC.
 
-**When to use:** Non-Gaussian emissions with linear dynamics (the structural default for non-Kalman models). Avoids particle filter noise entirely via analytical state marginalization. O(T D^3) per IEKS iteration, typically 3-8 iterations.
+**When to use:** Non-Gaussian emissions with linear dynamics when you want broader posterior exploration than `laplace_em`, especially if you expect meaningful non-Gaussianity or mild multimodality in parameter space. O(T D^3) per IEKS iteration, typically 3-8 iterations, plus the outer SMC population cost.
 
-**Limitations:** Laplace approximation quality degrades for highly non-Gaussian state posteriors (sparse counts, boundary probabilities).
+**Limitations:** The state-side Laplace approximation can still degrade for highly non-Gaussian state posteriors (sparse counts, boundary probabilities), and the outer SMC pass is materially more expensive than `laplace_em`.
+
+### Laplace-EM
+
+`laplace_em` uses the same IEKS/Laplace approximate marginal likelihood but follows the canonical KFAS-style pattern: optimize the approximate marginal posterior over parameters, compute the Hessian at that mode, and sample the resulting Gaussian approximation in unconstrained parameter space.
+
+**Axis position:** Marginalize + Deterministic approx (IEKS) + local Gaussian approximation.
+
+**When to use:** Fast approximate posterior inference when a dominant mode is a reasonable summary, or when you want a deterministic mode-and-curvature approximation to warm-start downstream work. This is the structural default for non-Kalman models. It is usually much cheaper than `laplace_smc` because it replaces the outer particle population with one BFGS solve plus Hessian evaluation.
+
+**Limitations:** Local and unimodal by construction. Posterior mass far from the mode, skewness, and multimodality are not represented. It inherits the same IEKS/Laplace approximation error on the latent-state side.
 
 ### Why Not Dynamax GGSSM as the Primary Backend?
 
@@ -200,7 +213,7 @@ So the current design keeps custom backends as the primary path. A Dynamax adapt
 
 ### Structured VI
 
-Variational inference with a structured time-series posterior[^archer2015] [^krishnan2017]. The implementation uses a backward-factored Gaussian family, q(z\_{1:T} | phi) = q(z\_T) prod q(z\_t | z\_{t+1}), to capture temporal correlations that standard mean-field guides cannot. Can be initialized from Laplace-EM output.
+Variational inference with a structured time-series posterior[^archer2015] [^krishnan2017]. The implementation uses a backward-factored Gaussian family, q(z\_{1:T} | phi) = q(z\_T) prod q(z\_t | z\_{t+1}), to capture temporal correlations that standard mean-field guides cannot. It can be warm-started from the same IEKS/Laplace state approximation used by the Laplace-based methods.
 
 **Axis position:** Marginalize + Variational surrogate + SMC. Unlike DPF, which still uses a particle-filter normalizing-constant estimate, `structured_vi` uses an ELBO-like inner objective as a surrogate for the marginal likelihood.
 

@@ -12,7 +12,7 @@ Fits the compiled state-space model from [Stage 4](04-model-specification-priors
 |---|---|---|
 | `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
-| `inference_method` | Pipeline config | Optional sampler override (`"nuts"`, `"laplace_em"`, `"svi"`, etc.); `null` triggers [auto-routing](../reference/inference-routing.md#structural-routing) |
+| `inference_method` | Pipeline config | Optional sampler override (`"nuts"`, `"laplace_smc"`, `"laplace_em"`, `"svi"`, etc.); `null` triggers [auto-routing](../reference/inference-routing.md#structural-routing) |
 
 Stage 4 provided the compiled model and priors; Stage 5b is where that model is fitted to data and the posterior is characterized.
 

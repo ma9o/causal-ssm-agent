@@ -23,13 +23,16 @@ from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
+import jax.random as random
 import jax.scipy.linalg as jla
+import jax.scipy.optimize as jso
 import numpy as np
+import scipy.optimize as spo
+from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
 from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     accumulate_support_statistics,
@@ -39,6 +42,13 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     get_support_kind_codes,
     trajectory_observation_log_prob,
 )
+from causal_ssm_agent.models.ssm.inference.types import InferenceResult
+from causal_ssm_agent.models.ssm.inference.utils import (
+    _build_eval_fns,
+    _discover_sites,
+    extract_constrained_samples,
+)
+from causal_ssm_agent.models.ssm.parameterization import assemble_deterministics_from_registry
 
 if TYPE_CHECKING:
     from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
@@ -47,7 +57,6 @@ if TYPE_CHECKING:
         InitialStateParams,
         MeasurementParams,
     )
-    from causal_ssm_agent.models.ssm.inference.types import InferenceResult
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
 logger = get_prefect_logger(__name__)
@@ -59,6 +68,9 @@ logger = get_prefect_logger(__name__)
 
 
 _DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM = 160
+_SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL = 1e-3
+_SUPPORT_AWARE_LINESEARCH_ALPHA = 0.5
+_SUPPORT_AWARE_LINESEARCH_TRIALS = 2
 
 
 @dataclass(frozen=True)
@@ -75,6 +87,20 @@ class SupportObservationWindowBatch:
     weights: jnp.ndarray
 
 
+@dataclass(frozen=True)
+class LaplaceModeOptimizationResult:
+    """Unified outer-optimizer result for Laplace-EM parameter mode finding."""
+
+    z_mode: jnp.ndarray
+    objective_at_mode: float
+    n_iters: int
+    n_function_evals: int
+    status: int
+    success: bool
+    optimizer: str
+    init_log_posterior_best: float
+
+
 def _should_use_dense_support_laplace(*, n_time: int, n_latent: int) -> bool:
     """Use the dense exact support-aware Newton system on short trajectories.
 
@@ -89,6 +115,26 @@ def _symmetrize_psd(mats: jnp.ndarray, jitter: float = 0.0) -> jnp.ndarray:
     """Symmetrize square matrices and optionally add diagonal jitter."""
     eye = jnp.eye(mats.shape[-1], dtype=mats.dtype)
     return 0.5 * (mats + jnp.swapaxes(mats, -1, -2)) + jitter * eye
+
+
+def _predictive_latent_init(
+    Ad: jnp.ndarray,
+    cd: jnp.ndarray,
+    init_mean: jnp.ndarray,
+) -> jnp.ndarray:
+    """Deterministic latent rollout under the mean dynamics."""
+    T = Ad.shape[0]
+    z0 = Ad[0] @ init_mean + cd[0]
+    if T == 1:
+        return z0[None]
+
+    def _step(z_prev, inputs):
+        Ad_t, cd_t = inputs
+        z_t = Ad_t @ z_prev + cd_t
+        return z_t, z_t
+
+    _, z_rest = jax.lax.scan(_step, z0, (Ad[1:], cd[1:]))
+    return jnp.concatenate([z0[None], z_rest], axis=0)
 
 
 def _batched_spd_solve(mats: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
@@ -760,15 +806,15 @@ def _assemble_support_aware_observation_system(
     upper = jnp.zeros((bandwidth, T, D, D), dtype=z_est.dtype)
     rhs = jnp.zeros((T, D), dtype=z_est.dtype)
 
+    clean_obs = jnp.nan_to_num(observations, nan=0.0)
     point_mask = obs_mask.astype(z_est.dtype) * point_like_mask[None, :]
 
     local_grads, local_hess = jax.vmap(
         lambda y_t, z_t, mask_t: obs_kernel.emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
-    )(observations, z_est, point_mask)
+    )(clean_obs, z_est, point_mask)
     diag = diag + local_hess
     rhs = rhs + jax.vmap(lambda j_t, z_t, g_t: j_t @ z_t + g_t)(local_hess, z_est, local_grads)
 
-    clean_obs = jnp.nan_to_num(observations, nan=0.0)
     max_state_len = support_windows.max_state_len
     if support_windows.state_lens.shape[0] == 0:
         return diag, upper, rhs
@@ -781,7 +827,7 @@ def _assemble_support_aware_observation_system(
     segment_states = jax.vmap(_extract_segment)(support_windows.start_indices)
     segment_flat = segment_states.reshape(segment_states.shape[0], -1)
     anchor_obs = clean_obs[support_windows.anchor_indices]
-    grad_flat, hess_flat = window_derivatives(
+    grad_blocks, jac_blocks, mean_info = window_derivatives(
         segment_flat,
         support_windows.state_lens,
         support_windows.mask_full.astype(z_est.dtype),
@@ -793,11 +839,8 @@ def _assemble_support_aware_observation_system(
         d,
         R,
     )
-    info_flat = -0.5 * (hess_flat + jnp.swapaxes(hess_flat, -1, -2))
-    info_blocks = info_flat.reshape(-1, max_state_len, D, max_state_len, D).transpose(0, 1, 3, 2, 4)
-    taylor_rhs = (jnp.einsum("gij,gj->gi", info_flat, segment_flat) + grad_flat).reshape(
-        -1, max_state_len, D
-    )
+    diag_updates = jnp.einsum("gmid,gmn,gnie->gide", jac_blocks, mean_info, jac_blocks)
+    taylor_rhs = grad_blocks + jnp.einsum("gide,gie->gid", diag_updates, segment_states)
 
     local_positions = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
     time_indices = jnp.clip(
@@ -806,36 +849,39 @@ def _assemble_support_aware_observation_system(
         T - 1,
     )
     valid_diag = local_positions[None, :] < support_windows.state_lens[:, None]
-    diag_updates = info_blocks[:, jnp.arange(max_state_len), jnp.arange(max_state_len)]
     diag = diag.at[time_indices.reshape(-1)].add(
         (diag_updates * valid_diag[..., None, None]).reshape(-1, D, D)
     )
-    rhs = rhs.at[time_indices.reshape(-1)].add((taylor_rhs * valid_diag[..., None]).reshape(-1, D))
 
     if bandwidth > 0:
-        local_i = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
-        local_j = jnp.arange(max_state_len, dtype=support_windows.start_indices.dtype)
-        grid_i = jnp.broadcast_to(
-            local_i[None, :, None], (segment_flat.shape[0], max_state_len, max_state_len)
-        )
-        grid_j = jnp.broadcast_to(
-            local_j[None, None, :], (segment_flat.shape[0], max_state_len, max_state_len)
-        )
-        upper_offsets = grid_j - grid_i - 1
-        valid_upper = (
-            (grid_j > grid_i)
-            & (grid_i < support_windows.state_lens[:, None, None])
-            & (grid_j < support_windows.state_lens[:, None, None])
-        )
-        upper_times = jnp.clip(
-            support_windows.start_indices[:, None, None] + grid_i,
-            0,
-            T - 1,
-        )
-        safe_offsets = jnp.clip(upper_offsets, 0, bandwidth - 1)
-        upper = upper.at[safe_offsets.reshape(-1), upper_times.reshape(-1)].add(
-            (info_blocks * valid_upper[..., None, None]).reshape(-1, D, D)
-        )
+        for offset in range(1, bandwidth + 1):
+            left_jac = jac_blocks[:, :, :-offset, :]
+            right_jac = jac_blocks[:, :, offset:, :]
+            cross_updates = jnp.einsum("gmid,gmn,gnie->gide", left_jac, mean_info, right_jac)
+
+            left_states = segment_states[:, :-offset, :]
+            right_states = segment_states[:, offset:, :]
+            taylor_rhs = taylor_rhs.at[:, :-offset, :].add(
+                jnp.einsum("gide,gie->gid", cross_updates, right_states)
+            )
+            taylor_rhs = taylor_rhs.at[:, offset:, :].add(
+                jnp.einsum("gide,gid->gie", cross_updates, left_states)
+            )
+
+            valid_cross = (
+                (local_positions[:-offset][None, :] < support_windows.state_lens[:, None])
+                & (local_positions[offset:][None, :] < support_windows.state_lens[:, None])
+            )
+            upper_times = jnp.clip(
+                support_windows.start_indices[:, None] + local_positions[:-offset][None, :],
+                0,
+                T - 1,
+            )
+            upper = upper.at[offset - 1, upper_times.reshape(-1)].add(
+                (cross_updates * valid_cross[..., None, None]).reshape(-1, D, D)
+            )
+
+    rhs = rhs.at[time_indices.reshape(-1)].add((taylor_rhs * valid_diag[..., None]).reshape(-1, D))
 
     return diag, upper, rhs
 
@@ -849,9 +895,9 @@ def _make_support_window_derivatives(
     obs_kernel,
     mean_log_prob_fn,
 ):
-    """Build one exact window grad/Hessian evaluator for padded support windows."""
+    """Build support-window derivatives with Gauss-Newton curvature in mean space."""
 
-    def _window_log_prob_single(
+    def _window_expected_mean_single(
         segment_flat_single: jnp.ndarray,
         state_len_single: jnp.ndarray,
         mask_full_single: jnp.ndarray,
@@ -920,10 +966,20 @@ def _make_support_window_derivatives(
             obs_weight,
             summary_operator_codes,
         )
-        return mean_log_prob_fn(anchor_obs_single, expected_mean, R, mask_full_single)
+        del anchor_obs_single, R
+        return expected_mean
 
-    window_grad = jax.grad(_window_log_prob_single)
-    window_hessian = jax.hessian(_window_log_prob_single)
+    def _window_mean_log_prob_single(
+        expected_mean_single: jnp.ndarray,
+        anchor_obs_single: jnp.ndarray,
+        mask_full_single: jnp.ndarray,
+        R: jnp.ndarray,
+    ) -> jnp.ndarray:
+        return mean_log_prob_fn(anchor_obs_single, expected_mean_single, R, mask_full_single)
+
+    window_expected_mean_jacobian = jax.jacrev(_window_expected_mean_single)
+    mean_log_prob_grad = jax.grad(_window_mean_log_prob_single)
+    mean_log_prob_hessian = jax.hessian(_window_mean_log_prob_single)
 
     def _batched_window_derivatives(
         segment_flat: jnp.ndarray,
@@ -936,9 +992,9 @@ def _make_support_window_derivatives(
         H: jnp.ndarray,
         d: jnp.ndarray,
         R: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         in_axes = (0, 0, 0, 0, 0, 0, 0, None, None, None)
-        grad_flat = jax.vmap(window_grad, in_axes=in_axes)(
+        expected_mean = jax.vmap(_window_expected_mean_single, in_axes=in_axes)(
             segment_flat,
             state_lens,
             mask_full,
@@ -950,7 +1006,20 @@ def _make_support_window_derivatives(
             d,
             R,
         )
-        hess_flat = jax.vmap(window_hessian, in_axes=in_axes)(
+        mean_grad = jax.vmap(mean_log_prob_grad, in_axes=(0, 0, 0, None))(
+            expected_mean,
+            anchor_obs,
+            mask_full,
+            R,
+        )
+        mean_hessian = jax.vmap(mean_log_prob_hessian, in_axes=(0, 0, 0, None))(
+            expected_mean,
+            anchor_obs,
+            mask_full,
+            R,
+        )
+        mean_info = -0.5 * (mean_hessian + jnp.swapaxes(mean_hessian, -1, -2))
+        jac_flat = jax.vmap(window_expected_mean_jacobian, in_axes=in_axes)(
             segment_flat,
             state_lens,
             mask_full,
@@ -962,12 +1031,47 @@ def _make_support_window_derivatives(
             d,
             R,
         )
-        return grad_flat, hess_flat
+        jac_blocks = jac_flat.reshape(-1, n_manifest, max_state_len, n_latent)
+        grad_blocks = jnp.einsum("gmid,gm->gid", jac_blocks, mean_grad)
+        return grad_blocks, jac_blocks, mean_info
 
     return _batched_window_derivatives
 
 
-def _support_aware_ieks_log_lik(
+def _support_aware_joint_log_prob(
+    z_est: jnp.ndarray,
+    *,
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    H: jnp.ndarray,
+    d: jnp.ndarray,
+    R: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    obs_kernel,
+    mean_log_prob_fn,
+    observation_support: ObservationSupportRuntime,
+) -> jnp.ndarray:
+    """Exact latent joint log-density used for support-aware step acceptance."""
+    return _trajectory_prior_log_prob(z_est, Ad, Qd, cd, init_mean, init_cov) + (
+        trajectory_observation_log_prob(
+            z_est,
+            observations,
+            obs_mask,
+            H,
+            d,
+            R,
+            obs_kernel,
+            mean_log_prob_fn,
+            observation_support,
+        )
+    )
+
+
+def _support_aware_ieks_laplace(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
     Ad: jnp.ndarray,
@@ -984,8 +1088,9 @@ def _support_aware_ieks_log_lik(
     support_windows: SupportObservationWindowBatch,
     bandwidth: int,
     n_ieks_iters: int,
-) -> jnp.ndarray:
-    """Sparse/banded support-aware IEKS + Laplace approximation."""
+    z_init: jnp.ndarray | None = None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Support-aware IEKS solve plus Laplace log-likelihood."""
     T, D = observations.shape[0], init_mean.shape[0]
     prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
         Ad,
@@ -1008,32 +1113,83 @@ def _support_aware_ieks_log_lik(
         mean_log_prob_fn=mean_log_prob_fn,
     )
 
-    z_est = jnp.broadcast_to(init_mean, (T, D)).copy()
+    if z_init is None:
+        z_est = _predictive_latent_init(Ad, cd, init_mean)
+    else:
+        z_est = jnp.asarray(z_init, dtype=observations.dtype)
 
-    def _newton_step(_idx, z_curr):
-        with jax.named_scope("laplace_em/support_aware_observation_system"):
-            obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
-                z_curr,
-                observations,
-                obs_mask,
-                H,
-                d,
-                R,
-                obs_kernel,
-                support_windows,
-                point_like_mask,
-                window_derivatives,
-                bandwidth,
-            )
-        system_diag = prior_diag + obs_diag
-        system_upper = prior_upper + obs_upper
-        system_rhs = prior_rhs + obs_rhs
-        with jax.named_scope("laplace_em/support_aware_solve"):
-            chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
-            return _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+    def _joint(z_curr: jnp.ndarray) -> jnp.ndarray:
+        return _support_aware_joint_log_prob(
+            z_curr,
+            observations=observations,
+            obs_mask=obs_mask,
+            Ad=Ad,
+            Qd=Qd,
+            cd=cd,
+            H=H,
+            d=d,
+            R=R,
+            init_mean=init_mean,
+            init_cov=init_cov,
+            obs_kernel=obs_kernel,
+            mean_log_prob_fn=mean_log_prob_fn,
+            observation_support=observation_support,
+        )
 
+    def _newton_step(carry, _idx):
+        z_curr, curr_log_joint, active = carry
+
+        def _do_step(_):
+            with jax.named_scope("laplace_em/support_aware_observation_system"):
+                obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
+                    z_curr,
+                    observations,
+                    obs_mask,
+                    H,
+                    d,
+                    R,
+                    obs_kernel,
+                    support_windows,
+                    point_like_mask,
+                    window_derivatives,
+                    bandwidth,
+                )
+            system_diag = prior_diag + obs_diag
+            system_upper = prior_upper + obs_upper
+            system_rhs = prior_rhs + obs_rhs
+            with jax.named_scope("laplace_em/support_aware_solve"):
+                chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
+                z_proposal = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+
+            step = z_proposal - z_curr
+            best_z = z_curr
+            best_log_joint = curr_log_joint
+            step_scale = jnp.asarray(1.0, dtype=z_curr.dtype)
+            for _ in range(_SUPPORT_AWARE_LINESEARCH_TRIALS + 1):
+                z_candidate = z_curr + step_scale * step
+                log_joint_candidate = _joint(z_candidate)
+                improved = jnp.isfinite(log_joint_candidate) & (log_joint_candidate > best_log_joint)
+                best_z = jnp.where(improved, z_candidate, best_z)
+                best_log_joint = jnp.where(improved, log_joint_candidate, best_log_joint)
+                step_scale = step_scale * _SUPPORT_AWARE_LINESEARCH_ALPHA
+
+            rel_change = jnp.linalg.norm(best_z - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
+            next_active = rel_change > _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL
+            return best_z, best_log_joint, next_active
+
+        return jax.lax.cond(active, _do_step, lambda _: carry, operand=None), None
+
+    initial_log_joint = _joint(z_est)
     with jax.named_scope("laplace_em/support_aware_newton"):
-        z_est = jax.lax.fori_loop(0, max(n_ieks_iters, 1), _newton_step, z_est)
+        (z_est, mode_log_joint, _active), _ = jax.lax.scan(
+            _newton_step,
+            (
+                z_est,
+                initial_log_joint,
+                jnp.asarray(True),
+            ),
+            xs=jnp.arange(max(n_ieks_iters, 1)),
+        )
 
     with jax.named_scope("laplace_em/support_aware_final_hessian"):
         obs_diag, obs_upper, _obs_rhs = _assemble_support_aware_observation_system(
@@ -1054,25 +1210,54 @@ def _support_aware_ieks_log_lik(
         chol_diag, _lower = _factor_block_banded_cholesky(system_diag, system_upper)
 
     flat_dim = T * D
-    with jax.named_scope("laplace_em/support_aware_mode_log_joint"):
-        mode_log_joint = _trajectory_prior_log_prob(z_est, Ad, Qd, cd, init_mean, init_cov) + (
-            trajectory_observation_log_prob(
-                z_est,
-                observations,
-                obs_mask,
-                H,
-                d,
-                R,
-                obs_kernel,
-                mean_log_prob_fn,
-                observation_support,
-            )
-        )
-    return (
+    log_lik = (
         mode_log_joint
         + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi)
         - 0.5 * _block_banded_logdet(chol_diag)
     )
+    return log_lik, z_est
+
+
+def _support_aware_ieks_log_lik(
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    H: jnp.ndarray,
+    d: jnp.ndarray,
+    R: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    obs_kernel,
+    mean_log_prob_fn,
+    observation_support: ObservationSupportRuntime,
+    support_windows: SupportObservationWindowBatch,
+    bandwidth: int,
+    n_ieks_iters: int,
+    z_init: jnp.ndarray | None = None,
+) -> jnp.ndarray:
+    """Sparse/banded support-aware IEKS + Laplace approximation."""
+    log_lik, _z_mode = _support_aware_ieks_laplace(
+        observations,
+        obs_mask,
+        Ad,
+        Qd,
+        cd,
+        H,
+        d,
+        R,
+        init_mean,
+        init_cov,
+        obs_kernel,
+        mean_log_prob_fn,
+        observation_support,
+        support_windows,
+        bandwidth,
+        n_ieks_iters,
+        z_init=z_init,
+    )
+    return log_lik
 
 
 def _dense_support_laplace_log_lik(
@@ -1095,21 +1280,8 @@ def _dense_support_laplace_log_lik(
     T, D = observations.shape[0], init_mean.shape[0]
     flat_dim = T * D
 
-    def _predictive_init():
-        z0 = Ad[0] @ init_mean + cd[0]
-        if T == 1:
-            return z0[None]
-
-        def _step(z_prev, inputs):
-            Ad_t, cd_t = inputs
-            z_t = Ad_t @ z_prev + cd_t
-            return z_t, z_t
-
-        _, z_rest = jax.lax.scan(_step, z0, (Ad[1:], cd[1:]))
-        return jnp.concatenate([z0[None], z_rest], axis=0)
-
     with jax.named_scope("laplace_em/dense_support_init"):
-        z_init = _predictive_init()
+        z_init = _predictive_latent_init(Ad, cd, init_mean)
 
     def _joint_log_prob(z_flat):
         z = z_flat.reshape(T, D)
@@ -1198,6 +1370,7 @@ class LaplaceLikelihood:
         self.manifest_links = manifest_links
         self.n_ieks_iters = n_ieks_iters
         self.observation_support = observation_support
+        self._support_mode_cache: jnp.ndarray | None = None
         if (
             observation_support is not None
             and observation_support.requires_interval_summary_handling
@@ -1268,6 +1441,23 @@ class LaplaceLikelihood:
             self.observation_support is not None
             and self.observation_support.requires_interval_summary_handling
         ):
+            cache_inputs = (
+                ct_params,
+                measurement_params,
+                initial_state,
+                observations,
+                time_intervals,
+                obs_mask,
+                extra_params,
+            )
+            can_reuse_support_mode = not _tree_contains_tracer(cache_inputs)
+            support_mode_init = None
+            if (
+                can_reuse_support_mode
+                and self._support_mode_cache is not None
+                and self._support_mode_cache.shape == (clean_obs.shape[0], self.n_latent)
+            ):
+                support_mode_init = self._support_mode_cache
             if _should_use_dense_support_laplace(
                 n_time=clean_obs.shape[0],
                 n_latent=self.n_latent,
@@ -1290,7 +1480,7 @@ class LaplaceLikelihood:
                         self.n_ieks_iters,
                     )
             with jax.named_scope("laplace_em/support_aware_backend"):
-                return _support_aware_ieks_log_lik(
+                log_lik, z_mode = _support_aware_ieks_laplace(
                     clean_obs,
                     obs_mask,
                     Ad,
@@ -1307,7 +1497,11 @@ class LaplaceLikelihood:
                     self._support_windows,
                     self._support_bandwidth,
                     self.n_ieks_iters,
+                    z_init=support_mode_init,
                 )
+                if can_reuse_support_mode:
+                    self._support_mode_cache = jax.device_get(z_mode)
+                return log_lik
 
         with jax.named_scope("laplace_em/ieks_backend"):
             _, log_lik = _ieks_smooth(
@@ -1329,77 +1523,413 @@ class LaplaceLikelihood:
 
 
 # ---------------------------------------------------------------------------
-# fit_laplace_em: outer loop for parameter estimation
+# Canonical Laplace-EM: optimizer-backed parameter mode + Laplace posterior
 # ---------------------------------------------------------------------------
+
+
+def _build_laplace_em_bundle(
+    model,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    trace_key: jnp.ndarray,
+    likelihood_backend,
+    reparam,
+) -> dict[str, Any]:
+    """Build the traced/JITed artifacts for optimizer-backed Laplace-EM."""
+    site_info = _discover_sites(
+        model,
+        observations,
+        times,
+        trace_key,
+        likelihood_backend,
+        reparam=reparam,
+    )
+    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
+    flat_example, unravel_fn = ravel_pytree(example_unc)
+
+    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
+        model,
+        observations,
+        times,
+        site_info,
+        unravel_fn,
+        likelihood_backend=likelihood_backend,
+        reparam=reparam,
+    )
+
+    safe_floor = jnp.asarray(-1e30, dtype=observations.dtype)
+    safe_ceiling = jnp.asarray(1e30, dtype=observations.dtype)
+
+    def _log_posterior_fn(z: jnp.ndarray) -> jnp.ndarray:
+        total = log_prior_unc_fn(z) + log_lik_fn(z)
+        return jnp.where(jnp.isfinite(total), total, safe_floor)
+
+    def _neg_log_posterior_fn(z: jnp.ndarray) -> jnp.ndarray:
+        value = -_log_posterior_fn(z)
+        return jnp.where(jnp.isfinite(value), value, safe_ceiling)
+
+    return {
+        "dim": int(flat_example.shape[0]),
+        "flat_example": flat_example,
+        "site_info": site_info,
+        "unravel_fn": unravel_fn,
+        "log_lik_fn": log_lik_fn,
+        "log_prior_unc_fn": log_prior_unc_fn,
+        "log_posterior_fn": _log_posterior_fn,
+        "neg_log_posterior_fn": _neg_log_posterior_fn,
+        "batch_log_posterior_jit": jax.jit(jax.vmap(_log_posterior_fn)),
+    }
+
+
+def _draw_laplace_init_candidates(
+    rng_key: jnp.ndarray,
+    site_info: dict[str, Any],
+    *,
+    dim: int,
+    n_candidates: int,
+    dtype,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Sample candidate parameter vectors from the prior in unconstrained space."""
+    n_candidates = max(int(n_candidates), 1)
+    if dim == 0:
+        return rng_key, jnp.zeros((1, 0), dtype=dtype)
+
+    parts = []
+    for name in sorted(site_info.keys()):
+        info = site_info[name]
+        rng_key, sample_key = random.split(rng_key)
+        constrained = info["distribution"].sample(sample_key, (n_candidates,))
+        unconstrained = info["transform"].inv(constrained)
+        parts.append(unconstrained.reshape(n_candidates, -1))
+
+    candidates = jnp.concatenate(parts, axis=1)
+    zeros = jnp.zeros((1, dim), dtype=candidates.dtype)
+    return rng_key, jnp.concatenate([zeros, candidates], axis=0)
+
+
+def _requires_scalar_outer_optimizer(model) -> bool:
+    """Use a scalar outer optimizer for support-aware interval-summary models."""
+    observation_support = getattr(model, "observation_support", None)
+    return bool(
+        observation_support is not None
+        and observation_support.requires_interval_summary_handling
+    )
+
+
+def _optimize_laplace_parameter_mode(
+    model,
+    *,
+    init_key: jnp.ndarray,
+    dim: int,
+    flat_example: jnp.ndarray,
+    site_info: dict[str, Any],
+    log_posterior_fn,
+    neg_log_posterior_fn,
+    batch_log_posterior_jit,
+    observations: jnp.ndarray,
+    n_init_samples: int,
+    maxiter: int,
+    tol: float,
+) -> LaplaceModeOptimizationResult:
+    """Find the parameter mode using the route appropriate for the model class."""
+    if dim == 0:
+        z_mode = flat_example
+        return LaplaceModeOptimizationResult(
+            z_mode=z_mode,
+            objective_at_mode=float(jax.device_get(neg_log_posterior_fn(z_mode))),
+            n_iters=0,
+            n_function_evals=1,
+            status=0,
+            success=True,
+            optimizer="BFGS",
+            init_log_posterior_best=float(jax.device_get(log_posterior_fn(z_mode))),
+        )
+
+    if _requires_scalar_outer_optimizer(model):
+        z_init = flat_example
+        init_log_posterior_best = float(jax.device_get(log_posterior_fn(z_init)))
+
+        def _objective(z_np: np.ndarray) -> float:
+            z = jnp.asarray(z_np, dtype=z_init.dtype)
+            return float(jax.device_get(neg_log_posterior_fn(z)))
+
+        opt_result = spo.minimize(
+            _objective,
+            x0=np.asarray(jax.device_get(z_init)),
+            method="Powell",
+            tol=tol,
+            options={"maxiter": maxiter, "disp": False},
+        )
+        z_mode = jnp.asarray(opt_result.x, dtype=z_init.dtype)
+        return LaplaceModeOptimizationResult(
+            z_mode=z_mode,
+            objective_at_mode=float(opt_result.fun),
+            n_iters=int(opt_result.nit),
+            n_function_evals=int(opt_result.nfev),
+            status=int(opt_result.status),
+            success=bool(opt_result.success),
+            optimizer="Powell",
+            init_log_posterior_best=init_log_posterior_best,
+        )
+
+    init_key, candidates = _draw_laplace_init_candidates(
+        init_key,
+        site_info,
+        dim=dim,
+        n_candidates=n_init_samples,
+        dtype=observations.dtype,
+    )
+    del init_key
+    init_scores = batch_log_posterior_jit(candidates)
+    init_idx = int(jnp.argmax(init_scores))
+    z_init = candidates[init_idx]
+
+    opt_result = jso.minimize(
+        neg_log_posterior_fn,
+        z_init,
+        method="BFGS",
+        tol=tol,
+        options={"maxiter": maxiter},
+    )
+    return LaplaceModeOptimizationResult(
+        z_mode=opt_result.x,
+        objective_at_mode=float(jax.device_get(opt_result.fun)),
+        n_iters=int(opt_result.nit),
+        n_function_evals=int(opt_result.nfev),
+        status=int(opt_result.status),
+        success=bool(jax.device_get(opt_result.success)),
+        optimizer="BFGS",
+        init_log_posterior_best=float(jax.device_get(init_scores[init_idx])),
+    )
+
+
+def _sample_laplace_parameter_posterior(
+    rng_key: jnp.ndarray,
+    z_mode: jnp.ndarray,
+    neg_log_posterior_fn,
+    *,
+    num_samples: int,
+    hessian_jitter: float,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Sample an unconstrained Gaussian approximation around the parameter mode."""
+    if num_samples < 1:
+        raise ValueError("laplace_em requires num_samples >= 1")
+
+    dim = int(z_mode.shape[0])
+    if dim == 0:
+        return (
+            jnp.zeros((num_samples, 0), dtype=z_mode.dtype),
+            jnp.zeros((0, 0), dtype=z_mode.dtype),
+            jnp.zeros((0,), dtype=z_mode.dtype),
+        )
+
+    with jax.named_scope("laplace_em/parameter_hessian"):
+        hessian = jax.hessian(neg_log_posterior_fn)(z_mode)
+        hessian = symmetrize_with_jitter(hessian, jitter=hessian_jitter)
+        covariance = jla.solve(hessian, jnp.eye(dim, dtype=hessian.dtype), assume_a="pos")
+        covariance = symmetrize_with_jitter(covariance, jitter=hessian_jitter)
+        chol_cov = jnp.linalg.cholesky(covariance)
+
+    with jax.named_scope("laplace_em/parameter_sampling"):
+        eps = random.normal(rng_key, (num_samples, dim), dtype=z_mode.dtype)
+        unc_samples = z_mode[None, :] + eps @ chol_cov.T
+
+    return unc_samples, covariance, jnp.linalg.eigvalsh(hessian)
+
+
+def _tree_contains_tracer(tree: Any) -> bool:
+    """Whether any leaf in a pytree is currently a JAX tracer."""
+    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree_util.tree_leaves(tree))
 
 
 def fit_laplace_em(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    n_outer: int = 100,
-    n_csmc_particles: int = 20,
-    n_mh_steps: int = 10,
-    param_step_size: float = 0.1,
-    n_warmup: int | None = None,
-    target_accept: float | None = None,
+    num_samples: int = 1000,
+    num_warmup: int | None = None,  # noqa: ARG001
+    num_chains: int | None = None,  # noqa: ARG001
     seed: int = 0,
     n_ieks_iters: int = 5,
-    n_leapfrog: int = 5,
-    adaptive_tempering: bool = True,
-    target_ess_ratio: float = 0.5,
-    waste_free: bool = False,
+    maxiter: int = 100,
+    tol: float = 1e-4,
+    n_init_samples: int = 32,
+    hessian_jitter: float = 1e-4,
     reparam=None,
-    **kwargs: Any,  # noqa: ARG001
+    **kwargs: Any,
 ) -> InferenceResult:
-    """Fit SSM parameters via Laplace-EM with tempered SMC outer loop.
+    """Fit an approximate posterior with KFAS-style Laplace optimization.
 
-    Uses the Laplace-approximated marginal likelihood (via IEKS) as the
-    log-density for a tempered SMC sampler over the parameter space.
-
-    If the model has an explicit likelihood override (e.g. likelihood="kalman"),
-    that backend is used instead of the Laplace approximation.
+    The latent-state side uses the existing IEKS/Laplace marginal likelihood
+    backend. The outer loop then mirrors KFAS/Helske's optimizer-backed
+    `fitSSM` pattern: find the parameter mode of the approximate marginal
+    posterior, compute the local curvature there, and sample the resulting
+    Gaussian approximation in unconstrained parameter space.
     """
+    for ignored_key in ("svi_config", "nuts_config", "smc_config"):
+        kwargs.pop(ignored_key, None)
+    if kwargs:
+        unknown = ", ".join(sorted(kwargs))
+        raise TypeError(f"fit_laplace_em got unexpected keyword arguments: {unknown}")
+
+    rng_key = random.PRNGKey(seed)
+    rng_key, trace_key, init_key, sample_key = random.split(rng_key, 4)
+
     backend_label = "kalman" if model.likelihood == "kalman" else "laplace_ieks"
     logger.info(
-        "Laplace-EM config: backend=%s n_outer=%s n_particles=%s n_mh=%s "
-        "n_leapfrog=%s n_ieks_iters=%s adaptive_tempering=%s target_ess_ratio=%.2f "
-        "waste_free=%s n_warmup=%s",
+        "Laplace-EM config: backend=%s maxiter=%s tol=%s n_ieks_iters=%s "
+        "n_init_samples=%s num_samples=%s",
         backend_label,
-        n_outer,
-        n_csmc_particles,
-        n_mh_steps,
-        n_leapfrog,
+        maxiter,
+        tol,
         n_ieks_iters,
-        adaptive_tempering,
-        target_ess_ratio,
-        waste_free,
-        n_warmup if n_warmup is not None else 5,
+        n_init_samples,
+        num_samples,
     )
+
     with jax.profiler.TraceAnnotation("laplace_em/build_likelihood_backend"):
         if model.likelihood == "kalman":
             backend = model.make_likelihood_backend()
         else:
             backend = model.make_laplace_backend(n_ieks_iters)
-    with jax.profiler.TraceAnnotation("laplace_em/run_tempered_smc"):
-        return run_tempered_smc(
+
+    with jax.profiler.TraceAnnotation("laplace_em/build_bundle"):
+        bundle = _build_laplace_em_bundle(
             model,
             observations,
             times,
-            n_outer=n_outer,
-            n_csmc_particles=n_csmc_particles,
-            n_mh_steps=n_mh_steps,
-            param_step_size=param_step_size,
-            n_warmup=n_warmup,
-            target_accept=target_accept,
-            seed=seed,
-            adaptive_tempering=adaptive_tempering,
-            target_ess_ratio=target_ess_ratio,
-            waste_free=waste_free,
-            n_leapfrog=n_leapfrog,
-            method_name="laplace_em",
-            likelihood_backend=backend,
-            extra_diagnostics={"n_ieks_iters": n_ieks_iters, "likelihood_backend": backend},
-            print_prefix="Laplace-EM",
-            reparam=reparam,
+            trace_key,
+            backend,
+            reparam,
         )
+
+    dim = bundle["dim"]
+    flat_example = bundle["flat_example"]
+    site_info = bundle["site_info"]
+    unravel_fn = bundle["unravel_fn"]
+    log_lik_fn = bundle["log_lik_fn"]
+    log_prior_unc_fn = bundle["log_prior_unc_fn"]
+    log_posterior_fn = bundle["log_posterior_fn"]
+    neg_log_posterior_fn = bundle["neg_log_posterior_fn"]
+    batch_log_posterior_jit = bundle["batch_log_posterior_jit"]
+
+    optimizer_name = "BFGS" if not _requires_scalar_outer_optimizer(model) else "Powell"
+    logger.info(
+        "Laplace-EM outer optimizer: method=%s support_aware=%s",
+        optimizer_name,
+        _requires_scalar_outer_optimizer(model),
+    )
+    with jax.profiler.TraceAnnotation("laplace_em/parameter_optimize"):
+        mode_result = _optimize_laplace_parameter_mode(
+            model,
+            init_key=init_key,
+            dim=dim,
+            flat_example=flat_example,
+            site_info=site_info,
+            log_posterior_fn=log_posterior_fn,
+            neg_log_posterior_fn=neg_log_posterior_fn,
+            batch_log_posterior_jit=batch_log_posterior_jit,
+            observations=observations,
+            n_init_samples=n_init_samples,
+            maxiter=maxiter,
+            tol=tol,
+        )
+
+    z_mode = mode_result.z_mode
+    mode_objective = mode_result.objective_at_mode
+    nit = mode_result.n_iters
+    nfev = mode_result.n_function_evals
+    status = mode_result.status
+    success = mode_result.success
+    logger.info(
+        "Laplace-EM mode found: optimizer=%s success=%s nit=%s nfev=%s objective=%.6f",
+        mode_result.optimizer,
+        success,
+        nit,
+        nfev,
+        mode_objective,
+    )
+
+    mode_log_posterior = float(jax.device_get(log_posterior_fn(z_mode)))
+    mode_log_likelihood = float(jax.device_get(log_lik_fn(z_mode)))
+    mode_log_prior = float(jax.device_get(log_prior_unc_fn(z_mode)))
+    if not np.isfinite(mode_log_posterior):
+        raise RuntimeError("Laplace-EM failed to find a finite parameter mode.")
+
+    logger.info(
+        "Laplace-EM parameter Hessian: dim=%s sampling local Gaussian posterior",
+        dim,
+    )
+    with jax.profiler.TraceAnnotation("laplace_em/sample_parameter_posterior"):
+        unc_samples, covariance, hessian_eigvals = _sample_laplace_parameter_posterior(
+            sample_key,
+            z_mode,
+            neg_log_posterior_fn,
+            num_samples=num_samples,
+            hessian_jitter=hessian_jitter,
+        )
+    logger.info("Laplace-EM parameter Hessian complete")
+
+    if site_info:
+        with jax.profiler.TraceAnnotation("laplace_em/extract_samples"):
+            samples = extract_constrained_samples(
+                unc_samples,
+                site_info,
+                unravel_fn,
+                model.spec,
+                reparam=reparam,
+                model=model,
+                observations=observations,
+                times=times,
+            )
+    else:
+        prior_runtime = model.get_prior_runtime_bundle()
+        samples = assemble_deterministics_from_registry(
+            {},
+            model.spec,
+            prior_runtime.registry,
+            structure_runtime=model._structure_runtime,
+            n_draws=num_samples,
+        )
+
+    hessian_condition_number = None
+    if hessian_eigvals.size > 0:
+        min_eig = float(jax.device_get(jnp.min(hessian_eigvals)))
+        max_eig = float(jax.device_get(jnp.max(hessian_eigvals)))
+        if min_eig > 0.0:
+            hessian_condition_number = max_eig / min_eig
+
+    diagnostics = {
+        "optimizer": mode_result.optimizer,
+        "success": success,
+        "status": status,
+        "n_iters": nit,
+        "n_function_evals": nfev,
+        "objective_at_mode": mode_objective,
+        "mode_log_posterior": mode_log_posterior,
+        "mode_log_likelihood": mode_log_likelihood,
+        "mode_log_prior": mode_log_prior,
+        "init_log_posterior_best": mode_result.init_log_posterior_best,
+        "n_init_samples": n_init_samples,
+        "n_ieks_iters": n_ieks_iters,
+        "hessian_jitter": hessian_jitter,
+        "hessian_condition_number": hessian_condition_number,
+        "covariance_diag": np.asarray(jnp.diag(covariance)).tolist(),
+        "likelihood_backend": backend,
+    }
+
+    logger.info(
+        "Laplace-EM complete: success=%s status=%s nit=%s nfev=%s loglik=%.3f logpost=%.3f",
+        success,
+        status,
+        nit,
+        nfev,
+        mode_log_likelihood,
+        mode_log_posterior,
+    )
+
+    return InferenceResult(
+        _samples=samples,
+        method="laplace_em",
+        diagnostics=diagnostics,
+    )

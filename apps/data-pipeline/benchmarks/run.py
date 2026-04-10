@@ -191,7 +191,7 @@ METHOD_CONFIGS = {
         "gpu_type": "B200",
         "timeout": 3600,
     },
-    "laplace_em": {
+    "laplace_smc": {
         "local": {
             "T": 80,
             "n_outer": 60,
@@ -527,7 +527,7 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
         print(f"Done in {elapsed:.1f}s")
         print()
 
-    elif method == "laplace_em":
+    elif method == "laplace_smc":
         model = SSMModel(
             problem.spec,
             priors=problem.priors,
@@ -539,7 +539,7 @@ def run_method(method: str, problem: RecoveryProblem, local: bool) -> RecoveryRe
             model,
             observations=obs,
             times=times,
-            method="laplace_em",
+            method="laplace_smc",
             n_outer=cfg["n_outer"],
             n_csmc_particles=cfg["n_csmc_particles"],
             n_mh_steps=cfg["n_mh_steps"],

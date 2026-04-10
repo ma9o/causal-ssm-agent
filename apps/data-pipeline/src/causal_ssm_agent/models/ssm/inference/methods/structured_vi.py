@@ -13,7 +13,8 @@ where each backward kernel is Gaussian:
 The ELBO is optimized jointly over variational parameters phi and model
 parameters theta using the reparameterization trick.
 
-Can be initialized from Laplace-EM (Method 1) output for better convergence.
+Can be initialized from the shared IEKS/Laplace state approximation for
+better convergence.
 """
 
 from __future__ import annotations

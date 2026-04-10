@@ -100,7 +100,7 @@ class NUTSConfig:
 
 @dataclass(frozen=True)
 class SMCConfig:
-    """Tempered SMC / Laplace-EM / Structured VI / DPF inference settings."""
+    """Tempered SMC / Laplace-SMC / Structured VI / DPF inference settings."""
 
     n_outer: int = 100
     n_csmc_particles: int = 20
@@ -157,10 +157,12 @@ class InferenceConfig:
             config.update(dataclasses.asdict(self.svi))
         elif method == "nuts":
             config.update(dataclasses.asdict(self.nuts))
-        elif method in ("laplace_em", "tempered_smc", "structured_vi", "dpf"):
-            if method != "laplace_em":
+        elif method in ("laplace_smc", "tempered_smc", "structured_vi", "dpf"):
+            if method != "laplace_smc":
                 smc.pop("n_ieks_iters", None)
             config.update(smc)
+        elif method == "laplace_em":
+            config["n_ieks_iters"] = self.smc.n_ieks_iters
         return config
 
 

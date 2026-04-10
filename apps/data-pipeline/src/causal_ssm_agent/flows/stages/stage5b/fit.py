@@ -143,9 +143,9 @@ def fit_model(
         smc_diag = result.get_smc_diagnostics()
 
         # LOO diagnostics (needs model function and data).
-        # Use the inference-consistent likelihood backend: for laplace_em
-        # the Laplace backend is stored in diagnostics; for MCMC methods
-        # fall back to the model's default backend.
+        # Use the inference-consistent likelihood backend: Laplace-based
+        # methods store their backend in diagnostics; MCMC methods fall back
+        # to the model's default backend.
         import functools
 
         assert runtime.builder._model is not None

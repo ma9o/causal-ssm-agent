@@ -13,7 +13,8 @@ Available methods:
 - SVI: Fast approximate posterior via ELBO optimization.
 - Tempered SMC: Adaptive tempering with preconditioned HMC/MALA mutations.
 - Hess-MC²: SMC with gradient-based change-of-variables L-kernels.
-- Laplace-EM: IEKS + Laplace approximation for non-Gaussian emissions.
+- Laplace-SMC: IEKS + Laplace approximation inside tempered SMC.
+- Laplace-EM: KFAS-style mode finding and parameter-space Laplace posterior.
 - Structured VI: Backward-factored variational family.
 - DPF: Differentiable Particle Filter with learned proposals.
 - NUTS-DA: Data augmentation MCMC — jointly samples params and latent states.
@@ -58,6 +59,7 @@ _AUTO_METHOD_CONFIG_KEYS: dict[str, str] = {
     "nuts": "nuts_config",
     "laplace_em": "smc_config",
     "tempered_smc": "smc_config",
+    "laplace_smc": "smc_config",
     "structured_vi": "smc_config",
     "dpf": "smc_config",
 }
@@ -120,6 +122,11 @@ def _resolve_auto_method_kwargs(
     if config_key is None:
         return resolved
     method_config = method_configs.get(config_key) or {}
+    if method == "laplace_em":
+        n_ieks_iters = method_config.get("n_ieks_iters")
+        if n_ieks_iters is None:
+            return resolved
+        return {"n_ieks_iters": n_ieks_iters, **resolved}
     return {**method_config, **resolved}
 
 
@@ -138,7 +145,8 @@ def fit(
         observations: (N, n_manifest) observed data
         times: (N,) observation times
         method: Inference method - "auto" (structural routing, default),
-            "nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_em",
+            "nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_smc",
+            "laplace_em",
             "structured_vi", "dpf", or "nuts_da"
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
@@ -182,6 +190,10 @@ def fit(
         from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import fit_tempered_smc
 
         return fit_tempered_smc(model, observations, times, reparam=reparam, **kwargs)
+    if method == "laplace_smc":
+        from causal_ssm_agent.models.ssm.inference.methods.laplace_smc import fit_laplace_smc
+
+        return fit_laplace_smc(model, observations, times, reparam=reparam, **kwargs)
     if method == "laplace_em":
         from causal_ssm_agent.models.ssm.inference.methods.laplace_em import fit_laplace_em
 
@@ -197,7 +209,7 @@ def fit(
     raise ValueError(
         f"Unknown inference method: {method!r}. "
         "Use 'auto', 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
-        "'laplace_em', 'structured_vi', or 'dpf'."
+        "'laplace_smc', 'laplace_em', 'structured_vi', or 'dpf'."
     )
 
 
