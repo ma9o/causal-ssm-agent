@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { getStageResult } from "../api/endpoints";
 import { isMockMode } from "../api/mock-provider";
 
+const STAGE_DATA_QUERY_VERSION = 2;
+
 async function fetchStageData<T>(workspaceId: string, stage: StageId): Promise<T> {
   let payload: unknown;
 
@@ -19,16 +21,16 @@ async function fetchStageData<T>(workspaceId: string, stage: StageId): Promise<T
   return payload as T;
 }
 
+export function getStageDataQueryKey(workspaceId: string | null, stage: StageId) {
+  return ["pipeline", workspaceId, "stage", stage, `v${STAGE_DATA_QUERY_VERSION}`] as const;
+}
+
 /**
  * Fetch stage data once after completion and cache indefinitely.
  */
-export function useStageData<T>(
-  workspaceId: string | null,
-  stage: StageId,
-  enabled: boolean,
-) {
+export function useStageData<T>(workspaceId: string | null, stage: StageId, enabled: boolean) {
   return useQuery<T>({
-    queryKey: ["pipeline", workspaceId, "stage", stage],
+    queryKey: getStageDataQueryKey(workspaceId, stage),
     queryFn: () => fetchStageData<T>(workspaceId as string, stage),
     enabled: !!workspaceId && enabled,
     staleTime: Number.POSITIVE_INFINITY,

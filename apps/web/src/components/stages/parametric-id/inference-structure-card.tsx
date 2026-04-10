@@ -83,7 +83,7 @@ export function InferenceStructureCard({ inferenceStructure }: InferenceStructur
 
   return (
     <Card>
-      <CardContent className="py-4">
+      <CardContent className="py-1">
         <div className="flex justify-center overflow-x-auto">
           <div className="flex min-w-max items-center gap-2 whitespace-nowrap text-sm">
             <span className="font-medium text-foreground">Inference Structure</span>

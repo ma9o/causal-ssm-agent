@@ -1,6 +1,7 @@
 "use client";
 
 import { type AllStageData, generateMarkdown } from "@/lib/utils/generate-markdown";
+import { getStageDataQueryKey } from "@/lib/hooks/use-stage-data";
 import { STAGE_IDS, type StageId } from "@causal-ssm/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
@@ -12,7 +13,7 @@ export function useExportMarkdown(workspaceId: string) {
     // Read all cached stage data (zero network requests)
     const allData: AllStageData = {};
     for (const stageId of STAGE_IDS) {
-      const cached = queryClient.getQueryData<unknown>(["pipeline", workspaceId, "stage", stageId]);
+      const cached = queryClient.getQueryData<unknown>(getStageDataQueryKey(workspaceId, stageId));
       if (cached) {
         (allData as Record<StageId, unknown>)[stageId] = cached;
       }

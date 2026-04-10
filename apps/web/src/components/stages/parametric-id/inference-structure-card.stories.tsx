@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { Stage4bData } from "@causal-ssm/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { InferenceStructureCard } from "./inference-structure-card";
-import fixture from "../../../../../../data/DOCTOLIB/run/stage-4b.json";
+import fixture from "../../../../../../data/GOLDEN/run/stage-4b.json";
 
 const data = fixture as unknown as Stage4bData;
 
