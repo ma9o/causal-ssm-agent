@@ -795,7 +795,10 @@ class TestStage4GroundingBatches:
         )
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
-            lambda *_args, **_kwargs: [{"parameter": "resolved"}],
+            lambda *_args, **_kwargs: [
+                {"parameter": "rho_mood"},
+                {"parameter": "sigma_mood"},
+            ],
         )
 
         current = {
@@ -859,6 +862,75 @@ class TestStage4GroundingBatches:
         assert output is None
         assert "REDUNDANT PRIORS UPDATE" in feedback
         assert "`rho_mood`" in feedback
+
+    def test_ignores_redundant_priors_when_submission_contains_real_changes(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                compiled_ssm={"compiled": True},
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            lambda *_args, **_kwargs: [
+                {"parameter": "rho_mood"},
+                {"parameter": "sigma_mood"},
+            ],
+        )
+
+        current = {
+            "model_spec": {
+                "likelihoods": [],
+                "parameters": [
+                    {"name": "rho_mood", "role": "ar_coefficient", "constraint": "unit_interval"},
+                    {"name": "sigma_mood", "role": "residual_sd", "constraint": "positive"},
+                ],
+            },
+            "authored_priors": {
+                "rho_mood": {
+                    "parameter": "rho_mood",
+                    "distribution": "Beta",
+                    "params": {"alpha": 2, "beta": 2},
+                    "sources": [],
+                    "reasoning": "accepted prior",
+                }
+            },
+        }
+        result = stage4_grounding(
+            {
+                "priors": {
+                    "rho_mood": dict(current["authored_priors"]["rho_mood"]),
+                    "sigma_mood": {
+                        "parameter": "sigma_mood",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.5},
+                        "sources": [],
+                        "reasoning": "new prior",
+                    },
+                }
+            },
+            causal_spec={},
+            current=current,
+            data_for_model=None,
+        )
+
+        assert result.stage_output is not None
+        assert result.feedback == "VALID"
+        assert result.validation_packet.status == "accepted"
+        assert result.validation_packet.changed_parameters == ("sigma_mood",)
+        assert result.stage_output["authored_priors"]["rho_mood"] == current["authored_priors"]["rho_mood"]
+        assert result.stage_output["authored_priors"]["sigma_mood"]["distribution"] == "HalfNormal"
+        assert result.stage_output["resolved_priors"] == [
+            {"parameter": "rho_mood"},
+            {"parameter": "sigma_mood"},
+        ]
 
     def test_global_validation_failure_produces_correct_feedback(self, monkeypatch):
         from causal_ssm_agent.flows.stages.stage4.assembly import (

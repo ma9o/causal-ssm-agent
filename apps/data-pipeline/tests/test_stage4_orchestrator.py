@@ -165,7 +165,7 @@ class TestDeriveDeterministicSpec:
                     "construct_name": "mood",
                     "measurement_dtype": "binary",
                     "how_to_measure": "Happy?",
-                    "aggregation": "mean",
+                    "aggregation": "last",
                 },
             ],
         )
@@ -203,6 +203,8 @@ class TestDeriveDeterministicSpec:
         step_ambig = [a for a in skeleton.ambiguous_indicators if a["variable"] == "steps"]
         assert len(step_ambig) == 1
         assert "valid_distributions" in step_ambig[0] or "fixed_distribution" in step_ambig[0]
+        assert step_ambig[0]["support_kind"] == "interval"
+        assert step_ambig[0]["summary_operator"] == "sum"
 
     def test_ar_params_for_endogenous(self):
         """Endogenous time-varying constructs should get AR params."""
@@ -412,9 +414,17 @@ class TestDeriveDeterministicSpec:
         final_parameter_names = set(skeleton.final_parameter_names)
         assert compiler_parameter_names <= final_parameter_names
         assert final_parameter_names - compiler_parameter_names == {
+            "manifest_mean_pss_score",
+            "manifest_mean_sleep_quality",
             "obs_concentration",
             "obs_df",
             "obs_shape",
+            "cint_stress",
+            "cint_sleep",
+            "t0_mean_stress",
+            "t0_mean_sleep",
+            "t0_sd_stress",
+            "t0_sd_sleep",
         }
 
     def test_negative_binomial_candidate_obs_r_is_surfaced_to_stage4(self):
@@ -726,7 +736,7 @@ class TestPromptContextBuilders:
                     "construct_name": "mood",
                     "measurement_dtype": "binary",
                     "how_to_measure": "Happy?",
-                    "aggregation": "mean",
+                    "aggregation": "last",
                 }
             ],
         )
@@ -812,8 +822,11 @@ class TestStage4Plan:
         skeleton = derive_deterministic_spec(spec)
         plan = build_stage4_plan(spec, skeleton)
 
-        assert [block.kind for block in plan.model_blocks] == ["indicator_decision"]
-        assert plan.model_blocks[0].variable_names == ("steps",)
+        assert [block.kind for block in plan.model_blocks] == [
+            "model_configuration",
+            "indicator_decision",
+        ]
+        assert plan.model_blocks[1].variable_names == ("steps",)
         assert plan.review_block is not None
         assert plan.review_block.kind == "global_review"
         assert plan.prior_review_block is not None
@@ -821,12 +834,15 @@ class TestStage4Plan:
         assert "review:prior_system" in {block.id for block in plan.all_blocks}
         assert [block.kind for block in plan.prior_blocks] == [
             "observation_prior",
+            "observation_prior",
             "dynamics_prior",
         ]
-        assert plan.prior_blocks[0].parameter_names == ("obs_r",)
-        assert set(plan.prior_blocks[1].parameter_names) == {
+        assert plan.prior_blocks[0].parameter_names == ("manifest_mean_steps",)
+        assert plan.prior_blocks[1].parameter_names == ("obs_r",)
+        assert set(plan.prior_blocks[2].parameter_names) == {
             "rho_activity",
             "sigma_activity",
+            "cint_activity",
             "t0_mean_activity",
             "t0_sd_activity",
         }
@@ -987,15 +1003,20 @@ class TestStage4TurnProjection:
 
         assert prompt[0]["role"] == "system"
         assert prompt[1]["role"] == "user"
-        assert "`id`: `indicator:steps`" in prompt[1]["content"]
+        assert "`id`: `model:configuration`" in prompt[1]["content"]
         assert (
-            "Choose exactly one distribution/link pair for the active indicator."
+            "Choose the global initialization policy and whether equilibrium forcing is enabled."
             in prompt[1]["content"]
         )
-        assert "| steps | activity | count | sum |" in prompt[1]["content"]
+        assert "allowed initialization_policy values: `stationary`, `free`" in prompt[1]["content"]
+        assert "allowed equilibrium_forcing values: `true`, `false`" in prompt[1]["content"]
+        assert (
+            "centered-indicator constructs that can identify a latent baseline if forcing is enabled: `sleep`"
+            in prompt[1]["content"]
+        )
         assert "beta_activity_sleep" not in prompt[1]["content"]
         assert (
-            "Use `submit_indicator_choice` with exactly this argument object:"
+            "Use `submit_model_configuration` with exactly this argument object:"
             in prompt[1]["content"]
         )
         assert "### Parameter Prior Cards" not in prompt[1]["content"]
@@ -1188,7 +1209,7 @@ class TestStage4PromptScopePolicy:
             "construct_scale_cards",
             "prior_cards",
         )
-        assert policy.parameter_guidance_prefixes == ("obs_",)
+        assert policy.parameter_guidance_prefixes == ("obs_", "manifest_mean")
         assert policy.allowed_tool_names == ("submit_prior_block", "elicit_prior_gmm")
 
     def test_effect_policy_keeps_search_enabled(self):
@@ -1227,10 +1248,13 @@ class TestStage4PromptScopePolicy:
         assert policy.parameter_guidance_prefixes == (
             "lambda",
             "obs_",
+            "manifest_mean",
             "rho",
             "sigma",
+            "cint",
             "beta",
             "cor",
+            "tau",
             "t0_mean",
             "t0_sd",
         )

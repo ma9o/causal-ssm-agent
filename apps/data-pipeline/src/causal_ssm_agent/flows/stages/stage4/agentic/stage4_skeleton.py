@@ -16,8 +16,9 @@ from causal_ssm_agent.utils.causal_spec import (
     get_indicators,
     get_induced_dependencies,
 )
+from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
 
-from .stage4_parameter_surfaces import parameter_is_active_for_likelihoods
+from .stage4_parameter_surfaces import parameter_is_active_for_model_spec
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         name = indicator["name"]
         dtype = indicator.get("measurement_dtype", "continuous")
         valid_dists = VALID_LIKELIHOODS_FOR_DTYPE.get(dtype, ())
+        indicator_semantics = _indicator_semantics_fields(indicator)
 
         if len(valid_dists) == 1:
             dist = next(iter(valid_dists))
@@ -78,8 +80,10 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
                 resolved_likelihoods.append(
                     {
                         "variable": name,
+                        "construct_name": indicator.get("construct_name"),
                         "distribution": dist.value,
                         "link": link.value,
+                        **indicator_semantics,
                         "reasoning": f"{dtype} dtype -> {dist.value} / {link.value}",
                     }
                 )
@@ -87,7 +91,9 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
                 ambiguous_indicators.append(
                     {
                         "variable": name,
+                        "construct_name": indicator.get("construct_name"),
                         "dtype": dtype,
+                        **indicator_semantics,
                         "fixed_distribution": dist.value,
                         "valid_links": sorted(link_fn.value for link_fn in valid_links),
                     }
@@ -100,7 +106,9 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             ambiguous_indicators.append(
                 {
                     "variable": name,
+                    "construct_name": indicator.get("construct_name"),
                     "dtype": dtype,
+                    **indicator_semantics,
                     "valid_distributions": sorted(dist.value for dist in valid_dists),
                     "link_options": link_options,
                 }
@@ -157,6 +165,8 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             }
         )
 
+    seed_parameters.extend(_candidate_state_intercept_parameters(retained_constructs))
+    seed_parameters.extend(_candidate_initial_state_parameters(retained_constructs))
     seed_parameters.extend(
         _measurement_error_parameters(
             indicators,
@@ -193,6 +203,10 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         )
 
     seed_parameters.extend(
+        _candidate_observation_intercept_parameters(indicators)
+    )
+
+    seed_parameters.extend(
         _candidate_observation_extra_parameters(
             indicators,
             resolved_likelihoods=resolved_likelihoods,
@@ -200,24 +214,23 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         )
     )
 
+    seed_parameters.extend(
+        _confounder_baseline_factor_parameters(
+            induced_dependencies,
+            retained_state_order=retained_state_order,
+        )
+    )
+
     # --- Correlations from marginalized confounders ---
     for dependency in induced_dependencies:
+        if dependency["kind"] != "innovation_correlation":
+            continue
         construct_1, construct_2 = dependency["between"]
         dependency_kind = dependency["kind"]
-        parameter_name = (
-            f"cor_{construct_1}_{construct_2}"
-            if dependency_kind == "innovation_correlation"
-            else f"cor0_{construct_1}_{construct_2}"
-        )
-        role = (
-            "correlation"
-            if dependency_kind == "innovation_correlation"
-            else "initial_state_correlation"
-        )
         seed_parameters.append(
             {
-                "name": parameter_name,
-                "role": role,
+                "name": f"cor_{construct_1}_{construct_2}",
+                "role": "correlation",
                 "constraint": "correlation",
                 "description": (
                     f"{dependency_kind.replace('_', ' ')} between {construct_1} and {construct_2} "
@@ -259,6 +272,23 @@ def indicators_per_construct(indicators: list[dict[str, Any]]) -> dict[str, list
     return grouped
 
 
+def _indicator_semantics_fields(indicator: dict[str, Any]) -> dict[str, str | None]:
+    """Return canonical support semantics for an indicator dict."""
+    support_kind = indicator.get("support_kind")
+    summary_operator = indicator.get("summary_operator")
+    if isinstance(support_kind, str) and isinstance(summary_operator, str):
+        return {
+            "support_kind": support_kind,
+            "summary_operator": summary_operator,
+        }
+
+    semantics = get_observation_semantics(indicator)
+    return {
+        "support_kind": semantics.support_kind.value,
+        "summary_operator": semantics.summary_operator.value,
+    }
+
+
 def _compiler_authoritative_stage4_inventory(
     causal_spec: dict,
     *,
@@ -281,18 +311,21 @@ def _compiler_authoritative_stage4_inventory(
         *resolved_likelihoods,
         *_provisional_likelihood_choices(ambiguous_indicators),
     ]
-    provisional_distribution_by_variable = {
-        str(likelihood["variable"]): str(likelihood["distribution"])
-        for likelihood in provisional_likelihoods
+    provisional_likelihood_by_variable = {
+        str(likelihood["variable"]): dict(likelihood) for likelihood in provisional_likelihoods
     }
     provisional_model_spec = {
         "likelihoods": provisional_likelihoods,
+        "initialization_policy": "stationary",
+        "equilibrium_forcing": False,
         "parameters": [
             parameter
             for parameter in [*seed_parameters, *seed_loading_params]
-            if parameter_is_active_for_likelihoods(
+            if parameter_is_active_for_model_spec(
                 parameter,
-                provisional_distribution_by_variable,
+                provisional_likelihood_by_variable,
+                initialization_policy="stationary",
+                equilibrium_forcing=False,
             )
         ],
     }
@@ -433,6 +466,9 @@ def _order_stage4_inventory(
         sorted(role_buckets.pop("measurement_error_sd", []), key=_measurement_error_key)
     )
     ordered_parameters.extend(
+        sorted(role_buckets.pop("observation_intercept", []), key=_measurement_error_key)
+    )
+    ordered_parameters.extend(
         sorted(role_buckets.pop("observation_hyperparameter", []), key=_observation_parameter_key)
     )
     ordered_parameters.extend(
@@ -455,6 +491,7 @@ def _order_stage4_inventory(
         )
     )
     ordered_parameters.extend(sorted(role_buckets.pop("residual_sd", []), key=_construct_key))
+    ordered_parameters.extend(sorted(role_buckets.pop("state_intercept", []), key=_construct_key))
     ordered_parameters.extend(
         sorted(role_buckets.pop("initial_state_mean", []), key=_construct_key)
     )
@@ -462,6 +499,7 @@ def _order_stage4_inventory(
     ordered_parameters.extend(
         sorted(
             [
+                *role_buckets.pop("static_state_sd", []),
                 *role_buckets.pop("correlation", []),
                 *role_buckets.pop("initial_state_correlation", []),
             ],
@@ -530,6 +568,131 @@ def _measurement_error_parameters(
                 "description": f"Measurement-error SD for {indicator_name}",
                 "construct": construct_name,
                 "indicator": indicator_name,
+            }
+        )
+    return parameters
+
+
+def _candidate_state_intercept_parameters(
+    retained_constructs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return conditional continuous-time intercept surfaces for dynamic states."""
+    parameters: list[dict[str, Any]] = []
+    for construct in retained_constructs:
+        if construct.get("temporal_status") == "time_invariant":
+            continue
+        construct_name = str(construct["name"])
+        parameters.append(
+            {
+                "name": f"cint_{construct_name}",
+                "role": "state_intercept",
+                "constraint": "none",
+                "description": f"Continuous-time state intercept for {construct_name}",
+                "construct": construct_name,
+                "temporal_status": construct.get("temporal_status"),
+                "conditional_prior_surface": True,
+                "activation_equilibrium_forcing": True,
+            }
+        )
+    return parameters
+
+
+def _candidate_initial_state_parameters(
+    retained_constructs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return conditional initial-state surfaces gated by initialization policy."""
+    parameters: list[dict[str, Any]] = []
+    for construct in retained_constructs:
+        construct_name = str(construct["name"])
+        temporal_status = construct.get("temporal_status")
+        parameters.append(
+            {
+                "name": f"t0_mean_{construct_name}",
+                "role": "initial_state_mean",
+                "constraint": "none",
+                "description": f"Initial-state mean for {construct_name}",
+                "construct": construct_name,
+                "temporal_status": temporal_status,
+                "conditional_prior_surface": True,
+                "activation_initialization_policies": ["free"],
+            }
+        )
+        parameters.append(
+            {
+                "name": f"t0_sd_{construct_name}",
+                "role": "initial_state_sd",
+                "constraint": "positive",
+                "description": f"Initial-state SD for {construct_name}",
+                "construct": construct_name,
+                "temporal_status": temporal_status,
+                "conditional_prior_surface": True,
+                "activation_initialization_policies": ["free"],
+            }
+        )
+    return parameters
+
+
+def _candidate_observation_intercept_parameters(
+    indicators: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return per-indicator conditional manifest-intercept surfaces."""
+    parameters: list[dict[str, Any]] = []
+    for indicator in indicators:
+        indicator_name = str(indicator["name"])
+        construct_name = indicator.get("construct_name")
+        parameters.append(
+            {
+                "name": f"manifest_mean_{indicator_name}",
+                "role": "observation_intercept",
+                "constraint": "none",
+                "description": f"Observation intercept for {indicator_name}",
+                "indicator": indicator_name,
+                "construct": construct_name,
+                "conditional_prior_surface": True,
+            }
+        )
+    return parameters
+
+
+def _confounder_baseline_factor_parameters(
+    induced_dependencies: list[dict[str, Any]],
+    *,
+    retained_state_order: list[str],
+) -> list[dict[str, Any]]:
+    """Return one baseline-factor scale per marginalized time-invariant confounder."""
+    construct_order = {name: idx for idx, name in enumerate(retained_state_order)}
+    affected_by_confounder: dict[str, set[str]] = {}
+    for dependency in induced_dependencies:
+        if dependency.get("kind") != "initial_state_correlation":
+            continue
+        affected_states = dependency.get("between") or ()
+        for confounder in dependency.get("source_confounders") or ():
+            affected = affected_by_confounder.setdefault(str(confounder), set())
+            for state_name in affected_states:
+                if isinstance(state_name, str):
+                    affected.add(state_name)
+
+    parameters: list[dict[str, Any]] = []
+    for confounder, construct_names in sorted(affected_by_confounder.items()):
+        ordered_construct_names = sorted(
+                construct_names,
+                key=lambda name: (construct_order.get(name, len(construct_order)), name),
+            )
+        if len(ordered_construct_names) < 2:
+            continue
+        parameters.append(
+            {
+                "name": f"tau_{confounder}",
+                "role": "static_state_sd",
+                "constraint": "positive",
+                "description": (
+                    "Baseline-factor SD induced by marginalized time-invariant confounder "
+                    f"{confounder}"
+                ),
+                "construct_names": ordered_construct_names,
+                "source_confounder": confounder,
+                "source_confounders": [confounder],
+                "dependency_kind": "initial_state_correlation",
             }
         )
     return parameters
@@ -701,8 +864,12 @@ def _provisional_likelihood_choices(
         choices.append(
             {
                 "variable": variable,
+                "construct_name": item.get("construct_name"),
                 "distribution": distribution,
                 "link": link,
+                "support_kind": item.get("support_kind"),
+                "summary_operator": item.get("summary_operator"),
+                "centered": False,
                 "reasoning": "Deterministic provisional choice for compiler-owned prior discovery.",
             }
         )

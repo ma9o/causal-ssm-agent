@@ -12,11 +12,13 @@ from typing import Any
 
 import networkx as nx
 
+from causal_ssm_agent.models.model_semantics import indicator_has_additive_location_support
 from causal_ssm_agent.utils.causal_spec import (
     get_estimation_edges,
     get_estimation_state_order,
     get_indicators,
 )
+from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
 
 from .stage4_parameter_surfaces import build_stage4_parameter_surface_index
 from .stage4_skeleton import Stage4Skeleton, indicators_per_construct
@@ -110,6 +112,41 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     param_order = {name: idx for idx, name in enumerate(surface_index.ordered_names)}
 
     model_blocks: list[Stage4FrontierBlock] = []
+
+    def _indicator_support_semantics(indicator: dict[str, Any]) -> tuple[str | None, str | None]:
+        support_kind = indicator.get("support_kind")
+        summary_operator = indicator.get("summary_operator")
+        if isinstance(support_kind, str) and isinstance(summary_operator, str):
+            return support_kind, summary_operator
+        semantics = get_observation_semantics(indicator)
+        return semantics.support_kind.value, semantics.summary_operator.value
+
+    centerable_construct_names = tuple(
+        construct_name
+        for construct_name in construct_order
+        if any(
+            indicator_has_additive_location_support(*_indicator_support_semantics(indicator))
+            for indicator_name in grouped_indicators.get(construct_name, ())
+            for indicator in [indicator_lookup.get(indicator_name)]
+            if indicator is not None
+        )
+    )
+    baseline_factor_names = tuple(
+        surface.name for surface in surface_index.for_block_kind("correlation_prior")
+        if surface.role == "static_state_sd"
+    )
+    model_blocks.append(
+        Stage4FrontierBlock(
+            id="model:configuration",
+            kind="model_configuration",
+            label="Model Configuration",
+            construct_names=tuple(construct_order),
+            payload={
+                "centerable_construct_names": centerable_construct_names,
+                "baseline_factor_names": baseline_factor_names,
+            },
+        )
+    )
     for item in skeleton.ambiguous_indicators:
         variable = item["variable"]
         construct_name = (indicator_lookup.get(variable) or {}).get("construct_name")

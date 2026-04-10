@@ -78,6 +78,21 @@ class SSMStructureRuntime:
         self.cint_free_index = {
             latent_idx: flat_idx for flat_idx, latent_idx in enumerate(self.cint_free_positions)
         }
+        self.static_factor_loadings = jnp.array(spec.static_factor_loadings)
+        self.static_factor_names = list(spec.static_factor_names or [])
+        self.static_state_sd_free_positions: list[int] = [
+            idx
+            for idx in range(self.static_factor_loadings.shape[1])
+            if bool(spec.static_state_sd_mask[idx])
+        ]
+        self.static_state_sd_free_index = {
+            factor_idx: flat_idx
+            for flat_idx, factor_idx in enumerate(self.static_state_sd_free_positions)
+        }
+        self.static_factor_name_index = {
+            name: idx for idx, name in enumerate(self.static_factor_names)
+        }
+        self.static_state_sd_template = jnp.array(spec.static_state_sds)
         self.diffusion_chol_template = jnp.array(spec.diffusion_chol)
         self.diffusion_diag_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.diffusion_chol_mask[idx, idx])
@@ -154,6 +169,7 @@ class SSMStructureRuntime:
         self.n_drift_diag = len(self.drift_diag_positions)
         self.n_drift_offdiag = len(self.offdiag_positions)
         self.n_cint = len(self.cint_free_positions)
+        self.n_static_state_sd = len(self.static_state_sd_free_positions)
         self.n_diffusion_diag = len(self.diffusion_diag_positions)
         self.n_diffusion_lower = len(self.diffusion_lower_positions)
         self.n_lambda_free = len(self.lambda_free_positions)
@@ -243,6 +259,7 @@ class SSMStructureRuntime:
         self,
         t0_diag: jnp.ndarray | None = None,
         t0_correlation: jnp.ndarray | None = None,
+        static_state_sds: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Build initial-state covariance from a template and sparse free entries."""
         std = self.t0_base_std
@@ -255,7 +272,25 @@ class SSMStructureRuntime:
                 corr = corr.at[row, col].set(t0_correlation[idx])
                 corr = corr.at[col, row].set(t0_correlation[idx])
         cov = corr * (std[:, None] * std[None, :])
+        factor_sds = self.static_state_sd_template
+        if static_state_sds is not None:
+            for idx, factor_idx in enumerate(self.static_state_sd_free_positions):
+                factor_sds = factor_sds.at[factor_idx].set(static_state_sds[idx])
+        if factor_sds.size:
+            factor_cov = self.static_factor_loadings @ jnp.diag(factor_sds**2) @ self.static_factor_loadings.T
+            cov = cov + factor_cov
         return symmetrize(cov)
+
+    def assemble_static_state_sds(
+        self,
+        free_sds: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Build compiled baseline-factor scales from a sparse free vector."""
+        static_sds = self.static_state_sd_template
+        if free_sds is not None:
+            for idx, factor_idx in enumerate(self.static_state_sd_free_positions):
+                static_sds = static_sds.at[factor_idx].set(free_sds[idx])
+        return static_sds
 
     def assemble_lambda(self, free_loadings: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build lambda (factor loading) matrix from template + explicit mask."""

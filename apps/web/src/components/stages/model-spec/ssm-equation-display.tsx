@@ -69,8 +69,15 @@ export function SSMEquationDisplay({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">SSM Equations</CardTitle>
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <CardTitle className="text-base">Stage 4 Semantic Equations</CardTitle>
+            <p className="max-w-3xl text-sm text-muted-foreground">
+              This panel shows the interpretable Stage 4 discrete-time view used for prior
+              elicitation. The compiler maps these semantic choices into the continuous-time
+              runtime model used by the executable `SSMSpec`.
+            </p>
+          </div>
           <FunctionalSpecLink />
         </div>
       </CardHeader>
@@ -87,7 +94,7 @@ export function SSMEquationDisplay({
             </div>
             <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                General form
+                Semantic Stage 4 Form
               </p>
               {/* biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math */}
               <div dangerouslySetInnerHTML={{ __html: genericTransitionLatex }} />
@@ -251,7 +258,7 @@ export function SSMEquationDisplay({
             </h4>
             <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                General form
+                Semantic Stage 4 Form
               </p>
               <div
                 // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math

@@ -8,7 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import DistributionChoice
+from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
+    DistributionChoice,
+    ModelConfigurationChoice,
+)
 
 from .stage4_block_specs import (
     Stage4BlockKindSpec,
@@ -96,6 +99,34 @@ def _default_frontier_status_lines(
     """Return any block-family-specific frontier status lines."""
     del block, runtime, causal_spec
     return ()
+
+
+def _model_configuration_frontier_status_lines(
+    block: Stage4FrontierBlock,
+    runtime: Stage4Runtime,
+    *,
+    causal_spec: dict[str, Any] | None,
+) -> tuple[str, ...]:
+    """Return allowed model-configuration options and current draft state."""
+    del causal_spec
+    payload = block.payload
+    initialization_policy = runtime.decisions.initialization_policy or "unset"
+    equilibrium_forcing = runtime.decisions.equilibrium_forcing
+    equilibrium_text = "unset" if equilibrium_forcing is None else str(equilibrium_forcing).lower()
+    return (
+        "- allowed initialization_policy values: `stationary`, `free`",
+        "- allowed equilibrium_forcing values: `true`, `false`",
+        f"- current draft initialization_policy: `{initialization_policy}`",
+        f"- current draft equilibrium_forcing: `{equilibrium_text}`",
+        (
+            "- centered-indicator constructs that can identify a latent baseline if forcing is enabled: "
+            f"{summarize_stage4_names(list(payload.get('centerable_construct_names') or []))}"
+        ),
+        (
+            "- compiled baseline-factor scales from marginalized time-invariant confounders: "
+            f"{summarize_stage4_names(list(payload.get('baseline_factor_names') or []))}"
+        ),
+    )
 
 
 def _effect_prior_frontier_status_lines(
@@ -193,6 +224,24 @@ def _build_indicator_choice_transition(
     }
 
 
+def _build_model_configuration_transition(
+    block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Build the accepted transition payload for a model-configuration decision."""
+    choice = normalized.get("model_configuration")
+    if not isinstance(choice, dict):
+        return None
+    return {
+        "block_id": block.id,
+        "status": "accepted",
+        "detail_kind": "model_configuration",
+        "initialization_policy": choice.get("initialization_policy"),
+        "equilibrium_forcing": choice.get("equilibrium_forcing"),
+        "reasoning": choice.get("reasoning"),
+    }
+
+
 def _build_review_approval_transition(
     block: Stage4FrontierBlock,
     normalized: dict[str, Any],
@@ -260,6 +309,24 @@ def _indicator_submission_example(
         "distribution": distribution,
         "link": link,
         "reasoning": "Example only: choose one allowed distribution/link pair for the active indicator.",
+    }
+
+
+def _model_configuration_submission_example(
+    block: Stage4FrontierBlock,
+    *,
+    prior_cards: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Example payload for the model-configuration block."""
+    del block, prior_cards
+    return {
+        "initialization_policy": "stationary",
+        "equilibrium_forcing": False,
+        "reasoning": (
+            "Choose stationary initialization when the dynamic block should start on its "
+            "equilibrium residual distribution; enable forcing only when centered additive "
+            "indicators identify a latent baseline shift."
+        ),
     }
 
 
@@ -393,11 +460,13 @@ def _render_submission_example(
 
 
 _ACCEPTED_TRANSITION_BUILDERS = {
+    "model_configuration": _build_model_configuration_transition,
     "indicator_choice": _build_indicator_choice_transition,
     "review_approval": _build_review_approval_transition,
     "prior_bundle": _build_prior_bundle_transition,
 }
 _SUBMISSION_EXAMPLE_BUILDERS = {
+    "model_configuration_choice": _model_configuration_submission_example,
     "indicator_choice": _indicator_submission_example,
     "global_review_decision": _global_review_submission_example,
     "prior_bundle": _prior_submission_example,
@@ -543,6 +612,19 @@ def _normalize_indicator_submission(
     return {"distribution_choice": choice}, None
 
 
+def _normalize_model_configuration_submission(
+    block: Stage4FrontierBlock,
+    proposal: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate a model-configuration proposal."""
+    del block
+    try:
+        choice = ModelConfigurationChoice.model_validate(proposal).model_dump(mode="json")
+    except ValidationError as exc:
+        return None, f"VALIDATION ERRORS:\n- {exc}"
+    return {"model_configuration": choice}, None
+
+
 def _normalize_prior_submission(
     block: Stage4FrontierBlock,
     proposal: dict[str, Any],
@@ -612,6 +694,7 @@ def _normalize_global_review_submission(
 
 
 _NORMALIZE_SUBMISSION_BY_PAYLOAD_KIND = {
+    "model_configuration_choice": _normalize_model_configuration_submission,
     "indicator_choice": _normalize_indicator_submission,
     "global_review_decision": _normalize_global_review_submission,
     "prior_bundle": _normalize_prior_submission,
@@ -628,6 +711,8 @@ _BLOCK_HANDLERS: dict[str, Stage4BlockHandler] = {
         build_frontier_status_lines=(
             _effect_prior_frontier_status_lines
             if kind == "effect_prior"
+            else _model_configuration_frontier_status_lines
+            if kind == "model_configuration"
             else _default_frontier_status_lines
         ),
     )

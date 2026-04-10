@@ -80,7 +80,7 @@
       "type": "object"
     },
     "CausalSpec": {
-      "description": "Complete causal specification combining latent and measurement models.\n\nThis is the full model after both Stage 1a (latent) and Stage 1b (measurement).\nIncludes identifiability status for target causal effects.",
+      "description": "Complete causal specification combining latent and measurement models.",
       "properties": {
         "latent": {
           "$ref": "#/$defs/LatentModel",
@@ -138,7 +138,7 @@
       "type": "object"
     },
     "Construct": {
-      "description": "A theoretical entity in the causal model.\n\nConstructs are conceptually 'latent' - they represent theoretical entities\nthat may be measured by one or more observed indicators.",
+      "description": "A theoretical entity in the latent causal model.",
       "properties": {
         "name": {
           "description": "Construct name (e.g., 'stress', 'sleep_quality')",
@@ -396,7 +396,7 @@
       "type": "object"
     },
     "Indicator": {
-      "description": "An observed variable that reflects a construct.\n\nFollowing the reflective measurement model (A1), causality flows from\nconstruct to indicator: the latent construct causes the observed values.",
+      "description": "An observed variable that reflects a construct.",
       "properties": {
         "name": {
           "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
@@ -947,6 +947,15 @@
       "title": "InferenceStructureVariable",
       "type": "object"
     },
+    "InitializationPolicy": {
+      "description": "Global initial-state policy for retained dynamic states.",
+      "enum": [
+        "stationary",
+        "free"
+      ],
+      "title": "InitializationPolicy",
+      "type": "string"
+    },
     "LLMTrace": {
       "description": "Full trace of an LLM multi-turn conversation.",
       "properties": {
@@ -1058,7 +1067,7 @@
       "type": "object"
     },
     "LatentModel": {
-      "description": "Theoretical causal structure over constructs (the latent model).\n\nThis is the output of Stage 1a - proposed based on domain knowledge alone,\nwithout seeing data. Defines the topological structure among latent constructs.",
+      "description": "Theoretical causal structure over constructs.",
       "properties": {
         "constructs": {
           "description": "Theoretical constructs in the model",
@@ -1134,6 +1143,12 @@
           "$ref": "#/$defs/LinkFunction",
           "description": "Link function mapping linear predictor to mean"
         },
+        "centered": {
+          "default": false,
+          "description": "Whether deterministic additive centering is applied before fitting",
+          "title": "Centered",
+          "type": "boolean"
+        },
         "reasoning": {
           "description": "Why this distribution/link was chosen for this variable",
           "title": "Reasoning",
@@ -1149,6 +1164,7 @@
         }
       },
       "required": [
+        "centered",
         "distribution",
         "link",
         "reasoning",
@@ -1365,7 +1381,7 @@
       "type": "object"
     },
     "MeasurementModel": {
-      "description": "Operationalization of constructs into observed indicators.\n\nThis is the output of Stage 1b - proposed after seeing data sample,\ngiven the latent model from Stage 1a.\n\nEach construct from the latent model must have at least one indicator.",
+      "description": "Operationalization of constructs into observed indicators.",
       "properties": {
         "indicators": {
           "description": "Observed indicators, each measuring a construct",
@@ -1389,7 +1405,7 @@
       "type": "object"
     },
     "ModelSpec": {
-      "description": "Complete model specification from orchestrator.\n\nThis is what the orchestrator proposes based on the CausalSpec structure.\nIt enumerates all parameters needing priors and specifies the statistical model.",
+      "description": "Complete statistical model specification.",
       "properties": {
         "likelihoods": {
           "description": "Likelihood specifications for each observed indicator",
@@ -1406,9 +1422,22 @@
           },
           "title": "Parameters",
           "type": "array"
+        },
+        "initialization_policy": {
+          "$ref": "#/$defs/InitializationPolicy",
+          "default": "stationary",
+          "description": "Whether dynamic-state initial conditions are stationary-derived or free"
+        },
+        "equilibrium_forcing": {
+          "default": false,
+          "description": "Whether eligible dynamic states may carry a continuous-time intercept term",
+          "title": "Equilibrium Forcing",
+          "type": "boolean"
         }
       },
       "required": [
+        "equilibrium_forcing",
+        "initialization_policy",
         "likelihoods",
         "parameters"
       ],
@@ -1745,10 +1774,17 @@
         "fixed_effect",
         "ar_coefficient",
         "residual_sd",
+        "state_intercept",
+        "observation_intercept",
+        "initial_state_mean",
+        "initial_state_sd",
         "static_state_sd",
         "correlation",
         "initial_state_correlation",
-        "loading"
+        "loading",
+        "measurement_error_sd",
+        "observation_hyperparameter",
+        "observation_hyperparameter_positive"
       ],
       "title": "ParameterRole",
       "type": "string"
@@ -1757,7 +1793,7 @@
       "description": "Specification for a parameter requiring a prior.",
       "properties": {
         "name": {
-          "description": "Parameter name (e.g., 'beta_stress_anxiety', 'rho_mood')",
+          "description": "Parameter name",
           "title": "Name",
           "type": "string"
         },
@@ -1791,17 +1827,6 @@
           "default": false,
           "title": "Checked",
           "type": "boolean"
-        },
-        "t_rule": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TRuleResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "sensitivity_analysis": {
           "anyOf": [
@@ -2257,7 +2282,7 @@
       "type": "object"
     },
     "Role": {
-      "description": "Whether a variable is modeled (endogenous) or given (exogenous).",
+      "description": "Whether a variable is modeled or treated as given.",
       "enum": [
         "endogenous",
         "exogenous"
@@ -2366,9 +2391,9 @@
           "title": "Singular Values",
           "type": "array"
         },
-        "condition_number": {
-          "title": "Condition Number",
-          "type": "number"
+        "deficiency_count": {
+          "title": "Deficiency Count",
+          "type": "integer"
         },
         "per_parameter": {
           "items": {
@@ -2391,7 +2416,7 @@
         }
       },
       "required": [
-        "condition_number",
+        "deficiency_count",
         "n_draws",
         "n_observations",
         "n_parameters",
@@ -3196,55 +3221,6 @@
       "title": "SupportKind",
       "type": "string"
     },
-    "TRuleResult": {
-      "description": "Result of the t-rule (counting condition) check.\n\nThis implementation uses a conservative lower bound on available moment\nconditions. If the number of free parameters exceeds that lower bound,\nthe model is at high risk of non-identifiability and should be reviewed,\nbut the result is not treated as a proof.\n\nFor cross-sectional SEMs the constraint is n_params <= p(p+1)/2.\nFor time series (SSMs), lagged autocovariance contributes additional\ninformation; this implementation counts only a conservative p moments\nper lag.",
-      "properties": {
-        "n_free_params": {
-          "title": "N Free Params",
-          "type": "integer"
-        },
-        "n_manifest": {
-          "title": "N Manifest",
-          "type": "integer"
-        },
-        "n_timepoints": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "N Timepoints"
-        },
-        "n_moments": {
-          "title": "N Moments",
-          "type": "integer"
-        },
-        "satisfies": {
-          "title": "Satisfies",
-          "type": "boolean"
-        },
-        "param_counts": {
-          "additionalProperties": {
-            "type": "integer"
-          },
-          "title": "Param Counts",
-          "type": "object"
-        }
-      },
-      "required": [
-        "n_free_params",
-        "n_manifest",
-        "n_moments",
-        "n_timepoints",
-        "param_counts",
-        "satisfies"
-      ],
-      "title": "TRuleResult",
-      "type": "object"
-    },
     "TemporalEffect": {
       "description": "Temporal decomposition of a treatment effect.",
       "properties": {
@@ -3280,7 +3256,7 @@
       "type": "object"
     },
     "TemporalStatus": {
-      "description": "Whether a variable changes over time.",
+      "description": "Whether a construct changes within-person over time.",
       "enum": [
         "time_varying",
         "time_invariant"

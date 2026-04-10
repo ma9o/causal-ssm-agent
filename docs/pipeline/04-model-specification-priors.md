@@ -81,6 +81,7 @@ For a study of classroom engagement and academic performance where Stage 1b posi
 | `variable` | `str` | Name of the observed indicator |
 | `distribution` | [`DistributionFamily`](../reference/model-spec/likelihoods.md#distribution-families) | Observation-model distribution family |
 | `link` | [`LinkFunction`](../reference/model-spec/likelihoods.md#link-functions) | Link function mapping latent state to distribution parameter |
+| `centered` | `bool` | Deterministic auto-centering flag for additive-location indicators that are centered before fitting |
 
 ### ModelSpec.ParameterSpec
 
@@ -90,6 +91,15 @@ For a study of classroom engagement and academic performance where Stage 1b posi
 | `role` | [`ParameterRole`](../reference/model-spec/parameters.md#parameter-roles) | Role in the model |
 | `constraint` | [`ParameterConstraint`](../reference/model-spec/parameters.md#parameter-roles) | Domain constraint |
 | `description` | `str` | Human-readable description |
+
+### ModelSpec
+
+| Field | Type | Description |
+|---|---|---|
+| `likelihoods` | `list[LikelihoodSpec]` | One likelihood row per retained manifest indicator |
+| `parameters` | `list[ParameterSpec]` | Compiler-authoritative semantic prior surfaces that remain active after model decisions are locked |
+| `initialization_policy` | `\"stationary\" \| \"free\"` | Whether dynamic-state initial conditions are stationary-derived or exposed as free `t0_*` surfaces |
+| `equilibrium_forcing` | `bool` | Whether eligible centered dynamic constructs may expose a continuous-time intercept `cint_*` |
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)
 [^gelman2013]: Gelman, A., Carlin, J. B., Stern, H. S., Dunson, D. B., Vehtari, A., & Rubin, D. B. (2013). *Bayesian Data Analysis* (3rd ed.). CRC Press. [Bibliography entry](../reference/bibliography.md)

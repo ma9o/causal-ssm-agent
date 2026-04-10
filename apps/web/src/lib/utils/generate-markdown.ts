@@ -59,7 +59,9 @@ function pearsonR(xs: number[], ys: number[]): number {
   if (n < 2) return NaN;
   const mx = xs.reduce((a, b) => a + b, 0) / n;
   const my = ys.reduce((a, b) => a + b, 0) / n;
-  let num = 0, dx2 = 0, dy2 = 0;
+  let num = 0,
+    dx2 = 0,
+    dy2 = 0;
   for (let i = 0; i < n; i++) {
     const dx = xs[i] - mx;
     const dy = ys[i] - my;
@@ -104,14 +106,20 @@ function mae(a: number[], b: number[]): number {
 }
 
 /** ELBO convergence summary stats. */
-function elboStats(losses: number[]): { initial: number; final: number; improvement: number; converged: boolean } {
+function elboStats(losses: number[]): {
+  initial: number;
+  final: number;
+  improvement: number;
+  converged: boolean;
+} {
   const initial = losses[0];
   const final = losses[losses.length - 1];
   const improvement = initial !== 0 ? Math.abs((initial - final) / initial) : 0;
   // Check last 10% of steps for convergence (relative change < 1%)
   const tail = losses.slice(Math.max(0, Math.floor(losses.length * 0.9)));
   const tailRange = tail.length > 1 ? Math.abs(tail[tail.length - 1] - tail[0]) : 0;
-  const converged = tail.length > 1 && Math.abs(final) > 0 ? tailRange / Math.abs(final) < 0.01 : false;
+  const converged =
+    tail.length > 1 && Math.abs(final) > 0 ? tailRange / Math.abs(final) < 0.01 : false;
   return { initial, final, improvement, converged };
 }
 
@@ -156,9 +164,7 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       lines.push(section(3, "Data Sample (first 10 rows)"));
       lines.push("");
       const cols = Object.keys(s0.sample[0]);
-      const rows = s0.sample.slice(0, 10).map((row) =>
-        cols.map((c) => row[c] ?? ""),
-      );
+      const rows = s0.sample.slice(0, 10).map((row) => cols.map((c) => row[c] ?? ""));
       lines.push(mdTable(cols, rows));
       lines.push("");
     }
@@ -221,10 +227,14 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
 
     // Stage stop alert
     if (s1b.outcome === "fail") {
-      lines.push("> **PIPELINE STOPPED**: No identifiable treatment effects remain after Stage 1b.");
+      lines.push(
+        "> **PIPELINE STOPPED**: No identifiable treatment effects remain after Stage 1b.",
+      );
       lines.push("");
     } else if (nonIdEntries.length > 0) {
-      lines.push("> **WARNING**: Some treatment effects were excluded from downstream analysis because they remain non-identifiable.");
+      lines.push(
+        "> **WARNING**: Some treatment effects were excluded from downstream analysis because they remain non-identifiable.",
+      );
       lines.push("");
     }
 
@@ -263,7 +273,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       ind.aggregation,
       ind.how_to_measure,
     ]);
-    lines.push(mdTable(["Indicator", "Construct", "Type", "Aggregation", "How to Measure"], indRows));
+    lines.push(
+      mdTable(["Indicator", "Construct", "Type", "Aggregation", "How to Measure"], indRows),
+    );
     lines.push("");
     lines.push("---");
     lines.push("");
@@ -308,11 +320,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
     if (s2.combined_extractions_sample && s2.combined_extractions_sample.length > 0) {
       lines.push(section(3, "Extractions Sample"));
       lines.push("");
-      const extRows = s2.combined_extractions_sample.slice(0, 20).map((e) => [
-        e.indicator,
-        e.anchor_time ?? "\u2014",
-        String(e.value ?? "\u2014"),
-      ]);
+      const extRows = s2.combined_extractions_sample
+        .slice(0, 20)
+        .map((e) => [e.indicator, e.anchor_time ?? "\u2014", String(e.value ?? "\u2014")]);
       lines.push(mdTable(["Indicator", "Anchor Time", "Value"], extRows));
       lines.push("");
     }
@@ -355,7 +365,10 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         const profile = audit?.profile;
         const counts = issueCounts.get(indicator);
         const issueStr = counts
-          ? [counts.errors > 0 ? `${counts.errors}E` : "", counts.warnings > 0 ? `${counts.warnings}W` : ""]
+          ? [
+              counts.errors > 0 ? `${counts.errors}E` : "",
+              counts.warnings > 0 ? `${counts.warnings}W` : "",
+            ]
               .filter(Boolean)
               .join(" ") || "\u2014"
           : "\u2014";
@@ -365,7 +378,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
           profile?.n_obs != null ? String(profile.n_obs) : "\u2014",
           profile?.mean != null ? formatNumber(profile.mean) : "\u2014",
           profile?.variance != null ? formatNumber(profile.variance) : "\u2014",
-          profile?.time_coverage_ratio != null ? formatPercent(profile.time_coverage_ratio) : "\u2014",
+          profile?.time_coverage_ratio != null
+            ? formatPercent(profile.time_coverage_ratio)
+            : "\u2014",
           profile?.max_gap_ratio != null ? formatPercent(profile.max_gap_ratio) : "\u2014",
           profile?.dtype_violations != null ? String(profile.dtype_violations) : "\u2014",
           profile?.duplicate_pct != null ? formatPercent(profile.duplicate_pct) : "\u2014",
@@ -435,7 +450,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
     // Observation model
     const s1bForS4 = data["stage-1b"];
     const indMap = s1bForS4
-      ? Object.fromEntries(s1bForS4.causal_spec.measurement.indicators.map((ind) => [ind.name, ind.construct_name]))
+      ? Object.fromEntries(
+          s1bForS4.causal_spec.measurement.indicators.map((ind) => [ind.name, ind.construct_name]),
+        )
       : undefined;
     if (s4.model_spec.likelihoods.length > 0) {
       lines.push(section(3, "Observation Model"));
@@ -448,7 +465,8 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         latex(
           `\\begin{aligned}\n${s4.model_spec.likelihoods
             .map((likelihood: Stage4Data["model_spec"]["likelihoods"][number]) =>
-              likelihoodLine(likelihood, indMap?.[likelihood.variable]))
+              likelihoodLine(likelihood, indMap?.[likelihood.variable]),
+            )
             .join(" \\\\\n")}\n\\end{aligned}`,
         ),
       );
@@ -461,8 +479,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         (likelihood: Stage4Data["model_spec"]["likelihoods"][number]) => {
           const sourceLinks = (likelihood.sources ?? [])
             .map((src: NonNullable<typeof likelihood.sources>[number]) =>
-              src.url ? `[${src.title}](${src.url})` : src.title)
-          .join("; ");
+              src.url ? `[${src.title}](${src.url})` : src.title,
+            )
+            .join("; ");
           return [
             likelihood.variable,
             likelihood.distribution,
@@ -474,7 +493,6 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       );
       lines.push(mdTable(["Variable", "Distribution", "Link", "Reasoning", "Sources"], measRows));
       lines.push("");
-
     }
 
     const allPriors = collectStage4Priors(s4);
@@ -520,32 +538,6 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
 
     const pid = s4b.parametric_id;
 
-    if (pid.t_rule && !pid.t_rule.satisfies) {
-      lines.push(
-        `> **WARNING**: T-Rule screen failed \u2014 ${pid.t_rule.n_free_params} free parameters exceed the conservative lower-bound ${pid.t_rule.n_moments} moment conditions.`,
-      );
-      lines.push("");
-    }
-
-    if (pid.t_rule) {
-      lines.push(section(3, "T-Rule"));
-      lines.push("");
-      lines.push(`- **Status**: ${pid.t_rule.satisfies ? "Pass" : "Warning"}`);
-      lines.push(`- **Free parameters**: ${pid.t_rule.n_free_params}`);
-      if (pid.t_rule.n_manifest != null) {
-        lines.push(`- **Manifest variables**: ${pid.t_rule.n_manifest}`);
-      }
-      if (pid.t_rule.n_timepoints != null) {
-        lines.push(`- **Timepoints**: ${pid.t_rule.n_timepoints}`);
-      }
-      lines.push(`- **Lower-bound moment conditions**: ${pid.t_rule.n_moments}`);
-      lines.push(`- **Satisfies lower bound**: ${pid.t_rule.satisfies ? "Yes" : "No"}`);
-      if (pid.error) {
-        lines.push(`- **Note**: ${pid.error}`);
-      }
-      lines.push("");
-    }
-
     // Inference structure
     if (s4b.inference_structure) {
       const structure = s4b.inference_structure;
@@ -570,9 +562,12 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         .filter((v) => v.method === "particle")
         .map((v) => v.name);
       if (latentKalman.length > 0) lines.push(`- **Latents (Kalman)**: ${latentKalman.join(", ")}`);
-      if (latentParticle.length > 0) lines.push(`- **Latents (Particle)**: ${latentParticle.join(", ")}`);
-      if (obsKalman.length > 0) lines.push(`- **Observed Channels (Kalman-side)**: ${obsKalman.join(", ")}`);
-      if (obsParticle.length > 0) lines.push(`- **Observed Channels (Particle-side)**: ${obsParticle.join(", ")}`);
+      if (latentParticle.length > 0)
+        lines.push(`- **Latents (Particle)**: ${latentParticle.join(", ")}`);
+      if (obsKalman.length > 0)
+        lines.push(`- **Observed Channels (Kalman-side)**: ${obsKalman.join(", ")}`);
+      if (obsParticle.length > 0)
+        lines.push(`- **Observed Channels (Particle-side)**: ${obsParticle.join(", ")}`);
       lines.push("");
     }
 
@@ -594,7 +589,7 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
     if (sa) {
       lines.push(section(3, "Sensitivity Analysis"));
       lines.push("");
-      lines.push(`- **Condition number**: ${formatNumber(sa.condition_number)}`);
+      lines.push(`- **Deficient directions**: ${sa.deficiency_count}/${sa.n_parameters}`);
       lines.push(`- **Parameters**: ${sa.n_parameters}`);
       lines.push(`- **Draws**: ${sa.n_draws}`);
       lines.push("");
@@ -654,7 +649,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       );
       if (losses.length >= 2) {
         const es = elboStats(losses);
-        lines.push(`Initial loss: ${formatNumber(es.initial, 1)}, Final loss: ${formatNumber(es.final, 1)}, Improvement: ${formatPercent(es.improvement)}, Converged: ${es.converged ? "Yes" : "No"}`);
+        lines.push(
+          `Initial loss: ${formatNumber(es.initial, 1)}, Final loss: ${formatNumber(es.final, 1)}, Improvement: ${formatPercent(es.improvement)}, Converged: ${es.converged ? "Yes" : "No"}`,
+        );
       }
       lines.push("");
     }
@@ -695,7 +692,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
             }),
           ),
         );
-        lines.push(`Pearson r: ${formatNumber(r)}${nDiv > 0 ? `, Divergent: ${nDiv}/${nTotal} (${formatPercent(nDiv / nTotal)})` : ""}`);
+        lines.push(
+          `Pearson r: ${formatNumber(r)}${nDiv > 0 ? `, Divergent: ${nDiv}/${nTotal} (${formatPercent(nDiv / nTotal)})` : ""}`,
+        );
         lines.push("");
       }
     }
@@ -721,8 +720,12 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       const mcmc = s5.mcmc_diagnostics;
       lines.push(section(3, "MCMC Diagnostics"));
       lines.push("");
-      lines.push(`- **Divergences**: ${mcmc.num_divergences} (${formatPercent(mcmc.divergence_rate)})`);
-      lines.push(`- **Tree depth**: mean=${formatNumber(mcmc.tree_depth_mean, 1)}, max=${mcmc.tree_depth_max}`);
+      lines.push(
+        `- **Divergences**: ${mcmc.num_divergences} (${formatPercent(mcmc.divergence_rate)})`,
+      );
+      lines.push(
+        `- **Tree depth**: mean=${formatNumber(mcmc.tree_depth_mean, 1)}, max=${mcmc.tree_depth_max}`,
+      );
       lines.push(`- **Accept prob**: ${formatNumber(mcmc.accept_prob_mean)}`);
       if (mcmc.num_chains) lines.push(`- **Chains**: ${mcmc.num_chains}`);
       if (mcmc.num_samples) lines.push(`- **Samples**: ${mcmc.num_samples}`);
@@ -733,13 +736,21 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         lines.push(section(4, "Convergence"));
         lines.push("");
         const convRows = mcmc.per_parameter.map((p) => {
-          const rhat = Array.isArray(p.r_hat) ? p.r_hat.map((v) => formatNumber(v)).join(", ") : formatNumber(p.r_hat);
-          const ess = Array.isArray(p.ess_bulk) ? p.ess_bulk.map((v) => formatNumber(v, 0)).join(", ") : formatNumber(p.ess_bulk, 0);
+          const rhat = Array.isArray(p.r_hat)
+            ? p.r_hat.map((v) => formatNumber(v)).join(", ")
+            : formatNumber(p.r_hat);
+          const ess = Array.isArray(p.ess_bulk)
+            ? p.ess_bulk.map((v) => formatNumber(v, 0)).join(", ")
+            : formatNumber(p.ess_bulk, 0);
           const essTail = p.ess_tail
-            ? (Array.isArray(p.ess_tail) ? p.ess_tail.map((v) => formatNumber(v, 0)).join(", ") : formatNumber(p.ess_tail, 0))
+            ? Array.isArray(p.ess_tail)
+              ? p.ess_tail.map((v) => formatNumber(v, 0)).join(", ")
+              : formatNumber(p.ess_tail, 0)
             : "\u2014";
           const mcse = p.mcse_mean
-            ? (Array.isArray(p.mcse_mean) ? p.mcse_mean.map((v) => formatNumber(v)).join(", ") : formatNumber(p.mcse_mean))
+            ? Array.isArray(p.mcse_mean)
+              ? p.mcse_mean.map((v) => formatNumber(v)).join(", ")
+              : formatNumber(p.mcse_mean)
             : "\u2014";
           return [p.parameter, rhat, ess, essTail, mcse];
         });
@@ -753,7 +764,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         lines.push("");
         for (const trace of mcmc.trace_data) {
           const series = trace.chains.map((c) => c.values);
-          lines.push(fenced(asciiMultiLine(series, { label: trace.parameter, height: 10, width: 60 })));
+          lines.push(
+            fenced(asciiMultiLine(series, { label: trace.parameter, height: 10, width: 60 })),
+          );
           lines.push("");
         }
       }
@@ -773,8 +786,12 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
           const totalExpected = rh.expected_per_bin * rh.chains.length;
           lines.push(fenced(asciiBins(totalCounts, totalExpected, rh.parameter)));
           const chi2 = chiSquaredUniformity(totalCounts, totalExpected);
-          const maxDev = Math.max(...totalCounts.map((c) => Math.abs(c - totalExpected) / totalExpected));
-          lines.push(`Chi-squared: ${formatNumber(chi2, 1)}, Max deviation: ${formatPercent(maxDev)}, Uniformity: ${maxDev < 0.2 ? "OK" : "Concern"}`);
+          const maxDev = Math.max(
+            ...totalCounts.map((c) => Math.abs(c - totalExpected) / totalExpected),
+          );
+          lines.push(
+            `Chi-squared: ${formatNumber(chi2, 1)}, Max deviation: ${formatPercent(maxDev)}, Uniformity: ${maxDev < 0.2 ? "OK" : "Concern"}`,
+          );
           lines.push("");
         }
       }
@@ -783,7 +800,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       if (mcmc.energy) {
         lines.push(section(4, "Energy Diagnostics"));
         lines.push("");
-        lines.push(`**BFMI per chain**: ${mcmc.energy.bfmi.map((v) => formatNumber(v)).join(", ")}${mcmc.energy.bfmi.some((v) => v < 0.3) ? " (values < 0.3 indicate concern)" : ""}`);
+        lines.push(
+          `**BFMI per chain**: ${mcmc.energy.bfmi.map((v) => formatNumber(v)).join(", ")}${mcmc.energy.bfmi.some((v) => v < 0.3) ? " (values < 0.3 indicate concern)" : ""}`,
+        );
         lines.push("");
         if (mcmc.energy.energy_hist.bin_centers.length > 0) {
           lines.push(
@@ -800,11 +819,15 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         if (mcmc.energy.energy_transition_hist.bin_centers.length > 0) {
           lines.push(
             fenced(
-              asciiDensity(mcmc.energy.energy_transition_hist.bin_centers, mcmc.energy.energy_transition_hist.density, {
-                label: "Energy Transition",
-                height: 8,
-                width: 50,
-              }),
+              asciiDensity(
+                mcmc.energy.energy_transition_hist.bin_centers,
+                mcmc.energy.energy_transition_hist.density,
+                {
+                  label: "Energy Transition",
+                  height: 8,
+                  width: 50,
+                },
+              ),
             ),
           );
           lines.push("");
@@ -828,7 +851,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       );
       if (losses5b.length >= 2) {
         const es = elboStats(losses5b);
-        lines.push(`Initial loss: ${formatNumber(es.initial, 1)}, Final loss: ${formatNumber(es.final, 1)}, Improvement: ${formatPercent(es.improvement)}, Converged: ${es.converged ? "Yes" : "No"}`);
+        lines.push(
+          `Initial loss: ${formatNumber(es.initial, 1)}, Final loss: ${formatNumber(es.final, 1)}, Improvement: ${formatPercent(es.improvement)}, Converged: ${es.converged ? "Yes" : "No"}`,
+        );
       }
       lines.push("");
     }
@@ -869,7 +894,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         const minEss = Math.min(...smc.ess_history);
         const meanEss = smc.ess_history.reduce((a, b) => a + b, 0) / smc.ess_history.length;
         const finalEss = smc.ess_history[smc.ess_history.length - 1];
-        lines.push(`Min ESS: ${formatNumber(minEss, 0)}, Mean ESS: ${formatNumber(meanEss, 0)}, Final ESS: ${formatNumber(finalEss, 0)}`);
+        lines.push(
+          `Min ESS: ${formatNumber(minEss, 0)}, Mean ESS: ${formatNumber(meanEss, 0)}, Final ESS: ${formatNumber(finalEss, 0)}`,
+        );
         lines.push("");
       }
     }
@@ -927,7 +954,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         const overlayRmse = rmse(obsValues, medValues);
         const overlayMae = mae(obsValues, medValues);
         const overlayR = pearsonR(obsValues, medValues);
-        lines.push(`95% CI coverage: ${formatPercent(inBand / validIdx.length)} (${inBand}/${validIdx.length}), RMSE: ${formatNumber(overlayRmse)}, MAE: ${formatNumber(overlayMae)}, Pearson r: ${formatNumber(overlayR)}`);
+        lines.push(
+          `95% CI coverage: ${formatPercent(inBand / validIdx.length)} (${inBand}/${validIdx.length}), RMSE: ${formatNumber(overlayRmse)}, MAE: ${formatNumber(overlayMae)}, Pearson r: ${formatNumber(overlayR)}`,
+        );
         lines.push("");
       }
     }
@@ -947,7 +976,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
           pValue < 0.05 || pValue > 0.95 ? "Fail" : "Pass",
         ];
       });
-      lines.push(mdTable(["Variable", "Statistic", "Observed", "p(rep \u2265 obs)", "Result"], testRows));
+      lines.push(
+        mdTable(["Variable", "Statistic", "Observed", "p(rep \u2265 obs)", "Result"], testRows),
+      );
       lines.push("");
     }
 
@@ -970,11 +1001,17 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       if (loo.loo_pit && loo.loo_pit.length > 0) {
         lines.push(section(4, "LOO-PIT"));
         lines.push("");
-        lines.push(fenced(asciiHistogram(loo.loo_pit, { label: "LOO-PIT (should be uniform)", nBins: 10 })));
+        lines.push(
+          fenced(asciiHistogram(loo.loo_pit, { label: "LOO-PIT (should be uniform)", nBins: 10 })),
+        );
         const pitMean = loo.loo_pit.reduce((a, b) => a + b, 0) / loo.loo_pit.length;
-        const pitStd = Math.sqrt(loo.loo_pit.reduce((a, v) => a + (v - pitMean) ** 2, 0) / loo.loo_pit.length);
+        const pitStd = Math.sqrt(
+          loo.loo_pit.reduce((a, v) => a + (v - pitMean) ** 2, 0) / loo.loo_pit.length,
+        );
         const ks = ksUniformStat(loo.loo_pit);
-        lines.push(`Mean: ${formatNumber(pitMean)} (ideal: 0.500), Std: ${formatNumber(pitStd)} (ideal: 0.289), KS stat: ${formatNumber(ks)}, Calibration: ${ks < 0.1 ? "Good" : ks < 0.2 ? "Fair" : "Poor"}`);
+        lines.push(
+          `Mean: ${formatNumber(pitMean)} (ideal: 0.500), Std: ${formatNumber(pitStd)} (ideal: 0.289), KS stat: ${formatNumber(ks)}, Calibration: ${ks < 0.1 ? "Good" : ks < 0.2 ? "Fair" : "Poor"}`,
+        );
         lines.push("");
       }
 
@@ -988,7 +1025,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         lines.push(`- **0.5 < k \u2264 0.7 (warn)**: ${nWarnK05}`);
         lines.push(`- **k \u2264 0.5 (ok)**: ${loo.pareto_k.length - nBadK07 - nWarnK05}`);
         lines.push("");
-        lines.push(fenced(asciiHistogram(loo.pareto_k, { label: "Pareto k distribution", nBins: 15 })));
+        lines.push(
+          fenced(asciiHistogram(loo.pareto_k, { label: "Pareto k distribution", nBins: 15 })),
+        );
         lines.push("");
       }
     }
@@ -1004,7 +1043,12 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         formatNumber(p.likelihood_sensitivity),
         p.psis_k_hat != null ? formatNumber(p.psis_k_hat) : "\u2014",
       ]);
-      lines.push(mdTable(["Parameter", "Diagnosis", "Prior Sens.", "Likelihood Sens.", "PSIS k-hat"], psRows));
+      lines.push(
+        mdTable(
+          ["Parameter", "Diagnosis", "Prior Sens.", "Likelihood Sens.", "PSIS k-hat"],
+          psRows,
+        ),
+      );
       lines.push("");
 
       // ASCII scatter
@@ -1014,7 +1058,13 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
           y: p.likelihood_sensitivity,
           label: p.parameter,
         }));
-        lines.push(fenced(asciiScatter(scatterPoints, { label: "Power Scaling (prior vs likelihood sensitivity)" })));
+        lines.push(
+          fenced(
+            asciiScatter(scatterPoints, {
+              label: "Power Scaling (prior vs likelihood sensitivity)",
+            }),
+          ),
+        );
         lines.push("");
       }
     }
@@ -1055,7 +1105,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
             }),
           ),
         );
-        lines.push(`Pearson r: ${formatNumber(r)}${nDiv > 0 ? `, Divergent: ${nDiv}/${nTotal} (${formatPercent(nDiv / nTotal)})` : ""}`);
+        lines.push(
+          `Pearson r: ${formatNumber(r)}${nDiv > 0 ? `, Divergent: ${nDiv}/${nTotal} (${formatPercent(nDiv / nTotal)})` : ""}`,
+        );
         lines.push("");
       }
     }
@@ -1099,7 +1151,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
 
       // Derive non-identifiable set from Stage 1b
       const nonIdSet = new Set(
-        Object.keys(data["stage-1b"]?.causal_spec?.identifiability?.non_identifiable_treatments ?? {}),
+        Object.keys(
+          data["stage-1b"]?.causal_spec?.identifiability?.non_identifiable_treatments ?? {},
+        ),
       );
 
       // Derive prior-dominated parameters from Stage 5b
@@ -1121,7 +1175,9 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         }
         const warnings: string[] = [];
         if (nonIdSet.has(t.treatment)) warnings.push("non-identifiable");
-        if (priorDominatedParams.some((p) => p.includes(t.treatment) || p.startsWith("drift_offdiag")))
+        if (
+          priorDominatedParams.some((p) => p.includes(t.treatment) || p.startsWith("drift_offdiag"))
+        )
           warnings.push("prior-sensitive");
         const statusStr = warnings.length > 0 ? warnings.join(", ") : "ok";
         return [
@@ -1132,21 +1188,23 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
           statusStr,
         ];
       });
-      lines.push(
-        mdTable(["Treatment", "\u03C4\u0302", "95% CI", "P(\u03C4>0)", "Status"], txRows),
-      );
+      lines.push(mdTable(["Treatment", "\u03C4\u0302", "95% CI", "P(\u03C4>0)", "Status"], txRows));
       lines.push("");
 
       // ASCII posterior histograms per treatment
       for (const t of sorted) {
         if (t.posterior_draws && t.posterior_draws.length > 0) {
-          lines.push(fenced(asciiHistogram(t.posterior_draws, { label: `Posterior: ${t.treatment}` })));
+          lines.push(
+            fenced(asciiHistogram(t.posterior_draws, { label: `Posterior: ${t.treatment}` })),
+          );
           lines.push("");
         }
       }
 
       // Manifest effects
-      const withManifest = sorted.filter((t) => t.manifest_effects && Object.keys(t.manifest_effects).length > 0);
+      const withManifest = sorted.filter(
+        (t) => t.manifest_effects && Object.keys(t.manifest_effects).length > 0,
+      );
       if (withManifest.length > 0) {
         lines.push(section(3, "Manifest Effects"));
         lines.push("");
@@ -1179,7 +1237,6 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
         lines.push(mdTable(["Treatment", "1d", "7d", "30d", "Peak", "Time to Peak"], tempRows));
         lines.push("");
       }
-
     }
   }
 

@@ -575,6 +575,31 @@ class TestPrepareFitInputs:
         assert jnp.isnan(observations[1, 0])
         assert jnp.isclose(observations[1, 1], 30.0)
 
+    def test_manifest_centering_applies_only_to_centered_channels(self):
+        """prepare_fit_inputs should deterministically center only marked manifests."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            manifest_names=["x", "y"],
+            manifest_centered=[True, False],
+        )
+        builder = SSMModelBuilder()
+        builder._spec = spec
+        wide = pl.DataFrame(
+            {
+                "time": [0.0, 1.0, 2.0],
+                "x": [10.0, 11.0, 12.0],
+                "y": [5.0, 6.0, 7.0],
+            }
+        )
+
+        observations, times, manifest_names = builder.prepare_fit_inputs(wide)
+
+        assert manifest_names == ["x", "y"]
+        np.testing.assert_allclose(np.asarray(times), np.array([0.0, 1.0, 2.0]))
+        np.testing.assert_allclose(np.asarray(observations[:, 0]), np.array([-1.0, 0.0, 1.0]))
+        np.testing.assert_allclose(np.asarray(observations[:, 1]), np.array([5.0, 6.0, 7.0]))
+
 
 class TestPrepareModelRuntime:
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):

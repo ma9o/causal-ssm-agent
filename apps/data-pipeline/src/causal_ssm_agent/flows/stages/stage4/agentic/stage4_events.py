@@ -24,6 +24,7 @@ class Stage4BlockAcceptedEvent:
     block_id: str
     transition_payload: dict[str, Any] | None = None
     distribution_choice: dict[str, Any] | None = None
+    model_configuration: dict[str, Any] | None = None
     stage_output: dict[str, Any] | None = None
 
 
@@ -35,6 +36,7 @@ class Stage4RepairPlannedEvent:
     accepted_block_id: str | None = None
     accepted_transition_payload: dict[str, Any] | None = None
     distribution_choice: dict[str, Any] | None = None
+    model_configuration: dict[str, Any] | None = None
     stage_output: dict[str, Any] | None = None
 
 

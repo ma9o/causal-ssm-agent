@@ -54,7 +54,7 @@ def stage4_grounding(
 
     new_model_spec = data.get("model_spec")
     new_priors = data.get("priors")
-    changed_parameters = tuple(new_priors) if isinstance(new_priors, dict) else ()
+    changed_parameters: tuple[str, ...] = ()
 
     if new_model_spec is None and new_priors is None:
         return make_stage4_grounding_result(
@@ -93,9 +93,14 @@ def stage4_grounding(
             capture_stage_output=False,
         )
 
-    if new_priors is not None:
+    if isinstance(new_priors, dict):
         redundant_priors = _find_redundant_prior_updates(new_priors, state.get("authored_priors"))
         if redundant_priors:
+            redundant_prior_names = set(redundant_priors)
+            new_priors = {
+                name: prior for name, prior in new_priors.items() if name not in redundant_prior_names
+            }
+        if not new_priors:
             return make_stage4_grounding_result(
                 stage_output=None,
                 status="update_rejected",
@@ -104,6 +109,7 @@ def stage4_grounding(
                 retain_for_next_prompt=True,
                 capture_stage_output=False,
             )
+        changed_parameters = tuple(new_priors)
 
     # --- Merge model_spec ---
     if new_model_spec is not None:

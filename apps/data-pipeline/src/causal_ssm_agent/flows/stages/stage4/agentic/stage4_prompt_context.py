@@ -100,6 +100,16 @@ def format_stage4_plan_status(
     causal_spec: dict[str, Any] | None = None,
 ) -> str:
     """Summarize the reducer frontier in a compact prompt-local format."""
+    accepted_model_spec = runtime.accepted.model_spec or {}
+    initialization_policy = (
+        runtime.decisions.initialization_policy
+        or accepted_model_spec.get("initialization_policy")
+        or "unset"
+    )
+    equilibrium_forcing = runtime.decisions.equilibrium_forcing
+    if equilibrium_forcing is None:
+        equilibrium_forcing = accepted_model_spec.get("equilibrium_forcing")
+    equilibrium_text = "unset" if equilibrium_forcing is None else str(bool(equilibrium_forcing)).lower()
     lines = [
         _STAGE4_FRONTIER_PREFIX,
         "",
@@ -129,6 +139,8 @@ def format_stage4_plan_status(
             + "`"
         ),
         f"- model_spec locked: `{'yes' if runtime.accepted.model_spec is not None else 'no'}`",
+        f"- initialization_policy: `{initialization_policy}`",
+        f"- equilibrium_forcing: `{equilibrium_text}`",
         f"- active prompt scope: `{block.kind}`",
         "- active scope names: "
         f"{summarize_stage4_names(list(block.variable_names or block.parameter_names))}",

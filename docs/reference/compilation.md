@@ -67,7 +67,7 @@ graph TD
 | `SSMSpec` | `models/ssm/model.py` | Flat structural SSM artifact: dimensions, numeric templates, boolean masks, distributions |
 | `SSMPriors` | `models/ssm/model.py` | Prior distributions for all SSM parameters |
 | `SSMStructureRuntime` | `models/ssm/structure_runtime.py` | Derived runtime structure view: canonical free-entry order, index maps, assembly helpers, cached covariance templates |
-| `PriorIndexMaps` | `ssm_compilation_common.py` | 10-tuple mapping param names → (prior field, flat index) |
+| `PriorIndexMaps` | `ssm_compilation_common.py` | 13-tuple mapping param names → (prior field, flat index) |
 | `CompiledSSMArtifact` | `ssm_compiler.py` | Serializable bundle: spec + edge lags + compiled prior semantics + bindings + diagnostics |
 | `SSMModel` | `models/ssm/model.py` | Executable NumPyro generative model |
 | `InferenceResult` | `models/ssm/inference.py` | Posterior samples + diagnostics |
@@ -81,7 +81,10 @@ Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the flat structural 
 - Extracts latent construct layout from the DAG (names, order, time-invariant mask)
 - Builds the **drift template** plus split masks: `drift_diag_mask` for autoregressive diagonals and `drift_offdiag_mask` for cross-lag entries (maps to the [CT-SDE drift matrix](estimation.md#1-ct-sde-formulation))
 - Builds the **loading template** (`lambda_mat`) plus `lambda_mask`: fixed indicator-to-construct loadings and free non-reference loadings
-- Compiles concrete templates plus masks for `cint`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`
+- Compiles concrete templates plus masks for `cint`, `static_state_sds`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`
+- Converts marginalized time-invariant confounders into compiled low-rank baseline factors of the form `B diag(tau^2) B^T` rather than free pairwise `cor0_*` surfaces on the causal-spec path
+- Derives deterministic `manifest_centered` flags from the locked likelihood family, link, and observation support semantics
+- Applies `initialization_policy` and `equilibrium_forcing` to determine which `t0_*`, `cint_*`, and `manifest_mean_*` surfaces remain free
 - Computes **edge_lag_days**: for each cross-lag edge, the lag in days (used by prior compilation to scale DT→CT)
 - Selects observation distribution families from `measurement_dtype`
 - Eliminates legacy string matrix modes: translation always emits concrete templates and explicit masks
@@ -94,8 +97,8 @@ Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_moo
 
 **What it does:**
 
-- For each parameter in `ModelSpec`, determines its role (AR coefficient, fixed effect, loading, residual SD, correlation)
-- Maps it to the correct SSM field (`drift_diag`, `drift_offdiag`, `lambda_free`, etc.) and flat index
+- For each parameter in `ModelSpec`, determines its role (AR coefficient, fixed effect, loading, residual SD, state intercept, observation intercept, static baseline-factor SD, correlation, and observation-family auxiliary site)
+- Maps it to the correct SSM field (`drift_diag`, `drift_offdiag`, `lambda_free`, `manifest_means`, `cint`, `static_state_sd`, etc.) and flat index
 - Derives the canonical free-entry order from `SSMStructureRuntime(ssm_spec)` so the compiler, runtime assembly, and posterior name resolution all share one structural indexing authority
 - Uses `split_compound_name()` to parse compound names like `"beta_mood_stress"` into (cause, effect)
 
@@ -103,7 +106,7 @@ Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_moo
 
 This is now a strict internal helper: it requires both a translated `SSMSpec` and a semantic `ModelSpec`. Spec-only entrypoints decide explicitly when no semantic bindings should be produced; the indexer no longer falls back to all-empty maps.
 
-**Returns:** 10-tuple of `dict[param_name -> (prior_field, flat_index)]`:
+**Returns:** 13-tuple of `dict[param_name -> (prior_field, flat_index)]`:
 
 1. `offdiag_index` — cross-lag effects (drift off-diagonal)
 2. `lambda_index` — factor loadings
@@ -113,8 +116,11 @@ This is now a strict internal helper: it requires both a translated `SSMSpec` an
 6. `t0_offdiag_index` — initial-state correlations
 7. `t0_mean_index` — initial-state means
 8. `t0_sd_index` — initial-state standard deviations
-9. `manifest_var_index` — manifest noise terms
-10. `observation_site_index` — observation-family hyperparameter sites
+9. `manifest_mean_index` — manifest intercepts
+10. `manifest_var_index` — manifest noise terms
+11. `cint_index` — continuous-time state intercepts
+12. `static_state_sd_index` — compiled baseline-factor scales
+13. `observation_site_index` — observation-family hyperparameter sites
 
 ## Stage 3: Prior Compilation (`ssm_prior_compilation.py`)
 
@@ -185,13 +191,14 @@ Runtime reconstruction now has three layers:
 
 - **`SSMSpec`** remains the flat serialization and validation boundary. It owns the persisted templates, masks, distributions, and names.
 - **`PriorRuntimeBundle`** is rebuilt from `compiled_prior_semantics` and owns sample-site registry, transforms, and prior-state semantics.
-- **`SSMStructureRuntime`** is derived once inside `SSMModel` from `SSMSpec` and owns structural indexing plus dense matrix assembly from sampled free values during `SSMModel.model()` execution.
+- **`SSMStructureRuntime`** is derived once inside `SSMModel` from `SSMSpec` and owns structural indexing plus dense matrix assembly from sampled free values during `SSMModel.model()` execution, including the additive low-rank baseline-factor covariance term in `t0_cov`.
 
 **Why `fit()` lives on the builder, not on `SSMModel`:** the runtime separates three concerns:
 
 - **`SSMModel`** is a pure NumPyro model function. Its [`model(observations, times)`](estimation.md#data-flow) method takes JAX arrays, samples from the runtime prior bundle, assembles matrices through `SSMStructureRuntime`, and injects the log-likelihood via `numpyro.factor()`. It has no knowledge of DataFrames, inference algorithms, or sampler configuration.
 - **`inference.fit()`** handles [algorithm selection](inference-routing.md) (NUTS, SVI, SMC) and execution. It takes an `SSMModel` and raw arrays.
 - **`SSMModelBuilder`** bridges the gap: it converts Polars DataFrames to JAX arrays (`prepare_fit_inputs`), loads the prior runtime bundle from `compiled_prior_semantics`, routes sampler configuration from `config.yaml` to `inference.fit()`, and caches the `SSMModel` and `InferenceResult` for downstream access (diagnostics, summaries, prior predictive checks).
+- Before array conversion, the builder also applies deterministic centering to manifest columns whose compiled `manifest_centered` flag is `True`, so centered additive-location indicators are zero-centered consistently in both fitting and prior-predictive scale checks.
 
 Moving `fit()` onto `SSMModel` would couple it to DataFrame handling and sampler config routing — concerns that belong to the orchestrator layer, not the probabilistic model.
 

@@ -455,7 +455,10 @@ def compile_priors(
         t0_offdiag_param_index,
         t0_mean_param_index,
         t0_sd_param_index,
+        manifest_mean_param_index,
         manifest_var_param_index,
+        cint_param_index,
+        static_state_sd_param_index,
         observation_site_param_index,
     ) = index_maps
     structure_runtime = SSMStructureRuntime(ssm_spec) if ssm_spec is not None else None
@@ -536,6 +539,21 @@ def compile_priors(
 
             if param_name in lambda_param_index:
                 attr, idx = lambda_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
+            if param_name in cint_param_index:
+                attr, idx = cint_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
+            if param_name in static_state_sd_param_index:
+                attr, idx = static_state_sd_param_index[param_name]
+                _append_structured_prior(per_element, attr, idx, normalized)
+                continue
+
+            if param_name in manifest_mean_param_index:
+                attr, idx = manifest_mean_param_index[param_name]
                 _append_structured_prior(per_element, attr, idx, normalized)
                 continue
 
@@ -627,7 +645,10 @@ def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
+        manifest_mean_index,
         manifest_var_index,
+        cint_index,
+        static_state_sd_index,
         observation_site_index,
     ) = index_maps
 
@@ -636,11 +657,14 @@ def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
         diag_index,
         offdiag_index,
         diffusion_diag_index,
+        cint_index,
+        static_state_sd_index,
         t0_mean_index,
         t0_sd_index,
         diffusion_offdiag_index,
         t0_offdiag_index,
         lambda_index,
+        manifest_mean_index,
         manifest_var_index,
         observation_site_index,
     )

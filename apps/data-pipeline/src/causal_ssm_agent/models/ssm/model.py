@@ -175,6 +175,11 @@ class SSMSpec:
     t0_chol_diag_mask: np.ndarray
     t0_correlation_mask: np.ndarray
     t0_chol: jnp.ndarray
+    static_state_sd_mask: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=bool))
+    static_state_sds: jnp.ndarray = field(default_factory=lambda: jnp.zeros(0, dtype=jnp.float64))
+    static_factor_loadings: jnp.ndarray = field(
+        default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64)
+    )
 
     # Per-variable diffusion noise families.
     diffusion_dists: list[DistributionFamily] = field(default_factory=list)
@@ -189,6 +194,7 @@ class SSMSpec:
     # Per-channel link functions. When omitted, each channel uses the
     # default link for its observation family.
     manifest_links: list[LinkFunction] | None = None
+    manifest_centered: list[bool] | None = None
 
     # Toggle first-pass (unconditional, model-level) Rao-Blackwellization
     first_pass_rb: bool = True
@@ -199,6 +205,8 @@ class SSMSpec:
     # Parameter names for interpretability
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
+    static_factor_names: list[str] | None = None
+    initialization_policy: str = "stationary"
 
     # drift_diag_mask: (n_latent,) bool — True where the diagonal self-dynamics
     # remain free to sample.
@@ -211,6 +219,9 @@ class SSMSpec:
 
     # cint_mask: (n_latent,) bool — True where the continuous intercept
     # remains free to sample.
+
+    # static_state_sd_mask: (n_static_factor,) bool — True where compiled
+    # baseline-factor SDs remain free to sample.
 
     # manifest_means_mask: (n_manifest,) bool — True where manifest
     # intercepts remain free to sample.
@@ -282,6 +293,24 @@ class SSMSpec:
             raise ValueError(f"{name} must have shape ({dim},), got {value_array.shape}")
         return value_array
 
+    def _coerce_factor_loadings(self, value: jnp.ndarray) -> jnp.ndarray:
+        value_array = jnp.asarray(value)
+        if value_array.ndim != 2:
+            raise ValueError("static_factor_loadings must be a rank-2 array.")
+        if value_array.shape[0] not in {0, self.n_latent}:
+            raise ValueError(
+                "static_factor_loadings must have shape "
+                f"({self.n_latent}, n_factor), got {value_array.shape}"
+            )
+        if value_array.shape[0] == 0 and value_array.shape[1] == 0:
+            return jnp.zeros((self.n_latent, 0), dtype=jnp.float64)
+        if value_array.shape[0] != self.n_latent:
+            raise ValueError(
+                "static_factor_loadings must have shape "
+                f"({self.n_latent}, n_factor), got {value_array.shape}"
+            )
+        return value_array
+
     def _coerce_square_template(self, name: str, value: jnp.ndarray, dim: int) -> jnp.ndarray:
         if isinstance(value, str):
             raise ValueError(f"{name} must be an explicit matrix template array.")
@@ -323,6 +352,26 @@ class SSMSpec:
         self.drift = self._coerce_square_template("drift", self.drift, self.n_latent)
         self.cint_mask = self._coerce_diagonal_mask("cint_mask", self.cint_mask, self.n_latent)
         self.cint = self._coerce_vector_template("cint", self.cint, self.n_latent)
+        self.static_factor_loadings = self._coerce_factor_loadings(self.static_factor_loadings)
+        n_static_factor = self.static_factor_loadings.shape[1]
+        self.static_state_sd_mask = self._coerce_diagonal_mask(
+            "static_state_sd_mask",
+            (
+                self.static_state_sd_mask
+                if np.asarray(self.static_state_sd_mask).size
+                else np.zeros(n_static_factor)
+            ),
+            n_static_factor,
+        )
+        self.static_state_sds = self._coerce_vector_template(
+            "static_state_sds",
+            (
+                self.static_state_sds
+                if jnp.asarray(self.static_state_sds).size
+                else jnp.zeros(n_static_factor)
+            ),
+            n_static_factor,
+        )
         self.lambda_mask = self._coerce_lambda_mask(self.lambda_mask)
         self.lambda_mat = self._coerce_lambda_mat(self.lambda_mat)
         self.diffusion_chol_mask = self._coerce_cholesky_mask(
@@ -408,6 +457,21 @@ class SSMSpec:
             raise ValueError(
                 "manifest_level_counts length must match n_manifest: "
                 f"{len(self.manifest_level_counts)} vs {self.n_manifest}"
+            )
+        if self.manifest_centered is None:
+            self.manifest_centered = [False] * self.n_manifest
+        elif len(self.manifest_centered) != self.n_manifest:
+            raise ValueError(
+                "manifest_centered length must match n_manifest: "
+                f"{len(self.manifest_centered)} vs {self.n_manifest}"
+            )
+
+        if self.static_factor_names is None:
+            self.static_factor_names = [f"tau_{idx}" for idx in range(n_static_factor)]
+        elif len(self.static_factor_names) != n_static_factor:
+            raise ValueError(
+                "static_factor_names length must match number of static factors: "
+                f"{len(self.static_factor_names)} vs {n_static_factor}"
             )
 
 
@@ -729,8 +793,12 @@ class SSMModel:
         structure_runtime = self._structure_runtime
         n_diag = structure_runtime.n_t0_diag
         n_corr = structure_runtime.n_t0_correlation
-        if n_diag == 0 and n_corr == 0:
-            t0_chol = structure_runtime.t0_chol_template
+        n_static = structure_runtime.n_static_state_sd
+        if n_diag == 0 and n_corr == 0 and n_static == 0:
+            t0_cov, _min_eig = stabilize_covariance_for_cholesky(
+                structure_runtime.assemble_t0_cov(),
+                min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+            )
         else:
             var_diag = None
             if n_diag > 0:
@@ -744,7 +812,17 @@ class SSMModel:
                     "t0_var_lower_free",
                     self._prior_distribution("t0_var_lower_free"),
                 )
-            t0_cov_raw = structure_runtime.assemble_t0_cov(var_diag, t0_corr)
+            static_state_sds = None
+            if n_static > 0:
+                static_state_sds = _sample_prior_array(
+                    "static_state_sd_free",
+                    self._prior_distribution("static_state_sd_free"),
+                )
+                numpyro.deterministic(
+                    "static_state_sds",
+                    structure_runtime.assemble_static_state_sds(static_state_sds),
+                )
+            t0_cov_raw = structure_runtime.assemble_t0_cov(var_diag, t0_corr, static_state_sds)
             t0_cov, min_eig = stabilize_covariance_for_cholesky(
                 t0_cov_raw,
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -757,10 +835,10 @@ class SSMModel:
                     -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eig),
                 ),
             )
-            t0_chol = jnp.linalg.cholesky(t0_cov)
+        t0_chol = jnp.linalg.cholesky(t0_cov)
 
         numpyro.deterministic("t0_means", t0_means)
-        numpyro.deterministic("t0_cov", t0_chol @ t0_chol.T)
+        numpyro.deterministic("t0_cov", t0_cov)
         return jnp.asarray(t0_means), jnp.asarray(t0_chol)
 
     def make_likelihood_backend(self):

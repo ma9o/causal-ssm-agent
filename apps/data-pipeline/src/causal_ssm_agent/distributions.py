@@ -188,6 +188,20 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         ssm_location="Diffusion diagonal",
     ),
     ParameterRoleSpec(
+        role="state_intercept",
+        symbol="cint",
+        count="One per eligible dynamic construct when equilibrium forcing is enabled",
+        constraint="none",
+        ssm_location="Continuous-time state intercept",
+    ),
+    ParameterRoleSpec(
+        role="observation_intercept",
+        symbol="manifest_mean",
+        count="One per manifest channel whose observation family requires a baseline intercept",
+        constraint="none",
+        ssm_location="Manifest intercept vector",
+    ),
+    ParameterRoleSpec(
         role="initial_state_mean",
         symbol="t0_mean",
         count="One per latent construct",
@@ -204,9 +218,11 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
     ParameterRoleSpec(
         role="static_state_sd",
         symbol="tau",
-        count="One per time-invariant endogenous construct (when needed)",
+        count="One per compiled baseline factor induced by marginalized time-invariant confounders",
         constraint="positive",
-        ssm_location="Static-state block",
+        ssm_location="Static baseline-factor covariance",
+        note="Used to build low-rank initial-state covariance contributions of the form "
+        "`B diag(tau^2) B^T`.",
     ),
     ParameterRoleSpec(
         role="loading",
