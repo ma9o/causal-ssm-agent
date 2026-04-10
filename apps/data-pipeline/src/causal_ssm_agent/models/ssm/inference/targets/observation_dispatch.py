@@ -136,15 +136,15 @@ def build_predictive_observation_sampler(
             get_posterior_predictive_switch_index(dist, link=link)
             for dist, link in zip(dists, links, strict=False)
         ],
-        dtype=jnp.int32,
+        dtype=jnp.int64,
     )
     manifest_std = jnp.sqrt(jnp.maximum(jnp.diag(manifest_cov), NUMERICAL_EPSILON))
     params = extra_params or {}
     level_counts = params.get("obs_level_counts")
     if level_counts is None:
-        level_counts = jnp.ones((n_manifest,), dtype=jnp.int32)
+        level_counts = jnp.ones((n_manifest,), dtype=jnp.int64)
     else:
-        level_counts = jnp.asarray(level_counts, dtype=jnp.int32)
+        level_counts = jnp.asarray(level_counts, dtype=jnp.int64)
     ordered_cutpoints = params.get("obs_ordered_cutpoints")
     if ordered_cutpoints is None:
         ordered_cutpoints = jnp.zeros((n_manifest, 1), dtype=manifest_cov.dtype)

@@ -265,8 +265,8 @@ class ParticleLikelihood:
                 raise ValueError(
                     "Mixed block-RB requires all sampled diffusion coordinates to share one family."
                 )
-            self._g_idx = jnp.asarray(self.transition_semantics.gaussian_idx, dtype=jnp.int32)
-            self._s_idx = jnp.asarray(self.transition_semantics.sampled_idx, dtype=jnp.int32)
+            self._g_idx = jnp.asarray(self.transition_semantics.gaussian_idx, dtype=jnp.int64)
+            self._s_idx = jnp.asarray(self.transition_semantics.sampled_idx, dtype=jnp.int64)
             self._sampled_block_dist = (
                 self.transition_semantics.sampled_block_dist
                 if self.transition_semantics.sampled_block_dist is not None
@@ -601,7 +601,7 @@ class ParticleLikelihood:
             "support_curr_coeff": jnp.asarray(observation_operator.curr_coeffs, dtype=jnp.float64),
             "support_weight": jnp.asarray(observation_operator.interval_weights, dtype=jnp.float64),
             "support_emission_slot": jnp.asarray(
-                observation_operator.emission_slots, dtype=jnp.int32
+                observation_operator.emission_slots, dtype=jnp.int64
             ),
         }
 

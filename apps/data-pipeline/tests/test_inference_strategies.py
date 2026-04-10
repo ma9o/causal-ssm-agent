@@ -89,7 +89,7 @@ def _support_runtime(**kwargs) -> ObservationSupportRuntime:
     emission_slots = kwargs.get("emission_slot_indices")
     if emission_slots is None:
         support_end = np.asarray(kwargs["support_end_times"])
-        emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int32)
+        emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
     kwargs["emission_slot_indices"] = emission_slots
     return ObservationSupportRuntime(**kwargs)
 
@@ -512,7 +512,7 @@ class TestSupportAwareTrajectoryObservationLogProb:
                     [[0.0, 1.0]],
                 ]
             ),
-            emission_slot_indices=np.array([[-1], [-1], [0], [1]], dtype=np.int32),
+            emission_slot_indices=np.array([[-1], [-1], [0], [1]], dtype=np.int64),
         )
         latent = jnp.array([[1.0], [3.0], [5.0], [7.0]], dtype=jnp.float32)
         observations = jnp.array([[jnp.nan], [jnp.nan], [3.0], [5.0]], dtype=jnp.float32)
@@ -621,7 +621,7 @@ class TestLaplaceSupportAware:
             interval_prev_coeffs=np.array([[0.0], [0.5], [0.0], [0.5], [0.0], [0.5]]),
             interval_curr_coeffs=np.array([[0.0], [0.5], [0.0], [0.5], [0.0], [0.5]]),
             interval_weights=np.array([[0.0], [1.0], [0.0], [1.0], [0.0], [1.0]]),
-            emission_slot_indices=np.array([[-1], [0], [-1], [0], [-1], [0]], dtype=np.int32),
+            emission_slot_indices=np.array([[-1], [0], [-1], [0], [-1], [0]], dtype=np.int64),
         )
 
         windows, bandwidth = _infer_support_groups(support)
@@ -1208,11 +1208,11 @@ class TestInferenceCaching:
                 ),
                 "mutate_batch_jit": lambda _rng_key, particles, _beta, _eps, _chol_mass: (
                     particles,
-                    jnp.zeros((particles.shape[0],), dtype=jnp.int32),
+                    jnp.zeros((particles.shape[0],), dtype=jnp.int64),
                 ),
                 "mutate_batch_wastefree_jit": lambda _rng_key, particles, _beta, _eps, _chol_mass: (
                     particles[:, None, :],
-                    jnp.zeros((particles.shape[0],), dtype=jnp.int32),
+                    jnp.zeros((particles.shape[0],), dtype=jnp.int64),
                 ),
                 "pilot_adapt_jit": lambda rng_key, particles, eps, _chol_mass, _target_accept: (
                     rng_key,
@@ -1227,7 +1227,7 @@ class TestInferenceCaching:
                         particles,
                         eps,
                         jnp.asarray(0.5, dtype=eps.dtype),
-                        jnp.asarray(1, dtype=jnp.int32),
+                        jnp.asarray(1, dtype=jnp.int64),
                     )
                 ),
             }

@@ -357,17 +357,17 @@ class TestKalmanBlockProfileIndices:
         """has_kalman_block and has_particle_block properties work correctly."""
         p_full_kalman = RBPartition(
             kalman_idx=np.array([0, 1]),
-            particle_idx=np.array([], dtype=np.int32),
+            particle_idx=np.array([], dtype=np.int64),
             obs_kalman_idx=np.array([0, 1]),
-            obs_particle_idx=np.array([], dtype=np.int32),
+            obs_particle_idx=np.array([], dtype=np.int64),
         )
         assert p_full_kalman.has_kalman_block
         assert not p_full_kalman.has_particle_block
 
         p_full_pf = RBPartition(
-            kalman_idx=np.array([], dtype=np.int32),
+            kalman_idx=np.array([], dtype=np.int64),
             particle_idx=np.array([0, 1]),
-            obs_kalman_idx=np.array([], dtype=np.int32),
+            obs_kalman_idx=np.array([], dtype=np.int64),
             obs_particle_idx=np.array([0, 1]),
         )
         assert not p_full_pf.has_kalman_block
@@ -377,7 +377,7 @@ class TestKalmanBlockProfileIndices:
         """has_particle_block is True when obs_particle_idx is non-empty, even if particle_idx is empty."""
         p = RBPartition(
             kalman_idx=np.array([0, 1]),
-            particle_idx=np.array([], dtype=np.int32),
+            particle_idx=np.array([], dtype=np.int64),
             obs_kalman_idx=np.array([0]),
             obs_particle_idx=np.array([1]),
         )
@@ -641,7 +641,7 @@ class TestSelectDefaultMethod:
             interval_prev_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
             interval_curr_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
             interval_weights=np.array([[[0.0], [0.0]], [[1.0], [0.0]]]),
-            emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int32),
+            emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int64),
         )
 
         assert select_default_method(spec, observation_support=support) == "laplace_em"
@@ -688,7 +688,7 @@ class TestPlanInferenceStructure:
             interval_prev_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
             interval_curr_coeffs=np.array([[[0.0], [0.0]], [[0.5], [0.0]]]),
             interval_weights=np.array([[[0.0], [0.0]], [[1.0], [0.0]]]),
-            emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int32),
+            emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int64),
         )
 
         plan = plan_inference_structure(spec, observation_support=support)

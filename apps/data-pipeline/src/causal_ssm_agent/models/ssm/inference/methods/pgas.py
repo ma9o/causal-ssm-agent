@@ -497,7 +497,7 @@ def _csmc_sweep_support_aware(
     prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=runtime_dtype)
     curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=runtime_dtype)
     interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=runtime_dtype)
-    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int64)
 
     def _obs_increment(
         x_curr,

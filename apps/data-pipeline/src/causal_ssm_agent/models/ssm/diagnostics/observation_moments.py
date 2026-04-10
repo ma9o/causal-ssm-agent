@@ -218,7 +218,7 @@ def _project_response_moments(
     n_timepoints, n_manifest = response_means.shape
     point_like_mask = observation_operator.point_like_mask(dtype)
     interval_summary_mask = observation_operator.interval_summary_mask(dtype)
-    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int64)
     summary_codes = observation_operator.summary_operator_codes
     semantic_mask_0 = point_like_mask + interval_summary_mask * (emission_slots[0] >= 0).astype(
         dtype
@@ -530,7 +530,7 @@ def _support_response_covariances(
     prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=dtype)
     curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=dtype)
     interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=dtype)
-    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int64)
     eye_latent = jnp.eye(n_latent, dtype=dtype)
     eye_accum = jnp.eye(accum_dim, dtype=dtype)
     zeros_accum = observation_operator.empty_accumulators(dtype)

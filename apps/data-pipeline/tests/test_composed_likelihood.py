@@ -85,10 +85,10 @@ def _make_full_model(n_latent=4, n_manifest=4, T=10):
 def _make_partition_2_2():
     """Partition: latents {0,1} → Kalman, {2,3} → PF. Obs follows same split."""
     return RBPartition(
-        kalman_idx=np.array([0, 1], dtype=np.int32),
-        particle_idx=np.array([2, 3], dtype=np.int32),
-        obs_kalman_idx=np.array([0, 1], dtype=np.int32),
-        obs_particle_idx=np.array([2, 3], dtype=np.int32),
+        kalman_idx=np.array([0, 1], dtype=np.int64),
+        particle_idx=np.array([2, 3], dtype=np.int64),
+        obs_kalman_idx=np.array([0, 1], dtype=np.int64),
+        obs_particle_idx=np.array([2, 3], dtype=np.int64),
     )
 
 

@@ -49,7 +49,7 @@ def _overlapping_interval_mean_support() -> ObservationSupportRuntime:
         interval_prev_coeffs=interval_prev_coeffs,
         interval_curr_coeffs=np.zeros((4, 1, 2), dtype=np.float64),
         interval_weights=interval_weights,
-        emission_slot_indices=np.array([[-1], [-1], [0], [1]], dtype=np.int32),
+        emission_slot_indices=np.array([[-1], [-1], [0], [1]], dtype=np.int64),
     )
 
 
@@ -135,7 +135,7 @@ def test_predict_observation_components_keeps_point_interval_same_row_covariance
                 [[0.0], [1.0]],
             ],
         ),
-        emission_slot_indices=np.array([[-1, -1], [-1, 0], [-1, 0]], dtype=np.int32),
+        emission_slot_indices=np.array([[-1, -1], [-1, 0], [-1, 0]], dtype=np.int64),
     )
     spec = make_ssm_spec(
         n_latent=1,

@@ -96,7 +96,7 @@ def partition_indices(
             s_list.append(i)
     # Return as numpy arrays to avoid JIT tracing issues when called at
     # construction time inside a traced function.
-    return np.array(g_list, dtype=np.int32), np.array(s_list, dtype=np.int32)
+    return np.array(g_list, dtype=np.int64), np.array(s_list, dtype=np.int64)
 
 
 def extract_subblocks(

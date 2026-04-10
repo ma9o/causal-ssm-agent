@@ -505,7 +505,7 @@ def _ppc_ordered_logistic(
     probs = ordered_logistic_probabilities(
         jnp.asarray([loc]),
         cutpoints[None, :],
-        jnp.asarray([level_count], dtype=jnp.int32),
+        jnp.asarray([level_count], dtype=jnp.int64),
     )[0]
     return _sample_discrete_from_probs(key, probs)
 
@@ -527,7 +527,7 @@ def _ppc_categorical(
         jnp.asarray([loc]),
         cat_intercepts[None, :],
         cat_slopes[None, :],
-        jnp.asarray([level_count], dtype=jnp.int32),
+        jnp.asarray([level_count], dtype=jnp.int64),
     )[0]
     return _sample_discrete_from_probs(key, probs)
 

@@ -38,7 +38,7 @@ def assemble_sampled_extra_params(
         return extra_params
 
     level_counts_list = list(spec.manifest_level_counts)
-    level_counts = jnp.asarray(level_counts_list, dtype=jnp.int32)
+    level_counts = jnp.asarray(level_counts_list, dtype=jnp.int64)
     extra_params["obs_level_counts"] = level_counts
 
     max_levels = max(level_counts_list) if level_counts_list else 0

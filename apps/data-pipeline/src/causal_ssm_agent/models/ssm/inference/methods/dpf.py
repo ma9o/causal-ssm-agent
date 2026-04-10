@@ -343,7 +343,7 @@ def _dpf_forward_support_aware(
     prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=runtime_dtype)
     curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=runtime_dtype)
     interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=runtime_dtype)
-    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int64)
 
     key_init, rng_key = random.split(rng_key)
     chol_P0 = jla.cholesky(init_cov + jitter, lower=True)

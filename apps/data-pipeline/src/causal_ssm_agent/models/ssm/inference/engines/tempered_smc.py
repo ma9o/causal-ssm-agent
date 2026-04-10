@@ -114,7 +114,7 @@ def _build_tempered_smc_bundle(
             return _tempered_val_and_grad(z_, beta)
 
         z_new, accepted, _ = hmc_step(rng_key, z, tempered_vg, eps, chol_mass, n_leapfrog)
-        return (z_new, n_accept + accepted.astype(jnp.int32)), None
+        return (z_new, n_accept + accepted.astype(jnp.int64)), None
 
     def _mutate_particle(rng_key, z, beta, eps, chol_mass):
         keys = random.split(rng_key, n_mh_steps)
@@ -122,7 +122,7 @@ def _build_tempered_smc_bundle(
         def scan_fn(carry, key):
             return _hmc_scan_body(carry, key, beta, eps, chol_mass)
 
-        (z_final, n_accept), _ = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
+        (z_final, n_accept), _ = jax.lax.scan(scan_fn, (z, jnp.int64(0)), keys)
         return z_final, n_accept
 
     def _mutate_particle_wastefree(rng_key, z, beta, eps, chol_mass):
@@ -135,9 +135,9 @@ def _build_tempered_smc_bundle(
                 return _tempered_val_and_grad(z_, beta)
 
             z_new, accepted, _ = hmc_step(key, z_curr, tempered_vg, eps, chol_mass, n_leapfrog)
-            return (z_new, n_acc + accepted.astype(jnp.int32)), z_new
+            return (z_new, n_acc + accepted.astype(jnp.int64)), z_new
 
-        (_, n_acc), all_z = jax.lax.scan(scan_fn, (z, jnp.int32(0)), keys)
+        (_, n_acc), all_z = jax.lax.scan(scan_fn, (z, jnp.int64(0)), keys)
         return all_z, n_acc
 
     def _mutate_batch(rng_key, particles, beta, eps, chol_mass):
@@ -201,7 +201,7 @@ def _build_tempered_smc_bundle(
                     eps_new,
                     stop_now,
                     total_accepts + round_accepts,
-                    jnp.asarray(step_idx + 1, dtype=jnp.int32),
+                    jnp.asarray(step_idx + 1, dtype=jnp.int64),
                     round_accept_rate_new,
                 )
 
@@ -214,7 +214,7 @@ def _build_tempered_smc_bundle(
             eps,
             jnp.asarray(False),
             jnp.asarray(0.0, dtype=eps.dtype),
-            jnp.asarray(0, dtype=jnp.int32),
+            jnp.asarray(0, dtype=jnp.int64),
             jnp.asarray(0.0, dtype=eps.dtype),
         )
         (

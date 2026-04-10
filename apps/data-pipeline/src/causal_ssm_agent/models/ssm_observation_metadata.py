@@ -190,7 +190,7 @@ def _compile_interval_support_coefficients(
     prev_coeffs = np.zeros((T, n_manifest, n_slots), dtype=np.float64)
     curr_coeffs = np.zeros((T, n_manifest, n_slots), dtype=np.float64)
     weights = np.zeros((T, n_manifest, n_slots), dtype=np.float64)
-    emission_slots = np.full((T, n_manifest), -1, dtype=np.int32)
+    emission_slots = np.full((T, n_manifest), -1, dtype=np.int64)
     tol = 1e-8
 
     for manifest_idx, _manifest_name in enumerate(manifest_names):

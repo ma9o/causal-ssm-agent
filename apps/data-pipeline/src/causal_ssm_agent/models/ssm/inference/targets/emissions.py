@@ -46,7 +46,7 @@ def _normalize_discrete_observation(
     level_counts: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     rounded = jnp.rint(y_t)
-    y_idx = rounded.astype(jnp.int32)
+    y_idx = rounded.astype(jnp.int64)
     valid = (
         jnp.isfinite(y_t)
         & jnp.isclose(y_t, rounded, atol=1e-4)
@@ -91,7 +91,7 @@ def ordered_logistic_probabilities(
     """Return per-channel ordered-logistic probabilities over encoded categories."""
     eta = jnp.asarray(eta)
     cutpoints = jnp.asarray(cutpoints)
-    level_counts = jnp.asarray(level_counts, dtype=jnp.int32)
+    level_counts = jnp.asarray(level_counts, dtype=jnp.int64)
 
     n_manifest = eta.shape[0]
     max_levels = cutpoints.shape[1] + 1
@@ -110,7 +110,7 @@ def ordered_logistic_probabilities(
     class_mask = jnp.arange(max_levels)[None, :] < level_counts[:, None]
     probs = jnp.where(class_mask, jnp.maximum(probs, 0.0), 0.0)
     norm = jnp.sum(probs, axis=1, keepdims=True)
-    fallback = jax.nn.one_hot(jnp.zeros(n_manifest, dtype=jnp.int32), max_levels)
+    fallback = jax.nn.one_hot(jnp.zeros(n_manifest, dtype=jnp.int64), max_levels)
     return jnp.where(
         norm > NUMERICAL_EPSILON,
         probs / jnp.maximum(norm, NUMERICAL_EPSILON),
@@ -128,7 +128,7 @@ def categorical_probabilities(
     eta = jnp.asarray(eta)
     intercepts = jnp.asarray(intercepts)
     slopes = jnp.asarray(slopes)
-    level_counts = jnp.asarray(level_counts, dtype=jnp.int32)
+    level_counts = jnp.asarray(level_counts, dtype=jnp.int64)
 
     max_levels = intercepts.shape[1] + 1
     nonbaseline_mask = jnp.arange(1, max_levels)[None, :] < level_counts[:, None]
@@ -140,7 +140,7 @@ def categorical_probabilities(
     class_mask = jnp.arange(max_levels)[None, :] < level_counts[:, None]
     probs = jnp.where(class_mask, probs, 0.0)
     norm = jnp.sum(probs, axis=1, keepdims=True)
-    fallback = jax.nn.one_hot(jnp.zeros(eta.shape[0], dtype=jnp.int32), max_levels)
+    fallback = jax.nn.one_hot(jnp.zeros(eta.shape[0], dtype=jnp.int64), max_levels)
     return jnp.where(
         norm > NUMERICAL_EPSILON,
         probs / jnp.maximum(norm, NUMERICAL_EPSILON),
@@ -172,7 +172,7 @@ def categorical_moments(
 def get_ordered_logistic_extra_params(
     extra_params: dict,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+    level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int64)
     cutpoints = jnp.asarray(extra_params["obs_ordered_cutpoints"])
     return level_counts, cutpoints
 
@@ -180,7 +180,7 @@ def get_ordered_logistic_extra_params(
 def get_categorical_extra_params(
     extra_params: dict,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int32)
+    level_counts = jnp.asarray(extra_params["obs_level_counts"], dtype=jnp.int64)
     intercepts = jnp.asarray(extra_params["obs_cat_intercepts"])
     slopes = jnp.asarray(extra_params["obs_cat_slopes"])
     return level_counts, intercepts, slopes
@@ -674,7 +674,7 @@ def _slice_per_channel_extra_params(
         return None
 
     sliced: dict = {}
-    idx = jnp.array(ch_indices, dtype=jnp.int32)
+    idx = jnp.array(ch_indices, dtype=jnp.int64)
     for key, value in extra_params.items():
         if (
             hasattr(value, "ndim")
