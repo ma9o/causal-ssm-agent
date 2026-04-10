@@ -293,7 +293,7 @@ def extract_constrained_samples(
 
     if reparam is None:
         structure_runtime = (
-            model._structure_runtime if model is not None else SSMStructureRuntime(spec)
+            model.structure_runtime if model is not None else SSMStructureRuntime(spec)
         )
         det_samples = _assemble_deterministics(
             samples,
@@ -324,7 +324,7 @@ def extract_constrained_samples(
     original_samples = sample_resolver(samples)
 
     # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
-    structure_runtime = model._structure_runtime if model is not None else SSMStructureRuntime(spec)
+    structure_runtime = model.structure_runtime if model is not None else SSMStructureRuntime(spec)
     det_samples = _assemble_deterministics(
         original_samples,
         spec,
@@ -361,7 +361,8 @@ def _build_eval_fns(
         times=times,
         reparam=reparam,
     )
-    runtime_registry = build_site_registry(model.spec, model._structure_runtime)
+    structure_runtime = model.structure_runtime
+    runtime_registry = build_site_registry(model.spec, structure_runtime)
     time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
 
     def _constrain(z):
@@ -376,7 +377,7 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            structure_runtime=model._structure_runtime,
+            structure_runtime=structure_runtime,
         )
         lnc = likelihood_backend.compute_log_likelihood(
             ct_params,

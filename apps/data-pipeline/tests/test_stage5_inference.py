@@ -48,7 +48,7 @@ class _FakeBuilder(SSMModelBuilder):
     def __init__(self, result: _FakeResult) -> None:
         super().__init__()
         self._result = result
-        self._model = SSMModel(
+        model = SSMModel(
             make_ssm_spec(
                 n_latent=1,
                 n_manifest=2,
@@ -56,6 +56,7 @@ class _FakeBuilder(SSMModelBuilder):
                 manifest_names=["sleep_avg", "energy"],
             )
         )
+        self.attach_runtime_artifacts(model, result=result)
 
     def fit_prepared(
         self, observations: jnp.ndarray, times: jnp.ndarray, **_kwargs
@@ -100,6 +101,9 @@ def _make_observation_support_runtime() -> ObservationSupportRuntime:
 def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
     return PreparedModelRuntime(
         builder=fake_builder,
+        model=fake_builder.model,
+        spec=fake_builder.spec,
+        structure_runtime=fake_builder.model.structure_runtime,
         wide_data=pl.DataFrame(
             {
                 "time": [0.0, 1.5],

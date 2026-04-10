@@ -144,13 +144,12 @@ def parametric_id_task(
             compiled_ssm=compiled_ssm,
             builder=builder,
         )
-        assert runtime.builder._model is not None
-        ssm_model = runtime.builder._model
+        ssm_model = runtime.model
         observations = runtime.observations
         times = runtime.times
 
         inference_structure_payload = build_inference_structure_payload(
-            ssm_model.spec,
+            runtime.spec,
             runtime.inference_structure,
         )
 
@@ -197,12 +196,12 @@ def parametric_id_task(
             if partition is not None and runtime.inference_structure.likelihood_path == "composed":
                 kalman_indices = kalman_block_profile_indices(
                     partition,
-                    structure_runtime=ssm_model._structure_runtime,
+                    structure_runtime=runtime.structure_runtime,
                 )
                 logger.info(
                     "First-pass RB plan: profiling %d/%d Kalman-block params (skipping particle block)",
                     len(kalman_indices),
-                    ssm_model.spec.n_latent,
+                    runtime.spec.n_latent,
                 )
         except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
             logger.warning("Inference-structure profile filtering failed: %s", exc)

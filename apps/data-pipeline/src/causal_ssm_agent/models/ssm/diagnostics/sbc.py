@@ -56,7 +56,7 @@ def sbc_check(
         site_runtime.registry,
         site_runtime.unravel_fn,
         site_runtime.transforms,
-        model._structure_runtime,
+        model.structure_runtime,
         backend,
     )
 

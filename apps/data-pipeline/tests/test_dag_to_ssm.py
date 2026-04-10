@@ -1043,8 +1043,7 @@ class TestBuilderMasks:
         )
 
         builder.build_model(X)
-        spec = builder._spec
-        assert spec is not None
+        spec = builder.spec
 
         # Verify masks were built
         drift_mask = combined_drift_mask(spec)

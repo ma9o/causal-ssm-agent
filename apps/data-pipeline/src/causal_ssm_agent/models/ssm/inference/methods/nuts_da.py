@@ -538,7 +538,7 @@ def _try_svi(
             if k in det_sites or k == "manifest_means":
                 det_values[k] = v[0]
 
-        structure_runtime = ssm_model._structure_runtime
+        structure_runtime = ssm_model.structure_runtime
         if structure_runtime.n_drift_diag == 0 and structure_runtime.n_drift_offdiag == 0:
             det_values["drift"] = structure_runtime.drift_template
         if structure_runtime.n_diffusion_diag == 0 and structure_runtime.n_diffusion_lower == 0:
@@ -566,7 +566,7 @@ def _try_smoother(
     """Try running Kalman smoother with estimated parameters."""
     spec = ssm_model.spec
     n_l = spec.n_latent
-    structure_runtime = ssm_model._structure_runtime
+    structure_runtime = ssm_model.structure_runtime
 
     try:
         drift = det_values["drift"]

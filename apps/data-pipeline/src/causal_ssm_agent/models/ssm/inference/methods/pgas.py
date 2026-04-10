@@ -1143,7 +1143,7 @@ def fit_pgas(
             transforms,
             model.spec,
             adapter,
-            structure_runtime=model._structure_runtime,
+            structure_runtime=model.structure_runtime,
             measurement_semantics=support_measurement_semantics,
             observation_support=observation_support,
         )
@@ -1226,7 +1226,7 @@ def fit_pgas(
             unravel_fn,
             transforms,
             model.spec,
-            structure_runtime=model._structure_runtime,
+            structure_runtime=model.structure_runtime,
         )
     )
 
@@ -1264,7 +1264,7 @@ def fit_pgas(
                 unravel_fn,
                 transforms,
                 model.spec,
-                structure_runtime=model._structure_runtime,
+                structure_runtime=model.structure_runtime,
             )
         )
 

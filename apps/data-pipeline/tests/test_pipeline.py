@@ -947,7 +947,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         latent_names=["screen_time", "sleep_quality"],
         manifest_names=[],
     )
-    mock_builder = SimpleNamespace(_spec=mock_spec)
+    mock_builder = SimpleNamespace(spec=mock_spec)
 
     fitted_artifact = FittedArtifact(
         result=None,
@@ -1299,7 +1299,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
         latent_names=["screen_time", "sleep_quality"],
         manifest_names=["screen_time_obs"],
     )
-    builder = SimpleNamespace(_spec=spec, _model=_Unpicklable())
+    builder = SimpleNamespace(spec=spec, model=_Unpicklable())
     result = InferenceResult(
         _samples={"drift": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
         method="laplace_em",
@@ -1323,7 +1323,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
         np.asarray(result.get_samples()["drift"]),
     )
     assert restored.builder is not None
-    assert restored.builder._spec.latent_names == ["screen_time", "sleep_quality"]
+    assert restored.builder.spec.latent_names == ["screen_time", "sleep_quality"]
     assert restored.ppc_result == {"checked": True, "per_variable_warnings": []}
 
 

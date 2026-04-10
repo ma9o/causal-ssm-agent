@@ -865,7 +865,7 @@ class TestOutputSensitivity:
             spec,
             "manifest_var_diag_free",
             0,
-            structure_runtime=model._structure_runtime,
+            structure_runtime=model.structure_runtime,
         )
 
         assert alias == "obs_sd_sleep_quality"

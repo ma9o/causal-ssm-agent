@@ -619,6 +619,11 @@ class SSMModel:
             if not (isinstance(key, tuple) and key and key[0] == "backend")
         }
 
+    @property
+    def structure_runtime(self) -> SSMStructureRuntime:
+        """Return the compiled structural runtime for this built model."""
+        return self._structure_runtime
+
     def get_prior_runtime_bundle(self) -> PriorRuntimeBundle:
         """Return canonical prior runtime state for this model instance."""
         if self._prior_runtime_bundle is None:

@@ -212,7 +212,7 @@ def _interpretable_parameter_name_map(
 ) -> dict[str, str]:
     """Resolve semantic display names for all scalar parameters."""
     binding_index = _binding_index_for_model(model)
-    structure_runtime = getattr(model, "_structure_runtime", None)
+    structure_runtime = getattr(model, "structure_runtime", None)
     if not isinstance(structure_runtime, SSMStructureRuntime):
         structure_runtime = SSMStructureRuntime(model.spec)
 

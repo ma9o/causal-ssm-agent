@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Any, Literal
 
 import jax.numpy as jnp
@@ -283,7 +282,14 @@ def _serialize_fitted_builder(builder: Any) -> Any:
     """Persist only the compiled spec Stage 6 needs for counterfactual analysis."""
     if builder is None:
         return None
-    return SimpleNamespace(_spec=getattr(builder, "_spec", None))
+    return FittedBuilderSnapshot(spec=builder.spec)
+
+
+@dataclass(frozen=True)
+class FittedBuilderSnapshot:
+    """Minimal persisted builder state required by Stage 6."""
+
+    spec: Any | None
 
 
 @dataclass

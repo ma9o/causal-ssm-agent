@@ -14,6 +14,7 @@ from causal_ssm_agent.models.ssm import (
     SSMModel,
     SSMPriors,
     SSMSpec,
+    SSMStructureRuntime,
     fit,
     full_cholesky_mask,
     full_diagonal_mask,
@@ -80,6 +81,9 @@ class PreparedModelRuntime:
     """Canonical prepared runtime context shared by validation and inference."""
 
     builder: SSMModelBuilder
+    model: SSMModel
+    spec: SSMSpec
+    structure_runtime: SSMStructureRuntime
     wide_data: pl.DataFrame
     observation_data: pl.DataFrame | None
     observation_support: ObservationSupportRuntime | None
@@ -143,6 +147,45 @@ class SSMModelBuilder:
         self._prepared_observation_mask: jnp.ndarray | None = None
         self._prepared_observation_support: ObservationSupportRuntime | None = None
         self._prepared_inference_structure: InferenceStructurePlan | None = None
+
+    @property
+    def has_model(self) -> bool:
+        """Return whether this builder has already materialized an SSMModel."""
+        return self._model is not None
+
+    @property
+    def model_type(self) -> str:
+        """Return the builder's public model-type label."""
+        return self._model_type
+
+    @property
+    def model(self) -> SSMModel:
+        """Return the built SSMModel."""
+        if self._model is None:
+            raise ValueError("SSMModelBuilder has no built SSMModel")
+        return self._model
+
+    @property
+    def spec(self) -> SSMSpec:
+        """Return the compiled SSMSpec associated with this builder."""
+        if self._spec is not None:
+            return self._spec
+        if self._model is not None:
+            return self._model.spec
+        if self._ssm_spec is not None:
+            return self._ssm_spec
+        raise ValueError("SSMModelBuilder has no compiled SSMSpec")
+
+    def attach_runtime_artifacts(
+        self,
+        model: SSMModel,
+        *,
+        result: InferenceResult | None = None,
+    ) -> None:
+        """Attach an already-built model and optional fit result to this builder."""
+        self._model = model
+        self._spec = model.spec
+        self._result = result
 
     def _load_prior_runtime_bundle(
         self,
@@ -291,7 +334,7 @@ class SSMModelBuilder:
         Returns:
             InferenceResult with posterior samples
         """
-        if self._model is None:
+        if not self.has_model:
             self.build_model(X, y)
 
         observations, times, _manifest_names = self.prepare_fit_inputs(X)
@@ -304,7 +347,7 @@ class SSMModelBuilder:
         **kwargs: Any,
     ) -> InferenceResult:
         """Fit the built model from precomputed observation/time arrays."""
-        if self._model is None:
+        if not self.has_model:
             raise ValueError("Model must be built before fitting prepared inputs")
 
         sampler_config = {**self._sampler_config, **kwargs}
@@ -312,7 +355,7 @@ class SSMModelBuilder:
         fit_kwargs = {k: v for k, v in sampler_config.items() if k != "method"}
 
         result = fit(
-            self._model,
+            self.model,
             observations=observations,
             times=times,
             method=method,
@@ -337,14 +380,19 @@ class SSMModelBuilder:
         Returns:
             Tuple of (observations, times, manifest_names)
         """
-        if self._spec is not None and self._spec.manifest_names:
-            manifest_cols = self._spec.manifest_names
+        try:
+            spec = self.spec
+        except ValueError:
+            spec = None
+
+        if spec is not None and spec.manifest_names:
+            manifest_cols = spec.manifest_names
         else:
             manifest_cols = default_manifest_columns(X)
 
         manifest_centered = (
-            list(self._spec.manifest_centered)
-            if self._spec is not None and self._spec.manifest_centered is not None
+            list(spec.manifest_centered)
+            if spec is not None and spec.manifest_centered is not None
             else None
         )
         X = _center_manifest_columns(X, manifest_cols, manifest_centered)
@@ -387,16 +435,15 @@ class SSMModelBuilder:
         observation_support = prepared_support if use_prepared_schedule else None
         observation_mask = prepared_mask if use_prepared_schedule else None
 
-        spec = self._spec
-        if spec is None:
-            if self._model is not None:
-                spec = self._model.spec
-            elif self._ssm_spec is not None:
-                spec = self._ssm_spec
-            elif self._model_spec is not None:
+        try:
+            spec = self.spec
+        except ValueError:
+            if self._model_spec is not None:
                 spec, _priors = self.compile_inputs()
             else:
-                raise ValueError("Cannot sample prior predictive without an SSM specification")
+                raise ValueError(
+                    "Cannot sample prior predictive without an SSM specification"
+                ) from None
 
         from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
             any_family_needs_level_metadata,
@@ -425,7 +472,10 @@ class SSMModelBuilder:
             )
 
         compiled_spec, priors = self.compile_inputs()
-        runtime_spec = self._spec if self._spec is not None else compiled_spec
+        try:
+            runtime_spec = self.spec
+        except ValueError:
+            runtime_spec = compiled_spec
         return sample_prior_predictive_from_priors(
             runtime_spec,
             priors,
@@ -538,13 +588,13 @@ def prepare_wide_model_runtime(
             sampler_config=sampler_config,
             compiled_ssm=compiled_ssm,
         )
-    elif getattr(builder, "_model", None) is None:
+    elif not builder.has_model:
         builder.build_model(wide_data)
 
-    builder_spec = builder._spec
+    builder_spec = builder.spec
     manifest_names = (
         list(builder_spec.manifest_names)
-        if builder_spec is not None and builder_spec.manifest_names
+        if builder_spec.manifest_names
         else default_manifest_columns(wide_data)
     )
     wide_data = augment_wide_data_with_support_boundaries(
@@ -558,13 +608,10 @@ def prepare_wide_model_runtime(
         wide_data,
         manifest_names,
     )
-    model_obj = getattr(builder, "_model", None)
-    if model_obj is not None and hasattr(model_obj, "set_observation_support"):
-        model_obj.set_observation_support(observation_support)
-    spec_obj = getattr(builder, "_spec", None) or getattr(model_obj, "spec", None)
-    if spec_obj is None:
-        raise ValueError("Prepared runtime requires a compiled SSMSpec")
-    likelihood_name = getattr(model_obj, "likelihood", "particle")
+    model_obj = builder.model
+    model_obj.set_observation_support(observation_support)
+    spec_obj = builder.spec
+    likelihood_name = model_obj.likelihood
     inference_structure = plan_inference_structure(
         spec_obj,
         likelihood=likelihood_name,
@@ -591,6 +638,9 @@ def prepare_wide_model_runtime(
         )
     return PreparedModelRuntime(
         builder=builder,
+        model=model_obj,
+        spec=spec_obj,
+        structure_runtime=model_obj.structure_runtime,
         wide_data=wide_data,
         observation_data=observation_data,
         observation_support=observation_support,
