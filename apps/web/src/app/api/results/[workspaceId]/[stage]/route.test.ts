@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { LLMTrace } from "@causal-ssm/api-types";
+import type { LLMTrace, Stage3Data, Stage4PersistedData } from "@causal-ssm/api-types";
 
 vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
@@ -16,6 +16,7 @@ vi.mock("@/lib/storage", () => ({
 }));
 
 import { deriveStage2Data } from "@/lib/stage2-data";
+import { deriveStage4Data } from "@/lib/stage4-derived-data";
 import { readBinary, readData } from "@/lib/storage";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { GET } from "./route";
@@ -204,5 +205,49 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     expect(payload.combined_extractions_sample).not.toEqual([
       { indicator: "poisoned", value: "persisted-only" },
     ]);
+  });
+
+  it("hydrates stage 4 likelihood diagnostics from stage 3 + full stage 2 observations", async () => {
+    const [stage4Json, stage3Json, parquetBytes] = await Promise.all([
+      readFile(
+        new URL("../../../../../../../../data/GOLDEN/run/stage-4.json", import.meta.url),
+        "utf-8",
+      ),
+      readFile(
+        new URL("../../../../../../../../data/GOLDEN/run/stage-3.json", import.meta.url),
+        "utf-8",
+      ),
+      readFile(
+        new URL(
+          "../../../../../../../../data/GOLDEN/run/stage2-model-data.parquet",
+          import.meta.url,
+        ),
+      ),
+    ]);
+    const persisted = JSON.parse(stage4Json) as Stage4PersistedData;
+    const stage3 = JSON.parse(stage3Json) as Stage3Data;
+    const parquet = new Uint8Array(
+      parquetBytes.buffer,
+      parquetBytes.byteOffset,
+      parquetBytes.byteLength,
+    );
+    const expected = await deriveStage4Data(persisted, stage3, parquet);
+
+    vi.mocked(readData).mockResolvedValueOnce(stage4Json).mockResolvedValueOnce(stage3Json);
+    vi.mocked(readBinary).mockResolvedValue(parquet);
+
+    const response = await GET(new Request("http://localhost/api/results/user/stage-4"), {
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-4" }),
+    });
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toEqual(expected);
+    expect(payload.likelihood_diagnostics.google_activity_event_count.profile.n_obs).toBeGreaterThan(
+      0,
+    );
+    expect(payload.likelihood_diagnostics.google_activity_event_count.histogram.length).toBeGreaterThan(
+      1,
+    );
   });
 });

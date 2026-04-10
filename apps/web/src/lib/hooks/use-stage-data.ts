@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getStageResult } from "../api/endpoints";
 import { isMockMode } from "../api/mock-provider";
 
-const STAGE_DATA_QUERY_VERSION = 2;
+const STAGE_DATA_QUERY_VERSION = 3;
 
 async function fetchStageData<T>(workspaceId: string, stage: StageId): Promise<T> {
   let payload: unknown;

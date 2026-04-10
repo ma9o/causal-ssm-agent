@@ -113,7 +113,22 @@ export type Stage4PersistedData = Omit<
 > & {
   resolved_priors: import("./generated/models").PriorProposal[];
 };
-export type Stage4Data = Stage4PersistedData;
+export interface HistogramBin {
+  binCenter: number;
+  count: number;
+}
+
+export interface Stage4LikelihoodDiagnostics {
+  variable: string;
+  profile: import("./generated/models").IndicatorEmpiricalProfileContract | null;
+  histogram: HistogramBin[];
+}
+
+export type Stage4Data = Stage4PersistedData & {
+  likelihood_diagnostics: {
+    [k: string]: Stage4LikelihoodDiagnostics | undefined;
+  };
+};
 // Tool definitions (codegen'd from Python ToolContract)
 export type { ToolDefinition } from "./generated/tools";
 export { INTERACTIVE_STAGES, STAGE_TOOLS } from "./generated/tools";

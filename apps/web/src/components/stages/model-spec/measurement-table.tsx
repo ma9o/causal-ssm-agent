@@ -5,12 +5,11 @@ import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatNumber } from "@/lib/utils/format";
-import { buildHistogram } from "@/lib/utils/histogram";
-import type { LikelihoodSpec, ObservationRecord } from "@causal-ssm/api-types";
+import type { LikelihoodSpec, Stage4LikelihoodDiagnostics } from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import katex from "katex";
 import { ExternalLink } from "lucide-react";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import {
   Bar,
   CartesianGrid,
@@ -26,55 +25,145 @@ import {
 
 interface MeasurementRow {
   likelihood: LikelihoodSpec;
-  extractions: ObservationRecord[];
+  diagnostics?: Stage4LikelihoodDiagnostics;
   priorSamples?: number[];
 }
 
-function buildCountFrequency(values: number[]): Array<{ binCenter: number; count: number }> {
-  const freq = new Map<number, number>();
-  for (const v of values) {
-    freq.set(v, (freq.get(v) ?? 0) + 1);
+interface DisplayBin {
+  binCenter: number;
+  count: number;
+  binStart: number;
+  binEnd: number;
+}
+
+const MAX_RENDER_BINS = 20;
+const priorSeriesCache = new WeakMap<number[], Map<string, Array<{ binCenter: number; prior: number }>>>();
+
+function capHistogramBins(
+  bins: Array<{ binCenter: number; count: number }>,
+  maxBins = MAX_RENDER_BINS,
+): DisplayBin[] {
+  if (bins.length <= maxBins) {
+    return bins.map((bin) => ({
+      binCenter: bin.binCenter,
+      count: bin.count,
+      binStart: bin.binCenter,
+      binEnd: bin.binCenter,
+    }));
   }
-  return Array.from(freq.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([k, count]) => ({ binCenter: k, count }));
+
+  const groupSize = Math.ceil(bins.length / maxBins);
+  const grouped: DisplayBin[] = [];
+
+  for (let startIndex = 0; startIndex < bins.length; startIndex += groupSize) {
+    const slice = bins.slice(startIndex, startIndex + groupSize);
+    const binStart = slice[0].binCenter;
+    const binEnd = slice[slice.length - 1].binCenter;
+    grouped.push({
+      binCenter: (binStart + binEnd) / 2,
+      count: slice.reduce((sum, bin) => sum + bin.count, 0),
+      binStart,
+      binEnd,
+    });
+  }
+
+  return grouped;
 }
 
 function binPriorSamples(
   priorSamples: number[],
-  dataBins: Array<{ binCenter: number }>,
+  dataBins: DisplayBin[],
   nData: number,
   isDiscrete: boolean,
 ): Array<{ binCenter: number; prior: number }> {
   if (priorSamples.length === 0 || dataBins.length === 0) return [];
 
   if (isDiscrete) {
-    const freq = new Map<number, number>();
+    const counts = new Array(dataBins.length).fill(0);
     for (const v of priorSamples) {
-      freq.set(v, (freq.get(v) ?? 0) + 1);
+      const idx = dataBins.findIndex((bin) => v >= bin.binStart && v <= bin.binEnd);
+      if (idx >= 0) {
+        counts[idx]++;
+      }
     }
     const scale = nData / priorSamples.length;
-    return dataBins.map((b) => ({
-      binCenter: b.binCenter,
-      prior: (freq.get(b.binCenter) ?? 0) * scale,
+    return dataBins.map((bin, index) => ({
+      binCenter: bin.binCenter,
+      prior: counts[index] * scale,
     }));
   }
 
-  if (dataBins.length < 2) return [];
-  const binWidth = dataBins[1].binCenter - dataBins[0].binCenter;
-  const firstEdge = dataBins[0].binCenter - binWidth / 2;
-
   const counts = new Array(dataBins.length).fill(0);
-  for (const v of priorSamples) {
-    const idx = Math.min(Math.max(Math.floor((v - firstEdge) / binWidth), 0), dataBins.length - 1);
-    counts[idx]++;
+  const hasExplicitRanges = dataBins.some((bin) => bin.binStart !== bin.binEnd);
+
+  if (!hasExplicitRanges) {
+    if (dataBins.length < 2) return [];
+    const binWidth = dataBins[1].binCenter - dataBins[0].binCenter;
+    const firstEdge = dataBins[0].binCenter - binWidth / 2;
+
+    for (const v of priorSamples) {
+      const idx = Math.min(
+        Math.max(Math.floor((v - firstEdge) / binWidth), 0),
+        dataBins.length - 1,
+      );
+      counts[idx]++;
+    }
+  } else {
+    for (const v of priorSamples) {
+      const idx = dataBins.findIndex((bin, index) =>
+        index === dataBins.length - 1
+          ? v >= bin.binStart && v <= bin.binEnd
+          : v >= bin.binStart && v < bin.binEnd,
+      );
+      if (idx >= 0) {
+        counts[idx]++;
+      }
+    }
   }
 
   const scale = nData / priorSamples.length;
-  return dataBins.map((b, i) => ({
-    binCenter: b.binCenter,
-    prior: counts[i] * scale,
+  return dataBins.map((bin, index) => ({
+    binCenter: bin.binCenter,
+    prior: counts[index] * scale,
   }));
+}
+
+function priorCacheKey(
+  dataBins: DisplayBin[],
+  nData: number,
+  isDiscrete: boolean,
+): string {
+  return [
+    isDiscrete ? "discrete" : "continuous",
+    String(nData),
+    dataBins.map((bin) => `${bin.binStart}:${bin.binEnd}:${bin.binCenter}`).join("|"),
+  ].join("::");
+}
+
+function getCachedPriorSamples(
+  priorSamples: number[],
+  dataBins: DisplayBin[],
+  nData: number,
+  isDiscrete: boolean,
+): Array<{ binCenter: number; prior: number }> {
+  if (priorSamples.length === 0 || dataBins.length === 0) {
+    return [];
+  }
+
+  const key = priorCacheKey(dataBins, nData, isDiscrete);
+  const cachedForSamples = priorSeriesCache.get(priorSamples);
+  const cachedSeries = cachedForSamples?.get(key);
+  if (cachedSeries) {
+    return cachedSeries;
+  }
+
+  const computed = binPriorSamples(priorSamples, dataBins, nData, isDiscrete);
+  if (cachedForSamples) {
+    cachedForSamples.set(key, computed);
+  } else {
+    priorSeriesCache.set(priorSamples, new Map([[key, computed]]));
+  }
+  return computed;
 }
 
 // ── Link label helper ─────────────────────────────────────
@@ -96,34 +185,39 @@ function linkLabel(link: string): string {
 
 // ── Inline chart ──────────────────────────────────────────
 
-function MeasurementSparkline({ row }: { row: MeasurementRow }) {
-  const numericValues = row.extractions
-    .map((e) => (typeof e.value === "boolean" ? (e.value ? 1 : 0) : Number(e.value)))
-    .filter((v) => !Number.isNaN(v));
-
-  if (numericValues.length === 0) return <span className="text-xs text-muted-foreground">--</span>;
-
+const MeasurementSparkline = memo(function MeasurementSparkline({ row }: { row: MeasurementRow }) {
+  const nObs = row.diagnostics?.profile?.n_obs ?? 0;
   const isDiscrete =
     row.likelihood.distribution === "poisson" ||
     row.likelihood.distribution === "bernoulli" ||
     row.likelihood.distribution === "negative_binomial" ||
     row.likelihood.distribution === "ordered_logistic";
+  const bins = useMemo(
+    () => capHistogramBins(row.diagnostics?.histogram ?? []),
+    [row.diagnostics?.histogram],
+  );
 
-  const bins = isDiscrete
-    ? buildCountFrequency(numericValues)
-    : buildHistogram(numericValues, Math.min(15, Math.ceil(Math.sqrt(numericValues.length))));
+  if (bins.length === 0 || nObs === 0) {
+    return <span className="text-xs text-muted-foreground">--</span>;
+  }
 
-  const prior =
-    row.priorSamples && row.priorSamples.length > 0
-      ? binPriorSamples(row.priorSamples, bins, numericValues.length, isDiscrete)
-      : [];
+  const prior = useMemo(
+    () =>
+      row.priorSamples && row.priorSamples.length > 0
+        ? getCachedPriorSamples(row.priorSamples, bins, nObs, isDiscrete)
+        : [],
+    [bins, isDiscrete, nObs, row.priorSamples],
+  );
 
   const hasPrior = prior.length > 0;
 
-  const chartData = bins.map((b) => {
-    const p = prior.find((o) => o.binCenter === b.binCenter);
-    return { ...b, ...(hasPrior ? { prior: p?.prior ?? 0 } : {}) };
-  });
+  const chartData = useMemo(() => {
+    const priorByCenter = new Map(prior.map((entry) => [entry.binCenter, entry.prior]));
+    return bins.map((bin) => ({
+      ...bin,
+      ...(hasPrior ? { prior: priorByCenter.get(bin.binCenter) ?? 0 } : {}),
+    }));
+  }, [bins, hasPrior, prior]);
 
   return (
     <div className="h-20 w-48">
@@ -174,7 +268,12 @@ function MeasurementSparkline({ row }: { row: MeasurementRow }) {
       </ResponsiveContainer>
     </div>
   );
-}
+},
+(previous, next) =>
+  previous.row.diagnostics === next.row.diagnostics &&
+  previous.row.priorSamples === next.row.priorSamples &&
+  previous.row.likelihood.distribution === next.row.likelihood.distribution,
+);
 
 // ── Table columns ─────────────────────────────────────────
 
@@ -212,13 +311,11 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
     id: "stats",
     header: "Stats",
     cell: ({ row }) => {
-      const numericValues = row.original.extractions
-        .map((e) => (typeof e.value === "boolean" ? (e.value ? 1 : 0) : Number(e.value)))
-        .filter((v) => !Number.isNaN(v));
-      if (numericValues.length === 0)
+      const profile = row.original.diagnostics?.profile;
+      if (!profile || profile.n_obs === 0 || profile.mean == null) {
         return <span className="text-xs text-muted-foreground">--</span>;
-      const mean = numericValues.reduce((s, v) => s + v, 0) / numericValues.length;
-      const latex = `n=${numericValues.length} \\\\[2pt] \\hat{\\mu}=${formatNumber(mean, 2)}`;
+      }
+      const latex = `n=${profile.n_obs} \\\\[2pt] \\hat{\\mu}=${formatNumber(profile.mean, 2)}`;
       return (
         <span
           className="text-xs text-muted-foreground"
@@ -303,21 +400,21 @@ const baseColumns: ColumnDef<MeasurementRow, unknown>[] = [
 
 export function MeasurementTable({
   likelihoods,
-  extractions,
+  diagnostics,
   priorPredictiveSamples,
 }: {
   likelihoods: LikelihoodSpec[];
-  extractions: ObservationRecord[];
+  diagnostics: Record<string, Stage4LikelihoodDiagnostics | undefined>;
   priorPredictiveSamples?: Record<string, number[]>;
 }) {
   const rows: MeasurementRow[] = useMemo(
     () =>
       likelihoods.map((lik) => ({
         likelihood: lik,
-        extractions: extractions.filter((e) => e.indicator === lik.variable),
+        diagnostics: diagnostics[lik.variable],
         priorSamples: priorPredictiveSamples?.[lik.variable],
       })),
-    [likelihoods, extractions, priorPredictiveSamples],
+    [likelihoods, diagnostics, priorPredictiveSamples],
   );
 
   const columns = baseColumns;

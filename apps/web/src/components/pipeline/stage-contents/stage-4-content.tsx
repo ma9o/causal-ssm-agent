@@ -3,18 +3,19 @@ import { MeasurementTable } from "@/components/stages/model-spec/measurement-tab
 import { PriorTable } from "@/components/stages/model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
 import { collectStage4UiPriors } from "@/lib/stage4-data";
-import type { Indicator, ObservationRecord, Stage4Data } from "@causal-ssm/api-types";
+import type { Indicator, Stage4Data } from "@causal-ssm/api-types";
 
 export default function Stage4Content({
   data,
-  extractions,
   indicators,
 }: {
   data: Stage4Data;
-  extractions?: ObservationRecord[];
   indicators?: Indicator[];
 }) {
   const authoredPriors = collectStage4UiPriors(data);
+  const hasLikelihoodDiagnostics = Object.values(data.likelihood_diagnostics).some(
+    (diagnostics) => (diagnostics?.histogram.length ?? 0) > 0,
+  );
 
   return (
     <div className="space-y-4">
@@ -24,7 +25,7 @@ export default function Stage4Content({
         priors={authoredPriors}
         indicators={indicators}
       />
-      {extractions && extractions.length > 0 && (
+      {hasLikelihoodDiagnostics && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold">Likelihoods Diagnostics</h3>
@@ -32,7 +33,7 @@ export default function Stage4Content({
           </div>
           <MeasurementTable
             likelihoods={data.model_spec.likelihoods}
-            extractions={extractions}
+            diagnostics={data.likelihood_diagnostics}
             priorPredictiveSamples={
               (data.prior_predictive_samples ?? undefined) as Record<string, number[]> | undefined
             }
