@@ -8,6 +8,10 @@ import {
   extractConfounder,
   likelihoodLine,
   linkInverse,
+  observationEquationLatex,
+  observationParameterDefinitionLatex,
+  observationParameterSymbol,
+  observationPriorLatex,
   paramSymbol,
   parseCorrelation,
   parseFixedEffect,
@@ -95,6 +99,30 @@ describe("likelihoodLine", () => {
     expect(result).toContain("\\phi");
   });
 
+  it("renders gamma likelihood with explicit shape-scale notation", () => {
+    const lik = {
+      variable: "last_activity_clock_time",
+      distribution: "gamma",
+      link: "log",
+    } as LikelihoodSpec;
+    const result = likelihoodLine(lik);
+    expect(result).toContain("\\text{Gamma}");
+    expect(result).toContain("\\kappa");
+    expect(result).toContain("/\\kappa");
+  });
+
+  it("renders non-gaussian measurement error inside the likelihood when requested", () => {
+    const lik = {
+      variable: "sleep_problem_search_count",
+      distribution: "negative_binomial",
+      link: "log",
+    } as LikelihoodSpec;
+    const result = likelihoodLine(lik, "sleep_quality", { includeMeasurementError: true });
+    expect(result).toContain("\\text{NegBin}");
+    expect(result).toContain("\\sigma_{\\text{sleep problem search count}}^{2}");
+    expect(result).not.toContain("\\text{measurement-error SD}");
+  });
+
   it("includes construct name when provided", () => {
     const lik = { variable: "mood", distribution: "gaussian", link: "identity" } as LikelihoodSpec;
     const result = likelihoodLine(lik, "affect");
@@ -132,6 +160,34 @@ describe("paramSymbol", () => {
 
   it("cor maps to psi", () => {
     expect(paramSymbol("cor_X_Y")).toContain("\\psi");
+  });
+});
+
+describe("observationParameterSymbol", () => {
+  it("maps measurement error to the row-relative sigma symbol", () => {
+    expect(
+      observationParameterSymbol({
+        parameterName: "obs_sd_sleep",
+        likelihood: {
+          variable: "sleep",
+          distribution: "gaussian",
+          link: "identity",
+        } as LikelihoodSpec,
+      }),
+    ).toBe("\\sigma_{\\text{sleep}}");
+  });
+
+  it("maps beta concentration to phi", () => {
+    expect(
+      observationParameterSymbol({
+        parameterName: "obs_concentration",
+        likelihood: {
+          variable: "appointment_attendance",
+          distribution: "beta",
+          link: "logit",
+        } as LikelihoodSpec,
+      }),
+    ).toBe("\\phi");
   });
 });
 
@@ -190,7 +246,83 @@ describe("priorLatex", () => {
     expect(result).toContain("\\sim");
     expect(result).toContain("\\mathcal{N}");
   });
+});
 
+describe("observationPriorLatex", () => {
+  it("renders observation-family priors with row-relative symbols", () => {
+    const result = observationPriorLatex({
+      prior: {
+        parameter: "obs_concentration",
+        distribution: "Gamma",
+        params: { alpha: 5, beta: 0.5 },
+        sources: [],
+        reasoning: "",
+      } as PriorProposal,
+      likelihood: {
+        variable: "appointment_attendance",
+        distribution: "beta",
+        link: "logit",
+      } as LikelihoodSpec,
+    });
+
+    expect(result).toContain("\\phi");
+    expect(result).toContain("\\text{Gamma}");
+    expect(result).not.toContain("obs concentration");
+  });
+});
+
+describe("observationParameterDefinitionLatex", () => {
+  it("describes non-gaussian measurement error with the row-relative sigma symbol", () => {
+    expect(
+      observationParameterDefinitionLatex({
+        parameterName: "obs_sd_sleep_problem_search_count",
+        likelihood: {
+          variable: "sleep_problem_search_count",
+          distribution: "negative_binomial",
+          link: "log",
+        } as LikelihoodSpec,
+      }),
+    ).toContain("\\sigma_{\\text{sleep problem search count}}");
+  });
+});
+
+describe("observationEquationLatex", () => {
+  it("renders gamma shape directly in the main likelihood line", () => {
+    const result = observationEquationLatex({
+      likelihood: {
+        variable: "last_activity_clock_time",
+        distribution: "gamma",
+        link: "log",
+      } as LikelihoodSpec,
+      parameterNames: ["obs_shape"],
+    });
+
+    expect(result).toContain("\\text{Gamma}");
+    expect(result).toContain("\\kappa");
+    expect(result).toContain("/\\kappa");
+  });
+
+  it("moves non-gaussian measurement error into the main likelihood line when obs_sd is present", () => {
+    const result = observationEquationLatex({
+      likelihood: {
+        variable: "sleep_problem_search_count",
+        distribution: "negative_binomial",
+        link: "log",
+      } as LikelihoodSpec,
+      constructName: "sleep_quality",
+      parameterNames: [
+        "lambda_sleep_problem_search_count_sleep_quality",
+        "obs_sd_sleep_problem_search_count",
+        "obs_r",
+      ],
+    });
+
+    expect(result).toContain("\\text{NegBin}");
+    expect(result).toContain("\\lambda");
+    expect(result).toContain("r,\\;");
+    expect(result).toContain("\\sigma_{\\text{sleep problem search count}}^{2}");
+    expect(result).not.toContain("\\text{measurement-error SD}");
+  });
 });
 
 describe("stateNames", () => {

@@ -1,4 +1,11 @@
-import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
+import type {
+  DistributionFamily,
+  LikelihoodSpec,
+  LinkFunction,
+  ParameterSpec,
+  PriorDistributionFamily,
+  PriorProposal,
+} from "@causal-ssm/api-types";
 
 /** Convert snake_case to spaced text for use inside LaTeX \text{}. */
 export function textify(name: string): string {
@@ -6,60 +13,70 @@ export function textify(name: string): string {
 }
 
 /** Build the g⁻¹(·) wrapper for a link function around a linear predictor. */
+const LINK_INVERSE: Record<LinkFunction, (predictor: string) => string> = {
+  identity: (p) => p,
+  log: (p) => `\\exp(${p})`,
+  inverse: (p) => `(${p})^{-1}`,
+  logit: (p) => `\\sigma(${p})`,
+  probit: (p) => `\\Phi(${p})`,
+  cumulative_logit: (p) => `\\text{cumlogit}^{-1}(${p})`,
+  softmax: (p) => `\\text{softmax}(${p})`,
+};
+
 export function linkInverse(link: string, predictor: string): string {
-  switch (link) {
-    case "identity":
-      return predictor;
-    case "log":
-      return `\\exp(${predictor})`;
-    case "logit":
-      return `\\sigma(${predictor})`;
-    case "probit":
-      return `\\Phi(${predictor})`;
-    case "cumulative_logit":
-      return `\\text{cumlogit}^{-1}(${predictor})`;
-    case "softmax":
-      return `\\text{softmax}(${predictor})`;
-    default:
-      return `g^{-1}(${predictor})`;
-  }
+  const fn = LINK_INVERSE[link as LinkFunction];
+  return fn ? fn(predictor) : `g^{-1}(${predictor})`;
 }
 
 /** Map distribution family enum to LaTeX name. */
+const DIST_LATEX: Record<DistributionFamily, string> = {
+  gaussian: "\\mathcal{N}",
+  student_t: "t_{\\nu}",
+  poisson: "\\text{Poisson}",
+  gamma: "\\text{Gamma}",
+  bernoulli: "\\text{Bernoulli}",
+  negative_binomial: "\\text{NegBin}",
+  beta: "\\text{Beta}",
+  ordered_logistic: "\\text{OrdLogistic}",
+  categorical: "\\text{Categorical}",
+};
+
 export function distName(dist: string): string {
-  const map: Record<string, string> = {
-    gaussian: "\\mathcal{N}",
-    student_t: "t_{\\nu}",
-    poisson: "\\text{Poisson}",
-    gamma: "\\text{Gamma}",
-    bernoulli: "\\text{Bernoulli}",
-    negative_binomial: "\\text{NegBin}",
-    beta: "\\text{Beta}",
-    ordered_logistic: "\\text{OrdLogistic}",
-    categorical: "\\text{Categorical}",
-  };
-  return map[dist] ?? `\\text{${dist}}`;
+  return DIST_LATEX[dist as DistributionFamily] ?? `\\text{${dist}}`;
 }
 
 /** Build a single observation-model line, inlining the latent construct when known. */
-export function likelihoodLine(lik: LikelihoodSpec, constructName?: string): string {
+export function likelihoodLine(
+  lik: LikelihoodSpec,
+  constructName?: string,
+  options?: { includeMeasurementError?: boolean },
+): string {
   const v = `\\text{${textify(lik.variable)}}`;
   const predictor = constructName
     ? `\\lambda_{${v}} \\, \\eta_{\\text{${textify(constructName)}}}(t)`
     : `\\mu_{${v}}`;
   const mu = linkInverse(lik.link, predictor);
   const d = distName(lik.distribution);
+  const measurementErrorVariance = `\\sigma_{${v}}^{2}`;
+  const includeMeasurementError = options?.includeMeasurementError ?? false;
+  const withMeasurementError = (args: string) =>
+    includeMeasurementError ? `${args},\\; ${measurementErrorVariance}` : args;
 
   if (lik.distribution === "gaussian" || lik.distribution === "student_t") {
-    return `y_{${v}}(t) &\\sim ${d}(${mu},\\; \\sigma_{${v}}^{2})`;
+    return `y_{${v}}(t) &\\sim ${d}(${mu},\\; ${measurementErrorVariance})`;
   }
   if (lik.distribution === "beta") {
-    return `y_{${v}}(t) &\\sim ${d}(${mu}\\,\\phi,\\; (1 - ${mu})\\,\\phi)`;
+    return `y_{${v}}(t) &\\sim ${d}(${withMeasurementError(
+      `${mu}\\,\\phi,\\; (1 - ${mu})\\,\\phi`,
+    )})`;
+  }
+  if (lik.distribution === "gamma") {
+    return `y_{${v}}(t) &\\sim ${d}(${withMeasurementError(`\\kappa,\\; ${mu}/\\kappa`)})`;
   }
   if (lik.distribution === "negative_binomial") {
-    return `y_{${v}}(t) &\\sim ${d}(r,\\; ${mu})`;
+    return `y_{${v}}(t) &\\sim ${d}(${withMeasurementError(`r,\\; ${mu}`)})`;
   }
-  return `y_{${v}}(t) &\\sim ${d}(${mu})`;
+  return `y_{${v}}(t) &\\sim ${d}(${withMeasurementError(mu)})`;
 }
 
 /** Parse a parameter name into Greek letter + subscript. */
@@ -78,15 +95,7 @@ export function paramSymbol(name: string): string {
     rho: "\\rho",
     sigma: "\\sigma",
     lambda: "\\lambda",
-    alpha: "\\alpha",
-    gamma: "\\gamma",
-    phi: "\\phi",
     tau: "\\tau",
-    mu: "\\mu",
-    nu: "\\nu",
-    kappa: "\\kappa",
-    theta: "\\theta",
-    omega: "\\omega",
     cor: "\\psi",
   };
 
@@ -103,24 +112,192 @@ export function priorLatex(prior: PriorProposal): string {
   return priorLine(prior).replace(/&/g, "");
 }
 
+const PRIOR_DIST_LATEX: Record<PriorDistributionFamily, string> = {
+  Normal: "\\mathcal{N}",
+  HalfNormal: "\\text{HalfNormal}",
+  Beta: "\\text{Beta}",
+  Gamma: "\\text{Gamma}",
+  Uniform: "\\text{Uniform}",
+  TruncatedNormal: "\\text{TruncNormal}",
+  Exponential: "\\text{Exp}",
+  LogNormal: "\\text{LogNormal}",
+};
+
+function priorDistributionLatex(prior: PriorProposal): string {
+  const vals = Object.values(prior.params).map((v) => String(v));
+  const d =
+    PRIOR_DIST_LATEX[prior.distribution as PriorDistributionFamily] ??
+    `\\text{${prior.distribution}}`;
+  return `${d}(${vals.join(",\\; ")})`;
+}
+
 /** Map a prior distribution name + params to LaTeX. */
 export function priorLine(prior: PriorProposal): string {
-  const sym = paramSymbol(prior.parameter);
-  const vals = Object.values(prior.params).map((v) => String(v));
+  return `${paramSymbol(prior.parameter)} &\\sim ${priorDistributionLatex(prior)}`;
+}
 
-  const dMap: Record<string, string> = {
-    Normal: "\\mathcal{N}",
-    HalfNormal: "\\text{HalfNormal}",
-    Beta: "\\text{Beta}",
-    Gamma: "\\text{Gamma}",
-    Uniform: "\\text{Uniform}",
-    TruncatedNormal: "\\text{TruncNormal}",
-    Exponential: "\\text{Exp}",
-    LogNormal: "\\text{LogNormal}",
-  };
+export function observationParameterSymbol({
+  parameterName,
+  likelihood,
+}: {
+  parameterName: string;
+  likelihood: LikelihoodSpec;
+}): string {
+  const variableText = `\\text{${textify(likelihood.variable)}}`;
 
-  const d = dMap[prior.distribution] ?? `\\text{${prior.distribution}}`;
-  return `${sym} &\\sim ${d}(${vals.join(",\\; ")})`;
+  if (parameterName.startsWith(`lambda_${likelihood.variable}_`)) {
+    return `\\lambda_{${variableText}}`;
+  }
+  if (parameterName === `obs_sd_${likelihood.variable}`) {
+    return `\\sigma_{${variableText}}`;
+  }
+  if (parameterName === "obs_df") {
+    return "\\nu";
+  }
+  if (parameterName === "obs_shape") {
+    return "\\kappa";
+  }
+  if (parameterName === "obs_r") {
+    return "r";
+  }
+  if (parameterName === "obs_concentration") {
+    return "\\phi";
+  }
+  if (parameterName === "obs_ordered_base") {
+    return `\\boldsymbol{\\tau}_{${variableText}}`;
+  }
+  if (parameterName === "obs_ordered_gaps") {
+    return `\\Delta\\boldsymbol{\\tau}_{${variableText}}`;
+  }
+  if (parameterName === "obs_cat_intercepts") {
+    return `\\boldsymbol{\\alpha}_{${variableText}}`;
+  }
+  if (parameterName === "obs_cat_slopes") {
+    return `\\boldsymbol{\\beta}_{${variableText}}`;
+  }
+
+  return paramSymbol(parameterName);
+}
+
+export function observationPriorLatex({
+  prior,
+  likelihood,
+}: {
+  prior: PriorProposal;
+  likelihood: LikelihoodSpec;
+}): string {
+  return `${observationParameterSymbol({ parameterName: prior.parameter, likelihood })} \\sim ${priorDistributionLatex(prior)}`;
+}
+
+function observationParameterShownInLikelihood({
+  parameterName,
+  likelihood,
+  hasConstruct,
+}: {
+  parameterName: string;
+  likelihood: LikelihoodSpec;
+  hasConstruct: boolean;
+}): boolean {
+  if (parameterName.startsWith(`lambda_${likelihood.variable}_`)) {
+    return hasConstruct;
+  }
+  if (parameterName === `obs_sd_${likelihood.variable}`) {
+    return likelihood.distribution === "gaussian" || likelihood.distribution === "student_t";
+  }
+  if (parameterName === "obs_df") {
+    return likelihood.distribution === "student_t";
+  }
+  if (parameterName === "obs_shape") {
+    return likelihood.distribution === "gamma";
+  }
+  if (parameterName === "obs_r") {
+    return likelihood.distribution === "negative_binomial";
+  }
+  if (parameterName === "obs_concentration") {
+    return likelihood.distribution === "beta";
+  }
+  return false;
+}
+
+export function observationParameterDefinitionLatex({
+  parameterName,
+  likelihood,
+}: {
+  parameterName: string;
+  likelihood: LikelihoodSpec;
+}): string {
+  const symbol = observationParameterSymbol({ parameterName, likelihood });
+
+  if (parameterName === `obs_sd_${likelihood.variable}`) {
+    return `${symbol} &: \\text{measurement-error SD}`;
+  }
+  if (parameterName === "obs_df") {
+    return `${symbol} &: \\text{Student-t degrees of freedom}`;
+  }
+  if (parameterName === "obs_shape") {
+    return `${symbol} &: \\text{Gamma shape}`;
+  }
+  if (parameterName === "obs_r") {
+    return `${symbol} &: \\text{negative-binomial dispersion}`;
+  }
+  if (parameterName === "obs_concentration") {
+    return `${symbol} &: \\text{Beta concentration}`;
+  }
+  if (parameterName === "obs_ordered_base") {
+    return `${symbol} &: \\text{ordered thresholds}`;
+  }
+  if (parameterName === "obs_ordered_gaps") {
+    return `${symbol} &: \\text{threshold gaps}`;
+  }
+  if (parameterName === "obs_cat_intercepts") {
+    return `${symbol} &: \\text{categorical intercepts}`;
+  }
+  if (parameterName === "obs_cat_slopes") {
+    return `${symbol} &: \\text{categorical slopes}`;
+  }
+
+  return `${symbol}`;
+}
+
+export function observationEquationLatex({
+  likelihood,
+  constructName,
+  parameterNames,
+}: {
+  likelihood: LikelihoodSpec;
+  constructName?: string;
+  parameterNames?: string[];
+}): string {
+  const measurementErrorParameterName = `obs_sd_${likelihood.variable}`;
+  const hasMeasurementError = (parameterNames ?? []).includes(measurementErrorParameterName);
+  const mainLine = likelihoodLine(likelihood, constructName, {
+    includeMeasurementError:
+      hasMeasurementError &&
+      likelihood.distribution !== "gaussian" &&
+      likelihood.distribution !== "student_t",
+  });
+  const supplementalLines = (parameterNames ?? [])
+    .filter(
+      (parameterName) =>
+        !(parameterName === measurementErrorParameterName && hasMeasurementError) &&
+        !observationParameterShownInLikelihood({
+          parameterName,
+          likelihood,
+          hasConstruct: !!constructName,
+        }),
+    )
+    .map((parameterName) =>
+      observationParameterDefinitionLatex({
+        parameterName,
+        likelihood,
+      }),
+    );
+
+  if (supplementalLines.length === 0) {
+    return mainLine;
+  }
+
+  return `\\begin{aligned}${[mainLine, ...supplementalLines].join(" \\\\ ")}\\end{aligned}`;
 }
 
 /** Extract latent state names from AR coefficient parameters. */

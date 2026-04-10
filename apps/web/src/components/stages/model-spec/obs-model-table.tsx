@@ -1,8 +1,21 @@
 "use client";
 
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { likelihoodLine, priorLatex } from "@/lib/utils/ssm-latex";
-import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
+import {
+  collectStage4ObservationPriorTerms,
+  type Stage4ObservationPriorTerm,
+} from "@/lib/stage4-data";
+import {
+  observationEquationLatex,
+  observationParameterSymbol,
+  observationPriorLatex,
+} from "@/lib/utils/ssm-latex";
+import type {
+  Indicator,
+  LikelihoodSpec,
+  ParameterSpec,
+  PriorProposal,
+} from "@causal-ssm/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import katex from "katex";
 
@@ -15,11 +28,12 @@ function inlineKatex(latex: string): string {
 // ── row type ─────────────────────────────────────────────
 
 interface ObsModelRow {
+  likelihood: LikelihoodSpec;
   variable: string;
   construct: string | undefined;
   equationLatex: string;
   loadingFixed: boolean;
-  priors: PriorProposal[];
+  priorTerms: Stage4ObservationPriorTerm[];
 }
 
 // ── columns ──────────────────────────────────────────────
@@ -74,25 +88,42 @@ const columns = [
   col.display({
     id: "priors",
     header: "Priors",
-    cell: ({ row }) => {
-      const { priors } = row.original;
-      if (priors.length === 0) return <span className="text-muted-foreground">—</span>;
-      return (
-        <div className="space-y-1">
-          {priors.map((p) => (
-            <div
-              key={p.parameter}
-              className="text-muted-foreground"
-              // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
-              dangerouslySetInnerHTML={{ __html: inlineKatex(priorLatex(p)) }}
-            />
-          ))}
-        </div>
-      );
-    },
+    cell: ({ row }) => (
+      <ObsPriorList likelihood={row.original.likelihood} terms={row.original.priorTerms} />
+    ),
     enableSorting: false,
   }),
 ] as ColumnDef<ObsModelRow, unknown>[];
+
+export function ObsPriorList({
+  likelihood,
+  terms,
+}: {
+  likelihood: LikelihoodSpec;
+  terms: Stage4ObservationPriorTerm[];
+}) {
+  if (terms.length === 0) {
+    return <span className="text-xs text-muted-foreground">Not authored</span>;
+  }
+  return (
+    <div className="space-y-1">
+      {terms.map((term) => (
+        <div
+          key={term.parameterName}
+          className="text-muted-foreground"
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: KaTeX renders sanitized math
+          dangerouslySetInnerHTML={{
+            __html: inlineKatex(
+              term.prior
+                ? observationPriorLatex({ prior: term.prior, likelihood })
+                : `${observationParameterSymbol({ parameterName: term.parameterName, likelihood })}:\\ \\text{Not authored}`,
+            ),
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 // ── component ────────────────────────────────────────────
 
@@ -100,13 +131,17 @@ export function ObsModelTable({
   likelihoods,
   parameters,
   priors,
-  indicatorConstructMap,
+  indicators,
 }: {
   likelihoods: LikelihoodSpec[];
   parameters: ParameterSpec[];
   priors: PriorProposal[];
-  indicatorConstructMap?: Record<string, string>;
+  indicators?: Indicator[];
 }) {
+  const indicatorConstructMap = indicators
+    ? Object.fromEntries(indicators.map((indicator) => [indicator.name, indicator.construct_name]))
+    : undefined;
+
   const rows: ObsModelRow[] = likelihoods.map((lik) => {
     const construct = indicatorConstructMap?.[lik.variable];
     const v = lik.variable;
@@ -114,19 +149,23 @@ export function ObsModelTable({
       ? parameters.some((p) => p.role === "loading" && p.name === `lambda_${v}_${construct}`)
       : false;
     const loadingFixed = !!construct && !hasLoadingParam;
-    const obsPriors = priors.filter(
-      (p) =>
-        p.parameter === `lambda_${v}_${construct}` ||
-        p.parameter === `sigma_${v}` ||
-        p.parameter === `sigma_obs_${v}` ||
-        p.parameter === `phi_${v}`,
-    );
+    const priorTerms = collectStage4ObservationPriorTerms({
+      likelihood: lik,
+      parameters,
+      priors,
+      indicators,
+    });
     return {
+      likelihood: lik,
       variable: v,
       construct,
-      equationLatex: likelihoodLine(lik, construct).replace(/&/g, ""),
+      equationLatex: observationEquationLatex({
+        likelihood: lik,
+        constructName: construct,
+        parameterNames: priorTerms.map((term) => term.parameterName),
+      }).replace(/&/g, ""),
       loadingFixed,
-      priors: obsPriors,
+      priorTerms,
     };
   });
 

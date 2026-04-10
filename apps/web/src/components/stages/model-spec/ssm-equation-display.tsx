@@ -1,7 +1,6 @@
 import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-spec-link";
 import { ObsModelTable } from "@/components/stages/model-spec/obs-model-table";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import {
   Table,
@@ -14,18 +13,23 @@ import {
 import {
   confounderGroupLatex,
   confounderGroups,
+  paramSymbol,
   priorLatex,
   stateEquationRows,
 } from "@/lib/utils/ssm-latex";
-import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
+import type {
+  Indicator,
+  LikelihoodSpec,
+  ParameterSpec,
+  PriorProposal,
+} from "@causal-ssm/api-types";
 import katex from "katex";
 
 interface SsmEquationDisplayProps {
   likelihoods: LikelihoodSpec[];
   parameters: ParameterSpec[];
   priors: PriorProposal[];
-  /** Maps indicator variable name → construct (latent) it loads on. */
-  indicatorConstructMap?: Record<string, string>;
+  indicators?: Indicator[];
 }
 
 /** Render a LaTeX string to an HTML string via KaTeX. */
@@ -48,11 +52,26 @@ function Katex({ latex }: { latex: string }) {
   return <span dangerouslySetInnerHTML={{ __html: tex(latex, false) }} />;
 }
 
+function PriorSubtext({ parameterName, prior }: { parameterName: string; prior?: PriorProposal }) {
+  if (!prior) {
+    return (
+      <div className="text-xs text-muted-foreground">
+        <Katex latex={`${paramSymbol(parameterName)}:\\ \\text{Not authored}`} />
+      </div>
+    );
+  }
+  return (
+    <div className="text-muted-foreground">
+      <Katex latex={priorLatex(prior)} />
+    </div>
+  );
+}
+
 export function SSMEquationDisplay({
   likelihoods,
   parameters,
   priors,
-  indicatorConstructMap,
+  indicators,
 }: SsmEquationDisplayProps) {
   const eqRows = stateEquationRows(parameters);
   const corrGroups = confounderGroups(parameters);
@@ -67,21 +86,18 @@ export function SSMEquationDisplay({
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <CardTitle className="text-base">Stage 4 Semantic Equations</CardTitle>
-            <p className="max-w-3xl text-sm text-muted-foreground">
-              This panel shows the interpretable Stage 4 discrete-time view used for prior
-              elicitation. The compiler maps these semantic choices into the continuous-time
-              runtime model used by the executable `SSMSpec`.
-            </p>
-          </div>
-          <FunctionalSpecLink />
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h3 className="text-sm font-semibold">Stage 4 Semantic Equations</h3>
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            This panel shows the interpretable Stage 4 discrete-time view used for prior
+            elicitation. The compiler maps these semantic choices into the continuous-time runtime
+            model used by the executable `SSMSpec`.
+          </p>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-5">
+        <FunctionalSpecLink />
+      </div>
         {/* ── State dynamics ── */}
         {eqRows.length > 0 && (
           <section>
@@ -150,11 +166,7 @@ export function SSMEquationDisplay({
                             <div>
                               <Katex latex={row.arTermLatex} />
                             </div>
-                            {rhoPrior && (
-                              <div className="text-muted-foreground">
-                                <Katex latex={priorLatex(rhoPrior)} />
-                              </div>
-                            )}
+                            <PriorSubtext parameterName={`rho_${row.state}`} prior={rhoPrior} />
                           </div>
                         </TableCell>
 
@@ -169,11 +181,10 @@ export function SSMEquationDisplay({
                                     <div>
                                       <Katex latex={ce.termLatex} />
                                     </div>
-                                    {betaPrior && (
-                                      <div className="text-muted-foreground">
-                                        <Katex latex={priorLatex(betaPrior)} />
-                                      </div>
-                                    )}
+                                    <PriorSubtext
+                                      parameterName={`beta_${ce.source}_${row.state}`}
+                                      prior={betaPrior}
+                                    />
                                   </div>
                                 );
                               })}
@@ -189,11 +200,7 @@ export function SSMEquationDisplay({
                             <div>
                               <Katex latex={row.noiseLatex} />
                             </div>
-                            {sigmaPrior && (
-                              <div className="text-muted-foreground">
-                                <Katex latex={priorLatex(sigmaPrior)} />
-                              </div>
-                            )}
+                            <PriorSubtext parameterName={`sigma_${row.state}`} prior={sigmaPrior} />
                           </div>
                         </TableCell>
 
@@ -203,16 +210,11 @@ export function SSMEquationDisplay({
                             <div>
                               <Katex latex={row.initialLatex} />
                             </div>
-                            {t0MeanPrior && (
-                              <div className="text-muted-foreground">
-                                <Katex latex={priorLatex(t0MeanPrior)} />
-                              </div>
-                            )}
-                            {t0SdPrior && (
-                              <div className="text-muted-foreground">
-                                <Katex latex={priorLatex(t0SdPrior)} />
-                              </div>
-                            )}
+                            <PriorSubtext
+                              parameterName={`t0_mean_${row.state}`}
+                              prior={t0MeanPrior}
+                            />
+                            <PriorSubtext parameterName={`t0_sd_${row.state}`} prior={t0SdPrior} />
                           </div>
                         </TableCell>
                       </TableRow>
@@ -277,12 +279,11 @@ export function SSMEquationDisplay({
                 likelihoods={likelihoods}
                 parameters={parameters}
                 priors={priors}
-                indicatorConstructMap={indicatorConstructMap}
+                indicators={indicators}
               />
             </div>
           </section>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }

@@ -320,6 +320,23 @@ describe("generateMarkdown", () => {
             n_draws: 1000,
             n_observations: 100,
             singular_values: [1.0, 0.5, 0.1],
+            normalized_singular_values: [12.0, 4.0, 0.5],
+            weak_directions: [
+              {
+                index: 3,
+                singular_value: 0.1,
+                normalized_singular_value: 0.5,
+                status: "fail" as const,
+                top_loadings: [
+                  {
+                    parameter: "diffusion_diag_pop[0]",
+                    interpretable_parameter: "sigma_y",
+                    loading: 0.8,
+                    abs_loading: 0.8,
+                  },
+                ],
+              },
+            ],
             per_parameter: [
               {
                 parameter: "drift_diag_pop[0]",
