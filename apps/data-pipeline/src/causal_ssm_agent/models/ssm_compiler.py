@@ -45,6 +45,8 @@ _SPEC_ARRAY_FIELDS = {
     "drift",
     "diffusion_chol",
     "cint",
+    "static_state_sds",
+    "static_factor_loadings",
     "lambda_mat",
     "manifest_means",
     "manifest_chol",
@@ -55,6 +57,7 @@ _SPEC_BOOL_ARRAY_FIELDS = {
     "drift_diag_mask",
     "drift_offdiag_mask",
     "cint_mask",
+    "static_state_sd_mask",
     "lambda_mask",
     "diffusion_chol_mask",
     "manifest_means_mask",
@@ -152,7 +155,9 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         )
     required_template_fields = {
         "drift",
-        "cint",
+    "cint",
+        "static_state_sds",
+        "static_factor_loadings",
         "lambda_mat",
         "diffusion_chol",
         "manifest_means",
@@ -169,6 +174,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         )
     required_compiled_mask_fields = {
         "cint_mask",
+        "static_state_sd_mask",
         "diffusion_chol_mask",
         "manifest_means_mask",
         "manifest_chol_diag_mask",
@@ -678,6 +684,8 @@ def _build_compiled_initial_state_priors(
 
     mean_site = site_by_field.get("t0_means")
     sd_site = site_by_field.get("t0_var_diag")
+    if mean_site is None and sd_site is None:
+        return []
     if mean_site is None or sd_site is None:
         logger.warning("Missing mean/sd sites for initial-state prior binding; skipping")
         return []

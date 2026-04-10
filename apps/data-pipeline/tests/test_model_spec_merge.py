@@ -6,6 +6,7 @@ import pytest
 
 from causal_ssm_agent.artifacts import (
     DistributionFamily,
+    InitializationPolicy,
     LinkFunction,
     ParameterConstraint,
     validate_model_spec_dict,
@@ -251,9 +252,11 @@ class TestMergeDecisionsToSpec:
             },
         ]
         decisions = ModelSpecDecisions(
+            initialization_policy=InitializationPolicy.STATIONARY,
+            equilibrium_forcing=False,
             distribution_choices=[],
         )
-        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        spec, errors = merge_decisions_to_spec(resolved, [], params, decisions)
         assert errors == []
         assert spec is not None
         assert len(spec.likelihoods) == 1
@@ -270,6 +273,8 @@ class TestMergeDecisionsToSpec:
             },
         ]
         decisions = ModelSpecDecisions(
+            initialization_policy=InitializationPolicy.STATIONARY,
+            equilibrium_forcing=False,
             distribution_choices=[
                 DistributionChoice(
                     variable="steps",
@@ -279,7 +284,7 @@ class TestMergeDecisionsToSpec:
                 ),
             ],
         )
-        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        spec, errors = merge_decisions_to_spec(resolved, [], params, decisions)
         assert errors == []
         assert spec is not None
         assert len(spec.likelihoods) == 1
@@ -303,6 +308,8 @@ class TestMergeDecisionsToSpec:
             },
         ]
         decisions = ModelSpecDecisions(
+            initialization_policy=InitializationPolicy.STATIONARY,
+            equilibrium_forcing=False,
             distribution_choices=[
                 DistributionChoice(
                     variable="steps",
@@ -312,7 +319,7 @@ class TestMergeDecisionsToSpec:
                 ),
             ],
         )
-        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        spec, errors = merge_decisions_to_spec(resolved, [], params, decisions)
         assert errors == []
         assert spec is not None
         assert len(spec.likelihoods) == 2
@@ -355,14 +362,40 @@ class TestMergeDecisionsToSpec:
             },
         ]
         decisions = ModelSpecDecisions(
+            initialization_policy=InitializationPolicy.STATIONARY,
+            equilibrium_forcing=False,
             distribution_choices=[],
         )
 
-        spec, errors = merge_decisions_to_spec(resolved, params, decisions)
+        spec, errors = merge_decisions_to_spec(resolved, [], params, decisions)
 
         assert errors == []
         assert spec is not None
         assert [parameter.name for parameter in spec.parameters] == ["beta_x"]
+
+    def test_merge_marks_centered_gaussian_interval_mean(self):
+        resolved = [
+            {
+                "variable": "mood_score",
+                "construct_name": "mood",
+                "distribution": "gaussian",
+                "link": "identity",
+                "support_kind": "interval",
+                "summary_operator": "mean",
+                "reasoning": "resolved for test",
+            },
+        ]
+        decisions = ModelSpecDecisions(
+            initialization_policy=InitializationPolicy.STATIONARY,
+            equilibrium_forcing=False,
+            distribution_choices=[],
+        )
+
+        spec, errors = merge_decisions_to_spec(resolved, [], [], decisions)
+
+        assert errors == []
+        assert spec is not None
+        assert spec.likelihoods[0].centered is True
 
 
 # =============================================================================
@@ -396,6 +429,8 @@ class TestValidateModelSpecDecisionsDict:
 
     def test_valid_decisions(self):
         data = {
+            "initialization_policy": "stationary",
+            "equilibrium_forcing": False,
             "distribution_choices": [
                 {
                     "variable": "steps",
@@ -421,6 +456,8 @@ class TestValidateModelSpecDecisionsDict:
 
     def test_missing_ambiguous_decision(self):
         data = {
+            "initialization_policy": "stationary",
+            "equilibrium_forcing": False,
             "distribution_choices": [],  # missing decision for 'steps'
             "reasoning": "test",
         }
@@ -432,6 +469,8 @@ class TestValidateModelSpecDecisionsDict:
 
     def test_invalid_distribution_in_choices(self):
         data = {
+            "initialization_policy": "stationary",
+            "equilibrium_forcing": False,
             "distribution_choices": [
                 {"variable": "steps", "distribution": "bad_dist", "link": "log", "reasoning": "r"},
             ],
@@ -446,6 +485,8 @@ class TestValidateModelSpecDecisionsDict:
     def test_no_ambiguous_indicators(self):
         """When no ambiguous indicators, no distribution_choices needed."""
         data = {
+            "initialization_policy": "stationary",
+            "equilibrium_forcing": False,
             "distribution_choices": [],
             "reasoning": "test",
         }
@@ -454,6 +495,25 @@ class TestValidateModelSpecDecisionsDict:
         )
         assert errors == []
         assert spec is not None
+
+    def test_missing_model_configuration_fields(self):
+        data = {
+            "distribution_choices": [
+                {
+                    "variable": "steps",
+                    "distribution": "poisson",
+                    "link": "log",
+                    "reasoning": "count",
+                },
+            ],
+        }
+        spec, errors = validate_model_spec_decisions_dict(
+            data, self._resolved(), self._ambiguous(), self._params()
+        )
+
+        assert spec is None
+        assert any("initialization_policy" in error for error in errors)
+        assert any("equilibrium_forcing" in error for error in errors)
 
 
 # =============================================================================

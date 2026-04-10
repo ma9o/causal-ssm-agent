@@ -76,6 +76,7 @@ class SiteKind(Enum):
     DIFFUSION_DIAG = "diffusion_diag"
     DIFFUSION_LOWER = "diffusion_lower"
     CINT = "cint"
+    STATIC_STATE_SD = "static_state_sd"
     LOADING = "loading"
     MANIFEST_MEANS = "manifest_means"
     MANIFEST_VAR_DIAG = "manifest_var_diag"
@@ -340,6 +341,16 @@ def build_site_registry(
             "cint",
             "cint",
             "cint",
+        ),
+        (
+            "static_state_sd_free",
+            "n_static_state_sd",
+            SupportClass.POSITIVE,
+            "t0",
+            SiteKind.STATIC_STATE_SD,
+            "static_state_sds",
+            "static_state_sds",
+            "static_state_sd",
         ),
         (
             "lambda_free",
@@ -667,8 +678,9 @@ def _assemble_diag_to_cov(
 def _assemble_t0_cov(
     diag_site: SiteDescriptor | None,
     corr_site: SiteDescriptor | None,
+    static_state_site: SiteDescriptor | None,
     samples: dict[str, jnp.ndarray],
-    fixed_chol: jnp.ndarray,
+    _fixed_chol: jnp.ndarray,
     structure_runtime: SSMStructureRuntime,
     n_draws: int,
     dim: int,
@@ -680,26 +692,44 @@ def _assemble_t0_cov(
     corr_samples = (
         samples[corr_site.name] if corr_site is not None and corr_site.name in samples else None
     )
-    if diag_samples is not None or corr_samples is not None:
+    static_state_samples = (
+        samples[static_state_site.name]
+        if static_state_site is not None and static_state_site.name in samples
+        else None
+    )
+    if diag_samples is not None or corr_samples is not None or static_state_samples is not None:
 
         def _build_stable_cov(
             diag_values: jnp.ndarray | None = None,
             corr_values: jnp.ndarray | None = None,
+            static_state_values: jnp.ndarray | None = None,
         ) -> jnp.ndarray:
-            raw_cov = structure_runtime.assemble_t0_cov(diag_values, corr_values)
+            raw_cov = structure_runtime.assemble_t0_cov(
+                diag_values,
+                corr_values,
+                static_state_values,
+            )
             stable_cov, _min_eig = stabilize_covariance_for_cholesky(
                 raw_cov,
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
             )
             return stable_cov
 
+        if diag_samples is not None and corr_samples is not None and static_state_samples is not None:
+            return jax.vmap(_build_stable_cov)(diag_samples, corr_samples, static_state_samples)
         if diag_samples is not None and corr_samples is not None:
-            return jax.vmap(_build_stable_cov)(diag_samples, corr_samples)
+            return jax.vmap(lambda diag_values, corr_values: _build_stable_cov(diag_values, corr_values, None))(diag_samples, corr_samples)
+        if diag_samples is not None and static_state_samples is not None:
+            return jax.vmap(lambda diag_values, static_values: _build_stable_cov(diag_values, None, static_values))(diag_samples, static_state_samples)
+        if corr_samples is not None and static_state_samples is not None:
+            return jax.vmap(lambda corr_values, static_values: _build_stable_cov(None, corr_values, static_values))(corr_samples, static_state_samples)
         if diag_samples is not None:
-            return jax.vmap(_build_stable_cov)(diag_samples)
-        return jax.vmap(lambda corr_values: _build_stable_cov(None, corr_values))(corr_samples)
+            return jax.vmap(lambda diag_values: _build_stable_cov(diag_values, None, None))(diag_samples)
+        if corr_samples is not None:
+            return jax.vmap(lambda corr_values: _build_stable_cov(None, corr_values, None))(corr_samples)
+        return jax.vmap(lambda static_values: _build_stable_cov(None, None, static_values))(static_state_samples)
 
-    fixed_cov = fixed_chol @ fixed_chol.T
+    fixed_cov = structure_runtime.assemble_t0_cov()
     return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
 
 
@@ -784,6 +814,17 @@ def assemble_deterministics_from_registry(
     else:
         det["cint"] = _broadcast_fixed(structure_runtime.cint_template, n_draws)
 
+    static_state_site = by_kind.get(SiteKind.STATIC_STATE_SD)
+    if static_state_site is not None and static_state_site.name in samples:
+        det["static_state_sds"] = jax.vmap(structure_runtime.assemble_static_state_sds)(
+            samples[static_state_site.name]
+        )
+    else:
+        det["static_state_sds"] = _broadcast_fixed(
+            structure_runtime.static_state_sd_template,
+            n_draws,
+        )
+
     loading_site = by_kind.get(SiteKind.LOADING)
     if (
         loading_site is not None
@@ -825,6 +866,7 @@ def assemble_deterministics_from_registry(
     t0_cov = _assemble_t0_cov(
         by_kind.get(SiteKind.T0_VAR_DIAG),
         by_kind.get(SiteKind.T0_VAR_LOWER),
+        by_kind.get(SiteKind.STATIC_STATE_SD),
         samples,
         structure_runtime.t0_chol_template,
         structure_runtime,

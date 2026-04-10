@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 Stage4BlockKind = Literal[
+    "model_configuration",
     "indicator_decision",
     "measurement_prior",
     "observation_prior",
@@ -22,11 +23,13 @@ Stage4BlockPhase = Literal[
     "global_prior_review",
 ]
 Stage4SubmissionPayloadKind = Literal[
+    "model_configuration_choice",
     "indicator_choice",
     "global_review_decision",
     "prior_bundle",
 ]
 Stage4AcceptedTransitionKind = Literal[
+    "model_configuration",
     "indicator_choice",
     "review_approval",
     "prior_bundle",
@@ -133,6 +136,26 @@ def _make_prior_block_kind_spec(
 
 
 _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
+    "model_configuration": _make_block_kind_spec(
+        "model_configuration",
+        phase="model_decisions",
+        submission_payload_kind="model_configuration_choice",
+        accepted_transition_kind="model_configuration",
+        system_task=(
+            "Choose the global initialization policy and whether equilibrium forcing is enabled. "
+            "These are model-level semantics, not prior choices."
+        ),
+        user_task=(
+            "Choose the global initialization policy and whether equilibrium forcing is enabled. "
+            "Do not submit indicator likelihood decisions or priors in this block."
+        ),
+        visible_sections=("construct_scale_cards",),
+        guidance_section_keys=(
+            "observation_distribution_guidance",
+            "link_function_rules",
+        ),
+        allowed_tool_names=("submit_model_configuration",),
+    ),
     "indicator_decision": _make_block_kind_spec(
         "indicator_decision",
         phase="model_decisions",
@@ -178,7 +201,7 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "locked likelihood family or submit priors for other blocks."
         ),
         extra_guidance_section_keys=("measurement_prior_guidance",),
-        parameter_guidance_prefixes=("obs_",),
+        parameter_guidance_prefixes=("obs_", "manifest_mean"),
         visible_sections=("distribution_cards", "construct_scale_cards", "prior_cards"),
     ),
     "dynamics_prior": _make_prior_block_kind_spec(
@@ -199,7 +222,7 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "latent_initial_state_guidance",
             "dynamics_budget_discipline",
         ),
-        parameter_guidance_prefixes=("rho", "sigma", "t0_mean", "t0_sd"),
+        parameter_guidance_prefixes=("rho", "sigma", "cint", "t0_mean", "t0_sd"),
     ),
     "effect_prior": _make_prior_block_kind_spec(
         "effect_prior",
@@ -236,7 +259,7 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "Propose full prior specifications only for this block's parameters. "
             "Do not send model decisions or priors for other blocks."
         ),
-        parameter_guidance_prefixes=("cor",),
+        parameter_guidance_prefixes=("cor", "tau"),
     ),
     "global_review": _make_block_kind_spec(
         "global_review",
@@ -281,10 +304,13 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
         parameter_guidance_prefixes=(
             "lambda",
             "obs_",
+            "manifest_mean",
             "rho",
             "sigma",
+            "cint",
             "beta",
             "cor",
+            "tau",
             "t0_mean",
             "t0_sd",
         ),

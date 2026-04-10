@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_compilation import translate_spec
 from causal_ssm_agent.models.ssm_compiler import validate_model_spec_for_compilation
 from causal_ssm_agent.models.ssm_prior_compilation import PriorCompilationError, compile_priors
@@ -90,6 +91,7 @@ def _build_partial_drift_state(
         edge_lag_days=edge_lag_days,
         causal_spec=causal_spec,
     )
+    structure_runtime = SSMStructureRuntime(ssm_spec)
     (
         _offdiag_param_index,
         _lambda_param_index,
@@ -99,7 +101,10 @@ def _build_partial_drift_state(
         _t0_offdiag_param_index,
         _t0_mean_param_index,
         _t0_sd_param_index,
+        _manifest_mean_param_index,
         _manifest_var_param_index,
+        _cint_param_index,
+        _static_state_sd_param_index,
         _observation_site_param_index,
     ) = index_maps
 
@@ -112,16 +117,13 @@ def _build_partial_drift_state(
         if parameter_name not in diag_param_index:
             continue
         _attr, flat_index = diag_param_index[parameter_name]
-        diag_present[flat_index] = True
-        diag_parameter_by_index[flat_index] = parameter_name
-        diag_mu[flat_index] = float(ssm_priors.drift_diag.get("mu", [])[flat_index])
-        diag_sigma[flat_index] = float(ssm_priors.drift_diag.get("sigma", [])[flat_index])
+        latent_index = structure_runtime.drift_diag_positions[flat_index]
+        diag_present[latent_index] = True
+        diag_parameter_by_index[latent_index] = parameter_name
+        diag_mu[latent_index] = float(ssm_priors.drift_diag.get("mu", [])[flat_index])
+        diag_sigma[latent_index] = float(ssm_priors.drift_diag.get("sigma", [])[flat_index])
 
-    offdiag_positions: list[tuple[int, int]] = []
-    for effect_idx in range(ssm_spec.n_latent):
-        for cause_idx in range(ssm_spec.n_latent):
-            if effect_idx != cause_idx and bool(ssm_spec.drift_offdiag_mask[effect_idx, cause_idx]):
-                offdiag_positions.append((effect_idx, cause_idx))
+    offdiag_positions = list(structure_runtime.offdiag_positions)
     offdiag_mu = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_present = np.zeros(len(offdiag_positions), dtype=bool)

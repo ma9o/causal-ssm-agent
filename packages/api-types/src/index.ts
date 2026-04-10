@@ -83,7 +83,6 @@ export type {
   Stage6Contract as Stage6Data,
   SVIDiagnostics,
   TemporalStatus,
-  TRuleResult,
   TraceChain,
   TraceData,
   TraceMessage,

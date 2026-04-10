@@ -144,6 +144,22 @@ class Stage4Session:
             }
         )
 
+    def submit_model_configuration(
+        self,
+        *,
+        initialization_policy: str,
+        equilibrium_forcing: bool,
+        reasoning: str,
+    ) -> str:
+        """Submit the active model-configuration block."""
+        return self._submit(
+            {
+                "initialization_policy": initialization_policy,
+                "equilibrium_forcing": equilibrium_forcing,
+                "reasoning": reasoning,
+            }
+        )
+
     def submit_model_review(
         self,
         *,

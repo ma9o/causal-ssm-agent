@@ -22,7 +22,6 @@ from causal_ssm_agent.models.ssm.model import (
     SSMSpec,
     _make_prior_batch,
     _make_prior_dist,
-    full_diagonal_mask,
     full_vector_mask,
     zero_loading_mask,
 )
@@ -369,9 +368,9 @@ class TestBuilderMasks:
             latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
         )
 
-        # Drift mask: diagonal + X→Y + Y→Z
+        # Drift mask: endogenous diagonals + X→Y + Y→Z
         assert drift_mask is not None
-        assert drift_mask[0, 0]  # X self
+        assert not drift_mask[0, 0]  # X is exogenous
         assert drift_mask[1, 1]  # Y self
         assert drift_mask[2, 2]  # Z self
         assert drift_mask[1, 0]  # X→Y (effect=Y row, cause=X col)
@@ -557,8 +556,8 @@ class TestBuilderMasks:
         ):
             builder.build_model(X)
 
-    def test_translate_spec_builds_sparse_initial_state_correlation_mask(self):
-        """Only authored initial-state correlations should become free t0 pairs."""
+    def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(self):
+        """Initial-state confounders should compile to low-rank baseline factors."""
         from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
@@ -567,6 +566,115 @@ class TestBuilderMasks:
             ParameterConstraint,
             ParameterRole,
             ParameterSpec,
+        )
+        from causal_ssm_agent.models.ssm_compilation import translate_spec
+
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "u_shared",
+                        "description": "Shared static confounder",
+                        "role": "exogenous",
+                        "temporal_status": "time_invariant",
+                    },
+                    {
+                        "name": "stress",
+                        "description": "Stress",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                    },
+                    {
+                        "name": "sleep",
+                        "description": "Sleep",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                        "is_outcome": True,
+                    },
+                ],
+                "edges": [
+                    {"cause": "u_shared", "effect": "stress"},
+                    {"cause": "u_shared", "effect": "sleep"},
+                ],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "stress_score",
+                        "construct_name": "stress",
+                        "construct_polarity": "positive",
+                        "how_to_measure": "measure stress",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    {
+                        "name": "sleep_score",
+                        "construct_name": "sleep",
+                        "construct_polarity": "positive",
+                        "how_to_measure": "measure sleep",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                ],
+            },
+            "estimation": {
+                "state_order": ["stress", "sleep"],
+                "edges": [],
+                "induced_dependencies": [
+                    {
+                        "between": ["stress", "sleep"],
+                        "kind": "initial_state_correlation",
+                        "source_confounders": ["u_shared"],
+                    }
+                ],
+            },
+        }
+        model_spec = ModelSpec(
+            likelihoods=[
+                LikelihoodSpec(
+                    variable="stress_score",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+                LikelihoodSpec(
+                    variable="sleep_score",
+                    distribution=DistributionFamily.GAUSSIAN,
+                    link=LinkFunction.IDENTITY,
+                    reasoning="test",
+                ),
+            ],
+            parameters=[
+                ParameterSpec(
+                    name="tau_u_shared",
+                    role=ParameterRole.STATIC_STATE_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="baseline confounder sd",
+                ),
+            ],
+        )
+
+        spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
+
+        np.testing.assert_array_equal(spec.static_state_sd_mask, np.array([True]))
+        np.testing.assert_allclose(np.asarray(spec.static_state_sds), np.zeros(1))
+        np.testing.assert_allclose(
+            np.asarray(spec.static_factor_loadings),
+            np.array([[1.0], [1.0]]),
+        )
+        assert spec.static_factor_names == ["tau_u_shared"]
+        np.testing.assert_array_equal(spec.t0_correlation_mask, np.zeros((2, 2), dtype=bool))
+        np.testing.assert_array_equal(spec.t0_means_mask, np.array([False, False]))
+        np.testing.assert_array_equal(spec.t0_chol_diag_mask, np.array([False, False]))
+
+    def test_translate_spec_marks_centerable_gaussian_mean_indicators(self):
+        """Gaussian identity indicators with interval means should be auto-centered."""
+        from causal_ssm_agent.artifacts import (
+            DistributionFamily,
+            LikelihoodSpec,
+            LinkFunction,
+            ModelSpec,
         )
         from causal_ssm_agent.models.ssm_compilation import translate_spec
 
@@ -598,23 +706,12 @@ class TestBuilderMasks:
                     reasoning="test",
                 ),
             ],
-            parameters=[
-                ParameterSpec(
-                    name="cor0_X_Z",
-                    role=ParameterRole.INITIAL_STATE_CORRELATION,
-                    constraint=ParameterConstraint.CORRELATION,
-                    description="initial correlation",
-                ),
-            ],
+            parameters=[],
         )
 
         spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
 
-        expected_mask = np.zeros((3, 3), dtype=bool)
-        expected_mask[2, 0] = True
-        np.testing.assert_allclose(np.asarray(spec.t0_chol), np.eye(3))
-        np.testing.assert_array_equal(spec.t0_chol_diag_mask, full_diagonal_mask(3))
-        np.testing.assert_array_equal(spec.t0_correlation_mask, expected_mask)
+        assert spec.manifest_centered == [True, True, True, True]
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
         """Single-indicator constructs get fixed zero manifest noise in the compiled spec."""
@@ -724,8 +821,8 @@ class TestBuilderMasks:
         )
         np.testing.assert_allclose(np.asarray(spec.manifest_chol), np.zeros((4, 4)))
 
-    def test_translate_spec_rejects_duplicate_initial_state_correlation_pairs(self):
-        """Different parameter names may not target the same initial-state pair."""
+    def test_translate_spec_rejects_initial_state_correlation_parameters_with_causal_spec(self):
+        """Causal-spec compilation no longer accepts pairwise cor0 parameters."""
         from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
@@ -772,20 +869,17 @@ class TestBuilderMasks:
                     constraint=ParameterConstraint.CORRELATION,
                     description="initial correlation",
                 ),
-                ParameterSpec(
-                    name="cor0_Z_X",
-                    role=ParameterRole.INITIAL_STATE_CORRELATION,
-                    constraint=ParameterConstraint.CORRELATION,
-                    description="duplicate initial correlation",
-                ),
             ],
         )
 
-        with pytest.raises(ValueError, match="Duplicate INITIAL_STATE_CORRELATION parameters"):
+        with pytest.raises(
+            ValueError,
+            match="no longer accepts INITIAL_STATE_CORRELATION parameters",
+        ):
             translate_spec(model_spec, causal_spec=causal_spec)
 
-    def test_translate_spec_rejects_initial_state_self_correlations(self):
-        """Initial-state correlations must target two distinct latent states."""
+    def test_translate_spec_rejects_self_initial_state_correlation_with_causal_spec(self):
+        """Even self-pairs are rejected once causal-spec compilation is active."""
         from causal_ssm_agent.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
@@ -835,7 +929,10 @@ class TestBuilderMasks:
             ],
         )
 
-        with pytest.raises(ValueError, match="two distinct latent states"):
+        with pytest.raises(
+            ValueError,
+            match="no longer accepts INITIAL_STATE_CORRELATION parameters",
+        ):
             translate_spec(model_spec, causal_spec=causal_spec)
 
     def test_builder_end_to_end(self):
@@ -864,12 +961,6 @@ class TestBuilderMasks:
             likelihoods=[_lik("x1"), _lik("x2"), _lik("y1"), _lik("z1")],
             parameters=[
                 ParameterSpec(
-                    name="rho_X",
-                    role=ParameterRole.AR_COEFFICIENT,
-                    constraint=ParameterConstraint.UNIT_INTERVAL,
-                    description="AR for X",
-                ),
-                ParameterSpec(
                     name="rho_Y",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
@@ -892,6 +983,42 @@ class TestBuilderMasks:
                     role=ParameterRole.FIXED_EFFECT,
                     constraint=ParameterConstraint.NONE,
                     description="Y→Z effect",
+                ),
+                ParameterSpec(
+                    name="sigma_X",
+                    role=ParameterRole.RESIDUAL_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Residual SD for X",
+                ),
+                ParameterSpec(
+                    name="sigma_Y",
+                    role=ParameterRole.RESIDUAL_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Residual SD for Y",
+                ),
+                ParameterSpec(
+                    name="sigma_Z",
+                    role=ParameterRole.RESIDUAL_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Residual SD for Z",
+                ),
+                ParameterSpec(
+                    name="lambda_x2_X",
+                    role=ParameterRole.LOADING,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Loading for x2 on X",
+                ),
+                ParameterSpec(
+                    name="obs_sd_x1",
+                    role=ParameterRole.MEASUREMENT_ERROR_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Measurement-error SD for x1",
+                ),
+                ParameterSpec(
+                    name="obs_sd_x2",
+                    role=ParameterRole.MEASUREMENT_ERROR_SD,
+                    constraint=ParameterConstraint.POSITIVE,
+                    description="Measurement-error SD for x2",
                 ),
             ],
         )
@@ -921,7 +1048,9 @@ class TestBuilderMasks:
 
         # Verify masks were built
         drift_mask = combined_drift_mask(spec)
-        assert drift_mask[0, 0]
+        assert not drift_mask[0, 0]
+        assert drift_mask[1, 1]
+        assert drift_mask[2, 2]
         assert spec.lambda_mask is not None
         assert spec.n_latent == 3
         assert spec.n_manifest == 4
@@ -932,12 +1061,12 @@ class TestBuilderMasks:
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestParametricIdMasks:
-    """Test that count_free_params uses masks."""
+class TestSiteRegistryMasks:
+    """Test that the canonical site registry respects SSM masks."""
 
-    def test_count_free_params_with_drift_mask(self):
-        """count_free_params should count masked off-diagonal entries."""
-        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
+    def test_site_registry_with_drift_mask(self):
+        """Site registry should size masked drift entries correctly."""
+        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
 
         # 3 latent, X→Y and Y→Z = 2 off-diagonal entries
         mask = np.eye(3, dtype=bool)
@@ -954,15 +1083,15 @@ class TestParametricIdMasks:
             cint=jnp.zeros(3),
         )
 
-        counts = count_free_params(spec)
+        registry = {site.name: site for site in build_site_registry(spec)}
 
         # Should have 2 off-diagonal, not 6
-        assert counts["drift_offdiag_free"] == 2
-        assert counts["drift_diag_free"] == 3
+        assert registry["drift_offdiag_free"].shape == (2,)
+        assert registry["drift_diag_free"].shape == (3,)
 
-    def test_count_free_params_with_lambda_mask(self):
-        """count_free_params counts masked lambda entries."""
-        from causal_ssm_agent.models.ssm.diagnostics import count_free_params
+    def test_site_registry_with_lambda_mask(self):
+        """Site registry should size masked loading entries correctly."""
+        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
 
         lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
         lambda_mask = np.array([[False, False], [False, False], [True, False]])
@@ -975,8 +1104,8 @@ class TestParametricIdMasks:
             lambda_mask=lambda_mask,
         )
 
-        counts = count_free_params(spec)
-        assert counts.get("lambda_free", 0) == 1
+        registry = {site.name: site for site in build_site_registry(spec)}
+        assert registry["lambda_free"].shape == (1,)
 
 
 # ═══════════════════════════════════════════════════════════════════════

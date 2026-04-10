@@ -169,9 +169,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-2": {
         outcome: "success",
-        workers: [
-          { worker_id: 0, status: "completed" as const, n_extractions: 10, n_windows: 5 },
-        ],
+        workers: [{ worker_id: 0, status: "completed" as const, n_extractions: 10, n_windows: 5 }],
         per_indicator_counts: { heart_rate: 10 },
         combined_extractions_sample: [
           { indicator: "heart_rate", value: 72, anchor_time: "2024-01-01T00:00:00Z" },
@@ -217,8 +215,18 @@ describe("generateMarkdown", () => {
             },
             validation: {
               issues: [
-                { indicator: "heart_rate", issue_type: "missing_data", severity: "error" as const, message: "Missing" },
-                { indicator: "heart_rate", issue_type: "low_variance", severity: "warning" as const, message: "Low var" },
+                {
+                  indicator: "heart_rate",
+                  issue_type: "missing_data",
+                  severity: "error" as const,
+                  message: "Missing",
+                },
+                {
+                  indicator: "heart_rate",
+                  issue_type: "low_variance",
+                  severity: "warning" as const,
+                  message: "Low var",
+                },
               ],
               checks: { n_obs: "error", variance: "warning" },
             },
@@ -249,7 +257,12 @@ describe("generateMarkdown", () => {
             },
             validation: {
               issues: [
-                { indicator: "steps", issue_type: "dtype", severity: "error" as const, message: "Bad type" },
+                {
+                  indicator: "steps",
+                  issue_type: "dtype",
+                  severity: "error" as const,
+                  message: "Bad type",
+                },
               ],
               checks: { dtype_violations: "error", arithmetic_sequence_detected: "warning" },
             },
@@ -280,13 +293,15 @@ describe("generateMarkdown", () => {
               distribution: "gaussian",
               link: "identity",
               reasoning: "Continuous measurement",
-              sources: [{ title: "Study A", url: "https://example.com/a", snippet: "HR is gaussian" }],
+              sources: [
+                { title: "Study A", url: "https://example.com/a", snippet: "HR is gaussian" },
+              ],
             },
           ],
         },
         authored_priors: {},
         resolved_priors: [],
-      } as AllStageData["stage-4"],
+      } as unknown as AllStageData["stage-4"],
     };
     const result = generateMarkdown(data, "run-4");
     expect(result).toContain("Sources");
@@ -299,16 +314,8 @@ describe("generateMarkdown", () => {
         outcome: "success",
         parametric_id: {
           checked: true,
-          t_rule: {
-            n_free_params: 5,
-            n_manifest: 3,
-            n_timepoints: 10,
-            n_moments: 15,
-            satisfies: true,
-            param_counts: {},
-          },
           sensitivity_analysis: {
-            condition_number: 42.5,
+            deficiency_count: 0,
             n_parameters: 5,
             n_draws: 1000,
             n_observations: 100,
@@ -341,8 +348,8 @@ describe("generateMarkdown", () => {
     };
     const result = generateMarkdown(data, "run-4b");
     expect(result).toContain("Sensitivity Analysis");
-    expect(result).toContain("Condition number");
-    expect(result).toContain("42.500");
+    expect(result).toContain("Deficient directions");
+    expect(result).toContain("0/5");
     expect(result).toContain("Interpretable Parameter");
     expect(result).toContain("drift_diag_pop[0]");
     expect(result).toContain("rho_x");
@@ -350,34 +357,6 @@ describe("generateMarkdown", () => {
     expect(result).toContain("sigma_y");
     expect(result).toContain("Effective SV");
     expect(result).toContain("fail");
-  });
-
-  it("surfaces stage 4b t-rule warnings as warnings rather than pipeline stops", () => {
-    const data: AllStageData = {
-      "stage-4b": {
-        outcome: "warn",
-        parametric_id: {
-          checked: true,
-          t_rule: {
-            n_free_params: 12,
-            n_manifest: 3,
-            n_timepoints: 8,
-            n_moments: 10,
-            satisfies: false,
-            param_counts: {},
-          },
-          error:
-            "T-rule warning: 12 free params > conservative lower-bound 10 moment conditions. This screen is warning-only and does not halt inference.",
-        },
-      } as AllStageData["stage-4b"],
-    };
-
-    const result = generateMarkdown(data, "run-4b-warning");
-
-    expect(result).toContain("**WARNING**");
-    expect(result).toContain("T-Rule screen failed");
-    expect(result).toContain("Lower-bound moment conditions");
-    expect(result).not.toContain("PIPELINE STOPPED");
   });
 
   it("includes stage 5a SVI preflight", () => {
@@ -532,7 +511,10 @@ describe("generateMarkdown", () => {
           energy: {
             bfmi: [0.85, 0.82],
             energy_hist: { bin_centers: [1, 2, 3, 4, 5], density: [0.1, 0.3, 0.4, 0.15, 0.05] },
-            energy_transition_hist: { bin_centers: [0.5, 1, 1.5, 2], density: [0.2, 0.5, 0.25, 0.05] },
+            energy_transition_hist: {
+              bin_centers: [0.5, 1, 1.5, 2],
+              density: [0.2, 0.5, 0.25, 0.05],
+            },
           },
         },
         ppc: { per_variable_warnings: [], overlays: [], test_stats: [] },
@@ -700,7 +682,12 @@ describe("generateMarkdown", () => {
         inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
         ppc: { per_variable_warnings: [], overlays: [], test_stats: [] },
         power_scaling: [
-          { parameter: "drift_diag_exercise", diagnosis: "prior_dominated", prior_sensitivity: 0.9, likelihood_sensitivity: 0.1 },
+          {
+            parameter: "drift_diag_exercise",
+            diagnosis: "prior_dominated",
+            prior_sensitivity: 0.9,
+            likelihood_sensitivity: 0.1,
+          },
         ],
       } as AllStageData["stage-5b"],
       "stage-6": {
@@ -777,7 +764,13 @@ describe("generateMarkdown", () => {
         svi_diagnostics: { elbo_losses: [100, 50, 30, 25, 22] },
         ppc: {
           per_variable_warnings: [
-            { variable: "hr", check_type: "calibration" as const, passed: true, value: 0.5, message: "OK" },
+            {
+              variable: "hr",
+              check_type: "calibration" as const,
+              passed: true,
+              value: 0.5,
+              message: "OK",
+            },
           ],
           overlays: [
             {
@@ -792,7 +785,12 @@ describe("generateMarkdown", () => {
             },
           ],
           test_stats: [
-            { variable: "hr", stat_name: "mean" as const, observed_value: 71, rep_values: [70, 72, 71] },
+            {
+              variable: "hr",
+              stat_name: "mean" as const,
+              observed_value: 71,
+              rep_values: [70, 72, 71],
+            },
           ],
         },
         loo_diagnostics: {
@@ -805,14 +803,38 @@ describe("generateMarkdown", () => {
           pareto_k: [0.1, 0.3, 0.5],
         },
         power_scaling: [
-          { parameter: "rho_x", diagnosis: "well_identified" as const, prior_sensitivity: 0.01, likelihood_sensitivity: 0.02 },
-          { parameter: "sigma_x", diagnosis: "prior_dominated" as const, prior_sensitivity: 0.15, likelihood_sensitivity: 0.01 },
+          {
+            parameter: "rho_x",
+            diagnosis: "well_identified" as const,
+            prior_sensitivity: 0.01,
+            likelihood_sensitivity: 0.02,
+          },
+          {
+            parameter: "sigma_x",
+            diagnosis: "prior_dominated" as const,
+            prior_sensitivity: 0.15,
+            likelihood_sensitivity: 0.01,
+          },
         ],
         posterior_marginals: [
-          { parameter: "rho_x", x_values: [0, 0.5, 1], density: [0.1, 1.0, 0.1], mean: 0.5, sd: 0.1, hdi_3: 0.3, hdi_97: 0.7 },
+          {
+            parameter: "rho_x",
+            x_values: [0, 0.5, 1],
+            density: [0.1, 1.0, 0.1],
+            mean: 0.5,
+            sd: 0.1,
+            hdi_3: 0.3,
+            hdi_97: 0.7,
+          },
         ],
         posterior_pairs: [
-          { param_x: "rho_x", param_y: "sigma_x", x_values: [0.5, 0.6], y_values: [0.1, 0.12], divergent: [false, true] },
+          {
+            param_x: "rho_x",
+            param_y: "sigma_x",
+            x_values: [0.5, 0.6],
+            y_values: [0.1, 0.12],
+            divergent: [false, true],
+          },
         ],
       } as AllStageData["stage-5b"],
     };
@@ -851,8 +873,20 @@ describe("generateMarkdown", () => {
         outcome: "success",
         latent_model: {
           constructs: [
-            { name: "exercise", description: "Ex", role: "exogenous", is_outcome: false, temporal_status: "time_varying" },
-            { name: "bp", description: "BP", role: "endogenous", is_outcome: true, temporal_status: "time_varying" },
+            {
+              name: "exercise",
+              description: "Ex",
+              role: "exogenous",
+              is_outcome: false,
+              temporal_status: "time_varying",
+            },
+            {
+              name: "bp",
+              description: "BP",
+              role: "endogenous",
+              is_outcome: true,
+              temporal_status: "time_varying",
+            },
           ],
           edges: [{ cause: "exercise", effect: "bp", lagged: true, description: "Lowers BP" }],
         },

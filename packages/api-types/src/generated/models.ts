@@ -10,11 +10,11 @@
  */
 
 /**
- * Whether a variable is modeled (endogenous) or given (exogenous).
+ * Whether a variable is modeled or treated as given.
  */
 export type Role = "endogenous" | "exogenous";
 /**
- * Whether a variable changes over time.
+ * Whether a construct changes within-person over time.
  */
 export type TemporalStatus = "time_varying" | "time_invariant";
 /**
@@ -57,14 +57,25 @@ export type ParameterRole =
   | "fixed_effect"
   | "ar_coefficient"
   | "residual_sd"
+  | "state_intercept"
+  | "observation_intercept"
+  | "initial_state_mean"
+  | "initial_state_sd"
   | "static_state_sd"
   | "correlation"
   | "initial_state_correlation"
-  | "loading";
+  | "loading"
+  | "measurement_error_sd"
+  | "observation_hyperparameter"
+  | "observation_hyperparameter_positive";
 /**
  * Constraints on parameter values.
  */
 export type ParameterConstraint = "none" | "positive" | "negative" | "unit_interval" | "correlation";
+/**
+ * Global initial-state policy for retained dynamic states.
+ */
+export type InitializationPolicy = "stationary" | "free";
 /**
  * Distribution families allowed in Stage 4 prior proposals.
  */
@@ -150,10 +161,7 @@ export interface Stage1AContract {
   latent_model: LatentModel;
 }
 /**
- * Theoretical causal structure over constructs (the latent model).
- *
- * This is the output of Stage 1a - proposed based on domain knowledge alone,
- * without seeing data. Defines the topological structure among latent constructs.
+ * Theoretical causal structure over constructs.
  */
 export interface LatentModel {
   /**
@@ -166,10 +174,7 @@ export interface LatentModel {
   edges: CausalEdge[];
 }
 /**
- * A theoretical entity in the causal model.
- *
- * Constructs are conceptually 'latent' - they represent theoretical entities
- * that may be measured by one or more observed indicators.
+ * A theoretical entity in the latent causal model.
  */
 export interface Construct {
   /**
@@ -219,9 +224,6 @@ export interface Stage1BContract {
 }
 /**
  * Complete causal specification combining latent and measurement models.
- *
- * This is the full model after both Stage 1a (latent) and Stage 1b (measurement).
- * Includes identifiability status for target causal effects.
  */
 export interface CausalSpec {
   latent: LatentModel;
@@ -237,11 +239,6 @@ export interface CausalSpec {
 }
 /**
  * Operationalization of constructs into observed indicators.
- *
- * This is the output of Stage 1b - proposed after seeing data sample,
- * given the latent model from Stage 1a.
- *
- * Each construct from the latent model must have at least one indicator.
  */
 export interface MeasurementModel {
   /**
@@ -255,9 +252,6 @@ export interface MeasurementModel {
 }
 /**
  * An observed variable that reflects a construct.
- *
- * Following the reflective measurement model (A1), causality flows from
- * construct to indicator: the latent construct causes the observed values.
  */
 export interface Indicator {
   /**
@@ -490,10 +484,7 @@ export interface Stage4Contract {
   } | null;
 }
 /**
- * Complete model specification from orchestrator.
- *
- * This is what the orchestrator proposes based on the CausalSpec structure.
- * It enumerates all parameters needing priors and specifies the statistical model.
+ * Complete statistical model specification.
  */
 export interface ModelSpec {
   /**
@@ -504,6 +495,11 @@ export interface ModelSpec {
    * All parameters requiring priors
    */
   parameters: ParameterSpec[];
+  initialization_policy: InitializationPolicy;
+  /**
+   * Whether eligible dynamic states may carry a continuous-time intercept term
+   */
+  equilibrium_forcing: boolean;
 }
 /**
  * Specification for a likelihood (observed variable distribution).
@@ -515,6 +511,10 @@ export interface LikelihoodSpec {
   variable: string;
   distribution: DistributionFamily;
   link: LinkFunction;
+  /**
+   * Whether deterministic additive centering is applied before fitting
+   */
+  centered: boolean;
   /**
    * Why this distribution/link was chosen for this variable
    */
@@ -546,7 +546,7 @@ export interface LikelihoodSource {
  */
 export interface ParameterSpec {
   /**
-   * Parameter name (e.g., 'beta_stress_anxiety', 'rho_mood')
+   * Parameter name
    */
   name: string;
   role: ParameterRole;
@@ -631,35 +631,11 @@ export interface Stage4BContract {
  */
 export interface ParametricIdResult {
   checked: boolean;
-  t_rule?: TRuleResult | null;
   sensitivity_analysis?: SensitivityAnalysisResult | null;
   summary?: ParametricIdSummary | null;
   per_param_classification?: ParameterIdentification[] | null;
   threshold?: number | null;
   error?: string | null;
-}
-/**
- * Result of the t-rule (counting condition) check.
- *
- * This implementation uses a conservative lower bound on available moment
- * conditions. If the number of free parameters exceeds that lower bound,
- * the model is at high risk of non-identifiability and should be reviewed,
- * but the result is not treated as a proof.
- *
- * For cross-sectional SEMs the constraint is n_params <= p(p+1)/2.
- * For time series (SSMs), lagged autocovariance contributes additional
- * information; this implementation counts only a conservative p moments
- * per lag.
- */
-export interface TRuleResult {
-  n_free_params: number;
-  n_manifest: number;
-  n_timepoints: number | null;
-  n_moments: number;
-  satisfies: boolean;
-  param_counts: {
-    [k: string]: number | undefined;
-  };
 }
 /**
  * Output sensitivity analysis result (pre-inference identifiability).
@@ -670,7 +646,7 @@ export interface TRuleResult {
  */
 export interface SensitivityAnalysisResult {
   singular_values: number[];
-  condition_number: number;
+  deficiency_count: number;
   per_parameter: SensitivityEntry[];
   n_draws: number;
   n_observations: number;

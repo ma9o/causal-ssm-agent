@@ -55,6 +55,26 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _center_manifest_columns(
+    X: pl.DataFrame,
+    manifest_cols: list[str],
+    manifest_centered: list[bool] | None,
+) -> pl.DataFrame:
+    """Apply deterministic centering to manifest columns marked centered."""
+    if manifest_centered is None or not any(manifest_centered):
+        return X
+
+    centered_exprs = []
+    for manifest_name, centered in zip(manifest_cols, manifest_centered, strict=False):
+        base_expr = pl.col(manifest_name).cast(pl.Float64, strict=False)
+        if centered:
+            centered_exprs.append((base_expr - base_expr.mean()).alias(manifest_name))
+        else:
+            centered_exprs.append(base_expr.alias(manifest_name))
+    passthrough = [col_name for col_name in X.columns if col_name not in set(manifest_cols)]
+    return X.select(*passthrough, *centered_exprs)
+
+
 @dataclass
 class PreparedModelRuntime:
     """Canonical prepared runtime context shared by validation and inference."""
@@ -321,6 +341,13 @@ class SSMModelBuilder:
             manifest_cols = self._spec.manifest_names
         else:
             manifest_cols = default_manifest_columns(X)
+
+        manifest_centered = (
+            list(self._spec.manifest_centered)
+            if self._spec is not None and self._spec.manifest_centered is not None
+            else None
+        )
+        X = _center_manifest_columns(X, manifest_cols, manifest_centered)
 
         observations = jnp.array(X.select(manifest_cols).to_numpy(), dtype=jnp.float64)
 

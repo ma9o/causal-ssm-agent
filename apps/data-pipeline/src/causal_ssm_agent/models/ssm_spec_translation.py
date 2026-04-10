@@ -8,11 +8,13 @@ import numpy as np
 from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
 from causal_ssm_agent.artifacts.model_spec import (
     DistributionFamily,
+    InitializationPolicy,
     LinkFunction,
     ModelSpec,
     ParameterRole,
 )
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
+from causal_ssm_agent.models.model_semantics import should_auto_center_indicator
 from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
 )
@@ -34,7 +36,9 @@ from causal_ssm_agent.utils.causal_spec import (
     get_estimation_state_order,
     get_indicator_polarity,
     get_indicators,
+    get_induced_dependencies,
 )
+from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
 
 
 class SpecTranslationError(AggregatedCompileError):
@@ -178,7 +182,14 @@ def build_masks_from_causal_spec(
         )
 
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
-    drift_mask = np.eye(n_latent, dtype=bool)
+    drift_mask = np.zeros((n_latent, n_latent), dtype=bool)
+    for latent_name, latent_idx_value in latent_idx.items():
+        construct = latent_construct_lookup.get(latent_name) or {}
+        if (
+            construct.get("role") == "endogenous"
+            and construct.get("temporal_status") != "time_invariant"
+        ):
+            drift_mask[latent_idx_value, latent_idx_value] = True
     edge_lag_days: dict[tuple[int, int], float] = {}
     model_dt_days = get_construct_dt_days(causal_spec)
 
@@ -352,6 +363,135 @@ def build_manifest_level_counts_from_causal_spec(
     return level_counts
 
 
+def _build_role_index_lookup(
+    model_spec: ModelSpec,
+    *,
+    role: ParameterRole,
+    prefix: str,
+    names: list[str],
+) -> np.ndarray:
+    """Build a vector mask from active semantic parameters sharing a name prefix."""
+    name_to_idx = {name: idx for idx, name in enumerate(names)}
+    mask = np.zeros(len(names), dtype=bool)
+    for parameter in model_spec.parameters:
+        if parameter.role != role:
+            continue
+        resolved_name = parameter.name.removeprefix(prefix)
+        idx = name_to_idx.get(resolved_name)
+        if idx is not None:
+            mask[idx] = True
+    return mask
+
+
+def _build_manifest_centered_flags(
+    model_spec: ModelSpec,
+    manifest_cols: list[str],
+    *,
+    causal_spec: dict | None,
+) -> list[bool]:
+    """Return deterministic centering tags for each manifest channel."""
+    likelihood_lookup = {likelihood.variable: likelihood for likelihood in model_spec.likelihoods}
+    indicator_lookup = {}
+    if causal_spec is not None:
+        indicator_lookup = {
+            indicator["name"]: indicator for indicator in get_indicators(causal_spec)
+        }
+
+    centered: list[bool] = []
+    for manifest_name in manifest_cols:
+        likelihood = likelihood_lookup[manifest_name]
+        indicator = indicator_lookup.get(manifest_name) or {}
+        support_kind = indicator.get("support_kind")
+        summary_operator = indicator.get("summary_operator")
+        if indicator and (
+            not isinstance(support_kind, str) or not isinstance(summary_operator, str)
+        ):
+            semantics = get_observation_semantics(indicator)
+            support_kind = semantics.support_kind.value
+            summary_operator = semantics.summary_operator.value
+
+        if isinstance(support_kind, str) and isinstance(summary_operator, str):
+            centered.append(
+                should_auto_center_indicator(
+                    likelihood.distribution,
+                    likelihood.link,
+                    support_kind,
+                    summary_operator,
+                )
+            )
+            continue
+
+        centered.append(bool(likelihood.centered))
+    return centered
+
+
+def _build_static_factor_structure(
+    model_spec: ModelSpec,
+    latent_names: list[str],
+    *,
+    causal_spec: dict | None,
+) -> tuple[np.ndarray, jnp.ndarray, jnp.ndarray, list[str]]:
+    """Compile deterministic baseline-factor loadings from induced confounders."""
+    factor_names = [
+        parameter.name
+        for parameter in model_spec.parameters
+        if parameter.role == ParameterRole.STATIC_STATE_SD
+    ]
+    if not factor_names:
+        return (
+            np.zeros(0, dtype=bool),
+            jnp.zeros(0),
+            jnp.zeros((len(latent_names), 0)),
+            [],
+        )
+
+    if causal_spec is None:
+        raise SpecTranslationError(
+            [
+                "STATIC_STATE_SD parameters require causal_spec so baseline factors can be "
+                "compiled from induced time-invariant confounders."
+            ]
+        )
+
+    latent_idx = {name: idx for idx, name in enumerate(latent_names)}
+    loadings = np.zeros((len(latent_names), len(factor_names)), dtype=np.float64)
+    dependency_lookup = [
+        dependency
+        for dependency in get_induced_dependencies(causal_spec)
+        if dependency.get("kind") == "initial_state_correlation"
+    ]
+    errors: list[str] = []
+
+    for factor_idx, factor_name in enumerate(factor_names):
+        confounder = factor_name.removeprefix("tau_")
+        affected_states: set[str] = set()
+        for dependency in dependency_lookup:
+            if confounder not in set(dependency.get("source_confounders") or ()):
+                continue
+            for state_name in dependency.get("between") or ():
+                if isinstance(state_name, str):
+                    affected_states.add(state_name)
+        for state_name in sorted(affected_states):
+            latent_idx_value = latent_idx.get(state_name)
+            if latent_idx_value is not None:
+                loadings[latent_idx_value, factor_idx] = 1.0
+        if not affected_states:
+            errors.append(
+                "STATIC_STATE_SD parameter does not match any induced time-invariant "
+                f"confounder dependency: {factor_name!r}"
+            )
+
+    if errors:
+        raise SpecTranslationError(errors)
+
+    return (
+        np.ones(len(factor_names), dtype=bool),
+        jnp.zeros(len(factor_names)),
+        jnp.asarray(loadings),
+        factor_names,
+    )
+
+
 def translate_spec(
     model_spec: ModelSpec | dict,
     causal_spec: dict | None = None,
@@ -459,8 +599,19 @@ def translate_spec(
     has_innovation_correlation = any(
         parameter.role == ParameterRole.CORRELATION for parameter in model_spec.parameters
     )
+    if causal_spec is not None and any(
+        parameter.role == ParameterRole.INITIAL_STATE_CORRELATION
+        for parameter in model_spec.parameters
+    ):
+        errors.append(
+            "Causal-spec compilation no longer accepts INITIAL_STATE_CORRELATION parameters; "
+            "use compiled STATIC_STATE_SD baseline factors instead."
+        )
     try:
-        t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
+        if causal_spec is None:
+            t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
+        else:
+            t0_correlation_mask = zero_square_mask(n_latent)
     except ValueError as exc:
         errors.append(str(exc))
         t0_correlation_mask = zero_square_mask(n_latent)
@@ -475,8 +626,48 @@ def translate_spec(
     )
     if t0_correlation_mask is None:
         t0_correlation_mask = zero_square_mask(n_latent)
-    t0_chol_diag_mask = full_diagonal_mask(n_latent)
-    cint_mask = _mask_time_invariant_vector_support(full_vector_mask(n_latent), time_invariant_mask)
+    initialization_policy = InitializationPolicy(model_spec.initialization_policy)
+    if initialization_policy == InitializationPolicy.FREE:
+        t0_means_mask = full_vector_mask(n_latent)
+        t0_chol_diag_mask = full_diagonal_mask(n_latent)
+    else:
+        dynamic_mask = (
+            np.ones(n_latent, dtype=bool)
+            if time_invariant_mask is None
+            else ~np.asarray(time_invariant_mask, dtype=bool)
+        )
+        t0_means_mask = np.zeros(n_latent, dtype=bool)
+        t0_means_mask[~dynamic_mask] = True
+        t0_chol_diag_mask = np.zeros(n_latent, dtype=bool)
+        t0_chol_diag_mask[~dynamic_mask] = True
+
+    manifest_means_mask = _build_role_index_lookup(
+        model_spec,
+        role=ParameterRole.OBSERVATION_INTERCEPT,
+        prefix="manifest_mean_",
+        names=manifest_cols,
+    )
+    if model_spec.equilibrium_forcing:
+        cint_mask = _build_role_index_lookup(
+            model_spec,
+            role=ParameterRole.STATE_INTERCEPT,
+            prefix="cint_",
+            names=latent_names,
+        )
+    else:
+        cint_mask = zero_vector_mask(n_latent)
+    static_state_sd_mask, static_state_sds, static_factor_loadings, static_factor_names = (
+        _build_static_factor_structure(
+            model_spec,
+            latent_names,
+            causal_spec=causal_spec,
+        )
+    )
+    manifest_centered = _build_manifest_centered_flags(
+        model_spec,
+        manifest_cols,
+        causal_spec=causal_spec,
+    )
 
     if errors:
         raise SpecTranslationError(errors)
@@ -489,14 +680,17 @@ def translate_spec(
         drift=jnp.zeros((n_latent, n_latent)),
         cint_mask=cint_mask,
         cint=jnp.zeros(n_latent),
+        static_state_sd_mask=static_state_sd_mask,
+        static_state_sds=static_state_sds,
+        static_factor_loadings=static_factor_loadings,
         lambda_mat=lambda_mat,
         diffusion_chol_mask=diffusion_chol_mask,
         diffusion_chol=jnp.eye(n_latent),
-        manifest_means_mask=zero_vector_mask(n_manifest),
+        manifest_means_mask=manifest_means_mask,
         manifest_means=jnp.zeros(n_manifest),
         manifest_chol_diag_mask=manifest_chol_diag_mask,
         manifest_chol=manifest_chol,
-        t0_means_mask=full_vector_mask(n_latent),
+        t0_means_mask=t0_means_mask,
         t0_means=jnp.zeros(n_latent),
         t0_chol_diag_mask=t0_chol_diag_mask,
         t0_correlation_mask=t0_correlation_mask,
@@ -504,9 +698,12 @@ def translate_spec(
         diffusion_dists=[DistributionFamily.GAUSSIAN] * n_latent,
         manifest_dists=manifest_dists,
         manifest_links=manifest_links,
+        manifest_centered=manifest_centered,
         manifest_level_counts=manifest_level_counts,
         latent_names=latent_names,
         manifest_names=manifest_cols,
+        static_factor_names=static_factor_names,
+        initialization_policy=initialization_policy.value,
         lambda_mask=lambda_mask,
         time_invariant_mask=time_invariant_mask,
     )

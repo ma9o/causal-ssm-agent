@@ -39,6 +39,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     serialize_site_registry,
     verify_registry_matches_trace,
 )
+from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from tests.ssm_test_utils import make_ssm_spec
 
 # ---------------------------------------------------------------------------
@@ -238,6 +239,55 @@ class TestSiteRegistry:
             trace = handlers.trace(lambda: model._sample_likelihood_extra_params(spec)).get_trace()
 
         assert "proc_df" in trace
+
+    def test_static_state_sd_site_is_registered_and_traced(self):
+        """Compiled baseline factors should expose a positive static-state SD site."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=1,
+            static_state_sd_mask=np.array([True]),
+            static_state_sds=jnp.zeros(1),
+            static_factor_loadings=jnp.array([[1.0], [1.0]]),
+            t0_var=jnp.eye(2),
+            t0_var_diag_mask=np.zeros(2, dtype=bool),
+            t0_correlation_mask=np.zeros((2, 2), dtype=bool),
+        )
+        model = SSMModel(spec, likelihood="kalman")
+
+        registry = build_site_registry(spec)
+        site_map = {site.name: site for site in registry}
+        assert site_map["static_state_sd_free"].shape == (1,)
+        assert site_map["static_state_sd_free"].support == SupportClass.POSITIVE
+
+        backend = model.make_likelihood_backend()
+        obs = jnp.zeros((5, spec.n_manifest))
+        times = jnp.arange(5, dtype=jnp.float32)
+        site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
+        verify_registry_matches_trace(registry, site_info)
+        assert site_info["static_state_sd_free"]["shape"] == (1,)
+
+
+class TestStructureRuntime:
+    def test_assemble_t0_cov_adds_low_rank_baseline_factor_covariance(self):
+        """Static baseline factors should add `B diag(tau^2) B^T` to the t0 covariance."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=1,
+            static_state_sd_mask=np.array([True]),
+            static_state_sds=jnp.zeros(1),
+            static_factor_loadings=jnp.array([[1.0], [1.0]]),
+            t0_var=jnp.eye(2),
+            t0_var_diag_mask=np.zeros(2, dtype=bool),
+            t0_correlation_mask=np.zeros((2, 2), dtype=bool),
+        )
+        runtime = SSMStructureRuntime(spec)
+
+        cov = runtime.assemble_t0_cov(static_state_sds=jnp.array([2.0]))
+
+        np.testing.assert_allclose(
+            np.asarray(cov),
+            np.array([[5.0, 4.0], [4.0, 5.0]]),
+        )
 
 
 # ---------------------------------------------------------------------------

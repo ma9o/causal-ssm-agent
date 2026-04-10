@@ -101,6 +101,51 @@ def make_submit_indicator_choice_tool(state: Any) -> Any:
     )
 
 
+def make_submit_model_configuration_tool(state: Any) -> Any:
+    """Create the model-configuration submit tool for the active Stage 4 block."""
+    from causal_ssm_agent.utils.openrouter_client import Tool
+
+    async def _execute(
+        *,
+        initialization_policy: str,
+        equilibrium_forcing: bool,
+        reasoning: str,
+    ) -> str:
+        return state.submit_model_configuration(
+            initialization_policy=initialization_policy,
+            equilibrium_forcing=equilibrium_forcing,
+            reasoning=reasoning,
+        )
+
+    return Tool(
+        name="submit_model_configuration",
+        description="Submit the global initialization and equilibrium-forcing decision.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "initialization_policy": {
+                    "type": "string",
+                    "enum": ["stationary", "free"],
+                    "description": "Global initial-state policy for retained dynamic states.",
+                },
+                "equilibrium_forcing": {
+                    "type": "boolean",
+                    "description": "Whether eligible dynamic states may have a continuous-time intercept.",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "Short justification for the global model configuration.",
+                },
+            },
+            "required": ["initialization_policy", "equilibrium_forcing", "reasoning"],
+            "additionalProperties": False,
+        },
+        execute=_execute,
+        stop_on_success=True,
+        success_output=None,
+    )
+
+
 def make_submit_model_review_tool(state: Any) -> Any:
     """Create the model-review submit tool for the active Stage 4 review block."""
     from causal_ssm_agent.utils.openrouter_client import Tool

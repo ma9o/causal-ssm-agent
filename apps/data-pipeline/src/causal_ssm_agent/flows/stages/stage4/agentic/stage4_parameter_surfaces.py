@@ -6,6 +6,8 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from causal_ssm_agent.artifacts.model_spec import InitializationPolicy
+from causal_ssm_agent.models.model_semantics import indicator_requires_observation_intercept
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.utils.causal_spec import get_estimation_edges
 
@@ -24,12 +26,14 @@ _DYNAMICS_PARAMETER_ROLES = frozenset(
     {
         "ar_coefficient",
         "residual_sd",
+        "state_intercept",
         "initial_state_mean",
         "initial_state_sd",
     }
 )
 _OBSERVATION_PARAMETER_ROLES = frozenset(
     {
+        "observation_intercept",
         "observation_hyperparameter",
         "observation_hyperparameter_positive",
     }
@@ -38,6 +42,7 @@ _CORRELATION_PARAMETER_ROLES = frozenset(
     {
         "correlation",
         "initial_state_correlation",
+        "static_state_sd",
     }
 )
 
@@ -108,26 +113,65 @@ class Stage4ParameterSurfaceIndex:
         return self.by_block_kind.get(kind, ())
 
 
-def parameter_is_active_for_likelihoods(
+def parameter_is_active_for_model_spec(
     parameter: dict[str, Any],
-    chosen_distribution_by_variable: dict[str, str],
+    chosen_likelihood_by_variable: dict[str, dict[str, Any]],
+    *,
+    initialization_policy: str,
+    equilibrium_forcing: bool,
 ) -> bool:
-    """Return whether a Stage 4 parameter survives the locked likelihood choices."""
+    """Return whether a Stage 4 parameter survives the locked model decisions."""
     activation_families = parameter.get("activation_distribution_families")
     if not isinstance(activation_families, list) or not activation_families:
-        return True
+        family_active = True
+    else:
+        relevant_variables = parameter.get("activation_indicator_names")
+        if not isinstance(relevant_variables, list) or not relevant_variables:
+            relevant_variables = parameter.get("indicator_names")
+        if not isinstance(relevant_variables, list) or not relevant_variables:
+            relevant_variables = list(chosen_likelihood_by_variable)
 
-    relevant_variables = parameter.get("activation_indicator_names")
-    if not isinstance(relevant_variables, list) or not relevant_variables:
-        relevant_variables = parameter.get("indicator_names")
-    if not isinstance(relevant_variables, list) or not relevant_variables:
-        relevant_variables = list(chosen_distribution_by_variable)
+        allowed_families = {str(family) for family in activation_families}
+        family_active = any(
+            str(chosen_likelihood_by_variable.get(str(variable), {}).get("distribution"))
+            in allowed_families
+            for variable in relevant_variables
+        )
+    if not family_active:
+        return False
 
-    allowed_families = {str(family) for family in activation_families}
-    return any(
-        chosen_distribution_by_variable.get(str(variable)) in allowed_families
-        for variable in relevant_variables
-    )
+    role = str(parameter["role"])
+    if role == "observation_intercept":
+        indicator_name = str(parameter.get("indicator") or "")
+        likelihood = chosen_likelihood_by_variable.get(indicator_name) or {}
+        distribution = likelihood.get("distribution")
+        link = likelihood.get("link")
+        if distribution is None or link is None:
+            return False
+        return indicator_requires_observation_intercept(
+            distribution,
+            link,
+            likelihood.get("support_kind"),
+            likelihood.get("summary_operator"),
+            centered=bool(likelihood.get("centered")),
+        )
+
+    if role == "state_intercept":
+        if not equilibrium_forcing:
+            return False
+        construct_name = str(parameter.get("construct") or "")
+        return any(
+            bool(likelihood.get("centered"))
+            and str(likelihood.get("construct_name") or "") == construct_name
+            for likelihood in chosen_likelihood_by_variable.values()
+        )
+
+    if role in {"initial_state_mean", "initial_state_sd"}:
+        if initialization_policy == InitializationPolicy.FREE.value:
+            return True
+        return str(parameter.get("temporal_status") or "") == "time_invariant"
+
+    return True
 
 
 def build_stage4_parameter_surface_index(
@@ -235,16 +279,21 @@ def _build_parameter_surface(
         )
 
     if role in _OBSERVATION_PARAMETER_ROLES:
+        construct_name = parameter.get("construct")
         construct_names = tuple(
             construct_name
             for construct_name in (parameter.get("construct_names") or ())
             if isinstance(construct_name, str)
         )
+        if not construct_names and isinstance(construct_name, str):
+            construct_names = (construct_name,)
         indicator_names = tuple(
             indicator_name
             for indicator_name in (parameter.get("indicator_names") or ())
             if isinstance(indicator_name, str)
         )
+        if not indicator_names and isinstance(parameter.get("indicator"), str):
+            indicator_names = (str(parameter["indicator"]),)
         return Stage4ParameterSurface(
             parameter=parameter,
             block_kind="observation_prior",
@@ -257,13 +306,18 @@ def _build_parameter_surface(
                 "activation_distribution_families": list(
                     parameter.get("activation_distribution_families") or ()
                 ),
+                "centered": parameter.get("centered"),
             },
         )
 
     if role in _CORRELATION_PARAMETER_ROLES:
         construct_names = tuple(
             name
-            for name in (parameter.get("construct_1"), parameter.get("construct_2"))
+            for name in (
+                *(parameter.get("construct_names") or ()),
+                parameter.get("construct_1"),
+                parameter.get("construct_2"),
+            )
             if isinstance(name, str)
         )
         return Stage4ParameterSurface(
@@ -272,10 +326,12 @@ def _build_parameter_surface(
             owner_key=str(parameter["name"]),
             construct_names=construct_names,
             structural_context={
-                "construct_1": parameter["construct_1"],
-                "construct_2": parameter["construct_2"],
-                "dependency_kind": parameter["dependency_kind"],
-                "source_confounders": parameter["source_confounders"],
+                "construct_1": parameter.get("construct_1"),
+                "construct_2": parameter.get("construct_2"),
+                "construct_names": list(construct_names),
+                "dependency_kind": parameter.get("dependency_kind"),
+                "source_confounders": parameter.get("source_confounders"),
+                "source_confounder": parameter.get("source_confounder"),
             },
         )
 

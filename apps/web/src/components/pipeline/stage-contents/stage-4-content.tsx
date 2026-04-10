@@ -2,7 +2,7 @@ import { FunctionalSpecLink } from "@/components/stages/model-spec/functional-sp
 import { MeasurementTable } from "@/components/stages/model-spec/measurement-table";
 import { PriorTable } from "@/components/stages/model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
-import { collectStage4Priors } from "@/lib/stage4-data";
+import { collectStage4UiPriors } from "@/lib/stage4-data";
 import type { Indicator, ObservationRecord, Stage4Data } from "@causal-ssm/api-types";
 
 export default function Stage4Content({
@@ -14,7 +14,7 @@ export default function Stage4Content({
   extractions?: ObservationRecord[];
   indicators?: Indicator[];
 }) {
-  const allPriors = collectStage4Priors(data);
+  const authoredPriors = collectStage4UiPriors(data);
 
   // Build indicator → construct mapping for observation model equations
   const indicatorConstructMap = indicators
@@ -26,7 +26,7 @@ export default function Stage4Content({
       <SSMEquationDisplay
         likelihoods={data.model_spec.likelihoods}
         parameters={data.model_spec.parameters}
-        priors={allPriors}
+        priors={authoredPriors}
         indicatorConstructMap={indicatorConstructMap}
       />
       {extractions && extractions.length > 0 && (
@@ -44,10 +44,15 @@ export default function Stage4Content({
           />
         </div>
       )}
-      {allPriors.length > 0 && (
+      {authoredPriors.length > 0 && (
         <div className="space-y-3">
-          <h3 className="text-sm font-semibold">Priors Diagnostics</h3>
-          <PriorTable priors={allPriors} parameters={data.model_spec.parameters} />
+          <div className="space-y-1">
+            <h3 className="text-sm font-semibold">Authored Priors</h3>
+            <p className="text-sm text-muted-foreground">
+              Only priors explicitly authored in the Stage 4 discrete-time view are shown here.
+            </p>
+          </div>
+          <PriorTable priors={authoredPriors} parameters={data.model_spec.parameters} />
         </div>
       )}
     </div>

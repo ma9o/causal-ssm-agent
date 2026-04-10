@@ -46,12 +46,16 @@ In the current implementation, the compiler-authoritative Stage 4 parameter inve
 | `ar_coefficient` |
 | `fixed_effect` |
 | `residual_sd` |
+| `state_intercept` |
+| `observation_intercept` |
 | `initial_state_mean` |
 | `initial_state_sd` |
 | `static_state_sd` |
 | `loading` |
+| `measurement_error_sd` |
+| `observation_hyperparameter` |
+| `observation_hyperparameter_positive` |
 | `correlation` |
-| `initial_state_correlation` |
 
 That is the first key boundary of Stage 4: the LLM does not invent the parameter set. The code does.
 
@@ -63,30 +67,34 @@ The planned blocks are:
 
 | Planned block | When it is created |
 |---|---|
+| `model:configuration` | Always present as the first model-decision block. |
 | `indicator:{variable}` | Once per ambiguous indicator in the skeleton. |
 | `review:model_spec` | Always present as the compact model-form review checkpoint. |
 | `measurement:{construct}` | Once per construct with one or more non-reference loadings. |
+| `observation:{parameter}` | Once per active observation intercept or observation-family hyperparameter surface. |
 | `dynamics:{scc}` | Once per strongly connected latent subsystem that owns dynamics-role parameters. |
 | `effects:{target}` | Once per target construct with one or more fixed-effect parameters. |
-| `correlation:{parameter}` | Once per correlation or initial-state-correlation parameter. |
+| `correlation:{parameter}` | Once per innovation-correlation or compiled baseline-factor scale surface. |
 | `review:prior_system` | Always planned, but initialized as inactive and used only if repair routing escalates to whole-system prior review. |
 
 The exact nominal order is:
 
-1. all `indicator_decision` blocks,
-2. `review:model_spec`,
-3. all `measurement_prior` blocks in construct order,
-4. all `dynamics_prior` blocks in strongly connected component order,
-5. all `effect_prior` blocks in target-construct order,
-6. all `correlation_prior` blocks,
-7. `review:prior_system` only if a repair route activates it.
+1. `model:configuration`,
+2. all `indicator_decision` blocks,
+3. `review:model_spec`,
+4. all `measurement_prior` blocks in construct order,
+5. all `observation_prior` blocks in deterministic parameter order,
+6. all `dynamics_prior` blocks in strongly connected component order,
+7. all `effect_prior` blocks in target-construct order,
+8. all `correlation_prior` blocks,
+9. `review:prior_system` only if a repair route activates it.
 
 Two implementation details matter here.
 
 | Detail | Exact behavior |
 |---|---|
 | `review:prior_system` on the happy path | It is in the plan, but Stage 4 does not visit it on the straight-through path. If all prior blocks validate cleanly, the stage goes directly to `done`. |
-| No ambiguous indicators | If `plan.model_blocks` is empty, Stage 4 skips straight to automatic `ModelSpec` locking before the first LLM turn. |
+| No ambiguous indicators | Stage 4 still visits `model:configuration`; after that block is accepted, it can proceed straight to `ModelSpec` locking without any `indicator_decision` turns. |
 
 ## 4. Runtime State Is Explicit and Finite
 
@@ -131,9 +139,11 @@ Only some tools are allowed in each block family.
 
 | Block family | Tools allowed in that turn |
 |---|---|
+| `model_configuration` | `submit_model_configuration` |
 | `indicator_decision` | `submit_indicator_choice` |
 | `global_review` | `submit_model_review` |
 | `measurement_prior` | `submit_prior_block`, `elicit_prior_gmm` when paraphrasing is enabled |
+| `observation_prior` | `submit_prior_block`, `elicit_prior_gmm` when paraphrasing is enabled |
 | `dynamics_prior` | `submit_prior_block`, `elicit_prior_gmm` when paraphrasing is enabled |
 | `effect_prior` | `submit_prior_block`, `search_literature` when enabled, `elicit_prior_gmm` when paraphrasing is enabled |
 | `correlation_prior` | `submit_prior_block`, `elicit_prior_gmm` when paraphrasing is enabled |
@@ -149,9 +159,21 @@ In the current implementation, the LLM-owned model-form decision surface is exac
 
 | Open model-form decision | Owned by |
 |---|---|
+| `initialization_policy` | LLM |
+| `equilibrium_forcing` | LLM |
 | Ambiguous indicator distribution and link | LLM |
+| Auto-centering eligibility and `centered` tags | Deterministic skeleton plus observation semantics |
 | Loading orientations | Deterministic skeleton |
 | Parameter inventory | Deterministic skeleton |
+
+The `model_configuration` block is always first. It owns only the two model-level decisions:
+
+| Model-configuration decision | Meaning |
+|---|---|
+| `initialization_policy="stationary"` | Dynamic-state initial conditions are derived from the stationary residual process; only retained time-invariant states can keep free `t0_*` surfaces. |
+| `initialization_policy="free"` | Active `t0_mean_*` and `t0_sd_*` surfaces remain free and must be prior-authored. |
+| `equilibrium_forcing=false` | No `cint_*` surfaces remain active. |
+| `equilibrium_forcing=true` | `cint_*` surfaces can remain active only for dynamic constructs identified by centered additive-location indicators. |
 
 For an `indicator_decision` block, the prompt is restricted to the active indicator and includes:
 
@@ -169,14 +191,16 @@ If the submission is rejected, the accepted state does not roll back globally. O
 
 ## 7. Locking the `ModelSpec` Is a Separate Reducer Step
 
-Once all `indicator_decision` blocks are accepted, Stage 4 does not immediately start authoring priors. It first enters the `model_spec_lock` step.
+Once `model:configuration` and all `indicator_decision` blocks are accepted, Stage 4 does not immediately start authoring priors. It first enters the `model_spec_lock` step.
 
 The lock step does exactly two things.
 
 1. It builds a full `ModelSpec` by combining:
+   the accepted `initialization_policy` and `equilibrium_forcing`,
    the skeleton's deterministic likelihoods,
    the accepted ambiguous-indicator choices,
-   and the compiler-authoritative parameter inventory.
+   deterministic `centered` tags derived from observation semantics,
+   and the compiler-authoritative parameter inventory after conditional activation.
 2. It validates that `ModelSpec` with a compile-only Stage 4 assembly check.
 
 At this point Stage 4 is asking a narrow question: "Is the full model form executable?" It is not yet asking whether the prior system is plausible.
@@ -191,7 +215,7 @@ If the lock fails:
 
 - the reducer classifies the compile failure,
 - reopens the smallest matching model-form scope,
-- and returns to the corresponding `indicator_decision` block.
+- and returns to the corresponding `model_configuration` or `indicator_decision` block.
 
 Compile routing is exact:
 
@@ -223,18 +247,20 @@ The exact prior-block families and what each owns are:
 | Prior block family | Exact ownership |
 |---|---|
 | `measurement_prior` | The loading parameters for one construct. |
-| `dynamics_prior` | The subsystem's `ar_coefficient`, `residual_sd`, and any exposed `initial_state_mean` and `initial_state_sd` parameters for the constructs in that subsystem. |
+| `observation_prior` | One active observation intercept or observation-family auxiliary parameter surface, such as `manifest_mean_*`, `obs_df`, `obs_shape`, `obs_r`, or ordered/categorical auxiliary sites. |
+| `dynamics_prior` | The subsystem's `ar_coefficient`, `residual_sd`, any active `cint_*`, and any exposed `initial_state_mean` and `initial_state_sd` parameters for the constructs in that subsystem. |
 | `effect_prior` | All fixed-effect parameters whose target construct is the active target. |
-| `correlation_prior` | One `correlation` or `initial_state_correlation` parameter. |
+| `correlation_prior` | One `correlation` or `static_state_sd` parameter. |
 
 The current implementation orders them as follows:
 
 1. all measurement blocks in retained construct order,
-2. all dynamics blocks in strongly connected component order,
-3. all effect blocks in retained target-construct order,
-4. all correlation blocks in deterministic parameter order.
+2. all observation blocks in deterministic parameter order,
+3. all dynamics blocks in strongly connected component order,
+4. all effect blocks in retained target-construct order,
+5. all correlation blocks in deterministic parameter order.
 
-That ordering is not cosmetic. It means the stage sees measurement scale before dynamics, dynamics before incoming effect rows, and effect rows before confounding correlations.
+That ordering is not cosmetic. It means the stage sees measurement scale before observation intercepts and family extras, then dynamics before incoming effect rows, and only then confounding covariance terms.
 
 ## 10. Prior Submission Semantics Are Incremental and Exact
 

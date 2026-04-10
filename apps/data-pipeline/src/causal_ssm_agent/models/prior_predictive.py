@@ -151,17 +151,34 @@ def _supporting_compile_context(
     return related_parameters, supporting_codes
 
 
-def compute_data_stats(data_for_model: pl.DataFrame) -> dict[str, dict]:
+def compute_data_stats(
+    data_for_model: pl.DataFrame,
+    *,
+    centered_indicators: set[str] | None = None,
+) -> dict[str, dict]:
     """Compute per-indicator mean, std, min, max from raw data."""
+    centered_indicators = centered_indicators or set()
+    value_expr = pl.col("value").cast(pl.Float64, strict=False)
+    centered_value_expr = (
+        value_expr - value_expr.mean().over("indicator")
+        if centered_indicators
+        else value_expr
+    )
+    stats_frame = data_for_model.with_columns(
+        pl.when(pl.col("indicator").is_in(sorted(centered_indicators)))
+        .then(centered_value_expr)
+        .otherwise(value_expr)
+        .alias("__scaled_value")
+    )
     stats = {}
     for row in (
-        data_for_model.group_by("indicator")
+        stats_frame.group_by("indicator")
         .agg(
             [
-                pl.col("value").cast(pl.Float64, strict=False).mean().alias("mean"),
-                pl.col("value").cast(pl.Float64, strict=False).std().alias("std"),
-                pl.col("value").cast(pl.Float64, strict=False).min().alias("min"),
-                pl.col("value").cast(pl.Float64, strict=False).max().alias("max"),
+                pl.col("__scaled_value").mean().alias("mean"),
+                pl.col("__scaled_value").std().alias("std"),
+                pl.col("__scaled_value").min().alias("min"),
+                pl.col("__scaled_value").max().alias("max"),
             ]
         )
         .iter_rows(named=True)
@@ -937,7 +954,15 @@ def validate_prior_predictive(
         and data_for_model is not None
         and not data_for_model.is_empty()
     ):
-        scale_reference_stats = compute_data_stats(data_for_model)
+        centered_indicators = {
+            likelihood.variable
+            for likelihood in spec_obj.likelihoods
+            if bool(likelihood.centered)
+        }
+        scale_reference_stats = compute_data_stats(
+            data_for_model,
+            centered_indicators=centered_indicators,
+        )
     if scale_reference_stats:
         results.extend(
             _check_scale_plausibility(

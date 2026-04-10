@@ -26,12 +26,21 @@ class LinkFunction(StrEnum):
     SOFTMAX = "softmax"
 
 
+class InitializationPolicy(StrEnum):
+    """Global initial-state policy for retained dynamic states."""
+
+    STATIONARY = "stationary"
+    FREE = "free"
+
+
 class ParameterRole(StrEnum):
     """Role of a parameter in the model."""
 
     FIXED_EFFECT = "fixed_effect"
     AR_COEFFICIENT = "ar_coefficient"
     RESIDUAL_SD = "residual_sd"
+    STATE_INTERCEPT = "state_intercept"
+    OBSERVATION_INTERCEPT = "observation_intercept"
     INITIAL_STATE_MEAN = "initial_state_mean"
     INITIAL_STATE_SD = "initial_state_sd"
     STATIC_STATE_SD = "static_state_sd"
@@ -80,6 +89,10 @@ class LikelihoodSpec(BaseModel):
     variable: str = Field(description="Name of the observed indicator variable")
     distribution: DistributionFamily = Field(description="Distribution family for this variable")
     link: LinkFunction = Field(description="Link function mapping linear predictor to mean")
+    centered: bool = Field(
+        default=False,
+        description="Whether deterministic additive centering is applied before fitting",
+    )
     reasoning: str = Field(description="Why this distribution/link was chosen for this variable")
     sources: list[LikelihoodSource] = Field(
         default_factory=list,
@@ -105,6 +118,14 @@ class ModelSpec(BaseModel):
         description="Likelihood specifications for each observed indicator"
     )
     parameters: list[ParameterSpec] = Field(description="All parameters requiring priors")
+    initialization_policy: InitializationPolicy = Field(
+        default=InitializationPolicy.STATIONARY,
+        description="Whether dynamic-state initial conditions are stationary-derived or free",
+    )
+    equilibrium_forcing: bool = Field(
+        default=False,
+        description="Whether eligible dynamic states may carry a continuous-time intercept term",
+    )
 
 
 def validate_model_spec_dict(
@@ -121,6 +142,7 @@ def validate_model_spec_dict(
     valid_constraints = {entry.value for entry in ParameterConstraint}
     valid_distributions = {entry.value for entry in DistributionFamily}
     valid_links = {entry.value for entry in LinkFunction}
+    valid_initialization_policies = {entry.value for entry in InitializationPolicy}
 
     likelihoods = data.get("likelihoods", [])
     if not isinstance(likelihoods, list):
@@ -148,6 +170,20 @@ def validate_model_spec_dict(
                 errors.append(f"duplicate parameter name '{name}'")
             if name:
                 seen_parameter_names.add(name)
+
+    initialization_policy = data.get(
+        "initialization_policy",
+        InitializationPolicy.STATIONARY.value,
+    )
+    if initialization_policy not in valid_initialization_policies:
+        errors.append(
+            "'initialization_policy' invalid; must be one of "
+            f"{sorted(valid_initialization_policies)}"
+        )
+
+    equilibrium_forcing = data.get("equilibrium_forcing", False)
+    if not isinstance(equilibrium_forcing, bool):
+        errors.append("'equilibrium_forcing' must be a boolean")
 
     indicator_dtype: dict[str, str] = {}
     if indicators:

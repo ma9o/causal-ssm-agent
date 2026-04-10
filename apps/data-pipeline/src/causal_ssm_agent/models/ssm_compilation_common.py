@@ -29,12 +29,15 @@ PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
 ]
 
 
 def empty_prior_index_maps() -> PriorIndexMaps:
     """Return an empty prior-index payload for spec-only code paths."""
-    return ({}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+    return ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
 
 
 SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
@@ -42,6 +45,8 @@ SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
     "drift_offdiag": "drift_offdiag_free",
     "diffusion_diag": "diffusion_diag_free",
     "diffusion_offdiag": "diffusion_lower_free",
+    "cint": "cint_free",
+    "static_state_sd": "static_state_sd_free",
     "lambda_free": "lambda_free",
     "manifest_means": "manifest_means_free",
     "manifest_var_diag": "manifest_var_diag_free",
@@ -66,6 +71,10 @@ SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "diffusion_diag": ["sigma", "sd"],
     "diffusion_diag_free": ["sigma", "sd"],
     "diffusion_lower_free": ["cor"],
+    "cint": ["cint"],
+    "cint_free": ["cint"],
+    "static_state_sd": ["tau", "baseline_factor"],
+    "static_state_sd_free": ["tau", "baseline_factor"],
     "lambda_free": ["lambda", "loading"],
     "manifest_means_free": ["manifest_mean"],
     "manifest_var_diag": ["obs_sd", "measurement_error"],
@@ -93,7 +102,7 @@ SITE_TO_KEYWORDS["dynamics_stability"] = ["rho", "ar", "sigma", "sd"]
 # SSM parameters with fixed default priors that are not in ModelSpec and
 # cannot be re-elicited.  Used to filter validation failures before mapping
 # them back to user-facing parameter names.
-NUISANCE_SITES: frozenset[str] = frozenset({"cint_free", "cint", "t0_means", "t0_cov"})
+NUISANCE_SITES: frozenset[str] = frozenset({"t0_means", "t0_cov"})
 
 # Validation failure parameters that are global (affect all ModelSpec params).
 GLOBAL_FAILURE_SITES: frozenset[str] = frozenset(
@@ -194,6 +203,15 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
 
     if attr == "drift_offdiag":
         return structure_runtime.n_drift_offdiag
+
+    if attr == "cint":
+        return structure_runtime.n_cint
+
+    if attr == "static_state_sd":
+        return structure_runtime.n_static_state_sd
+
+    if attr == "manifest_means":
+        return structure_runtime.n_manifest_means
 
     if attr == "lambda_free":
         return structure_runtime.n_lambda_free

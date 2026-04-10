@@ -41,7 +41,10 @@ def build_prior_index_maps(
     t0_offdiag_index: dict[str, tuple[str, int]] = {}
     t0_mean_index: dict[str, tuple[str, int]] = {}
     t0_sd_index: dict[str, tuple[str, int]] = {}
+    manifest_mean_index: dict[str, tuple[str, int]] = {}
     manifest_var_index: dict[str, tuple[str, int]] = {}
+    cint_index: dict[str, tuple[str, int]] = {}
+    static_state_sd_index: dict[str, tuple[str, int]] = {}
     observation_site_index: dict[str, tuple[str, int]] = {}
 
     if isinstance(model_spec, dict):
@@ -62,6 +65,7 @@ def build_prior_index_maps(
     structure_runtime = SSMStructureRuntime(ssm_spec)
     drift_diag_lookup = structure_runtime.drift_diag_index
     diffusion_diag_lookup = structure_runtime.diffusion_diag_index
+    cint_lookup = structure_runtime.cint_free_index
     t0_mean_lookup = structure_runtime.t0_means_free_index
     t0_diag_lookup = structure_runtime.t0_diag_free_index
 
@@ -142,6 +146,25 @@ def build_prior_index_maps(
             )
 
     for parameter in spec_obj.parameters:
+        if parameter.role != ParameterRole.STATE_INTERCEPT:
+            continue
+        construct = parameter.name.removeprefix("cint_")
+        if construct in latent_idx_map:
+            flat_idx = cint_lookup.get(latent_idx_map[construct])
+            if flat_idx is not None:
+                cint_index[parameter.name] = ("cint", flat_idx)
+            elif strict_structure:
+                errors.append(
+                    "STATE_INTERCEPT parameter does not correspond to a free continuous-time "
+                    f"intercept in causal_spec: {parameter.name!r}"
+                )
+        elif strict_structure:
+            errors.append(
+                "STATE_INTERCEPT parameter does not reference a construct in causal_spec: "
+                f"{parameter.name!r} not in {sorted(latent_idx_map)}"
+            )
+
+    for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.FIXED_EFFECT:
             continue
         compound = parameter.name.removeprefix("beta_")
@@ -169,6 +192,7 @@ def build_prior_index_maps(
 
     manifest_names = ssm_spec.manifest_names or []
     manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
+    manifest_means_lookup = structure_runtime.manifest_means_free_index
     manifest_name_set = set(manifest_idx_map)
 
     for parameter in spec_obj.parameters:
@@ -200,6 +224,31 @@ def build_prior_index_maps(
 
     manifest_names = ssm_spec.manifest_names or []
     manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
+    for parameter in spec_obj.parameters:
+        if parameter.role != ParameterRole.OBSERVATION_INTERCEPT:
+            continue
+        indicator_name = parameter.name.removeprefix("manifest_mean_")
+        manifest_idx = manifest_idx_map.get(indicator_name)
+        if manifest_idx is None:
+            message = (
+                "Could not parse OBSERVATION_INTERCEPT parameter "
+                f"{parameter.name!r} into a known manifest from {sorted(manifest_idx_map)}"
+            )
+            if strict_structure:
+                errors.append(message)
+                continue
+            logger.warning("%s", message)
+            continue
+        flat_idx = manifest_means_lookup.get(manifest_idx)
+        if flat_idx is None:
+            if strict_structure:
+                errors.append(
+                    "OBSERVATION_INTERCEPT parameter does not correspond to a free manifest "
+                    f"intercept in causal_spec: {parameter.name!r}"
+                )
+            continue
+        manifest_mean_index[parameter.name] = ("manifest_means", flat_idx)
+
     if structure_runtime.n_manifest_var_diag > 0:
         for parameter in spec_obj.parameters:
             if parameter.role != ParameterRole.MEASUREMENT_ERROR_SD:
@@ -225,6 +274,31 @@ def build_prior_index_maps(
                     )
                 continue
             manifest_var_index[parameter.name] = ("manifest_var_diag", flat_idx)
+
+    for parameter in spec_obj.parameters:
+        if parameter.role != ParameterRole.STATIC_STATE_SD:
+            continue
+        factor_idx = structure_runtime.static_factor_name_index.get(parameter.name)
+        if factor_idx is None:
+            message = (
+                "Could not parse STATIC_STATE_SD parameter "
+                f"{parameter.name!r} into a known compiled baseline factor from "
+                f"{sorted(structure_runtime.static_factor_name_index)}"
+            )
+            if strict_structure:
+                errors.append(message)
+                continue
+            logger.warning("%s", message)
+            continue
+        flat_idx = structure_runtime.static_state_sd_free_index.get(factor_idx)
+        if flat_idx is None:
+            if strict_structure:
+                errors.append(
+                    "STATIC_STATE_SD parameter does not correspond to a free compiled "
+                    f"baseline-factor scale: {parameter.name!r}"
+                )
+            continue
+        static_state_sd_index[parameter.name] = ("static_state_sd", flat_idx)
 
     available_observation_sites: set[str] = set()
     manifest_dist_set = set(ssm_spec.manifest_dists)
@@ -329,7 +403,10 @@ def build_prior_index_maps(
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
+        manifest_mean_index,
         manifest_var_index,
+        cint_index,
+        static_state_sd_index,
         observation_site_index,
     )
 
@@ -344,15 +421,7 @@ def check_backward_closure(
     parameter finds a free site.  This function checks the converse: no free
     site is left unowned.
 
-    ``cint`` and ``manifest_means`` are excluded — they are known nuisance
-    freedoms with no semantic owner until ``initialization_policy`` /
-    ``equilibrium_policy`` gate their masks.
-
     Returns a list of violation messages (empty when the invariant holds).
-
-    .. todo:: Once ``initialization_policy`` / ``equilibrium_policy`` gate the
-       ``cint`` and ``t0_*`` masks, add those families to the checked list and
-       remove the nuisance exclusion.
     """
     (
         offdiag_index,
@@ -363,7 +432,10 @@ def check_backward_closure(
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
+        manifest_mean_index,
         manifest_var_index,
+        cint_index,
+        static_state_sd_index,
         _observation_site_index,
     ) = index_maps
 
@@ -374,7 +446,10 @@ def check_backward_closure(
         ("drift_offdiag", sr.n_drift_offdiag, len(offdiag_index)),
         ("diffusion_diag", sr.n_diffusion_diag, len(diffusion_diag_index)),
         ("diffusion_lower", sr.n_diffusion_lower, len(diffusion_offdiag_index)),
+        ("cint", sr.n_cint, len(cint_index)),
+        ("static_state_sd", sr.n_static_state_sd, len(static_state_sd_index)),
         ("lambda_free", sr.n_lambda_free, len(lambda_index)),
+        ("manifest_means", sr.n_manifest_means, len(manifest_mean_index)),
         ("manifest_var_diag", sr.n_manifest_var_diag, len(manifest_var_index)),
         ("t0_means", sr.n_t0_means, len(t0_mean_index)),
         ("t0_diag", sr.n_t0_diag, len(t0_sd_index)),

@@ -51,12 +51,14 @@ def _build_stage4_tool_map(
         make_elicit_prior_gmm_tool,
         make_search_tool,
         make_submit_indicator_choice_tool,
+        make_submit_model_configuration_tool,
         make_submit_model_review_tool,
         make_submit_prior_block_tool,
     )
 
     tool_map: dict[str, Any] = {
         "submit_indicator_choice": make_submit_indicator_choice_tool(session),
+        "submit_model_configuration": make_submit_model_configuration_tool(session),
         "submit_model_review": make_submit_model_review_tool(session),
         "submit_prior_block": make_submit_prior_block_tool(session),
     }

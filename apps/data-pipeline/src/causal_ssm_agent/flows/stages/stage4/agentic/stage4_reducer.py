@@ -206,10 +206,14 @@ def _make_stage4_block_accepted_event(
     distribution_choice = normalized.get("distribution_choice")
     if not isinstance(distribution_choice, dict):
         distribution_choice = None
+    model_configuration = normalized.get("model_configuration")
+    if not isinstance(model_configuration, dict):
+        model_configuration = None
     return Stage4BlockAcceptedEvent(
         block_id=block.id,
         transition_payload=handler.build_accepted_transition(block, normalized),
         distribution_choice=distribution_choice,
+        model_configuration=model_configuration,
         stage_output=stage_output,
     )
 
@@ -228,6 +232,9 @@ def _make_stage4_repair_planned_event(
         ),
         distribution_choice=(
             None if accepted_block_event is None else accepted_block_event.distribution_choice
+        ),
+        model_configuration=(
+            None if accepted_block_event is None else accepted_block_event.model_configuration
         ),
         stage_output=None if accepted_block_event is None else accepted_block_event.stage_output,
     )
@@ -248,6 +255,13 @@ def _apply_stage4_event(
             runtime.decisions.distribution_choices[event.distribution_choice["variable"]] = (
                 event.distribution_choice
             )
+        if event.model_configuration is not None:
+            runtime.decisions.initialization_policy = str(
+                event.model_configuration["initialization_policy"]
+            )
+            runtime.decisions.equilibrium_forcing = bool(
+                event.model_configuration["equilibrium_forcing"]
+            )
         if event.stage_output is not None:
             persist_stage4_stage_output(runtime, event.stage_output)
         runtime.block_status[event.block_id] = "accepted"
@@ -259,6 +273,13 @@ def _apply_stage4_event(
         if event.distribution_choice is not None:
             runtime.decisions.distribution_choices[event.distribution_choice["variable"]] = (
                 event.distribution_choice
+            )
+        if event.model_configuration is not None:
+            runtime.decisions.initialization_policy = str(
+                event.model_configuration["initialization_policy"]
+            )
+            runtime.decisions.equilibrium_forcing = bool(
+                event.model_configuration["equilibrium_forcing"]
             )
         if event.stage_output is not None:
             persist_stage4_stage_output(runtime, event.stage_output)
@@ -779,6 +800,28 @@ def _apply_prior_submission(
     )
 
 
+def _apply_model_configuration_submission(
+    *,
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    active_block: Stage4FrontierBlock,
+    normalized: dict[str, Any],
+    deps: Stage4Deps,
+) -> Stage4StepResult:
+    """Accept a model-configuration block submission."""
+    del plan, runtime, deps
+    return Stage4StepResult(
+        validation_packet=build_validation_packet_for_block(
+            block_id=active_block.id,
+            status="accepted_pending_priors",
+            feedback=_format_block_saved_feedback(active_block, None),
+            retain_for_next_prompt=True,
+            capture_stage_output=False,
+        ),
+        events=(_make_stage4_block_accepted_event(active_block, normalized),),
+    )
+
+
 def _apply_global_review_submission(
     *,
     plan: Stage4Plan,
@@ -839,6 +882,7 @@ def _apply_global_review_submission(
 
 
 _APPLY_STAGE4_SUBMISSION_BY_PAYLOAD_KIND = {
+    "model_configuration_choice": _apply_model_configuration_submission,
     "indicator_choice": _apply_indicator_submission,
     "global_review_decision": _apply_global_review_submission,
     "prior_bundle": _apply_prior_submission,
@@ -851,6 +895,8 @@ def build_model_spec_from_decisions(
 ) -> tuple[dict[str, Any] | None, list[str]]:
     """Materialize a ModelSpec from accepted model-decision state."""
     decisions_data = {
+        "initialization_policy": decisions.initialization_policy,
+        "equilibrium_forcing": decisions.equilibrium_forcing,
         "distribution_choices": list(decisions.distribution_choices.values()),
     }
     spec, errors = validate_model_spec_decisions_dict(
@@ -953,7 +999,7 @@ def compute_stage4_validate_step_with_transitions(
     )
 
     if (
-        active_block.kind == "indicator_decision"
+        any(active_block.id == block.id for block in plan.model_blocks)
         and result.accepted_block_id == active_block.id
         and result.repair_plan is None
         and _all_model_blocks_accepted(plan, runtime)

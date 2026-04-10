@@ -179,21 +179,41 @@
       "result": null
     },
     {
-      "name": "validate_model",
-      "description": "Validate model specification and/or prior proposals: schema check, compile, prior predictive simulation.",
+      "name": "submit_model_spec",
+      "description": "Submit the full Stage 4 ModelSpec for compile-only locking and validation.",
       "parameters": {
         "additionalProperties": false,
         "properties": {
-          "model_json": {
-            "description": "JSON object with proposed changes. Include 'model_spec' (complete ModelSpec) and/or 'priors' (dict mapping parameter names to prior proposals). Only include fields you are changing.",
-            "title": "Model Json",
+          "model_spec_json": {
+            "description": "The JSON string containing the complete ModelSpec to lock for Stage 4.",
+            "title": "Model Spec Json",
             "type": "string"
           }
         },
         "required": [
-          "model_json"
+          "model_spec_json"
         ],
-        "title": "ValidateModelInput",
+        "title": "SubmitModelSpecInput",
+        "type": "object"
+      },
+      "result": null
+    },
+    {
+      "name": "submit_priors",
+      "description": "Submit Stage 4 prior proposals for schema, compile, and prior-predictive validation.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "priors_json": {
+            "description": "The JSON string containing prior proposals keyed by parameter name.",
+            "title": "Priors Json",
+            "type": "string"
+          }
+        },
+        "required": [
+          "priors_json"
+        ],
+        "title": "SubmitPriorsInput",
         "type": "object"
       },
       "result": null

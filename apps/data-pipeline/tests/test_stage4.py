@@ -23,7 +23,6 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows import stage_registry
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_cards import build_prior_cards
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
@@ -70,6 +69,7 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
     Stage4AcceptedState,
+    Stage4DecisionState,
     Stage4RepairCampaignState,
     Stage4Runtime,
 )
@@ -219,13 +219,28 @@ def _set_runtime_block(plan: Stage4Plan, runtime: Stage4Runtime, block_id: str) 
 
 
 def _with_positive_indicator_polarity(spec: dict[str, Any]) -> dict[str, Any]:
-    """Backfill positive polarity on test indicators unless a test overrides it."""
+    """Backfill valid default indicator semantics for Stage 4 test fixtures."""
     spec = deepcopy(spec)
     measurement = spec.get("measurement") or {}
     indicators = measurement.get("indicators") or []
     for indicator in indicators:
         if isinstance(indicator, dict):
             indicator.setdefault("construct_polarity", "positive")
+            dtype = indicator.get("measurement_dtype")
+            aggregation = indicator.get("aggregation")
+            if not isinstance(aggregation, str):
+                if dtype == "continuous":
+                    indicator["aggregation"] = "mean"
+                elif dtype == "count":
+                    indicator["aggregation"] = "sum"
+                else:
+                    indicator["aggregation"] = "last"
+                aggregation = indicator["aggregation"]
+            if dtype in {"binary", "ordinal", "categorical"} and aggregation not in {
+                "first",
+                "last",
+            }:
+                indicator["aggregation"] = "last"
     return spec
 
 
@@ -1732,7 +1747,57 @@ def _make_stage4_no_model_block_spec() -> dict:
     )
 
 
-def _make_stage4_mechanics_context() -> tuple[
+def _accept_default_model_configuration(
+    *,
+    causal_spec: dict[str, Any],
+    skeleton: Stage4Skeleton,
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+    data_for_model: pl.DataFrame,
+) -> None:
+    """Advance one test runtime past the mandatory model-configuration block."""
+    active_block = get_active_plan_block(plan, runtime)
+    if active_block is None or active_block.id != "model:configuration":
+        return
+
+    _stage_output, feedback = _apply_stage4_step_and_capture(
+        {
+            "block_id": "model:configuration",
+            "block_kind": "model_configuration",
+            "proposal": {
+                "initialization_policy": "stationary",
+                "equilibrium_forcing": False,
+                "reasoning": "Default Stage 4 test configuration.",
+            },
+        },
+        plan,
+        runtime,
+        skeleton=skeleton,
+        causal_spec=causal_spec,
+        data_for_model=data_for_model,
+        indicator_audits={},
+        stage4_grounding_fn=lambda data, *_args, **_kwargs: (
+            {
+                "model_spec": data["model_spec"],
+                "validation": AssemblyValidation(
+                    normalized_model_spec=data["model_spec"],
+                    compile_ok=True,
+                ),
+            },
+            "MODEL STATE SAVED:\n- missing priors",
+        )
+        if isinstance(data, dict) and "model_spec" in data
+        else pytest.fail("unexpected non-model-spec grounding during model configuration"),
+    )
+
+    assert not feedback.startswith("VALIDATION ERRORS:")
+    runtime.last_validation_packet = None
+
+
+def _make_stage4_mechanics_context(
+    *,
+    accept_default_configuration: bool = False,
+) -> tuple[
     dict[str, Any], Stage4Skeleton, Stage4Plan, Stage4Runtime, pl.DataFrame
 ]:
     """Build the standard deterministic Stage 4 mechanics fixture."""
@@ -1740,7 +1805,16 @@ def _make_stage4_mechanics_context() -> tuple[
     skeleton = derive_deterministic_spec(causal_spec)
     plan = build_stage4_plan(causal_spec, skeleton)
     runtime = make_stage4_runtime(plan)
-    return causal_spec, skeleton, plan, runtime, pl.DataFrame()
+    data_for_model = pl.DataFrame()
+    if accept_default_configuration:
+        _accept_default_model_configuration(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            plan=plan,
+            runtime=runtime,
+            data_for_model=data_for_model,
+        )
+    return causal_spec, skeleton, plan, runtime, data_for_model
 
 
 def _make_stage4_deps(
@@ -1879,6 +1953,39 @@ def _current_model_spec(current: dict[str, Any] | None) -> dict[str, Any] | None
     return model_spec if isinstance(model_spec, dict) else None
 
 
+def _activity_measurement_prior_bundle(
+    *,
+    lambda_sigma: float,
+    lambda_reasoning: str,
+    obs_sd_activity_vas_sigma: float = 0.5,
+    obs_sd_steps_sigma: float = 0.5,
+) -> dict[str, dict[str, Any]]:
+    """Return a complete measurement block bundle for the mechanics fixtures."""
+    return {
+        "obs_sd_activity_vas": {
+            "parameter": "obs_sd_activity_vas",
+            "distribution": "HalfNormal",
+            "params": {"sigma": obs_sd_activity_vas_sigma},
+            "sources": [],
+            "reasoning": "activity VAS measurement noise",
+        },
+        "obs_sd_steps": {
+            "parameter": "obs_sd_steps",
+            "distribution": "HalfNormal",
+            "params": {"sigma": obs_sd_steps_sigma},
+            "sources": [],
+            "reasoning": "steps measurement noise",
+        },
+        "lambda_activity_vas_activity": {
+            "parameter": "lambda_activity_vas_activity",
+            "distribution": "HalfNormal",
+            "params": {"sigma": lambda_sigma},
+            "sources": [],
+            "reasoning": lambda_reasoning,
+        },
+    }
+
+
 def _merge_current_authored_priors(
     current: dict[str, Any] | None,
     priors: dict[str, Any],
@@ -1910,6 +2017,8 @@ def _require_trace(trace_capture: dict[str, object]) -> LLMTrace:
 
 def _stage4_submit_tool_name(block_kind: str) -> str:
     """Return the primary submit-tool name for one Stage 4 block kind."""
+    if block_kind == "model_configuration":
+        return "submit_model_configuration"
     if block_kind == "indicator_decision":
         return "submit_indicator_choice"
     if block_kind == "global_review":
@@ -1951,6 +2060,35 @@ def _make_scripted_stage4_generate(
         block_id = None
         if isinstance(label, str) and label.startswith("stage-4:"):
             block_id = label.removeprefix("stage-4:")
+        if block_id == "model:configuration":
+            submit_tool = next(tool for tool in tools if tool.name == "submit_model_configuration")
+            feedback = await submit_tool(
+                initialization_policy="stationary",
+                equilibrium_forcing=False,
+                reasoning="Default Stage 4 test configuration.",
+            )
+            assert isinstance(feedback, str)
+            if feedback.startswith("VALIDATION ERRORS:"):
+                raise AssertionError(feedback)
+            return ""
+        if isinstance(block_id, str) and block_id.startswith("observation:manifest_mean_"):
+            parameter = block_id.removeprefix("observation:")
+            submit_tool = next(tool for tool in tools if tool.name == "submit_prior_block")
+            feedback = await submit_tool(
+                priors={
+                    parameter: {
+                        "parameter": parameter,
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 1.0},
+                        "sources": [],
+                        "reasoning": "Default observation-intercept prior for scripted Stage 4 tests.",
+                    }
+                }
+            )
+            assert isinstance(feedback, str)
+            if feedback.startswith("VALIDATION ERRORS:"):
+                raise AssertionError(feedback)
+            return ""
         if turn_index >= len(submissions):
             raise AssertionError(
                 f"Unexpected extra Stage 4 turn at {block_id!r}; visited={visited_blocks}"
@@ -1983,6 +2121,35 @@ def _make_scripted_stage4_generate_by_block(
         assert label is not None
         assert label.startswith("stage-4:")
         block_id = label.removeprefix("stage-4:")
+        if block_id == "model:configuration":
+            submit_tool = next(tool for tool in tools if tool.name == "submit_model_configuration")
+            feedback = await submit_tool(
+                initialization_policy="stationary",
+                equilibrium_forcing=False,
+                reasoning="Default Stage 4 test configuration.",
+            )
+            assert isinstance(feedback, str)
+            if feedback.startswith("VALIDATION ERRORS:"):
+                raise AssertionError(f"{block_id}: {feedback}")
+            return ""
+        if block_id.startswith("observation:manifest_mean_"):
+            parameter = block_id.removeprefix("observation:")
+            submit_tool = next(tool for tool in tools if tool.name == "submit_prior_block")
+            feedback = await submit_tool(
+                priors={
+                    parameter: {
+                        "parameter": parameter,
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 1.0},
+                        "sources": [],
+                        "reasoning": "Default observation-intercept prior for scripted Stage 4 tests.",
+                    }
+                }
+            )
+            assert isinstance(feedback, str)
+            if feedback.startswith("VALIDATION ERRORS:"):
+                raise AssertionError(f"{block_id}: {feedback}")
+            return ""
         submission = submissions_by_block[block_id]
         visited_blocks.append(block_id)
         visible_tools.append([tool.name for tool in tools])
@@ -3253,55 +3420,47 @@ class TestSSMPriorConversion:
                     "variable": "hr",
                     "distribution": "gaussian",
                     "link": "identity",
+                    "centered": True,
                     "reasoning": "",
                 },
                 {
                     "variable": "act",
                     "distribution": "gaussian",
                     "link": "identity",
+                    "centered": True,
                     "reasoning": "",
                 },
             ],
             "parameters": [
-                {
-                    "name": "rho_heart_rate",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
-                {
-                    "name": "rho_activity",
-                    "role": "ar_coefficient",
-                    "constraint": "unit_interval",
-                    "description": "",
-                },
                 {
                     "name": "beta_activity_heart_rate",
                     "role": "fixed_effect",
                     "constraint": "none",
                     "description": "",
                 },
-                {"name": "sigma_heart_rate", "role": "residual_sd", "constraint": "positive", "description": ""},
-                {"name": "sigma_activity", "role": "residual_sd", "constraint": "positive", "description": ""},
-                {"name": "t0_mean_heart_rate", "role": "initial_state_mean", "constraint": "none", "description": ""},
-                {"name": "t0_mean_activity", "role": "initial_state_mean", "constraint": "none", "description": ""},
-                {"name": "t0_sd_heart_rate", "role": "initial_state_sd", "constraint": "positive", "description": ""},
-                {"name": "t0_sd_activity", "role": "initial_state_sd", "constraint": "positive", "description": ""},
+                {
+                    "name": "sigma_heart_rate",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "description": "",
+                },
+                {
+                    "name": "sigma_activity",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "description": "",
+                },
             ],
+            "initialization_policy": "stationary",
+            "equilibrium_forcing": False,
         }
         priors = {
-            "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "rho_activity": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
             "beta_activity_heart_rate": {
                 "distribution": "Normal",
                 "params": {"mu": 0.3, "sigma": 0.15},
             },
             "sigma_heart_rate": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
             "sigma_activity": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
-            "t0_mean_heart_rate": {"distribution": "Normal", "params": {"mu": 0.0, "sigma": 1.0}},
-            "t0_mean_activity": {"distribution": "Normal", "params": {"mu": 0.0, "sigma": 1.0}},
-            "t0_sd_heart_rate": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
-            "t0_sd_activity": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
         }
         causal_spec = _with_positive_indicator_polarity(
             {
@@ -3626,9 +3785,8 @@ class TestTrialCompile:
         result = trial_compile_model_spec(spec, causal_spec)
 
         assert result is not None
-        assert "Initial-state correlation resolution failed" in result
-        assert "cor0_X_X" in result
-        assert "cor0_unknown_pair" in result
+        assert "no longer accepts INITIAL_STATE_CORRELATION parameters" in result
+        assert "STATIC_STATE_SD baseline factors" in result
 
 
 def test_run_stage4_returns_captured_validation(monkeypatch):
@@ -3690,6 +3848,15 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_stage4_plan",
         lambda _causal_spec, _skeleton: _make_plan(),
     )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.make_stage4_runtime",
+        lambda _plan: Stage4Runtime(
+            decisions=Stage4DecisionState(
+                initialization_policy="stationary",
+                equilibrium_forcing=False,
+            )
+        ),
+    )
 
     def stub_stage4_grounding(*_args, **_kwargs):
         return _make_stub_grounding_result(capture, "VALID")
@@ -3717,18 +3884,64 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     assert result.validation is validation
 
 
-def test_finalize_stage4_marks_missing_compiled_ssm_as_failure():
-    extras = stage_registry._finalize_stage4_extras({}, "workspace")
+def test_materialize_override_stage4_marks_missing_compiled_ssm_as_failure(monkeypatch):
+    from causal_ssm_agent.flows.stage_registry import (
+        PipelineContext,
+        _materialize_override_stage4,
+    )
 
-    assert extras == {
-        "outcome": "fail",
-        "fail_reason": "model_compile_failed",
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.run_store.find_run_artifact",
+        lambda *_args, **_kwargs: "ignored.parquet",
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.run_store.load_parquet",
+        lambda *_args, **_kwargs: pl.DataFrame(),
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.run_store.save_json",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.flows.stages.stage4.assembly.materialize_stage4_result",
+        lambda **_kwargs: {
+            "model_spec": {"likelihoods": [], "parameters": []},
+            "authored_priors": {},
+            "resolved_priors": [],
+            "validation_warnings": [],
+        },
+    )
+
+    ctx = PipelineContext(
+        workspace_id="workspace",
+        prefect_run_id="run",
+        question="question",
+        lit_enabled=False,
+        inference_method=None,
+        supported_overrides={},
+        openrouter_api_key=None,
+        openrouter_access_mode=None,
+    )
+    states = {
+        "stage-1b": SimpleNamespace(causal_spec=SimpleNamespace(model_dump=lambda: {})),
+        "stage-3": SimpleNamespace(indicators={}),
     }
+
+    contract = _materialize_override_stage4(
+        {"model_spec": {"likelihoods": [], "parameters": []}, "authored_priors": {}},
+        ctx,
+        states,
+    )
+
+    assert contract.outcome == "fail"
+    assert contract.fail_reason == "model_compile_failed"
 
 
 class TestStage4Mechanics:
     def test_format_plan_status_exposes_effect_row_budget(self):
-        causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
         runtime.decisions.distribution_choices["steps"] = {
             "variable": "steps",
             "distribution": "poisson",
@@ -3744,12 +3957,33 @@ class TestStage4Mechanics:
         runtime.accepted = Stage4AcceptedState(
             model_spec=model_spec,
             authored_priors={
+                "obs_sd_activity_vas": {
+                    "parameter": "obs_sd_activity_vas",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 0.5},
+                    "sources": [],
+                    "reasoning": "activity VAS measurement noise",
+                },
+                "obs_sd_steps": {
+                    "parameter": "obs_sd_steps",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 0.5},
+                    "sources": [],
+                    "reasoning": "steps measurement noise",
+                },
                 "lambda_activity_vas_activity": {
                     "parameter": "lambda_activity_vas_activity",
                     "distribution": "HalfNormal",
                     "params": {"sigma": 0.4},
                     "sources": [],
                     "reasoning": "measurement prior",
+                },
+                "manifest_mean_steps": {
+                    "parameter": "manifest_mean_steps",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 1.0},
+                    "sources": [],
+                    "reasoning": "steps observation intercept",
                 },
                 "obs_ordered_base": {
                     "parameter": "obs_ordered_base",
@@ -3823,7 +4057,9 @@ class TestStage4Mechanics:
         payload,
         expected_feedback,
     ):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
 
         stage_output, feedback = compute_stage4_validate_step(
             payload,
@@ -3848,7 +4084,9 @@ class TestStage4Mechanics:
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
 
     def test_compute_stage4_validate_step_reopens_model_block_when_model_lock_fails(self):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
 
         indicator_payload = {
             "block_id": "indicator:steps",
@@ -3894,7 +4132,9 @@ class TestStage4Mechanics:
         assert runtime.accepted.as_current() == {}
 
     def test_compute_stage4_validate_step_emits_indicator_last_state_transitions(self):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
 
         indicator_payload = {
             "block_id": "indicator:steps",
@@ -3954,7 +4194,9 @@ class TestStage4Mechanics:
         )
 
     def test_compute_stage4_validate_step_keeps_effect_block_when_only_budget_is_tight(self):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
         runtime.decisions.distribution_choices["steps"] = {
             "variable": "steps",
             "distribution": "poisson",
@@ -3971,12 +4213,33 @@ class TestStage4Mechanics:
         runtime.accepted = Stage4AcceptedState(
             model_spec=model_spec,
             authored_priors={
+                "obs_sd_activity_vas": {
+                    "parameter": "obs_sd_activity_vas",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 0.5},
+                    "sources": [],
+                    "reasoning": "activity VAS measurement noise",
+                },
+                "obs_sd_steps": {
+                    "parameter": "obs_sd_steps",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 0.5},
+                    "sources": [],
+                    "reasoning": "steps measurement noise",
+                },
                 "lambda_activity_vas_activity": {
                     "parameter": "lambda_activity_vas_activity",
                     "distribution": "HalfNormal",
                     "params": {"sigma": 0.4},
                     "sources": [],
                     "reasoning": "measurement prior",
+                },
+                "manifest_mean_steps": {
+                    "parameter": "manifest_mean_steps",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 1.0},
+                    "sources": [],
+                    "reasoning": "steps observation intercept",
                 },
                 "obs_ordered_base": {
                     "parameter": "obs_ordered_base",
@@ -4058,7 +4321,9 @@ class TestStage4Mechanics:
     def test_compute_stage4_validate_step_reopens_dynamics_block_on_partial_drift_guard(
         self, monkeypatch
     ):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
         runtime.decisions.distribution_choices["steps"] = {
             "variable": "steps",
             "distribution": "poisson",
@@ -4183,7 +4448,9 @@ class TestStage4Mechanics:
         )
 
     def test_global_review_can_reopen_model_block_set(self):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
         _set_runtime_block(plan, runtime, "review:model_spec")
         runtime.accepted = Stage4AcceptedState(model_spec={"parameters": [{"name": "locked"}]})
         runtime.block_status["indicator:steps"] = "accepted"
@@ -4287,7 +4554,9 @@ class TestStage4Mechanics:
             assert runtime.block_status[block.id] == "reopened"
 
     def test_compute_stage4_validate_step_reopens_indicator_on_support_mismatch(self):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
         runtime.accepted = Stage4AcceptedState(
             model_spec={
                 "likelihoods": [
@@ -4385,7 +4654,14 @@ class TestStage4Mechanics:
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
-        _set_runtime_block(plan, runtime, "correlation:cor0_activity_sleep")
+        _accept_default_model_configuration(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            plan=plan,
+            runtime=runtime,
+            data_for_model=pl.DataFrame(),
+        )
+        _set_runtime_block(plan, runtime, "correlation:tau_U")
         runtime.accepted = Stage4AcceptedState(
             model_spec={
                 "likelihoods": [
@@ -4401,20 +4677,16 @@ class TestStage4Mechanics:
                     },
                 ],
                 "parameters": [
-                    {"name": "lambda_activity_vas_activity"},
-                    {"name": "lambda_sleep_quality_sleep"},
-                    {"name": "rho_activity"},
                     {"name": "sigma_activity"},
                     {"name": "rho_sleep"},
                     {"name": "sigma_sleep"},
                     {"name": "beta_activity_sleep"},
-                    {"name": "cor0_activity_sleep"},
+                    {"name": "tau_U"},
                 ],
+                "initialization_policy": "stationary",
+                "equilibrium_forcing": False,
             },
             authored_priors={
-                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
-                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
-                "rho_activity": {"distribution": "Beta"},
                 "sigma_activity": {"distribution": "HalfNormal"},
                 "rho_sleep": {"distribution": "Beta"},
                 "sigma_sleep": {"distribution": "HalfNormal"},
@@ -4422,16 +4694,16 @@ class TestStage4Mechanics:
             },
         )
         correlation_payload = {
-            "block_id": "correlation:cor0_activity_sleep",
+            "block_id": "correlation:tau_U",
             "block_kind": "correlation_prior",
             "proposal": {
                 "priors": {
-                    "cor0_activity_sleep": {
-                        "parameter": "cor0_activity_sleep",
-                        "distribution": "Normal",
-                        "params": {"mu": 0.0, "sigma": 0.2, "lower": -1.0, "upper": 1.0},
+                    "tau_U": {
+                        "parameter": "tau_U",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.2},
                         "sources": [],
-                        "reasoning": "correlation prior",
+                        "reasoning": "baseline-factor prior",
                     }
                 }
             },
@@ -4486,14 +4758,14 @@ class TestStage4Mechanics:
 
         assert stage_output is not None
         assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
-        assert runtime.block_status["correlation:cor0_activity_sleep"] == "accepted"
+        assert runtime.block_status["correlation:tau_U"] == "accepted"
         assert runtime.block_status["dynamics:sleep"] == "reopened"
         assert runtime.block_status["effects:sleep"] == "pending"
         assert runtime.repair_campaign is not None
         assert runtime.repair_campaign.scope_key == "validator_scope:sleep"
         assert runtime.repair_campaign.scope_block_ids == ("dynamics:sleep",)
         assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
-        assert "cor0_activity_sleep" in runtime.accepted.authored_priors
+        assert "tau_U" in runtime.accepted.authored_priors
         assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
 
     def test_compute_stage4_validate_step_emits_prior_and_revision_last_state_transitions(self):
@@ -4501,7 +4773,14 @@ class TestStage4Mechanics:
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
-        _set_runtime_block(plan, runtime, "correlation:cor0_activity_sleep")
+        _accept_default_model_configuration(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            plan=plan,
+            runtime=runtime,
+            data_for_model=pl.DataFrame(),
+        )
+        _set_runtime_block(plan, runtime, "correlation:tau_U")
         runtime.accepted = Stage4AcceptedState(
             model_spec={
                 "likelihoods": [
@@ -4517,20 +4796,16 @@ class TestStage4Mechanics:
                     },
                 ],
                 "parameters": [
-                    {"name": "lambda_activity_vas_activity"},
-                    {"name": "lambda_sleep_quality_sleep"},
-                    {"name": "rho_activity"},
                     {"name": "sigma_activity"},
                     {"name": "rho_sleep"},
                     {"name": "sigma_sleep"},
                     {"name": "beta_activity_sleep"},
-                    {"name": "cor0_activity_sleep"},
+                    {"name": "tau_U"},
                 ],
+                "initialization_policy": "stationary",
+                "equilibrium_forcing": False,
             },
             authored_priors={
-                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
-                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
-                "rho_activity": {"distribution": "Beta"},
                 "sigma_activity": {"distribution": "HalfNormal"},
                 "rho_sleep": {"distribution": "Beta"},
                 "sigma_sleep": {"distribution": "HalfNormal"},
@@ -4538,16 +4813,16 @@ class TestStage4Mechanics:
             },
         )
         correlation_payload = {
-            "block_id": "correlation:cor0_activity_sleep",
+            "block_id": "correlation:tau_U",
             "block_kind": "correlation_prior",
             "proposal": {
                 "priors": {
-                    "cor0_activity_sleep": {
-                        "parameter": "cor0_activity_sleep",
-                        "distribution": "Normal",
-                        "params": {"mu": 0.0, "sigma": 0.2, "lower": -1.0, "upper": 1.0},
+                    "tau_U": {
+                        "parameter": "tau_U",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.2},
                         "sources": [],
-                        "reasoning": "correlation prior",
+                        "reasoning": "baseline-factor prior",
                     }
                 }
             },
@@ -4605,21 +4880,16 @@ class TestStage4Mechanics:
         assert stage_output is not None
         assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
         assert transitions[0] == {
-            "block_id": "correlation:cor0_activity_sleep",
+            "block_id": "correlation:tau_U",
             "status": "accepted",
             "detail_kind": "prior_bundle",
-            "parameter_names": ["cor0_activity_sleep"],
+            "parameter_names": ["tau_U"],
             "priors": [
                 {
-                    "parameter": "cor0_activity_sleep",
-                    "distribution": "Normal",
-                    "params": {
-                        "mu": 0.0,
-                        "sigma": 0.2,
-                        "lower": -1.0,
-                        "upper": 1.0,
-                    },
-                    "reasoning": "correlation prior",
+                    "parameter": "tau_U",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 0.2},
+                    "reasoning": "baseline-factor prior",
                 }
             ],
         }
@@ -4640,7 +4910,14 @@ class TestStage4Mechanics:
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
-        repair_block = _require_plan_block(plan, "correlation:cor0_activity_sleep")
+        _accept_default_model_configuration(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            plan=plan,
+            runtime=runtime,
+            data_for_model=pl.DataFrame(),
+        )
+        repair_block = _require_plan_block(plan, "correlation:tau_U")
         next_block = _require_plan_block(plan, "effects:sleep")
         _set_runtime_block(plan, runtime, repair_block.id)
         runtime.block_status[repair_block.id] = "reopened"
@@ -4665,12 +4942,12 @@ class TestStage4Mechanics:
             "block_kind": "correlation_prior",
             "proposal": {
                 "priors": {
-                    "cor0_activity_sleep": {
-                        "parameter": "cor0_activity_sleep",
-                        "distribution": "Normal",
-                        "params": {"mu": 0.0, "sigma": 0.15, "lower": -1.0, "upper": 1.0},
+                    "tau_U": {
+                        "parameter": "tau_U",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.15},
                         "sources": [],
-                        "reasoning": "repair tightened the correlation prior",
+                        "reasoning": "repair tightened the baseline-factor prior",
                     }
                 }
             },
@@ -4710,21 +4987,16 @@ class TestStage4Mechanics:
         assert seen_skip_ppc == [True]
         assert transitions == (
             {
-                "block_id": "correlation:cor0_activity_sleep",
+                "block_id": "correlation:tau_U",
                 "status": "accepted",
                 "detail_kind": "prior_bundle",
-                "parameter_names": ["cor0_activity_sleep"],
+                "parameter_names": ["tau_U"],
                 "priors": [
                     {
-                        "parameter": "cor0_activity_sleep",
-                        "distribution": "Normal",
-                        "params": {
-                            "mu": 0.0,
-                            "sigma": 0.15,
-                            "lower": -1.0,
-                            "upper": 1.0,
-                        },
-                        "reasoning": "repair tightened the correlation prior",
+                        "parameter": "tau_U",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.15},
+                        "reasoning": "repair tightened the baseline-factor prior",
                     }
                 ],
             },
@@ -4739,7 +5011,14 @@ class TestStage4Mechanics:
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
-        repair_block = _require_plan_block(plan, "correlation:cor0_activity_sleep")
+        _accept_default_model_configuration(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            plan=plan,
+            runtime=runtime,
+            data_for_model=pl.DataFrame(),
+        )
+        repair_block = _require_plan_block(plan, "correlation:tau_U")
         final_block = _require_plan_block(plan, "effects:sleep")
 
         model_spec = {
@@ -4756,26 +5035,22 @@ class TestStage4Mechanics:
                 },
             ],
             "parameters": [
-                {"name": "lambda_activity_vas_activity"},
-                {"name": "lambda_sleep_quality_sleep"},
-                {"name": "rho_activity"},
                 {"name": "sigma_activity"},
                 {"name": "rho_sleep"},
                 {"name": "sigma_sleep"},
                 {"name": "beta_activity_sleep"},
-                {"name": "cor0_activity_sleep"},
+                {"name": "tau_U"},
             ],
+            "initialization_policy": "stationary",
+            "equilibrium_forcing": False,
         }
         runtime.accepted = Stage4AcceptedState(
             model_spec=model_spec,
             authored_priors={
-                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
-                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
-                "rho_activity": {"distribution": "Beta"},
                 "sigma_activity": {"distribution": "HalfNormal"},
                 "rho_sleep": {"distribution": "Beta"},
                 "sigma_sleep": {"distribution": "HalfNormal"},
-                "cor0_activity_sleep": {"distribution": "Normal"},
+                "tau_U": {"distribution": "HalfNormal"},
             },
         )
         _set_runtime_block(plan, runtime, final_block.id)
@@ -5702,8 +5977,162 @@ class TestStage4Mechanics:
                 stage4_grounding_fn=stub_stage4_grounding,
             )
 
+    def test_global_prior_review_filters_redundant_priors_before_repair_routing(
+        self,
+        monkeypatch,
+    ):
+        from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
+
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+
+        def stub_validate_assembly(
+            model_spec,
+            priors,
+            data_for_model,
+            indicator_audits,
+            causal_spec,
+            *,
+            skip_ppc=False,
+        ):
+            del priors, data_for_model, indicator_audits, causal_spec, skip_ppc
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                compiled_ssm={"compiled": True},
+                pp_checked=True,
+                pp_valid=False,
+                diagnostics=[
+                    PriorValidationResult(
+                        parameter="prior_predictive",
+                        is_valid=False,
+                        code="prior_predictive_nonfinite_samples",
+                        origin="prior_predictive",
+                        issue="NaN/Inf detected in sample sites: observations",
+                        suggested_adjustment="Check for degenerate priors",
+                        related_parameters=["drift_offdiag"],
+                        supporting_codes=["dt_ct_approximation_warning"],
+                    )
+                ],
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            lambda *_args, **_kwargs: [
+                {"parameter": "sigma_activity"},
+                {"parameter": "beta_activity_sleep"},
+            ],
+        )
+
+        runtime = make_stage4_runtime(plan)
+        _set_runtime_block(plan, runtime, "review:prior_system")
+        runtime.block_status["review:prior_system"] = "reopened"
+        runtime.accepted = Stage4AcceptedState(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "lambda_sleep_quality_sleep"},
+                    {"name": "rho_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "cor0_activity_sleep"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {
+                    "parameter": "sigma_activity",
+                    "distribution": "HalfNormal",
+                    "params": {"sigma": 0.2},
+                    "sources": [],
+                    "reasoning": "accepted prior",
+                },
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+                "beta_activity_sleep": {
+                    "parameter": "beta_activity_sleep",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 0.3},
+                    "sources": [],
+                    "reasoning": "accepted prior",
+                },
+                "cor0_activity_sleep": {"distribution": "Normal"},
+            },
+        )
+        review_payload = {
+            "block_id": "review:prior_system",
+            "block_kind": "global_prior_review",
+            "proposal": {
+                "priors": {
+                    "sigma_activity": dict(runtime.accepted.authored_priors["sigma_activity"]),
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.15},
+                        "sources": [],
+                        "reasoning": "global repair attempt",
+                    },
+                }
+            },
+        }
+
+        _apply_stage4_step_and_capture(
+            review_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stage4_grounding,
+        )
+
+        assert runtime.repair_campaign is not None
+        assert runtime.repair_campaign.scope_key == "global_prior_review:prior_system"
+        assert runtime.repair_campaign.attempts_at_scope == 1
+        assert runtime.last_validation_packet is not None
+        assert runtime.last_validation_packet.status == "prior_predictive_failure"
+        assert runtime.last_validation_packet.changed_parameters == ("beta_activity_sleep",)
+
+        _apply_stage4_step_and_capture(
+            review_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stage4_grounding,
+        )
+
+        assert runtime.repair_campaign is not None
+        assert runtime.repair_campaign.attempts_at_scope == 2
+
     def test_compute_stage4_validate_step_rejects_calls_after_completion(self):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
         runtime.accepted = Stage4AcceptedState(
             model_spec={"parameters": [{"name": "done"}]},
             authored_priors={
@@ -5736,7 +6165,9 @@ class TestStage4Mechanics:
         assert runtime.last_validation_packet is None
 
     def test_compute_stage4_validate_step_tracks_frontier_path_without_llm(self):
-        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
+            accept_default_configuration=True
+        )
 
         submissions = [
             {
@@ -5761,13 +6192,23 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
+                    "priors": _activity_measurement_prior_bundle(
+                        lambda_sigma=0.4,
+                        lambda_reasoning="initial measurement prior",
+                    )
+                },
+            },
+            {
+                "block_id": "observation:manifest_mean_steps",
+                "block_kind": "observation_prior",
+                "proposal": {
                     "priors": {
-                        "lambda_activity_vas_activity": {
-                            "parameter": "lambda_activity_vas_activity",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.4},
+                        "manifest_mean_steps": {
+                            "parameter": "manifest_mean_steps",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
                             "sources": [],
-                            "reasoning": "initial measurement prior",
+                            "reasoning": "steps observation intercept prior",
                         }
                     }
                 },
@@ -5865,15 +6306,10 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
-                    "priors": {
-                        "lambda_activity_vas_activity": {
-                            "parameter": "lambda_activity_vas_activity",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.25},
-                            "sources": [],
-                            "reasoning": "corrected measurement prior",
-                        }
-                    }
+                    "priors": _activity_measurement_prior_bundle(
+                        lambda_sigma=0.25,
+                        lambda_reasoning="corrected measurement prior",
+                    )
                 },
             },
         ]
@@ -5882,6 +6318,7 @@ class TestStage4Mechanics:
             "indicator:steps",
             "review:model_spec",
             "measurement:activity",
+            "observation:manifest_mean_steps",
             "observation:obs_ordered_base",
             "dynamics:activity",
             "dynamics:sleep",
@@ -5890,6 +6327,7 @@ class TestStage4Mechanics:
             "measurement:activity",
         ]
         expected_reopen_ids = [
+            None,
             None,
             None,
             None,
@@ -5922,6 +6360,15 @@ class TestStage4Mechanics:
                 priors.get("lambda_activity_vas_activity", {}).get("reasoning")
                 == "initial measurement prior"
             ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "manifest_mean_steps" in priors:
                 return {
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
@@ -6038,7 +6485,10 @@ class TestStage4Mechanics:
         assert sorted(runtime.accepted.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "manifest_mean_steps",
             "obs_ordered_base",
+            "obs_sd_activity_vas",
+            "obs_sd_steps",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",
@@ -6070,15 +6520,10 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
-                    "priors": {
-                        "lambda_activity_vas_activity": {
-                            "parameter": "lambda_activity_vas_activity",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.25},
-                            "sources": [],
-                            "reasoning": "measurement prior",
-                        }
-                    }
+                    "priors": _activity_measurement_prior_bundle(
+                        lambda_sigma=0.25,
+                        lambda_reasoning="measurement prior",
+                    )
                 },
             },
             {
@@ -6175,7 +6620,7 @@ class TestStage4Mechanics:
                     "validation": AssemblyValidation(
                         normalized_model_spec=current.get("model_spec"),
                         compile_ok=True,
-                        pp_checked=len(authored_priors) == 6,
+                        pp_checked="beta_activity_sleep" in authored_priors,
                         pp_valid=True,
                     ),
                 },
@@ -6228,7 +6673,10 @@ class TestStage4Mechanics:
         assert sorted(result.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "manifest_mean_steps",
             "obs_ordered_base",
+            "obs_sd_activity_vas",
+            "obs_sd_steps",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",
@@ -6260,15 +6708,10 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
-                    "priors": {
-                        "lambda_activity_vas_activity": {
-                            "parameter": "lambda_activity_vas_activity",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.25},
-                            "sources": [],
-                            "reasoning": "measurement prior",
-                        }
-                    }
+                    "priors": _activity_measurement_prior_bundle(
+                        lambda_sigma=0.25,
+                        lambda_reasoning="measurement prior",
+                    )
                 },
             },
             "observation:obs_ordered_base": {
@@ -6378,8 +6821,6 @@ class TestStage4Mechanics:
         }
         visited_blocks: list[str] = []
         visible_tools: list[list[str]] = []
-        final_prior_count = 9
-
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             current = current or {}
             if "model_spec" in data:
@@ -6397,7 +6838,7 @@ class TestStage4Mechanics:
 
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(data["priors"])
-            pp_checked = len(authored_priors) == final_prior_count
+            pp_checked = {"beta_activity_sleep", "beta_activity_mood"}.issubset(authored_priors)
             return _make_stub_grounding_result(
                 {
                     "authored_priors": authored_priors,
@@ -6471,7 +6912,10 @@ class TestStage4Mechanics:
             "beta_activity_mood",
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "manifest_mean_steps",
             "obs_ordered_base",
+            "obs_sd_activity_vas",
+            "obs_sd_steps",
             "rho_mood",
             "rho_sleep",
             "sigma_activity",
@@ -6907,6 +7351,18 @@ class TestStage4Mechanics:
             assert label is not None
             assert label.startswith("stage-4:")
             block_id = label.removeprefix("stage-4:")
+            if block_id == "model:configuration":
+                submit_tool = next(
+                    tool for tool in tools if tool.name == "submit_model_configuration"
+                )
+                feedback = await submit_tool(
+                    initialization_policy="stationary",
+                    equilibrium_forcing=False,
+                    reasoning="Default Stage 4 test configuration.",
+                )
+                assert isinstance(feedback, str)
+                assert not feedback.startswith("VALIDATION ERRORS:")
+                return ""
             first_run_blocks.append(block_id)
             if block_id == "review:model_spec":
                 submit_tool = next(tool for tool in tools if tool.name == "submit_model_review")
@@ -7123,13 +7579,23 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
+                    "priors": _activity_measurement_prior_bundle(
+                        lambda_sigma=0.4,
+                        lambda_reasoning="initial measurement prior",
+                    )
+                },
+            },
+            {
+                "block_id": "observation:manifest_mean_steps",
+                "block_kind": "observation_prior",
+                "proposal": {
                     "priors": {
-                        "lambda_activity_vas_activity": {
-                            "parameter": "lambda_activity_vas_activity",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.4},
+                        "manifest_mean_steps": {
+                            "parameter": "manifest_mean_steps",
+                            "distribution": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
                             "sources": [],
-                            "reasoning": "initial measurement prior",
+                            "reasoning": "steps observation intercept prior",
                         }
                     }
                 },
@@ -7227,15 +7693,10 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
-                    "priors": {
-                        "lambda_activity_vas_activity": {
-                            "parameter": "lambda_activity_vas_activity",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.25},
-                            "sources": [],
-                            "reasoning": "corrected measurement prior",
-                        }
-                    }
+                    "priors": _activity_measurement_prior_bundle(
+                        lambda_sigma=0.25,
+                        lambda_reasoning="corrected measurement prior",
+                    )
                 },
             },
         ]
@@ -7243,6 +7704,7 @@ class TestStage4Mechanics:
             "indicator:steps",
             "review:model_spec",
             "measurement:activity",
+            "observation:manifest_mean_steps",
             "observation:obs_ordered_base",
             "dynamics:activity",
             "dynamics:sleep",
@@ -7260,6 +7722,13 @@ class TestStage4Mechanics:
         skeleton = derive_deterministic_spec(causal_spec)
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
+        _accept_default_model_configuration(
+            causal_spec=causal_spec,
+            skeleton=skeleton,
+            plan=plan,
+            runtime=runtime,
+            data_for_model=pl.DataFrame(),
+        )
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             current = current or {}
@@ -7282,6 +7751,15 @@ class TestStage4Mechanics:
                 priors.get("lambda_activity_vas_activity", {}).get("reasoning")
                 == "initial measurement prior"
             ):
+                return {
+                    "authored_priors": authored_priors,
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=model_spec,
+                        compile_ok=True,
+                    ),
+                }, "MODEL STATE SAVED:\n- missing priors"
+
+            if "manifest_mean_steps" in priors:
                 return {
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
@@ -7453,11 +7931,13 @@ class TestStage4Mechanics:
             ["submit_prior_block"],
             ["submit_prior_block"],
             ["submit_prior_block"],
+            ["submit_prior_block"],
         ]
         assert seen_feedbacks == [
             "No validator feedback yet. Submit the active block only.",
             "MODEL STATE SAVED:\n- missing priors",
             "BLOCK ACCEPTED:\n- saved `review:model_spec`\n- next block: `measurement:activity` (measurement_prior)",
+            "MODEL STATE SAVED:\n- missing priors",
             "MODEL STATE SAVED:\n- missing priors",
             "MODEL STATE SAVED:\n- missing priors",
             "MODEL STATE SAVED:\n- missing priors",
@@ -7483,7 +7963,10 @@ class TestStage4Mechanics:
         assert sorted(runtime.accepted.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
+            "manifest_mean_steps",
             "obs_ordered_base",
+            "obs_sd_activity_vas",
+            "obs_sd_steps",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",

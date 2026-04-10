@@ -582,6 +582,22 @@ class TestComputeDataStats:
         stats = compute_data_stats(df)
         assert abs(stats["x"]["mean"] - 2.0) < 1e-6
 
+    def test_centered_indicators_are_centered_before_summary_stats(self):
+        """Centered indicators should have mean zeroed before scale checks."""
+        df = pl.DataFrame(
+            {
+                "indicator": ["x", "x", "x", "y", "y"],
+                "value": [10.0, 11.0, 12.0, 5.0, 7.0],
+            }
+        )
+
+        stats = compute_data_stats(df, centered_indicators={"x"})
+
+        assert abs(stats["x"]["mean"]) < 1e-6
+        assert stats["x"]["min"] == -1.0
+        assert stats["x"]["max"] == 1.0
+        assert stats["y"]["mean"] == 6.0
+
 
 # =============================================================================
 # Compiled prior predictive runtime
