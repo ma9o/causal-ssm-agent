@@ -42,6 +42,7 @@ import {
   type PipelineProgress,
   type StageRunStatus,
 } from "./pipeline-progress";
+import { getStageDataQueryKey } from "./use-stage-data";
 import { usePrefectSocketSubscription } from "./use-prefect-socket";
 
 export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-progress";
@@ -61,10 +62,6 @@ interface PrefectEventSocketMessage {
 
 function getPipelineStatusQueryKey(workspaceId: string) {
   return ["pipeline", workspaceId, "status"] as const;
-}
-
-function getStageQueryKey(workspaceId: string, stageId: StageId) {
-  return ["pipeline", workspaceId, "stage", stageId] as const;
 }
 
 export function buildPrefectEventFilterMessage(rootFlowRunId: string, now = new Date()) {
@@ -144,7 +141,7 @@ function invalidateStageData(
   workspaceId: string,
   stageId: StageId,
 ) {
-  queryClient.invalidateQueries({ queryKey: getStageQueryKey(workspaceId, stageId) });
+  queryClient.invalidateQueries({ queryKey: getStageDataQueryKey(workspaceId, stageId) });
 }
 
 function applyHydratedExecutionToProgress(
