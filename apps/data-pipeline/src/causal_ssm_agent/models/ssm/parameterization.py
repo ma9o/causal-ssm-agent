@@ -715,19 +715,39 @@ def _assemble_t0_cov(
             )
             return stable_cov
 
-        if diag_samples is not None and corr_samples is not None and static_state_samples is not None:
+        if (
+            diag_samples is not None
+            and corr_samples is not None
+            and static_state_samples is not None
+        ):
             return jax.vmap(_build_stable_cov)(diag_samples, corr_samples, static_state_samples)
         if diag_samples is not None and corr_samples is not None:
-            return jax.vmap(lambda diag_values, corr_values: _build_stable_cov(diag_values, corr_values, None))(diag_samples, corr_samples)
+            return jax.vmap(
+                lambda diag_values, corr_values: _build_stable_cov(diag_values, corr_values, None)
+            )(diag_samples, corr_samples)
         if diag_samples is not None and static_state_samples is not None:
-            return jax.vmap(lambda diag_values, static_values: _build_stable_cov(diag_values, None, static_values))(diag_samples, static_state_samples)
+            return jax.vmap(
+                lambda diag_values, static_values: _build_stable_cov(
+                    diag_values, None, static_values
+                )
+            )(diag_samples, static_state_samples)
         if corr_samples is not None and static_state_samples is not None:
-            return jax.vmap(lambda corr_values, static_values: _build_stable_cov(None, corr_values, static_values))(corr_samples, static_state_samples)
+            return jax.vmap(
+                lambda corr_values, static_values: _build_stable_cov(
+                    None, corr_values, static_values
+                )
+            )(corr_samples, static_state_samples)
         if diag_samples is not None:
-            return jax.vmap(lambda diag_values: _build_stable_cov(diag_values, None, None))(diag_samples)
+            return jax.vmap(lambda diag_values: _build_stable_cov(diag_values, None, None))(
+                diag_samples
+            )
         if corr_samples is not None:
-            return jax.vmap(lambda corr_values: _build_stable_cov(None, corr_values, None))(corr_samples)
-        return jax.vmap(lambda static_values: _build_stable_cov(None, None, static_values))(static_state_samples)
+            return jax.vmap(lambda corr_values: _build_stable_cov(None, corr_values, None))(
+                corr_samples
+            )
+        return jax.vmap(lambda static_values: _build_stable_cov(None, None, static_values))(
+            static_state_samples
+        )
 
     fixed_cov = structure_runtime.assemble_t0_cov()
     return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))

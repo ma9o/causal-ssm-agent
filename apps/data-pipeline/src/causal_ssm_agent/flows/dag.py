@@ -415,7 +415,9 @@ def _derive_identified_treatments(causal_spec: Any) -> list[str]:
     """Derive identified treatments from a CausalSpec contract."""
     from causal_ssm_agent.utils.causal_spec import get_estimable_treatments
 
-    causal_spec_dict = causal_spec.model_dump() if hasattr(causal_spec, "model_dump") else causal_spec
+    causal_spec_dict = (
+        causal_spec.model_dump() if hasattr(causal_spec, "model_dump") else causal_spec
+    )
     all_treatments = list(get_estimable_treatments(causal_spec_dict))
     non_id: dict[str, Any] = {}
     if hasattr(causal_spec, "identifiability") and causal_spec.identifiability:

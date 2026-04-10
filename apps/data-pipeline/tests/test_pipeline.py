@@ -154,9 +154,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     async def stage2(question: str, stage0, stage1b, workspace_id: str, **_kw) -> Stage2Contract:
         calls.append(("stage2", question, stage0, stage1b))
         return Stage2Contract(
-            workers=[
-                {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}
-            ],
+            workers=[{"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}],
         )
 
     def stage3(stage1b, stage2, workspace_id: str) -> Stage3Contract:
@@ -455,11 +453,13 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
         lambda _stage_id, contract, _workspace_id: contract,
     )
 
-    _runner_result = Stage4Contract.model_validate({
-        "model_spec": {"parameters": [], "likelihoods": []},
-        "authored_priors": {},
-        "resolved_priors": [],
-    })
+    _runner_result = Stage4Contract.model_validate(
+        {
+            "model_spec": {"parameters": [], "likelihoods": []},
+            "authored_priors": {},
+            "resolved_priors": [],
+        }
+    )
 
     async def _runner(**_inputs):
         events.append(("runner", _inputs["root_run_id"]))
@@ -759,10 +759,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
     assert isinstance(stage1b_stage1a_arg, Stage1aContract)
     assert stage1b_stage1a_arg.latent_model.model_dump() == override_payload["latent_model"]
     # Check persist was called for stage-1a with the override payload
-    assert any(
-        entry[0] == "persist_web_result" and entry[1] == "stage-1a"
-        for entry in calls
-    )
+    assert any(entry[0] == "persist_web_result" and entry[1] == "stage-1a" for entry in calls)
     # Pipeline returns merged stage-5b + stage-6 contract dicts
     assert "intervention_results" in result
 
@@ -1395,9 +1392,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
         captured["stage0"] = stage0
         captured["stage1b"] = stage1b
         return Stage2Contract(
-            workers=[
-                {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}
-            ],
+            workers=[{"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}],
         )
 
     monkeypatch.setattr(dag, "stage0", stage0)
@@ -1439,9 +1434,7 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
 
     web_payload = {
         "outcome": "success",
-        "workers": [
-            {"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}
-        ],
+        "workers": [{"worker_id": 0, "status": "completed", "n_extractions": 1, "n_windows": 1}],
     }
     _write_public_result(tmp_path, workspace_id, "stage-2", web_payload)
 
@@ -1995,7 +1988,13 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
     assert result.fail_reason == "model_fit_failed"
     result_dict = result.model_dump(mode="json")
     assert result_dict["power_scaling"] == []
-    assert result_dict["ppc"] == {"checked": False, "per_variable_warnings": [], "overlays": [], "test_stats": [], "n_subsample": None}
+    assert result_dict["ppc"] == {
+        "checked": False,
+        "per_variable_warnings": [],
+        "overlays": [],
+        "test_stats": [],
+        "n_subsample": None,
+    }
     assert result_dict["inference_metadata"] == {
         "method": "svi",
         "n_samples": 0,

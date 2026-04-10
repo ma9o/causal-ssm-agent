@@ -160,9 +160,7 @@ def compute_data_stats(
     centered_indicators = centered_indicators or set()
     value_expr = pl.col("value").cast(pl.Float64, strict=False)
     centered_value_expr = (
-        value_expr - value_expr.mean().over("indicator")
-        if centered_indicators
-        else value_expr
+        value_expr - value_expr.mean().over("indicator") if centered_indicators else value_expr
     )
     stats_frame = data_for_model.with_columns(
         pl.when(pl.col("indicator").is_in(sorted(centered_indicators)))
@@ -955,9 +953,7 @@ def validate_prior_predictive(
         and not data_for_model.is_empty()
     ):
         centered_indicators = {
-            likelihood.variable
-            for likelihood in spec_obj.likelihoods
-            if bool(likelihood.centered)
+            likelihood.variable for likelihood in spec_obj.likelihoods if bool(likelihood.centered)
         }
         scale_reference_stats = compute_data_stats(
             data_for_model,

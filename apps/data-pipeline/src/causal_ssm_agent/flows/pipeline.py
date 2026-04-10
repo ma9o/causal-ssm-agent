@@ -121,9 +121,7 @@ async def _emit_causal_spec_artifact(stage1b: Any) -> None:
         await artifact
 
 
-def _partial_pipeline_result(
-    workspace_id: str, stage_id: str, contract: Any
-) -> dict[str, Any]:
+def _partial_pipeline_result(workspace_id: str, stage_id: str, contract: Any) -> dict[str, Any]:
     return {
         "workspace_id": workspace_id,
         "final_stage": stage_id,

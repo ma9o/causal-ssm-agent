@@ -155,7 +155,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         )
     required_template_fields = {
         "drift",
-    "cint",
+        "cint",
         "static_state_sds",
         "static_factor_loadings",
         "lambda_mat",

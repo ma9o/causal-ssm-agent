@@ -132,7 +132,8 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         )
     )
     baseline_factor_names = tuple(
-        surface.name for surface in surface_index.for_block_kind("correlation_prior")
+        surface.name
+        for surface in surface_index.for_block_kind("correlation_prior")
         if surface.role == "static_state_sd"
     )
     model_blocks.append(
