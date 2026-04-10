@@ -910,7 +910,7 @@ def _real_log_prob(x, family_idx, loc, scale, low, high):
         1 — TruncatedNormal(loc, scale, low, high)
         2 — Uniform(low, high)
     """
-    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
+    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int64), jnp.shape(x))
     normal_terms = _normal_log_prob_terms(x, loc, scale)
     truncated_terms = _truncated_normal_log_prob_terms(x, loc, scale, low, high)
     uniform_terms = _uniform_log_prob_terms(x, low, high)
@@ -930,7 +930,7 @@ def _positive_log_prob(x, family_idx, loc, scale, concentration, rate):
         2 — LogNormal(loc, scale)
         3 — Exponential(rate)
     """
-    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
+    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int64), jnp.shape(x))
     half_normal_terms = _half_normal_log_prob_terms(x, scale)
     gamma_terms = _gamma_log_prob_terms(x, concentration, rate)
     log_normal_terms = _log_normal_log_prob_terms(x, loc, scale)
@@ -965,7 +965,7 @@ def _correlation_log_abs_det_jacobian(z: jnp.ndarray) -> jnp.ndarray:
 # ---------------------------------------------------------------------------
 
 # Type alias: the prior state is a plain nested dict (valid JAX pytree).
-# Structure: {site_name: {family: int32, loc: array, scale: array, ...}}
+# Structure: {site_name: {family: int64, loc: array, scale: array, ...}}
 PriorRuntimeState = dict[str, dict[str, jnp.ndarray]]
 
 
@@ -1121,7 +1121,7 @@ def _make_positive_params(
     """Build canonical param dict for a POSITIVE-support site."""
     s = shape or ()
     return {
-        "family": jnp.array(family, dtype=jnp.int32),
+        "family": jnp.array(family, dtype=jnp.int64),
         "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float64), s),
         "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
         "concentration": jnp.broadcast_to(jnp.asarray(concentration, dtype=jnp.float64), s),
@@ -1141,7 +1141,7 @@ def _make_real_params(
     """Build canonical param dict for a REAL-support site."""
     s = shape or ()
     params = {
-        "family": jnp.array(family, dtype=jnp.int32),
+        "family": jnp.array(family, dtype=jnp.int64),
         "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float64), s),
         "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
     }
@@ -1338,7 +1338,7 @@ def deserialize_prior_runtime_state(
 ) -> PriorRuntimeState:
     """Restore prior runtime state from serialized form.
 
-    Uses the registry to determine correct dtypes (int32 for family,
+    Uses the registry to determine correct dtypes (int64 for family,
     float64 for all others).
     """
     state: PriorRuntimeState = {}
@@ -1347,7 +1347,7 @@ def deserialize_prior_runtime_state(
         params: dict[str, jnp.ndarray] = {}
         for k, v in raw.items():
             if k == "family":
-                params[k] = jnp.array(v, dtype=jnp.int32)
+                params[k] = jnp.array(v, dtype=jnp.int64)
             else:
                 params[k] = jnp.asarray(v, dtype=jnp.float64)
         state[site.name] = params

@@ -450,9 +450,9 @@ def _infer_support_groups(
 
     n_windows = len(compiled_windows)
     max_segment_len = max_state_len - 1
-    state_lens = np.zeros((n_windows,), dtype=np.int32)
-    anchor_indices = np.zeros((n_windows,), dtype=np.int32)
-    start_indices = np.zeros((n_windows,), dtype=np.int32)
+    state_lens = np.zeros((n_windows,), dtype=np.int64)
+    anchor_indices = np.zeros((n_windows,), dtype=np.int64)
+    start_indices = np.zeros((n_windows,), dtype=np.int64)
     mask_full = np.zeros((n_windows, n_manifest), dtype=np.float64)
     padded_prev = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float64)
     padded_curr = np.zeros((n_windows, max_segment_len, n_manifest), dtype=np.float64)
@@ -480,9 +480,9 @@ def _infer_support_groups(
     return (
         SupportObservationWindowBatch(
             max_state_len=max_state_len,
-            state_lens=jnp.asarray(state_lens, dtype=jnp.int32),
-            anchor_indices=jnp.asarray(anchor_indices, dtype=jnp.int32),
-            start_indices=jnp.asarray(start_indices, dtype=jnp.int32),
+            state_lens=jnp.asarray(state_lens, dtype=jnp.int64),
+            anchor_indices=jnp.asarray(anchor_indices, dtype=jnp.int64),
+            start_indices=jnp.asarray(start_indices, dtype=jnp.int64),
             mask_full=jnp.asarray(mask_full),
             prev_coeffs=jnp.asarray(padded_prev),
             curr_coeffs=jnp.asarray(padded_curr),
@@ -1208,9 +1208,9 @@ class LaplaceLikelihood:
         else:
             self._support_windows = SupportObservationWindowBatch(
                 max_state_len=1,
-                state_lens=jnp.zeros((0,), dtype=jnp.int32),
-                anchor_indices=jnp.zeros((0,), dtype=jnp.int32),
-                start_indices=jnp.zeros((0,), dtype=jnp.int32),
+                state_lens=jnp.zeros((0,), dtype=jnp.int64),
+                anchor_indices=jnp.zeros((0,), dtype=jnp.int64),
+                start_indices=jnp.zeros((0,), dtype=jnp.int64),
                 mask_full=jnp.zeros((0, n_manifest), dtype=jnp.float64),
                 prev_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float64),
                 curr_coeffs=jnp.zeros((0, 0, n_manifest), dtype=jnp.float64),

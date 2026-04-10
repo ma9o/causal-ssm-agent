@@ -203,7 +203,7 @@ class TestForwardSimulation:
             interval_prev_coeffs=np.array([[[0.0]], [[0.5]], [[0.5]]], dtype=np.float32),
             interval_curr_coeffs=np.array([[[0.0]], [[0.5]], [[0.5]]], dtype=np.float32),
             interval_weights=np.array([[[0.0]], [[1.0]], [[1.0]]], dtype=np.float32),
-            emission_slot_indices=np.array([[-1], [-1], [0]], dtype=np.int32),
+            emission_slot_indices=np.array([[-1], [-1], [0]], dtype=np.int64),
         )
 
     def test_switch_index_unknown_dist_raises(self):

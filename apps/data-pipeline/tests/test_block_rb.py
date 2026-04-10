@@ -347,8 +347,8 @@ class TestExtractSubblocks:
         A = jnp.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=jnp.float32)
         Q = jnp.eye(3) * 0.1
         c = jnp.array([10.0, 20.0, 30.0])
-        g_idx = jnp.array([0, 2], dtype=jnp.int32)
-        s_idx = jnp.array([1], dtype=jnp.int32)
+        g_idx = jnp.array([0, 2], dtype=jnp.int64)
+        s_idx = jnp.array([1], dtype=jnp.int64)
 
         blocks = extract_subblocks(A, Q, c, g_idx, s_idx)
 
@@ -371,8 +371,8 @@ class TestExtractSubblocks:
         A = random.normal(key, (n, n))
         Q = jnp.eye(n) * 0.1
         c = jnp.arange(n, dtype=jnp.float32)
-        g_idx = jnp.array([0, 3], dtype=jnp.int32)
-        s_idx = jnp.array([1, 2], dtype=jnp.int32)
+        g_idx = jnp.array([0, 3], dtype=jnp.int64)
+        s_idx = jnp.array([1, 2], dtype=jnp.int64)
 
         blocks = extract_subblocks(A, Q, c, g_idx, s_idx)
 
@@ -391,8 +391,8 @@ class TestExtractSubblocks:
 
     def test_obs_subblocks(self):
         H = jnp.array([[1, 0, 2], [0, 3, 1]], dtype=jnp.float32)
-        g_idx = jnp.array([0, 2], dtype=jnp.int32)
-        s_idx = jnp.array([1], dtype=jnp.int32)
+        g_idx = jnp.array([0, 2], dtype=jnp.int64)
+        s_idx = jnp.array([1], dtype=jnp.int64)
 
         H_g, H_s = extract_obs_subblocks(H, g_idx, s_idx)
         np.testing.assert_array_equal(H_g, [[1, 2], [0, 1]])

@@ -187,10 +187,10 @@ def analyze_first_pass_rb(spec: SSMSpec) -> RBPartition:
                 obs_particle.append(k)
 
     # Build partition
-    kalman_idx = np.array(sorted(candidates), dtype=np.int32)
-    particle_idx = np.array(sorted(set(range(n)) - candidates), dtype=np.int32)
-    obs_kalman_idx = np.array(obs_kalman, dtype=np.int32)
-    obs_particle_idx = np.array(obs_particle, dtype=np.int32)
+    kalman_idx = np.array(sorted(candidates), dtype=np.int64)
+    particle_idx = np.array(sorted(set(range(n)) - candidates), dtype=np.int64)
+    obs_kalman_idx = np.array(obs_kalman, dtype=np.int64)
+    obs_particle_idx = np.array(obs_particle, dtype=np.int64)
 
     return RBPartition(
         kalman_idx=kalman_idx,

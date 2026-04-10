@@ -234,7 +234,7 @@ def _make_interval_support_runtime(
         ),
         emission_slot_indices=np.array(
             [[-1] * n_manifest, [0] * n_manifest, [0] * n_manifest],
-            dtype=np.int32,
+            dtype=np.int64,
         ),
     )
 

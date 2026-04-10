@@ -134,7 +134,7 @@ def compile_observation_operator(
         prev_coeffs=jnp.asarray(observation_support.interval_prev_coeffs),
         curr_coeffs=jnp.asarray(observation_support.interval_curr_coeffs),
         interval_weights=jnp.asarray(observation_support.interval_weights),
-        emission_slots=jnp.asarray(observation_support.emission_slot_indices, dtype=jnp.int32),
+        emission_slots=jnp.asarray(observation_support.emission_slot_indices, dtype=jnp.int64),
         max_active_windows=observation_support.max_active_windows,
         n_manifest=len(observation_support.support_kinds),
     )
@@ -147,7 +147,7 @@ def get_support_kind_codes(observation_support: ObservationSupportRuntime) -> jn
             _SUPPORT_KIND_TO_CODE.get(kind, _POINT_SUPPORT_CODE)
             for kind in observation_support.support_kinds
         ],
-        dtype=jnp.int32,
+        dtype=jnp.int64,
     )
 
 
@@ -158,7 +158,7 @@ def get_summary_operator_codes(observation_support: ObservationSupportRuntime) -
             _SUMMARY_OPERATOR_TO_CODE.get(operator, _LAST_OPERATOR_CODE)
             for operator in observation_support.summary_operators
         ],
-        dtype=jnp.int32,
+        dtype=jnp.int64,
     )
 
 
@@ -415,7 +415,7 @@ def _project_response_trajectory_with_operator(
     point_like_mask = observation_operator.point_like_mask(dtype)
     interval_summary_mask = observation_operator.interval_summary_mask(dtype)
 
-    emission_slots = jnp.asarray(support.emission_slot_indices, dtype=jnp.int32)
+    emission_slots = jnp.asarray(support.emission_slot_indices, dtype=jnp.int64)
     semantic_mask_0 = point_like_mask + interval_summary_mask * (emission_slots[0] >= 0).astype(
         dtype
     )
@@ -431,7 +431,7 @@ def _project_response_trajectory_with_operator(
     prev_coeffs = jnp.asarray(observation_operator.prev_coeffs, dtype=dtype)
     curr_coeffs = jnp.asarray(observation_operator.curr_coeffs, dtype=dtype)
     interval_weights = jnp.asarray(observation_operator.interval_weights, dtype=dtype)
-    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int32)
+    emission_slots = jnp.asarray(observation_operator.emission_slots, dtype=jnp.int64)
     zeros = observation_operator.empty_accumulators(dtype)
     full_obs_mask = jnp.ones((n_manifest,), dtype=dtype)
 

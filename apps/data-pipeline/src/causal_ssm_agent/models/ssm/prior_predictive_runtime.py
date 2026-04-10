@@ -56,7 +56,7 @@ def _assemble_extra_params_batched(
         }
         return assemble_extra_params_from_registry(spec, sampled_values, runtime.registry)
 
-    return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int32))
+    return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int64))
 
 
 def sample_prior_predictive_from_runtime(

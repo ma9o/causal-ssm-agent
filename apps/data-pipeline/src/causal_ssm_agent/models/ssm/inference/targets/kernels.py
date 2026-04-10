@@ -168,7 +168,7 @@ def _slice_observation_extra_params(
         return None
 
     sliced: dict = {}
-    idx = jnp.array(ch_indices, dtype=jnp.int32)
+    idx = jnp.array(ch_indices, dtype=jnp.int64)
     for key, value in extra_params.items():
         if (
             hasattr(value, "ndim")
@@ -647,7 +647,7 @@ def compile_measurement_semantics(
     mean_log_prob_fn = None
     if observation_operator.requires_interval_summary_handling:
         interval_summary_indices = list(observation_operator.interval_summary_indices)
-        interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
+        interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int64)
         interval_summary_dists = [dists[idx] for idx in interval_summary_indices]
         if len(set(interval_summary_dists)) == 1:
             base_mean_log_prob_fn = get_mean_param_log_prob_fn(

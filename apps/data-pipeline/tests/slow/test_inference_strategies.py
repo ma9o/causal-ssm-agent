@@ -67,7 +67,7 @@ def _support_runtime(**kwargs) -> ObservationSupportRuntime:
     emission_slots = kwargs.get("emission_slot_indices")
     if emission_slots is None:
         support_end = np.asarray(kwargs["support_end_times"])
-        emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int32)
+        emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
     kwargs["emission_slot_indices"] = emission_slots
     return ObservationSupportRuntime(**kwargs)
 

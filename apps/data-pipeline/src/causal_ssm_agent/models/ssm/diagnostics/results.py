@@ -19,7 +19,7 @@ def _chi_squared_uniformity_pvalue(ranks: jnp.ndarray, max_rank: int, n_bins: in
     ranks = jnp.asarray(ranks, dtype=jnp.float64)
     n = ranks.shape[0]
     bin_width = (max_rank + 1) / n_bins
-    bin_idx = jnp.clip((ranks / bin_width).astype(jnp.int32), 0, n_bins - 1)
+    bin_idx = jnp.clip((ranks / bin_width).astype(jnp.int64), 0, n_bins - 1)
     observed = jnp.array([float(jnp.sum(bin_idx == i)) for i in range(n_bins)], dtype=jnp.float64)
     expected = float(n) / n_bins
     chi2 = jnp.sum((observed - expected) ** 2 / jnp.maximum(expected, NUMERICAL_EPSILON))

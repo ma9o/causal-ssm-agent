@@ -196,7 +196,7 @@ class TestMakeLikelihoodBackend:
             interval_prev_coeffs=np.array([[[0.0], [0.0], [0.0]], [[0.0], [0.0], [0.5]]]),
             interval_curr_coeffs=np.array([[[0.0], [0.0], [0.0]], [[0.0], [0.0], [0.5]]]),
             interval_weights=np.array([[[0.0], [0.0], [0.0]], [[0.0], [0.0], [1.0]]]),
-            emission_slot_indices=np.array([[-1, -1, -1], [-1, -1, 0]], dtype=np.int32),
+            emission_slot_indices=np.array([[-1, -1, -1], [-1, -1, 0]], dtype=np.int64),
         )
 
         model = SSMModel(spec=spec)
