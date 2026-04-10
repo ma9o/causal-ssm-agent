@@ -69,8 +69,7 @@ logger = get_prefect_logger(__name__)
 
 _DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM = 160
 _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL = 1e-3
-_SUPPORT_AWARE_LINESEARCH_ALPHA = 0.5
-_SUPPORT_AWARE_LINESEARCH_TRIALS = 2
+_SUPPORT_AWARE_LM_DAMPING = 1e-3
 
 
 @dataclass(frozen=True)
@@ -1118,26 +1117,8 @@ def _support_aware_ieks_laplace(
     else:
         z_est = jnp.asarray(z_init, dtype=observations.dtype)
 
-    def _joint(z_curr: jnp.ndarray) -> jnp.ndarray:
-        return _support_aware_joint_log_prob(
-            z_curr,
-            observations=observations,
-            obs_mask=obs_mask,
-            Ad=Ad,
-            Qd=Qd,
-            cd=cd,
-            H=H,
-            d=d,
-            R=R,
-            init_mean=init_mean,
-            init_cov=init_cov,
-            obs_kernel=obs_kernel,
-            mean_log_prob_fn=mean_log_prob_fn,
-            observation_support=observation_support,
-        )
-
     def _newton_step(carry, _idx):
-        z_curr, curr_log_joint, active = carry
+        z_curr, active = carry
 
         def _do_step(_):
             with jax.named_scope("laplace_em/support_aware_observation_system"):
@@ -1154,42 +1135,46 @@ def _support_aware_ieks_laplace(
                     window_derivatives,
                     bandwidth,
                 )
-            system_diag = prior_diag + obs_diag
+            damping = jnp.asarray(_SUPPORT_AWARE_LM_DAMPING, dtype=z_curr.dtype)
+            system_diag = prior_diag + obs_diag + damping * jnp.eye(D, dtype=z_curr.dtype)[None, :, :]
             system_upper = prior_upper + obs_upper
             system_rhs = prior_rhs + obs_rhs
             with jax.named_scope("laplace_em/support_aware_solve"):
                 chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
-                z_proposal = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+                z_next = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
 
-            step = z_proposal - z_curr
-            best_z = z_curr
-            best_log_joint = curr_log_joint
-            step_scale = jnp.asarray(1.0, dtype=z_curr.dtype)
-            for _ in range(_SUPPORT_AWARE_LINESEARCH_TRIALS + 1):
-                z_candidate = z_curr + step_scale * step
-                log_joint_candidate = _joint(z_candidate)
-                improved = jnp.isfinite(log_joint_candidate) & (log_joint_candidate > best_log_joint)
-                best_z = jnp.where(improved, z_candidate, best_z)
-                best_log_joint = jnp.where(improved, log_joint_candidate, best_log_joint)
-                step_scale = step_scale * _SUPPORT_AWARE_LINESEARCH_ALPHA
-
-            rel_change = jnp.linalg.norm(best_z - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
+            rel_change = jnp.linalg.norm(z_next - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
             next_active = rel_change > _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL
-            return best_z, best_log_joint, next_active
+            return z_next, next_active
 
         return jax.lax.cond(active, _do_step, lambda _: carry, operand=None), None
 
-    initial_log_joint = _joint(z_est)
     with jax.named_scope("laplace_em/support_aware_newton"):
-        (z_est, mode_log_joint, _active), _ = jax.lax.scan(
+        (z_est, _active), _ = jax.lax.scan(
             _newton_step,
             (
                 z_est,
-                initial_log_joint,
                 jnp.asarray(True),
             ),
             xs=jnp.arange(max(n_ieks_iters, 1)),
         )
+
+    mode_log_joint = _support_aware_joint_log_prob(
+        z_est,
+        observations=observations,
+        obs_mask=obs_mask,
+        Ad=Ad,
+        Qd=Qd,
+        cd=cd,
+        H=H,
+        d=d,
+        R=R,
+        init_mean=init_mean,
+        init_cov=init_cov,
+        obs_kernel=obs_kernel,
+        mean_log_prob_fn=mean_log_prob_fn,
+        observation_support=observation_support,
+    )
 
     with jax.named_scope("laplace_em/support_aware_final_hessian"):
         obs_diag, obs_upper, _obs_rhs = _assemble_support_aware_observation_system(
