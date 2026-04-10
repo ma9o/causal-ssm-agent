@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+    allowed_stage4_tool_names,
+)
+
 Stage4BlockKind = Literal[
     "model_configuration",
     "indicator_decision",
@@ -70,7 +74,6 @@ _COMMON_PRIOR_GUIDANCE_SECTION_KEYS = (
     "prior_distribution_types",
     "parameter_guidance",
 )
-_COMMON_PRIOR_ALLOWED_TOOL_NAMES = ("submit_prior_block", "elicit_prior_gmm")
 
 
 def _make_block_kind_spec(
@@ -113,10 +116,13 @@ def _make_prior_block_kind_spec(
     parameter_guidance_prefixes: tuple[str, ...],
     extra_guidance_section_keys: tuple[str, ...] = (),
     visible_sections: tuple[str, ...] = _COMMON_PRIOR_VISIBLE_SECTIONS,
-    allowed_tool_names: tuple[str, ...] = _COMMON_PRIOR_ALLOWED_TOOL_NAMES,
+    allowed_tool_names: tuple[str, ...] | None = None,
     phase: Stage4BlockPhase = "prior_blocks",
 ) -> Stage4BlockKindSpec:
     """Build a prior-authoring Stage 4 block kind with shared defaults."""
+    resolved_allowed_tool_names = (
+        allowed_stage4_tool_names(kind) if allowed_tool_names is None else allowed_tool_names
+    )
     return _make_block_kind_spec(
         kind,
         phase=phase,
@@ -130,7 +136,7 @@ def _make_prior_block_kind_spec(
             *extra_guidance_section_keys,
         ),
         parameter_guidance_prefixes=parameter_guidance_prefixes,
-        allowed_tool_names=allowed_tool_names,
+        allowed_tool_names=resolved_allowed_tool_names,
         include_prior_source_guidance=True,
     )
 
@@ -154,7 +160,7 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "observation_distribution_guidance",
             "link_function_rules",
         ),
-        allowed_tool_names=("submit_model_configuration",),
+        allowed_tool_names=allowed_stage4_tool_names("model_configuration"),
     ),
     "indicator_decision": _make_block_kind_spec(
         "indicator_decision",
@@ -174,7 +180,7 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "observation_distribution_guidance",
             "link_function_rules",
         ),
-        allowed_tool_names=("submit_indicator_choice",),
+        allowed_tool_names=allowed_stage4_tool_names("indicator_decision"),
     ),
     "measurement_prior": _make_prior_block_kind_spec(
         "measurement_prior",
@@ -247,7 +253,6 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "lagged_effect_interval_guidance",
         ),
         parameter_guidance_prefixes=("beta",),
-        allowed_tool_names=("submit_prior_block", "search_literature", "elicit_prior_gmm"),
     ),
     "correlation_prior": _make_prior_block_kind_spec(
         "correlation_prior",
@@ -281,7 +286,7 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "observation_distribution_guidance",
             "link_function_rules",
         ),
-        allowed_tool_names=("submit_model_review",),
+        allowed_tool_names=allowed_stage4_tool_names("global_review"),
     ),
     "global_prior_review": _make_prior_block_kind_spec(
         "global_prior_review",
@@ -314,7 +319,6 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
             "t0_mean",
             "t0_sd",
         ),
-        allowed_tool_names=("submit_prior_block",),
     ),
 }
 

@@ -19,6 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 from causal_ssm_agent.artifacts.causal_spec import CausalSpec  # noqa: TC001
 from causal_ssm_agent.artifacts.latent_model import LatentModel  # noqa: TC001
 from causal_ssm_agent.artifacts.model_spec import ModelSpec  # noqa: TC001
+from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+    build_stage4_public_tool_contracts,
+)
 from causal_ssm_agent.models.posterior_predictive import (  # noqa: TC001
     PPCOverlay,
     PPCTestStat,
@@ -180,34 +183,6 @@ class ValidateExtractionsInput(BaseModel):
 
     output_json: str = Field(
         description="The JSON string containing the worker output to validate."
-    )
-
-
-# --- Stage 4 tool inputs ---
-
-
-class SearchLiteratureInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    query: str = Field(description="Search query for empirical literature about effect sizes.")
-    parameter_name: str = Field(
-        description="Name of the parameter this search is for (e.g. 'beta_stress_sleep')."
-    )
-
-
-class SubmitModelSpecInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    model_spec_json: str = Field(
-        description=("The JSON string containing the complete ModelSpec to lock for Stage 4."),
-    )
-
-
-class SubmitPriorsInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    priors_json: str = Field(
-        description="The JSON string containing prior proposals keyed by parameter name.",
     )
 
 
@@ -504,23 +479,7 @@ STAGE_TOOLS: dict[str, list[ToolContract]] = {
             input_schema=ValidateExtractionsInput,
         ),
     ],
-    "stage-4": [
-        ToolContract(
-            name="search_literature",
-            description="Search for empirical literature about effect sizes for model parameters.",
-            input_schema=SearchLiteratureInput,
-        ),
-        ToolContract(
-            name="submit_model_spec",
-            description="Submit the full Stage 4 ModelSpec for compile-only locking and validation.",
-            input_schema=SubmitModelSpecInput,
-        ),
-        ToolContract(
-            name="submit_priors",
-            description="Submit Stage 4 prior proposals for schema, compile, and prior-predictive validation.",
-            input_schema=SubmitPriorsInput,
-        ),
-    ],
+    "stage-4": build_stage4_public_tool_contracts(),
     "stage-6": [
         ToolContract(
             name="get_model_info",

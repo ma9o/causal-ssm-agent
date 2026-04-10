@@ -89,14 +89,16 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
 
 
 def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch):
+    import causal_ssm_agent.flows.run_store as run_store
+
     spec = SimpleNamespace(
         latent_names=["screen_time", "sleep_quality"], manifest_names=["sleep_obs"]
     )
     fitted_artifact = SimpleNamespace(
-        builder=SimpleNamespace(_spec=spec),
+        builder=SimpleNamespace(spec=spec),
         observation_support=None,
     )
-    rebuilt_builder = SimpleNamespace(_spec=spec, _model=object())
+    rebuilt_builder = SimpleNamespace(spec=spec, model=object())
     rebuilt_runtime = SimpleNamespace(
         builder=rebuilt_builder,
         observation_support="support-runtime",
@@ -115,12 +117,12 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
     )
     monkeypatch.setattr(tool_server, "_load_optional_stage_result", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(
-        tool_server,
-        "_load_runtime_stage_result",
-        lambda _workspace_id, stage_id: (
-            {"_data_for_model_path": "/tmp/stage2.parquet"}
-            if stage_id == "stage-2"
-            else {"_fitted_result_path": "/tmp/stage5b.pkl"}
+        run_store,
+        "find_run_artifact",
+        lambda _workspace_id, filenames: (
+            "/tmp/stage2.parquet"
+            if filenames == run_store.STAGE2_MODEL_PARQUET_FILENAMES
+            else "/tmp/stage5b.pkl"
         ),
     )
     monkeypatch.setattr(tool_server, "load_pickle", lambda _path: fitted_artifact)
@@ -148,19 +150,15 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
 
 
 def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypatch):
-    import causal_ssm_agent.flows.stage_registry as stage_registry
+    import causal_ssm_agent.flows.run_store as run_store
+    import causal_ssm_agent.flows.stages.stage4.grounding as stage4_grounding_module
+    import causal_ssm_agent.flows.stages.stage4.tool_registry as stage4_tool_registry
     from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
         make_stage4_grounding_result,
     )
 
     expected_data_for_model = object()
     captured: dict[str, object] = {}
-
-    def fake_load_stage_state(workspace_id, stage_id, prior_states=None):
-        del prior_states
-        assert workspace_id == "user-123"
-        assert stage_id == "stage-2"
-        return {"result": {"_data_for_model_path": "/run/stage2-model-data.parquet"}}
 
     def fake_load_parquet(path):
         assert path == "/run/stage2-model-data.parquet"
@@ -186,14 +184,22 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
             capture_stage_output=True,
         )
 
-    monkeypatch.setattr(stage_registry, "load_stage_state", fake_load_stage_state)
-    monkeypatch.setattr(tool_server, "load_parquet", fake_load_parquet)
     monkeypatch.setattr(
-        tool_server,
+        run_store,
+        "find_run_artifact",
+        lambda workspace_id, filenames: (
+            "/run/stage2-model-data.parquet"
+            if workspace_id == "user-123" and filenames == run_store.STAGE2_MODEL_PARQUET_FILENAMES
+            else (_ for _ in ()).throw(AssertionError("unexpected artifact lookup"))
+        ),
+    )
+    monkeypatch.setattr(stage4_tool_registry, "load_parquet", fake_load_parquet)
+    monkeypatch.setattr(
+        stage4_tool_registry,
         "_load_stage4_current",
         lambda workspace_id: {"workspace_id": workspace_id, "model_spec": {"parameters": []}},
     )
-    monkeypatch.setattr(tool_server, "stage4_grounding", fake_stage4_grounding)
+    monkeypatch.setattr(stage4_grounding_module, "stage4_grounding", fake_stage4_grounding)
 
     result = tool_server._execute_submit_priors(
         {
@@ -300,8 +306,8 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         "_fitted_artifact": SimpleNamespace(
             result=FakeResult(samples),
             builder=SimpleNamespace(
-                _spec=SimpleNamespace(latent_names=["treat", "outcome"], manifest_names=[]),
-                _model=object(),
+                spec=SimpleNamespace(latent_names=["treat", "outcome"], manifest_names=[]),
+                model=object(),
             ),
             observation_support=None,
         ),
@@ -487,7 +493,7 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
             manifest_names=["daily_event_count", "sleep_issue_searches"]
         ),
         "_fitted_artifact": SimpleNamespace(
-            builder=SimpleNamespace(_spec=SimpleNamespace(latent_names=["screen_time", "sleep"]))
+            builder=SimpleNamespace(spec=SimpleNamespace(latent_names=["screen_time", "sleep"]))
         ),
         "_identifiable_treatments": ["screen_time"],
         "_outcome_name": "sleep",

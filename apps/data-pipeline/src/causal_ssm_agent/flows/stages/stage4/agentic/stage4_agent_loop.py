@@ -40,31 +40,19 @@ def _build_stage4_tool_map(
     max_tool_turns: int,
 ) -> dict[str, Any]:
     """Build the Stage 4 tool map for one reducer-owned session."""
-    from causal_ssm_agent.flows.stages.stage4.tools import (
-        make_elicit_prior_gmm_tool,
-        make_search_tool,
-        make_submit_indicator_choice_tool,
-        make_submit_model_configuration_tool,
-        make_submit_model_review_tool,
-        make_submit_prior_block_tool,
+    from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+        build_stage4_session_tool_map,
     )
 
-    tool_map: dict[str, Any] = {
-        "submit_indicator_choice": make_submit_indicator_choice_tool(session),
-        "submit_model_configuration": make_submit_model_configuration_tool(session),
-        "submit_model_review": make_submit_model_review_tool(session),
-        "submit_prior_block": make_submit_prior_block_tool(session),
-    }
-    if enable_literature:
-        tool_map["search_literature"] = make_search_tool(session)
-    if enable_paraphrasing:
-        tool_map["elicit_prior_gmm"] = make_elicit_prior_gmm_tool(
-            question=question,
-            model_name=gmm_model or "",
-            n_paraphrases=n_paraphrases,
-            max_tool_turns=max_tool_turns,
-        )
-    return tool_map
+    return build_stage4_session_tool_map(
+        session,
+        question=question,
+        enable_literature=enable_literature,
+        enable_paraphrasing=enable_paraphrasing,
+        n_paraphrases=n_paraphrases,
+        gmm_model=gmm_model,
+        max_tool_turns=max_tool_turns,
+    )
 
 
 async def _run_stage4_turn(
