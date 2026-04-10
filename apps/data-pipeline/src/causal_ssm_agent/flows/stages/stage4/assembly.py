@@ -482,7 +482,7 @@ def compile_model_artifact(
         builder = runtime.builder
         return {
             "model_built": True,
-            "model_type": builder._model_type,
+            "model_type": builder.model_type,
             "version": builder.version,
             "compiled_ssm": artifact,
         }

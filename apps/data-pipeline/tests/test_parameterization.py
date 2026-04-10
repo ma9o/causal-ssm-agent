@@ -937,7 +937,7 @@ class TestCompiledArtifactIntegration:
             }
         )
         builder = build_ssm_builder(wide_data=pivot_to_wide(data_for_model), compiled_ssm=artifact)
-        assert builder._model is not None
+        assert builder.has_model
         samples = builder.sample_prior_predictive(samples=5)
         assert samples is not None
 

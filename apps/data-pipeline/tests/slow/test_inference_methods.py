@@ -798,10 +798,10 @@ class TestLaplaceSMCDoctolib:
             },
         )
 
-        assert builder._spec is not None
-        assert builder._spec.manifest_dists is not None
-        assert DistributionFamily.BETA in builder._spec.manifest_dists
-        assert select_default_method(builder._spec) == "laplace_em"
+        spec = builder.spec
+        assert spec.manifest_dists is not None
+        assert DistributionFamily.BETA in spec.manifest_dists
+        assert select_default_method(spec) == "laplace_em"
 
         wide = pivot_to_wide(data_for_model)
         assert wide.schema["time"] == pl.Float64
@@ -815,9 +815,9 @@ class TestLaplaceSMCDoctolib:
         assert "drift_diag_free" in samples
         assert "diffusion_diag_free" in samples
         assert "manifest_var_diag_free" in samples
-        assert samples["drift_diag_free"].shape == (8, builder._spec.n_latent)
-        assert samples["diffusion_diag_free"].shape == (8, builder._spec.n_latent)
-        assert samples["manifest_var_diag_free"].shape == (8, builder._spec.n_manifest)
+        assert samples["drift_diag_free"].shape == (8, spec.n_latent)
+        assert samples["diffusion_diag_free"].shape == (8, spec.n_latent)
+        assert samples["manifest_var_diag_free"].shape == (8, spec.n_manifest)
         assert bool(jnp.isfinite(samples["drift_diag_free"]).all())
         assert bool(jnp.isfinite(samples["diffusion_diag_free"]).all())
         assert bool(jnp.isfinite(samples["manifest_var_diag_free"]).all())

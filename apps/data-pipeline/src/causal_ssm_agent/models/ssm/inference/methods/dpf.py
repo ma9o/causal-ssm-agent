@@ -929,7 +929,7 @@ def fit_dpf(
 
     manifest_dists = get_per_channel_manifest(spec)
     manifest_links = get_per_channel_links(spec)
-    structure_runtime = model._structure_runtime
+    structure_runtime = model.structure_runtime
 
     # Phase 1: Train proposal network
     # Extract measurement model from spec

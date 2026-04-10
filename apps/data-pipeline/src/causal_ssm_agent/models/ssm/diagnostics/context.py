@@ -158,14 +158,15 @@ def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
         _PARAMETRIC_ID_CONTEXT_CACHE.move_to_end(cache_key)
         return cached
 
-    site_runtime = build_site_runtime_bundle(model.spec, model._structure_runtime)
+    structure_runtime = model.structure_runtime
+    site_runtime = build_site_runtime_bundle(model.spec, structure_runtime)
     backend = model.make_likelihood_backend()
     log_lik_fn, log_prior_unc_fn = _build_runtime_eval_fns_from_registry(
         model.spec,
         site_runtime.registry,
         site_runtime.unravel_fn,
         site_runtime.transforms,
-        model._structure_runtime,
+        structure_runtime,
         backend,
     )
 
@@ -176,7 +177,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
             site_runtime.transforms,
             model.spec,
             times,
-            structure_runtime=model._structure_runtime,
+            structure_runtime=structure_runtime,
             observation_support=getattr(model, "observation_support", None),
             registry=site_runtime.registry,
         )
@@ -188,7 +189,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
             site_runtime.transforms,
             model.spec,
             times,
-            structure_runtime=model._structure_runtime,
+            structure_runtime=structure_runtime,
             observation_support=getattr(model, "observation_support", None),
             registry=site_runtime.registry,
         )
@@ -196,7 +197,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
     context = ParametricIdContext(
         cache_key=cache_key,
         spec=model.spec,
-        structure_runtime=model._structure_runtime,
+        structure_runtime=structure_runtime,
         site_runtime=site_runtime,
         predict_moments_fn=_predict,
         jacobian_fn=jax.jit(jax.jacfwd(_predict, argnums=0)),

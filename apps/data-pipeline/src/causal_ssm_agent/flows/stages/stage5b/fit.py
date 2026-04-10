@@ -148,12 +148,11 @@ def fit_model(
         # to the model's default backend.
         import functools
 
-        assert runtime.builder._model is not None
         loo_backend = result.diagnostics.get(
-            "likelihood_backend", runtime.builder._model.make_likelihood_backend()
+            "likelihood_backend", runtime.model.make_likelihood_backend()
         )
         model_fn = functools.partial(
-            runtime.builder._model.model,
+            runtime.model.model,
             likelihood_backend=loo_backend,
         )
         logger.info("Computing LOO diagnostics...")
@@ -227,8 +226,7 @@ def run_power_scaling(fitted_result: dict) -> dict:
     try:
         result = fitted_result["result"]
         runtime: PreparedModelRuntime = fitted_result["runtime"]
-        assert runtime.builder._model is not None
-        ssm_model = runtime.builder._model
+        ssm_model = runtime.model
         logger.info(
             "Running power-scaling sensitivity: method=%s timepoints=%d manifest_vars=%d",
             result.method,
@@ -290,7 +288,7 @@ def run_ppc(fitted_result: dict) -> dict:
     try:
         result = fitted_result["result"]
         runtime: PreparedModelRuntime = fitted_result["runtime"]
-        spec = runtime.builder._spec
+        spec = runtime.spec
         samples = result.get_samples()
         posterior_draws = (
             int(next(iter(samples.values())).shape[0])

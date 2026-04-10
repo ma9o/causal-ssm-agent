@@ -583,8 +583,7 @@ class TestPrepareFitInputs:
             manifest_names=["x", "y"],
             manifest_centered=[True, False],
         )
-        builder = SSMModelBuilder()
-        builder._spec = spec
+        builder = SSMModelBuilder(ssm_spec=spec)
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
@@ -627,14 +626,14 @@ class TestPrepareModelRuntime:
                     lambda_mat=jnp.eye(1, dtype=jnp.float32),
                     manifest_names=["stress_score"],
                 )
+                self.structure_runtime = object()
 
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
 
         class StubBuilder:
             def __init__(self):
-                self._model = StubModel()
-                self._spec = self._model.spec
+                self._attached_model = StubModel()
 
             def prepare_fit_inputs(self, wide_data: pl.DataFrame):
                 return (
@@ -642,6 +641,18 @@ class TestPrepareModelRuntime:
                     jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
                     ["stress_score"],
                 )
+
+            @property
+            def has_model(self) -> bool:
+                return True
+
+            @property
+            def model(self):
+                return self._attached_model
+
+            @property
+            def spec(self):
+                return self._attached_model.spec
 
         with caplog.at_level("INFO"):
             runtime = prepare_model_runtime(
@@ -674,8 +685,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_curr_coeffs[1, 0, 0] == pytest.approx(15.5)
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(31.0)
         assert runtime.manifest_names == ["stress_score"]
-        assert runtime.builder._model is not None
-        assert runtime.builder._model.observation_support is runtime.observation_support
+        assert runtime.model.observation_support is runtime.observation_support
         assert runtime.inference_structure.likelihood_path == "particle"
         assert runtime.inference_structure.auto_method == "laplace_em"
         assert (
@@ -708,14 +718,14 @@ class TestPrepareModelRuntime:
                     lambda_mat=jnp.eye(1, dtype=jnp.float32),
                     manifest_names=["stress_score"],
                 )
+                self.structure_runtime = object()
 
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
 
         class StubBuilder:
             def __init__(self):
-                self._model = StubModel()
-                self._spec = self._model.spec
+                self._attached_model = StubModel()
 
             def prepare_fit_inputs(self, wide_data: pl.DataFrame):
                 return (
@@ -723,6 +733,18 @@ class TestPrepareModelRuntime:
                     jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
                     ["stress_score"],
                 )
+
+            @property
+            def has_model(self) -> bool:
+                return True
+
+            @property
+            def model(self):
+                return self._attached_model
+
+            @property
+            def spec(self):
+                return self._attached_model.spec
 
         runtime = prepare_model_runtime(
             data_for_model, builder=cast("SSMModelBuilder", StubBuilder())

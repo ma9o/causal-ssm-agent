@@ -427,9 +427,7 @@ def direct_fit_result():
     spec = FOUR_LATENT.spec
     model = SSMModel(spec, FOUR_LATENT.priors)
     builder = SSMModelBuilder(ssm_spec=spec)
-    builder._spec = spec
-    builder._model = model
-    builder._result = result
+    builder.attach_runtime_artifacts(model, result=result)
 
     return {
         "result": result,

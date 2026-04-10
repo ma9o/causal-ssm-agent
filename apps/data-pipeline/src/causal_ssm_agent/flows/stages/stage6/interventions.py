@@ -37,7 +37,7 @@ def run_interventions(
     builder = fitted_artifact.builder
     result = fitted_artifact.result
     samples = result.get_samples()
-    spec = builder._spec
+    spec = builder.spec
 
     latent_names = spec.latent_names
     if latent_names is None:

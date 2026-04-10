@@ -714,17 +714,16 @@ class TestE2ESpecToDiscretization:
         )
 
         builder = build_compiled_ssm_builder(compiled, pivot_to_wide(data_for_model))
-        assert builder._spec is not None
-        assert builder._spec.latent_names == ["mood", "stress"]
-        drift_mask = combined_drift_mask(builder._spec)
+        spec = builder.spec
+        assert spec.latent_names == ["mood", "stress"]
+        drift_mask = combined_drift_mask(spec)
         assert drift_mask[0, 1]
         assert not drift_mask[1, 0]
-        assert builder._spec.lambda_mask is not None
-        assert builder._spec.lambda_mask[2, 1]
-        assert builder._model is not None
-        assert isinstance(builder._model.priors.drift_diag["mu"], list)
-        assert len(builder._model.priors.drift_diag["mu"]) == 2
-        assert builder._model.parameter_bindings == compiled["parameter_bindings"]
+        assert spec.lambda_mask is not None
+        assert spec.lambda_mask[2, 1]
+        assert isinstance(builder.model.priors.drift_diag["mu"], list)
+        assert len(builder.model.priors.drift_diag["mu"]) == 2
+        assert builder.model.parameter_bindings == compiled["parameter_bindings"]
 
     def test_residual_sd_priors_are_construct_specific(
         self, two_construct_causal_spec, two_construct_model_spec
