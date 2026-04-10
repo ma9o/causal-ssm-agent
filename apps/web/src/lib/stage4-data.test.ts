@@ -69,6 +69,7 @@ const stage4Data = {
       reasoning: "Implicit compiler default that should stay hidden in the UI.",
     },
   ],
+  likelihood_diagnostics: {},
 } as Stage4Data;
 
 function makeIndicator(overrides: Partial<Indicator> = {}): Indicator {

@@ -239,15 +239,8 @@ function createStageDataAdapter<TData>(Component: ComponentType<{ data: TData }>
 }
 
 function Stage4ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage4Data }) {
-  const { data: stage2 } = useStageData<Stage2Data>(workspaceId, "stage-2", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
-  return (
-    <Stage4Content
-      data={data}
-      extractions={stage2?.combined_extractions_sample}
-      indicators={stage1b?.causal_spec.measurement.indicators}
-    />
-  );
+  return <Stage4Content data={data} indicators={stage1b?.causal_spec.measurement.indicators} />;
 }
 
 function Stage5bConnectedContent({
