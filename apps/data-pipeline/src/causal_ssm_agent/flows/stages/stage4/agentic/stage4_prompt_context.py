@@ -18,8 +18,12 @@ from .stage4_feedback import (
 from .stage4_navigation import (
     active_prior_parameter_names,
     block_is_accepted,
+    current_equilibrium_forcing,
+    current_initialization_policy,
+    current_likelihood_lookup,
     get_stage4_phase,
     pending_repair_campaign_block_ids,
+    repair_scope_summary,
 )
 from .stage4_text import summarize_stage4_names
 
@@ -88,7 +92,7 @@ def _count_reachable_blocks(
     runtime: Stage4Runtime,
 ) -> int:
     """Count non-inactive blocks in a deterministic block family."""
-    return sum(runtime.block_status.get(block.id) != "inactive" for block in blocks)
+    return sum(runtime.domain.block_status.get(block.id) != "inactive" for block in blocks)
 
 
 def format_stage4_plan_status(
@@ -100,15 +104,8 @@ def format_stage4_plan_status(
     causal_spec: dict[str, Any] | None = None,
 ) -> str:
     """Summarize the reducer frontier in a compact prompt-local format."""
-    accepted_model_spec = runtime.accepted.model_spec or {}
-    initialization_policy = (
-        runtime.decisions.initialization_policy
-        or accepted_model_spec.get("initialization_policy")
-        or "unset"
-    )
-    equilibrium_forcing = runtime.decisions.equilibrium_forcing
-    if equilibrium_forcing is None:
-        equilibrium_forcing = accepted_model_spec.get("equilibrium_forcing")
+    initialization_policy = current_initialization_policy(runtime) or "unset"
+    equilibrium_forcing = current_equilibrium_forcing(runtime)
     equilibrium_text = (
         "unset" if equilibrium_forcing is None else str(bool(equilibrium_forcing)).lower()
     )
@@ -120,7 +117,7 @@ def format_stage4_plan_status(
         (
             "- global review: `"
             + (
-                runtime.block_status.get(plan.review_block.id, "pending")
+                runtime.domain.block_status.get(plan.review_block.id, "pending")
                 if plan.review_block is not None
                 else "skipped"
             )
@@ -134,27 +131,29 @@ def format_stage4_plan_status(
         (
             "- prior-system review: `"
             + (
-                runtime.block_status.get(plan.prior_review_block_id or "", "inactive")
+                runtime.domain.block_status.get(plan.prior_review_block_id or "", "inactive")
                 if plan.prior_review_block_id is not None
                 else "skipped"
             )
             + "`"
         ),
-        f"- model_spec locked: `{'yes' if runtime.accepted.model_spec is not None else 'no'}`",
+        f"- model_spec locked: `{'yes' if runtime.domain.accepted.model_spec is not None else 'no'}`",
         f"- initialization_policy: `{initialization_policy}`",
         f"- equilibrium_forcing: `{equilibrium_text}`",
         f"- active prompt scope: `{block.kind}`",
         "- active scope names: "
         f"{summarize_stage4_names(list(block.variable_names or block.parameter_names))}",
     ]
-    if runtime.block_status.get(block.id) == "reopened":
+    if runtime.domain.block_status.get(block.id) == "reopened":
         lines.append("- block mode: `reopened`")
-    if runtime.repair_campaign is not None:
-        pending_block_ids = pending_repair_campaign_block_ids(runtime.repair_campaign)
-        lines.append(
-            f"- active repair scope: `{runtime.repair_campaign.scope_key}` "
-            f"({len(pending_block_ids)} remaining)"
-        )
+    repair_summary = repair_scope_summary(runtime)
+    if repair_summary is not None and runtime.domain.repair_campaign is not None:
+        pending_block_ids = pending_repair_campaign_block_ids(runtime.domain.repair_campaign)
+        lines.append(f"- active repair scope: `{repair_summary}`")
+        if pending_block_ids:
+            lines.append(
+                f"- repair blocks still pending: {summarize_stage4_names(list(pending_block_ids))}"
+            )
     lines.extend(
         handler.render_frontier_status_lines(
             block,
@@ -179,26 +178,13 @@ class Stage4Messages:
     enable_literature: bool = False
     enable_paraphrasing: bool = False
 
-    def _likelihood_lookup(self, runtime: Stage4Runtime) -> dict[str, dict[str, Any]]:
-        """Return the current likelihood choice per indicator."""
-        lookup: dict[str, dict[str, Any]] = {}
-        for likelihood in (runtime.accepted.model_spec or {}).get("likelihoods") or []:
-            if not isinstance(likelihood, dict):
-                continue
-            variable = likelihood.get("variable")
-            if isinstance(variable, str):
-                lookup[variable] = likelihood
-        for variable, choice in runtime.decisions.distribution_choices.items():
-            lookup[variable] = choice
-        return lookup
-
     def _distribution_cards_for_runtime(
         self,
         runtime: Stage4Runtime,
     ) -> list[dict[str, Any]]:
         """Return stateful distribution cards for the current runtime."""
         cards = deepcopy(self.distribution_cards)
-        likelihood_lookup = self._likelihood_lookup(runtime)
+        likelihood_lookup = current_likelihood_lookup(runtime)
         for card in cards:
             variable = card.get("variable")
             if not isinstance(variable, str):
@@ -216,7 +202,7 @@ class Stage4Messages:
     ) -> list[dict[str, Any]]:
         """Return construct cards enriched with accepted likelihood choices."""
         cards = deepcopy(self.construct_scale_cards)
-        likelihood_lookup = self._likelihood_lookup(runtime)
+        likelihood_lookup = current_likelihood_lookup(runtime)
         for card in cards:
             indicators = card.get("indicators") or []
             for indicator in indicators:
@@ -233,7 +219,7 @@ class Stage4Messages:
     ) -> list[dict[str, Any]]:
         """Return prior cards for the current runtime."""
         cards = deepcopy(self.prior_cards)
-        accepted_priors = runtime.accepted.authored_priors
+        accepted_priors = runtime.domain.accepted.authored_priors
         for card in cards:
             parameter_name = card.get("parameter")
             if not isinstance(parameter_name, str):
@@ -245,7 +231,7 @@ class Stage4Messages:
 
     def _current_validation_packet(self, runtime: Stage4Runtime) -> Stage4ValidationPacket:
         """Return the latest typed validation state for prompt rendering."""
-        return runtime.last_validation_packet or default_stage4_validation_packet()
+        return runtime.interaction.last_validation_packet or default_stage4_validation_packet()
 
     def _scope_snapshot_for_block(
         self,
@@ -409,7 +395,9 @@ class Stage4Messages:
             enable_literature=self.enable_literature,
             enable_paraphrasing=self.enable_paraphrasing,
         )
-        latest_feedback = render_stage4_validation_feedback(runtime.last_validation_packet)
+        latest_feedback = render_stage4_validation_feedback(
+            runtime.interaction.last_validation_packet
+        )
         messages = self.messages_for_block(
             block=block,
             plan=plan,

@@ -1,18 +1,11 @@
-"""Stage 4 cursor, phase, and repair-campaign navigation helpers."""
+"""Stage 4 selectors, wait-state navigation, and repair-campaign helpers."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
 from .stage4_block_specs import get_stage4_block_phase
-from .stage4_state import (
-    Stage4BlockCursor,
-    Stage4DoneCursor,
-    Stage4ModelSpecLockPendingCursor,
-    Stage4RepairBarrierCursor,
-    Stage4RepairCampaignState,
-    Stage4Runtime,
-)
+from .stage4_state import Stage4RepairCampaignState, Stage4Runtime
 
 if TYPE_CHECKING:
     from causal_ssm_agent.workers.schemas_prior import PriorPathologyCertificate
@@ -23,7 +16,7 @@ if TYPE_CHECKING:
 
 def block_is_accepted(runtime: Stage4Runtime, block_id: str) -> bool:
     """Whether a block is currently accepted in runtime state."""
-    return runtime.block_status.get(block_id) == "accepted"
+    return runtime.domain.block_status.get(block_id) == "accepted"
 
 
 def _phase_for_block_kind(kind: str) -> str:
@@ -35,35 +28,20 @@ def _set_block_cursor(
     runtime: Stage4Runtime,
     block: Stage4FrontierBlock,
 ) -> None:
-    """Move the execution cursor onto one promptable Stage 4 block."""
-    runtime.cursor = Stage4BlockCursor(block_id=block.id)
+    """Move the persisted wait-state onto one promptable Stage 4 block."""
+    runtime.domain.done = False
+    runtime.domain.active_block_id = block.id
 
 
-def _set_model_spec_lock_cursor(
-    runtime: Stage4Runtime,
-    *,
-    reason: str,
-) -> None:
-    """Move the execution cursor into model-spec-lock pending state."""
-    runtime.cursor = Stage4ModelSpecLockPendingCursor(reason=reason)
-
-
-def _set_repair_barrier_cursor(
-    runtime: Stage4Runtime,
-    *,
-    reason: str,
-    scope_block_ids: tuple[str, ...],
-) -> None:
-    """Move the execution cursor into repair-barrier pending state."""
-    runtime.cursor = Stage4RepairBarrierCursor(
-        reason=reason,
-        scope_block_ids=scope_block_ids,
-    )
+def _clear_active_block(runtime: Stage4Runtime) -> None:
+    """Clear the current promptable block while deterministic settling continues."""
+    runtime.domain.active_block_id = None
 
 
 def _set_done_cursor(runtime: Stage4Runtime) -> None:
-    """Move the execution cursor to the terminal Stage 4 state."""
-    runtime.cursor = Stage4DoneCursor()
+    """Move the runtime to the terminal Stage 4 state."""
+    runtime.domain.done = True
+    runtime.domain.active_block_id = None
 
 
 def _scope_phase(
@@ -82,16 +60,10 @@ def get_active_plan_block(
     plan: Stage4Plan,
     runtime: Stage4Runtime,
 ) -> Stage4FrontierBlock | None:
-    """Return the current active authored block from explicit runtime state."""
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4BlockCursor):
-        return plan.get_block(cursor.block_id)
-    if isinstance(
-        cursor,
-        (Stage4ModelSpecLockPendingCursor, Stage4RepairBarrierCursor, Stage4DoneCursor),
-    ):
+    """Return the current active authored block from persisted wait-state."""
+    if runtime.domain.done or runtime.domain.active_block_id is None:
         return None
-    return None
+    return plan.get_block(runtime.domain.active_block_id)
 
 
 def get_active_prompt_block(
@@ -102,7 +74,7 @@ def get_active_prompt_block(
     block = get_active_plan_block(plan, runtime)
     if block is None:
         return None
-    campaign = runtime.repair_campaign
+    campaign = runtime.domain.repair_campaign
     if campaign is None:
         return block
     return campaign.prompt_blocks_by_id.get(block.id, block)
@@ -119,29 +91,146 @@ def pending_repair_campaign_block_ids(
     )
 
 
+def current_initialization_policy(runtime: Stage4Runtime) -> str | None:
+    """Return the latest draft-or-accepted initialization policy."""
+    return runtime.domain.draft_model.initialization_policy or (
+        runtime.domain.accepted.model_spec or {}
+    ).get("initialization_policy")
+
+
+def current_equilibrium_forcing(runtime: Stage4Runtime) -> bool | None:
+    """Return the latest draft-or-accepted equilibrium-forcing decision."""
+    equilibrium_forcing = runtime.domain.draft_model.equilibrium_forcing
+    if equilibrium_forcing is not None:
+        return equilibrium_forcing
+    accepted_model_spec = runtime.domain.accepted.model_spec or {}
+    value = accepted_model_spec.get("equilibrium_forcing")
+    return None if value is None else bool(value)
+
+
+def current_likelihood_lookup(runtime: Stage4Runtime) -> dict[str, dict[str, Any]]:
+    """Return the current likelihood choice per indicator."""
+    lookup: dict[str, dict[str, Any]] = {}
+    for likelihood in (runtime.domain.accepted.model_spec or {}).get("likelihoods") or []:
+        if not isinstance(likelihood, dict):
+            continue
+        variable = likelihood.get("variable")
+        if isinstance(variable, str):
+            lookup[variable] = likelihood
+    for variable, choice in runtime.domain.draft_model.distribution_choices.items():
+        lookup[variable] = choice
+    return lookup
+
+
+def active_prior_parameter_names(runtime: Stage4Runtime) -> set[str] | None:
+    """Return the locked active prior surface, or ``None`` before model lock."""
+    model_spec = runtime.domain.accepted.model_spec
+    if not isinstance(model_spec, dict):
+        return None
+    return {
+        str(parameter["name"])
+        for parameter in (model_spec.get("parameters") or [])
+        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
+    }
+
+
+def required_prior_parameter_names(model_spec: dict[str, Any] | None) -> tuple[str, ...]:
+    """Return the active non-optional parameters that still require priors."""
+    required_names: list[str] = []
+    for parameter in (model_spec or {}).get("parameters") or []:
+        if not isinstance(parameter, dict):
+            continue
+        if parameter.get("role") in {"initial_state_mean", "initial_state_sd"}:
+            continue
+        name = parameter.get("name")
+        if isinstance(name, str):
+            required_names.append(name)
+    return tuple(required_names)
+
+
+def active_block_parameter_names(
+    block: Stage4FrontierBlock,
+    runtime: Stage4Runtime,
+) -> tuple[str, ...]:
+    """Return the active subset of one block's parameter surface."""
+    active_parameter_names = active_prior_parameter_names(runtime)
+    if active_parameter_names is None:
+        return block.parameter_names
+    return tuple(name for name in block.parameter_names if name in active_parameter_names)
+
+
+def required_block_parameter_names(
+    block: Stage4FrontierBlock,
+    runtime: Stage4Runtime,
+) -> tuple[str, ...]:
+    """Return the active required parameter names for one block."""
+    active_parameter_names = active_prior_parameter_names(runtime)
+    candidates = (
+        block.required_parameter_names if block.required_parameter_names else block.parameter_names
+    )
+    if active_parameter_names is None:
+        return candidates
+    return tuple(name for name in candidates if name in active_parameter_names)
+
+
+def block_coverage_is_satisfied(
+    block: Stage4FrontierBlock,
+    runtime: Stage4Runtime,
+) -> bool:
+    """Whether the accepted prior state fully covers the block's active contract."""
+    authored_parameter_names = set(runtime.domain.accepted.authored_priors)
+    if block.coverage_policy == "subset_allowed":
+        return False
+    required_parameter_names = required_block_parameter_names(block, runtime)
+    return bool(required_parameter_names) and all(
+        name in authored_parameter_names for name in required_parameter_names
+    )
+
+
+def repair_scope_summary(runtime: Stage4Runtime) -> str | None:
+    """Summarize the active repair scope for prompt-local frontier rendering."""
+    campaign = runtime.domain.repair_campaign
+    if campaign is None:
+        return None
+    pending_block_ids = pending_repair_campaign_block_ids(campaign)
+    return f"{campaign.scope_key} ({len(pending_block_ids)} remaining)"
+
+
 def get_stage4_phase(
     runtime: Stage4Runtime,
     *,
     plan: Stage4Plan | None = None,
 ) -> str:
     """Return the current Stage 4 runtime phase."""
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4DoneCursor):
+    if runtime.domain.done:
         return "done"
-    if isinstance(cursor, Stage4BlockCursor):
-        if plan is None:
-            raise ValueError("Stage 4 phase derivation for block cursors requires the plan")
-        block = plan.get_block(cursor.block_id)
-        if block is None:
-            raise ValueError(f"Unknown Stage 4 block id {cursor.block_id!r}")
-        return _phase_for_block_kind(block.kind)
-    if isinstance(cursor, Stage4ModelSpecLockPendingCursor):
+
+    if plan is not None:
+        block = get_active_plan_block(plan, runtime)
+        if block is not None:
+            return _phase_for_block_kind(block.kind)
+
+    campaign = runtime.domain.repair_campaign
+    if campaign is not None and plan is not None:
+        return _scope_phase(plan, campaign.scope_block_ids)
+
+    if (
+        plan is not None
+        and plan.review_block is not None
+        and runtime.domain.block_status.get(plan.review_block.id) in {"pending", "reopened"}
+    ):
+        return _phase_for_block_kind(plan.review_block.kind)
+
+    if (
+        plan is not None
+        and plan.prior_review_block is not None
+        and runtime.domain.block_status.get(plan.prior_review_block.id) in {"pending", "reopened"}
+    ):
+        return _phase_for_block_kind(plan.prior_review_block.kind)
+
+    if runtime.domain.accepted.model_spec is None:
         return "model_decisions"
-    if isinstance(cursor, Stage4RepairBarrierCursor):
-        if plan is None:
-            raise ValueError("Stage 4 phase derivation for repair barriers requires the plan")
-        return _scope_phase(plan, cursor.scope_block_ids)
-    raise ValueError(f"Unknown Stage 4 cursor {cursor!r}")
+    return "prior_blocks"
 
 
 def next_pending_block(
@@ -154,127 +243,9 @@ def next_pending_block(
     for block in blocks:
         if block.id == skip_id:
             continue
-        if runtime.block_status.get(block.id) in {"pending", "reopened"}:
+        if runtime.domain.block_status.get(block.id) in {"pending", "reopened"}:
             return block
     return None
-
-
-def _activate_model_phase(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Set runtime to the next pending model-decision block, if any."""
-    next_block = next_pending_block(plan.model_blocks, runtime)
-    if next_block is None:
-        _set_model_spec_lock_cursor(
-            runtime,
-            reason="model decisions accepted; awaiting model_spec lock",
-        )
-        return
-    _set_block_cursor(runtime, next_block)
-
-
-def activate_review_phase(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Set runtime to the compact global-review block, if pending."""
-    review_block = plan.review_block
-    if review_block is None or block_is_accepted(runtime, review_block.id):
-        _activate_prior_phase(plan, runtime)
-        return
-    _set_block_cursor(runtime, review_block)
-
-
-def active_prior_parameter_names(runtime: Stage4Runtime) -> set[str] | None:
-    """Return the locked active prior surface, or ``None`` before model lock."""
-    model_spec = runtime.accepted.model_spec
-    if not isinstance(model_spec, dict):
-        return None
-    return {
-        str(parameter["name"])
-        for parameter in (model_spec.get("parameters") or [])
-        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
-    }
-
-
-def _sync_prior_block_activity(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Activate only the prior blocks whose parameters survive the locked likelihood choices."""
-    active_parameter_names = active_prior_parameter_names(runtime)
-    if active_parameter_names is None:
-        return
-    for block in plan.prior_blocks:
-        should_activate = bool(set(block.parameter_names) & active_parameter_names)
-        current_status = runtime.block_status.get(block.id)
-        if should_activate:
-            if current_status == "inactive":
-                runtime.block_status[block.id] = "pending"
-            continue
-        if current_status != "accepted":
-            runtime.block_status[block.id] = "inactive"
-
-
-def _activate_prior_phase(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Set runtime to the next pending prior block, or mark Stage 4 done."""
-    _sync_prior_block_activity(plan, runtime)
-    next_block = next_pending_block(plan.prior_blocks, runtime)
-    if next_block is None:
-        _set_done_cursor(runtime)
-        return
-    _set_block_cursor(runtime, next_block)
-
-
-def _finish_stage4(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
-    """Terminate Stage 4 after the final accepted review block."""
-    del plan
-    _set_done_cursor(runtime)
-
-
-_POST_ACCEPTANCE_NAVIGATION_BY_PHASE = {
-    "model_decisions": _activate_model_phase,
-    "global_review": _activate_prior_phase,
-    "prior_blocks": _activate_prior_phase,
-    "global_prior_review": _finish_stage4,
-}
-
-
-def _mark_blocks_reopened(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    block_ids: tuple[str, ...],
-) -> None:
-    """Move runtime back to one or more reopened blocks."""
-    if not block_ids:
-        return
-
-    blocks: list[Stage4FrontierBlock] = []
-    for block_id in block_ids:
-        block = plan.get_block(block_id)
-        if block is None:
-            raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
-        blocks.append(block)
-
-    if any(_phase_for_block_kind(block.kind) == "model_decisions" for block in blocks) and (
-        plan.review_block is not None
-    ):
-        runtime.block_status[plan.review_block.id] = "pending"
-
-    for block_id in block_ids:
-        runtime.block_status[block_id] = "reopened"
-
-    _set_block_cursor(runtime, blocks[0])
-
-
-def _advance_after_block_acceptance(
-    plan: Stage4Plan,
-    runtime: Stage4Runtime,
-    block: Stage4FrontierBlock,
-) -> None:
-    """Advance runtime after a block has been accepted."""
-    phase = _phase_for_block_kind(block.kind)
-    advance = _POST_ACCEPTANCE_NAVIGATION_BY_PHASE.get(phase)
-    if advance is None:
-        raise ValueError(f"Unsupported Stage 4 post-acceptance phase {phase!r}")
-    advance(plan, runtime)
-
-
-def _clear_repair_campaign(runtime: Stage4Runtime) -> None:
-    """Clear any active structural repair campaign."""
-    runtime.repair_campaign = None
 
 
 def _merge_best_certificate(
@@ -301,7 +272,6 @@ def _merge_best_certificate(
 
 
 def _apply_repair_campaign_progress(
-    plan: Stage4Plan,
     runtime: Stage4Runtime,
     *,
     failure_family_key: tuple[Any, ...],
@@ -314,9 +284,9 @@ def _apply_repair_campaign_progress(
     attempts_at_scope: int,
     best_certificate: PriorPathologyCertificate | None,
 ) -> None:
-    """Persist repair-campaign state and move the execution cursor accordingly."""
+    """Persist repair-campaign state and clear the promptable block until settled."""
     scope_block_ids = tuple(block.id for block in prompt_blocks)
-    runtime.repair_campaign = Stage4RepairCampaignState(
+    runtime.domain.repair_campaign = Stage4RepairCampaignState(
         failure_family_key=failure_family_key,
         scope_kind=scope_kind,
         scope_key=scope_key,
@@ -328,22 +298,7 @@ def _apply_repair_campaign_progress(
         attempts_at_scope=attempts_at_scope,
         best_certificate=best_certificate,
     )
-    pending_block_ids = pending_repair_campaign_block_ids(runtime.repair_campaign)
-    if not pending_block_ids:
-        if not requires_barrier_validation:
-            _clear_repair_campaign(runtime)
-            return
-        _set_repair_barrier_cursor(
-            runtime,
-            reason=f"repair barrier pending for `{scope_key}`",
-            scope_block_ids=scope_block_ids,
-        )
-        return
-
-    next_block = plan.get_block(pending_block_ids[0])
-    if next_block is None:
-        raise ValueError(f"Unknown Stage 4 block id {pending_block_ids[0]!r}")
-    _set_block_cursor(runtime, next_block)
+    _clear_active_block(runtime)
 
 
 def _start_repair_campaign(
@@ -354,7 +309,7 @@ def _start_repair_campaign(
     accepted_block_id: str | None,
 ) -> None:
     """Start or widen one deterministic structural repair campaign."""
-    current = runtime.repair_campaign
+    current = runtime.domain.repair_campaign
     attempts_at_scope = 1
     best_certificate = repair_plan.scope.pathology_certificate
     if (
@@ -381,15 +336,14 @@ def _start_repair_campaign(
         )
         and plan.review_block is not None
     ):
-        runtime.block_status[plan.review_block.id] = "pending"
+        runtime.domain.block_status[plan.review_block.id] = "pending"
 
     for block_id in repair_plan.block_ids:
         if block_id == accepted_block_id:
             continue
-        runtime.block_status[block_id] = "reopened"
+        runtime.domain.block_status[block_id] = "reopened"
 
     _apply_repair_campaign_progress(
-        plan,
         runtime,
         failure_family_key=repair_plan.scope.failure_family,
         scope_kind=repair_plan.scope.scope_kind,
@@ -404,12 +358,11 @@ def _start_repair_campaign(
 
 
 def _advance_repair_campaign_after_acceptance(
-    plan: Stage4Plan,
     runtime: Stage4Runtime,
     accepted_block_id: str,
 ) -> bool:
     """Advance the active repair campaign after one block is accepted."""
-    campaign = runtime.repair_campaign
+    campaign = runtime.domain.repair_campaign
     pending_block_ids = () if campaign is None else pending_repair_campaign_block_ids(campaign)
     if campaign is None or accepted_block_id not in pending_block_ids:
         return False
@@ -419,16 +372,12 @@ def _advance_repair_campaign_after_acceptance(
         len(completed_block_ids) == len(campaign.scope_block_ids)
         and not campaign.requires_barrier_validation
     ):
-        _clear_repair_campaign(runtime)
-        accepted_block = plan.get_block(accepted_block_id)
-        if accepted_block is None:
-            raise ValueError(f"Unknown Stage 4 block id {accepted_block_id!r}")
-        _advance_after_block_acceptance(plan, runtime, accepted_block)
+        runtime.domain.repair_campaign = None
+        _clear_active_block(runtime)
         return True
 
     _apply_repair_campaign_progress(
-        plan,
-        runtime,
+        runtime=runtime,
         failure_family_key=campaign.failure_family_key,
         scope_kind=campaign.scope_kind,
         scope_key=campaign.scope_key,
@@ -449,13 +398,11 @@ def apply_stage4_block_acceptance(
     runtime: Stage4Runtime,
     block_id: str,
 ) -> None:
-    """Advance Stage 4 after one block has been accepted."""
-    if _advance_repair_campaign_after_acceptance(plan, runtime, block_id):
+    """Update repair-campaign bookkeeping after one block has been accepted."""
+    del plan
+    if _advance_repair_campaign_after_acceptance(runtime, block_id):
         return
-    accepted_block = plan.get_block(block_id)
-    if accepted_block is None:
-        raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
-    _advance_after_block_acceptance(plan, runtime, accepted_block)
+    _clear_active_block(runtime)
 
 
 def apply_stage4_repair_plan(
@@ -465,7 +412,7 @@ def apply_stage4_repair_plan(
     *,
     accepted_block_id: str | None,
 ) -> None:
-    """Apply a typed repair plan to runtime cursor and campaign state."""
+    """Apply a typed repair plan to runtime state without choosing the next block."""
     if repair_plan.uses_repair_campaign:
         _start_repair_campaign(
             plan,
@@ -474,8 +421,17 @@ def apply_stage4_repair_plan(
             accepted_block_id=accepted_block_id,
         )
         return
-    _clear_repair_campaign(runtime)
-    _mark_blocks_reopened(plan, runtime, repair_plan.block_ids)
+    runtime.domain.repair_campaign = None
+    reopened_model_decision = False
+    for block_id in repair_plan.block_ids:
+        block = plan.get_block(block_id)
+        if block is None:
+            raise ValueError(f"Unknown Stage 4 block id {block_id!r}")
+        reopened_model_decision |= _phase_for_block_kind(block.kind) == "model_decisions"
+        runtime.domain.block_status[block_id] = "reopened"
+    if reopened_model_decision and plan.review_block is not None:
+        runtime.domain.block_status[plan.review_block.id] = "pending"
+    _clear_active_block(runtime)
 
 
 def apply_stage4_barrier_validation_success(
@@ -483,24 +439,107 @@ def apply_stage4_barrier_validation_success(
     runtime: Stage4Runtime,
 ) -> None:
     """Advance Stage 4 after a successful repair-campaign barrier validation."""
-    _clear_repair_campaign(runtime)
-    _activate_prior_phase(plan, runtime)
+    del plan
+    runtime.domain.repair_campaign = None
+    _clear_active_block(runtime)
+
+
+def reconcile_locked_prior_surface(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+) -> None:
+    """Prune stale priors and resync prior block activity after a model re-lock."""
+    active_parameter_names = active_prior_parameter_names(runtime)
+    if active_parameter_names is None:
+        return
+
+    runtime.domain.accepted.authored_priors = {
+        name: prior
+        for name, prior in runtime.domain.accepted.authored_priors.items()
+        if name in active_parameter_names
+    }
+    required_parameter_names = set(
+        required_prior_parameter_names(runtime.domain.accepted.model_spec)
+    )
+    if not required_parameter_names.issubset(runtime.domain.accepted.authored_priors):
+        runtime.domain.accepted.resolved_priors = None
+
+    _sync_prior_block_activity(plan, runtime)
+
+
+def _sync_prior_block_activity(plan: Stage4Plan, runtime: Stage4Runtime) -> None:
+    """Sync prior-block statuses to the locked active parameter surface."""
+    active_parameter_names = active_prior_parameter_names(runtime)
+    if active_parameter_names is None:
+        return
+
+    for block in plan.prior_blocks:
+        current_status = runtime.domain.block_status.get(block.id)
+        block_active_parameters = active_block_parameter_names(block, runtime)
+        if not block_active_parameters:
+            runtime.domain.block_status[block.id] = "inactive"
+            continue
+        if block_coverage_is_satisfied(block, runtime):
+            runtime.domain.block_status[block.id] = "accepted"
+            continue
+        if current_status == "accepted":
+            runtime.domain.block_status[block.id] = "reopened"
+        elif current_status == "inactive":
+            runtime.domain.block_status[block.id] = "pending"
+
+
+def select_next_wait_block(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+) -> Stage4FrontierBlock | None:
+    """Return the next promptable block after deterministic settling."""
+    campaign = runtime.domain.repair_campaign
+    if campaign is not None:
+        pending_block_ids = pending_repair_campaign_block_ids(campaign)
+        if pending_block_ids:
+            next_block = plan.get_block(pending_block_ids[0])
+            if next_block is None:
+                raise ValueError(f"Unknown Stage 4 block id {pending_block_ids[0]!r}")
+            return next_block
+
+    next_block = next_pending_block(plan.model_blocks, runtime)
+    if next_block is not None:
+        return next_block
+
+    review_block = plan.review_block
+    if review_block is not None and runtime.domain.block_status.get(review_block.id) in {
+        "pending",
+        "reopened",
+    }:
+        return review_block
+
+    _sync_prior_block_activity(plan, runtime)
+    next_block = next_pending_block(plan.prior_blocks, runtime)
+    if next_block is not None:
+        return next_block
+
+    prior_review_block = plan.prior_review_block
+    if prior_review_block is not None and runtime.domain.block_status.get(
+        prior_review_block.id
+    ) in {
+        "pending",
+        "reopened",
+    }:
+        return prior_review_block
+
+    return None
 
 
 def make_stage4_runtime(plan: Stage4Plan) -> Stage4Runtime:
     """Create the mutable runtime for a new Stage 4 plan execution."""
-    runtime = Stage4Runtime(
-        block_status={block.id: "pending" for block in plan.all_blocks},
-    )
+    runtime = Stage4Runtime()
+    runtime.domain.block_status = {block.id: "pending" for block in plan.all_blocks}
     if plan.model_blocks:
         _set_block_cursor(runtime, plan.model_blocks[0])
     else:
-        _set_model_spec_lock_cursor(
-            runtime,
-            reason="awaiting automatic model_spec lock",
-        )
+        _clear_active_block(runtime)
     if plan.prior_review_block is not None:
         prior_review_id = plan.prior_review_block_id
         assert prior_review_id is not None
-        runtime.block_status[prior_review_id] = "inactive"
+        runtime.domain.block_status[prior_review_id] = "inactive"
     return runtime

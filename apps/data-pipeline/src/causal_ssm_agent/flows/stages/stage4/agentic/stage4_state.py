@@ -1,10 +1,4 @@
-"""Stage 4 execution state types.
-
-Cursor variants, runtime state, and accepted-state containers shared across
-stage4 orchestration modules.  Extracted from ``stage4.py`` so that
-``stage4_repair.py`` can reference cursor and runtime types without a circular
-import.
-"""
+"""Stage 4 execution state types."""
 
 from __future__ import annotations
 
@@ -19,27 +13,24 @@ if TYPE_CHECKING:
     from .stage4_orchestrator import Stage4FrontierBlock
 
 
-# ---------------------------------------------------------------------------
-# Accepted / decision state
-# ---------------------------------------------------------------------------
-
-
 @dataclass
-class Stage4AcceptedState:
+class Stage4AcceptedArtifacts:
     """Typed accepted Stage 4 artifacts accumulated across reducer steps."""
 
     model_spec: dict[str, Any] | None = None
     authored_priors: dict[str, dict[str, Any]] = field(default_factory=dict)
+    resolved_priors: list[dict[str, Any]] | None = None
     validation: AssemblyValidation | None = None
-    extras: dict[str, Any] = field(default_factory=dict)
 
     def as_current(self) -> dict[str, Any]:
         """Return the accepted state in grounding-compatible dict form."""
-        current = dict(self.extras)
+        current: dict[str, Any] = {}
         if self.model_spec is not None:
             current["model_spec"] = self.model_spec
         if self.authored_priors:
             current["authored_priors"] = self.authored_priors
+        if self.resolved_priors is not None:
+            current["resolved_priors"] = self.resolved_priors
         if self.validation is not None:
             current["validation"] = self.validation
         return current
@@ -52,65 +43,41 @@ class Stage4AcceptedState:
             self.model_spec = stage_output["model_spec"]
         if "authored_priors" in stage_output:
             self.authored_priors = stage_output["authored_priors"]
+        if "resolved_priors" in stage_output:
+            self.resolved_priors = stage_output["resolved_priors"]
         if "validation" in stage_output:
             self.validation = stage_output["validation"]
-        for key, value in stage_output.items():
-            if key not in {"model_spec", "authored_priors", "validation"}:
-                self.extras[key] = value
 
 
 @dataclass
-class Stage4DecisionState:
+class Stage4DraftModel:
     """Accepted model-decision deltas before the full ModelSpec is locked."""
 
     distribution_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     initialization_policy: str | None = None
     equilibrium_forcing: bool | None = None
 
-
-# ---------------------------------------------------------------------------
-# Cursor variants
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Stage4BlockCursor:
-    """Promptable execution cursor anchored to one authored Stage 4 block."""
-
-    block_id: str
-
-
-@dataclass(frozen=True)
-class Stage4ModelSpecLockPendingCursor:
-    """Internal state waiting to lock the deterministic model spec."""
-
-    reason: str
-
-
-@dataclass(frozen=True)
-class Stage4RepairBarrierCursor:
-    """Internal state waiting for structural repair barrier validation."""
-
-    reason: str
-    scope_block_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class Stage4DoneCursor:
-    """Terminal Stage 4 cursor."""
-
-
-Stage4ExecutionCursor = (
-    Stage4BlockCursor
-    | Stage4ModelSpecLockPendingCursor
-    | Stage4RepairBarrierCursor
-    | Stage4DoneCursor
-)
-
-
-# ---------------------------------------------------------------------------
-# Repair campaign
-# ---------------------------------------------------------------------------
+    def sync_from_model_spec(self, model_spec: dict[str, Any] | None) -> None:
+        """Refresh the draft decisions from one accepted locked model spec."""
+        if not isinstance(model_spec, dict):
+            return
+        self.initialization_policy = (
+            None
+            if model_spec.get("initialization_policy") is None
+            else str(model_spec.get("initialization_policy"))
+        )
+        equilibrium_forcing = model_spec.get("equilibrium_forcing")
+        self.equilibrium_forcing = (
+            None if equilibrium_forcing is None else bool(equilibrium_forcing)
+        )
+        distribution_choices: dict[str, dict[str, Any]] = {}
+        for likelihood in model_spec.get("likelihoods") or []:
+            if not isinstance(likelihood, dict) or not isinstance(likelihood.get("variable"), str):
+                continue
+            choice = dict(likelihood)
+            choice.setdefault("reasoning", "Accepted locked likelihood choice.")
+            distribution_choices[str(likelihood["variable"])] = choice
+        self.distribution_choices = distribution_choices
 
 
 @dataclass
@@ -129,24 +96,31 @@ class Stage4RepairCampaignState:
     best_certificate: PriorPathologyCertificate | None = None
 
 
-# ---------------------------------------------------------------------------
-# Runtime
-# ---------------------------------------------------------------------------
+@dataclass
+class Stage4DomainState:
+    """Reducer-owned domain state that determines the next promptable block."""
+
+    active_block_id: str | None = None
+    done: bool = False
+    model_lock_pending: bool = False
+    block_status: dict[str, str] = field(default_factory=dict)
+    draft_model: Stage4DraftModel = field(default_factory=Stage4DraftModel)
+    accepted: Stage4AcceptedArtifacts = field(default_factory=Stage4AcceptedArtifacts)
+    repair_campaign: Stage4RepairCampaignState | None = None
+
+
+@dataclass
+class Stage4InteractionState:
+    """Prompt/session state that should not drive reducer transitions."""
+
+    last_validation_packet: Stage4ValidationPacket | None = None
+    search_cache: dict[str, str] = field(default_factory=dict)
+    search_queries: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class Stage4Runtime:
-    """Mutable Stage 4 reducer runtime."""
+    """Mutable Stage 4 runtime split into domain and interaction concerns."""
 
-    cursor: Stage4ExecutionCursor = field(
-        default_factory=lambda: Stage4ModelSpecLockPendingCursor(
-            reason="awaiting initial Stage 4 block activation",
-        )
-    )
-    block_status: dict[str, str] = field(default_factory=dict)
-    decisions: Stage4DecisionState = field(default_factory=Stage4DecisionState)
-    accepted: Stage4AcceptedState = field(default_factory=Stage4AcceptedState)
-    last_validation_packet: Stage4ValidationPacket | None = None
-    search_cache: dict[str, str] = field(default_factory=dict)
-    search_queries: dict[str, str] = field(default_factory=dict)
-    repair_campaign: Stage4RepairCampaignState | None = None
+    domain: Stage4DomainState = field(default_factory=Stage4DomainState)
+    interaction: Stage4InteractionState = field(default_factory=Stage4InteractionState)

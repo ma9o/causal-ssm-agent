@@ -8,7 +8,7 @@ the deterministic skeleton.  Parameter enumeration lives in
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import networkx as nx
 
@@ -34,6 +34,13 @@ class Stage4FrontierBlock:
     construct_names: tuple[str, ...] = ()
     variable_names: tuple[str, ...] = ()
     parameter_names: tuple[str, ...] = ()
+    required_parameter_names: tuple[str, ...] = ()
+    optional_parameter_names: tuple[str, ...] = ()
+    coverage_policy: Literal[
+        "exact_single_choice",
+        "all_required_parameters",
+        "subset_allowed",
+    ] = "subset_allowed"
     expand_neighbor_topology: bool = True
     payload: dict[str, Any] = field(default_factory=dict)
 
@@ -110,6 +117,20 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
     grouped_indicators = indicators_per_construct(indicators)
     surface_index = build_stage4_parameter_surface_index(causal_spec, skeleton)
     param_order = {name: idx for idx, name in enumerate(surface_index.ordered_names)}
+    optional_parameter_roles = {"initial_state_mean", "initial_state_sd"}
+
+    def _parameter_coverage(
+        parameter_names: tuple[str, ...],
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        required_names: list[str] = []
+        optional_names: list[str] = []
+        for parameter_name in parameter_names:
+            surface = surface_index.by_name[parameter_name]
+            if surface.role in optional_parameter_roles:
+                optional_names.append(parameter_name)
+            else:
+                required_names.append(parameter_name)
+        return tuple(required_names), tuple(optional_names)
 
     model_blocks: list[Stage4FrontierBlock] = []
 
@@ -142,6 +163,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             kind="model_configuration",
             label="Model Configuration",
             construct_names=tuple(construct_order),
+            coverage_policy="exact_single_choice",
             payload={
                 "centerable_construct_names": centerable_construct_names,
                 "baseline_factor_names": baseline_factor_names,
@@ -158,6 +180,7 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                 label=variable.replace("_", " ").title(),
                 construct_names=(construct_name,) if isinstance(construct_name, str) else (),
                 variable_names=(variable,),
+                coverage_policy="exact_single_choice",
                 payload=dict(item),
             )
         )
@@ -168,15 +191,22 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             surface.name
         )
 
+    review_parameter_names = tuple(
+        surface.name for surface in surface_index.surfaces if surface.role == "loading"
+    )
+    review_required_parameter_names, review_optional_parameter_names = _parameter_coverage(
+        review_parameter_names
+    )
     review_block = Stage4FrontierBlock(
         id="review:model_spec",
         kind="global_review",
         label="Model Specification",
         construct_names=tuple(construct_order),
         variable_names=tuple(item["variable"] for item in skeleton.ambiguous_indicators),
-        parameter_names=tuple(
-            surface.name for surface in surface_index.surfaces if surface.role == "loading"
-        ),
+        parameter_names=review_parameter_names,
+        required_parameter_names=review_required_parameter_names,
+        optional_parameter_names=review_optional_parameter_names,
+        coverage_policy="exact_single_choice",
         payload={"reopenable_block_ids": tuple(block.id for block in model_blocks)},
     )
 
@@ -185,6 +215,8 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         names = measurement_parameter_names_by_construct.get(construct_name) or []
         if not names:
             continue
+        parameter_names = tuple(sorted(names, key=param_order.__getitem__))
+        required_parameter_names, optional_parameter_names = _parameter_coverage(parameter_names)
         prior_blocks.append(
             Stage4FrontierBlock(
                 id=f"measurement:{construct_name}",
@@ -192,11 +224,16 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                 label=construct_name,
                 construct_names=(construct_name,),
                 variable_names=tuple(grouped_indicators.get(construct_name) or ()),
-                parameter_names=tuple(sorted(names, key=param_order.__getitem__)),
+                parameter_names=parameter_names,
+                required_parameter_names=required_parameter_names,
+                optional_parameter_names=optional_parameter_names,
+                coverage_policy="all_required_parameters",
             )
         )
 
     for surface in surface_index.for_block_kind("observation_prior"):
+        parameter_names = (surface.name,)
+        required_parameter_names, optional_parameter_names = _parameter_coverage(parameter_names)
         prior_blocks.append(
             Stage4FrontierBlock(
                 id=f"observation:{surface.name}",
@@ -204,7 +241,10 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                 label=surface.description,
                 construct_names=surface.construct_names,
                 variable_names=surface.indicator_names,
-                parameter_names=(surface.name,),
+                parameter_names=parameter_names,
+                required_parameter_names=required_parameter_names,
+                optional_parameter_names=optional_parameter_names,
+                coverage_policy="all_required_parameters",
                 expand_neighbor_topology=False,
             )
         )
@@ -229,6 +269,8 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         names = [surface.name for surface in dynamics_surfaces if surface.owner_key in component]
         if not names:
             continue
+        parameter_names = tuple(sorted(names, key=param_order.__getitem__))
+        required_parameter_names, optional_parameter_names = _parameter_coverage(parameter_names)
         prior_blocks.append(
             Stage4FrontierBlock(
                 id=f"dynamics:{'+'.join(ordered_members)}",
@@ -240,7 +282,10 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                     for construct_name in ordered_members
                     for indicator_name in grouped_indicators.get(construct_name, [])
                 ),
-                parameter_names=tuple(sorted(names, key=param_order.__getitem__)),
+                parameter_names=parameter_names,
+                required_parameter_names=required_parameter_names,
+                optional_parameter_names=optional_parameter_names,
+                coverage_policy="all_required_parameters",
             )
         )
 
@@ -255,6 +300,8 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
             effect_surfaces,
             key=lambda surface: param_order[surface.name],
         )
+        parameter_names = tuple(surface.name for surface in ordered_effect_surfaces)
+        required_parameter_names, optional_parameter_names = _parameter_coverage(parameter_names)
         cause_names = tuple(
             dict.fromkeys(surface.construct_names[0] for surface in ordered_effect_surfaces)
         )
@@ -270,7 +317,10 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                     for construct_name in construct_names
                     for indicator_name in grouped_indicators.get(construct_name, [])
                 ),
-                parameter_names=tuple(surface.name for surface in ordered_effect_surfaces),
+                parameter_names=parameter_names,
+                required_parameter_names=required_parameter_names,
+                optional_parameter_names=optional_parameter_names,
+                coverage_policy="all_required_parameters",
                 payload={
                     "target_construct": effect_name,
                     "cause_names": cause_names,
@@ -279,6 +329,8 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         )
 
     for surface in surface_index.for_block_kind("correlation_prior"):
+        parameter_names = (surface.name,)
+        required_parameter_names, optional_parameter_names = _parameter_coverage(parameter_names)
         construct_names = surface.construct_names
         correlation_label = (
             f"{construct_names[0]} \u00d7 {construct_names[1]}"
@@ -296,10 +348,16 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
                     for construct_name in construct_names
                     for indicator_name in grouped_indicators.get(construct_name, [])
                 ),
-                parameter_names=(surface.name,),
+                parameter_names=parameter_names,
+                required_parameter_names=required_parameter_names,
+                optional_parameter_names=optional_parameter_names,
+                coverage_policy="all_required_parameters",
             )
         )
 
+    prior_review_required_parameter_names, prior_review_optional_parameter_names = (
+        _parameter_coverage(surface_index.ordered_names)
+    )
     prior_review_block = Stage4FrontierBlock(
         id="review:prior_system",
         kind="global_prior_review",
@@ -307,6 +365,9 @@ def build_stage4_plan(causal_spec: dict, skeleton: Stage4Skeleton) -> Stage4Plan
         construct_names=tuple(construct_order),
         variable_names=tuple(indicator["name"] for indicator in indicators),
         parameter_names=surface_index.ordered_names,
+        required_parameter_names=prior_review_required_parameter_names,
+        optional_parameter_names=prior_review_optional_parameter_names,
+        coverage_policy="subset_allowed",
     )
 
     blocks_by_id = {

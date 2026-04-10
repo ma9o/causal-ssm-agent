@@ -31,11 +31,8 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_validation_packet,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
-    _activate_prior_phase,
     _set_block_cursor,
     _set_done_cursor,
-    _set_model_spec_lock_cursor,
-    _set_repair_barrier_cursor,
     get_active_plan_block,
     get_stage4_phase,
     make_stage4_runtime,
@@ -68,8 +65,9 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
     derive_deterministic_spec,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
-    Stage4AcceptedState,
-    Stage4DecisionState,
+    Stage4AcceptedArtifacts,
+    Stage4DomainState,
+    Stage4DraftModel,
     Stage4RepairCampaignState,
     Stage4Runtime,
 )
@@ -188,7 +186,7 @@ def _make_runtime(
     *,
     phase: str | None = None,
     active_block_id: str | None = None,
-    accepted: Stage4AcceptedState | None = None,
+    accepted: Stage4AcceptedArtifacts | None = None,
     last_validation_packet: Any = None,
 ) -> Stage4Runtime:
     """Build a Stage 4 runtime for focused unit tests."""
@@ -197,17 +195,17 @@ def _make_runtime(
         _set_runtime_block(plan, runtime, active_block_id)
     elif phase == "done":
         _set_done_cursor(runtime)
-    elif phase == "model_decisions":
-        _set_model_spec_lock_cursor(runtime, reason="test override")
-    elif phase is not None:
-        _set_repair_barrier_cursor(
-            runtime,
-            reason="test override",
-            scope_block_ids=(),
-        )
+    elif phase == "global_review" and plan.review_block is not None:
+        _set_block_cursor(runtime, plan.review_block)
+    elif phase == "global_prior_review" and plan.prior_review_block is not None:
+        _set_block_cursor(runtime, plan.prior_review_block)
+    elif phase == "prior_blocks" and plan.prior_blocks:
+        _set_block_cursor(runtime, plan.prior_blocks[0])
+    elif phase == "model_decisions" and plan.model_blocks:
+        _set_block_cursor(runtime, plan.model_blocks[0])
     if accepted is not None:
-        runtime.accepted = accepted
-    runtime.last_validation_packet = last_validation_packet
+        runtime.domain.accepted = accepted
+    runtime.interaction.last_validation_packet = last_validation_packet
     return runtime
 
 
@@ -311,7 +309,7 @@ def test_project_stage4_graph_includes_repair_barrier_and_prior_review_route():
     assert ("review:prior_system", "__done__", "phase_advance") in edge_pairs
 
 
-def test_project_stage4_snapshot_serializes_repair_barrier_cursor_scope():
+def test_project_stage4_snapshot_serializes_waiting_block_cursor():
     plan = _make_plan(
         prior_blocks=(
             Stage4FrontierBlock(
@@ -329,18 +327,11 @@ def test_project_stage4_snapshot_serializes_repair_barrier_cursor_scope():
         ),
     )
     runtime = make_stage4_runtime(plan)
-    _set_repair_barrier_cursor(
-        runtime,
-        reason="repair barrier pending",
-        scope_block_ids=("effects:sleep", "effects:stress"),
-    )
+    _set_runtime_block(plan, runtime, "effects:stress")
 
     snapshot = project_stage4_snapshot(plan, runtime)
 
-    assert snapshot["cursor"] == {
-        "kind": "repair_barrier",
-        "scope_block_ids": ["effects:sleep", "effects:stress"],
-    }
+    assert snapshot["cursor"] == {"kind": "block", "block_id": "effects:stress"}
 
 
 def test_project_stage4_initial_state_matches_initial_plan_runtime():
@@ -633,7 +624,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={"parameters": [{"name": "beta_stress_sleep"}]},
                 authored_priors={
                     "beta_stress_sleep": {
@@ -707,7 +698,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={"parameters": [{"name": "beta_stress_sleep"}]},
                 authored_priors={},
             ),
@@ -771,7 +762,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={"parameters": [{"name": "beta_stress_sleep"}]},
                 authored_priors={
                     "beta_stress_sleep": {
@@ -839,7 +830,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={
                     "parameters": [
                         {"name": "beta_stress_sleep"},
@@ -942,7 +933,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={
                     "parameters": [
                         {"name": "rho_sleep"},
@@ -1016,7 +1007,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
             ),
         )
@@ -1091,7 +1082,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={"parameters": [{"name": "beta_activity_sleep"}]}
             ),
         )
@@ -1326,7 +1317,7 @@ class TestStage4Messages:
             plan,
             phase="prior_blocks",
             active_block_id=block.id,
-            accepted=Stage4AcceptedState(
+            accepted=Stage4AcceptedArtifacts(
                 model_spec={
                     "likelihoods": [
                         {
@@ -1445,7 +1436,7 @@ class TestStage4Messages:
             "submit_indicator_choice"
         ]
 
-        runtime.accepted.model_spec = {
+        runtime.domain.accepted.model_spec = {
             "parameters": [
                 {"name": "lambda_steps_activity", "role": "loading"},
                 {"name": "beta_activity_sleep"},
@@ -1793,7 +1784,7 @@ def _accept_default_model_configuration(
     )
 
     assert not feedback.startswith("VALIDATION ERRORS:")
-    runtime.last_validation_packet = None
+    runtime.interaction.last_validation_packet = None
 
 
 def _make_stage4_mechanics_context(
@@ -3851,9 +3842,11 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
     monkeypatch.setattr(
         "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.make_stage4_runtime",
         lambda _plan: Stage4Runtime(
-            decisions=Stage4DecisionState(
-                initialization_policy="stationary",
-                equilibrium_forcing=False,
+            domain=Stage4DomainState(
+                draft_model=Stage4DraftModel(
+                    initialization_policy="stationary",
+                    equilibrium_forcing=False,
+                )
             )
         ),
     )
@@ -3942,19 +3935,19 @@ class TestStage4Mechanics:
         causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context(
             accept_default_configuration=True
         )
-        runtime.decisions.distribution_choices["steps"] = {
+        runtime.domain.draft_model.distribution_choices["steps"] = {
             "variable": "steps",
             "distribution": "poisson",
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
         model_spec, errors = build_model_spec_from_decisions(
-            runtime.decisions,
+            runtime.domain.draft_model,
             skeleton,
         )
         assert model_spec is not None
         assert errors == []
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec=model_spec,
             authored_priors={
                 "obs_sd_activity_vas": {
@@ -4015,7 +4008,7 @@ class TestStage4Mechanics:
                 },
             },
         )
-        _activate_prior_phase(plan, runtime)
+        _set_runtime_block(plan, runtime, "effects:sleep")
         block = _require_plan_block(plan, "effects:sleep")
 
         status = format_stage4_plan_status(
@@ -4078,9 +4071,9 @@ class TestStage4Mechanics:
 
         assert stage_output is None
         assert expected_feedback in feedback
-        assert runtime.last_validation_packet is not None
-        assert runtime.last_validation_packet.model_feedback == feedback
-        assert runtime.decisions.distribution_choices == {}
+        assert runtime.interaction.last_validation_packet is not None
+        assert runtime.interaction.last_validation_packet.model_feedback == feedback
+        assert runtime.domain.draft_model.distribution_choices == {}
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
 
     def test_compute_stage4_validate_step_reopens_model_block_when_model_lock_fails(self):
@@ -4125,11 +4118,11 @@ class TestStage4Mechanics:
         assert stage_output is not None
         assert feedback == "COMPILE ERROR:\nsteps support mismatch"
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
-        assert runtime.block_status["indicator:steps"] == "reopened"
-        assert runtime.last_validation_packet is not None
-        assert runtime.last_validation_packet.model_feedback == feedback
+        assert runtime.domain.block_status["indicator:steps"] == "reopened"
+        assert runtime.interaction.last_validation_packet is not None
+        assert runtime.interaction.last_validation_packet.model_feedback == feedback
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
-        assert runtime.accepted.as_current() == {}
+        assert runtime.domain.accepted.as_current() == {}
 
     def test_compute_stage4_validate_step_emits_indicator_last_state_transitions(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
@@ -4197,20 +4190,20 @@ class TestStage4Mechanics:
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
             accept_default_configuration=True
         )
-        runtime.decisions.distribution_choices["steps"] = {
+        runtime.domain.draft_model.distribution_choices["steps"] = {
             "variable": "steps",
             "distribution": "poisson",
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
         model_spec, errors = build_model_spec_from_decisions(
-            runtime.decisions,
+            runtime.domain.draft_model,
             skeleton,
         )
         assert model_spec is not None
         assert errors == []
         _set_runtime_block(plan, runtime, "effects:sleep")
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec=model_spec,
             authored_priors={
                 "obs_sd_activity_vas": {
@@ -4314,9 +4307,9 @@ class TestStage4Mechanics:
 
         assert stage_output is not None
         assert feedback == "BLOCK ACCEPTED"
-        assert runtime.repair_campaign is None
-        assert runtime.block_status["effects:sleep"] == "accepted"
-        assert "beta_activity_sleep" in runtime.accepted.authored_priors
+        assert runtime.domain.repair_campaign is None
+        assert runtime.domain.block_status["effects:sleep"] == "accepted"
+        assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
 
     def test_compute_stage4_validate_step_reopens_dynamics_block_on_partial_drift_guard(
         self, monkeypatch
@@ -4324,20 +4317,20 @@ class TestStage4Mechanics:
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
             accept_default_configuration=True
         )
-        runtime.decisions.distribution_choices["steps"] = {
+        runtime.domain.draft_model.distribution_choices["steps"] = {
             "variable": "steps",
             "distribution": "poisson",
             "link": "log",
             "reasoning": "Step counts are nonnegative integers.",
         }
         model_spec, errors = build_model_spec_from_decisions(
-            runtime.decisions,
+            runtime.domain.draft_model,
             skeleton,
         )
         assert model_spec is not None
         assert errors == []
         _set_runtime_block(plan, runtime, "dynamics:sleep")
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec=model_spec,
             authored_priors={
                 "lambda_activity_vas_activity": {
@@ -4433,17 +4426,17 @@ class TestStage4Mechanics:
 
         assert stage_output is None
         assert feedback.startswith("PARTIAL DRIFT CHECK FAILED:")
-        assert runtime.repair_campaign is not None
-        assert runtime.repair_campaign.scope_block_ids == ("dynamics:sleep",)
-        assert runtime.block_status["dynamics:sleep"] == "reopened"
+        assert runtime.domain.repair_campaign is not None
+        assert runtime.domain.repair_campaign.scope_block_ids == ("dynamics:sleep",)
+        assert runtime.domain.block_status["dynamics:sleep"] == "reopened"
         assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
-        assert "rho_sleep" not in runtime.accepted.authored_priors
-        assert "sigma_sleep" not in runtime.accepted.authored_priors
-        assert runtime.last_validation_packet is not None
-        assert runtime.last_validation_packet.status == "partial_drift_failure"
-        assert runtime.last_validation_packet.failing_parameters == ("rho_sleep",)
-        assert runtime.last_validation_packet.coupled_parameters == ("sigma_sleep",)
-        assert runtime.last_validation_packet.diagnostic_codes == (
+        assert "rho_sleep" not in runtime.domain.accepted.authored_priors
+        assert "sigma_sleep" not in runtime.domain.accepted.authored_priors
+        assert runtime.interaction.last_validation_packet is not None
+        assert runtime.interaction.last_validation_packet.status == "partial_drift_failure"
+        assert runtime.interaction.last_validation_packet.failing_parameters == ("rho_sleep",)
+        assert runtime.interaction.last_validation_packet.coupled_parameters == ("sigma_sleep",)
+        assert runtime.interaction.last_validation_packet.diagnostic_codes == (
             "partial_dynamics_budget_exhausted",
         )
 
@@ -4452,9 +4445,11 @@ class TestStage4Mechanics:
             accept_default_configuration=True
         )
         _set_runtime_block(plan, runtime, "review:model_spec")
-        runtime.accepted = Stage4AcceptedState(model_spec={"parameters": [{"name": "locked"}]})
-        runtime.block_status["indicator:steps"] = "accepted"
-        runtime.block_status["review:model_spec"] = "pending"
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
+            model_spec={"parameters": [{"name": "locked"}]}
+        )
+        runtime.domain.block_status["indicator:steps"] = "accepted"
+        runtime.domain.block_status["review:model_spec"] = "pending"
 
         stage_output, feedback = compute_stage4_validate_step(
             {
@@ -4480,7 +4475,7 @@ class TestStage4Mechanics:
         assert "`indicator:steps`" in feedback
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
         assert get_stage4_phase(runtime, plan=plan) == "model_decisions"
-        assert runtime.block_status["indicator:steps"] == "reopened"
+        assert runtime.domain.block_status["indicator:steps"] == "reopened"
 
     def test_global_review_allows_reopening_more_than_three_model_blocks(self):
         model_blocks = (
@@ -4520,11 +4515,11 @@ class TestStage4Mechanics:
             plan,
             phase="global_review",
             active_block_id="review:model_spec",
-            accepted=Stage4AcceptedState(model_spec={"parameters": [{"name": "locked"}]}),
+            accepted=Stage4AcceptedArtifacts(model_spec={"parameters": [{"name": "locked"}]}),
         )
         for block in model_blocks:
-            runtime.block_status[block.id] = "accepted"
-        runtime.block_status["review:model_spec"] = "pending"
+            runtime.domain.block_status[block.id] = "accepted"
+        runtime.domain.block_status["review:model_spec"] = "pending"
 
         stage_output, feedback = compute_stage4_validate_step(
             {
@@ -4551,13 +4546,13 @@ class TestStage4Mechanics:
         assert _require_active_plan_block(plan, runtime).id == "indicator:a"
         assert get_stage4_phase(runtime, plan=plan) == "model_decisions"
         for block in model_blocks:
-            assert runtime.block_status[block.id] == "reopened"
+            assert runtime.domain.block_status[block.id] == "reopened"
 
     def test_compute_stage4_validate_step_reopens_indicator_on_support_mismatch(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
             accept_default_configuration=True
         )
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={
                 "likelihoods": [
                     {
@@ -4645,8 +4640,8 @@ class TestStage4Mechanics:
         assert stage_output is not None
         assert feedback == "PRIOR PREDICTIVE CHECKS FAILED"
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
-        assert runtime.block_status["indicator:steps"] == "reopened"
-        assert "beta_activity_sleep" in runtime.accepted.authored_priors
+        assert runtime.domain.block_status["indicator:steps"] == "reopened"
+        assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
 
     def test_compute_stage4_validate_step_accepts_correlation_and_reopens_dynamics_scope(self):
@@ -4662,7 +4657,7 @@ class TestStage4Mechanics:
             data_for_model=pl.DataFrame(),
         )
         _set_runtime_block(plan, runtime, "correlation:tau_U")
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={
                 "likelihoods": [
                     {
@@ -4758,14 +4753,14 @@ class TestStage4Mechanics:
 
         assert stage_output is not None
         assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
-        assert runtime.block_status["correlation:tau_U"] == "accepted"
-        assert runtime.block_status["dynamics:sleep"] == "reopened"
-        assert runtime.block_status["effects:sleep"] == "pending"
-        assert runtime.repair_campaign is not None
-        assert runtime.repair_campaign.scope_key == "validator_scope:sleep"
-        assert runtime.repair_campaign.scope_block_ids == ("dynamics:sleep",)
+        assert runtime.domain.block_status["correlation:tau_U"] == "accepted"
+        assert runtime.domain.block_status["dynamics:sleep"] == "reopened"
+        assert runtime.domain.block_status["effects:sleep"] == "pending"
+        assert runtime.domain.repair_campaign is not None
+        assert runtime.domain.repair_campaign.scope_key == "validator_scope:sleep"
+        assert runtime.domain.repair_campaign.scope_block_ids == ("dynamics:sleep",)
         assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
-        assert "tau_U" in runtime.accepted.authored_priors
+        assert "tau_U" in runtime.domain.accepted.authored_priors
         assert _require_active_plan_block(plan, runtime).id == "dynamics:sleep"
 
     def test_compute_stage4_validate_step_emits_prior_and_revision_last_state_transitions(self):
@@ -4781,7 +4776,7 @@ class TestStage4Mechanics:
             data_for_model=pl.DataFrame(),
         )
         _set_runtime_block(plan, runtime, "correlation:tau_U")
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={
                 "likelihoods": [
                     {
@@ -4920,9 +4915,9 @@ class TestStage4Mechanics:
         repair_block = _require_plan_block(plan, "correlation:tau_U")
         next_block = _require_plan_block(plan, "effects:sleep")
         _set_runtime_block(plan, runtime, repair_block.id)
-        runtime.block_status[repair_block.id] = "reopened"
-        runtime.block_status[next_block.id] = "reopened"
-        runtime.repair_campaign = Stage4RepairCampaignState(
+        runtime.domain.block_status[repair_block.id] = "reopened"
+        runtime.domain.block_status[next_block.id] = "reopened"
+        runtime.domain.repair_campaign = Stage4RepairCampaignState(
             failure_family_key=(("prior_predictive_nonfinite_samples",), (), ("activity", "sleep")),
             scope_kind="validator_scope",
             scope_key="validator_scope:sleep",
@@ -5001,9 +4996,9 @@ class TestStage4Mechanics:
                 ],
             },
         )
-        assert runtime.block_status[repair_block.id] == "accepted"
-        assert runtime.repair_campaign is not None
-        assert runtime.repair_campaign.completed_block_ids == frozenset((repair_block.id,))
+        assert runtime.domain.block_status[repair_block.id] == "accepted"
+        assert runtime.domain.repair_campaign is not None
+        assert runtime.domain.repair_campaign.completed_block_ids == frozenset((repair_block.id,))
         assert _require_active_plan_block(plan, runtime).id == next_block.id
 
     def test_compute_stage4_validate_step_reruns_ppc_after_final_barrier_repair(self, monkeypatch):
@@ -5044,7 +5039,7 @@ class TestStage4Mechanics:
             "initialization_policy": "stationary",
             "equilibrium_forcing": False,
         }
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec=model_spec,
             authored_priors={
                 "sigma_activity": {"distribution": "HalfNormal"},
@@ -5054,9 +5049,9 @@ class TestStage4Mechanics:
             },
         )
         _set_runtime_block(plan, runtime, final_block.id)
-        runtime.block_status[repair_block.id] = "accepted"
-        runtime.block_status[final_block.id] = "reopened"
-        runtime.repair_campaign = Stage4RepairCampaignState(
+        runtime.domain.block_status[repair_block.id] = "accepted"
+        runtime.domain.block_status[final_block.id] = "reopened"
+        runtime.domain.repair_campaign = Stage4RepairCampaignState(
             failure_family_key=(("prior_predictive_nonfinite_samples",), (), ("activity", "sleep")),
             scope_kind="validator_scope",
             scope_key="validator_scope:sleep",
@@ -5166,11 +5161,11 @@ class TestStage4Mechanics:
         assert len(barrier_validations) == 1
         assert barrier_validations[0]["skip_ppc"] is False
         assert "beta_activity_sleep" in barrier_validations[0]["authored_priors"]
-        assert runtime.accepted.validation is not None
-        assert runtime.accepted.validation.pp_checked is True
-        assert runtime.accepted.validation.pp_valid is False
-        assert runtime.last_validation_packet is not None
-        assert runtime.last_validation_packet.status == "prior_predictive_failure"
+        assert runtime.domain.accepted.validation is not None
+        assert runtime.domain.accepted.validation.pp_checked is True
+        assert runtime.domain.accepted.validation.pp_valid is False
+        assert runtime.interaction.last_validation_packet is not None
+        assert runtime.interaction.last_validation_packet.status == "prior_predictive_failure"
 
     def test_compute_stage4_validate_step_synthesizes_bounded_repair_bundle_from_supporting_diagnostics(
         self,
@@ -5180,7 +5175,7 @@ class TestStage4Mechanics:
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
         _set_runtime_block(plan, runtime, "effects:sleep")
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={
                 "likelihoods": [
                     {
@@ -5279,12 +5274,12 @@ class TestStage4Mechanics:
         assert stage_output is not None
         assert feedback.startswith("REPAIR CAMPAIGN ACTIVE:\n")
         assert "scope: `local_drift_motif:activity|sleep|beta_activity_sleep`" in feedback
-        assert runtime.block_status["effects:sleep"] == "accepted"
-        assert runtime.block_status["dynamics:activity"] == "reopened"
-        assert runtime.block_status["dynamics:sleep"] == "reopened"
+        assert runtime.domain.block_status["effects:sleep"] == "accepted"
+        assert runtime.domain.block_status["dynamics:activity"] == "reopened"
+        assert runtime.domain.block_status["dynamics:sleep"] == "reopened"
         assert _require_active_plan_block(plan, runtime).id == "dynamics:activity"
         assert get_stage4_phase(runtime, plan=plan) == "prior_blocks"
-        assert "beta_activity_sleep" in runtime.accepted.authored_priors
+        assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
 
     def test_prior_failure_classification_allows_one_same_scope_retry_on_certificate_improvement(
         self,
@@ -5294,7 +5289,7 @@ class TestStage4Mechanics:
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
         _set_runtime_block(plan, runtime, "effects:sleep")
-        runtime.repair_campaign = Stage4RepairCampaignState(
+        runtime.domain.repair_campaign = Stage4RepairCampaignState(
             failure_family_key=(
                 ("prior_predictive_nonfinite_samples",),
                 ("dt_ct_approximation_warning",),
@@ -5756,7 +5751,7 @@ class TestStage4Mechanics:
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
         _set_runtime_block(plan, runtime, "effects:sleep")
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={
                 "likelihoods": [
                     {
@@ -5843,11 +5838,11 @@ class TestStage4Mechanics:
 
         assert stage_output is not None
         assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
-        assert runtime.block_status["effects:sleep"] == "accepted"
-        assert runtime.block_status["review:prior_system"] == "reopened"
+        assert runtime.domain.block_status["effects:sleep"] == "accepted"
+        assert runtime.domain.block_status["review:prior_system"] == "reopened"
         assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
         assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
-        assert "beta_activity_sleep" in runtime.accepted.authored_priors
+        assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
 
     def test_compute_stage4_validate_step_raises_on_repeated_unattributed_global_prior_review_failure(
         self,
@@ -5857,8 +5852,8 @@ class TestStage4Mechanics:
         plan = build_stage4_plan(causal_spec, skeleton)
         runtime = make_stage4_runtime(plan)
         _set_runtime_block(plan, runtime, "review:prior_system")
-        runtime.block_status["review:prior_system"] = "reopened"
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.block_status["review:prior_system"] = "reopened"
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={
                 "likelihoods": [
                     {
@@ -5946,9 +5941,9 @@ class TestStage4Mechanics:
             indicator_audits={},
             stage4_grounding_fn=stub_stage4_grounding,
         )
-        assert runtime.repair_campaign is not None
-        assert runtime.repair_campaign.scope_key == "global_prior_review:prior_system"
-        assert runtime.repair_campaign.attempts_at_scope == 1
+        assert runtime.domain.repair_campaign is not None
+        assert runtime.domain.repair_campaign.scope_key == "global_prior_review:prior_system"
+        assert runtime.domain.repair_campaign.attempts_at_scope == 1
         assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
         assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
 
@@ -5962,8 +5957,8 @@ class TestStage4Mechanics:
             indicator_audits={},
             stage4_grounding_fn=stub_stage4_grounding,
         )
-        assert runtime.repair_campaign is not None
-        assert runtime.repair_campaign.attempts_at_scope == 2
+        assert runtime.domain.repair_campaign is not None
+        assert runtime.domain.repair_campaign.attempts_at_scope == 2
 
         with pytest.raises(ValueError, match="exhausted the deterministic repair-scope ladder"):
             _apply_stage4_step_and_capture(
@@ -6031,8 +6026,8 @@ class TestStage4Mechanics:
 
         runtime = make_stage4_runtime(plan)
         _set_runtime_block(plan, runtime, "review:prior_system")
-        runtime.block_status["review:prior_system"] = "reopened"
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.block_status["review:prior_system"] = "reopened"
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={
                 "likelihoods": [
                     {
@@ -6085,7 +6080,9 @@ class TestStage4Mechanics:
             "block_kind": "global_prior_review",
             "proposal": {
                 "priors": {
-                    "sigma_activity": dict(runtime.accepted.authored_priors["sigma_activity"]),
+                    "sigma_activity": dict(
+                        runtime.domain.accepted.authored_priors["sigma_activity"]
+                    ),
                     "beta_activity_sleep": {
                         "parameter": "beta_activity_sleep",
                         "distribution": "Normal",
@@ -6108,12 +6105,14 @@ class TestStage4Mechanics:
             stage4_grounding_fn=stage4_grounding,
         )
 
-        assert runtime.repair_campaign is not None
-        assert runtime.repair_campaign.scope_key == "global_prior_review:prior_system"
-        assert runtime.repair_campaign.attempts_at_scope == 1
-        assert runtime.last_validation_packet is not None
-        assert runtime.last_validation_packet.status == "prior_predictive_failure"
-        assert runtime.last_validation_packet.changed_parameters == ("beta_activity_sleep",)
+        assert runtime.domain.repair_campaign is not None
+        assert runtime.domain.repair_campaign.scope_key == "global_prior_review:prior_system"
+        assert runtime.domain.repair_campaign.attempts_at_scope == 1
+        assert runtime.interaction.last_validation_packet is not None
+        assert runtime.interaction.last_validation_packet.status == "prior_predictive_failure"
+        assert runtime.interaction.last_validation_packet.changed_parameters == (
+            "beta_activity_sleep",
+        )
 
         _apply_stage4_step_and_capture(
             review_payload,
@@ -6126,14 +6125,14 @@ class TestStage4Mechanics:
             stage4_grounding_fn=stage4_grounding,
         )
 
-        assert runtime.repair_campaign is not None
-        assert runtime.repair_campaign.attempts_at_scope == 2
+        assert runtime.domain.repair_campaign is not None
+        assert runtime.domain.repair_campaign.attempts_at_scope == 2
 
     def test_compute_stage4_validate_step_rejects_calls_after_completion(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
             accept_default_configuration=True
         )
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={"parameters": [{"name": "done"}]},
             authored_priors={
                 "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
@@ -6162,7 +6161,7 @@ class TestStage4Mechanics:
 
         assert stage_output is None
         assert feedback == "VALIDATION ERRORS:\n- no active Stage 4 frontier block remains"
-        assert runtime.last_validation_packet is None
+        assert runtime.interaction.last_validation_packet is None
 
     def test_compute_stage4_validate_step_tracks_frontier_path_without_llm(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
@@ -6474,7 +6473,7 @@ class TestStage4Mechanics:
             reopen_ids.append(
                 reopened_block.id
                 if reopened_block is not None
-                and runtime.block_status.get(reopened_block.id) == "reopened"
+                and runtime.domain.block_status.get(reopened_block.id) == "reopened"
                 else None
             )
 
@@ -6482,7 +6481,7 @@ class TestStage4Mechanics:
         assert reopen_ids == expected_reopen_ids
         assert get_active_plan_block(plan, runtime) is None
         assert get_stage4_phase(runtime, plan=plan) == "done"
-        assert sorted(runtime.accepted.authored_priors) == [
+        assert sorted(runtime.domain.accepted.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
             "manifest_mean_steps",
@@ -7960,8 +7959,8 @@ class TestStage4Mechanics:
         assert any(
             message.tool_result == "PRIOR PREDICTIVE CHECKS FAILED" for message in trace.messages
         )
-        assert runtime.accepted.model_spec is not None
-        assert sorted(runtime.accepted.authored_priors) == [
+        assert runtime.domain.accepted.model_spec is not None
+        assert sorted(runtime.domain.accepted.authored_priors) == [
             "beta_activity_sleep",
             "lambda_activity_vas_activity",
             "manifest_mean_steps",

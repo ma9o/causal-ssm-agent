@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .stage4_block_specs import get_stage4_block_phase
 from .stage4_navigation import (
@@ -11,13 +11,9 @@ from .stage4_navigation import (
 )
 from .stage4_orchestrator import Stage4Plan, build_stage4_plan
 from .stage4_skeleton import derive_deterministic_spec
-from .stage4_state import (
-    Stage4BlockCursor,
-    Stage4DoneCursor,
-    Stage4ModelSpecLockPendingCursor,
-    Stage4RepairBarrierCursor,
-    Stage4Runtime,
-)
+
+if TYPE_CHECKING:
+    from .stage4_state import Stage4Runtime
 
 
 def project_stage4_graph(plan: Stage4Plan) -> dict[str, Any]:
@@ -140,19 +136,14 @@ def project_stage4_graph(plan: Stage4Plan) -> dict[str, Any]:
 
 def project_stage4_snapshot(plan: Stage4Plan, runtime: Stage4Runtime) -> dict[str, Any]:
     """Project a JSON-serializable Stage 4 runtime snapshot for the web UI."""
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4BlockCursor):
-        cursor_dict: dict[str, Any] = {"kind": "block", "block_id": cursor.block_id}
-    elif isinstance(cursor, Stage4ModelSpecLockPendingCursor):
-        cursor_dict = {"kind": "model_spec_lock"}
-    elif isinstance(cursor, Stage4RepairBarrierCursor):
-        cursor_dict = {"kind": "repair_barrier", "scope_block_ids": list(cursor.scope_block_ids)}
-    elif isinstance(cursor, Stage4DoneCursor):
-        cursor_dict = {"kind": "done"}
+    if runtime.domain.done:
+        cursor_dict: dict[str, Any] = {"kind": "done"}
+    elif runtime.domain.active_block_id is not None:
+        cursor_dict = {"kind": "block", "block_id": runtime.domain.active_block_id}
     else:
-        cursor_dict = {"kind": "unknown"}
+        cursor_dict = {"kind": "settling"}
 
-    campaign = runtime.repair_campaign
+    campaign = runtime.domain.repair_campaign
     repair_dict: dict[str, Any] | None = None
     if campaign is not None:
         repair_dict = {
@@ -163,8 +154,8 @@ def project_stage4_snapshot(plan: Stage4Plan, runtime: Stage4Runtime) -> dict[st
 
     return {
         "cursor": cursor_dict,
-        "block_status": dict(runtime.block_status),
-        "model_spec_locked": runtime.accepted.model_spec is not None,
+        "block_status": dict(runtime.domain.block_status),
+        "model_spec_locked": runtime.domain.accepted.model_spec is not None,
         "repair_campaign": repair_dict,
         "phase": get_stage4_phase(runtime, plan=plan),
     }
