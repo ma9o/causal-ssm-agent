@@ -170,7 +170,9 @@ def parametric_id_task(
             sa_result.print_report()
             sensitivity_payload = {
                 "singular_values": sa_result.singular_values,
+                "normalized_singular_values": sa_result.normalized_singular_values,
                 "deficiency_count": sa_result.deficiency_count,
+                "weak_directions": sa_result.weak_directions,
                 "per_parameter": sa_result.per_parameter,
                 "n_draws": sa_result.n_draws,
                 "n_observations": sa_result.n_observations,

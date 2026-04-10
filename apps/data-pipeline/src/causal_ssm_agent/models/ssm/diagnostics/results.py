@@ -31,7 +31,9 @@ class OutputSensitivityResult:
     """Results from output sensitivity analysis (pre-inference identifiability)."""
 
     singular_values: list[float]
+    normalized_singular_values: list[float]
     deficiency_count: int
+    weak_directions: list[dict]
     per_parameter: list[dict]
     n_draws: int
     n_observations: int
@@ -40,10 +42,12 @@ class OutputSensitivityResult:
     def print_report(self) -> None:
         """Log a human-readable sensitivity analysis report."""
         n_nonsing = sum(1 for sv in self.singular_values if sv > NUMERICAL_EPSILON)
+        n_weak = len(self.weak_directions)
         lines = [
             "=== Output Sensitivity Analysis ===",
             f"  Parameters: {self.n_parameters}, Observations: {self.n_observations}",
             f"  Deficient directions: {self.deficiency_count}/{self.n_parameters}",
+            f"  Weak directions (<=10): {n_weak}/{self.n_parameters}",
             f"  Prior draws: {self.n_draws}",
             f"  Rank: {n_nonsing}/{min(self.n_observations, self.n_parameters)}",
         ]

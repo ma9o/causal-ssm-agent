@@ -2291,7 +2291,7 @@
       "type": "string"
     },
     "SMCDiagnostics": {
-      "description": "Tempered SMC diagnostics (used by laplace_em, tempered_smc, etc.).",
+      "description": "Tempered SMC diagnostics (used by laplace_smc, tempered_smc, etc.).",
       "properties": {
         "beta_schedule": {
           "items": {
@@ -2391,9 +2391,23 @@
           "title": "Singular Values",
           "type": "array"
         },
+        "normalized_singular_values": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Normalized Singular Values",
+          "type": "array"
+        },
         "deficiency_count": {
           "title": "Deficiency Count",
           "type": "integer"
+        },
+        "weak_directions": {
+          "items": {
+            "$ref": "#/$defs/SensitivityDirection"
+          },
+          "title": "Weak Directions",
+          "type": "array"
         },
         "per_parameter": {
           "items": {
@@ -2420,10 +2434,83 @@
         "n_draws",
         "n_observations",
         "n_parameters",
+        "normalized_singular_values",
         "per_parameter",
-        "singular_values"
+        "singular_values",
+        "weak_directions"
       ],
       "title": "SensitivityAnalysisResult",
+      "type": "object"
+    },
+    "SensitivityDirection": {
+      "description": "A direction in parameter space from the normalized sensitivity SVD.",
+      "properties": {
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "singular_value": {
+          "title": "Singular Value",
+          "type": "number"
+        },
+        "normalized_singular_value": {
+          "title": "Normalized Singular Value",
+          "type": "number"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "top_loadings": {
+          "items": {
+            "$ref": "#/$defs/SensitivityDirectionLoading"
+          },
+          "title": "Top Loadings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "index",
+        "normalized_singular_value",
+        "singular_value",
+        "status",
+        "top_loadings"
+      ],
+      "title": "SensitivityDirection",
+      "type": "object"
+    },
+    "SensitivityDirectionLoading": {
+      "description": "One parameter's loading within a weak local sensitivity direction.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "interpretable_parameter": {
+          "title": "Interpretable Parameter",
+          "type": "string"
+        },
+        "loading": {
+          "title": "Loading",
+          "type": "number"
+        },
+        "abs_loading": {
+          "title": "Abs Loading",
+          "type": "number"
+        }
+      },
+      "required": [
+        "abs_loading",
+        "interpretable_parameter",
+        "loading",
+        "parameter"
+      ],
+      "title": "SensitivityDirectionLoading",
       "type": "object"
     },
     "SensitivityEntry": {

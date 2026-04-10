@@ -70,6 +70,8 @@ export type {
   RankHistogramChain,
   Role,
   SensitivityAnalysisResult,
+  SensitivityDirection,
+  SensitivityDirectionLoading,
   SensitivityEntry,
   SMCDiagnostics,
   Stage0Contract as Stage0PersistedData,

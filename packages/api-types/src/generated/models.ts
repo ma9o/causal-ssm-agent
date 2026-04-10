@@ -646,11 +646,32 @@ export interface ParametricIdResult {
  */
 export interface SensitivityAnalysisResult {
   singular_values: number[];
+  normalized_singular_values: number[];
   deficiency_count: number;
+  weak_directions: SensitivityDirection[];
   per_parameter: SensitivityEntry[];
   n_draws: number;
   n_observations: number;
   n_parameters: number;
+}
+/**
+ * A direction in parameter space from the normalized sensitivity SVD.
+ */
+export interface SensitivityDirection {
+  index: number;
+  singular_value: number;
+  normalized_singular_value: number;
+  status: "pass" | "warn" | "fail";
+  top_loadings: SensitivityDirectionLoading[];
+}
+/**
+ * One parameter's loading within a weak local sensitivity direction.
+ */
+export interface SensitivityDirectionLoading {
+  parameter: string;
+  interpretable_parameter: string;
+  loading: number;
+  abs_loading: number;
 }
 /**
  * Per-parameter output sensitivity analysis entry.
@@ -897,7 +918,7 @@ export interface EnergyHistogram {
   density: number[];
 }
 /**
- * Tempered SMC diagnostics (used by laplace_em, tempered_smc, etc.).
+ * Tempered SMC diagnostics (used by laplace_smc, tempered_smc, etc.).
  */
 export interface SMCDiagnostics {
   beta_schedule: number[];

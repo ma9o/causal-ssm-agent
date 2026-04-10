@@ -82,6 +82,15 @@ def _spectral_svd_from_gram(S: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     return singular_values, right_singular_vectors
 
 
+def _normalized_direction_status(value: float) -> str:
+    """Bucket a normalized singular value into the Stage 4b severity bands."""
+    if value > 10.0:
+        return "pass"
+    if value > 1.0:
+        return "warn"
+    return "fail"
+
+
 def _validate_output_sensitivity_supported(model: SSMModel) -> None:
     """Validate preconditions for the observation-space sensitivity map."""
     observation_support = getattr(model, "observation_support", None)
@@ -282,6 +291,7 @@ def output_sensitivity_analysis(
     all_effective_sv = []
     all_norm_sv = []
     all_norm_effective_sv = []
+    all_norm_right_vectors = []
     skipped_nonfinite_draws = 0
 
     for draw_idx in range(n_draws):
@@ -322,6 +332,7 @@ def output_sensitivity_analysis(
             continue
         all_norm_sv.append(sv_n)
         all_norm_effective_sv.append(_per_param_effective_sv(V_n, sv_n))
+        all_norm_right_vectors.append(V_n)
 
     if not all_sv:
         raise RuntimeError(
@@ -337,6 +348,7 @@ def output_sensitivity_analysis(
     sv_matrix = jnp.stack(all_sv)
     col_norm_matrix = jnp.stack(all_col_norms)
     eff_sv_matrix = jnp.stack(all_effective_sv)
+    norm_sv_matrix = jnp.stack(all_norm_sv)
     norm_eff_sv_matrix = jnp.stack(all_norm_effective_sv)
 
     median_sv = jnp.median(sv_matrix, axis=0)
@@ -345,10 +357,54 @@ def output_sensitivity_analysis(
     median_norm_eff_sv = jnp.median(norm_eff_sv_matrix, axis=0)
 
     sv_max = float(jnp.max(median_sv))
-    median_norm_sv = jnp.median(jnp.stack(all_norm_sv), axis=0)
+    median_norm_sv = jnp.median(norm_sv_matrix, axis=0)
     deficiency_count = int(jnp.sum(median_norm_sv < 1.0))
 
     interpretable_names = _interpretable_parameter_name_map(model, scalar_names)
+    representative_idx = int(
+        jnp.argmin(jnp.sum(jnp.abs(norm_sv_matrix - median_norm_sv[None, :]), axis=1))
+    )
+    representative_norm_v = np.asarray(all_norm_right_vectors[representative_idx], dtype=float)
+
+    weak_directions = []
+    highlighted_indices = [
+        idx
+        for idx, value in sorted(
+            enumerate(np.asarray(median_norm_sv, dtype=float)),
+            key=lambda item: item[1],
+        )
+        if _normalized_direction_status(float(value)) != "pass"
+    ]
+    for direction_idx in highlighted_indices:
+        loadings = representative_norm_v[:, direction_idx].copy()
+        top_indices = np.argsort(np.abs(loadings))[::-1][: min(15, loadings.shape[0])]
+        if top_indices.size > 0 and loadings[top_indices[0]] < 0:
+            loadings *= -1.0
+
+        top_loadings = []
+        for param_idx in top_indices:
+            scalar_name = scalar_names[param_idx]
+            loading = float(loadings[param_idx])
+            top_loadings.append(
+                {
+                    "parameter": scalar_name,
+                    "interpretable_parameter": interpretable_names[scalar_name],
+                    "loading": loading,
+                    "abs_loading": float(abs(loading)),
+                }
+            )
+
+        normalized_sv_k = float(median_norm_sv[direction_idx])
+        weak_directions.append(
+            {
+                "index": direction_idx + 1,
+                "singular_value": float(median_sv[direction_idx]),
+                "normalized_singular_value": normalized_sv_k,
+                "status": _normalized_direction_status(normalized_sv_k),
+                "top_loadings": top_loadings,
+            }
+        )
+
     per_param = []
     for param_idx, scalar_name in enumerate(scalar_names):
         norm_k = float(median_col_norms[param_idx])
@@ -384,7 +440,9 @@ def output_sensitivity_analysis(
 
     return OutputSensitivityResult(
         singular_values=[float(value) for value in median_sv],
+        normalized_singular_values=[float(value) for value in median_norm_sv],
         deficiency_count=deficiency_count,
+        weak_directions=weak_directions,
         per_parameter=per_param,
         n_draws=len(all_sv),
         n_observations=n_observations,
