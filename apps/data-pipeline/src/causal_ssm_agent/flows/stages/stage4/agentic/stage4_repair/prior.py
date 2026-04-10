@@ -295,7 +295,7 @@ def _advance_repair_scope(
             key=lambda item: (item[1].scope_rank, item[0]),
         )
     ]
-    campaign = runtime.repair_campaign
+    campaign = runtime.domain.repair_campaign
     if campaign is None or campaign.failure_family_key != failure_family:
         return ordered_candidates[0]
 

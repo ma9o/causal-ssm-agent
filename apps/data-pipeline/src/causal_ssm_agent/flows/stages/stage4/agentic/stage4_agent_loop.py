@@ -10,20 +10,13 @@ from .stage4_cards import (
     build_model_topology,
     build_prior_cards,
 )
-from .stage4_feedback import should_store_stage4_validation_packet
-from .stage4_navigation import activate_review_phase, make_stage4_runtime
+from .stage4_navigation import make_stage4_runtime, pending_repair_campaign_block_ids
 from .stage4_orchestrator import build_stage4_plan
 from .stage4_prompt_context import Stage4Messages
-from .stage4_reducer import build_model_spec_from_decisions, persist_stage4_stage_output
+from .stage4_reducer import settle_to_wait_state
 from .stage4_session import Stage4Session
 from .stage4_skeleton import derive_deterministic_spec
-from .stage4_state import (
-    Stage4BlockCursor,
-    Stage4DoneCursor,
-    Stage4ModelSpecLockPendingCursor,
-    Stage4RepairBarrierCursor,
-    Stage4Runtime,
-)
+from .stage4_state import Stage4Runtime
 from .stage4_types import Stage4Deps, Stage4Result
 
 if TYPE_CHECKING:
@@ -122,30 +115,15 @@ def _validate_stage4_runtime_checkpoint(
         return "checkpoint payload is not a Stage4Runtime"
 
     plan_block_ids = _plan_block_ids(plan)
-    if set(runtime.block_status) != plan_block_ids:
+    if set(runtime.domain.block_status) != plan_block_ids:
         return "checkpoint block-status keys no longer match the Stage 4 plan"
 
-    authored_prior_names = set(runtime.accepted.authored_priors)
+    authored_prior_names = set(runtime.domain.accepted.authored_priors)
     if not authored_prior_names.issubset(_plan_prior_parameter_names(plan)):
         return "checkpoint authored priors no longer match the Stage 4 parameter inventory"
 
-    cursor = runtime.cursor
-    if isinstance(cursor, Stage4BlockCursor):
-        if cursor.block_id not in plan_block_ids:
-            return f"checkpoint cursor block `{cursor.block_id}` is not in the Stage 4 plan"
-    elif isinstance(cursor, Stage4RepairBarrierCursor):
-        if not cursor.scope_block_ids:
-            return "checkpoint repair barrier cursor has an empty scope"
-        if not set(cursor.scope_block_ids).issubset(plan_block_ids):
-            return "checkpoint repair barrier scope contains unknown Stage 4 blocks"
-    elif not isinstance(cursor, (Stage4ModelSpecLockPendingCursor, Stage4DoneCursor)):
-        return f"checkpoint cursor `{cursor!r}` is unsupported"
-
-    campaign = runtime.repair_campaign
-    if campaign is None:
-        if isinstance(cursor, Stage4RepairBarrierCursor):
-            return "checkpoint has a repair barrier cursor without an active repair campaign"
-    else:
+    campaign = runtime.domain.repair_campaign
+    if campaign is not None:
         scope_block_ids = set(campaign.scope_block_ids)
         if not campaign.scope_block_ids:
             return "checkpoint repair campaign has an empty scope"
@@ -158,31 +136,35 @@ def _validate_stage4_runtime_checkpoint(
         for block_id, prompt_block in campaign.prompt_blocks_by_id.items():
             if prompt_block.id != block_id:
                 return "checkpoint repair prompt override ids are inconsistent"
-        pending_block_ids = tuple(
-            block_id
-            for block_id in campaign.scope_block_ids
-            if block_id not in campaign.completed_block_ids
-        )
-        if isinstance(cursor, Stage4RepairBarrierCursor):
-            if not campaign.requires_barrier_validation:
-                return (
-                    "checkpoint repair barrier cursor is incompatible with a non-barrier campaign"
-                )
-            if tuple(campaign.scope_block_ids) != cursor.scope_block_ids:
-                return "checkpoint repair barrier cursor scope disagrees with the repair campaign"
-            if pending_block_ids:
-                return "checkpoint repair barrier cursor still has pending repair blocks"
-        elif isinstance(cursor, Stage4BlockCursor):
-            if (
-                cursor.block_id in campaign.scope_block_ids
-                and cursor.block_id not in pending_block_ids
-            ):
-                return "checkpoint repair cursor points at a non-pending block"
+        pending_block_ids = pending_repair_campaign_block_ids(campaign)
+        if not pending_block_ids:
+            return "checkpoint persists a completed repair campaign instead of settling it"
+        if runtime.domain.done:
+            return "checkpoint cannot be terminal while a repair campaign is active"
+        if runtime.domain.active_block_id not in pending_block_ids:
+            return "checkpoint repair campaign prompt block is outside its pending scope"
 
-    if isinstance(cursor, Stage4DoneCursor) and (
-        runtime.accepted.model_spec is None or not runtime.accepted.authored_priors
-    ):
-        return "checkpoint marks Stage 4 done without a complete accepted result"
+    if runtime.domain.done:
+        if runtime.domain.active_block_id is not None:
+            return "checkpoint marks Stage 4 done with an active block"
+        if (
+            runtime.domain.accepted.model_spec is None
+            or not runtime.domain.accepted.authored_priors
+        ):
+            return "checkpoint marks Stage 4 done without a complete accepted result"
+        return None
+
+    if runtime.domain.active_block_id is None:
+        return "checkpoint is not in a promptable wait-state"
+    if runtime.domain.active_block_id not in plan_block_ids:
+        return (
+            f"checkpoint active block `{runtime.domain.active_block_id}` is not in the Stage 4 plan"
+        )
+    if runtime.domain.block_status.get(runtime.domain.active_block_id) not in {
+        "pending",
+        "reopened",
+    }:
+        return "checkpoint active block is not pending work"
     return None
 
 
@@ -252,6 +234,13 @@ async def run_stage4(
         enable_literature=enable_literature,
         enable_paraphrasing=enable_paraphrasing,
     )
+    deps = Stage4Deps(
+        skeleton=skeleton,
+        causal_spec=causal_spec,
+        data_for_model=data_for_model,
+        indicator_audits=indicator_audits,
+        grounding_fn=stage4_grounding,
+    )
     runtime = _load_resumable_stage4_runtime(
         plan,
         load_checkpoint=load_checkpoint,
@@ -266,19 +255,21 @@ async def run_stage4(
 
     persist_runtime = _persist if (save_checkpoint or on_state_change) else None
 
-    if on_state_change is not None:
+    _, _, startup_transitions, startup_changed = settle_to_wait_state(
+        plan=plan,
+        runtime=runtime,
+        deps=deps,
+    )
+    if startup_changed:
+        if persist_runtime is not None:
+            persist_runtime(runtime, startup_transitions)
+    elif on_state_change is not None:
         on_state_change(plan, runtime, ())
 
     session = Stage4Session(
         plan=plan,
         prompt_context=msgs,
-        deps=Stage4Deps(
-            skeleton=skeleton,
-            causal_spec=causal_spec,
-            data_for_model=data_for_model,
-            indicator_audits=indicator_audits,
-            grounding_fn=stage4_grounding,
-        ),
+        deps=deps,
         runtime=runtime,
         persist_runtime=persist_runtime,
     )
@@ -292,36 +283,6 @@ async def run_stage4(
         max_tool_turns=max_tool_turns,
     )
 
-    deps = session.deps
-
-    if not plan.model_blocks and session.accepted.model_spec is None:
-        initial_model_spec, errors = build_model_spec_from_decisions(runtime.decisions, skeleton)
-        if initial_model_spec is None:
-            raise ValueError(
-                "Stage 4 could not materialize an initial ModelSpec: " + "; ".join(errors)
-            )
-        grounding_result = deps.grounding_fn(
-            {"model_spec": initial_model_spec},
-            deps.causal_spec,
-            current=session.accepted.as_current(),
-            data_for_model=deps.data_for_model,
-            indicator_audits=deps.indicator_audits,
-        )
-        stage_output = grounding_result.stage_output
-        validation = stage_output.get("validation") if stage_output else None
-        if validation is not None and not validation.compile_ok:
-            raise ValueError(
-                f"Stage 4 could not lock the initial ModelSpec: {validation.compile_error}"
-            )
-        persist_stage4_stage_output(session.runtime, stage_output)
-        initial_packet = grounding_result.validation_packet
-        session.runtime.last_validation_packet = (
-            initial_packet if should_store_stage4_validation_packet(initial_packet) else None
-        )
-        activate_review_phase(plan, session.runtime)
-        if persist_runtime is not None:
-            persist_runtime(session.runtime, ())
-
     max_outer_turns = max(1, len(plan.all_blocks)) * 10
     for _outer_turn in range(max_outer_turns):
         if session.is_done():
@@ -330,7 +291,8 @@ async def run_stage4(
         turn = session.current_turn()
         if turn is None:
             raise ValueError(
-                f"Stage 4 stalled with no promptable execution cursor ({session.runtime.cursor!r})"
+                "Stage 4 stalled with no promptable wait-state "
+                f"(active_block_id={session.runtime.domain.active_block_id!r}, done={session.runtime.domain.done!r})"
             )
         await _run_stage4_turn(session, generate, tool_map)
     else:

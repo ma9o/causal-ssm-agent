@@ -34,7 +34,7 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
     derive_deterministic_spec,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
-    Stage4AcceptedState,
+    Stage4AcceptedArtifacts,
     Stage4Runtime,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
@@ -847,6 +847,47 @@ class TestStage4Plan:
             "t0_sd_activity",
         }
 
+    def test_plan_marks_dynamics_t0_priors_optional(self):
+        spec = _make_causal_spec(
+            constructs=[
+                {
+                    "name": "activity",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "is_outcome": True,
+                }
+            ],
+            edges=[],
+            indicators=[
+                {
+                    "name": "steps",
+                    "construct_name": "activity",
+                    "measurement_dtype": "count",
+                    "how_to_measure": "Count steps",
+                    "aggregation": "sum",
+                }
+            ],
+        )
+        skeleton = derive_deterministic_spec(spec)
+        plan = build_stage4_plan(spec, skeleton)
+
+        dynamics_block = next(
+            block for block in plan.prior_blocks if block.kind == "dynamics_prior"
+        )
+
+        assert dynamics_block.coverage_policy == "all_required_parameters"
+        assert set(dynamics_block.required_parameter_names) == {
+            "rho_activity",
+            "sigma_activity",
+            "cint_activity",
+        }
+        assert set(dynamics_block.optional_parameter_names) == {
+            "t0_mean_activity",
+            "t0_sd_activity",
+        }
+        assert plan.prior_review_block is not None
+        assert plan.prior_review_block.coverage_policy == "subset_allowed"
+
     def test_multi_indicator_measurement_block_includes_obs_sd_priors(self):
         """Free manifest-noise priors should surface alongside loading priors."""
         spec = _make_causal_spec(
@@ -1063,13 +1104,13 @@ class TestStage4TurnProjection:
         )
         plan = _make_plan(prior_blocks=prior_blocks)
         runtime = make_stage4_runtime(plan)
-        runtime.block_status.update(
+        runtime.domain.block_status.update(
             {
                 "effects:sleep": "accepted",
                 "dynamics:sleep": "pending",
             }
         )
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={"parameters": [{"name": "beta_stress_sleep"}, {"name": "rho_sleep"}]},
             authored_priors={"beta_stress_sleep": {"distribution": "Normal"}},
         )
@@ -1097,11 +1138,11 @@ class TestStage4TurnProjection:
         )
         plan = _make_plan(prior_blocks=prior_blocks)
         runtime = make_stage4_runtime(plan)
-        runtime.block_status["effects:sleep"] = "pending"
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.block_status["effects:sleep"] = "pending"
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
         )
-        runtime.last_validation_packet = make_stage4_validation_packet(
+        runtime.interaction.last_validation_packet = make_stage4_validation_packet(
             status="info",
             feedback="submit priors",
             active_scope_id="effects:sleep",
@@ -1148,8 +1189,8 @@ class TestStage4TurnProjection:
         )
         plan = _make_plan(prior_review_block=prior_review_block)
         runtime = make_stage4_runtime(plan)
-        runtime.block_status[prior_review_block.id] = "reopened"
-        runtime.accepted = Stage4AcceptedState(
+        runtime.domain.block_status[prior_review_block.id] = "reopened"
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
             model_spec={"parameters": [{"name": "beta_stress_sleep"}]}
         )
         _set_block_cursor(runtime, prior_review_block)

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from .stage4_navigation import get_active_prompt_block
 from .stage4_reducer import compute_stage4_validate_step_with_transitions
-from .stage4_state import Stage4AcceptedState, Stage4DoneCursor, Stage4Runtime
+from .stage4_state import Stage4AcceptedArtifacts, Stage4Runtime
 from .stage4_submission import get_stage4_block_handler
 from .stage4_types import Stage4Deps, Stage4Result
 
@@ -51,16 +51,16 @@ class Stage4Session:
     _turn_tracker: _Stage4TurnTracker | None = field(default=None, init=False, repr=False)
 
     @property
-    def accepted(self) -> Stage4AcceptedState:
-        return self.runtime.accepted
+    def accepted(self) -> Stage4AcceptedArtifacts:
+        return self.runtime.domain.accepted
 
     @property
     def search_cache(self) -> dict[str, str]:
-        return self.runtime.search_cache
+        return self.runtime.interaction.search_cache
 
     @property
     def search_queries(self) -> dict[str, str]:
-        return self.runtime.search_queries
+        return self.runtime.interaction.search_queries
 
     def current_block(self) -> Stage4FrontierBlock | None:
         """Return the active reducer block, if any."""
@@ -187,7 +187,7 @@ class Stage4Session:
     def is_done(self) -> bool:
         """Whether Stage 4 has produced a final accepted result."""
         return (
-            isinstance(self.runtime.cursor, Stage4DoneCursor)
+            self.runtime.domain.done
             and self.accepted.model_spec is not None
             and bool(self.accepted.authored_priors)
         )

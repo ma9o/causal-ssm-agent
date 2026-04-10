@@ -19,6 +19,12 @@ from .stage4_block_specs import (
     get_stage4_block_kind_spec,
     get_stage4_block_kinds,
 )
+from .stage4_navigation import (
+    active_block_parameter_names,
+    current_equilibrium_forcing,
+    current_initialization_policy,
+    required_block_parameter_names,
+)
 from .stage4_text import summarize_stage4_names
 
 if TYPE_CHECKING:
@@ -97,8 +103,37 @@ def _default_frontier_status_lines(
     causal_spec: dict[str, Any] | None,
 ) -> tuple[str, ...]:
     """Return any block-family-specific frontier status lines."""
-    del block, runtime, causal_spec
-    return ()
+    del causal_spec
+    if not block.parameter_names:
+        return ()
+
+    if block.coverage_policy == "exact_single_choice":
+        return ()
+
+    active_parameter_names = active_block_parameter_names(block, runtime)
+    if not active_parameter_names:
+        return ()
+
+    if block.coverage_policy == "subset_allowed":
+        return (
+            "- submission coverage: `subset repairs allowed`",
+            "- revise only the parameters needed to resolve the current failure",
+        )
+
+    required_parameter_names = required_block_parameter_names(block, runtime)
+    optional_parameter_names = tuple(
+        name for name in active_parameter_names if name not in set(required_parameter_names)
+    )
+    lines = [
+        "- submission coverage: `submit all required active parameters in this block`",
+        (f"- required parameters: {summarize_stage4_names(list(required_parameter_names))}"),
+    ]
+    if optional_parameter_names:
+        lines.append(
+            "- optional parameters that may be omitted: "
+            f"{summarize_stage4_names(list(optional_parameter_names))}"
+        )
+    return tuple(lines)
 
 
 def _model_configuration_frontier_status_lines(
@@ -110,8 +145,8 @@ def _model_configuration_frontier_status_lines(
     """Return allowed model-configuration options and current draft state."""
     del causal_spec
     payload = block.payload
-    initialization_policy = runtime.decisions.initialization_policy or "unset"
-    equilibrium_forcing = runtime.decisions.equilibrium_forcing
+    initialization_policy = current_initialization_policy(runtime) or "unset"
+    equilibrium_forcing = current_equilibrium_forcing(runtime)
     equilibrium_text = "unset" if equilibrium_forcing is None else str(equilibrium_forcing).lower()
     return (
         "- allowed initialization_policy values: `stationary`, `free`",
@@ -143,8 +178,8 @@ def _effect_prior_frontier_status_lines(
         return ()
 
     budget = build_effect_row_budget(
-        model_spec=runtime.accepted.model_spec,
-        authored_priors=runtime.accepted.authored_priors,
+        model_spec=runtime.domain.accepted.model_spec,
+        authored_priors=runtime.domain.accepted.authored_priors,
         causal_spec=causal_spec,
         target_construct=target_construct,
     )
@@ -430,9 +465,23 @@ def _prior_submission_example(
     """Example payload for prior-authoring blocks."""
     if not prior_cards:
         raise ValueError(f"Prior block {block.id!r} is missing prompt-local prior cards")
-    prior_payload = _example_prior_payload(prior_cards[0])
-    parameter = str(prior_payload["parameter"])
-    return {"priors": {parameter: prior_payload}}
+    if block.coverage_policy == "subset_allowed":
+        prior_payload = _example_prior_payload(prior_cards[0])
+        parameter = str(prior_payload["parameter"])
+        return {"priors": {parameter: prior_payload}}
+
+    required_parameter_names = set(block.required_parameter_names or block.parameter_names)
+    example_priors: dict[str, Any] = {}
+    for card in prior_cards:
+        parameter_name = card.get("parameter")
+        if not isinstance(parameter_name, str) or parameter_name not in required_parameter_names:
+            continue
+        example_priors[parameter_name] = _example_prior_payload(card)
+    if not example_priors:
+        prior_payload = _example_prior_payload(prior_cards[0])
+        parameter = str(prior_payload["parameter"])
+        example_priors[parameter] = prior_payload
+    return {"priors": example_priors}
 
 
 def _global_review_submission_example(
@@ -571,6 +620,31 @@ def validate_stage4_submission_payload(
     return None
 
 
+def validate_stage4_block_coverage(
+    block: Stage4FrontierBlock,
+    runtime: Stage4Runtime,
+    normalized: dict[str, Any],
+) -> str | None:
+    """Validate the runtime-aware coverage contract for one normalized submission."""
+    if block.coverage_policy != "all_required_parameters":
+        return None
+    priors = normalized.get("priors")
+    if not isinstance(priors, dict):
+        return None
+    required_parameter_names = required_block_parameter_names(block, runtime)
+    missing = tuple(
+        parameter_name
+        for parameter_name in required_parameter_names
+        if parameter_name not in priors
+    )
+    if not missing:
+        return None
+    return (
+        "VALIDATION ERRORS:\n- missing required priors for this block: "
+        f"{summarize_stage4_names(list(missing))}"
+    )
+
+
 def _normalize_indicator_submission(
     block: Stage4FrontierBlock,
     proposal: dict[str, Any],
@@ -642,6 +716,7 @@ def _normalize_prior_submission(
             "VALIDATION ERRORS:\n- priors outside the active block: "
             f"{summarize_stage4_names(invalid)}",
         )
+
     return {"priors": raw_priors}, None
 
 
