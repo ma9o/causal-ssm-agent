@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 # Import all stage contracts — this pulls in every nested domain model
-from causal_ssm_agent.flows.stages.contracts import (
+from causal_ssm_agent.flows.stage_contracts import (
     EXPORTED_TOOL_RESULT_MODELS,
     INTERACTIVE_STAGES,
     STAGE_CONTRACTS,
