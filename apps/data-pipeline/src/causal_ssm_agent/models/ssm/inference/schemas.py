@@ -105,7 +105,7 @@ class SVIDiagnostics(BaseModel):
 
 
 class SMCDiagnostics(BaseModel):
-    """Tempered SMC diagnostics (used by laplace_em, tempered_smc, etc.)."""
+    """Tempered SMC diagnostics (used by laplace_smc, tempered_smc, etc.)."""
 
     beta_schedule: list[float]
     ess_history: list[float]
@@ -207,6 +207,25 @@ class SensitivityEntry(BaseModel):
     identifiable: bool
 
 
+class SensitivityDirectionLoading(BaseModel):
+    """One parameter's loading within a weak local sensitivity direction."""
+
+    parameter: str
+    interpretable_parameter: str
+    loading: float
+    abs_loading: float
+
+
+class SensitivityDirection(BaseModel):
+    """A direction in parameter space from the normalized sensitivity SVD."""
+
+    index: int
+    singular_value: float
+    normalized_singular_value: float
+    status: Literal["pass", "warn", "fail"]
+    top_loadings: list[SensitivityDirectionLoading]
+
+
 class SensitivityAnalysisResult(BaseModel):
     """Output sensitivity analysis result (pre-inference identifiability).
 
@@ -216,7 +235,9 @@ class SensitivityAnalysisResult(BaseModel):
     """
 
     singular_values: list[float]
+    normalized_singular_values: list[float]
     deficiency_count: int
+    weak_directions: list[SensitivityDirection]
     per_parameter: list[SensitivityEntry]
     n_draws: int
     n_observations: int

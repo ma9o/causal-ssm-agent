@@ -505,8 +505,10 @@ class TestOutputSensitivity:
         assert result.n_observations == (3 * T) - 1
         assert result.n_draws == 5
         assert len(result.singular_values) > 0
+        assert len(result.normalized_singular_values) == len(result.singular_values)
         assert result.deficiency_count == 0
         assert all(jnp.isfinite(jnp.array(result.singular_values)))
+        assert all(jnp.isfinite(jnp.array(result.normalized_singular_values)))
 
         # All params should be identifiable for a well-specified 1D LGSS
         for entry in result.per_parameter:
@@ -837,6 +839,10 @@ class TestOutputSensitivity:
         assert names_by_parameter["diffusion_diag_free"] == "sigma_mood"
         assert names_by_parameter["manifest_var_diag_free"] == "obs_sd_heart_rate"
         assert names_by_parameter["t0_means_free"] == "t0_mean_mood"
+        for direction in result.weak_directions:
+            assert direction["top_loadings"]
+            for loading in direction["top_loadings"]:
+                assert loading["interpretable_parameter"]
 
     def test_manifest_var_alias_uses_sparse_free_positions(self):
         """Sparse manifest-noise sites should resolve to the correct manifest channel."""

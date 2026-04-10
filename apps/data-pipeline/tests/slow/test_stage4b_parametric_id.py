@@ -160,7 +160,9 @@ class TestStage4bInferenceStructurePayload:
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0]
+                self.normalized_singular_values = [12.0]
                 self.deficiency_count = 0
+                self.weak_directions = []
                 self.per_parameter = []
                 self.n_draws = 8
                 self.n_observations = 12
@@ -208,7 +210,9 @@ class TestStage4bInferenceStructurePayload:
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
+                self.normalized_singular_values = [12.0, 0.1]
                 self.deficiency_count = 1
+                self.weak_directions = []
                 self.per_parameter = [
                     {
                         "parameter": "drift_offdiag_free[0]",
@@ -315,7 +319,9 @@ class TestStage4bInferenceStructurePayload:
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
+                self.normalized_singular_values = [12.0, 0.1]
                 self.deficiency_count = 1
+                self.weak_directions = []
                 self.per_parameter = [
                     {
                         "parameter": "diffusion_diag_free[0]",
@@ -389,7 +395,9 @@ class TestStage4bInferenceStructurePayload:
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
+                self.normalized_singular_values = [12.0, 0.1]
                 self.deficiency_count = 1
+                self.weak_directions = []
                 self.per_parameter = [
                     {
                         "parameter": "diffusion_diag_free[0]",
@@ -502,7 +510,9 @@ class TestStage4bInferenceStructurePayload:
         class StubSensitivityResult:
             def __init__(self):
                 self.singular_values = [1.0, 0.1]
+                self.normalized_singular_values = [12.0, 0.1]
                 self.deficiency_count = 1
+                self.weak_directions = []
                 self.per_parameter = [
                     {
                         "parameter": "lambda_free",
