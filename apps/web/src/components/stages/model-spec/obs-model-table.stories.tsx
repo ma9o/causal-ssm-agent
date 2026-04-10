@@ -1,12 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
 import { ObsModelTable } from "./obs-model-table";
-import {
-  likelihoods,
-  parameters,
-  priors,
-  indicatorConstructMap,
-} from "./__fixtures__/model-spec-fixtures";
+import { indicators, likelihoods, parameters, priors } from "./__fixtures__/model-spec-fixtures";
 
 const meta = {
   title: "Stages/ModelSpec/ObsModelTable",
@@ -17,10 +12,10 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const WithIndicatorMapping: Story = {
-  args: { likelihoods, parameters, priors, indicatorConstructMap },
+export const WithIndicators: Story = {
+  args: { likelihoods, parameters, priors, indicators },
 };
 
-export const WithoutIndicatorMapping: Story = {
+export const WithoutIndicators: Story = {
   args: { likelihoods, parameters, priors },
 };

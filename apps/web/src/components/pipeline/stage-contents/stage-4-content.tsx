@@ -16,18 +16,13 @@ export default function Stage4Content({
 }) {
   const authoredPriors = collectStage4UiPriors(data);
 
-  // Build indicator → construct mapping for observation model equations
-  const indicatorConstructMap = indicators
-    ? Object.fromEntries(indicators.map((ind) => [ind.name, ind.construct_name]))
-    : undefined;
-
   return (
     <div className="space-y-4">
       <SSMEquationDisplay
         likelihoods={data.model_spec.likelihoods}
         parameters={data.model_spec.parameters}
         priors={authoredPriors}
-        indicatorConstructMap={indicatorConstructMap}
+        indicators={indicators}
       />
       {extractions && extractions.length > 0 && (
         <div className="space-y-3">
@@ -50,6 +45,7 @@ export default function Stage4Content({
             <h3 className="text-sm font-semibold">Authored Priors</h3>
             <p className="text-sm text-muted-foreground">
               Only priors explicitly authored in the Stage 4 discrete-time view are shown here.
+              Terms without an authored prior are labeled as not authored in the semantic panels.
             </p>
           </div>
           <PriorTable priors={authoredPriors} parameters={data.model_spec.parameters} />

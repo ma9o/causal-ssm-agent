@@ -9,10 +9,7 @@ const stage1b = stage1bFixture as unknown as Stage1bData;
 export const likelihoods = stage4.model_spec.likelihoods;
 export const parameters = stage4.model_spec.parameters;
 export const priors = collectStage4UiPriors(stage4);
+export const indicators = stage1b.causal_spec.measurement.indicators;
 export const priorPredictiveSamples = stage4.prior_predictive_samples as
   | Record<string, number[]>
   | undefined;
-
-export const indicatorConstructMap: Record<string, string> = Object.fromEntries(
-  stage1b.causal_spec.measurement.indicators.map((ind) => [ind.name, ind.construct_name]),
-);
