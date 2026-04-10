@@ -224,10 +224,6 @@ export function SensitivityAnalysisTable({ result }: { result: SensitivityAnalys
         <section className="space-y-2">
           <div>
             <h4 className="text-sm font-semibold">Direction Spectrum</h4>
-            <p className="text-sm text-muted-foreground">
-              The deficiency count comes from these normalized singular directions, not from the
-              parameter rows below.
-            </p>
           </div>
           <SensitivityDirectionsChart result={result} />
         </section>

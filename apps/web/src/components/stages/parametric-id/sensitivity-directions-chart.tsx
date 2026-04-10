@@ -119,10 +119,6 @@ export function SensitivityDirectionsChart({ result }: { result: SensitivityAnal
           </ScatterChart>
         </ResponsiveContainer>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Each point is one orthogonal parameter combination from the normalized sensitivity SVD. Red
-        directions fall below 1 and drive the deficiency count; amber directions are borderline.
-      </p>
     </div>
   );
 }

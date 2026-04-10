@@ -70,12 +70,6 @@ function DensitySparkline({ prior }: { prior: PriorRow }) {
   );
 }
 
-function formatParams(params: Record<string, number>): string {
-  return Object.entries(params)
-    .map(([k, v]) => `${k}=${formatNumber(v, 2)}`)
-    .join(", ");
-}
-
 const baseColumns = [
   col.accessor("parameter", {
     header: "Parameter",
@@ -88,11 +82,18 @@ const baseColumns = [
   col.display({
     id: "params",
     header: "Params",
-    cell: ({ row }) => (
-      <span className="font-mono text-xs text-muted-foreground">
-        {formatParams(row.original.params as Record<string, number>)}
-      </span>
-    ),
+    cell: ({ row }) => {
+      const params = row.original.params as Record<string, number>;
+      return (
+        <div className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
+          {Object.entries(params).map(([k, v]) => (
+            <span key={k}>
+              {k}={formatNumber(v, 2)}
+            </span>
+          ))}
+        </div>
+      );
+    },
   }),
   col.display({
     id: "density",
