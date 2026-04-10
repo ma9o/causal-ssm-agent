@@ -4,7 +4,7 @@ THINK VERY HARD
 
 - At the start of each session, check if `scratchpad/TODO.md` exists. If so, read it to understand where work left off. Only update it when the user explicitly ends the session. This file is gitignored and used for local continuity.
 
-- Interpret `cp` as an alias for "commit and push". Every time you commit make sure to split commits atomically, avoiding clumping multiple increments into a single one.
+- Interpret `cp` as an alias for "commit and push". Every time you commit make sure to split commits atomically, avoiding clumping multiple increments into a single one. This operation should be write safe so that another coding agent working in the same directory is not disrupted by eg stashing or rebasing. It's ok if this prevents you from perfect atomicity.
 
 - NEVER add backwards compatibility code or defensive engineering with fallbacks. 
 
