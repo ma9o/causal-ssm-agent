@@ -109,7 +109,9 @@ def format_stage4_plan_status(
     equilibrium_forcing = runtime.decisions.equilibrium_forcing
     if equilibrium_forcing is None:
         equilibrium_forcing = accepted_model_spec.get("equilibrium_forcing")
-    equilibrium_text = "unset" if equilibrium_forcing is None else str(bool(equilibrium_forcing)).lower()
+    equilibrium_text = (
+        "unset" if equilibrium_forcing is None else str(bool(equilibrium_forcing)).lower()
+    )
     lines = [
         _STAGE4_FRONTIER_PREFIX,
         "",

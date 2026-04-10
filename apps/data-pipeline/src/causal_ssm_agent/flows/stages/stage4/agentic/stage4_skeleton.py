@@ -136,7 +136,10 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
         cause = edge["cause"]
         effect = edge["effect"]
         effect_construct = latent_construct_lookup.get(effect)
-        if effect_construct is not None and effect_construct.get("temporal_status") == "time_invariant":
+        if (
+            effect_construct is not None
+            and effect_construct.get("temporal_status") == "time_invariant"
+        ):
             continue
         seed_parameters.append(
             {
@@ -202,9 +205,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
             }
         )
 
-    seed_parameters.extend(
-        _candidate_observation_intercept_parameters(indicators)
-    )
+    seed_parameters.extend(_candidate_observation_intercept_parameters(indicators))
 
     seed_parameters.extend(
         _candidate_observation_extra_parameters(
@@ -675,9 +676,9 @@ def _confounder_baseline_factor_parameters(
     parameters: list[dict[str, Any]] = []
     for confounder, construct_names in sorted(affected_by_confounder.items()):
         ordered_construct_names = sorted(
-                construct_names,
-                key=lambda name: (construct_order.get(name, len(construct_order)), name),
-            )
+            construct_names,
+            key=lambda name: (construct_order.get(name, len(construct_order)), name),
+        )
         if len(ordered_construct_names) < 2:
             continue
         parameters.append(

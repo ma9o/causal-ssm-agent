@@ -277,7 +277,11 @@ class SSMStructureRuntime:
             for idx, factor_idx in enumerate(self.static_state_sd_free_positions):
                 factor_sds = factor_sds.at[factor_idx].set(static_state_sds[idx])
         if factor_sds.size:
-            factor_cov = self.static_factor_loadings @ jnp.diag(factor_sds**2) @ self.static_factor_loadings.T
+            factor_cov = (
+                self.static_factor_loadings
+                @ jnp.diag(factor_sds**2)
+                @ self.static_factor_loadings.T
+            )
             cov = cov + factor_cov
         return symmetrize(cov)
 

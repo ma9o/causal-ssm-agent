@@ -925,7 +925,10 @@ class TestStage4GroundingBatches:
         assert result.feedback == "VALID"
         assert result.validation_packet.status == "accepted"
         assert result.validation_packet.changed_parameters == ("sigma_mood",)
-        assert result.stage_output["authored_priors"]["rho_mood"] == current["authored_priors"]["rho_mood"]
+        assert (
+            result.stage_output["authored_priors"]["rho_mood"]
+            == current["authored_priors"]["rho_mood"]
+        )
         assert result.stage_output["authored_priors"]["sigma_mood"]["distribution"] == "HalfNormal"
         assert result.stage_output["resolved_priors"] == [
             {"parameter": "rho_mood"},

@@ -1777,17 +1777,19 @@ def _accept_default_model_configuration(
         data_for_model=data_for_model,
         indicator_audits={},
         stage4_grounding_fn=lambda data, *_args, **_kwargs: (
-            {
-                "model_spec": data["model_spec"],
-                "validation": AssemblyValidation(
-                    normalized_model_spec=data["model_spec"],
-                    compile_ok=True,
-                ),
-            },
-            "MODEL STATE SAVED:\n- missing priors",
-        )
-        if isinstance(data, dict) and "model_spec" in data
-        else pytest.fail("unexpected non-model-spec grounding during model configuration"),
+            (
+                {
+                    "model_spec": data["model_spec"],
+                    "validation": AssemblyValidation(
+                        normalized_model_spec=data["model_spec"],
+                        compile_ok=True,
+                    ),
+                },
+                "MODEL STATE SAVED:\n- missing priors",
+            )
+            if isinstance(data, dict) and "model_spec" in data
+            else pytest.fail("unexpected non-model-spec grounding during model configuration")
+        ),
     )
 
     assert not feedback.startswith("VALIDATION ERRORS:")
@@ -1797,9 +1799,7 @@ def _accept_default_model_configuration(
 def _make_stage4_mechanics_context(
     *,
     accept_default_configuration: bool = False,
-) -> tuple[
-    dict[str, Any], Stage4Skeleton, Stage4Plan, Stage4Runtime, pl.DataFrame
-]:
+) -> tuple[dict[str, Any], Stage4Skeleton, Stage4Plan, Stage4Runtime, pl.DataFrame]:
     """Build the standard deterministic Stage 4 mechanics fixture."""
     causal_spec = _make_stage4_mechanics_spec()
     skeleton = derive_deterministic_spec(causal_spec)
@@ -6821,6 +6821,7 @@ class TestStage4Mechanics:
         }
         visited_blocks: list[str] = []
         visible_tools: list[list[str]] = []
+
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
             current = current or {}
             if "model_spec" in data:

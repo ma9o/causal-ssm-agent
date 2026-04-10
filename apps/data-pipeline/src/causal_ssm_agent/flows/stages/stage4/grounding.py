@@ -98,7 +98,9 @@ def stage4_grounding(
         if redundant_priors:
             redundant_prior_names = set(redundant_priors)
             new_priors = {
-                name: prior for name, prior in new_priors.items() if name not in redundant_prior_names
+                name: prior
+                for name, prior in new_priors.items()
+                if name not in redundant_prior_names
             }
         if not new_priors:
             return make_stage4_grounding_result(
