@@ -1,0 +1,24 @@
+{
+  "observationHyperparametersByDistribution": {
+    "student_t": [
+      "obs_df"
+    ],
+    "gamma": [
+      "obs_shape"
+    ],
+    "negative_binomial": [
+      "obs_r"
+    ],
+    "beta": [
+      "obs_concentration"
+    ],
+    "ordered_logistic": [
+      "obs_ordered_base",
+      "obs_ordered_gaps"
+    ],
+    "categorical": [
+      "obs_cat_intercepts",
+      "obs_cat_slopes"
+    ]
+  }
+}

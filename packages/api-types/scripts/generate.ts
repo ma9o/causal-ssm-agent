@@ -17,9 +17,11 @@ const ROOT = dirname(dirname(resolve(import.meta.filename)));
 const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
 const TOOLS_SCHEMA_PATH = resolve(ROOT, "schemas", "tools.json");
 const TOOL_RESULTS_SCHEMA_PATH = resolve(ROOT, "schemas", "tool-results.json");
+const METADATA_PATH = resolve(ROOT, "schemas", "metadata.json");
 const OUTPUT_PATH = resolve(ROOT, "src", "generated", "models.ts");
 const TOOLS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tools.ts");
 const TOOL_RESULTS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tool-results.ts");
+const METADATA_OUTPUT_PATH = resolve(ROOT, "src", "generated", "metadata.ts");
 
 /**
  * Reduce a schema node to just its `$ref` if it has one.
@@ -209,6 +211,35 @@ async function generateToolResults(): Promise<void> {
   console.log(`Generated ${count} tool-result types/interfaces → ${TOOL_RESULTS_OUTPUT_PATH}`);
 }
 
+function generateMetadata(): void {
+  const metadata = JSON.parse(readFileSync(METADATA_PATH, "utf-8"));
+  const byDist = metadata.observationHyperparametersByDistribution;
+  const lines: string[] = [
+    "/* eslint-disable */",
+    "/**",
+    " * AUTO-GENERATED — DO NOT EDIT",
+    " *",
+    " * Generated from Python distribution catalog via:",
+    " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py",
+    " *   cd packages/api-types && bun run scripts/generate.ts",
+    " *",
+    " * Source of truth: apps/data-pipeline/src/causal_ssm_agent/distributions.py",
+    " */",
+    "",
+    `const _OBS_HYPERS_BY_DIST = ${JSON.stringify(byDist, null, 2)} as const;`,
+    "",
+    "export type ObservationHyperparameter =",
+    "  typeof _OBS_HYPERS_BY_DIST[keyof typeof _OBS_HYPERS_BY_DIST][number];",
+    "",
+    "export const OBSERVATION_HYPERPARAMETERS_BY_DISTRIBUTION: Partial<",
+    "  Record<string, readonly ObservationHyperparameter[]>",
+    "> = _OBS_HYPERS_BY_DIST;",
+    "",
+  ];
+  writeFileSync(METADATA_OUTPUT_PATH, lines.join("\n"));
+  console.log(`Generated metadata → ${METADATA_OUTPUT_PATH}`);
+}
+
 async function main() {
   const rawSchema = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"));
   const schema = stripFieldTitles(collapseRefs(rawSchema));
@@ -245,6 +276,7 @@ async function main() {
   // Generate tool definitions
   generateTools();
   await generateToolResults();
+  generateMetadata();
 }
 
 main().catch((err) => {

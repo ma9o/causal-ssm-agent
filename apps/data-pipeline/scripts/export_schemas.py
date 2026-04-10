@@ -14,6 +14,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from causal_ssm_agent.distributions import OBSERVATION_FAMILY_SPECS
+
 # Import all stage contracts — this pulls in every nested domain model
 from causal_ssm_agent.flows.stage_contracts import (
     EXPORTED_TOOL_RESULT_MODELS,
@@ -21,6 +23,7 @@ from causal_ssm_agent.flows.stage_contracts import (
     STAGE_CONTRACTS,
     STAGE_TOOLS,
 )
+from causal_ssm_agent.models.ssm.parameterization import SiteKind
 
 OUTPUT_DIR = Path(__file__).resolve().parents[3] / "packages" / "api-types" / "schemas"
 
@@ -183,6 +186,24 @@ def export_tool_schemas() -> dict:
     return result
 
 
+def export_metadata() -> dict:
+    """Export distribution catalog metadata for TypeScript type-safe rendering maps."""
+    site_kind_values = {sk.value for sk in SiteKind if sk.name.startswith("OBS_")}
+    catalog_hypers = {h for spec in OBSERVATION_FAMILY_SPECS for h in spec.hyperparameters}
+    if catalog_hypers != site_kind_values:
+        diff = catalog_hypers.symmetric_difference(site_kind_values)
+        raise ValueError(
+            f"ObservationFamilyCatalogEntry.hyperparameters out of sync with SiteKind: {diff}"
+        )
+    return {
+        "observationHyperparametersByDistribution": {
+            spec.family.value: list(spec.hyperparameters)
+            for spec in OBSERVATION_FAMILY_SPECS
+            if spec.hyperparameters
+        },
+    }
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -205,6 +226,11 @@ def main() -> None:
     tool_results_path.write_text(json.dumps(tool_results, indent=2) + "\n")
     n_tool_defs = len(tool_results.get("$defs", {}))
     print(f"Exported {n_tool_defs} tool result definitions to {tool_results_path}")
+
+    metadata_path = OUTPUT_DIR / "metadata.json"
+    metadata = export_metadata()
+    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
+    print(f"Exported metadata to {metadata_path}")
 
 
 if __name__ == "__main__":
