@@ -30,8 +30,15 @@ from causal_ssm_agent.flows.stage_contracts import STAGE_TOOLS
 from causal_ssm_agent.flows.stage_persistence import persist_web_patch
 from causal_ssm_agent.flows.stages.stage1a.grounding import stage1a_grounding
 from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
-from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
-from causal_ssm_agent.flows.stages.stage4.tools import search_literature
+from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+    execute_public_search_literature as _execute_search_literature,
+)
+from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+    execute_public_submit_model_spec as _execute_submit_model_spec,
+)
+from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+    execute_public_submit_priors as _execute_submit_priors,
+)
 from causal_ssm_agent.models.ssm.counterfactual import (
     approximate_abducted_state,
     forward_simulate_action_from_state,
@@ -74,20 +81,6 @@ def _load_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
     if not storage.exists(path):
         raise HTTPException(404, f"Stage result not found: {path}")
     return storage.read_json(path)
-
-
-def _load_stage2_data_for_model(workspace_id: str) -> Any:
-    """Load Stage 2's canonical modeling rows via well-known artifact path."""
-    from causal_ssm_agent.flows.run_store import (
-        STAGE2_MODEL_PARQUET_FILENAMES,
-        find_run_artifact,
-    )
-
-    try:
-        path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
-    except FileNotFoundError as exc:
-        raise HTTPException(500, "Stage 2 model data parquet not found") from exc
-    return load_parquet(path)
 
 
 def _load_optional_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
@@ -258,7 +251,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     fitted_artifact = load_pickle(fitted_result_path)
     data_for_model = load_parquet(data_for_model_path)
     persisted_builder = getattr(fitted_artifact, "builder", None)
-    fitted_spec = getattr(persisted_builder, "_spec", None)
+    fitted_spec = getattr(persisted_builder, "spec", None)
     if fitted_spec is None:
         raise HTTPException(
             500,
@@ -353,7 +346,7 @@ def _prepare_stage6_simulation(
 
     causal_spec = ctx["stage-1b"].get("causal_spec", {})
     outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
-    spec = fitted_artifact.builder._spec
+    spec = fitted_artifact.builder.spec
     latent_names = list(spec.latent_names or [])
     manifest_names = list(spec.manifest_names or [])
     name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
@@ -548,54 +541,6 @@ def _execute_validate_measurement_model(
     )
 
 
-def _execute_stage4_submission(
-    ctx: dict[str, Any],
-    data: dict[str, Any],
-) -> dict[str, Any]:
-    from causal_ssm_agent.flows.stages.stage4.grounding import should_capture_stage4_output
-
-    workspace_id = ctx["_workspace_id"]
-    stage1b = ctx.get("stage-1b", {})
-    causal_spec = stage1b.get("causal_spec", {})
-    current = _load_stage4_current(workspace_id)
-    data_for_model = _load_stage2_data_for_model(workspace_id)
-
-    grounding_result = stage4_grounding(
-        data, causal_spec, current=current, data_for_model=data_for_model
-    )
-    stage_output = (
-        grounding_result.stage_output if should_capture_stage4_output(grounding_result) else None
-    )
-    return {"result": grounding_result.feedback, "stage_output": stage_output}
-
-
-def _execute_submit_model_spec(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    raw = args.get("model_spec_json", "")
-    try:
-        model_spec = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return {"result": f"JSON parse error: {e}", "stage_output": None}
-    return _execute_stage4_submission(ctx, {"model_spec": model_spec})
-
-
-def _execute_submit_priors(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    raw = args.get("priors_json", "")
-    try:
-        priors = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return {"result": f"JSON parse error: {e}", "stage_output": None}
-    return _execute_stage4_submission(ctx, {"priors": priors})
-
-
-async def _execute_search_literature(_ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    """Execute search_literature via Exa API (async)."""
-    query = args.get("query", "")
-    if not query:
-        return {"result": "Error: query is required"}
-    result = await search_literature(query)
-    return {"result": result}
-
-
 def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, str]:
     from causal_ssm_agent.utils.llm import _validate_json_and_format
     from causal_ssm_agent.workers.schemas import validate_worker_output
@@ -640,7 +585,7 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
         payload["overview"] = {
             "outcome": ctx.get("_outcome_name"),
             "treatments": ctx["_identifiable_treatments"],
-            "n_latent": len(getattr(fitted_artifact.builder._spec, "latent_names", []) or []),
+            "n_latent": len(getattr(fitted_artifact.builder.spec, "latent_names", []) or []),
             "n_manifest": len(runtime.manifest_names),
             "inference_method": (stage5b.get("inference_metadata") or {}).get("method"),
             "observed_time_range": {
@@ -820,7 +765,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
     )
     abducted = approximate_abducted_state(
         setup.samples,
-        setup.fitted_artifact.builder._model,
+        setup.fitted_artifact.builder.model,
         setup.spec,
         setup.runtime.observations,
         setup.runtime.times,
@@ -921,23 +866,6 @@ _STAGE_CONTEXT_DEPS: dict[str, list[str]] = {
     "stage-4": ["stage-1b"],
     "stage-6": [],
 }
-
-
-def _load_stage4_current(workspace_id: str) -> dict[str, Any] | None:
-    """Load stage-4 result with draft overlay for state accumulation.
-
-    During refinement, priors are submitted incrementally. Each successful
-    tool call saves a draft; subsequent calls merge new proposals with the
-    accumulated state (original result + draft overlay).
-    """
-    path = storage.join(runs_dir(workspace_id), "stage-4.json")
-    if not storage.exists(path):
-        return None
-    state = storage.read_json(path)
-    draft_path = storage.join(runs_dir(workspace_id), "stage-4-draft.json")
-    if storage.exists(draft_path):
-        state.update(storage.read_json(draft_path))
-    return state
 
 
 def _build_context(workspace_id: str, stage_id: str) -> dict[str, Any]:
