@@ -505,6 +505,83 @@ class TestStage4GroundingCompileOwnership:
         assert "MODELING WARNINGS" in feedback
         assert "weekly" in feedback
 
+    def test_sensitivity_failure_surfaces_distinct_grounding_status(self, monkeypatch):
+        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+
+        model_spec = {
+            "likelihoods": [],
+            "parameters": [
+                {
+                    "name": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                }
+            ],
+        }
+        validation = AssemblyValidation(
+            normalized_model_spec=model_spec,
+            compile_ok=True,
+            compiled_ssm={"compiled_prior_semantics": {}, "parameter_bindings": []},
+            pp_checked=True,
+            pp_valid=True,
+            sensitivity_consulted=True,
+            sensitivity_supported=True,
+            sensitivity_valid=False,
+            sensitivity_payload={
+                "deficiency_count": 1,
+                "weak_directions": [
+                    {
+                        "index": 1,
+                        "normalized_singular_value": 0.2,
+                        "status": "fail",
+                        "top_loadings": [
+                            {
+                                "parameter": "drift_offdiag_free[0]",
+                                "interpretable_parameter": "beta_stress_sleep",
+                                "loading": 0.9,
+                                "abs_loading": 0.9,
+                            }
+                        ],
+                    }
+                ],
+                "per_parameter": [],
+            },
+        )
+
+        def stub_validate_assembly(model_spec, *_args, **_kwargs):
+            return validation
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            lambda *_args, **_kwargs: [],
+        )
+
+        result = stage4_grounding(
+            {
+                "priors": {
+                    "beta_stress_sleep": {
+                        "parameter": "beta_stress_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "test prior",
+                    }
+                }
+            },
+            causal_spec={},
+            current={"model_spec": model_spec},
+            data_for_model=None,
+        )
+
+        assert result.validation_packet.status == "sensitivity_failure"
+        assert "JACOBIAN SENSITIVITY FEEDBACK" in result.feedback
+        assert result.stage_output is not None
+        assert result.stage_output["validation"] is validation
+
     def test_rejected_compile_does_not_overwrite_last_accepted_capture(self):
         from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
 

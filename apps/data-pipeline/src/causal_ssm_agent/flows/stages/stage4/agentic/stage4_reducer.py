@@ -1334,6 +1334,26 @@ def _finalize_repair_campaign_if_complete(
             ),
         )
 
+    if validation_route.outcome == "sensitivity_failure":
+        assert validation_route.repair_plan is not None
+        return _apply_stage4_step_result(
+            plan,
+            runtime,
+            Stage4StepResult(
+                validation_packet=build_validation_packet_for_block(
+                    block_id=representative_block.id,
+                    status="sensitivity_failure",
+                    feedback=feedback,
+                    validation=validation,
+                    changed_parameters=tuple(changed_params),
+                    state_retained=True,
+                    retain_for_next_prompt=True,
+                    capture_stage_output=False,
+                ),
+                events=(_make_stage4_repair_planned_event(validation_route.repair_plan),),
+            ),
+        )
+
     success_packet = build_validation_packet_for_block(
         block_id=representative_block.id,
         status="accepted",

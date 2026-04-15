@@ -217,9 +217,14 @@ def stage4_grounding(
         authored_priors or {},
         changed_params=list(new_priors) if new_priors else list(authored_priors or {}),
     )
+    failure_status = (
+        "sensitivity_failure"
+        if validation.has_sensitivity_failure
+        else "prior_predictive_failure"
+    )
     return make_stage4_grounding_result(
         stage_output=output,
-        status="prior_predictive_failure",
+        status=failure_status,
         feedback=_with_stateful_retry_guidance(feedback),
         validation=validation,
         changed_parameters=changed_parameters,

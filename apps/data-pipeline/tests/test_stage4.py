@@ -53,6 +53,7 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer import (
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
     ResolvedRepairScope,
     classify_prior_failure_blocks,
+    classify_validation_outcome,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
     project_stage4_graph,
@@ -247,6 +248,8 @@ def _make_stub_grounding_result(stage_output: dict | None, feedback: str):
     validation = stage_output.get("validation") if isinstance(stage_output, dict) else None
     if validation is not None and getattr(validation, "compile_ok", True) is False:
         status = "compile_error"
+    elif validation is not None and getattr(validation, "has_sensitivity_failure", False):
+        status = "sensitivity_failure"
     elif (
         validation is not None
         and getattr(validation, "pp_checked", False)
@@ -460,6 +463,59 @@ def test_prior_failure_classification_raises_without_concrete_reason():
             ),
             runtime,
         )
+
+
+def test_sensitivity_failure_routes_from_weak_normalized_direction():
+    causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
+    del causal_spec, skeleton, _data_for_model
+    active_block = _require_plan_block(plan, "effects:sleep")
+
+    validation = AssemblyValidation(
+        compile_ok=True,
+        pp_checked=True,
+        pp_valid=True,
+        sensitivity_consulted=True,
+        sensitivity_supported=True,
+        sensitivity_valid=False,
+        sensitivity_payload={
+            "deficiency_count": 1,
+            "weak_directions": [
+                {
+                    "index": 1,
+                    "normalized_singular_value": 0.2,
+                    "status": "fail",
+                    "top_loadings": [
+                        {
+                            "parameter": "drift_offdiag_free[0]",
+                            "interpretable_parameter": "beta_activity_sleep",
+                            "loading": 0.81,
+                            "abs_loading": 0.81,
+                        },
+                        {
+                            "parameter": "drift_diag_free[1]",
+                            "interpretable_parameter": "rho_sleep",
+                            "loading": 0.44,
+                            "abs_loading": 0.44,
+                        },
+                    ],
+                }
+            ],
+            "per_parameter": [],
+        },
+    )
+
+    decision = classify_validation_outcome(
+        plan,
+        active_block,
+        validation,
+        runtime,
+        feedback="JACOBIAN SENSITIVITY FEEDBACK",
+    )
+
+    assert decision.outcome == "sensitivity_failure"
+    assert decision.repair_plan is not None
+    assert decision.repair_plan.scope.scope_kind == "local_drift_motif"
+    assert "effects:sleep" in decision.repair_plan.block_ids
 
 
 # --- Prompt assembly tests ---
@@ -1827,6 +1883,8 @@ def _make_stage4_deps(
         status = (
             "compile_error"
             if validation is not None and getattr(validation, "compile_ok", True) is False
+            else "sensitivity_failure"
+            if validation is not None and getattr(validation, "has_sensitivity_failure", False)
             else "prior_predictive_failure"
             if validation is not None
             and getattr(validation, "pp_checked", False)
@@ -2339,6 +2397,10 @@ class TestPriorPredictiveValidation:
                 "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
                 side_effect=stub_validate_prior_predictive,
             ),
+            patch(
+                "causal_ssm_agent.flows.stages.stage4.assembly.run_output_sensitivity_validation",
+                return_value=(True, True, True, None, []),
+            ),
         ):
             validation = validate_assembly(
                 simple_model_spec,
@@ -2389,6 +2451,10 @@ class TestPriorPredictiveValidation:
                 "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
                 return_value=(True, [], {}),
             ) as pp_mock,
+            patch(
+                "causal_ssm_agent.flows.stages.stage4.assembly.run_output_sensitivity_validation",
+                return_value=(True, True, True, None, []),
+            ),
         ):
             validation = validate_assembly(
                 simple_model_spec,
@@ -2416,6 +2482,68 @@ class TestPriorPredictiveValidation:
             ).model_dump()
         ]
         pp_mock.assert_called_once()
+
+    def test_validate_assembly_runs_jacobian_sensitivity_after_passing_ppc(
+        self,
+        simple_model_spec,
+        simple_priors,
+    ):
+        from causal_ssm_agent.flows.stages.stage4.assembly import validate_assembly
+
+        compiled_artifact = {"schema_version": 1, "compiled_prior_semantics": {}}
+        data_for_model = _make_polars_data()
+        sensitivity_payload = {
+            "deficiency_count": 1,
+            "weak_directions": [
+                {
+                    "index": 1,
+                    "normalized_singular_value": 0.25,
+                    "status": "fail",
+                    "top_loadings": [
+                        {
+                            "parameter": "drift_offdiag_free[0]",
+                            "interpretable_parameter": "beta_stress_sleep",
+                            "loading": 0.9,
+                            "abs_loading": 0.9,
+                        }
+                    ],
+                }
+            ],
+            "per_parameter": [],
+        }
+
+        with (
+            patch(
+                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                return_value=compiled_artifact,
+            ),
+            patch(
+                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
+                return_value=(True, [], {}),
+            ),
+            patch(
+                "causal_ssm_agent.flows.stages.stage4.assembly.run_output_sensitivity_validation",
+                return_value=(True, True, False, sensitivity_payload, []),
+            ) as sensitivity_mock,
+        ):
+            validation = validate_assembly(
+                simple_model_spec,
+                simple_priors,
+                data_for_model,
+                None,
+                None,
+            )
+
+        sensitivity_mock.assert_called_once_with(
+            compiled_ssm=compiled_artifact,
+            data_for_model=data_for_model,
+        )
+        assert validation.sensitivity_consulted is True
+        assert validation.sensitivity_supported is True
+        assert validation.sensitivity_valid is False
+        assert validation.sensitivity_payload == sensitivity_payload
+        assert validation.has_sensitivity_failure is True
+        assert validation.is_valid is False
 
     def test_validate_prior_predictive_skips_recompile_when_artifact_provided(
         self,
@@ -7432,7 +7560,7 @@ class TestStage4Mechanics:
         )
 
         assert second_run_blocks == ["observation:obs_ordered_base", "dynamics:sleep"]
-        assert clear_calls == 1
+        assert clear_calls == 0
         assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
     def test_run_stage4_discards_invalid_runtime_checkpoint(self, monkeypatch):
@@ -7540,7 +7668,7 @@ class TestStage4Mechanics:
             )
         )
 
-        assert cleared == [True, True]
+        assert cleared == [True]
         assert visited_blocks == [
             "review:model_spec",
             "observation:obs_ordered_base",

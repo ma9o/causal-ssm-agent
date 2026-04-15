@@ -30,6 +30,7 @@ _DRIFT_RELATED_CODES = frozenset(
         "partial_dynamics_row_budget_exceeded",
         "partial_dynamics_stability",
         "partial_row_budget_exceeded",
+        "jacobian_sensitivity_drift",
     }
 )
 
@@ -37,6 +38,7 @@ Stage4ValidationOutcome = Literal[
     "accepted",
     "compile_error",
     "prior_predictive_failure",
+    "sensitivity_failure",
 ]
 
 

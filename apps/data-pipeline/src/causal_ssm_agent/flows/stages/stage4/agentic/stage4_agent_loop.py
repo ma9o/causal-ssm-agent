@@ -291,6 +291,4 @@ async def run_stage4(
     if not session.is_done():
         raise ValueError("Stage 4 agentic flow did not produce a valid model_spec + priors")
 
-    if clear_checkpoint is not None:
-        clear_checkpoint()
     return session.result()
