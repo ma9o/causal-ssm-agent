@@ -391,13 +391,19 @@ def _build_prior_tridiagonal_system(
     jitter: float = 1e-6,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Assemble the latent-prior contribution for the IEKS tridiagonal system."""
+    dtype = jnp.result_type(Ad, Qd, cd, init_mean, init_cov)
+    Ad = jnp.asarray(Ad, dtype=dtype)
+    Qd = jnp.asarray(Qd, dtype=dtype)
+    cd = jnp.asarray(cd, dtype=dtype)
+    init_mean = jnp.asarray(init_mean, dtype=dtype)
+    init_cov = jnp.asarray(init_cov, dtype=dtype)
     T, D = Ad.shape[:2]
-    eye = jnp.eye(D, dtype=Ad.dtype)
+    eye = jnp.eye(D, dtype=dtype)
 
-    diag_blocks = jnp.zeros((T, D, D), dtype=Ad.dtype)
-    rhs = jnp.zeros((T, D), dtype=Ad.dtype)
-    lower = jnp.zeros((T, D, D), dtype=Ad.dtype)
-    upper = jnp.zeros((T, D, D), dtype=Ad.dtype)
+    diag_blocks = jnp.zeros((T, D, D), dtype=dtype)
+    rhs = jnp.zeros((T, D), dtype=dtype)
+    lower = jnp.zeros((T, D, D), dtype=dtype)
+    upper = jnp.zeros((T, D, D), dtype=dtype)
 
     prior_mean = Ad[0] @ init_mean + cd[0]
     prior_cov = _symmetrize_psd(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
@@ -548,12 +554,18 @@ def _build_prior_banded_system(
     jitter: float = 1e-6,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Assemble the Gaussian latent-prior contribution in block-banded form."""
+    dtype = jnp.result_type(Ad, Qd, cd, init_mean, init_cov)
+    Ad = jnp.asarray(Ad, dtype=dtype)
+    Qd = jnp.asarray(Qd, dtype=dtype)
+    cd = jnp.asarray(cd, dtype=dtype)
+    init_mean = jnp.asarray(init_mean, dtype=dtype)
+    init_cov = jnp.asarray(init_cov, dtype=dtype)
     T, D = Ad.shape[:2]
-    eye = jnp.eye(D, dtype=Ad.dtype)
+    eye = jnp.eye(D, dtype=dtype)
 
-    diag = jnp.zeros((T, D, D), dtype=Ad.dtype)
-    upper = jnp.zeros((bandwidth, T, D, D), dtype=Ad.dtype)
-    rhs = jnp.zeros((T, D), dtype=Ad.dtype)
+    diag = jnp.zeros((T, D, D), dtype=dtype)
+    upper = jnp.zeros((bandwidth, T, D, D), dtype=dtype)
+    rhs = jnp.zeros((T, D), dtype=dtype)
 
     prior_mean = Ad[0] @ init_mean + cd[0]
     prior_cov = _symmetrize_psd(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
@@ -1890,6 +1902,7 @@ def _support_aware_mode_optimality(
     return _block_banded_matvec(system_diag, system_upper, z_est) - system_rhs
 
 
+
 def _support_aware_ieks_mode(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
@@ -1906,15 +1919,16 @@ def _support_aware_ieks_mode(
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
+    row_upper_bandwidths: jnp.ndarray,
+    row_lower_bandwidths: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
+    factor_block_cholesky_fn=_factor_block_profile_cholesky,
+    solve_block_from_cholesky_fn=_solve_block_profile_from_cholesky,
 ) -> tuple[
     jnp.ndarray,
     tuple[
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
         jnp.ndarray,
         jnp.ndarray,
         jnp.ndarray,
@@ -1963,11 +1977,10 @@ def _support_aware_ieks_mode(
 
     system_dtype = jnp.result_type(
         prior_diag.dtype,
+        observations.dtype,
+        H.dtype,
+        d.dtype,
         R.dtype,
-        *(batch.mask_full.dtype for batch in support_window_batches),
-        *(batch.prev_coeffs.dtype for batch in support_window_batches),
-        *(batch.curr_coeffs.dtype for batch in support_window_batches),
-        *(batch.weights.dtype for batch in support_window_batches),
     )
     if z_init is None:
         z_est = _predictive_latent_init(Ad, cd, init_mean)
@@ -1977,8 +1990,6 @@ def _support_aware_ieks_mode(
 
     log_joint_curr = _support_log_joint(z_est)
     init_log_joint = log_joint_curr
-    zero_system_diag = jnp.zeros(prior_diag.shape, dtype=system_dtype)
-    zero_system_upper = jnp.zeros(prior_upper.shape, dtype=system_dtype)
 
     def _newton_step(carry, _idx):
         (
@@ -1991,9 +2002,6 @@ def _support_aware_ieks_mode(
             last_rel_change,
             last_alpha,
             last_step_norm,
-            last_system_diag,
-            last_system_upper,
-            last_system_exact_at_mode,
         ) = carry
         damping = jnp.asarray(damping, dtype=z_curr.dtype)
         carry_cast = (
@@ -2006,9 +2014,6 @@ def _support_aware_ieks_mode(
             last_rel_change,
             last_alpha,
             last_step_norm,
-            last_system_diag,
-            last_system_upper,
-            last_system_exact_at_mode,
         )
 
         def _do_step(_):
@@ -2036,8 +2041,19 @@ def _support_aware_ieks_mode(
             system_upper = system_upper.astype(system_dtype)
             system_rhs = system_rhs.astype(system_dtype)
             with jax.named_scope("laplace_em/support_aware_solve"):
-                chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
-                z_newton = _solve_block_banded_from_cholesky(chol_diag, lower, system_rhs)
+                chol_diag, lower = factor_block_cholesky_fn(
+                    system_diag,
+                    system_upper,
+                    row_upper_bandwidths,
+                    row_lower_bandwidths,
+                )
+                z_newton = solve_block_from_cholesky_fn(
+                    chol_diag,
+                    lower,
+                    system_rhs,
+                    row_upper_bandwidths,
+                    row_lower_bandwidths,
+                )
 
             step_direction = z_newton - z_curr
             step_norm = jnp.linalg.norm(step_direction)
@@ -2050,7 +2066,6 @@ def _support_aware_ieks_mode(
 
             rel_change = jnp.linalg.norm(z_next - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
             accepted_full_step = accepted & (accepted_alpha > 0.999)
-            system_exact_at_mode = (~accepted) | jnp.all(step_direction == 0)
 
             damping_next = jax.lax.cond(
                 accepted_full_step,
@@ -2088,9 +2103,6 @@ def _support_aware_ieks_mode(
                 rel_change,
                 accepted_alpha,
                 step_norm,
-                system_diag,
-                system_upper,
-                system_exact_at_mode,
             )
 
         return jax.lax.cond(active, _do_step, lambda _: carry_cast, operand=None), None
@@ -2107,9 +2119,6 @@ def _support_aware_ieks_mode(
                 final_rel_change,
                 final_step_alpha,
                 final_step_norm,
-                final_system_diag,
-                final_system_upper,
-                final_system_exact_at_mode,
             ),
             _,
         ) = jax.lax.scan(
@@ -2124,9 +2133,6 @@ def _support_aware_ieks_mode(
                 jnp.asarray(jnp.nan, dtype=z_est.dtype),
                 jnp.asarray(jnp.nan, dtype=z_est.dtype),
                 jnp.asarray(jnp.nan, dtype=z_est.dtype),
-                zero_system_diag,
-                zero_system_upper,
-                jnp.asarray(False),
             ),
             xs=jnp.arange(max(n_ieks_iters, 1)),
         )
@@ -2139,18 +2145,12 @@ def _support_aware_ieks_mode(
         final_damping,
         final_step_alpha,
         final_step_norm,
-        final_system_diag,
-        final_system_upper,
-        final_system_exact_at_mode,
     )
 
 
 def _support_aware_laplace_from_mode(
     z_mode: jnp.ndarray,
     mode_aux: tuple[
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
         jnp.ndarray,
         jnp.ndarray,
         jnp.ndarray,
@@ -2176,6 +2176,9 @@ def _support_aware_laplace_from_mode(
     point_like_mask: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
     bandwidth: int,
+    row_upper_bandwidths: jnp.ndarray,
+    row_lower_bandwidths: jnp.ndarray,
+    factor_block_cholesky_fn=_factor_block_profile_cholesky,
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Evaluate the Laplace correction at an already-solved support-aware mode."""
     (
@@ -2186,9 +2189,6 @@ def _support_aware_laplace_from_mode(
         final_damping,
         final_step_alpha,
         final_step_norm,
-        final_system_diag,
-        final_system_upper,
-        final_system_exact_at_mode,
     ) = mode_aux
     prior_terms = _build_gaussian_trajectory_prior_terms(
         Ad,
@@ -2211,31 +2211,31 @@ def _support_aware_laplace_from_mode(
         mean_log_prob_fn=mean_log_prob_fn,
         observation_support=observation_support,
     )
-    system_diag, system_upper = jax.lax.cond(
-        final_system_exact_at_mode,
-        lambda _: (final_system_diag, final_system_upper),
-        lambda _: _support_aware_posterior_system(
-            z_mode,
-            observations,
-            obs_mask,
-            Ad,
-            Qd,
-            cd,
-            H,
-            d,
-            R,
-            init_mean,
-            init_cov,
-            obs_kernel,
-            support_window_batches,
-            point_like_mask,
-            window_derivatives,
-            bandwidth,
-        )[:2],
-        operand=None,
+    system_diag, system_upper, _system_rhs = _support_aware_posterior_system(
+        z_mode,
+        observations,
+        obs_mask,
+        Ad,
+        Qd,
+        cd,
+        H,
+        d,
+        R,
+        init_mean,
+        init_cov,
+        obs_kernel,
+        support_window_batches,
+        point_like_mask,
+        window_derivatives,
+        bandwidth,
     )
     with jax.named_scope("laplace_em/support_aware_final_hessian"):
-        chol_diag, _lower = _factor_block_banded_cholesky(system_diag, system_upper)
+        chol_diag, _lower = factor_block_cholesky_fn(
+            system_diag,
+            system_upper,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+        )
 
     flat_dim = observations.shape[0] * init_mean.shape[0]
     laplace_logdet = _block_banded_logdet(chol_diag)
@@ -2259,7 +2259,7 @@ def _support_aware_laplace_from_mode(
     return log_lik, inner_eval_aux
 
 
-def _support_aware_ieks_laplace(
+def _support_aware_ieks_laplace_core(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
     Ad: jnp.ndarray,
@@ -2275,13 +2275,14 @@ def _support_aware_ieks_laplace(
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
-    _row_upper_bandwidths: jnp.ndarray,
-    _row_lower_bandwidths: jnp.ndarray,
+    row_upper_bandwidths: jnp.ndarray,
+    row_lower_bandwidths: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
     build_measurement_objects: Callable[[jnp.ndarray, dict | None], tuple[Any, tuple[Any, ...]]],
     extra_params: dict | None,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
+    final_factor_block_cholesky_fn=_factor_block_profile_cholesky,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Support-aware IEKS solve plus Laplace log-likelihood."""
     del obs_kernel, mean_log_prob_fn, window_derivatives
@@ -2321,6 +2322,8 @@ def _support_aware_ieks_laplace(
             observation_support=observation_support,
             support_window_batches=support_window_batches,
             bandwidth=bandwidth,
+            row_upper_bandwidths=row_upper_bandwidths,
+            row_lower_bandwidths=row_lower_bandwidths,
             window_derivatives=window_derivatives_curr,
             n_ieks_iters=n_ieks_iters,
             z_init=z_init,
@@ -2337,6 +2340,7 @@ def _support_aware_ieks_laplace(
     def _implicit_mode_solve_bwd(res, output_ct):
         mode_params, z_mode = res
         z_mode_bar, _mode_aux_bar = output_ct
+        del _mode_aux_bar
         (
             Ad_curr,
             Qd_curr,
@@ -2370,8 +2374,19 @@ def _support_aware_ieks_laplace(
             window_derivatives_curr,
             bandwidth,
         )
-        chol_diag, lower = _factor_block_banded_cholesky(system_diag, system_upper)
-        lambda_mode = _solve_block_banded_from_cholesky(chol_diag, lower, z_mode_bar)
+        chol_diag, lower = _factor_block_profile_cholesky(
+            system_diag,
+            system_upper,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+        )
+        lambda_mode = _solve_block_profile_from_cholesky(
+            chol_diag,
+            lower,
+            z_mode_bar,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+        )
 
         def _optimality(mode_params_inner):
             (
@@ -2447,9 +2462,146 @@ def _support_aware_ieks_laplace(
         point_like_mask,
         runtime_window_derivatives,
         bandwidth,
+        row_upper_bandwidths,
+        row_lower_bandwidths,
+        factor_block_cholesky_fn=final_factor_block_cholesky_fn,
     )
     return log_lik, z_est, inner_eval_aux
 
+
+def _support_aware_ieks_laplace(
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    H: jnp.ndarray,
+    d: jnp.ndarray,
+    R: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    obs_kernel,
+    mean_log_prob_fn,
+    observation_support: ObservationSupportRuntime,
+    support_window_batches: tuple[SupportObservationWindowBatch, ...],
+    bandwidth: int,
+    row_upper_bandwidths: jnp.ndarray,
+    row_lower_bandwidths: jnp.ndarray,
+    window_derivatives: tuple[Any, ...],
+    build_measurement_objects: Callable[[jnp.ndarray, dict | None], tuple[Any, tuple[Any, ...]]],
+    extra_params: dict | None,
+    n_ieks_iters: int,
+    z_init: jnp.ndarray | None = None,
+) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
+    """Support-aware IEKS solve plus Laplace log-likelihood."""
+
+    def _laplace_core(laplace_params):
+        (
+            Ad_curr,
+            Qd_curr,
+            cd_curr,
+            H_curr,
+            d_curr,
+            R_curr,
+            init_mean_curr,
+            init_cov_curr,
+            extra_params_curr,
+        ) = laplace_params
+        return _support_aware_ieks_laplace_core(
+            observations,
+            obs_mask,
+            Ad_curr,
+            Qd_curr,
+            cd_curr,
+            H_curr,
+            d_curr,
+            R_curr,
+            init_mean_curr,
+            init_cov_curr,
+            obs_kernel,
+            mean_log_prob_fn,
+            observation_support,
+            support_window_batches,
+            bandwidth,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+            window_derivatives,
+            build_measurement_objects,
+            extra_params_curr,
+            n_ieks_iters,
+            z_init=z_init,
+            final_factor_block_cholesky_fn=_factor_block_profile_cholesky,
+        )
+
+    def _laplace_core_rev_safe_loglik(laplace_params):
+        (
+            Ad_curr,
+            Qd_curr,
+            cd_curr,
+            H_curr,
+            d_curr,
+            R_curr,
+            init_mean_curr,
+            init_cov_curr,
+            extra_params_curr,
+        ) = laplace_params
+        log_lik, _z_mode, _inner_eval_aux = _support_aware_ieks_laplace_core(
+            observations,
+            obs_mask,
+            Ad_curr,
+            Qd_curr,
+            cd_curr,
+            H_curr,
+            d_curr,
+            R_curr,
+            init_mean_curr,
+            init_cov_curr,
+            obs_kernel,
+            mean_log_prob_fn,
+            observation_support,
+            support_window_batches,
+            bandwidth,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+            window_derivatives,
+            build_measurement_objects,
+            extra_params_curr,
+            n_ieks_iters,
+            z_init=z_init,
+            final_factor_block_cholesky_fn=_factor_block_banded_cholesky,
+        )
+        return log_lik
+
+    @jax.custom_vjp
+    def _laplace_eval(laplace_params):
+        return _laplace_core(laplace_params)
+
+    def _laplace_eval_fwd(laplace_params):
+        outputs = _laplace_core(laplace_params)
+        return outputs, laplace_params
+
+    def _laplace_eval_bwd(res, output_ct):
+        laplace_params = res
+        log_lik_bar, _z_mode_bar, _inner_eval_aux_bar = output_ct
+        del _z_mode_bar, _inner_eval_aux_bar
+        _, vjp_fn = jax.vjp(_laplace_core_rev_safe_loglik, laplace_params)
+        (laplace_params_bar,) = vjp_fn(log_lik_bar)
+        return (laplace_params_bar,)
+
+    _laplace_eval.defvjp(_laplace_eval_fwd, _laplace_eval_bwd)
+
+    laplace_params = (
+        Ad,
+        Qd,
+        cd,
+        H,
+        d,
+        R,
+        init_mean,
+        init_cov,
+        extra_params,
+    )
+    return _laplace_eval(laplace_params)
 
 def _support_aware_ieks_log_lik(
     observations: jnp.ndarray,
@@ -2620,7 +2772,9 @@ class LaplaceLikelihood:
     observation models (e.g., channel 0 Gaussian, channel 1 Poisson).
     """
 
-    checkpoint_loglik = True
+    # The support-aware Laplace path constructs runtime callables and custom-VJP
+    # closures that are not remat-safe under large traced outer evaluations.
+    checkpoint_loglik = False
 
     def __init__(
         self,
@@ -2680,22 +2834,28 @@ class LaplaceLikelihood:
             self._support_row_upper_bandwidths = jnp.zeros((0,), dtype=jnp.int32)
             self._support_row_lower_bandwidths = jnp.zeros((0,), dtype=jnp.int32)
 
-    def _get_support_window_derivatives(self, measurement_semantics, extra_params: dict | None):
-        def _build_window_derivatives() -> tuple[Any, ...]:
-            return tuple(
-                _make_support_window_derivatives(
-                    max_state_len=batch.max_state_len,
-                    n_latent=self.n_latent,
-                    n_manifest=self.n_manifest,
-                    summary_operator_codes=self._summary_operator_codes,
-                    obs_kernel=measurement_semantics.obs_kernel,
-                    mean_log_prob_fn=measurement_semantics.mean_log_prob_fn,
-                )
-                for batch in self._support_window_batches
+    def _build_support_window_derivatives(self, measurement_semantics) -> tuple[Any, ...]:
+        return tuple(
+            _make_support_window_derivatives(
+                max_state_len=batch.max_state_len,
+                n_latent=self.n_latent,
+                n_manifest=self.n_manifest,
+                summary_operator_codes=self._summary_operator_codes,
+                obs_kernel=measurement_semantics.obs_kernel,
+                mean_log_prob_fn=measurement_semantics.mean_log_prob_fn,
             )
+            for batch in self._support_window_batches
+        )
 
-        if extra_params is not None:
-            return _build_window_derivatives()
+    def _get_support_window_derivatives(
+        self,
+        measurement_semantics,
+        extra_params: dict | None,
+        *,
+        allow_cache: bool,
+    ):
+        if not allow_cache or extra_params is not None:
+            return self._build_support_window_derivatives(measurement_semantics)
 
         signature = (
             measurement_semantics.manifest_dists,
@@ -2708,57 +2868,33 @@ class LaplaceLikelihood:
             self._support_window_derivatives is None
             or self._support_window_derivatives_signature != signature
         ):
-            self._support_window_derivatives = _build_window_derivatives()
+            self._support_window_derivatives = self._build_support_window_derivatives(
+                measurement_semantics
+            )
             self._support_window_derivatives_signature = signature
         return self._support_window_derivatives
 
-    def compute_log_likelihood(
+    def _compute_log_likelihood_impl(
         self,
         ct_params: CTParams,
         measurement_params: MeasurementParams,
         initial_state: InitialStateParams,
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
+        *,
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
         latent_mode_init: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        """Compute Laplace-approximated log-likelihood.
-
-        Returns:
-            (T,) cumulative log-normalizing constants, matching LikelihoodBackend protocol.
-        """
-        log_lik, _aux = self.compute_log_likelihood_with_aux(
-            ct_params,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
-            obs_mask=obs_mask,
-            extra_params=extra_params,
-            latent_mode_init=latent_mode_init,
-        )
-        return log_lik
-
-    def compute_log_likelihood_with_aux(
-        self,
-        ct_params: CTParams,
-        measurement_params: MeasurementParams,
-        initial_state: InitialStateParams,
-        observations: jnp.ndarray,
-        time_intervals: jnp.ndarray,
-        obs_mask: jnp.ndarray | None = None,
-        extra_params: dict | None = None,
-        latent_mode_init: jnp.ndarray | None = None,
-    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-        """Compute Laplace-approximated log-likelihood plus host-log aux."""
+        include_aux: bool,
+        allow_stateful_cache: bool,
+    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray] | None]:
+        """Shared Laplace likelihood implementation with explicit cache control."""
         n = self.n_latent
 
         if obs_mask is None:
             obs_mask = ~jnp.isnan(observations)
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
 
-        # Pre-discretize CT -> DT
         with jax.named_scope("laplace_em/discretize_system"):
             Ad, Qd, cd = discretize_system_batched(
                 ct_params.drift,
@@ -2799,9 +2935,13 @@ class LaplaceLikelihood:
                     manifest_links=self.manifest_links,
                     observation_support=self.observation_support,
                 )
+                allow_runtime_cache = allow_stateful_cache and not _tree_contains_tracer(
+                    (manifest_cov, runtime_extra_params)
+                )
                 return runtime_measurement_semantics, self._get_support_window_derivatives(
                     runtime_measurement_semantics,
                     runtime_extra_params,
+                    allow_cache=allow_runtime_cache,
                 )
 
             cache_inputs = (
@@ -2813,7 +2953,12 @@ class LaplaceLikelihood:
                 obs_mask,
                 extra_params,
             )
-            can_reuse_support_mode = not _tree_contains_tracer(cache_inputs)
+            can_reuse_support_mode = allow_stateful_cache and not _tree_contains_tracer(
+                cache_inputs
+            )
+            can_cache_window_derivatives = allow_stateful_cache and not _tree_contains_tracer(
+                (measurement_params.manifest_cov, extra_params)
+            )
             support_mode_init = latent_mode_init
             if (
                 support_mode_init is None
@@ -2827,7 +2972,7 @@ class LaplaceLikelihood:
                 n_latent=self.n_latent,
             ):
                 with jax.named_scope("laplace_em/dense_support_backend"):
-                    return _dense_support_laplace_log_lik(
+                    log_lik, inner_eval_aux = _dense_support_laplace_log_lik(
                         clean_obs,
                         obs_mask,
                         Ad,
@@ -2843,10 +2988,12 @@ class LaplaceLikelihood:
                         self.observation_support,
                         self.n_ieks_iters,
                     )
+                    return log_lik, inner_eval_aux if include_aux else None
             with jax.named_scope("laplace_em/support_aware_backend"):
                 window_derivatives = self._get_support_window_derivatives(
                     measurement_semantics,
                     extra_params,
+                    allow_cache=can_cache_window_derivatives,
                 )
                 log_lik, z_mode, inner_eval_aux = _support_aware_ieks_laplace(
                     clean_obs,
@@ -2874,7 +3021,7 @@ class LaplaceLikelihood:
                 )
                 if can_reuse_support_mode:
                     self._support_mode_cache = jax.device_get(z_mode)
-                return log_lik, inner_eval_aux
+                return log_lik, inner_eval_aux if include_aux else None
 
         cache_inputs = (
             ct_params,
@@ -2885,7 +3032,7 @@ class LaplaceLikelihood:
             obs_mask,
             extra_params,
         )
-        can_reuse_point_mode = not _tree_contains_tracer(cache_inputs)
+        can_reuse_point_mode = allow_stateful_cache and not _tree_contains_tracer(cache_inputs)
         point_mode_init = latent_mode_init
         if (
             point_mode_init is None
@@ -2914,6 +3061,63 @@ class LaplaceLikelihood:
             if can_reuse_point_mode:
                 self._point_mode_cache = jax.device_get(z_mode)
 
+        return log_lik, inner_eval_aux if include_aux else None
+
+    def compute_log_likelihood(
+        self,
+        ct_params: CTParams,
+        measurement_params: MeasurementParams,
+        initial_state: InitialStateParams,
+        observations: jnp.ndarray,
+        time_intervals: jnp.ndarray,
+        obs_mask: jnp.ndarray | None = None,
+        extra_params: dict | None = None,
+        latent_mode_init: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Compute Laplace-approximated log-likelihood.
+
+        Returns:
+            (T,) cumulative log-normalizing constants, matching LikelihoodBackend protocol.
+        """
+        log_lik, _aux = self._compute_log_likelihood_impl(
+            ct_params,
+            measurement_params,
+            initial_state,
+            observations,
+            time_intervals,
+            obs_mask=obs_mask,
+            extra_params=extra_params,
+            latent_mode_init=latent_mode_init,
+            include_aux=False,
+            allow_stateful_cache=False,
+        )
+        return log_lik
+
+    def compute_log_likelihood_with_aux(
+        self,
+        ct_params: CTParams,
+        measurement_params: MeasurementParams,
+        initial_state: InitialStateParams,
+        observations: jnp.ndarray,
+        time_intervals: jnp.ndarray,
+        obs_mask: jnp.ndarray | None = None,
+        extra_params: dict | None = None,
+        latent_mode_init: jnp.ndarray | None = None,
+    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+        """Compute Laplace-approximated log-likelihood plus host-log aux."""
+        log_lik, inner_eval_aux = self._compute_log_likelihood_impl(
+            ct_params,
+            measurement_params,
+            initial_state,
+            observations,
+            time_intervals,
+            obs_mask=obs_mask,
+            extra_params=extra_params,
+            latent_mode_init=latent_mode_init,
+            include_aux=True,
+            allow_stateful_cache=True,
+        )
+        assert inner_eval_aux is not None
         return log_lik, inner_eval_aux
 
 
