@@ -11,13 +11,14 @@ INITIAL_STATE_COV_MIN_EIGENVALUE = 1e-6
 
 
 def symmetrize(M: jnp.ndarray) -> jnp.ndarray:
-    """Symmetrize a matrix: 0.5 * (M + M.T)."""
-    return 0.5 * (M + M.T)
+    """Symmetrize a square matrix or stack of square matrices."""
+    return 0.5 * (M + jnp.swapaxes(M, -1, -2))
 
 
 def symmetrize_with_jitter(M: jnp.ndarray, *, jitter: float = CHOL_JITTER) -> jnp.ndarray:
-    """Symmetrize a matrix and add diagonal jitter for Cholesky stability."""
-    return 0.5 * (M + M.T) + jnp.eye(M.shape[0], dtype=M.dtype) * jitter
+    """Symmetrize a square matrix or stack of square matrices and add diagonal jitter."""
+    eye = jnp.eye(M.shape[-1], dtype=M.dtype)
+    return symmetrize(M) + eye * jitter
 
 
 def inflate_missing_variance(cov: jnp.ndarray, mask_float: jnp.ndarray) -> jnp.ndarray:
