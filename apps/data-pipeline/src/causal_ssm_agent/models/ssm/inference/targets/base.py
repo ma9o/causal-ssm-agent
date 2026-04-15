@@ -21,6 +21,11 @@ NUMERICAL_EPSILON = 1e-10
 PROB_CLIP_MIN = 1e-7
 ETA_CLIP_MIN = 1e-6
 
+LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT = 0
+LIKELIHOOD_SOLVER_KIND_POINT_IEKS = 1
+LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS = 2
+LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT = 3
+
 
 class CTParams(NamedTuple):
     """Continuous-time state-space parameters.
@@ -113,6 +118,34 @@ class LikelihoodBackend(Protocol):
             lnc[-1] is the total log-likelihood p(y|θ).
         """
         ...
+
+
+def build_likelihood_eval_aux(
+    dtype,
+    *,
+    solver_kind: int,
+    **overrides,
+) -> dict[str, jnp.ndarray]:
+    """Build a fixed-shape backend diagnostic payload for host-side progress logs."""
+    nan = jnp.asarray(jnp.nan, dtype=dtype)
+    aux = {
+        "solver_kind": jnp.asarray(solver_kind, dtype=jnp.int32),
+        "n_iterations": jnp.asarray(0, dtype=jnp.int32),
+        "n_accepted_steps": jnp.asarray(0, dtype=jnp.int32),
+        "init_log_joint": nan,
+        "final_log_joint": nan,
+        "final_rel_change": nan,
+        "final_damping": nan,
+        "final_step_alpha": nan,
+        "final_step_norm": nan,
+        "laplace_logdet": nan,
+        "min_chol_diag": nan,
+    }
+    for key, value in overrides.items():
+        if key not in aux:
+            raise KeyError(f"Unknown likelihood-eval aux field: {key}")
+        aux[key] = jnp.asarray(value, dtype=aux[key].dtype)
+    return aux
 
 
 def preprocess_missing_data(

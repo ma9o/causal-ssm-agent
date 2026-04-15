@@ -8,10 +8,7 @@ import polars as pl
 
 from causal_ssm_agent.flows.stages.stage5b import fit as stage5_inference
 from causal_ssm_agent.models.ssm.inference import InferenceResult
-from causal_ssm_agent.models.ssm.inference.structure import (
-    FirstPassRBPlan,
-    InferenceStructurePlan,
-)
+from causal_ssm_agent.models.ssm.inference.structure import InferenceStructurePlan
 from causal_ssm_agent.models.ssm.model import SSMModel
 from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, SSMModelBuilder
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
@@ -114,12 +111,10 @@ def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
         observation_data=None,
         observation_support=_make_observation_support_runtime(),
         inference_structure=InferenceStructurePlan(
-            likelihood_path="particle",
-            auto_method="laplace_em",
-            first_pass_rb=FirstPassRBPlan(
-                status="inactive",
-                inactive_reason="interval_summary_support",
-            ),
+            structural_backend="particle",
+            resolved_method="laplace_em",
+            method_override=None,
+            first_pass_partition=None,
         ),
         observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
         times=jnp.array([0.0, 1.5], dtype=jnp.float32),
@@ -159,9 +154,8 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "support=interval(1: sleep_avg) max_active_windows=2" in caplog.text
     assert "Manifest order: sleep_avg, energy" in caplog.text
     assert (
-        "Inference route: requested_method=auto auto_method=laplace_em "
-        "likelihood_path=particle first_pass_rb=inactive "
-        "inactive_reason=interval_summary_support"
+        "Inference route: requested_method=auto resolved_method=laplace_em "
+        "structural_backend=particle method_override=none first_pass_partition=none"
     ) in caplog.text
     assert "Starting inference kernel..." in caplog.text
     assert "Collecting sampler diagnostics..." in caplog.text

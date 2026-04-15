@@ -25,6 +25,10 @@ from causal_ssm_agent.flows.stage_contracts import (
     Stage5bContract,
     Stage6Contract,
 )
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+    Stage4DomainState,
+    Stage4Runtime,
+)
 from causal_ssm_agent.utils import data as data_module
 from causal_ssm_agent.utils import openrouter_client
 
@@ -1450,24 +1454,45 @@ def test_load_stage2_snapshot_rehydrates_current_run_artifact_paths(monkeypatch,
     assert state.workers[0].worker_id == 0
 
 
-def test_stage4_checkpoints_append_in_incremental_directory(monkeypatch, tmp_path):
+def test_stage4_checkpoints_overwrite_per_block_and_track_cursor(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
 
     workspace_id = "test_workspace"
-    first_runtime = {"cursor": "first"}
-    second_runtime = {"cursor": "second"}
+    first_runtime = Stage4Runtime(
+        domain=Stage4DomainState(active_block_id="review:model_spec"),
+    )
+    second_runtime = Stage4Runtime(
+        domain=Stage4DomainState(active_block_id="observation:obs_ordered_base"),
+    )
+    third_runtime = Stage4Runtime(
+        domain=Stage4DomainState(active_block_id="observation:obs_ordered_base"),
+    )
+    done_runtime = Stage4Runtime(
+        domain=Stage4DomainState(done=True),
+    )
 
     first_path = run_store_module.save_stage4_checkpoint(first_runtime, workspace_id)
     second_path = run_store_module.save_stage4_checkpoint(second_runtime, workspace_id)
+    third_path = run_store_module.save_stage4_checkpoint(third_runtime, workspace_id)
+    done_path = run_store_module.save_stage4_checkpoint(done_runtime, workspace_id)
 
     checkpoint_dir = tmp_path / "data" / workspace_id / "run" / "stage-4-checkpoints"
     checkpoint_files = sorted(path.name for path in checkpoint_dir.iterdir())
+    cursor_payload = json.loads((checkpoint_dir / "cursor.json").read_text())
 
-    assert first_path.endswith("stage-4-checkpoints/000001.pkl")
-    assert second_path.endswith("stage-4-checkpoints/000002.pkl")
-    assert checkpoint_files == ["000001.pkl", "000002.pkl"]
-    assert run_store_module.load_stage4_checkpoint(workspace_id) == second_runtime
+    assert first_path.endswith("stage-4-checkpoints/review%3Amodel_spec.pkl")
+    assert second_path.endswith("stage-4-checkpoints/observation%3Aobs_ordered_base.pkl")
+    assert third_path.endswith("stage-4-checkpoints/observation%3Aobs_ordered_base.pkl")
+    assert done_path.endswith("stage-4-checkpoints/__done__.pkl")
+    assert checkpoint_files == [
+        "__done__.pkl",
+        "cursor.json",
+        "observation%3Aobs_ordered_base.pkl",
+        "review%3Amodel_spec.pkl",
+    ]
+    assert cursor_payload == {"kind": "done"}
+    assert run_store_module.load_stage4_checkpoint(workspace_id) == done_runtime
 
     run_store_module.clear_stage4_checkpoint(workspace_id)
 
@@ -1641,7 +1666,6 @@ def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload
                 "auto_method": "laplace_em",
                 "first_pass_rb": {
                     "status": "active",
-                    "inactive_reason": None,
                     "latent_variables": [{"name": "x", "method": "kalman"}],
                     "obs_variables": [{"name": "y", "method": "kalman"}],
                 },

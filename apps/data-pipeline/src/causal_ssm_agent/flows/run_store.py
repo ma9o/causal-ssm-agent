@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 import cloudpickle
 
@@ -32,6 +33,8 @@ STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
 STAGE4_COMPILED_SSM_FILENAMES = ("stage4-compiled-ssm.json",)
 STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 STAGE4_CHECKPOINT_DIRNAME = "stage-4-checkpoints"
+STAGE4_CHECKPOINT_CURSOR_FILENAME = "cursor.json"
+STAGE4_DONE_CHECKPOINT_CACHE_KEY = "__done__"
 
 # ---------------------------------------------------------------------------
 # Path helpers
@@ -141,49 +144,84 @@ def _stage4_checkpoint_dir(workspace_id: str, *, create: bool) -> str:
     return storage.join(run_dir, STAGE4_CHECKPOINT_DIRNAME)
 
 
-def _stage4_checkpoint_index(path: str) -> int | None:
-    """Parse an incremental Stage 4 checkpoint filename into its numeric index."""
-    name = path.rstrip("/").rsplit("/", 1)[-1]
-    if not name.endswith(".pkl"):
-        return None
-    stem = name[:-4]
-    if not stem.isdigit():
-        return None
-    return int(stem)
+def _stage4_checkpoint_cursor_path(workspace_id: str, *, create: bool) -> str:
+    """Return the Stage 4 checkpoint cursor path."""
+    return storage.join(
+        _stage4_checkpoint_dir(workspace_id, create=create),
+        STAGE4_CHECKPOINT_CURSOR_FILENAME,
+    )
 
 
-def _list_stage4_checkpoint_paths(workspace_id: str) -> list[str]:
-    """Return sorted Stage 4 checkpoint paths from oldest to newest."""
-    try:
-        checkpoint_dir = _stage4_checkpoint_dir(workspace_id, create=False)
-    except FileNotFoundError:
-        # Directory doesn't exist yet — no checkpoints saved.
-        return []
-    indexed_paths: list[tuple[int, str]] = []
-    for path in storage.listdir(checkpoint_dir):
-        index = _stage4_checkpoint_index(path)
-        if index is None:
-            continue
-        indexed_paths.append((index, path))
-    indexed_paths.sort(key=lambda item: item[0])
-    return [path for _, path in indexed_paths]
+def _stage4_checkpoint_cache_key(runtime: Any) -> str:
+    """Return the persisted Stage 4 cache key for one runtime wait-state."""
+    domain = getattr(runtime, "domain", None)
+    if domain is None:
+        raise TypeError("Stage 4 checkpoint payload is not a Stage4Runtime")
+    if bool(getattr(domain, "done", False)):
+        return STAGE4_DONE_CHECKPOINT_CACHE_KEY
+    block_id = getattr(domain, "active_block_id", None)
+    if not isinstance(block_id, str) or not block_id:
+        raise ValueError("Stage 4 checkpoint requires an active block or a done state")
+    return block_id
+
+
+def _stage4_checkpoint_path_for_cache_key(
+    workspace_id: str,
+    cache_key: str,
+    *,
+    create: bool,
+) -> str:
+    """Return the Stage 4 checkpoint path for one block or done cache key."""
+    filename = f"{quote(cache_key, safe='')}.pkl"
+    return storage.join(_stage4_checkpoint_dir(workspace_id, create=create), filename)
+
+
+def _stage4_checkpoint_cursor_payload(runtime: Any) -> dict[str, Any]:
+    """Build the Stage 4 cursor payload for one persisted runtime."""
+    cache_key = _stage4_checkpoint_cache_key(runtime)
+    if cache_key == STAGE4_DONE_CHECKPOINT_CACHE_KEY:
+        return {"kind": "done"}
+    return {"kind": "block", "block_id": cache_key}
 
 
 def save_stage4_checkpoint(runtime: Any, workspace_id: str) -> str:
-    """Persist an in-progress Stage 4 runtime checkpoint."""
-    checkpoint_paths = _list_stage4_checkpoint_paths(workspace_id)
-    last_index = _stage4_checkpoint_index(checkpoint_paths[-1]) if checkpoint_paths else None
-    next_index = 1 if last_index is None else last_index + 1
-    filename = storage.join(STAGE4_CHECKPOINT_DIRNAME, f"{next_index:06d}.pkl")
-    return save_pickle(runtime, workspace_id, filename)
+    """Persist the latest Stage 4 runtime at its active block or done cache key."""
+    cache_key = _stage4_checkpoint_cache_key(runtime)
+    checkpoint_path = _stage4_checkpoint_path_for_cache_key(
+        workspace_id,
+        cache_key,
+        create=True,
+    )
+    with storage.open_file(checkpoint_path, "wb") as f:
+        cloudpickle.dump(runtime, f)
+    cursor_path = _stage4_checkpoint_cursor_path(workspace_id, create=True)
+    storage.write_text(cursor_path, json.dumps(_stage4_checkpoint_cursor_payload(runtime)))
+    return checkpoint_path
 
 
 def load_stage4_checkpoint(workspace_id: str) -> Any:
-    """Load a previously persisted Stage 4 runtime checkpoint."""
-    checkpoint_paths = _list_stage4_checkpoint_paths(workspace_id)
-    if not checkpoint_paths:
-        raise FileNotFoundError(f"No Stage 4 checkpoints found for workspace_id {workspace_id}")
-    return load_pickle(checkpoint_paths[-1])
+    """Load the persisted Stage 4 runtime addressed by the cursor file."""
+    cursor_path = _stage4_checkpoint_cursor_path(workspace_id, create=False)
+    if not storage.exists(cursor_path):
+        raise FileNotFoundError(
+            f"No Stage 4 checkpoint cursor found for workspace_id {workspace_id}"
+        )
+    cursor = storage.read_json(cursor_path)
+    if not isinstance(cursor, dict):
+        raise TypeError(
+            f"Stage 4 checkpoint cursor for workspace_id {workspace_id} is not a dict"
+        )
+    if cursor.get("kind") == "done":
+        cache_key = STAGE4_DONE_CHECKPOINT_CACHE_KEY
+    elif cursor.get("kind") == "block" and isinstance(cursor.get("block_id"), str):
+        cache_key = str(cursor["block_id"])
+    else:
+        raise ValueError(
+            f"Stage 4 checkpoint cursor for workspace_id {workspace_id} is invalid"
+        )
+    return load_pickle(
+        _stage4_checkpoint_path_for_cache_key(workspace_id, cache_key, create=False)
+    )
 
 
 def clear_stage4_checkpoint(workspace_id: str) -> None:

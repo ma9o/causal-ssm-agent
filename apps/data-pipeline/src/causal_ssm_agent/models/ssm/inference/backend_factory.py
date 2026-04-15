@@ -54,7 +54,7 @@ def make_likelihood_backend(
         observation_support=observation_support,
     )
 
-    if inference_structure.likelihood_path == "kalman":
+    if inference_structure.structural_backend == "kalman":
         from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
 
         return KalmanLikelihood(
@@ -72,12 +72,12 @@ def make_likelihood_backend(
     per_obs = list(get_per_channel_manifest(spec))
     per_links = list(get_per_channel_links(spec))
 
-    if inference_structure.likelihood_path == "composed":
+    if inference_structure.structural_backend == "composed":
         from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
         from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
         from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
 
-        partition = inference_structure.first_pass_rb.partition
+        partition = inference_structure.first_pass_partition
         if partition is None:
             raise ValueError("Composed likelihood path requires an active first-pass partition")
 

@@ -180,7 +180,7 @@ class TestLaplaceSupportAware:
             observations,
             time_intervals,
         )
-        dense = _dense_support_laplace_log_lik(
+        dense, _inner_eval_aux = _dense_support_laplace_log_lik(
             jnp.nan_to_num(observations, nan=0.0),
             ~jnp.isnan(observations),
             Ad,

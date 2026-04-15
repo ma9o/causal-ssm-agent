@@ -693,10 +693,10 @@ class TestPlanInferenceStructure:
 
         plan = plan_inference_structure(spec, observation_support=support)
 
-        assert plan.likelihood_path == "particle"
-        assert plan.auto_method == "laplace_em"
-        assert not plan.first_pass_rb.active
-        assert plan.first_pass_rb.inactive_reason == "interval_summary_support"
+        assert plan.structural_backend == "particle"
+        assert plan.resolved_method == "laplace_em"
+        assert plan.method_override is None
+        assert plan.first_pass_partition is None
 
     def test_separable_mixed_model_uses_composed_path(self):
         spec = _make_spec(
@@ -713,10 +713,10 @@ class TestPlanInferenceStructure:
 
         plan = plan_inference_structure(spec)
 
-        assert plan.likelihood_path == "composed"
-        assert plan.auto_method == "laplace_em"
-        assert plan.first_pass_rb.active
-        assert plan.first_pass_rb.partition is not None
+        assert plan.structural_backend == "composed"
+        assert plan.resolved_method == "laplace_em"
+        assert plan.method_override is None
+        assert plan.first_pass_partition is not None
 
     def test_shared_observations_disable_executable_first_pass_split(self):
         spec = _make_spec(
@@ -729,12 +729,12 @@ class TestPlanInferenceStructure:
 
         plan = plan_inference_structure(spec)
 
-        assert plan.likelihood_path == "particle"
-        assert plan.auto_method == "laplace_em"
-        assert not plan.first_pass_rb.active
-        assert plan.first_pass_rb.inactive_reason == "no_executable_partition"
+        assert plan.structural_backend == "particle"
+        assert plan.resolved_method == "laplace_em"
+        assert plan.method_override is None
+        assert plan.first_pass_partition is None
 
-    def test_first_pass_disabled_keeps_particle_path(self):
+    def test_first_pass_disabled_keeps_full_kalman_backend_for_fully_gaussian_model(self):
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
@@ -745,10 +745,25 @@ class TestPlanInferenceStructure:
 
         plan = plan_inference_structure(spec)
 
-        assert plan.likelihood_path == "particle"
-        assert plan.auto_method == "nuts"
-        assert not plan.first_pass_rb.active
-        assert plan.first_pass_rb.inactive_reason == "disabled_in_spec"
+        assert plan.structural_backend == "kalman"
+        assert plan.resolved_method == "nuts"
+        assert plan.method_override is None
+        assert plan.first_pass_partition is None
+
+    def test_explicit_method_override_is_preserved_in_plan(self):
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift_mask=np.eye(2, dtype=bool),
+        )
+
+        plan = plan_inference_structure(spec, method_override="nuts_da")
+
+        assert plan.structural_backend == "kalman"
+        assert plan.resolved_method == "nuts_da"
+        assert plan.method_override == "nuts_da"
+        assert plan.first_pass_partition is None
 
     def test_student_t_diffusion_routes_to_laplace_em(self):
         """Student-t diffusion noise → laplace_em."""

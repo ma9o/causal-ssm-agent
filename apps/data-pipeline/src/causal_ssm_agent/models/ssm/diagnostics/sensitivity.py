@@ -75,7 +75,7 @@ def _spectral_svd_from_gram(S: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Compute singular values and right singular vectors via the P x P Gram matrix."""
     gram = S.T @ S
     eigvals, eigvecs = jnp.linalg.eigh(gram)
-    eigvals = jnp.clip(eigvals, a_min=0.0)
+    eigvals = jnp.clip(eigvals, min=0.0)
     order = jnp.arange(eigvals.shape[0] - 1, -1, -1)
     singular_values = jnp.sqrt(eigvals[order])
     right_singular_vectors = eigvecs[:, order]
