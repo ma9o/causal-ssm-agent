@@ -29,6 +29,7 @@
 | Compilation from Stage 4 outputs to executable SSM runtime | [reference/compilation.md](reference/compilation.md) |
 | Continuous-time estimation and discretization | [reference/estimation.md](reference/estimation.md) |
 | Inference-method selection and structural routing | [reference/inference-routing.md](reference/inference-routing.md) |
+| High-level map of the Stage 4 reducer and repair loop | [reference/model-spec/state-machine.md](reference/model-spec/state-machine.md) |
 | How Stage 4 constrains LLM model-form and prior decisions | [reference/model-spec/llm-driven-specification.md](reference/model-spec/llm-driven-specification.md) |
 
 ## Guides

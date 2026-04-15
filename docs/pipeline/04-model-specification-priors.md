@@ -6,7 +6,7 @@
 
 Translates the [Stage 1b `CausalSpec`](01b-measurement-identifiability.md#causalspec) into a fully specified statistical model by choosing observation-model distributions for ambiguous indicators and eliciting Bayesian priors for every parameter, validated against prior predictive checks.
 
-For the control semantics of the LLM-driven loop, see [LLM-Driven Stage 4 Specification](../reference/model-spec/llm-driven-specification.md).
+For the high-level reducer flow, see [Stage 4 State Machine](../reference/model-spec/state-machine.md). For the exact control semantics of the LLM-driven loop, see [LLM-Driven Stage 4 Specification](../reference/model-spec/llm-driven-specification.md).
 
 ## Inputs
 

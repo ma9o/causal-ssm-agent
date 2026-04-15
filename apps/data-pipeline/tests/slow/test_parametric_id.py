@@ -995,6 +995,49 @@ class TestProfileLikelihood:
         assert has_issues, f"Non-identified model should flag issues: {summary}"
 
 
+class TestMAPGeometry:
+    """Test multi-start MAP geometry diagnostics."""
+
+    def test_map_geometry_accepts_cached_sweep_context(self):
+        from causal_ssm_agent.models.ssm.diagnostics import (
+            get_stage4b_sweep_context,
+            map_geometry_analysis,
+            simulate_ssm,
+        )
+
+        model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
+        times = jnp.linspace(0, 6, 8)
+        observations = simulate_ssm(
+            drift=jnp.array([[-0.4]]),
+            diffusion_chol=jnp.array([[0.3]]),
+            lambda_mat=jnp.eye(1),
+            manifest_chol=jnp.array([[0.2]]),
+            t0_means=jnp.zeros(1),
+            t0_chol=jnp.eye(1) * 0.5,
+            times=times,
+            rng_key=random.PRNGKey(11),
+        )
+        sweep_context = get_stage4b_sweep_context(model)
+
+        result = map_geometry_analysis(
+            model=model,
+            observations=observations,
+            times=times,
+            n_starts=3,
+            seed=11,
+            sweep_context=sweep_context,
+        )
+
+        assert result.n_starts == 3
+        assert result.n_successful_starts >= 1
+        assert result.best_start_index in range(result.n_starts)
+        assert result.starts
+        assert result.likelihood_curvature.eigenvalues
+        assert result.posterior_curvature.eigenvalues
+        assert result.posterior_curvature.negative_direction_count == 0
+        assert jnp.isfinite(result.map_log_posterior)
+
+
 class TestProfileLikelihoodResult:
     """Test ProfileLikelihoodResult dataclass methods."""
 
