@@ -9,6 +9,11 @@ import pytest
 
 from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task, run_stage4b
+from causal_ssm_agent.models.ssm.diagnostics.results import (
+    MAPCurvatureResult,
+    MAPGeometryResult,
+    MAPOptimizationRun,
+)
 from causal_ssm_agent.models.ssm.inference.structure import (
     build_inference_structure_payload,
     plan_inference_structure,
@@ -69,21 +74,70 @@ def _make_separable_spec(first_pass_rb: bool = True) -> SSMSpec:
     )
 
 
+def _stub_map_geometry_result(
+    *,
+    likelihood_per_parameter: list[dict] | None = None,
+    boundary_parameters: list[str] | None = None,
+    prior_rescued_parameters: list[str] | None = None,
+) -> MAPGeometryResult:
+    empty_curvature = MAPCurvatureResult(
+        eigenvalues=[10.0, 2.0],
+        normalized_eigenvalues=[10.0, 2.0],
+        negative_direction_count=0,
+        deficiency_count=0,
+        positive_definite=True,
+        condition_number=5.0,
+        normalized_condition_number=5.0,
+        weak_directions=[],
+        per_parameter=likelihood_per_parameter or [],
+    )
+    return MAPGeometryResult(
+        n_starts=3,
+        n_successful_starts=3,
+        best_start_index=0,
+        map_log_posterior=-1.0,
+        map_log_likelihood=-0.5,
+        map_log_prior=-0.5,
+        final_grad_norm=1e-6,
+        runner_up_objective_gap=0.1,
+        starts=[
+            MAPOptimizationRun(
+                index=0,
+                start_kind="zero",
+                start_log_posterior=-2.0,
+                log_posterior=-1.0,
+                log_likelihood=-0.5,
+                log_prior=-0.5,
+                objective=1.0,
+                success=True,
+                status=0,
+                message="ok",
+                n_iters=4,
+                n_function_evals=5,
+                grad_norm=1e-6,
+                distance_to_best=0.0,
+            )
+        ],
+        likelihood_curvature=empty_curvature,
+        posterior_curvature=empty_curvature,
+        prior_rescued_parameters=prior_rescued_parameters or [],
+        boundary_parameters=boundary_parameters or [],
+    )
+
+
 class TestStage4bInferenceStructurePayload:
     @pytest.mark.parametrize(
-        ("label", "spec_factory", "obs_support", "expected_reason"),
+        ("label", "spec_factory", "obs_support"),
         [
             (
                 "disabled_in_spec",
                 lambda: _make_separable_spec(first_pass_rb=False),
                 None,
-                "disabled_in_spec",
             ),
             (
                 "interval_summary_support",
                 _make_separable_spec,
                 _support_runtime,
-                "interval_summary_support",
             ),
             (
                 "no_executable_partition",
@@ -100,14 +154,11 @@ class TestStage4bInferenceStructurePayload:
                     manifest_names=["y0", "y1"],
                 ),
                 None,
-                "no_executable_partition",
             ),
         ],
         ids=["disabled_in_spec", "interval_summary", "no_executable_partition"],
     )
-    def test_payload_marks_first_pass_inactive(
-        self, label, spec_factory, obs_support, expected_reason
-    ):
+    def test_payload_marks_first_pass_inactive(self, label, spec_factory, obs_support):
         spec = spec_factory()
         model = _make_model(spec, observation_support=obs_support() if obs_support else None)
         plan = plan_inference_structure(
@@ -115,12 +166,17 @@ class TestStage4bInferenceStructurePayload:
             likelihood=model.likelihood,
             observation_support=model.observation_support,
         )
-        payload = build_inference_structure_payload(spec, plan)
+        payload = build_inference_structure_payload(
+            spec,
+            plan,
+            likelihood=model.likelihood,
+            observation_support=model.observation_support,
+        )
 
         assert payload["likelihood_path"] == "particle"
         assert payload["auto_method"] == "laplace_em"
         assert payload["first_pass_rb"]["status"] == "inactive"
-        assert payload["first_pass_rb"]["inactive_reason"] == expected_reason
+        assert "inactive_reason" not in payload["first_pass_rb"]
 
     def test_payload_includes_active_first_pass_assignments(self):
         spec = _make_separable_spec()
@@ -130,12 +186,17 @@ class TestStage4bInferenceStructurePayload:
             likelihood=model.likelihood,
             observation_support=model.observation_support,
         )
-        payload = build_inference_structure_payload(spec, plan)
+        payload = build_inference_structure_payload(
+            spec,
+            plan,
+            likelihood=model.likelihood,
+            observation_support=model.observation_support,
+        )
 
         assert payload["likelihood_path"] == "composed"
         assert payload["auto_method"] == "laplace_em"
         assert payload["first_pass_rb"]["status"] == "active"
-        assert payload["first_pass_rb"]["inactive_reason"] is None
+        assert "inactive_reason" not in payload["first_pass_rb"]
         assert payload["first_pass_rb"]["latent_variables"] == [
             {"name": "g0", "method": "kalman"},
             {"name": "g1", "method": "kalman"},
@@ -152,6 +213,9 @@ class TestStage4bInferenceStructurePayload:
         model = _make_model(spec)
         runtime = SimpleNamespace(
             builder=SimpleNamespace(_model=model),
+            model=model,
+            spec=spec,
+            structure_runtime=model._structure_runtime,
             observations=jnp.zeros((4, spec.n_manifest)),
             times=jnp.arange(4.0),
             inference_structure=plan_inference_structure(spec),
@@ -183,6 +247,10 @@ class TestStage4bInferenceStructurePayload:
             "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            lambda *_args, **_kwargs: _stub_map_geometry_result(),
+        )
 
         result = parametric_id_task.fn(
             data_for_model=pl.DataFrame(),
@@ -202,6 +270,9 @@ class TestStage4bInferenceStructurePayload:
         model = _make_model(spec)
         runtime = SimpleNamespace(
             builder=SimpleNamespace(_model=model),
+            model=model,
+            spec=spec,
+            structure_runtime=model._structure_runtime,
             observations=jnp.zeros((4, spec.n_manifest)),
             times=jnp.arange(4.0),
             inference_structure=plan_inference_structure(spec),
@@ -281,6 +352,23 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            lambda *_args, **_kwargs: _stub_map_geometry_result(
+                likelihood_per_parameter=[
+                    {
+                        "parameter": "lambda_free",
+                        "interpretable_parameter": "lambda_free",
+                        "diagonal_curvature": 0.2,
+                        "effective_eigenvalue": 0.2,
+                        "status": "warn",
+                        "normalized_effective_eigenvalue": 0.8,
+                        "normalized_status": "fail",
+                    }
+                ],
+                boundary_parameters=["obs_r"],
+            ),
+        )
+        monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
             lambda *_args, **_kwargs: [0, 1],
         )
@@ -296,7 +384,7 @@ class TestStage4bInferenceStructurePayload:
         pid = result["parametric_id"]
         assert pid["summary"] == {
             "structural_issues": ["drift_offdiag_free[0]"],
-            "boundary_issues": [],
+            "boundary_issues": ["obs_r"],
             "weak_params": ["lambda_free"],
         }
         assert [entry["classification"] for entry in pid["per_param_classification"]] == [
@@ -311,6 +399,9 @@ class TestStage4bInferenceStructurePayload:
         model = _make_model(spec)
         runtime = SimpleNamespace(
             builder=SimpleNamespace(_model=model),
+            model=model,
+            spec=spec,
+            structure_runtime=model._structure_runtime,
             observations=jnp.zeros((4, spec.n_manifest)),
             times=jnp.arange(4.0),
             inference_structure=plan_inference_structure(spec),
@@ -366,6 +457,22 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            lambda *_args, **_kwargs: _stub_map_geometry_result(
+                likelihood_per_parameter=[
+                    {
+                        "parameter": "diffusion_diag_free[0]",
+                        "interpretable_parameter": "sigma_g0",
+                        "diagonal_curvature": 0.05,
+                        "effective_eigenvalue": 0.05,
+                        "status": "warn",
+                        "normalized_effective_eigenvalue": 0.5,
+                        "normalized_status": "fail",
+                    }
+                ],
+            ),
+        )
+        monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail("profile_likelihood should be skipped"),
         )
@@ -387,6 +494,9 @@ class TestStage4bInferenceStructurePayload:
         model = _make_model(spec)
         runtime = SimpleNamespace(
             builder=SimpleNamespace(_model=model),
+            model=model,
+            spec=spec,
+            structure_runtime=model._structure_runtime,
             observations=jnp.zeros((4, spec.n_manifest)),
             times=jnp.arange(4.0),
             inference_structure=plan_inference_structure(spec),
@@ -477,6 +587,10 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            lambda *_args, **_kwargs: _stub_map_geometry_result(),
+        )
+        monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
             lambda *_args, **_kwargs: [2],
         )
@@ -499,6 +613,9 @@ class TestStage4bInferenceStructurePayload:
         model = _make_model(spec)
         runtime = SimpleNamespace(
             builder=SimpleNamespace(_model=model),
+            model=model,
+            spec=spec,
+            structure_runtime=model._structure_runtime,
             observations=jnp.zeros((4, spec.n_manifest)),
             times=jnp.arange(4.0),
             inference_structure=plan_inference_structure(
@@ -545,6 +662,12 @@ class TestStage4bInferenceStructurePayload:
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            lambda *_args, **_kwargs: pytest.fail(
+                "map_geometry_analysis should be skipped on particle-only paths"
+            ),
+        )
+        monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail(
                 "profile_likelihood should be skipped on particle-only paths"
@@ -567,6 +690,9 @@ class TestStage4bInferenceStructurePayload:
         model = _make_model(spec)
         runtime = SimpleNamespace(
             builder=SimpleNamespace(_model=model),
+            model=model,
+            spec=spec,
+            structure_runtime=model._structure_runtime,
             observations=jnp.zeros((4, spec.n_manifest)),
             times=jnp.arange(4.0),
             inference_structure=plan_inference_structure(
@@ -587,6 +713,12 @@ class TestStage4bInferenceStructurePayload:
             "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 OutputSensitivityUnsupportedError("unsupported")
+            ),
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            lambda *_args, **_kwargs: pytest.fail(
+                "map_geometry_analysis should be skipped on particle-only paths"
             ),
         )
         monkeypatch.setattr(

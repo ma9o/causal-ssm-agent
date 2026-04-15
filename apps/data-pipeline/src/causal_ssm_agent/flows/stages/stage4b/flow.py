@@ -10,6 +10,7 @@ Detects:
 - Well-identified parameters (profile crosses threshold on both sides)
 """
 
+from dataclasses import asdict
 from typing import Any
 
 import polars as pl
@@ -32,6 +33,7 @@ _SUBSTANTIVE_PROFILE_PREFIXES = (
 def _build_parametric_id_summary(
     profile_summary: dict[str, str] | None,
     sensitivity_payload: dict[str, Any] | None,
+    map_geometry_payload: dict[str, Any] | None,
 ) -> dict[str, list[str]]:
     """Aggregate detailed diagnostics into the public Stage 4b summary shape."""
     structural_issues = sorted(
@@ -57,9 +59,19 @@ def _build_parametric_id_summary(
         }:
             weak_params.append(name)
 
+    likelihood_curvature = (map_geometry_payload or {}).get("likelihood_curvature") or {}
+    for entry in likelihood_curvature.get("per_parameter", []):
+        name = entry.get("parameter")
+        if not name or name in structural_issues or name in weak_params:
+            continue
+        if entry.get("normalized_status") in {"warn", "fail"}:
+            weak_params.append(name)
+
+    boundary_issues = sorted((map_geometry_payload or {}).get("boundary_parameters") or [])
+
     return {
         "structural_issues": structural_issues,
-        "boundary_issues": [],
+        "boundary_issues": boundary_issues,
         "weak_params": sorted(weak_params),
     }
 
@@ -130,6 +142,7 @@ def parametric_id_task(
     from causal_ssm_agent.models.ssm.diagnostics import (
         OutputSensitivityUnsupportedError,
         get_stage4b_sweep_context,
+        map_geometry_analysis,
         output_sensitivity_analysis,
         profile_likelihood,
     )
@@ -151,6 +164,8 @@ def parametric_id_task(
         inference_structure_payload = build_inference_structure_payload(
             runtime.spec,
             runtime.inference_structure,
+            likelihood=runtime.model.likelihood,
+            observation_support=getattr(runtime, "observation_support", None),
         )
 
         sweep_context = get_stage4b_sweep_context(ssm_model)
@@ -192,8 +207,11 @@ def parametric_id_task(
                 kalman_block_profile_indices,
             )
 
-            partition = runtime.inference_structure.first_pass_rb.partition
-            if partition is not None and runtime.inference_structure.likelihood_path == "composed":
+            partition = runtime.inference_structure.first_pass_partition
+            if (
+                partition is not None
+                and runtime.inference_structure.structural_backend == "composed"
+            ):
                 kalman_indices = kalman_block_profile_indices(
                     partition,
                     structure_runtime=runtime.structure_runtime,
@@ -206,7 +224,7 @@ def parametric_id_task(
         except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
             logger.warning("Inference-structure profile filtering failed: %s", exc)
 
-        if runtime.inference_structure.likelihood_path == "particle":
+        if runtime.inference_structure.structural_backend == "particle":
             logger.info(
                 "Stage 4b: skipping profile likelihood on particle-only path; "
                 "sensitivity analysis is the terminal diagnostic"
@@ -218,6 +236,28 @@ def parametric_id_task(
                 scalar_names=getattr(sweep_context, "scalar_names", None),
                 default_indices=kalman_indices,
             )
+
+        map_geometry_payload = None
+        if runtime.inference_structure.structural_backend == "particle":
+            logger.info(
+                "Stage 4b: skipping MAP geometry on particle-only path; "
+                "local Hessians require a deterministic likelihood surface"
+            )
+        else:
+            try:
+                map_geometry = map_geometry_analysis(
+                    model=ssm_model,
+                    observations=observations,
+                    times=times,
+                    sweep_context=sweep_context,
+                )
+                map_geometry.print_report()
+                map_geometry_payload = asdict(map_geometry)
+            except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
+                logger.warning(
+                    "MAP geometry failed, continuing with remaining Stage 4b diagnostics: %s",
+                    exc,
+                )
 
         profile_summary = None
         per_param = None
@@ -261,12 +301,17 @@ def parametric_id_task(
                     }
                 )
 
-        summary = _build_parametric_id_summary(profile_summary, sensitivity_payload)
+        summary = _build_parametric_id_summary(
+            profile_summary,
+            sensitivity_payload,
+            map_geometry_payload,
+        )
 
         return {
             "parametric_id": {
                 "checked": True,
                 "sensitivity_analysis": sensitivity_payload,
+                "map_geometry": map_geometry_payload,
                 "summary": summary,
                 "per_param_classification": per_param,
                 "threshold": threshold,

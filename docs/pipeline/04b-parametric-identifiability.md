@@ -13,7 +13,7 @@ Checks whether the [Stage 4 functional specification](04-model-specification-pri
 | `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
 
-Stage 4 provided the parametric model and priors without seeing how tightly the data constrain them. Stage 4b is the first point where the pipeline evaluates two complementary questions: local structural identifiability via a Jacobian rank diagnostic and practical identifiability via profile likelihood, following the standard SEM and dynamical-systems terminology in Hunter et al. (2025)[^hunter2025] and Raue et al. (2009)[^raue2009]. This is distinct from [Stage 1b](01b-measurement-identifiability.md) causal identifiability, which asks whether the treatment effect is identified from the causal graph; Stage 4b addresses the complementary question of whether the parameterization is estimable under the available data.
+Stage 4 provided the parametric model and priors without seeing how tightly the data constrain them. Stage 4b is the first point where the pipeline evaluates three complementary questions: local structural identifiability via a Jacobian rank diagnostic, dataset-conditioned local curvature via a multi-start MAP Hessian check, and practical identifiability via profile likelihood, following the standard SEM and dynamical-systems terminology in Hunter et al. (2025)[^hunter2025] and Raue et al. (2009)[^raue2009]. This is distinct from [Stage 1b](01b-measurement-identifiability.md) causal identifiability, which asks whether the treatment effect is identified from the causal graph; Stage 4b addresses the complementary question of whether the parameterization is estimable under the available data.
 
 ## Process
 
@@ -21,7 +21,7 @@ Stage 4b is a fully deterministic diagnostics stage (no LLM). It prepares the mo
 
 ```mermaid
 flowchart LR
-    M[Model preparation] --> S[Sensitivity analysis] --> P[Profile likelihood] --> R([ParametricIdResult])
+    M[Model preparation] --> S[Sensitivity analysis] --> G[MAP geometry] --> P[Profile likelihood] --> R([ParametricIdResult])
 ```
 
 **Model preparation:** The compiled SSM from Stage 4 is built into a runnable model and the observation data are aligned to it. This step also resolves the [inference structure](#inferencestructureresult)—the likelihood path, auto-selected inference method, and first-pass Rao-Blackwellization plan—which is emitted as a co-output alongside the diagnostics.
@@ -37,6 +37,8 @@ flowchart LR
 - *Fail*: effective SV ≤ 10⁻⁶ of the maximum
 
 Results are aggregated across prior draws via the median for robustness.
+
+**MAP geometry:** A dataset-conditioned local-geometry diagnostic. The stage runs a multi-start MAP search on the log-posterior, then evaluates both `H_lik(θ̂) = -∇² log p(y | θ)` and `H_post(θ̂) = -∇² log p(θ | y)` at the selected mode `θ̂`. The likelihood Hessian answers which directions the realized data identify locally; the posterior Hessian answers which curvature the optimizer and downstream Gaussian approximations actually see. Both Hessians are reported in raw form and after prior-standard-deviation normalization. Weak directions are summarized by the small normalized eigenvalues and their dominant parameter loadings. Parameters that are weak under `H_lik` but strong under `H_post` are reported as prior-rescued.
 
 **Profile likelihood:** A per-parameter practical-identifiability diagnostic following Raue et al. (2009)[^raue2009]. The stage first finds the MAP (maximum a posteriori) estimate by BFGS optimization of the log-posterior. For each scalar parameter element, it fixes the parameter at `n_grid` (default 20) evenly spaced points around the MAP, re-optimizes all other parameters at each grid point via BFGS, and records the resulting profile log-likelihood curve. Each parameter is then classified by comparing the profile shape against a χ²(1) threshold (default 95% confidence, threshold = 1.92):
 
@@ -54,7 +56,7 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 
 | Output | Type | Description |
 |---|---|---|
-| `parametric_id` | `ParametricIdResult` | Combined sensitivity and profile-likelihood diagnostics |
+| `parametric_id` | `ParametricIdResult` | Combined sensitivity, MAP-geometry, and profile-likelihood diagnostics |
 | `inference_structure` | [`InferenceStructureResult`](#inferencestructureresult) | Resolved likelihood path and inference-routing plan; consumed by the web frontend — [Stage 5](05a-svi-preflight.md) re-derives the routing at fit time |
 
 ### `ParametricIdResult`
@@ -63,6 +65,7 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 |---|---|---|
 | `checked` | `bool` | Whether Stage 4b completed its diagnostics pass |
 | `sensitivity_analysis` | `SensitivityAnalysisResult \| null` | Output-space Jacobian sensitivity diagnostic |
+| `map_geometry` | `MAPGeometryResult \| null` | Multi-start MAP search with likelihood and posterior Hessian summaries |
 | `summary` | `ParametricIdSummary \| null` | Aggregated structural, boundary, and weak-parameter findings |
 | `per_param_classification` | `list[ParameterIdentification] \| null` | Per-parameter profile-likelihood classifications and optional profile traces |
 | `threshold` | `float \| null` | χ²-derived profile-likelihood threshold used for classification |
@@ -83,6 +86,57 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 | `singular_values` | `list[float]` | Median SVD spectrum across prior draws, descending |
 | `deficiency_count` | `int` | Number of normalized singular values below the fail threshold, counting non-identifiable directions in parameter space |
 | `per_parameter` | `list[dict]` | Per-parameter pass/warn/fail classification via effective singular value |
+
+### `ParametricIdResult.MAPGeometryResult`
+
+| Field | Type | Description |
+|---|---|---|
+| `n_starts` | `int` | Number of MAP starts actually optimized |
+| `n_successful_starts` | `int` | Number of starts whose optimizer reported convergence |
+| `best_start_index` | `int` | Index of the selected best run inside `starts` |
+| `map_log_posterior` | `float` | Log-posterior at the selected MAP |
+| `map_log_likelihood` | `float` | Log-likelihood at the selected MAP |
+| `map_log_prior` | `float` | Log-prior in unconstrained space at the selected MAP |
+| `final_grad_norm` | `float` | Euclidean norm of the optimizer gradient at the selected MAP |
+| `runner_up_objective_gap` | `float \| null` | Objective gap between the best and second-best finite runs |
+| `starts` | `list[MAPOptimizationRun]` | Per-start MAP optimization outcomes |
+| `likelihood_curvature` | `MAPCurvatureResult` | Local Hessian summary for `H_lik` |
+| `posterior_curvature` | `MAPCurvatureResult` | Local Hessian summary for `H_post` |
+| `prior_rescued_parameters` | `list[str]` | Parameters weak under `H_lik` but strong under `H_post` |
+| `boundary_parameters` | `list[str]` | Parameters whose MAP lies near a support or prior bound |
+
+### `ParametricIdResult.MAPCurvatureResult`
+
+| Field | Type | Description |
+|---|---|---|
+| `eigenvalues` | `list[float]` | Raw Hessian eigenvalues, descending |
+| `normalized_eigenvalues` | `list[float]` | Prior-SD-normalized eigenvalues, descending |
+| `negative_direction_count` | `int` | Number of negative-curvature directions in the local Hessian |
+| `deficiency_count` | `int` | Number of normalized eigenvalues below the weak-direction threshold |
+| `positive_definite` | `bool` | Whether every eigenvalue is positive up to numerical tolerance |
+| `condition_number` | `float \| null` | Raw Hessian condition number when the matrix is positive definite |
+| `normalized_condition_number` | `float \| null` | Condition number after prior-SD normalization |
+| `weak_directions` | `list[CurvatureDirection]` | Weak normalized eigen-directions with dominant parameter loadings |
+| `per_parameter` | `list[CurvatureParameterEntry]` | Per-parameter effective-curvature summary |
+
+### `ParametricIdResult.MAPOptimizationRun`
+
+| Field | Type | Description |
+|---|---|---|
+| `index` | `int` | Start index within the multi-start run list |
+| `start_kind` | `str` | Origin of the starting point such as `zero`, `prior_median`, or `prior_draw_k` |
+| `start_log_posterior` | `float` | Log-posterior at the initial point before optimization |
+| `log_posterior` | `float` | Log-posterior at the optimized point |
+| `log_likelihood` | `float` | Log-likelihood at the optimized point |
+| `log_prior` | `float` | Log-prior at the optimized point |
+| `objective` | `float` | Final negative log-posterior minimized by the optimizer |
+| `success` | `bool` | Optimizer convergence flag |
+| `status` | `int` | Optimizer status code |
+| `message` | `str` | Optimizer termination message |
+| `n_iters` | `int` | Optimizer iteration count |
+| `n_function_evals` | `int` | Number of objective evaluations |
+| `grad_norm` | `float` | Euclidean norm of the final gradient |
+| `distance_to_best` | `float` | Euclidean distance from this solution to the selected best MAP |
 
 ### `ParametricIdResult.ParameterIdentification`
 
