@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from .compile import classify_compile_failure_route
 from .prior import classify_prior_failure_blocks
+from .sensitivity import classify_sensitivity_failure_blocks
 from .types import (
     ResolvedRepairPlan,
     Stage4PriorRepairDecision,
@@ -52,6 +53,16 @@ def classify_validation_outcome(
         return Stage4ValidationOutcomeDecision(
             outcome="prior_predictive_failure",
             repair_plan=classify_prior_failure_blocks(
+                plan,
+                active_block,
+                validation,
+                runtime,
+            ),
+        )
+    if validation is not None and validation.has_sensitivity_failure:
+        return Stage4ValidationOutcomeDecision(
+            outcome="sensitivity_failure",
+            repair_plan=classify_sensitivity_failure_blocks(
                 plan,
                 active_block,
                 validation,
