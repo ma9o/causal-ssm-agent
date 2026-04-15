@@ -119,6 +119,91 @@ class ProfileLikelihoodResult:
 
 
 @dataclass
+class MAPOptimizationRun:
+    """One multi-start MAP optimization run."""
+
+    index: int
+    start_kind: str
+    start_log_posterior: float
+    log_posterior: float
+    log_likelihood: float
+    log_prior: float
+    objective: float
+    success: bool
+    status: int
+    message: str
+    n_iters: int
+    n_function_evals: int
+    grad_norm: float
+    distance_to_best: float = 0.0
+
+
+@dataclass
+class MAPCurvatureResult:
+    """Local curvature summary for one Hessian family at the MAP."""
+
+    eigenvalues: list[float]
+    normalized_eigenvalues: list[float]
+    negative_direction_count: int
+    deficiency_count: int
+    positive_definite: bool
+    condition_number: float | None
+    normalized_condition_number: float | None
+    weak_directions: list[dict]
+    per_parameter: list[dict]
+
+
+@dataclass
+class MAPGeometryResult:
+    """Dataset-conditioned local geometry around the selected MAP."""
+
+    n_starts: int
+    n_successful_starts: int
+    best_start_index: int
+    map_log_posterior: float
+    map_log_likelihood: float
+    map_log_prior: float
+    final_grad_norm: float
+    runner_up_objective_gap: float | None
+    starts: list[MAPOptimizationRun]
+    likelihood_curvature: MAPCurvatureResult
+    posterior_curvature: MAPCurvatureResult
+    prior_rescued_parameters: list[str]
+    boundary_parameters: list[str]
+
+    def print_report(self) -> None:
+        """Log a human-readable MAP-geometry report."""
+        lines = [
+            "=== MAP Geometry Report ===",
+            (
+                "  Starts: "
+                f"{self.n_successful_starts}/{self.n_starts} successful, "
+                f"best_start={self.best_start_index}"
+            ),
+            (
+                "  Best mode: "
+                f"log_posterior={self.map_log_posterior:.4f} "
+                f"log_likelihood={self.map_log_likelihood:.4f} "
+                f"log_prior={self.map_log_prior:.4f} "
+                f"grad_norm={self.final_grad_norm:.3e}"
+            ),
+            (
+                "  H_lik: "
+                f"negative_dirs={self.likelihood_curvature.negative_direction_count} "
+                f"weak_dirs={self.likelihood_curvature.deficiency_count}"
+            ),
+            (
+                "  H_post: "
+                f"negative_dirs={self.posterior_curvature.negative_direction_count} "
+                f"weak_dirs={self.posterior_curvature.deficiency_count}"
+            ),
+            f"  Prior-rescued parameters: {len(self.prior_rescued_parameters)}",
+            f"  Boundary parameters: {len(self.boundary_parameters)}",
+        ]
+        logger.info("\n%s", "\n".join(lines))
+
+
+@dataclass
 class SBCResult:
     """Results from simulation-based calibration (Modrak et al. 2023)."""
 

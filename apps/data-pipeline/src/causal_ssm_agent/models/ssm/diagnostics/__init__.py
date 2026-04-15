@@ -5,9 +5,13 @@ from causal_ssm_agent.models.ssm.diagnostics.context import (
     clear_stage4b_sweep_context_cache,
     get_stage4b_sweep_context,
 )
+from causal_ssm_agent.models.ssm.diagnostics.map_geometry import map_geometry_analysis
 from causal_ssm_agent.models.ssm.diagnostics.power_scaling import power_scaling_sensitivity
 from causal_ssm_agent.models.ssm.diagnostics.profile_likelihood import profile_likelihood
 from causal_ssm_agent.models.ssm.diagnostics.results import (
+    MAPCurvatureResult,
+    MAPGeometryResult,
+    MAPOptimizationRun,
     OutputSensitivityResult,
     OutputSensitivityUnsupportedError,
     PowerScalingResult,
@@ -21,12 +25,16 @@ from causal_ssm_agent.models.ssm.diagnostics.simulation import simulate_ssm
 __all__ = [
     "OutputSensitivityResult",
     "OutputSensitivityUnsupportedError",
+    "MAPCurvatureResult",
+    "MAPGeometryResult",
+    "MAPOptimizationRun",
     "ParametricIdContext",
     "PowerScalingResult",
     "ProfileLikelihoodResult",
     "SBCResult",
     "clear_stage4b_sweep_context_cache",
     "get_stage4b_sweep_context",
+    "map_geometry_analysis",
     "output_sensitivity_analysis",
     "power_scaling_sensitivity",
     "profile_likelihood",

@@ -175,6 +175,131 @@
       "title": "Construct",
       "type": "object"
     },
+    "CurvatureDirection": {
+      "description": "A weak Hessian eigen-direction within the MAP neighborhood.",
+      "properties": {
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "eigenvalue": {
+          "title": "Eigenvalue",
+          "type": "number"
+        },
+        "normalized_eigenvalue": {
+          "title": "Normalized Eigenvalue",
+          "type": "number"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "top_loadings": {
+          "items": {
+            "$ref": "#/$defs/CurvatureDirectionLoading"
+          },
+          "title": "Top Loadings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "eigenvalue",
+        "index",
+        "normalized_eigenvalue",
+        "status",
+        "top_loadings"
+      ],
+      "title": "CurvatureDirection",
+      "type": "object"
+    },
+    "CurvatureDirectionLoading": {
+      "description": "One parameter's loading within a weak local-curvature eigen-direction.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "interpretable_parameter": {
+          "title": "Interpretable Parameter",
+          "type": "string"
+        },
+        "loading": {
+          "title": "Loading",
+          "type": "number"
+        },
+        "abs_loading": {
+          "title": "Abs Loading",
+          "type": "number"
+        }
+      },
+      "required": [
+        "abs_loading",
+        "interpretable_parameter",
+        "loading",
+        "parameter"
+      ],
+      "title": "CurvatureDirectionLoading",
+      "type": "object"
+    },
+    "CurvatureParameterEntry": {
+      "description": "Per-parameter local-curvature summary at the selected MAP.",
+      "properties": {
+        "parameter": {
+          "title": "Parameter",
+          "type": "string"
+        },
+        "interpretable_parameter": {
+          "title": "Interpretable Parameter",
+          "type": "string"
+        },
+        "diagonal_curvature": {
+          "title": "Diagonal Curvature",
+          "type": "number"
+        },
+        "effective_eigenvalue": {
+          "title": "Effective Eigenvalue",
+          "type": "number"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "normalized_effective_eigenvalue": {
+          "title": "Normalized Effective Eigenvalue",
+          "type": "number"
+        },
+        "normalized_status": {
+          "enum": [
+            "pass",
+            "warn",
+            "fail"
+          ],
+          "title": "Normalized Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "diagonal_curvature",
+        "effective_eigenvalue",
+        "interpretable_parameter",
+        "normalized_effective_eigenvalue",
+        "normalized_status",
+        "parameter",
+        "status"
+      ],
+      "title": "CurvatureParameterEntry",
+      "type": "object"
+    },
     "DistributionFamily": {
       "description": "Distribution families for observation and process noise.",
       "enum": [
@@ -287,24 +412,6 @@
           ],
           "title": "Status",
           "type": "string"
-        },
-        "inactive_reason": {
-          "anyOf": [
-            {
-              "enum": [
-                "disabled_in_spec",
-                "interval_summary_support",
-                "no_executable_partition",
-                "likelihood_override"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Inactive Reason"
         },
         "latent_variables": {
           "items": {
@@ -1188,6 +1295,253 @@
       "title": "LinkFunction",
       "type": "string"
     },
+    "MAPCurvatureResult": {
+      "description": "One Hessian family's local geometry at the selected MAP.",
+      "properties": {
+        "eigenvalues": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Eigenvalues",
+          "type": "array"
+        },
+        "normalized_eigenvalues": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Normalized Eigenvalues",
+          "type": "array"
+        },
+        "negative_direction_count": {
+          "title": "Negative Direction Count",
+          "type": "integer"
+        },
+        "deficiency_count": {
+          "title": "Deficiency Count",
+          "type": "integer"
+        },
+        "positive_definite": {
+          "title": "Positive Definite",
+          "type": "boolean"
+        },
+        "condition_number": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Condition Number"
+        },
+        "normalized_condition_number": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Normalized Condition Number"
+        },
+        "weak_directions": {
+          "items": {
+            "$ref": "#/$defs/CurvatureDirection"
+          },
+          "title": "Weak Directions",
+          "type": "array"
+        },
+        "per_parameter": {
+          "items": {
+            "$ref": "#/$defs/CurvatureParameterEntry"
+          },
+          "title": "Per Parameter",
+          "type": "array"
+        }
+      },
+      "required": [
+        "deficiency_count",
+        "eigenvalues",
+        "negative_direction_count",
+        "normalized_eigenvalues",
+        "per_parameter",
+        "positive_definite",
+        "weak_directions"
+      ],
+      "title": "MAPCurvatureResult",
+      "type": "object"
+    },
+    "MAPGeometryResult": {
+      "description": "Dataset-conditioned MAP search plus H_lik / H_post local geometry.",
+      "properties": {
+        "n_starts": {
+          "title": "N Starts",
+          "type": "integer"
+        },
+        "n_successful_starts": {
+          "title": "N Successful Starts",
+          "type": "integer"
+        },
+        "best_start_index": {
+          "title": "Best Start Index",
+          "type": "integer"
+        },
+        "map_log_posterior": {
+          "title": "Map Log Posterior",
+          "type": "number"
+        },
+        "map_log_likelihood": {
+          "title": "Map Log Likelihood",
+          "type": "number"
+        },
+        "map_log_prior": {
+          "title": "Map Log Prior",
+          "type": "number"
+        },
+        "final_grad_norm": {
+          "title": "Final Grad Norm",
+          "type": "number"
+        },
+        "runner_up_objective_gap": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runner Up Objective Gap"
+        },
+        "starts": {
+          "items": {
+            "$ref": "#/$defs/MAPOptimizationRun"
+          },
+          "title": "Starts",
+          "type": "array"
+        },
+        "likelihood_curvature": {
+          "$ref": "#/$defs/MAPCurvatureResult"
+        },
+        "posterior_curvature": {
+          "$ref": "#/$defs/MAPCurvatureResult"
+        },
+        "prior_rescued_parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prior Rescued Parameters",
+          "type": "array"
+        },
+        "boundary_parameters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Boundary Parameters",
+          "type": "array"
+        }
+      },
+      "required": [
+        "best_start_index",
+        "boundary_parameters",
+        "final_grad_norm",
+        "likelihood_curvature",
+        "map_log_likelihood",
+        "map_log_posterior",
+        "map_log_prior",
+        "n_starts",
+        "n_successful_starts",
+        "posterior_curvature",
+        "prior_rescued_parameters",
+        "starts"
+      ],
+      "title": "MAPGeometryResult",
+      "type": "object"
+    },
+    "MAPOptimizationRun": {
+      "description": "One start in the multi-start MAP search.",
+      "properties": {
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "start_kind": {
+          "title": "Start Kind",
+          "type": "string"
+        },
+        "start_log_posterior": {
+          "title": "Start Log Posterior",
+          "type": "number"
+        },
+        "log_posterior": {
+          "title": "Log Posterior",
+          "type": "number"
+        },
+        "log_likelihood": {
+          "title": "Log Likelihood",
+          "type": "number"
+        },
+        "log_prior": {
+          "title": "Log Prior",
+          "type": "number"
+        },
+        "objective": {
+          "title": "Objective",
+          "type": "number"
+        },
+        "success": {
+          "title": "Success",
+          "type": "boolean"
+        },
+        "status": {
+          "title": "Status",
+          "type": "integer"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "n_iters": {
+          "title": "N Iters",
+          "type": "integer"
+        },
+        "n_function_evals": {
+          "title": "N Function Evals",
+          "type": "integer"
+        },
+        "grad_norm": {
+          "title": "Grad Norm",
+          "type": "number"
+        },
+        "distance_to_best": {
+          "title": "Distance To Best",
+          "type": "number"
+        }
+      },
+      "required": [
+        "distance_to_best",
+        "grad_norm",
+        "index",
+        "log_likelihood",
+        "log_posterior",
+        "log_prior",
+        "message",
+        "n_function_evals",
+        "n_iters",
+        "objective",
+        "start_kind",
+        "start_log_posterior",
+        "status",
+        "success"
+      ],
+      "title": "MAPOptimizationRun",
+      "type": "object"
+    },
     "MCMCDiagnostics": {
       "description": "Top-level MCMC diagnostics container.",
       "properties": {
@@ -1832,6 +2186,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/SensitivityAnalysisResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "map_geometry": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MAPGeometryResult"
             },
             {
               "type": "null"

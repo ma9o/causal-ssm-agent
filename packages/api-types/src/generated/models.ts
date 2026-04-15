@@ -632,6 +632,7 @@ export interface Stage4BContract {
 export interface ParametricIdResult {
   checked: boolean;
   sensitivity_analysis?: SensitivityAnalysisResult | null;
+  map_geometry?: MAPGeometryResult | null;
   summary?: ParametricIdSummary | null;
   per_param_classification?: ParameterIdentification[] | null;
   threshold?: number | null;
@@ -687,6 +688,88 @@ export interface SensitivityEntry {
   identifiable: boolean;
 }
 /**
+ * Dataset-conditioned MAP search plus H_lik / H_post local geometry.
+ */
+export interface MAPGeometryResult {
+  n_starts: number;
+  n_successful_starts: number;
+  best_start_index: number;
+  map_log_posterior: number;
+  map_log_likelihood: number;
+  map_log_prior: number;
+  final_grad_norm: number;
+  runner_up_objective_gap?: number | null;
+  starts: MAPOptimizationRun[];
+  likelihood_curvature: MAPCurvatureResult;
+  posterior_curvature: MAPCurvatureResult;
+  prior_rescued_parameters: string[];
+  boundary_parameters: string[];
+}
+/**
+ * One start in the multi-start MAP search.
+ */
+export interface MAPOptimizationRun {
+  index: number;
+  start_kind: string;
+  start_log_posterior: number;
+  log_posterior: number;
+  log_likelihood: number;
+  log_prior: number;
+  objective: number;
+  success: boolean;
+  status: number;
+  message: string;
+  n_iters: number;
+  n_function_evals: number;
+  grad_norm: number;
+  distance_to_best: number;
+}
+/**
+ * One Hessian family's local geometry at the selected MAP.
+ */
+export interface MAPCurvatureResult {
+  eigenvalues: number[];
+  normalized_eigenvalues: number[];
+  negative_direction_count: number;
+  deficiency_count: number;
+  positive_definite: boolean;
+  condition_number?: number | null;
+  normalized_condition_number?: number | null;
+  weak_directions: CurvatureDirection[];
+  per_parameter: CurvatureParameterEntry[];
+}
+/**
+ * A weak Hessian eigen-direction within the MAP neighborhood.
+ */
+export interface CurvatureDirection {
+  index: number;
+  eigenvalue: number;
+  normalized_eigenvalue: number;
+  status: "pass" | "warn" | "fail";
+  top_loadings: CurvatureDirectionLoading[];
+}
+/**
+ * One parameter's loading within a weak local-curvature eigen-direction.
+ */
+export interface CurvatureDirectionLoading {
+  parameter: string;
+  interpretable_parameter: string;
+  loading: number;
+  abs_loading: number;
+}
+/**
+ * Per-parameter local-curvature summary at the selected MAP.
+ */
+export interface CurvatureParameterEntry {
+  parameter: string;
+  interpretable_parameter: string;
+  diagonal_curvature: number;
+  effective_eigenvalue: number;
+  status: "pass" | "warn" | "fail";
+  normalized_effective_eigenvalue: number;
+  normalized_status: "pass" | "warn" | "fail";
+}
+/**
  * Summary of parametric identifiability issues.
  */
 export interface ParametricIdSummary {
@@ -717,9 +800,6 @@ export interface InferenceStructureResult {
  */
 export interface FirstPassRBResult {
   status: "active" | "inactive";
-  inactive_reason?:
-    | ("disabled_in_spec" | "interval_summary_support" | "no_executable_partition" | "likelihood_override")
-    | null;
   latent_variables: InferenceStructureVariable[];
   obs_variables: InferenceStructureVariable[];
 }
