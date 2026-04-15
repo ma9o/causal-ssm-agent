@@ -3,44 +3,123 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import RBPartition
     from causal_ssm_agent.models.ssm.model import SSMSpec
     from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 
-LikelihoodPath = Literal["kalman", "composed", "particle"]
-AutoMethod = Literal["nuts", "laplace_em", "svi"]
-FirstPassRBStatus = Literal["active", "inactive"]
-FirstPassRBInactiveReason = Literal[
-    "disabled_in_spec",
-    "interval_summary_support",
-    "no_executable_partition",
-    "likelihood_override",
+StructuralBackend = Literal["kalman", "composed", "particle"]
+RequestedMethod = Literal[
+    "auto",
+    "nuts",
+    "nuts_da",
+    "svi",
+    "hessmc2",
+    "pgas",
+    "tempered_smc",
+    "laplace_smc",
+    "laplace_em",
+    "structured_vi",
+    "dpf",
 ]
-
-
-@dataclass(frozen=True)
-class FirstPassRBPlan:
-    """Whether first-pass Rao-Blackwellization is active in the runtime path."""
-
-    status: FirstPassRBStatus
-    inactive_reason: FirstPassRBInactiveReason | None = None
-    partition: RBPartition | None = None
-
-    @property
-    def active(self) -> bool:
-        return self.status == "active"
+ResolvedMethod = Literal[
+    "nuts",
+    "nuts_da",
+    "svi",
+    "hessmc2",
+    "pgas",
+    "tempered_smc",
+    "laplace_smc",
+    "laplace_em",
+    "structured_vi",
+    "dpf",
+]
 
 
 @dataclass(frozen=True)
 class InferenceStructurePlan:
     """Canonical structural plan shared across runtime prep and inference."""
 
-    likelihood_path: LikelihoodPath
-    auto_method: AutoMethod
-    first_pass_rb: FirstPassRBPlan
+    structural_backend: StructuralBackend
+    resolved_method: ResolvedMethod
+    method_override: ResolvedMethod | None
+    first_pass_partition: RBPartition | None = None
+
+
+def _normalize_method_override(
+    method_override: RequestedMethod | None,
+) -> ResolvedMethod | None:
+    if method_override in {None, "auto"}:
+        return None
+    return cast("ResolvedMethod", method_override)
+
+
+def _resolve_structural_backend(
+    spec: SSMSpec,
+    *,
+    likelihood: Literal["particle", "kalman"],
+    observation_support: ObservationSupportRuntime | None,
+) -> tuple[StructuralBackend, RBPartition | None]:
+    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
+
+    if observation_support is not None and observation_support.requires_interval_summary_handling:
+        return "particle", None
+
+    if likelihood == "kalman":
+        return "kalman", None
+
+    partition = analyze_first_pass_rb(spec)
+    if not partition.has_particle_block:
+        return "kalman", None
+
+    if (
+        spec.first_pass_rb
+        and partition.has_kalman_block
+        and len(partition.particle_idx) > 0
+        and len(partition.obs_kalman_idx) > 0
+    ):
+        return "composed", partition
+
+    return "particle", None
+
+
+def _resolve_auto_method(
+    *,
+    structural_backend: StructuralBackend,
+    observation_support: ObservationSupportRuntime | None,
+    n_timepoints: int | None,
+) -> ResolvedMethod:
+    del observation_support, n_timepoints
+    return "nuts" if structural_backend == "kalman" else "laplace_em"
+
+
+def _payload_partition_for_plan(
+    spec: SSMSpec,
+    plan: InferenceStructurePlan,
+    *,
+    likelihood: Literal["particle", "kalman"],
+    observation_support: ObservationSupportRuntime | None,
+) -> RBPartition | None:
+    if plan.first_pass_partition is not None:
+        return plan.first_pass_partition
+
+    if (
+        plan.structural_backend != "kalman"
+        or not spec.first_pass_rb
+        or likelihood == "kalman"
+        or (
+            observation_support is not None
+            and observation_support.requires_interval_summary_handling
+        )
+    ):
+        return None
+
+    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
+
+    partition = analyze_first_pass_rb(spec)
+    return partition if not partition.has_particle_block else None
 
 
 def plan_inference_structure(
@@ -48,74 +127,35 @@ def plan_inference_structure(
     *,
     likelihood: Literal["particle", "kalman"] = "particle",
     observation_support: ObservationSupportRuntime | None = None,
+    method_override: RequestedMethod | None = None,
+    n_timepoints: int | None = None,
 ) -> InferenceStructurePlan:
     """Resolve the active likelihood path and auto-routing plan once."""
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
-
-    if observation_support is not None and observation_support.requires_interval_summary_handling:
-        return InferenceStructurePlan(
-            likelihood_path="particle",
-            auto_method="laplace_em",
-            first_pass_rb=FirstPassRBPlan(
-                status="inactive",
-                inactive_reason="interval_summary_support",
-            ),
-        )
-
-    if likelihood == "kalman":
-        return InferenceStructurePlan(
-            likelihood_path="kalman",
-            auto_method="nuts",
-            first_pass_rb=FirstPassRBPlan(
-                status="inactive",
-                inactive_reason="likelihood_override",
-            ),
-        )
-
-    partition = analyze_first_pass_rb(spec)
-    auto_method: AutoMethod = "nuts" if not partition.has_particle_block else "laplace_em"
-
-    if not spec.first_pass_rb:
-        return InferenceStructurePlan(
-            likelihood_path="particle",
-            auto_method=auto_method,
-            first_pass_rb=FirstPassRBPlan(
-                status="inactive",
-                inactive_reason="disabled_in_spec",
-            ),
-        )
-
-    if not partition.has_particle_block:
-        return InferenceStructurePlan(
-            likelihood_path="kalman",
-            auto_method=auto_method,
-            first_pass_rb=FirstPassRBPlan(status="active", partition=partition),
-        )
-
-    if (
-        partition.has_kalman_block
-        and len(partition.particle_idx) > 0
-        and len(partition.obs_kalman_idx) > 0
-    ):
-        return InferenceStructurePlan(
-            likelihood_path="composed",
-            auto_method=auto_method,
-            first_pass_rb=FirstPassRBPlan(status="active", partition=partition),
-        )
-
+    structural_backend, first_pass_partition = _resolve_structural_backend(
+        spec,
+        likelihood=likelihood,
+        observation_support=observation_support,
+    )
+    normalized_override = _normalize_method_override(method_override)
+    resolved_method = normalized_override or _resolve_auto_method(
+        structural_backend=structural_backend,
+        observation_support=observation_support,
+        n_timepoints=n_timepoints,
+    )
     return InferenceStructurePlan(
-        likelihood_path="particle",
-        auto_method=auto_method,
-        first_pass_rb=FirstPassRBPlan(
-            status="inactive",
-            inactive_reason="no_executable_partition",
-        ),
+        structural_backend=structural_backend,
+        resolved_method=resolved_method,
+        method_override=normalized_override,
+        first_pass_partition=first_pass_partition,
     )
 
 
 def build_inference_structure_payload(
     spec: SSMSpec,
     plan: InferenceStructurePlan,
+    *,
+    likelihood: Literal["particle", "kalman"] = "particle",
+    observation_support: ObservationSupportRuntime | None = None,
 ) -> dict:
     """Serialize an inference-structure plan for stage payloads."""
     latent_names = spec.latent_names or [f"latent_{i}" for i in range(spec.n_latent)]
@@ -123,7 +163,12 @@ def build_inference_structure_payload(
 
     latent_variables: list[dict[str, str]] = []
     obs_variables: list[dict[str, str]] = []
-    partition = plan.first_pass_rb.partition
+    partition = _payload_partition_for_plan(
+        spec,
+        plan,
+        likelihood=likelihood,
+        observation_support=observation_support,
+    )
     if partition is not None:
         latent_variables = [
             {
@@ -140,12 +185,17 @@ def build_inference_structure_payload(
             for i in range(spec.n_manifest)
         ]
 
+    auto_method = _resolve_auto_method(
+        structural_backend=plan.structural_backend,
+        observation_support=observation_support,
+        n_timepoints=None,
+    )
+
     return {
-        "likelihood_path": plan.likelihood_path,
-        "auto_method": plan.auto_method,
+        "likelihood_path": plan.structural_backend,
+        "auto_method": auto_method,
         "first_pass_rb": {
-            "status": plan.first_pass_rb.status,
-            "inactive_reason": plan.first_pass_rb.inactive_reason,
+            "status": "active" if partition is not None else "inactive",
             "latent_variables": latent_variables,
             "obs_variables": obs_variables,
         },

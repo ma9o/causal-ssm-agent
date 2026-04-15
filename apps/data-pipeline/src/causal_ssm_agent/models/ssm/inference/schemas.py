@@ -254,11 +254,94 @@ class SensitivityAnalysisResult(BaseModel):
     n_parameters: int
 
 
+class CurvatureParameterEntry(BaseModel):
+    """Per-parameter local-curvature summary at the selected MAP."""
+
+    parameter: str
+    interpretable_parameter: str
+    diagonal_curvature: float
+    effective_eigenvalue: float
+    status: Literal["pass", "warn", "fail"]
+    normalized_effective_eigenvalue: float
+    normalized_status: Literal["pass", "warn", "fail"]
+
+
+class CurvatureDirectionLoading(BaseModel):
+    """One parameter's loading within a weak local-curvature eigen-direction."""
+
+    parameter: str
+    interpretable_parameter: str
+    loading: float
+    abs_loading: float
+
+
+class CurvatureDirection(BaseModel):
+    """A weak Hessian eigen-direction within the MAP neighborhood."""
+
+    index: int
+    eigenvalue: float
+    normalized_eigenvalue: float
+    status: Literal["pass", "warn", "fail"]
+    top_loadings: list[CurvatureDirectionLoading]
+
+
+class MAPCurvatureResult(BaseModel):
+    """One Hessian family's local geometry at the selected MAP."""
+
+    eigenvalues: list[float]
+    normalized_eigenvalues: list[float]
+    negative_direction_count: int
+    deficiency_count: int
+    positive_definite: bool
+    condition_number: float | None = None
+    normalized_condition_number: float | None = None
+    weak_directions: list[CurvatureDirection]
+    per_parameter: list[CurvatureParameterEntry]
+
+
+class MAPOptimizationRun(BaseModel):
+    """One start in the multi-start MAP search."""
+
+    index: int
+    start_kind: str
+    start_log_posterior: float
+    log_posterior: float
+    log_likelihood: float
+    log_prior: float
+    objective: float
+    success: bool
+    status: int
+    message: str
+    n_iters: int
+    n_function_evals: int
+    grad_norm: float
+    distance_to_best: float
+
+
+class MAPGeometryResult(BaseModel):
+    """Dataset-conditioned MAP search plus H_lik / H_post local geometry."""
+
+    n_starts: int
+    n_successful_starts: int
+    best_start_index: int
+    map_log_posterior: float
+    map_log_likelihood: float
+    map_log_prior: float
+    final_grad_norm: float
+    runner_up_objective_gap: float | None = None
+    starts: list[MAPOptimizationRun]
+    likelihood_curvature: MAPCurvatureResult
+    posterior_curvature: MAPCurvatureResult
+    prior_rescued_parameters: list[str]
+    boundary_parameters: list[str]
+
+
 class ParametricIdResult(BaseModel):
     """Full parametric identifiability result (Stage 4b payload)."""
 
     checked: bool = False
     sensitivity_analysis: SensitivityAnalysisResult | None = None
+    map_geometry: MAPGeometryResult | None = None
     summary: ParametricIdSummary | None = None
     per_param_classification: list[ParameterIdentification] | None = None
     threshold: float | None = None
@@ -276,15 +359,6 @@ class FirstPassRBResult(BaseModel):
     """Active first-pass Rao-Blackwellization plan for the prepared runtime."""
 
     status: Literal["active", "inactive"]
-    inactive_reason: (
-        Literal[
-            "disabled_in_spec",
-            "interval_summary_support",
-            "no_executable_partition",
-            "likelihood_override",
-        ]
-        | None
-    ) = None
     latent_variables: list[InferenceStructureVariable]
     obs_variables: list[InferenceStructureVariable]
 

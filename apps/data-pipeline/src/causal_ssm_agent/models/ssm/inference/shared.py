@@ -23,6 +23,7 @@ def select_default_method(
     spec: SSMSpec,
     likelihood: Literal["particle", "kalman"] = "particle",
     observation_support: ObservationSupportRuntime | None = None,
+    n_timepoints: int | None = None,
 ) -> InferenceMethod:
     """Select the default inference method based on model structure."""
     from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
@@ -31,14 +32,15 @@ def select_default_method(
         spec,
         likelihood=likelihood,
         observation_support=observation_support,
+        n_timepoints=n_timepoints,
     )
     logger.info(
-        "Auto routing: method=%s likelihood_path=%s first_pass_rb=%s",
-        inference_structure.auto_method,
-        inference_structure.likelihood_path,
-        inference_structure.first_pass_rb.status,
+        "Auto routing: resolved_method=%s structural_backend=%s first_pass_partition=%s",
+        inference_structure.resolved_method,
+        inference_structure.structural_backend,
+        "active" if inference_structure.first_pass_partition is not None else "none",
     )
-    return inference_structure.auto_method
+    return inference_structure.resolved_method
 
 
 def _trace_public_sites(

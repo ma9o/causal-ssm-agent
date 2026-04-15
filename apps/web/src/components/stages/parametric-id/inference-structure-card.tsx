@@ -1,5 +1,4 @@
 import { Card, CardContent } from "@/components/ui/card";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { InferenceStructureResult } from "@causal-ssm/api-types";
 import type { ReactNode } from "react";
 
@@ -65,21 +64,12 @@ const METHOD_LABELS = {
   svi: "SVI",
 } as const;
 
-const FIRST_PASS_REASON_LABELS = {
-  disabled_in_spec: "Disabled in the model spec.",
-  interval_summary_support: "Disabled because interval-summary observations require support-aware particle likelihoods.",
-  no_executable_partition: "No executable first-pass split exists for the current latent and observation coupling.",
-  likelihood_override: "Disabled because the model explicitly requests the Kalman backend.",
-} as const;
-
 export function InferenceStructureCard({ inferenceStructure }: InferenceStructureCardProps) {
   const firstPass = inferenceStructure.first_pass_rb;
   const latentKalman = firstPass.latent_variables.filter((v) => v.method === "kalman");
   const latentParticle = firstPass.latent_variables.filter((v) => v.method === "particle");
   const obsKalman = firstPass.obs_variables.filter((v) => v.method === "kalman");
   const obsParticle = firstPass.obs_variables.filter((v) => v.method === "particle");
-  const firstPassReason =
-    firstPass.inactive_reason == null ? null : FIRST_PASS_REASON_LABELS[firstPass.inactive_reason];
 
   return (
     <Card>
@@ -93,30 +83,13 @@ export function InferenceStructureCard({ inferenceStructure }: InferenceStructur
               value={PATH_LABELS[inferenceStructure.likelihood_path]}
             />
             <SummaryDivider />
-            <SummaryItem
-              label="Method"
-              value={METHOD_LABELS[inferenceStructure.auto_method]}
-            />
+            <SummaryItem label="Method" value={METHOD_LABELS[inferenceStructure.auto_method]} />
             <SummaryDivider />
             <span className="inline-flex items-center gap-1.5">
               <span className="text-muted-foreground">First-pass Rao-Blackwellization</span>
               <span className="text-foreground">
                 {firstPass.status === "active" ? "Active" : "Inactive"}
               </span>
-              {firstPass.status === "inactive" && firstPassReason ? (
-                <Tooltip>
-                  <TooltipTrigger
-                    render={<button type="button" />}
-                    aria-label="Show Rao-Blackwellization inactive reason"
-                    className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-border text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    ?
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <span className="max-w-xs text-xs leading-relaxed">{firstPassReason}</span>
-                  </TooltipContent>
-                </Tooltip>
-              ) : null}
             </span>
             {firstPass.status === "active" ? (
               <>
