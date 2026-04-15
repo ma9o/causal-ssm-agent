@@ -546,8 +546,8 @@ export function generateMarkdown(data: AllStageData, workspaceId: string): strin
       lines.push(`- **Likelihood path**: ${structure.likelihood_path}`);
       lines.push(`- **Auto method**: ${structure.auto_method}`);
       lines.push(`- **First-pass RB**: ${structure.first_pass_rb.status}`);
-      if (structure.first_pass_rb.inactive_reason) {
-        lines.push(`- **First-pass RB reason**: ${structure.first_pass_rb.inactive_reason}`);
+      if (structure.first_pass_rb.status === "inactive") {
+        lines.push(`- No first-pass split is active for this prepared runtime.`);
       }
       const latentKalman = structure.first_pass_rb.latent_variables
         .filter((v) => v.method === "kalman")

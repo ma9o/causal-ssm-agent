@@ -38,6 +38,13 @@ def lower_triangle_positions(
     return positions
 
 
+def _cast_like(values: jnp.ndarray | None, template: jnp.ndarray) -> jnp.ndarray | None:
+    """Cast free parameter vectors to the assembled template dtype."""
+    if values is None:
+        return None
+    return jnp.asarray(values, dtype=template.dtype)
+
+
 class SSMStructureRuntime:
     """Canonical runtime structure derived once from ``SSMSpec``.
 
@@ -181,7 +188,7 @@ class SSMStructureRuntime:
 
         self.manifest_cov_template = self.manifest_chol_template @ self.manifest_chol_template.T
         self.t0_cov_template = self.t0_chol_template @ self.t0_chol_template.T
-        self.t0_base_std = jnp.sqrt(jnp.clip(jnp.diag(self.t0_cov_template), a_min=0.0))
+        self.t0_base_std = jnp.sqrt(jnp.clip(jnp.diag(self.t0_cov_template), min=0.0))
         denom = self.t0_base_std[:, None] * self.t0_base_std[None, :]
         self.t0_base_corr = jnp.where(
             denom > 0,
@@ -216,6 +223,8 @@ class SSMStructureRuntime:
     ) -> jnp.ndarray:
         """Build drift matrix from diagonal and off-diagonal parameter values."""
         drift = self.drift_template
+        drift_diag_free = _cast_like(drift_diag_free, drift)
+        drift_offdiag_free = _cast_like(drift_offdiag_free, drift)
         if drift_diag_free is not None:
             for idx, latent_idx in enumerate(self.drift_diag_positions):
                 drift = drift.at[latent_idx, latent_idx].set(-jnp.abs(drift_diag_free[idx]))
@@ -224,7 +233,7 @@ class SSMStructureRuntime:
                 drift = drift.at[i, j].set(drift_offdiag_free[idx])
         if self.ti_mask is not None:
             diag_vals = jnp.diag(drift)
-            new_diag = jnp.where(self.ti_mask, -1e-6, diag_vals)
+            new_diag = jnp.where(self.ti_mask, jnp.asarray(-1e-6, dtype=drift.dtype), diag_vals)
             drift = drift - jnp.diag(diag_vals) + jnp.diag(new_diag)
         return drift
 
@@ -235,6 +244,8 @@ class SSMStructureRuntime:
     ) -> jnp.ndarray:
         """Build diffusion Cholesky from a template and sparse free entries."""
         diffusion = self.diffusion_chol_template
+        diff_diag = _cast_like(diff_diag, diffusion)
+        diff_lower = _cast_like(diff_lower, diffusion)
         if diff_diag is not None:
             for idx, latent_idx in enumerate(self.diffusion_diag_positions):
                 diffusion = diffusion.at[latent_idx, latent_idx].set(diff_diag[idx])
@@ -243,13 +254,14 @@ class SSMStructureRuntime:
                 diffusion = diffusion.at[row, col].set(diff_lower[idx])
         if self.ti_mask is not None:
             diag_vals = jnp.diag(diffusion)
-            new_diag = jnp.where(self.ti_mask, 1e-6, diag_vals)
+            new_diag = jnp.where(self.ti_mask, jnp.asarray(1e-6, dtype=diffusion.dtype), diag_vals)
             diffusion = diffusion - jnp.diag(diag_vals) + jnp.diag(new_diag)
         return diffusion
 
     def assemble_cint(self, free_cint: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build continuous intercept from a template and sparse free entries."""
         cint = self.cint_template
+        free_cint = _cast_like(free_cint, cint)
         if free_cint is not None:
             for idx, latent_idx in enumerate(self.cint_free_positions):
                 cint = cint.at[latent_idx].set(free_cint[idx])
@@ -263,16 +275,19 @@ class SSMStructureRuntime:
     ) -> jnp.ndarray:
         """Build initial-state covariance from a template and sparse free entries."""
         std = self.t0_base_std
+        t0_diag = _cast_like(t0_diag, std)
         if t0_diag is not None:
             for idx, latent_idx in enumerate(self.t0_diag_free_positions):
                 std = std.at[latent_idx].set(t0_diag[idx])
         corr = self.t0_base_corr
+        t0_correlation = _cast_like(t0_correlation, corr)
         if t0_correlation is not None:
             for idx, (row, col) in enumerate(self.t0_correlation_positions):
                 corr = corr.at[row, col].set(t0_correlation[idx])
                 corr = corr.at[col, row].set(t0_correlation[idx])
         cov = corr * (std[:, None] * std[None, :])
         factor_sds = self.static_state_sd_template
+        static_state_sds = _cast_like(static_state_sds, factor_sds)
         if static_state_sds is not None:
             for idx, factor_idx in enumerate(self.static_state_sd_free_positions):
                 factor_sds = factor_sds.at[factor_idx].set(static_state_sds[idx])
@@ -291,6 +306,7 @@ class SSMStructureRuntime:
     ) -> jnp.ndarray:
         """Build compiled baseline-factor scales from a sparse free vector."""
         static_sds = self.static_state_sd_template
+        free_sds = _cast_like(free_sds, static_sds)
         if free_sds is not None:
             for idx, factor_idx in enumerate(self.static_state_sd_free_positions):
                 static_sds = static_sds.at[factor_idx].set(free_sds[idx])
@@ -299,6 +315,7 @@ class SSMStructureRuntime:
     def assemble_lambda(self, free_loadings: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build lambda (factor loading) matrix from template + explicit mask."""
         lam = self.lambda_template
+        free_loadings = _cast_like(free_loadings, lam)
         if free_loadings is not None and len(self.lambda_free_positions) > 0:
             for idx, (i, j) in enumerate(self.lambda_free_positions):
                 lam = lam.at[i, j].set(free_loadings[idx])
@@ -307,6 +324,7 @@ class SSMStructureRuntime:
     def assemble_manifest_means(self, free_means: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build manifest means from a template and sparse free entries."""
         manifest_means = self.manifest_means_template
+        free_means = _cast_like(free_means, manifest_means)
         if free_means is not None:
             for idx, manifest_idx in enumerate(self.manifest_means_free_positions):
                 manifest_means = manifest_means.at[manifest_idx].set(free_means[idx])
@@ -315,6 +333,7 @@ class SSMStructureRuntime:
     def assemble_manifest_chol(self, free_diag: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build manifest-noise Cholesky from a template and sparse free diagonal."""
         manifest_chol = self.manifest_chol_template
+        free_diag = _cast_like(free_diag, manifest_chol)
         if free_diag is not None and len(self.manifest_var_free_positions) > 0:
             for idx, manifest_idx in enumerate(self.manifest_var_free_positions):
                 manifest_chol = manifest_chol.at[manifest_idx, manifest_idx].set(free_diag[idx])
@@ -323,6 +342,7 @@ class SSMStructureRuntime:
     def assemble_t0_means(self, free_means: jnp.ndarray | None = None) -> jnp.ndarray:
         """Build initial-state means from a template and sparse free entries."""
         t0_means = self.t0_means_template
+        free_means = _cast_like(free_means, t0_means)
         if free_means is not None:
             for idx, latent_idx in enumerate(self.t0_means_free_positions):
                 t0_means = t0_means.at[latent_idx].set(free_means[idx])

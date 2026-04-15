@@ -38,8 +38,11 @@ from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.inference.shared import (
     _filter_public_samples,
     _trace_public_sites,
-    select_default_method,
 )
+from causal_ssm_agent.models.ssm.inference.shared import (
+    select_default_method as select_default_method,
+)
+from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
 from causal_ssm_agent.models.ssm.inference.types import (
     FittedArtifact as FittedArtifact,
 )
@@ -160,11 +163,13 @@ def fit(
         InferenceResult with posterior samples and diagnostics
     """
     if method == "auto":
-        method = select_default_method(
+        inference_structure = plan_inference_structure(
             model.spec,
-            model.likelihood,
-            getattr(model, "observation_support", None),
+            likelihood=model.likelihood,
+            observation_support=getattr(model, "observation_support", None),
+            n_timepoints=int(times.shape[0]),
         )
+        method = inference_structure.resolved_method
         kwargs = _resolve_auto_method_kwargs(method, kwargs)
 
     reparam = _resolve_reparam(reparam, method)

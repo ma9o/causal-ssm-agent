@@ -104,7 +104,6 @@ describe("generateMarkdown", () => {
           auto_method: "laplace_em",
           first_pass_rb: {
             status: "active",
-            inactive_reason: null,
             latent_variables: [
               { name: "g0", method: "kalman" },
               { name: "s0", method: "particle" },
@@ -124,6 +123,27 @@ describe("generateMarkdown", () => {
     expect(result).toContain("Observed Channels (Particle-side)");
     expect(result).toContain("yg0");
     expect(result).toContain("ys0");
+  });
+
+  it("uses generic wording when first-pass RB is inactive", () => {
+    const data: AllStageData = {
+      "stage-4b": {
+        outcome: "success",
+        parametric_id: { checked: true },
+        inference_structure: {
+          likelihood_path: "particle",
+          auto_method: "laplace_em",
+          first_pass_rb: {
+            status: "inactive",
+            latent_variables: [],
+            obs_variables: [],
+          },
+        },
+      } as AllStageData["stage-4b"],
+    };
+    const result = generateMarkdown(data, "rb-inactive");
+    expect(result).toContain("No first-pass split is active for this prepared runtime.");
+    expect(result).not.toContain("First-pass RB reason");
   });
 
   it("includes stage 1a constructs and edges", () => {
