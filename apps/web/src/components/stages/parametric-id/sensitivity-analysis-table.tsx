@@ -96,7 +96,7 @@ function LoadingsBarChart({ loadings }: { loadings: SensitivityDirectionLoading[
 
 const weakDirectionColumns = [
   directionCol.accessor("index", {
-    header: "Direction",
+    header: "Jacobian Direction",
     cell: (info) => <span className="font-medium">d{info.getValue()}</span>,
     meta: { mono: true },
   }),
@@ -104,7 +104,7 @@ const weakDirectionColumns = [
     header: () => (
       <HeaderWithTooltip
         label="Normalized SV"
-        tooltip="Direction-level singular value of the normalized sensitivity matrix. Values <= 1 indicate deficient local directions; values between 1 and 10 are borderline."
+        tooltip="Jacobian-direction singular value of the normalized sensitivity matrix. Values <= 1 indicate deficient local Jacobian directions; values between 1 and 10 are borderline."
       />
     ),
     cell: (info) => formatSV(info.getValue()),
@@ -126,8 +126,8 @@ const weakDirectionColumns = [
   directionCol.accessor("top_loadings", {
     header: () => (
       <HeaderWithTooltip
-        label="Dominant Parameters"
-        tooltip="Largest signed loadings in this weak local parameter combination. These are the named parameters most involved in the poorly constrained direction."
+        label="Normalized Sensitivity Eigenvector Components"
+        tooltip="Largest signed components of the eigenvector of the normalized sensitivity Gram matrix for this weak local parameter combination. These are the named parameters most involved in the poorly constrained direction."
       />
     ),
     cell: (info) => <LoadingsBarChart loadings={info.getValue()} />,
@@ -164,7 +164,7 @@ const fullParameterColumns = [
     header: () => (
       <HeaderWithTooltip
         label="Effective SV"
-        tooltip="Minimum singular value among raw directions where this parameter has substantial weight. Captures aliasing in the unnormalized sensitivity geometry."
+        tooltip="Minimum singular value among raw Jacobian directions where this parameter has substantial weight. Captures aliasing in the unnormalized sensitivity geometry."
       />
     ),
     cell: (info) => formatSV(info.getValue()),
@@ -177,7 +177,7 @@ const fullParameterColumns = [
     header: () => (
       <HeaderWithTooltip
         label="Normalized SV"
-        tooltip="Minimum singular value among normalized directions where this parameter has substantial weight. Thresholds: >10 pass, >1 warn, <=1 fail."
+        tooltip="Minimum singular value among normalized Jacobian directions where this parameter has substantial weight. Thresholds: >10 pass, >1 warn, <=1 fail."
       />
     ),
     cell: (info) => formatSV(info.getValue()),
