@@ -52,7 +52,12 @@ export function SensitivityDirectionsChart({ result }: { result: SensitivityAnal
               dataKey="direction"
               type="number"
               tick={{ fontSize: 10 }}
-              label={{ value: "Direction", position: "insideBottom", offset: -2, fontSize: 10 }}
+              label={{
+                value: "Jacobian Direction",
+                position: "insideBottom",
+                offset: -2,
+                fontSize: 10,
+              }}
             />
             <YAxis
               dataKey="plotValue"
@@ -80,7 +85,7 @@ export function SensitivityDirectionsChart({ result }: { result: SensitivityAnal
                 return (
                   <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
                     <p>
-                      Direction: <span className="font-mono">{point.direction}</span>
+                      Jacobian Direction: <span className="font-mono">{point.direction}</span>
                     </p>
                     <p>
                       Normalized SV:{" "}
