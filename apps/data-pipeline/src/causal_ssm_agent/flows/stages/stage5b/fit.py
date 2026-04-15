@@ -104,16 +104,16 @@ def fit_model(
         logger.info("Manifest order: %s", _format_name_preview(runtime.manifest_names, limit=6))
 
         inference_structure = runtime.inference_structure
+        partition = inference_structure.first_pass_partition
         logger.info(
-            "Inference route: requested_method=%s auto_method=%s likelihood_path=%s "
-            "first_pass_rb=%s inactive_reason=%s",
+            "Inference route: requested_method=%s resolved_method=%s structural_backend=%s "
+            "method_override=%s first_pass_partition=%s",
             (sampler_config or {}).get("method", "config default"),
-            inference_structure.auto_method,
-            inference_structure.likelihood_path,
-            inference_structure.first_pass_rb.status,
-            inference_structure.first_pass_rb.inactive_reason or "none",
+            inference_structure.resolved_method,
+            inference_structure.structural_backend,
+            inference_structure.method_override or "none",
+            "active" if partition is not None else "none",
         )
-        partition = inference_structure.first_pass_rb.partition
         if partition is not None:
             logger.info(
                 "First-pass RB partition: latent_kalman=%d latent_particle=%d "

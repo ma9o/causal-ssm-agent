@@ -340,7 +340,15 @@ def extract_constrained_samples(
 
 
 def _build_eval_fns(
-    model, observations, times, site_info, unravel_fn, likelihood_backend, reparam=None
+    model,
+    observations,
+    times,
+    site_info,
+    unravel_fn,
+    likelihood_backend,
+    reparam=None,
+    *,
+    include_likelihood_aux: bool = False,
 ):
     """Build differentiable functions for log-likelihood and log-prior.
 
@@ -351,6 +359,7 @@ def _build_eval_fns(
     Returns:
         log_lik_fn(z) -> scalar log p(y|theta)
         log_prior_unc_fn(z) -> scalar log p_unc(z) = log p(T(z)) + log|J|
+        log_lik_with_aux_fn(z) -> (scalar log p(y|theta), aux pytree), when requested
     """
     transforms = {name: info["transform"] for name, info in site_info.items()}
     distributions = {name: info["distribution"] for name, info in site_info.items()}
@@ -369,7 +378,7 @@ def _build_eval_fns(
         unc = unravel_fn(z)
         return {name: transforms[name](unc[name]) for name in unc}, unc
 
-    def _log_lik_fn(z):
+    def _log_lik_fn(z, latent_mode_init=None):
         """Log-likelihood p(y|theta) via the configured backend only."""
         con, _ = _constrain(z)
         original_samples = con if sample_resolver is None else sample_resolver(con)
@@ -379,20 +388,68 @@ def _build_eval_fns(
             registry=runtime_registry,
             structure_runtime=structure_runtime,
         )
-        lnc = likelihood_backend.compute_log_likelihood(
-            ct_params,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
-            extra_params=extra_params,
-        )
+        if latent_mode_init is None:
+            lnc = likelihood_backend.compute_log_likelihood(
+                ct_params,
+                measurement_params,
+                initial_state,
+                observations,
+                time_intervals,
+                extra_params=extra_params,
+            )
+        else:
+            lnc = likelihood_backend.compute_log_likelihood(
+                ct_params,
+                measurement_params,
+                initial_state,
+                observations,
+                time_intervals,
+                extra_params=extra_params,
+                latent_mode_init=latent_mode_init,
+            )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
         return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
 
     log_lik_fn = (
         jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
     )
+
+    def _log_lik_with_aux_fn(z, latent_mode_init=None):
+        """Log-likelihood p(y|theta) plus a fixed-shape backend aux payload."""
+        con, _ = _constrain(z)
+        original_samples = con if sample_resolver is None else sample_resolver(con)
+        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+            original_samples,
+            model.spec,
+            registry=runtime_registry,
+            structure_runtime=structure_runtime,
+        )
+        if latent_mode_init is None:
+            lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
+                ct_params,
+                measurement_params,
+                initial_state,
+                observations,
+                time_intervals,
+                extra_params=extra_params,
+            )
+        else:
+            lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
+                ct_params,
+                measurement_params,
+                initial_state,
+                observations,
+                time_intervals,
+                extra_params=extra_params,
+                latent_mode_init=latent_mode_init,
+            )
+        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
+        total_ll = jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
+        return total_ll, aux
+
+    # The aux payload can include latent-mode state reused across outer evaluations.
+    # Rematerializing that path leaks tracers through the returned aux tree.
+    log_lik_with_aux_fn = _log_lik_with_aux_fn
 
     def log_prior_unc_fn(z):
         """Log-prior in unconstrained space: log p(T(z)) + log|J(z)|."""
@@ -403,6 +460,8 @@ def _build_eval_fns(
         )
         return lp + lj
 
+    if include_likelihood_aux:
+        return log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn
     return log_lik_fn, log_prior_unc_fn
 
 

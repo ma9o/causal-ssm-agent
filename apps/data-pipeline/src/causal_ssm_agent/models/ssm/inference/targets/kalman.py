@@ -25,10 +25,12 @@ import jax.scipy.linalg as jla
 
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import (
+    LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT,
     MISSING_DATA_LARGE_VAR,
     CTParams,
     InitialStateParams,
     MeasurementParams,
+    build_likelihood_eval_aux,
     preprocess_missing_data,
 )
 
@@ -66,9 +68,31 @@ class KalmanLikelihood:
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
-        extra_params: dict | None = None,  # noqa: ARG002
+        extra_params: dict | None = None,
     ) -> jnp.ndarray:
-        """Compute exact log-likelihood via Kalman filter.
+        """Compute exact log-likelihood via Kalman filter."""
+        log_lik, _aux = self.compute_log_likelihood_with_aux(
+            ct_params,
+            measurement_params,
+            initial_state,
+            observations,
+            time_intervals,
+            obs_mask=obs_mask,
+            extra_params=extra_params,
+        )
+        return log_lik
+
+    def compute_log_likelihood_with_aux(
+        self,
+        ct_params: CTParams,
+        measurement_params: MeasurementParams,
+        initial_state: InitialStateParams,
+        observations: jnp.ndarray,
+        time_intervals: jnp.ndarray,
+        obs_mask: jnp.ndarray | None = None,
+        extra_params: dict | None = None,
+    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+        """Compute exact log-likelihood via Kalman filter with host-log aux.
 
         Args:
             ct_params: Continuous-time dynamics (drift, diffusion_cov, cint)
@@ -80,10 +104,13 @@ class KalmanLikelihood:
             extra_params: Ignored (no noise family hyperparameters for Kalman)
 
         Returns:
-            (T,) cumulative log-normalizing constants from the Kalman filter.
+            Tuple of `(T,)` cumulative log-normalizing constants and a fixed-shape
+            aux payload for the Laplace-EM host-side progress logger.
         """
         from cuthbert.filtering import filter as cuthbert_filter
         from cuthbert.gaussian.moments import build_filter
+
+        del extra_params
 
         n = self.n_latent
         m = self.n_manifest
@@ -180,4 +207,9 @@ class KalmanLikelihood:
         n_missing = m - jnp.sum(obs_mask.astype(clean_obs.dtype), axis=1)
         missing_correction = 0.5 * n_missing * jnp.log(2.0 * jnp.pi * MISSING_DATA_LARGE_VAR)
 
-        return states.log_normalizing_constant + jnp.cumsum(missing_correction)
+        lnc = states.log_normalizing_constant + jnp.cumsum(missing_correction)
+        aux = build_likelihood_eval_aux(
+            clean_obs.dtype,
+            solver_kind=LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT,
+        )
+        return lnc, aux

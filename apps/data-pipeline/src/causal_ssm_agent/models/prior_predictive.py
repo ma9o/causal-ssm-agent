@@ -456,6 +456,8 @@ def _check_extreme_values(
         n_extreme = int(np.sum(np.abs(arr) > extreme_cutoff))
         extreme_rate = n_extreme / n_total
         if extreme_rate > threshold:
+            # TODO: If this heuristic proves too noisy, downgrade it to warn-only
+            # via is_valid=True and severity="warning" instead of blocking validation.
             results.append(
                 _pp_result(
                     parameter=site_name,
@@ -643,6 +645,8 @@ def _check_scale_plausibility(
 
         ratio = float(median_implied[j]) / data_std
         if ratio > ratio_threshold or ratio < 1.0 / ratio_threshold:
+            # TODO: If this heuristic proves too noisy, downgrade it to warn-only
+            # via is_valid=True and severity="warning" instead of blocking validation.
             results.append(
                 _pp_result(
                     parameter=f"scale_{name}",

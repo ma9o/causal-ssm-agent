@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
+import numpy as np
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.flows import get_prefect_logger
@@ -647,7 +648,7 @@ def compile_measurement_semantics(
     mean_log_prob_fn = None
     if observation_operator.requires_interval_summary_handling:
         interval_summary_indices = list(observation_operator.interval_summary_indices)
-        interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int64)
+        interval_summary_idx = np.asarray(interval_summary_indices, dtype=np.int32)
         interval_summary_dists = [dists[idx] for idx in interval_summary_indices]
         if len(set(interval_summary_dists)) == 1:
             base_mean_log_prob_fn = get_mean_param_log_prob_fn(
@@ -663,7 +664,7 @@ def compile_measurement_semantics(
             y_interval_summary = y_t[interval_summary_idx]
             mean_interval_summary = mean_t[interval_summary_idx]
             mask_interval_summary = obs_mask_t[interval_summary_idx]
-            R_interval_summary = R[jnp.ix_(interval_summary_idx, interval_summary_idx)]
+            R_interval_summary = R[np.ix_(interval_summary_idx, interval_summary_idx)]
             return base_mean_log_prob_fn(
                 y_interval_summary,
                 mean_interval_summary,

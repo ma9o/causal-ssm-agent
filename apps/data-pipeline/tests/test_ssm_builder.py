@@ -686,11 +686,10 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(31.0)
         assert runtime.manifest_names == ["stress_score"]
         assert runtime.model.observation_support is runtime.observation_support
-        assert runtime.inference_structure.likelihood_path == "particle"
-        assert runtime.inference_structure.auto_method == "laplace_em"
-        assert (
-            runtime.inference_structure.first_pass_rb.inactive_reason == "interval_summary_support"
-        )
+        assert runtime.inference_structure.structural_backend == "particle"
+        assert runtime.inference_structure.resolved_method == "laplace_em"
+        assert runtime.inference_structure.method_override is None
+        assert runtime.inference_structure.first_pass_partition is None
         assert "support-aware observation semantics" in caplog.text
 
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
@@ -753,10 +752,9 @@ class TestPrepareModelRuntime:
         assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
         assert runtime.observation_support is not None
         assert runtime.observation_support.max_active_windows == 2
-        assert runtime.inference_structure.likelihood_path == "particle"
-        assert (
-            runtime.inference_structure.first_pass_rb.inactive_reason == "interval_summary_support"
-        )
+        assert runtime.inference_structure.structural_backend == "particle"
+        assert runtime.inference_structure.resolved_method == "laplace_em"
+        assert runtime.inference_structure.first_pass_partition is None
         assert runtime.observation_support.emission_slot_indices.tolist() == [[-1], [-1], [0], [1]]
         assert runtime.observation_support.interval_weights.shape == (4, 1, 2)
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(1.0)

@@ -616,6 +616,8 @@ def prepare_wide_model_runtime(
         spec_obj,
         likelihood=likelihood_name,
         observation_support=observation_support,
+        method_override=(sampler_config or {}).get("method"),
+        n_timepoints=int(times.shape[0]),
     )
     builder._prepared_times = times
     builder._prepared_observation_mask = ~jnp.isnan(observations)
