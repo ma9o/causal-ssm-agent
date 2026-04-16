@@ -131,6 +131,32 @@ def compute_discrete_diffusion(
     return symmetrize(Q_dt)
 
 
+def compute_discrete_diffusion_van_loan(
+    drift: jnp.ndarray,
+    diffusion_cov: jnp.ndarray,
+    dt: float | jax.Array,
+) -> jnp.ndarray:
+    """Compute discrete diffusion exactly with the Van Loan block exponential.
+
+    Unlike the stationary-covariance identity used by
+    ``compute_discrete_diffusion()``, this remains valid when ``drift`` is
+    singular or unstable. That matters for augmented systems with accumulator
+    states whose drift has zero eigenvalues.
+    """
+    n = drift.shape[0]
+    zero = jnp.zeros_like(drift)
+    van_loan = jnp.block(
+        [
+            [drift, diffusion_cov],
+            [zero, -drift.T],
+        ]
+    )
+    van_loan_exp = jla.expm(van_loan * dt)
+    discrete_drift = van_loan_exp[:n, :n]
+    upper_right = van_loan_exp[:n, n:]
+    return symmetrize(upper_right @ discrete_drift.T)
+
+
 def compute_discrete_cint(
     drift: jnp.ndarray,
     cint: jnp.ndarray,
@@ -163,6 +189,21 @@ def compute_discrete_cint(
     # Using solve for numerical stability: A * c_dt = (exp(A*dt) - I) * c
     rhs = (discrete_drift - I_n) @ cint
     return jla.solve(drift, rhs)
+
+
+def compute_discrete_cint_exact(
+    drift: jnp.ndarray,
+    cint: jnp.ndarray,
+    dt: float | jax.Array,
+) -> jnp.ndarray:
+    """Compute the exact discrete intercept without assuming invertible drift."""
+    n = drift.shape[0]
+    cint_vec = jnp.asarray(cint, dtype=drift.dtype).reshape(n)
+    augmented = jnp.zeros((n + 1, n + 1), dtype=drift.dtype)
+    augmented = augmented.at[:n, :n].set(drift)
+    augmented = augmented.at[:n, n].set(cint_vec)
+    augmented_exp = jla.expm(augmented * dt)
+    return augmented_exp[:n, n]
 
 
 def discretize_system(
@@ -256,6 +297,102 @@ def _normalize_batched_cint(discrete_cint: jnp.ndarray) -> jnp.ndarray:
     if discrete_cint.ndim > 0 and discrete_cint.shape[-1] == 1:
         return discrete_cint.squeeze(-1)
     return discrete_cint
+
+
+def discretize_linear_system_exact(
+    drift: jnp.ndarray,
+    diffusion_cov: jnp.ndarray,
+    cint: jnp.ndarray | None,
+    dt: float | jax.Array,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    """Exact CT→DT discretization for general linear systems.
+
+    This variant is valid for augmented systems with singular drift, such as
+    accumulator states used for linear interval summaries.
+    """
+    discrete_drift = jla.expm(drift * dt)
+    discrete_Q = compute_discrete_diffusion_van_loan(drift, diffusion_cov, dt)
+    discrete_cint = None
+    if cint is not None:
+        discrete_cint = compute_discrete_cint_exact(drift, cint, dt)
+    return discrete_drift, discrete_Q, discrete_cint
+
+
+def discretize_linear_system_exact_batched(
+    drift: jnp.ndarray,
+    diffusion_cov: jnp.ndarray,
+    cint: jnp.ndarray | None,
+    dt_array: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    """Batch exact discretization for general linear systems."""
+    n_steps = dt_array.shape[0]
+    n_latent = drift.shape[0]
+
+    if n_steps == 0:
+        Ad = jnp.empty((0, n_latent, n_latent), dtype=drift.dtype)
+        Qd = jnp.empty((0, n_latent, n_latent), dtype=diffusion_cov.dtype)
+        if cint is None:
+            return Ad, Qd, None
+        cint_arr = _normalize_batched_cint(jnp.asarray(cint))
+        cd = jnp.empty((0, *cint_arr.shape), dtype=cint_arr.dtype)
+        return Ad, Qd, cd
+
+    same_dt = jnp.all(jnp.isclose(dt_array, dt_array[0]))
+
+    if cint is not None:
+
+        def _all_same_dt(_):
+            Ad_single, Qd_single, cd_single = discretize_linear_system_exact(
+                drift,
+                diffusion_cov,
+                cint,
+                dt_array[0],
+            )
+            cd_single = _normalize_batched_cint(jnp.asarray(cd_single))
+            return (
+                jnp.broadcast_to(Ad_single, (n_steps, *Ad_single.shape)),
+                jnp.broadcast_to(Qd_single, (n_steps, *Qd_single.shape)),
+                jnp.broadcast_to(cd_single, (n_steps, *cd_single.shape)),
+            )
+
+        def _varying_dt(_):
+            Ad, Qd, cd = vmap(
+                lambda dt: discretize_linear_system_exact(
+                    drift,
+                    diffusion_cov,
+                    cint,
+                    dt,
+                )
+            )(dt_array)
+            return Ad, Qd, _normalize_batched_cint(jnp.asarray(cd))
+
+        return lax.cond(same_dt, _all_same_dt, _varying_dt, operand=None)
+
+    def _all_same_dt_no_cint(_):
+        Ad_single, Qd_single, _ = discretize_linear_system_exact(
+            drift,
+            diffusion_cov,
+            None,
+            dt_array[0],
+        )
+        return (
+            jnp.broadcast_to(Ad_single, (n_steps, *Ad_single.shape)),
+            jnp.broadcast_to(Qd_single, (n_steps, *Qd_single.shape)),
+        )
+
+    def _varying_dt_no_cint(_):
+        Ad, Qd, _ = vmap(
+            lambda dt: discretize_linear_system_exact(
+                drift,
+                diffusion_cov,
+                None,
+                dt,
+            )
+        )(dt_array)
+        return Ad, Qd
+
+    Ad, Qd = lax.cond(same_dt, _all_same_dt_no_cint, _varying_dt_no_cint, operand=None)
+    return Ad, Qd, None
 
 
 def discretize_system_batched(
