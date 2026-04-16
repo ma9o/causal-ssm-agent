@@ -225,9 +225,13 @@ def load_stage4_checkpoint(workspace_id: str) -> Any:
 
 
 def clear_stage4_checkpoint(workspace_id: str) -> None:
-    """Remove any in-progress Stage 4 runtime checkpoint."""
-    path = _stage4_checkpoint_dir(workspace_id, create=True)
-    storage.remove(path, recursive=True)
+    """Remove the Stage 4 resume cursor while retaining per-block cache files."""
+    checkpoint_dir = _stage4_checkpoint_dir(workspace_id, create=False)
+    if not storage.exists(checkpoint_dir):
+        return
+    cursor_path = _stage4_checkpoint_cursor_path(workspace_id, create=False)
+    if storage.exists(cursor_path):
+        storage.remove(cursor_path)
 
 
 # ---------------------------------------------------------------------------
