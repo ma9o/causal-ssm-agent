@@ -94,6 +94,60 @@ def _plan_prior_parameter_names(plan: Stage4Plan) -> frozenset[str]:
     )
 
 
+def _scope_key_tokens(scope_key: str) -> tuple[str, ...]:
+    """Return the deterministic scope-key tokens after the scope-kind prefix."""
+    _scope_kind, _separator, suffix = scope_key.partition(":")
+    if not suffix or suffix == "global":
+        return ()
+    return tuple(token for token in suffix.split("|") if token)
+
+
+def _validate_direct_writer_checkpoint_prompt_blocks(
+    plan: Stage4Plan,
+    runtime: Stage4Runtime,
+) -> str | None:
+    """Reject saved direct-writer campaigns whose prompt blocks exceed their scope."""
+    campaign = runtime.domain.repair_campaign
+    if campaign is None or campaign.scope_kind != "direct_writer_blocks":
+        return None
+
+    scope_tokens = set(_scope_key_tokens(campaign.scope_key))
+    if not scope_tokens:
+        return "checkpoint direct-writer repair scope no longer names any parameters"
+
+    for block_id in campaign.scope_block_ids:
+        plan_block = plan.get_block(block_id)
+        prompt_block = campaign.prompt_blocks_by_id[block_id]
+        scoped_parameter_names = tuple(
+            parameter_name
+            for parameter_name in plan_block.parameter_names
+            if parameter_name in scope_tokens
+        )
+        if not scoped_parameter_names:
+            return "checkpoint direct-writer repair scope no longer maps to active Stage 4 parameters"
+        if scoped_parameter_names == plan_block.parameter_names:
+            continue
+
+        scoped_required_parameter_names = tuple(
+            parameter_name
+            for parameter_name in plan_block.required_parameter_names
+            if parameter_name in scope_tokens
+        )
+        scoped_optional_parameter_names = tuple(
+            parameter_name
+            for parameter_name in plan_block.optional_parameter_names
+            if parameter_name in scope_tokens
+        )
+        if (
+            prompt_block.parameter_names != scoped_parameter_names
+            or prompt_block.required_parameter_names != scoped_required_parameter_names
+            or prompt_block.optional_parameter_names != scoped_optional_parameter_names
+        ):
+            return "checkpoint direct-writer prompt blocks no longer match the scoped repair surface"
+
+    return None
+
+
 def _validate_stage4_runtime_checkpoint(
     plan: Stage4Plan,
     runtime: Any,
@@ -124,6 +178,12 @@ def _validate_stage4_runtime_checkpoint(
         for block_id, prompt_block in campaign.prompt_blocks_by_id.items():
             if prompt_block.id != block_id:
                 return "checkpoint repair prompt override ids are inconsistent"
+        direct_writer_incompatibility = _validate_direct_writer_checkpoint_prompt_blocks(
+            plan,
+            runtime,
+        )
+        if direct_writer_incompatibility is not None:
+            return direct_writer_incompatibility
         pending_block_ids = pending_repair_campaign_block_ids(campaign)
         if not pending_block_ids:
             return "checkpoint persists a completed repair campaign instead of settling it"

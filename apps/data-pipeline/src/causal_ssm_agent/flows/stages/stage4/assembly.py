@@ -775,6 +775,7 @@ def format_validation_feedback(
             results=validation.prior_predictive_diagnostics,
             prior=authored_priors.get(param_name),
             data_stats=data_stats,
+            model_spec=validation.normalized_model_spec,
         )
         if fb:
             parts.append(fb)

@@ -201,6 +201,27 @@ def _direct_writer_scope_candidate_specs(
     return ()
 
 
+def _scale_fallback_scope_candidate_specs(
+    plan: Stage4Plan,
+    localization: Stage4FailureLocalization,
+) -> tuple[Stage4ScopeCandidateSpec, ...]:
+    """Escalate local scale mismatch repairs to the full prior review when needed."""
+    del plan
+    if "scale_mismatch" not in localization.diagnostic_codes:
+        return ()
+    return (
+        Stage4ScopeCandidateSpec(
+            scope_kind="global_prior_review",
+            scope_rank=1,
+            reason=_require_reason(
+                localization.reasons.default,
+                context="scale_mismatch global prior review",
+            ),
+            scope_token="prior_system",
+        ),
+    )
+
+
 def _global_scope_candidate_specs(
     plan: Stage4Plan,
     localization: Stage4FailureLocalization,
@@ -242,6 +263,10 @@ _SCOPE_CANDIDATE_STRATEGIES: tuple[Stage4ScopeCandidateStrategy, ...] = (
     Stage4ScopeCandidateStrategy(
         name="direct_writer",
         build_specs=_direct_writer_scope_candidate_specs,
+    ),
+    Stage4ScopeCandidateStrategy(
+        name="scale_fallback",
+        build_specs=_scale_fallback_scope_candidate_specs,
     ),
     Stage4ScopeCandidateStrategy(
         name="global",

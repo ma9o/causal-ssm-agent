@@ -25,6 +25,42 @@ def _identity_prompt_block_projection(
     return block
 
 
+def _narrow_prompt_block_to_scope_parameters(
+    plan: Stage4Plan,
+    block: Stage4FrontierBlock,
+    scope: ResolvedRepairScope,
+) -> Stage4FrontierBlock | None:
+    """Project a prompt block onto the scoped subset of semantic parameters."""
+    del plan
+    if not scope.parameter_names:
+        return block
+
+    allowed_parameter_names = tuple(
+        parameter_name for parameter_name in block.parameter_names if parameter_name in scope.parameter_names
+    )
+    if not allowed_parameter_names:
+        return None
+    if allowed_parameter_names == block.parameter_names:
+        return block
+
+    return replace(
+        block,
+        label=f"{block.label} (repair-local parameters only)",
+        parameter_names=allowed_parameter_names,
+        required_parameter_names=tuple(
+            parameter_name
+            for parameter_name in block.required_parameter_names
+            if parameter_name in allowed_parameter_names
+        ),
+        optional_parameter_names=tuple(
+            parameter_name
+            for parameter_name in block.optional_parameter_names
+            if parameter_name in allowed_parameter_names
+        ),
+        expand_neighbor_topology=False,
+    )
+
+
 def _narrow_effect_prompt_block_to_scc(
     plan: Stage4Plan,
     block: Stage4FrontierBlock,
@@ -253,7 +289,7 @@ _REPAIR_SCOPE_STRATEGIES.update(
         "direct_writer_blocks": Stage4RepairScopeStrategy(
             scope_kind="direct_writer_blocks",
             resolve_prompt_block_ids=_direct_writer_strategy_block_ids,
-            project_prompt_block=_identity_prompt_block_projection,
+            project_prompt_block=_narrow_prompt_block_to_scope_parameters,
             uses_repair_campaign=True,
         ),
         "global_prior_review": Stage4RepairScopeStrategy(
