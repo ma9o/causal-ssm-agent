@@ -23,7 +23,10 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import (
+    _validate_stage4_runtime_checkpoint,
+    run_stage4,
+)
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_cards import build_prior_cards
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4GroundingResult,
@@ -404,7 +407,34 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
         plan,
         active_block,
         AssemblyValidation(
-            normalized_model_spec={"likelihoods": [], "parameters": []},
+            normalized_model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "monthly_eveningness_activity_timing",
+                        "distribution": "gaussian",
+                        "link": "identity",
+                        "centered": True,
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "t0_mean_chronotype",
+                        "role": "initial_state_mean",
+                        "construct": "chronotype",
+                    },
+                    {
+                        "name": "t0_sd_chronotype",
+                        "role": "initial_state_sd",
+                        "construct": "chronotype",
+                    },
+                    {
+                        "name": "beta_chronotype_sleep_quality",
+                        "role": "fixed_effect",
+                        "cause": "chronotype",
+                        "effect": "sleep_quality",
+                    },
+                ],
+            },
             compile_ok=True,
             pp_checked=True,
             pp_valid=False,
@@ -423,13 +453,132 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
     )
 
     assert repair_plan.scope.scope_kind == "direct_writer_blocks"
+    assert repair_plan.scope.parameter_names == ("t0_sd_chronotype",)
     assert repair_plan.block_ids == ("dynamics:chronotype",)
+    assert repair_plan.prompt_blocks[0].parameter_names == ("t0_sd_chronotype",)
     assert repair_plan.uses_repair_campaign is True
     assert (
         repair_plan.scope.reason
         == "Scale mismatch for monthly_eveningness_activity_timing Suggested fix: "
         "Adjust diffusion/drift priors to match data scale"
     )
+
+
+def test_scale_mismatch_escalates_to_global_prior_review_after_local_scope_exhausts():
+    causal_spec = _with_positive_indicator_polarity(
+        {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "chronotype",
+                        "role": "exogenous",
+                        "temporal_status": "time_invariant",
+                    },
+                    {
+                        "name": "sleep_quality",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                        "is_outcome": True,
+                    },
+                ],
+                "edges": [
+                    {"cause": "chronotype", "effect": "sleep_quality", "lagged": False},
+                ],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "monthly_eveningness_activity_timing",
+                        "construct_name": "chronotype",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "observation_window": "1mo",
+                    },
+                    {
+                        "name": "sleep_quality_search_count",
+                        "construct_name": "sleep_quality",
+                        "measurement_dtype": "count",
+                        "aggregation": "sum",
+                    },
+                ],
+            },
+            "estimation": {
+                "state_order": ["chronotype", "sleep_quality"],
+                "edges": [
+                    {"cause": "chronotype", "effect": "sleep_quality", "lagged": False},
+                ],
+                "induced_dependencies": [],
+            },
+        }
+    )
+    validation = AssemblyValidation(
+        normalized_model_spec={
+            "likelihoods": [
+                {
+                    "variable": "monthly_eveningness_activity_timing",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "centered": True,
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "t0_mean_chronotype",
+                    "role": "initial_state_mean",
+                    "construct": "chronotype",
+                },
+                {
+                    "name": "t0_sd_chronotype",
+                    "role": "initial_state_sd",
+                    "construct": "chronotype",
+                },
+            ],
+        },
+        compile_ok=True,
+        pp_checked=True,
+        pp_valid=False,
+        diagnostics=[
+            PriorValidationResult(
+                parameter="scale_monthly_eveningness_activity_timing",
+                is_valid=False,
+                code="scale_mismatch",
+                origin="prior_predictive",
+                issue="Scale mismatch for monthly_eveningness_activity_timing",
+                suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+            )
+        ],
+    )
+    skeleton = derive_deterministic_spec(causal_spec)
+    plan = build_stage4_plan(causal_spec, skeleton)
+    runtime = make_stage4_runtime(plan)
+    active_block = _require_plan_block(plan, "dynamics:sleep_quality")
+
+    local_repair_plan = classify_prior_failure_blocks(
+        plan,
+        active_block,
+        validation,
+        runtime,
+    )
+    runtime.domain.repair_campaign = Stage4RepairCampaignState(
+        failure_family_key=local_repair_plan.scope.failure_family,
+        scope_kind=local_repair_plan.scope.scope_kind,
+        scope_key=local_repair_plan.scope.scope_key,
+        scope_rank=local_repair_plan.scope.scope_rank,
+        scope_block_ids=local_repair_plan.block_ids,
+        prompt_blocks_by_id={block.id: block for block in local_repair_plan.prompt_blocks},
+        attempts_at_scope=2,
+    )
+
+    escalated_repair_plan = classify_prior_failure_blocks(
+        plan,
+        active_block,
+        validation,
+        runtime,
+    )
+
+    assert escalated_repair_plan.scope.scope_kind == "global_prior_review"
+    assert escalated_repair_plan.block_ids == ("review:prior_system",)
 
 
 def test_prior_failure_classification_raises_without_concrete_reason():
@@ -7675,6 +7824,37 @@ class TestStage4Mechanics:
             "dynamics:sleep",
         ]
         assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
+
+    def test_validate_stage4_runtime_checkpoint_rejects_stale_direct_writer_prompt_block(self):
+        causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
+        del causal_spec, skeleton, _data_for_model
+
+        _set_runtime_block(plan, runtime, "dynamics:sleep")
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
+            model_spec={
+                "parameters": [
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                ]
+            }
+        )
+        runtime.domain.repair_campaign = Stage4RepairCampaignState(
+            failure_family_key=(("prior_predictive_nonfinite_samples",),),
+            scope_kind="direct_writer_blocks",
+            scope_key="direct_writer_blocks:rho_sleep",
+            scope_rank=0,
+            scope_block_ids=("dynamics:sleep",),
+            prompt_blocks_by_id={
+                "dynamics:sleep": _require_plan_block(plan, "dynamics:sleep"),
+            },
+        )
+
+        incompatibility = _validate_stage4_runtime_checkpoint(plan, runtime)
+
+        assert (
+            incompatibility
+            == "checkpoint direct-writer prompt blocks no longer match the scoped repair surface"
+        )
 
     def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
         from causal_ssm_agent.flows.stages.stage4.tools import (

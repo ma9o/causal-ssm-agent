@@ -64,15 +64,38 @@ def build_stage4_failure_evidence(
 def _diagnostic_parameter_names(
     plan: Stage4Plan,
     diagnostics: tuple[PriorValidationResult, ...],
+    *,
+    model_spec: dict[str, object] | None = None,
 ) -> tuple[str, ...]:
     """Return authored parameter names referenced by diagnostics in sorted order."""
+    from causal_ssm_agent.models.prior_predictive import resolve_scale_target_parameters
+
+    indicator_to_construct = {
+        indicator_name: construct_name
+        for construct_name, indicator_names in plan.repair_topology.indicator_names_by_construct.items()
+        for indicator_name in indicator_names
+    }
     return tuple(
         sorted(
             dict.fromkeys(
                 parameter_name
                 for result in diagnostics
                 for parameter_name in (
-                    result.related_parameters or ([result.parameter] if result.parameter else [])
+
+                        tuple(result.related_parameters or ())
+                        or (
+                            tuple(
+                                resolve_scale_target_parameters(
+                                    result.parameter.removeprefix("scale_"),
+                                    model_spec,
+                                    indicator_to_construct=indicator_to_construct,
+                                )
+                            )
+                            if result.parameter.startswith("scale_")
+                            else ()
+                        )
+                        or ((result.parameter,) if result.parameter else ())
+
                 )
                 if parameter_name and _find_block_for_parameter(plan, parameter_name) is not None
             )
@@ -204,10 +227,15 @@ def _localize_prior_failure(
 ) -> Stage4FailureLocalization:
     """Localize a failed PP validation into deterministic structural evidence."""
     evidence = build_stage4_failure_evidence(plan, validation)
-    direct_parameters = _diagnostic_parameter_names(plan, evidence.failed_diagnostics)
+    direct_parameters = _diagnostic_parameter_names(
+        plan,
+        evidence.failed_diagnostics,
+        model_spec=validation.normalized_model_spec,
+    )
     supporting_parameters = _diagnostic_parameter_names(
         plan,
         evidence.supporting_compile_diagnostics,
+        model_spec=validation.normalized_model_spec,
     )
     validator_repair_scope = _validator_scope_from_failure_evidence(evidence)
     construct_names = _construct_names_from_failure_evidence(
