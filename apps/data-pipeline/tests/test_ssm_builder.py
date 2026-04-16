@@ -687,7 +687,7 @@ class TestPrepareModelRuntime:
         assert runtime.manifest_names == ["stress_score"]
         assert runtime.model.observation_support is runtime.observation_support
         assert runtime.inference_structure.structural_backend == "particle"
-        assert runtime.inference_structure.resolved_method == "laplace_em"
+        assert runtime.inference_structure.resolved_method == "nuts"
         assert runtime.inference_structure.method_override is None
         assert runtime.inference_structure.first_pass_partition is None
         assert "support-aware observation semantics" in caplog.text
@@ -753,7 +753,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support is not None
         assert runtime.observation_support.max_active_windows == 2
         assert runtime.inference_structure.structural_backend == "particle"
-        assert runtime.inference_structure.resolved_method == "laplace_em"
+        assert runtime.inference_structure.resolved_method == "nuts"
         assert runtime.inference_structure.first_pass_partition is None
         assert runtime.observation_support.emission_slot_indices.tolist() == [[-1], [-1], [0], [1]]
         assert runtime.observation_support.interval_weights.shape == (4, 1, 2)

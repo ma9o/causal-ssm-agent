@@ -1197,7 +1197,7 @@ class TestPowerScalingSensitivity:
 
         mock_result = InferenceResult(
             _samples=samples,
-            method="hessmc2",
+            method="nuts",
             diagnostics={},
         )
 

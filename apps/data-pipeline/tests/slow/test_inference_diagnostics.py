@@ -133,7 +133,7 @@ class TestLOODiagnostics:
 
         smc_result = InferenceResult(
             _samples=mcmc.get_samples(),
-            method="laplace_em",
+            method="map",
             diagnostics={},
         )
         loo = smc_result.get_loo_diagnostics(model_fn=_ssm_style_model, observations=x, times=y)

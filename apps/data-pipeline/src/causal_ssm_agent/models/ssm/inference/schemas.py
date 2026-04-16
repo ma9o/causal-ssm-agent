@@ -367,7 +367,7 @@ class InferenceStructureResult(BaseModel):
     """Canonical inference-structure plan shared by pipeline and web."""
 
     likelihood_path: Literal["kalman", "composed", "particle"]
-    auto_method: Literal["nuts", "laplace_em", "svi"]
+    auto_method: Literal["nuts", "map", "svi"]
     first_pass_rb: FirstPassRBResult
 
 

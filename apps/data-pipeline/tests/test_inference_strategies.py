@@ -26,23 +26,25 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
-from numpyro import handlers
 
 from causal_ssm_agent.artifacts import LinkFunction
 from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm import InferenceResult, SSMModel, fit
-from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import run_tempered_smc
-from causal_ssm_agent.models.ssm.inference.methods.dpf import DPFLikelihood, ProposalNetwork
+from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.methods.laplace_em import (
     LaplaceLikelihood,
     _assemble_support_aware_observation_system,
     _block_banded_logdet,
     _build_ieks_system_from_prior,
+    _build_linear_summary_accumulator_plan,
+    _build_linear_summary_augmented_system,
     _build_prior_tridiagonal_system,
     _compute_profile_lower_bandwidths,
     _factor_block_banded_cholesky,
+    _factor_block_profile_cholesky,
     _ieks_smooth,
     _infer_support_groups,
+    _linear_summary_augmented_ieks_laplace,
     _make_support_window_derivatives,
     _predictive_latent_init,
     _should_use_dense_support_laplace,
@@ -52,11 +54,9 @@ from causal_ssm_agent.models.ssm.inference.methods.laplace_em import (
     _support_aware_ieks_mode,
     _support_aware_laplace_from_mode,
     _support_aware_step_halving_search,
+    block_profile_logdet_packed_cotangent,
     fit_laplace_em,
 )
-from causal_ssm_agent.models.ssm.inference.methods.nuts_da import _da_model
-from causal_ssm_agent.models.ssm.inference.methods.pgas import _csmc_sweep_support_aware
-from causal_ssm_agent.models.ssm.inference.methods.structured_vi import StructuredVILikelihood
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
@@ -237,14 +237,16 @@ class TestLaplaceEMBlockSolver:
             LinkFunction.IDENTITY,
         )
 
+        H_rows = jnp.broadcast_to(H[None, :, :], (T, *H.shape))
+        d_rows = jnp.broadcast_to(d[None, :], (T, *d.shape))
         z_smooth, log_lik, _inner_eval_aux = _ieks_smooth(
             observations,
             obs_mask,
             Ad,
             Qd,
             cd,
-            H,
-            d,
+            H_rows,
+            d_rows,
             R,
             init_mean,
             init_cov,
@@ -591,57 +593,6 @@ class TestSupportAwareTrajectoryObservationLogProb:
         assert ll[3] == pytest.approx(float(manual_1))
 
 
-class TestStructuredVISupportAware:
-    def test_structured_vi_backend_handles_window_average(self):
-        support = _support_runtime(
-            anchor_times=np.array([0.0, 1.0, 2.0]),
-            manifest_names=["avg_signal"],
-            support_kinds=["interval"],
-            observation_windows=["2d"],
-            support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_weights=np.array([[0.0], [1.0], [1.0]]),
-        )
-        backend = StructuredVILikelihood(
-            n_latent=1,
-            n_manifest=1,
-            manifest_dists=[DistributionFamily.GAUSSIAN],
-            manifest_links=[LinkFunction.IDENTITY],
-            n_vi_steps=2,
-            n_mc_samples=1,
-            vi_lr=0.01,
-            observation_support=support,
-        )
-        ct_params = CTParams(
-            drift=jnp.array([[-0.4]], dtype=jnp.float32),
-            diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
-            cint=jnp.array([0.0], dtype=jnp.float32),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
-            manifest_means=jnp.array([0.0], dtype=jnp.float32),
-            manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
-        )
-        init = InitialStateParams(
-            mean=jnp.array([0.0], dtype=jnp.float32),
-            cov=jnp.array([[1.0]], dtype=jnp.float32),
-        )
-        observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
-        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
-
-        ll = backend.compute_log_likelihood(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-
-        assert jnp.isfinite(ll)
-
-
 class TestLaplaceSupportAware:
     def test_infer_support_groups_ignores_reused_slot_history(self):
         support = _support_runtime(
@@ -691,6 +642,110 @@ class TestLaplaceSupportAware:
         np.testing.assert_array_equal(np.asarray(window_batches[1].anchor_indices), np.array([3]))
         np.testing.assert_array_equal(np.asarray(row_upper_bandwidths), np.array([3, 2, 1, 0]))
         assert bandwidth == 3
+
+    def test_linear_summary_accumulator_plan_reuses_slots_and_marks_resets(self):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+            manifest_names=["avg_signal"],
+            support_kinds=["interval"],
+            summary_operators=["mean"],
+            observation_windows=["1d"],
+            support_start_times=np.array([[np.nan], [0.0], [1.0], [2.0], [3.0]]),
+            support_end_times=np.array([[np.nan], [1.0], [2.0], [3.0], [4.0]]),
+            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5], [0.5], [0.5]]),
+            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5], [0.5], [0.5]]),
+            interval_weights=np.array([[0.0], [1.0], [1.0], [1.0], [1.0]]),
+            emission_slot_indices=np.array([[-1], [0], [0], [0], [0]], dtype=np.int64),
+        )
+
+        plan = _build_linear_summary_accumulator_plan(
+            support,
+            [DistributionFamily.GAUSSIAN],
+            [LinkFunction.IDENTITY],
+        )
+
+        assert plan is not None
+        assert plan.n_accumulators == 1
+        np.testing.assert_array_equal(
+            np.asarray(plan.row_reset_mask[:, 0]),
+            np.array([True, True, True, True, False]),
+        )
+        np.testing.assert_array_equal(
+            np.asarray(plan.row_emission_accumulator_indices[:, 0]),
+            np.array([-1, 0, 0, 0, 0]),
+        )
+        np.testing.assert_allclose(
+            np.asarray(plan.row_emission_scales[1:, 0]),
+            np.ones((4,), dtype=np.float32),
+        )
+
+    def test_linear_summary_accumulator_plan_rejects_nonlinear_interval_support(self):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0]),
+            manifest_names=["window_std"],
+            support_kinds=["interval"],
+            summary_operators=["std"],
+            observation_windows=["1d"],
+            support_start_times=np.array([[np.nan], [0.0]]),
+            support_end_times=np.array([[np.nan], [1.0]]),
+            interval_prev_coeffs=np.array([[0.0], [0.5]]),
+            interval_curr_coeffs=np.array([[0.0], [0.5]]),
+            interval_weights=np.array([[0.0], [1.0]]),
+        )
+
+        plan = _build_linear_summary_accumulator_plan(
+            support,
+            [DistributionFamily.GAUSSIAN],
+            [LinkFunction.IDENTITY],
+        )
+
+        assert plan is None
+
+    def test_linear_summary_augmented_system_builds_rowwise_observations_and_resets(self):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0, 2.0]),
+            manifest_names=["point_signal", "avg_signal"],
+            support_kinds=["point", "interval"],
+            summary_operators=["last", "mean"],
+            observation_windows=["1d", "2d"],
+            support_start_times=np.array([[np.nan, np.nan], [np.nan, np.nan], [np.nan, 0.0]]),
+            support_end_times=np.array([[np.nan, np.nan], [np.nan, np.nan], [np.nan, 2.0]]),
+            interval_prev_coeffs=np.array([[[0.0], [0.0]], [[0.0], [0.5]], [[0.0], [0.5]]]),
+            interval_curr_coeffs=np.array([[[0.0], [0.0]], [[0.0], [0.5]], [[0.0], [0.5]]]),
+            interval_weights=np.array([[[0.0], [0.0]], [[0.0], [1.0]], [[0.0], [1.0]]]),
+        )
+        plan = _build_linear_summary_accumulator_plan(
+            support,
+            [DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
+            [LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+        )
+        assert plan is not None
+
+        Ad_aug, _Qd_aug, _cd_aug, init_mean_aug, init_cov_aug, H_rows, d_rows = (
+            _build_linear_summary_augmented_system(
+                plan=plan,
+                time_intervals=jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32),
+                drift=jnp.array([[-0.4]], dtype=jnp.float32),
+                diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
+                cint=jnp.array([0.2], dtype=jnp.float32),
+                H=jnp.array([[1.5], [2.0]], dtype=jnp.float32),
+                d=jnp.array([0.3, -0.2], dtype=jnp.float32),
+                init_mean=jnp.array([0.0], dtype=jnp.float32),
+                init_cov=jnp.array([[1.0]], dtype=jnp.float32),
+                support_kind_codes=get_support_kind_codes(support),
+            )
+        )
+
+        assert init_mean_aug.shape == (2,)
+        assert init_cov_aug.shape == (2, 2)
+        assert H_rows.shape == (3, 2, 2)
+        assert d_rows.shape == (3, 2)
+        np.testing.assert_allclose(np.asarray(H_rows[:, 0, 0]), np.full((3,), 1.5, dtype=np.float32))
+        np.testing.assert_allclose(np.asarray(d_rows[:, 0]), np.full((3,), 0.3, dtype=np.float32))
+        np.testing.assert_allclose(np.asarray(H_rows[2, 1]), np.array([0.0, 0.5], dtype=np.float32))
+        np.testing.assert_allclose(np.asarray(d_rows[:, 1]), np.zeros((3,), dtype=np.float32))
+        assert float(Ad_aug[1, 1, 1]) == pytest.approx(0.0)
+        assert float(Ad_aug[2, 1, 1]) == pytest.approx(1.0)
 
     def test_profile_masked_banded_cholesky_matches_full_banded_solver(self):
         row_upper_bandwidths = jnp.array([3, 2, 1, 1, 0], dtype=jnp.int32)
@@ -1020,7 +1075,198 @@ class TestLaplaceSupportAware:
             atol=5e-4,
         )
 
-    def test_laplace_backend_reuses_support_mode_cache_across_runtime_evals(self, monkeypatch):
+    def test_linear_summary_augmented_backend_tracks_support_aware_gaussian_mean(self):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0, 2.0]),
+            manifest_names=["point_signal", "avg_signal"],
+            support_kinds=["point", "interval"],
+            summary_operators=["last", "mean"],
+            observation_windows=["1d", "2d"],
+            support_start_times=np.array([[np.nan, np.nan], [np.nan, np.nan], [np.nan, 0.0]]),
+            support_end_times=np.array([[np.nan, np.nan], [np.nan, np.nan], [np.nan, 2.0]]),
+            interval_prev_coeffs=np.array([[[0.0], [0.0]], [[0.0], [0.5]], [[0.0], [0.5]]]),
+            interval_curr_coeffs=np.array([[[0.0], [0.0]], [[0.0], [0.5]], [[0.0], [0.5]]]),
+            interval_weights=np.array([[[0.0], [0.0]], [[0.0], [1.0]], [[0.0], [1.0]]]),
+        )
+        measurement_semantics = compile_measurement_semantics(
+            [DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
+            manifest_cov=jnp.array([[0.2, 0.05], [0.05, 0.3]], dtype=jnp.float32),
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+            observation_support=support,
+        )
+        window_batches, bandwidth, row_upper_bandwidths = _infer_support_groups(support)
+        row_lower_bandwidths = jnp.asarray(
+            _compute_profile_lower_bandwidths(np.asarray(row_upper_bandwidths)),
+            dtype=jnp.int32,
+        )
+        window_derivatives = tuple(
+            _make_support_window_derivatives(
+                max_state_len=batch.max_state_len,
+                n_latent=1,
+                n_manifest=2,
+                summary_operator_codes=get_summary_operator_codes(support),
+                obs_kernel=measurement_semantics.obs_kernel,
+                mean_log_prob_fn=measurement_semantics.mean_log_prob_fn,
+            )
+            for batch in window_batches
+        )
+
+        ct_params = CTParams(
+            drift=jnp.array([[-0.35]], dtype=jnp.float32),
+            diffusion_cov=jnp.array([[0.12]], dtype=jnp.float32),
+            cint=jnp.array([0.05], dtype=jnp.float32),
+        )
+        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
+        Ad, Qd, cd = discretize_system_batched(
+            ct_params.drift,
+            ct_params.diffusion_cov,
+            ct_params.cint,
+            time_intervals,
+        )
+        assert cd is not None
+
+        H = jnp.array([[1.0], [1.2]], dtype=jnp.float32)
+        d = jnp.array([0.1, -0.2], dtype=jnp.float32)
+        R = jnp.array([[0.2, 0.05], [0.05, 0.3]], dtype=jnp.float32)
+        init_mean = jnp.array([0.2], dtype=jnp.float32)
+        init_cov = jnp.array([[0.7]], dtype=jnp.float32)
+        observations = jnp.array(
+            [
+                [0.3, jnp.nan],
+                [0.7, jnp.nan],
+                [0.2, 0.4],
+            ],
+            dtype=jnp.float32,
+        )
+        obs_mask = ~jnp.isnan(observations)
+        clean_obs = jnp.nan_to_num(observations, nan=0.0)
+
+        plan = _build_linear_summary_accumulator_plan(
+            support,
+            [DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
+            [LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+        )
+        assert plan is not None
+
+        z_aug, log_lik_aug, _aug_aux = _linear_summary_augmented_ieks_laplace(
+            clean_obs,
+            obs_mask,
+            time_intervals,
+            ct_params.drift,
+            ct_params.diffusion_cov,
+            ct_params.cint,
+            H,
+            d,
+            R,
+            init_mean,
+            init_cov,
+            measurement_semantics.obs_kernel,
+            plan,
+            get_support_kind_codes(support),
+            n_ieks_iters=3,
+        )
+
+        def _build_measurement_objects(manifest_cov, runtime_extra_params):
+            del manifest_cov, runtime_extra_params
+            return measurement_semantics, window_derivatives
+
+        log_lik_support, z_mode_support, _support_aux = _support_aware_ieks_laplace(
+            clean_obs,
+            obs_mask,
+            Ad,
+            Qd,
+            cd,
+            H,
+            d,
+            R,
+            init_mean,
+            init_cov,
+            measurement_semantics.obs_kernel,
+            measurement_semantics.mean_log_prob_fn,
+            support,
+            window_batches,
+            bandwidth,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+            window_derivatives,
+            _build_measurement_objects,
+            None,
+            n_ieks_iters=3,
+        )
+
+        # The augmented path uses exact CT discretization of the accumulator dynamics,
+        # while the support-aware baseline uses the compiled window coefficients.
+        np.testing.assert_allclose(
+            np.asarray(log_lik_aug),
+            np.asarray(log_lik_support),
+            rtol=1e-2,
+            atol=1e-2,
+        )
+        np.testing.assert_allclose(
+            np.asarray(z_aug[:, :1]),
+            np.asarray(z_mode_support),
+            rtol=3e-2,
+            atol=1e-2,
+        )
+
+    def test_block_profile_logdet_cotangent_matches_direct_autodiff(self):
+        row_upper_bandwidths = jnp.array([2, 2, 1, 0], dtype=jnp.int32)
+        row_lower_bandwidths = jnp.asarray(
+            _compute_profile_lower_bandwidths(np.asarray(row_upper_bandwidths)),
+            dtype=jnp.int32,
+        )
+        diag = jnp.array(
+            [
+                [[4.0, 0.2], [0.2, 3.5]],
+                [[3.8, -0.1], [-0.1, 3.2]],
+                [[3.4, 0.05], [0.05, 2.9]],
+                [[3.1, 0.0], [0.0, 2.7]],
+            ],
+            dtype=jnp.float32,
+        )
+        upper = jnp.zeros((2, 4, 2, 2), dtype=jnp.float32)
+        upper = upper.at[0, 0].set(jnp.array([[0.12, -0.03], [0.05, 0.08]], dtype=jnp.float32))
+        upper = upper.at[1, 0].set(jnp.array([[0.04, 0.01], [-0.02, 0.03]], dtype=jnp.float32))
+        upper = upper.at[0, 1].set(jnp.array([[0.09, 0.02], [0.01, 0.07]], dtype=jnp.float32))
+        upper = upper.at[0, 2].set(jnp.array([[0.06, -0.01], [0.02, 0.05]], dtype=jnp.float32))
+
+        def _packed_logdet(diag_blocks, upper_blocks):
+            chol_diag, _lower = _factor_block_banded_cholesky(
+                diag_blocks,
+                upper_blocks,
+                row_upper_bandwidths,
+                row_lower_bandwidths,
+            )
+            return _block_banded_logdet(chol_diag)
+
+        direct_diag_bar, direct_upper_bar = jax.grad(_packed_logdet, argnums=(0, 1))(diag, upper)
+        chol_diag, lower = _factor_block_profile_cholesky(
+            diag,
+            upper,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+        )
+        diag_bar, upper_bar = block_profile_logdet_packed_cotangent(
+            chol_diag,
+            lower,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+            scale=jnp.array(1.0, dtype=diag.dtype),
+        )
+
+        np.testing.assert_allclose(
+            np.asarray(diag_bar), np.asarray(direct_diag_bar), rtol=1e-4, atol=1e-4
+        )
+        np.testing.assert_allclose(
+            np.asarray(upper_bar),
+            np.asarray(direct_upper_bar),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+    def test_laplace_backend_reuses_linear_summary_mode_cache_across_runtime_evals(
+        self, monkeypatch
+    ):
         support = _support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
             manifest_names=["avg_signal"],
@@ -1058,30 +1304,30 @@ class TestLaplaceSupportAware:
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
 
         seen_inits: list[np.ndarray | None] = []
-        returned_mode = jnp.array([[0.1], [0.2], [0.3]], dtype=jnp.float32)
+        returned_mode = jnp.array([[0.1, 0.0], [0.2, 0.1], [0.3, 0.4]], dtype=jnp.float32)
 
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.inference.methods.laplace_em._should_use_dense_support_laplace",
             lambda **_kwargs: False,
         )
 
-        def _fake_support_laplace(*_args, z_init=None, **_kwargs):
+        def _fake_linear_summary_laplace(*_args, z_init=None, **_kwargs):
             seen_inits.append(None if z_init is None else np.asarray(z_init))
-            return jnp.array(-1.0, dtype=jnp.float32), returned_mode, {}
+            return returned_mode, jnp.array(-1.0, dtype=jnp.float32), {}
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._support_aware_ieks_laplace",
-            _fake_support_laplace,
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._linear_summary_augmented_ieks_laplace",
+            _fake_linear_summary_laplace,
         )
 
-        ll_0 = backend.compute_log_likelihood(
+        ll_0, _aux_0 = backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
             observations,
             time_intervals,
         )
-        ll_1 = backend.compute_log_likelihood(
+        ll_1, _aux_1 = backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
@@ -1094,7 +1340,9 @@ class TestLaplaceSupportAware:
         assert seen_inits[0] is None
         np.testing.assert_allclose(seen_inits[1], np.asarray(returned_mode))
 
-    def test_laplace_backend_support_mode_init_explicitly_overrides_cache(self, monkeypatch):
+    def test_laplace_backend_linear_summary_mode_init_explicitly_overrides_cache(
+        self, monkeypatch
+    ):
         support = _support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
             manifest_names=["avg_signal"],
@@ -1132,31 +1380,31 @@ class TestLaplaceSupportAware:
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
 
         seen_inits: list[np.ndarray | None] = []
-        cached_mode = jnp.array([[0.1], [0.2], [0.3]], dtype=jnp.float32)
-        explicit_mode = jnp.array([[0.9], [0.8], [0.7]], dtype=jnp.float32)
+        cached_mode = jnp.array([[0.1, 0.0], [0.2, 0.1], [0.3, 0.4]], dtype=jnp.float32)
+        explicit_mode = jnp.array([[0.9, 0.3], [0.8, 0.2], [0.7, 0.1]], dtype=jnp.float32)
 
         monkeypatch.setattr(
             "causal_ssm_agent.models.ssm.inference.methods.laplace_em._should_use_dense_support_laplace",
             lambda **_kwargs: False,
         )
 
-        def _fake_support_laplace(*_args, z_init=None, **_kwargs):
+        def _fake_linear_summary_laplace(*_args, z_init=None, **_kwargs):
             seen_inits.append(None if z_init is None else np.asarray(z_init))
-            return jnp.array(-1.0, dtype=jnp.float32), cached_mode, {}
+            return cached_mode, jnp.array(-1.0, dtype=jnp.float32), {}
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._support_aware_ieks_laplace",
-            _fake_support_laplace,
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._linear_summary_augmented_ieks_laplace",
+            _fake_linear_summary_laplace,
         )
 
-        backend.compute_log_likelihood(
+        backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
             observations,
             time_intervals,
         )
-        backend.compute_log_likelihood(
+        backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
@@ -1205,14 +1453,14 @@ class TestLaplaceSupportAware:
             _fake_ieks,
         )
 
-        ll_0 = backend.compute_log_likelihood(
+        ll_0, _aux_0 = backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
             observations,
             time_intervals,
         )
-        ll_1 = backend.compute_log_likelihood(
+        ll_1, _aux_1 = backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
@@ -1220,7 +1468,6 @@ class TestLaplaceSupportAware:
             time_intervals,
         )
 
-        assert backend.checkpoint_loglik is True
         assert float(ll_0) == pytest.approx(-1.0)
         assert float(ll_1) == pytest.approx(-1.0)
         assert seen_inits[0] is None
@@ -1231,6 +1478,7 @@ class TestLaplaceSupportAware:
             anchor_times=np.array([0.0, 1.0, 2.0]),
             manifest_names=["avg_signal"],
             support_kinds=["interval"],
+            summary_operators=["std"],
             observation_windows=["2d"],
             support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
             support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
@@ -1293,14 +1541,14 @@ class TestLaplaceSupportAware:
             _fake_support_laplace,
         )
 
-        backend.compute_log_likelihood(
+        backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
             observations,
             time_intervals,
         )
-        backend.compute_log_likelihood(
+        backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
@@ -1310,7 +1558,7 @@ class TestLaplaceSupportAware:
 
         assert derivative_calls == [1]
 
-    def test_laplace_backend_prefers_dense_path_for_small_support_models(self, monkeypatch):
+    def test_laplace_backend_prefers_linear_summary_augmentation_when_available(self, monkeypatch):
         support = _support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
             manifest_names=["avg_signal"],
@@ -1349,21 +1597,32 @@ class TestLaplaceSupportAware:
 
         calls: list[str] = []
 
-        def _fake_dense(*args, **kwargs):
-            calls.append("dense")
-            return jnp.array(-1.0, dtype=jnp.float32), {}
+        def _fake_linear(*args, **kwargs):
+            calls.append("linear")
+            return (
+                jnp.zeros((3, 2), dtype=jnp.float32),
+                jnp.array(-1.0, dtype=jnp.float32),
+                {"solver_kind": jnp.asarray(2, dtype=jnp.int32)},
+            )
 
-        def _fake_banded(*args, **kwargs):
+        def _forbidden_dense(*args, **kwargs):
+            raise AssertionError("eligible linear interval summaries should not use dense support")
+
+        def _forbidden_banded(*args, **kwargs):
             calls.append("banded")
-            return jnp.array(-2.0, dtype=jnp.float32)
+            raise AssertionError("eligible linear interval summaries should not use banded support")
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._dense_support_laplace_log_lik",
-            _fake_dense,
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._linear_summary_augmented_ieks_laplace",
+            _fake_linear,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._support_aware_ieks_log_lik",
-            _fake_banded,
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._dense_support_laplace_log_lik",
+            _forbidden_dense,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.inference.methods.laplace_em._support_aware_ieks_laplace",
+            _forbidden_banded,
         )
 
         ll = backend.compute_log_likelihood(
@@ -1375,9 +1634,9 @@ class TestLaplaceSupportAware:
         )
 
         assert float(ll) == pytest.approx(-1.0)
-        assert calls == ["dense"]
+        assert calls == ["linear"]
 
-    def test_laplace_backend_banded_support_path_handles_large_float64_windows(self):
+    def test_laplace_backend_interval_support_path_handles_large_float64_windows(self):
         n_latent = 10
         n_manifest = 10
         n_time = 18
@@ -1447,141 +1706,6 @@ class TestLaplaceSupportAware:
         )
 
         assert jnp.isfinite(ll)
-
-
-class TestDPFSupportAware:
-    def test_dpf_backend_handles_window_average(self):
-        support = _support_runtime(
-            anchor_times=np.array([0.0, 1.0, 2.0]),
-            manifest_names=["avg_signal"],
-            support_kinds=["interval"],
-            observation_windows=["2d"],
-            support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_weights=np.array([[0.0], [1.0], [1.0]]),
-        )
-        backend = DPFLikelihood(
-            n_latent=1,
-            n_manifest=1,
-            manifest_dists=[DistributionFamily.GAUSSIAN],
-            manifest_links=[LinkFunction.IDENTITY],
-            n_particles=16,
-            proposal_net=ProposalNetwork(1, 1, key=random.PRNGKey(1)),
-            rng_key=random.PRNGKey(2),
-            observation_support=support,
-        )
-        ct_params = CTParams(
-            drift=jnp.array([[-0.4]], dtype=jnp.float32),
-            diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
-            cint=jnp.array([0.0], dtype=jnp.float32),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
-            manifest_means=jnp.array([0.0], dtype=jnp.float32),
-            manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
-        )
-        init = InitialStateParams(
-            mean=jnp.array([0.0], dtype=jnp.float32),
-            cov=jnp.array([[1.0]], dtype=jnp.float32),
-        )
-        observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
-        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
-
-        ll = backend.compute_log_likelihood(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-
-        assert jnp.isfinite(ll)
-
-
-class TestPGASSupportAware:
-    def test_support_aware_csmc_sweep_produces_finite_trajectory(self):
-        support = _support_runtime(
-            anchor_times=np.array([0.0, 1.0]),
-            manifest_names=["avg_signal"],
-            support_kinds=["interval"],
-            observation_windows=["1d"],
-            support_start_times=np.array([[np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [1.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5]]),
-            interval_curr_coeffs=np.array([[0.0], [0.5]]),
-            interval_weights=np.array([[0.0], [1.0]]),
-        )
-        ref_traj = jnp.array([[0.0], [0.1]], dtype=jnp.float32)
-        Ad = jnp.broadcast_to(jnp.array([[1.0]], dtype=jnp.float32), (2, 1, 1))
-        Qd = jnp.broadcast_to(jnp.array([[0.1]], dtype=jnp.float32), (2, 1, 1))
-        chol_Qd = jnp.broadcast_to(jnp.array([[jnp.sqrt(0.1)]], dtype=jnp.float32), (2, 1, 1))
-        cd = jnp.zeros((2, 1), dtype=jnp.float32)
-        observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
-        obs_mask_float = (~jnp.isnan(observations)).astype(jnp.float32)
-        measurement_semantics = compile_measurement_semantics(
-            [DistributionFamily.GAUSSIAN],
-            manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
-            manifest_links=[LinkFunction.IDENTITY],
-            observation_support=support,
-        )
-
-        traj, _ = _csmc_sweep_support_aware(
-            random.PRNGKey(0),
-            ref_traj,
-            Ad,
-            Qd,
-            chol_Qd,
-            cd,
-            jnp.array([0.0], dtype=jnp.float32),
-            jnp.array([[1.0]], dtype=jnp.float32),
-            observations,
-            obs_mask_float,
-            4,
-            0.0,
-            measurement_semantics,
-            jnp.array([[1.0]], dtype=jnp.float32),
-            jnp.array([0.0], dtype=jnp.float32),
-            jnp.array([[0.2]], dtype=jnp.float32),
-        )
-
-        assert traj.shape == (2, 1)
-        assert jnp.all(jnp.isfinite(traj))
-
-
-class TestNutsDASupportAware:
-    def test_da_model_emits_support_aware_factor(self):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-            manifest_dists=[DistributionFamily.GAUSSIAN],
-        )
-        model = SSMModel(spec)
-        model.set_observation_support(
-            _support_runtime(
-                anchor_times=np.array([0.0, 1.0]),
-                manifest_names=["avg_signal"],
-                support_kinds=["interval"],
-                observation_windows=["1d"],
-                support_start_times=np.array([[np.nan], [0.0]]),
-                support_end_times=np.array([[np.nan], [1.0]]),
-                interval_prev_coeffs=np.array([[0.0], [0.5]]),
-                interval_curr_coeffs=np.array([[0.0], [0.5]]),
-                interval_weights=np.array([[0.0], [1.0]]),
-            )
-        )
-        observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
-        times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-
-        with handlers.seed(rng_seed=0):
-            trace = handlers.trace(
-                lambda obs, ts: _da_model(model, obs, ts, centered=True)
-            ).get_trace(observations, times)
-
-        assert "obs_support_loglik" in trace
 
 
 class TestParticleMissingData:
@@ -1917,103 +2041,6 @@ class TestInferenceCaching:
         assert "drift_diag_free" in site_info
         assert "manifest_var_diag_free" in site_info
 
-    def test_tempered_smc_reuses_bundle_cache_without_reparam(self, monkeypatch):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
-        model = SSMModel(spec)
-        observations = jnp.zeros((2, 1), dtype=jnp.float32)
-        times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-        backend = object()
-        build_calls = {"count": 0}
-
-        class _ZeroDistribution:
-            @staticmethod
-            def sample(_key, shape):
-                return jnp.zeros(shape, dtype=jnp.float32)
-
-        def fake_bundle(*_args, **_kwargs):
-            build_calls["count"] += 1
-            return {
-                "dim": 1,
-                "site_info": {
-                    "drift_diag_free": {
-                        "distribution": _ZeroDistribution(),
-                        "transform": self._identity_transform(),
-                        "value": jnp.asarray([0.0], dtype=jnp.float32),
-                    }
-                },
-                "unravel_fn": lambda z: {"drift_diag_free": z},
-                "batch_lik_val_and_grad": lambda particles: (
-                    jnp.zeros((particles.shape[0],), dtype=particles.dtype),
-                    jnp.zeros_like(particles),
-                ),
-                "mutate_batch_jit": lambda _rng_key, particles, _beta, _eps, _chol_mass: (
-                    particles,
-                    jnp.zeros((particles.shape[0],), dtype=jnp.int64),
-                ),
-                "mutate_batch_wastefree_jit": lambda _rng_key, particles, _beta, _eps, _chol_mass: (
-                    particles[:, None, :],
-                    jnp.zeros((particles.shape[0],), dtype=jnp.int64),
-                ),
-                "pilot_adapt_jit": lambda rng_key, particles, eps, _chol_mass, _target_accept: (
-                    rng_key,
-                    particles,
-                    eps,
-                    jnp.asarray(True),
-                    jnp.asarray(0.5, dtype=eps.dtype),
-                ),
-                "standard_mutation_rounds_jit": (
-                    lambda rng_key, particles, _beta_k, eps, _chol_mass, _target_accept: (
-                        rng_key,
-                        particles,
-                        eps,
-                        jnp.asarray(0.5, dtype=eps.dtype),
-                        jnp.asarray(1, dtype=jnp.int64),
-                    )
-                ),
-            }
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.engines.tempered_smc._build_tempered_smc_bundle",
-            fake_bundle,
-        )
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.engines.tempered_smc.extract_constrained_samples",
-            lambda *_args, **_kwargs: {"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
-        )
-
-        for _ in range(2):
-            result = run_tempered_smc(
-                model,
-                observations,
-                times,
-                n_outer=0,
-                n_warmup=0,
-                n_csmc_particles=2,
-                n_mh_steps=1,
-                n_leapfrog=1,
-                likelihood_backend=backend,
-            )
-            assert result.method == "tempered_smc"
-
-        assert build_calls["count"] == 1
-        assert len(model._artifact_cache) == 1
-        [cache_key] = model._artifact_cache.keys()
-        assert cache_key[:6] == (
-            "tempered_smc_core",
-            id(backend),
-            tuple(observations.shape),
-            tuple(times.shape),
-            1,
-            1,
-        )
-        assert cache_key[-2:] == ("none", None)
-
-
 class TestSVIBackend:
     """Tests specific to SVI inference backend."""
 
@@ -2124,33 +2151,22 @@ class TestAutoMethodConfigRouting:
             interval_weights=np.array([[0.0], [1.0]]),
         )
 
-    def test_auto_routes_non_point_support_to_laplace_em(self, monkeypatch):
+    def test_auto_always_routes_to_nuts(self):
+        """Auto-routing resolves to NUTS for all model types."""
+        from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
+
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             **diagonal_diffusion_kwargs(1),
         )
-        model = SSMModel(spec, likelihood="particle")
-        model.set_observation_support(self._non_point_support())
-        observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
-        times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
-        def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
-            return InferenceResult(
-                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method="laplace_em",
-                diagnostics={"kwargs": kwargs},
-            )
+        plan_kalman = plan_inference_structure(spec, likelihood="kalman")
+        assert plan_kalman.resolved_method == "nuts"
 
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.methods.laplace_em.fit_laplace_em",
-            fake_fit_laplace_em,
-        )
-
-        result = fit(model, observations=observations, times=times, method="auto")
-
-        assert result.method == "laplace_em"
+        plan_particle = plan_inference_structure(spec, likelihood="particle")
+        assert plan_particle.resolved_method == "nuts"
 
     def test_non_point_support_allows_laplace_em(self, monkeypatch):
         spec = make_ssm_spec(
@@ -2167,7 +2183,7 @@ class TestAutoMethodConfigRouting:
         def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
             return InferenceResult(
                 _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method="laplace_em",
+                method="map",
                 diagnostics={"kwargs": kwargs},
             )
 
@@ -2176,99 +2192,32 @@ class TestAutoMethodConfigRouting:
             fake_fit_laplace_em,
         )
 
-        result = fit(model, observations=observations, times=times, method="laplace_em")
+        result = fit(model, observations=observations, times=times, method="map")
 
-        assert result.method == "laplace_em"
+        assert result.method == "map"
 
-    @pytest.mark.parametrize(
-        ("method", "target"),
-        [
-            ("dpf", "causal_ssm_agent.models.ssm.inference.methods.dpf.fit_dpf"),
-            ("pgas", "causal_ssm_agent.models.ssm.inference.methods.pgas.fit_pgas"),
-        ],
-    )
-    def test_non_point_support_allows_particle_trajectory_methods(
-        self,
-        monkeypatch,
-        method,
-        target,
-    ):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
-        model = SSMModel(spec, likelihood="particle")
-        model.set_observation_support(self._non_point_support())
-        observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
-        times = jnp.array([0.0, 1.0], dtype=jnp.float32)
+    def test_auto_forwards_n_ieks_iters_from_smc_config_to_nuts(self):
+        """When auto resolves to NUTS, n_ieks_iters from smc_config flows through."""
+        from causal_ssm_agent.models.ssm.inference import _resolve_auto_method_kwargs
 
-        def fake_fit_method(_model, _observations, _times, **kwargs):
-            return InferenceResult(
-                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method=method,
-                diagnostics={"kwargs": kwargs},
-            )
-
-        monkeypatch.setattr(target, fake_fit_method)
-
-        result = fit(model, observations=observations, times=times, method=method)
-
-        assert result.method == method
-
-    def test_auto_passes_smc_config_to_laplace_em(self, monkeypatch):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
-        model = SSMModel(spec, likelihood="kalman")
-        observations = jnp.zeros((3, 1), dtype=jnp.float32)
-        times = jnp.arange(3, dtype=jnp.float32)
-        captured: dict[str, object] = {}
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.select_default_method",
-            lambda _spec, _likelihood="particle", _support=None: "laplace_em",
-        )
-
-        def fake_fit_laplace_em(_model, _observations, _times, **kwargs):
-            captured.update(kwargs)
-            return InferenceResult(
-                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method="laplace_em",
-                diagnostics={},
-            )
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.methods.laplace_em.fit_laplace_em",
-            fake_fit_laplace_em,
-        )
-
-        result = fit(
-            model,
-            observations=observations,
-            times=times,
-            method="auto",
-            smc_config={
-                "n_ieks_iters": 5,
-                "n_outer": 6,
-                "n_csmc_particles": 8,
-                "param_step_size": 0.05,
+        resolved = _resolve_auto_method_kwargs(
+            "nuts",
+            {
+                "smc_config": {
+                    "n_ieks_iters": 7,
+                    "n_outer": 6,
+                    "n_csmc_particles": 8,
+                },
+                "nuts_config": {"max_tree_depth": 99},
+                "svi_config": {"num_steps": 1234},
             },
-            nuts_config={"max_tree_depth": 99},
-            svi_config={"num_steps": 1234},
         )
 
-        assert result.method == "laplace_em"
-        assert captured["n_ieks_iters"] == 5
-        assert "n_outer" not in captured
-        assert "n_csmc_particles" not in captured
-        assert "param_step_size" not in captured
-        assert "max_tree_depth" not in captured
-        assert "num_steps" not in captured
+        assert resolved["n_ieks_iters"] == 7
+        assert resolved["max_tree_depth"] == 99
+        assert "n_outer" not in resolved
+        assert "n_csmc_particles" not in resolved
+        assert "num_steps" not in resolved
 
 
 def test_laplace_em_optimizer_smoke_on_small_kalman_model():
@@ -2299,7 +2248,7 @@ def test_laplace_em_optimizer_smoke_on_small_kalman_model():
         model,
         observations=observations,
         times=times,
-        method="laplace_em",
+        method="map",
         num_samples=6,
         n_ieks_iters=2,
         maxiter=5,
@@ -2307,7 +2256,7 @@ def test_laplace_em_optimizer_smoke_on_small_kalman_model():
         seed=0,
     )
 
-    assert result.method == "laplace_em"
+    assert result.method == "map"
     assert result.diagnostics["optimizer"] == "L-BFGS-B"
     assert np.isfinite(result.diagnostics["mode_log_likelihood"])
     assert np.isfinite(result.diagnostics["mode_log_posterior"])
@@ -2471,7 +2420,7 @@ def test_laplace_em_support_aware_uses_exact_gradient_outer_optimizer(monkeypatc
         seed=0,
     )
 
-    assert result.method == "laplace_em"
+    assert result.method == "map"
     assert result.diagnostics["optimizer"] == "L-BFGS-B"
     np.testing.assert_allclose(captured["x0"], np.asarray(flat_example))
     assert captured["method"] == "L-BFGS-B"
@@ -2624,7 +2573,7 @@ def test_laplace_em_generic_path_uses_multistart_lbfgsb(monkeypatch):
         seed=0,
     )
 
-    assert result.method == "laplace_em"
+    assert result.method == "map"
     assert result.diagnostics["optimizer"] == "L-BFGS-B"
     np.testing.assert_allclose(captured["x0"], np.array([1.0, -2.0], dtype=np.float64))
     assert captured["method"] == "L-BFGS-B"
@@ -2900,7 +2849,7 @@ def test_laplace_em_can_skip_parameter_hessian(monkeypatch):
         seed=0,
     )
 
-    assert result.method == "laplace_em"
+    assert result.method == "map"
     assert result.diagnostics["compute_parameter_hessian"] is False
     assert result.diagnostics["parameter_posterior_strategy"] == "mode_only"
     assert result.diagnostics["hessian_condition_number"] is None
@@ -3038,7 +2987,7 @@ def test_laplace_em_can_use_optimizer_hess_inv_covariance(monkeypatch):
         seed=0,
     )
 
-    assert result.method == "laplace_em"
+    assert result.method == "map"
     assert result.diagnostics["compute_parameter_hessian"] is True
     assert result.diagnostics["parameter_posterior_strategy"] == "laplace_gaussian"
     assert result.diagnostics["parameter_covariance_method"] == "optimizer_hess_inv"
@@ -3054,323 +3003,6 @@ def test_laplace_em_can_use_optimizer_hess_inv_covariance(monkeypatch):
 # =============================================================================
 # Builder Noise Family Wiring Tests
 # =============================================================================
-
-
-# =============================================================================
-# Hess-MC² Unit Tests (Pure-JAX Components)
-# =============================================================================
-
-
-class TestHessMC2Proposals:
-    """Test proposal functions are mathematically correct.
-
-    All proposals are pure JAX: no model, no handlers, instant.
-    """
-
-    @pytest.fixture
-    def particle_state(self):
-        """Standard 3D particle state for proposal tests."""
-        D = 3
-        return {
-            "x": jnp.array([1.0, -0.5, 0.3]),
-            "grad": jnp.array([0.2, -0.1, 0.05]),
-            "hessian": jnp.diag(jnp.array([-2.0, -1.5, -3.0])),  # negative definite
-            "z": jnp.array([0.5, -0.3, 0.1]),
-            "eps": 0.1,
-            "eps_fb": 0.01,
-            "D": D,
-        }
-
-    def test_rw_proposal_is_x_plus_eps_z(self, particle_state):
-        """RW: x_new = x + eps * z (Eq 28)."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_rw
-
-        s = particle_state
-        x_new, v, v_half, chol_M, _ss = _propose_rw(
-            s["x"], s["grad"], s["hessian"], s["z"], s["eps"], s["eps_fb"]
-        )
-        expected = s["x"] + s["eps"] * s["z"]
-        assert jnp.allclose(x_new, expected)
-        assert jnp.allclose(v, s["z"])
-        assert jnp.allclose(v_half, s["z"])
-        assert jnp.allclose(chol_M, jnp.eye(s["D"]))
-
-    def test_fo_proposal_uses_gradient(self, particle_state):
-        """FO/MALA: v_half = 0.5*eps*grad + z, x_new = x + eps*v_half (Eq 30-33)."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo
-
-        s = particle_state
-        x_new, v, v_half, _chol_M, _ss = _propose_fo(
-            s["x"], s["grad"], s["hessian"], s["z"], s["eps"], s["eps_fb"]
-        )
-        expected_v_half = 0.5 * s["eps"] * s["grad"] + s["z"]
-        expected_x = s["x"] + s["eps"] * expected_v_half
-        assert jnp.allclose(v_half, expected_v_half)
-        assert jnp.allclose(x_new, expected_x)
-        assert jnp.allclose(v, s["z"])
-
-    def test_fo_reduces_to_rw_when_grad_is_zero(self, particle_state):
-        """With zero gradient, FO should behave like RW."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo, _propose_rw
-
-        s = particle_state
-        zero_grad = jnp.zeros(s["D"])
-        x_fo, _, _, _, _ = _propose_fo(
-            s["x"], zero_grad, s["hessian"], s["z"], s["eps"], s["eps_fb"]
-        )
-        x_rw, _, _, _, _ = _propose_rw(
-            s["x"], zero_grad, s["hessian"], s["z"], s["eps"], s["eps_fb"]
-        )
-        assert jnp.allclose(x_fo, x_rw)
-
-    def test_so_proposal_uses_hessian_when_psd(self, particle_state):
-        """SO: with negative definite Hessian, uses full mass matrix M = -H."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_so
-
-        s = particle_state
-        x_new, _v, _v_half, chol_M, ss = _propose_so(
-            s["x"], s["grad"], s["hessian"], s["z"], s["eps"], s["eps_fb"]
-        )
-        # M = -H = diag([2, 1.5, 3]), chol_M = diag([sqrt(2), sqrt(1.5), sqrt(3)])
-        neg_hd = -jnp.diag(s["hessian"])  # [2.0, 1.5, 3.0]
-        expected_v = s["z"] * jnp.sqrt(neg_hd)
-        expected_v_half = 0.5 * s["eps"] * s["grad"] + expected_v
-        expected_x = s["x"] + s["eps"] * (expected_v_half / neg_hd)
-        assert jnp.allclose(x_new, expected_x, atol=1e-5)
-        assert jnp.allclose(ss, s["eps"])  # used SO step size, not fallback
-        # chol_M should be approximately diag(sqrt(neg_hd))
-        assert chol_M.shape == (s["D"], s["D"])
-        assert jnp.allclose(jnp.diag(chol_M), jnp.sqrt(neg_hd), atol=1e-3)
-
-    def test_so_falls_back_to_fo_when_not_psd(self, particle_state):
-        """SO: with non-negative-definite Hessian, falls back to FO."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo, _propose_so
-
-        s = particle_state
-        # Hessian with positive eigenvalue -> -H not PSD
-        bad_hess = jnp.diag(jnp.array([1.0, -1.5, -3.0]))
-        x_so, _, _, chol_M, ss = _propose_so(
-            s["x"], s["grad"], bad_hess, s["z"], s["eps"], s["eps_fb"]
-        )
-        x_fo, _, _, _, _ = _propose_fo(
-            s["x"], s["grad"], bad_hess, s["z"], s["eps_fb"], s["eps_fb"]
-        )
-        assert jnp.allclose(x_so, x_fo)
-        assert jnp.allclose(chol_M, jnp.eye(s["D"]))  # identity mass
-        assert jnp.allclose(ss, s["eps_fb"])  # used fallback step size
-
-
-class TestHessMC2ReverseMomentum:
-    """Test reverse momentum functions match paper equations."""
-
-    @pytest.fixture
-    def reverse_state(self):
-        return {
-            "v_half": jnp.array([0.3, -0.2, 0.1]),
-            "grad_new": jnp.array([0.1, -0.3, 0.2]),
-            "hessian_new": jnp.diag(jnp.array([-2.0, -1.0, -4.0])),
-            "eps": 0.1,
-            "eps_fb": 0.01,
-        }
-
-    def test_rw_reverse_is_identity(self, reverse_state):
-        """RW reverse: v_new = v_half (symmetric)."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _reverse_rw
-
-        s = reverse_state
-        v_new, _chol_M, _ss = _reverse_rw(
-            s["v_half"], s["grad_new"], s["hessian_new"], s["eps"], s["eps_fb"]
-        )
-        assert jnp.allclose(v_new, s["v_half"])
-
-    def test_fo_reverse_applies_gradient_kick(self, reverse_state):
-        """FO reverse: v_new = 0.5*eps*grad_new + v_half (Eq 34)."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _reverse_fo
-
-        s = reverse_state
-        v_new, _chol_M, _ss = _reverse_fo(
-            s["v_half"], s["grad_new"], s["hessian_new"], s["eps"], s["eps_fb"]
-        )
-        expected = 0.5 * s["eps"] * s["grad_new"] + s["v_half"]
-        assert jnp.allclose(v_new, expected)
-
-
-class TestHessMC2Weights:
-    """Test importance weight computation and CoV L-kernel."""
-
-    def test_cov_density_is_finite(self):
-        """CoV log-density should be finite for reasonable inputs."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _log_cov_density
-
-        v = jnp.array([0.5, -0.3])
-        chol_M = jnp.eye(2)
-        eps = 0.1
-        D = 2
-        ld = _log_cov_density(v, chol_M, eps, D)
-        assert jnp.isfinite(ld)
-
-    def test_cov_density_higher_for_smaller_v(self):
-        """Closer to mode (v=0) should give higher density."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _log_cov_density
-
-        chol_M = jnp.eye(3)
-        eps = 0.1
-        D = 3
-        ld_small = _log_cov_density(jnp.array([0.01, 0.01, 0.01]), chol_M, eps, D)
-        ld_large = _log_cov_density(jnp.array([2.0, 2.0, 2.0]), chol_M, eps, D)
-        assert ld_small > ld_large
-
-    def test_weight_update_no_change_gives_zero_correction(self):
-        """If proposal doesn't move and forward == reverse, weight unchanged."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
-
-        D = 2
-        logw_old = jnp.array(-1.0)
-        log_post = jnp.array(-5.0)
-        v = jnp.array([0.3, -0.1])
-        chol_M = jnp.eye(D)
-        ss = jnp.array(0.1)
-
-        # Same post, same v forward and reverse, same mass and step size
-        lw = _compute_weight(logw_old, log_post, log_post, v, v, chol_M, chol_M, ss, ss, D)
-        # log_L - log_q cancels, log_post_new - log_post_old cancels
-        assert jnp.allclose(lw, logw_old, atol=1e-5)
-
-    def test_weight_increases_when_posterior_improves(self):
-        """Moving to higher posterior should increase the weight."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
-
-        D = 2
-        logw_old = jnp.array(0.0)
-        v = jnp.array([0.1, -0.1])
-        chol_M = jnp.eye(D)
-        ss = jnp.array(0.1)
-
-        lw_better = _compute_weight(
-            logw_old, jnp.array(-3.0), jnp.array(-5.0), v, v, chol_M, chol_M, ss, ss, D
-        )
-        lw_worse = _compute_weight(
-            logw_old, jnp.array(-7.0), jnp.array(-5.0), v, v, chol_M, chol_M, ss, ss, D
-        )
-        assert lw_better > lw_worse
-
-    def test_weight_neginf_for_invalid_posterior(self):
-        """Non-finite posterior should give -inf weight."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
-
-        D = 2
-        lw = _compute_weight(
-            jnp.array(0.0),
-            jnp.array(jnp.nan),  # invalid new posterior
-            jnp.array(-5.0),
-            jnp.zeros(D),
-            jnp.zeros(D),
-            jnp.eye(D),
-            jnp.eye(D),
-            jnp.array(0.1),
-            jnp.array(0.1),
-            D,
-        )
-        assert lw == -jnp.inf
-
-
-class TestHessMC2VmapBatching:
-    """Test that proposals and weights work correctly under vmap."""
-
-    def test_propose_fo_batch(self):
-        """Vmapped FO proposal should give same result as sequential."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _propose_fo
-
-        N, D = 4, 3
-        key = random.PRNGKey(0)
-        xs = random.normal(key, (N, D))
-        grads = random.normal(random.PRNGKey(1), (N, D))
-        zs = random.normal(random.PRNGKey(2), (N, D))
-        hess = jnp.zeros((N, D, D))
-        eps, eps_fb = 0.1, 0.01
-
-        batch_fn = jax.vmap(_propose_fo, in_axes=(0, 0, 0, 0, None, None))
-        x_batch, _, _, _, _ = batch_fn(xs, grads, hess, zs, eps, eps_fb)
-
-        for i in range(N):
-            x_single, _, _, _, _ = _propose_fo(xs[i], grads[i], hess[i], zs[i], eps, eps_fb)
-            assert jnp.allclose(x_batch[i], x_single)
-
-    def test_weight_batch(self):
-        """Vmapped weight computation should match sequential."""
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import _compute_weight
-
-        N, D = 4, 3
-        key = random.PRNGKey(42)
-        keys = random.split(key, 8)
-        logw_old = random.normal(keys[0], (N,))
-        log_post_new = random.normal(keys[1], (N,)) - 5.0
-        log_post_old = random.normal(keys[2], (N,)) - 5.0
-        v = random.normal(keys[3], (N, D))
-        v_new = random.normal(keys[4], (N, D))
-        fwd_chol = jnp.broadcast_to(jnp.eye(D), (N, D, D)).copy()
-        rev_chol = jnp.broadcast_to(jnp.eye(D), (N, D, D)).copy()
-        fwd_ss = jnp.full((N,), 0.1)
-        rev_ss = jnp.full((N,), 0.1)
-
-        batch_fn = jax.vmap(_compute_weight, in_axes=(0, 0, 0, 0, 0, 0, 0, 0, 0, None))
-        lw_batch = batch_fn(
-            logw_old, log_post_new, log_post_old, v, v_new, fwd_chol, rev_chol, fwd_ss, rev_ss, D
-        )
-
-        for i in range(N):
-            lw_single = _compute_weight(
-                logw_old[i],
-                log_post_new[i],
-                log_post_old[i],
-                v[i],
-                v_new[i],
-                fwd_chol[i],
-                rev_chol[i],
-                fwd_ss[i],
-                rev_ss[i],
-                D,
-            )
-            assert jnp.allclose(lw_batch[i], lw_single)
-
-
-# =============================================================================
-# Tempered SMC Upgrade Tests
-# =============================================================================
-
-
-class TestTemperedSMCVariants:
-    """Parameterized smoke tests for tempered SMC variants."""
-
-    @pytest.mark.timeout(60)
-    def test_waste_free_rejects_bad_n(self):
-        """Waste-free should reject N % n_mh_steps != 0."""
-        from causal_ssm_agent.models.ssm import SSMModel, fit
-
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
-        model = SSMModel(spec, n_particles=50)
-
-        T = 10
-        observations = jnp.zeros((T, 1))
-        times = jnp.arange(T, dtype=float)
-
-        with pytest.raises(ValueError, match="waste_free requires"):
-            fit(
-                model,
-                observations=observations,
-                times=times,
-                method="tempered_smc",
-                n_outer=5,
-                n_csmc_particles=7,  # N=7, n_mh_steps=3 -> 7%3 != 0
-                n_mh_steps=3,
-                waste_free=True,
-                seed=0,
-            )
 
 
 if __name__ == "__main__":

@@ -14,27 +14,13 @@ StructuralBackend = Literal["kalman", "composed", "particle"]
 RequestedMethod = Literal[
     "auto",
     "nuts",
-    "nuts_da",
+    "map",
     "svi",
-    "hessmc2",
-    "pgas",
-    "tempered_smc",
-    "laplace_smc",
-    "laplace_em",
-    "structured_vi",
-    "dpf",
 ]
 ResolvedMethod = Literal[
     "nuts",
-    "nuts_da",
+    "map",
     "svi",
-    "hessmc2",
-    "pgas",
-    "tempered_smc",
-    "laplace_smc",
-    "laplace_em",
-    "structured_vi",
-    "dpf",
 ]
 
 
@@ -91,8 +77,8 @@ def _resolve_auto_method(
     observation_support: ObservationSupportRuntime | None,
     n_timepoints: int | None,
 ) -> ResolvedMethod:
-    del observation_support, n_timepoints
-    return "nuts" if structural_backend == "kalman" else "laplace_em"
+    del structural_backend, observation_support, n_timepoints
+    return "nuts"
 
 
 def _payload_partition_for_plan(

@@ -626,8 +626,8 @@ class TestKalmanBlockProfileIndices:
 
 
 class TestSelectDefaultMethod:
-    def test_non_point_observation_support_routes_to_laplace_em(self):
-        """Interval-summary observations should route to support-aware Laplace-EM."""
+    def test_non_point_observation_support_routes_to_nuts(self):
+        """Interval-summary observations should route to nuts."""
         spec = _make_spec()
         support = ObservationSupportRuntime(
             anchor_times=np.array([0.0, 1.0]),
@@ -644,7 +644,7 @@ class TestSelectDefaultMethod:
             emission_slot_indices=np.array([[-1, -1], [0, -1]], dtype=np.int64),
         )
 
-        assert select_default_method(spec, observation_support=support) == "laplace_em"
+        assert select_default_method(spec, observation_support=support) == "nuts"
 
     def test_gaussian_model_routes_to_nuts(self):
         """Fully Gaussian model with identity links → nuts."""
@@ -656,13 +656,13 @@ class TestSelectDefaultMethod:
         )
         assert select_default_method(spec) == "nuts"
 
-    def test_poisson_obs_routes_to_laplace_em(self):
-        """Poisson observations → laplace_em."""
+    def test_poisson_obs_routes_to_nuts(self):
+        """Poisson observations → nuts."""
         spec = _make_spec(
             manifest_dists=[DistributionFamily.POISSON, DistributionFamily.POISSON],
             manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
     def test_explicit_kalman_override_routes_to_nuts(self):
         """Explicit likelihood override should drive auto routing to nuts."""
@@ -694,7 +694,7 @@ class TestPlanInferenceStructure:
         plan = plan_inference_structure(spec, observation_support=support)
 
         assert plan.structural_backend == "particle"
-        assert plan.resolved_method == "laplace_em"
+        assert plan.resolved_method == "nuts"
         assert plan.method_override is None
         assert plan.first_pass_partition is None
 
@@ -714,7 +714,7 @@ class TestPlanInferenceStructure:
         plan = plan_inference_structure(spec)
 
         assert plan.structural_backend == "composed"
-        assert plan.resolved_method == "laplace_em"
+        assert plan.resolved_method == "nuts"
         assert plan.method_override is None
         assert plan.first_pass_partition is not None
 
@@ -730,7 +730,7 @@ class TestPlanInferenceStructure:
         plan = plan_inference_structure(spec)
 
         assert plan.structural_backend == "particle"
-        assert plan.resolved_method == "laplace_em"
+        assert plan.resolved_method == "nuts"
         assert plan.method_override is None
         assert plan.first_pass_partition is None
 
@@ -758,52 +758,52 @@ class TestPlanInferenceStructure:
             drift_mask=np.eye(2, dtype=bool),
         )
 
-        plan = plan_inference_structure(spec, method_override="nuts_da")
+        plan = plan_inference_structure(spec, method_override="map")
 
         assert plan.structural_backend == "kalman"
-        assert plan.resolved_method == "nuts_da"
-        assert plan.method_override == "nuts_da"
+        assert plan.resolved_method == "map"
+        assert plan.method_override == "map"
         assert plan.first_pass_partition is None
 
-    def test_student_t_diffusion_routes_to_laplace_em(self):
-        """Student-t diffusion noise → laplace_em."""
+    def test_student_t_diffusion_routes_to_nuts(self):
+        """Student-t diffusion noise → nuts."""
         spec = _make_spec(
             diffusion_dists=[DistributionFamily.STUDENT_T, DistributionFamily.STUDENT_T],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
-    def test_mixed_model_routes_to_laplace_em(self):
-        """Mixed Gaussian + non-Gaussian with coupling → laplace_em."""
+    def test_mixed_model_routes_to_nuts(self):
+        """Mixed Gaussian + non-Gaussian with coupling → nuts."""
         spec = _make_spec(
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
-    def test_gaussian_with_log_link_routes_to_laplace_em(self):
-        """Gaussian noise but log link → non-Kalman → laplace_em."""
+    def test_gaussian_with_log_link_routes_to_nuts(self):
+        """Gaussian noise but log link → non-Kalman → nuts."""
         spec = _make_spec(
             manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
-    def test_bernoulli_routes_to_laplace_em(self):
-        """Bernoulli observations → laplace_em."""
+    def test_bernoulli_routes_to_nuts(self):
+        """Bernoulli observations → nuts."""
         spec = _make_spec(
             manifest_dists=[DistributionFamily.BERNOULLI, DistributionFamily.BERNOULLI],
             manifest_links=[LinkFunction.LOGIT, LinkFunction.LOGIT],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
-    def test_gamma_routes_to_laplace_em(self):
-        """Gamma observations → laplace_em."""
+    def test_gamma_routes_to_nuts(self):
+        """Gamma observations → nuts."""
         spec = _make_spec(
             manifest_dists=[DistributionFamily.GAMMA, DistributionFamily.GAMMA],
             manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
-    def test_negative_binomial_routes_to_laplace_em(self):
-        """Negative binomial observations → laplace_em."""
+    def test_negative_binomial_routes_to_nuts(self):
+        """Negative binomial observations → nuts."""
         spec = _make_spec(
             manifest_dists=[
                 DistributionFamily.NEGATIVE_BINOMIAL,
@@ -811,18 +811,18 @@ class TestPlanInferenceStructure:
             ],
             manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
-    def test_beta_routes_to_laplace_em(self):
-        """Beta observations → laplace_em."""
+    def test_beta_routes_to_nuts(self):
+        """Beta observations → nuts."""
         spec = _make_spec(
             manifest_dists=[DistributionFamily.BETA, DistributionFamily.BETA],
             manifest_links=[LinkFunction.LOGIT, LinkFunction.LOGIT],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
-    def test_per_channel_mixed_routes_to_laplace_em(self):
-        """Per-channel mixed distributions: one Poisson channel → laplace_em."""
+    def test_per_channel_mixed_routes_to_nuts(self):
+        """Per-channel mixed distributions: one Poisson channel → nuts."""
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
@@ -830,7 +830,7 @@ class TestPlanInferenceStructure:
             manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
             manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"
 
     def test_large_gaussian_model_routes_to_nuts(self):
         """Larger fully Gaussian model → nuts."""
@@ -860,8 +860,8 @@ class TestPlanInferenceStructure:
         )
         assert select_default_method(spec) == "nuts"
 
-    def test_zero_dep_nongaussian_channel_routes_to_laplace_em(self):
-        """Non-Gaussian zero-dep channel prevents pure-Kalman → laplace_em."""
+    def test_zero_dep_nongaussian_channel_routes_to_nuts(self):
+        """Non-Gaussian zero-dep channel prevents pure-Kalman → nuts."""
         H = jnp.array(
             [
                 [1.0, 0.0],
@@ -881,4 +881,4 @@ class TestPlanInferenceStructure:
             ],
             manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY, LinkFunction.LOG],
         )
-        assert select_default_method(spec) == "laplace_em"
+        assert select_default_method(spec) == "nuts"

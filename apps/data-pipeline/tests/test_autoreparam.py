@@ -549,24 +549,3 @@ class TestAutoReparamSSM:
         assert "diffusion_diag_free" in samples
         assert all("_decentered" not in name for name in samples)
 
-    def test_fit_pgas_rejects_reparam(self):
-        """PGAS should fail explicitly rather than silently ignore reparam."""
-        from causal_ssm_agent.models.ssm.inference import fit
-
-        model = self._make_simple_ssm()
-        observations = jnp.zeros((4, 2))
-        times = jnp.linspace(0, 1, 4)
-
-        with pytest.raises(ValueError, match="PGAS does not support reparameterization"):
-            fit(
-                model,
-                observations,
-                times,
-                method="pgas",
-                reparam=AutoReparam(centered=0.0),
-                n_outer=1,
-                n_csmc_particles=4,
-                n_mh_steps=1,
-                svi_warmstart=False,
-                seed=0,
-            )

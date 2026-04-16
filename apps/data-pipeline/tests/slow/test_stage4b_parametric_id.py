@@ -174,7 +174,7 @@ class TestStage4bInferenceStructurePayload:
         )
 
         assert payload["likelihood_path"] == "particle"
-        assert payload["auto_method"] == "laplace_em"
+        assert payload["auto_method"] == "nuts"
         assert payload["first_pass_rb"]["status"] == "inactive"
         assert "inactive_reason" not in payload["first_pass_rb"]
 
@@ -194,7 +194,7 @@ class TestStage4bInferenceStructurePayload:
         )
 
         assert payload["likelihood_path"] == "composed"
-        assert payload["auto_method"] == "laplace_em"
+        assert payload["auto_method"] == "nuts"
         assert payload["first_pass_rb"]["status"] == "active"
         assert "inactive_reason" not in payload["first_pass_rb"]
         assert payload["first_pass_rb"]["latent_variables"] == [

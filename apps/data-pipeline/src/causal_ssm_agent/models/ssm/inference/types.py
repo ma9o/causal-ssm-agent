@@ -32,15 +32,8 @@ logger = get_prefect_logger(__name__)
 InferenceMethod = Literal[
     "auto",
     "nuts",
-    "nuts_da",
+    "map",
     "svi",
-    "hessmc2",
-    "pgas",
-    "tempered_smc",
-    "laplace_smc",
-    "laplace_em",
-    "structured_vi",
-    "dpf",
 ]
 
 
@@ -58,7 +51,7 @@ class InferenceResult:
 
     def get_mcmc_diagnostics(self) -> dict[str, Any] | None:
         """Extract JSON-serializable MCMC diagnostics."""
-        if self.method in ("svi", "structured_vi", "laplace_em"):
+        if self.method in ("svi", "map"):
             return None
 
         mcmc = self.diagnostics.get("mcmc")
@@ -132,9 +125,6 @@ class InferenceResult:
 
     def get_smc_diagnostics(self) -> dict[str, Any] | None:
         """Extract JSON-serializable SMC diagnostics."""
-        if self.method in ("nuts", "nuts_da", "svi"):
-            return None
-
         beta = self.diagnostics.get("beta_schedule")
         if beta is None:
             return None
