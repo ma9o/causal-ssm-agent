@@ -282,6 +282,67 @@ class TestFormatParameterFeedback:
         assert "Normal" in feedback
         assert "mu=0.0" in feedback
 
+    def test_scale_mismatch_only_surfaces_for_targeted_scale_parameter(self):
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "monthly_eveningness_activity_timing",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "centered": True,
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "t0_mean_chronotype",
+                    "role": "initial_state_mean",
+                    "construct": "chronotype",
+                },
+                {
+                    "name": "t0_sd_chronotype",
+                    "role": "initial_state_sd",
+                    "construct": "chronotype",
+                },
+                {
+                    "name": "manifest_mean_monthly_eveningness_activity_timing",
+                    "role": "observation_intercept",
+                    "indicator": "monthly_eveningness_activity_timing",
+                    "construct": "chronotype",
+                },
+            ],
+        }
+        results = [
+            PriorValidationResult(
+                parameter="scale_monthly_eveningness_activity_timing",
+                is_valid=False,
+                issue="Scale mismatch for monthly_eveningness_activity_timing",
+                suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+            )
+        ]
+
+        assert (
+            format_parameter_feedback(
+                "t0_mean_chronotype",
+                results,
+                model_spec=model_spec,
+            )
+            == ""
+        )
+        assert (
+            format_parameter_feedback(
+                "manifest_mean_monthly_eveningness_activity_timing",
+                results,
+                model_spec=model_spec,
+            )
+            == ""
+        )
+        feedback = format_parameter_feedback(
+            "t0_sd_chronotype",
+            results,
+            model_spec=model_spec,
+        )
+        assert "Scale mismatch for monthly_eveningness_activity_timing" in feedback
+
 
 # =============================================================================
 # get_failed_parameters
@@ -298,6 +359,62 @@ class TestGetFailedParameters:
         params = ["alpha", "beta"]
         failed = get_failed_parameters(results, params)
         assert set(failed) == {"alpha", "beta"}
+
+    def test_scale_mismatch_with_model_spec_targets_variance_parameter(self):
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "monthly_eveningness_activity_timing",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "centered": True,
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "t0_mean_chronotype",
+                    "role": "initial_state_mean",
+                    "construct": "chronotype",
+                },
+                {
+                    "name": "t0_sd_chronotype",
+                    "role": "initial_state_sd",
+                    "construct": "chronotype",
+                },
+                {
+                    "name": "beta_chronotype_sleep_quality",
+                    "role": "fixed_effect",
+                    "cause": "chronotype",
+                    "effect": "sleep_quality",
+                },
+            ],
+        }
+        causal_spec = {
+            "measurement": {
+                "indicators": [
+                    {
+                        "name": "monthly_eveningness_activity_timing",
+                        "construct_name": "chronotype",
+                    }
+                ]
+            }
+        }
+        results = [
+            PriorValidationResult(
+                parameter="scale_monthly_eveningness_activity_timing",
+                is_valid=False,
+                issue="Scale mismatch for monthly_eveningness_activity_timing",
+            )
+        ]
+
+        failed = get_failed_parameters(
+            results,
+            [parameter["name"] for parameter in model_spec["parameters"]],
+            causal_spec=causal_spec,
+            model_spec=model_spec,
+        )
+
+        assert failed == ["t0_sd_chronotype"]
 
 
 # =============================================================================
