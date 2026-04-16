@@ -24,6 +24,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import (
+    _load_resumable_stage4_runtime,
     _validate_stage4_runtime_checkpoint,
     run_stage4,
 )
@@ -63,7 +64,10 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections imp
     project_stage4_initial_state,
     project_stage4_snapshot,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
+from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import (
+    Stage4FatalSubmissionError,
+    Stage4Session,
+)
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
     Stage4Skeleton,
     derive_deterministic_spec,
@@ -95,7 +99,7 @@ from causal_ssm_agent.models.ssm_compilation import (
     compile_ssm_inputs_from_model_spec,
 )
 from causal_ssm_agent.utils.llm import LLMTrace, make_generate_fn
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig
+from causal_ssm_agent.utils.openrouter_client import GenerateConfig, Tool, execute_tools
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorRepairScope,
@@ -5259,7 +5263,6 @@ class TestStage4Mechanics:
                 next_block.id: next_block,
             },
             completed_block_ids=frozenset(),
-            requires_barrier_validation=True,
             attempts_at_scope=1,
             best_certificate=None,
         )
@@ -5393,7 +5396,6 @@ class TestStage4Mechanics:
                 final_block.id: final_block,
             },
             completed_block_ids=frozenset((repair_block.id,)),
-            requires_barrier_validation=True,
             attempts_at_scope=1,
             best_certificate=None,
         )
@@ -5682,6 +5684,64 @@ class TestStage4Mechanics:
 
         assert repair_plan.scope.scope_kind == "local_drift_motif"
         assert repair_plan.scope.scope_key == "local_drift_motif:activity|sleep|beta_activity_sleep"
+
+    def test_prior_failure_classification_allows_global_prior_review_retry_after_cap_on_certificate_improvement(
+        self,
+    ):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        _set_runtime_block(plan, runtime, "review:prior_system")
+        runtime.domain.repair_campaign = Stage4RepairCampaignState(
+            failure_family_key=(("prior_predictive_observation_mean_overflow",), (), ()),
+            scope_kind="global_prior_review",
+            scope_key="global_prior_review:prior_system",
+            scope_rank=3,
+            scope_block_ids=("review:prior_system",),
+            completed_block_ids=frozenset(("review:prior_system",)),
+            attempts_at_scope=2,
+            best_certificate=PriorPathologyCertificate(
+                kind="nonfinite_samples",
+                primary_score=1.0,
+                secondary_score=8.0,
+            ),
+        )
+
+        validation = AssemblyValidation(
+            compile_ok=True,
+            pp_checked=True,
+            pp_valid=False,
+            diagnostics=[
+                PriorValidationResult(
+                    parameter="prior_predictive",
+                    is_valid=False,
+                    code="prior_predictive_observation_mean_overflow",
+                    origin="prior_predictive",
+                    issue=(
+                        "Predictive log-link mean overflow before observation sampling: "
+                        "linear predictor exceeded the finite exp range."
+                    ),
+                    suggested_adjustment="Tighten the log-link priors",
+                    bad_manifest_names=["late_evening_google_activity_count"],
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="nonfinite_samples",
+                        primary_score=0.5,
+                        secondary_score=4.0,
+                    ),
+                )
+            ],
+        )
+
+        repair_plan = classify_prior_failure_blocks(
+            plan,
+            _require_plan_block(plan, "review:prior_system"),
+            validation,
+            runtime,
+        )
+
+        assert repair_plan.scope.scope_kind == "global_prior_review"
+        assert repair_plan.scope.scope_key == "global_prior_review:prior_system"
 
     def test_failure_evidence_surface_owns_supporting_compile_context(self):
         from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
@@ -6175,7 +6235,121 @@ class TestStage4Mechanics:
         assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
         assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
 
-    def test_compute_stage4_validate_step_raises_on_repeated_unattributed_global_prior_review_failure(
+    def test_compute_stage4_validate_step_escalates_attributed_global_ppc_failure_to_prior_review(
+        self,
+    ):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        _set_runtime_block(plan, runtime, "effects:sleep")
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
+            model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "activity_vas",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "sleep_quality",
+                        "distribution": "ordered_logistic",
+                        "link": "logit",
+                    },
+                    {
+                        "variable": "late_evening_google_activity_count",
+                        "distribution": "negative_binomial",
+                        "link": "log",
+                    },
+                ],
+                "parameters": [
+                    {"name": "lambda_activity_vas_activity"},
+                    {"name": "lambda_sleep_quality_sleep"},
+                    {"name": "rho_activity"},
+                    {"name": "sigma_activity"},
+                    {"name": "rho_sleep"},
+                    {"name": "sigma_sleep"},
+                    {"name": "beta_activity_sleep"},
+                    {"name": "cor0_activity_sleep"},
+                ],
+            },
+            authored_priors={
+                "lambda_activity_vas_activity": {"distribution": "HalfNormal"},
+                "lambda_sleep_quality_sleep": {"distribution": "HalfNormal"},
+                "rho_activity": {"distribution": "Beta"},
+                "sigma_activity": {"distribution": "HalfNormal"},
+                "rho_sleep": {"distribution": "Beta"},
+                "sigma_sleep": {"distribution": "HalfNormal"},
+            },
+        )
+        effect_payload = {
+            "block_id": "effects:sleep",
+            "block_kind": "effect_prior",
+            "proposal": {
+                "priors": {
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.2},
+                        "sources": [],
+                        "reasoning": "global overflow repair trigger",
+                    }
+                }
+            },
+        }
+
+        def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
+            current = _current_stage4_state(current)
+            authored_priors = dict(current.get("authored_priors") or {})
+            authored_priors.update(data["priors"])
+            return {
+                "authored_priors": authored_priors,
+                "validation": AssemblyValidation(
+                    normalized_model_spec=current.get("model_spec"),
+                    compile_ok=True,
+                    pp_checked=True,
+                    pp_valid=False,
+                    diagnostics=[
+                        PriorValidationResult(
+                            parameter="prior_predictive",
+                            is_valid=False,
+                            code="prior_predictive_nonfinite_samples",
+                            origin="prior_predictive",
+                            issue=(
+                                "Predictive log-link mean overflow before observation sampling: "
+                                "linear predictor exceeded the finite exp range."
+                            ),
+                            suggested_adjustment="Tighten the log-link priors",
+                            bad_manifest_names=["late_evening_google_activity_count"],
+                            first_bad_time_index=29,
+                        )
+                    ],
+                ),
+            }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+
+        stage_output, feedback = _apply_stage4_step_and_capture(
+            effect_payload,
+            plan,
+            runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=stub_stage4_grounding,
+        )
+
+        assert stage_output is not None
+        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert runtime.domain.block_status["effects:sleep"] == "accepted"
+        assert runtime.domain.block_status["review:prior_system"] == "reopened"
+        assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
+        assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
+        assert runtime.domain.block_status.get("indicator:late_evening_google_activity_count") != (
+            "reopened"
+        )
+        assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
+
+    def test_compute_stage4_validate_step_raises_on_repeated_global_prior_review_failure_without_pathology_improvement(
         self,
     ):
         causal_spec = _make_stage4_global_repair_spec()
@@ -6291,7 +6465,10 @@ class TestStage4Mechanics:
         assert runtime.domain.repair_campaign is not None
         assert runtime.domain.repair_campaign.attempts_at_scope == 2
 
-        with pytest.raises(ValueError, match="exhausted the deterministic repair-scope ladder"):
+        with pytest.raises(
+            ValueError,
+            match="exhausted the deterministic repair-scope ladder for a global prior-predictive failure",
+        ):
             _apply_stage4_step_and_capture(
                 review_payload,
                 plan,
@@ -7766,6 +7943,125 @@ class TestStage4Mechanics:
         assert clear_calls == 0
         assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
 
+    def test_load_resumable_stage4_runtime_resets_run_local_repair_retry_state(self):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        _set_runtime_block(plan, runtime, "review:prior_system")
+        runtime.domain.block_status["review:prior_system"] = "reopened"
+        runtime.domain.repair_campaign = Stage4RepairCampaignState(
+            failure_family_key=(("prior_predictive_observation_mean_overflow",),),
+            scope_kind="global_prior_review",
+            scope_key="global_prior_review:prior_system",
+            scope_rank=3,
+            scope_block_ids=("review:prior_system",),
+            prompt_blocks_by_id={
+                "review:prior_system": _require_plan_block(plan, "review:prior_system"),
+            },
+            completed_block_ids=frozenset(),
+            attempts_at_scope=2,
+            best_certificate=PriorPathologyCertificate(
+                kind="nonfinite_samples",
+                primary_score=0.5,
+                secondary_score=8.0,
+            ),
+        )
+
+        resumed = _load_resumable_stage4_runtime(
+            plan,
+            load_checkpoint=lambda: runtime,
+            clear_checkpoint=lambda: pytest.fail("compatible checkpoint should not be cleared"),
+        )
+
+        assert resumed is runtime
+        assert resumed.domain.repair_campaign is not None
+        assert resumed.domain.repair_campaign.attempts_at_scope == 1
+        assert resumed.domain.repair_campaign.best_certificate is None
+        assert resumed.domain.active_block_id == "review:prior_system"
+
+    def test_run_stage4_aborts_immediately_on_fatal_submit_failure(self, monkeypatch):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        loaded_runtime = make_stage4_runtime(plan)
+        _set_runtime_block(plan, loaded_runtime, "review:prior_system")
+        loaded_runtime.domain.block_status["review:prior_system"] = "reopened"
+        loaded_runtime.domain.accepted = Stage4AcceptedArtifacts(
+            model_spec={"parameters": [{"name": "beta_activity_sleep"}]},
+            authored_priors={
+                "beta_activity_sleep": {
+                    "parameter": "beta_activity_sleep",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 0.2},
+                    "sources": [],
+                    "reasoning": "accepted prior",
+                }
+            },
+        )
+        visited_blocks: list[str] = []
+        save_calls: list[Stage4Runtime] = []
+
+        def fail_compute(payload, *, plan, runtime, deps):
+            del payload, plan, deps
+            runtime.domain.active_block_id = None
+            runtime.domain.block_status["review:prior_system"] = "accepted"
+            raise ValueError("Stage 4 exhausted the deterministic repair-scope ladder")
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
+            fail_compute,
+        )
+
+        async def fatal_generate(
+            messages,
+            tools,
+            rewrite_messages=None,
+            rewrite_tools=None,
+            label=None,
+        ):
+            del messages, rewrite_messages, rewrite_tools
+            assert label is not None
+            assert label.startswith("stage-4:")
+            block_id = label.removeprefix("stage-4:")
+            visited_blocks.append(block_id)
+            submit_tool = next(tool for tool in tools if tool.name == "submit_prior_block")
+            await submit_tool(
+                priors={
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.1},
+                        "sources": [],
+                        "reasoning": "repair attempt",
+                    }
+                }
+            )
+            raise AssertionError("fatal submit should have aborted the run")
+
+        with pytest.raises(
+            Stage4FatalSubmissionError,
+            match="Stage 4 reducer failed while applying a submit tool",
+        ):
+            asyncio.run(
+                run_stage4(
+                    causal_spec=causal_spec,
+                    question="How should the prior system repair proceed?",
+                    data_for_model=pl.DataFrame(),
+                    indicator_audits={},
+                    generate=fatal_generate,
+                    enable_literature=False,
+                    enable_paraphrasing=False,
+                    load_checkpoint=lambda: loaded_runtime,
+                    save_checkpoint=lambda runtime: save_calls.append(deepcopy(runtime)),
+                )
+            )
+
+        assert visited_blocks == ["review:prior_system"]
+        assert save_calls == []
+        assert loaded_runtime.domain.active_block_id == "review:prior_system"
+        assert loaded_runtime.domain.block_status["review:prior_system"] == "reopened"
+
     def test_run_stage4_discards_invalid_runtime_checkpoint(self, monkeypatch):
         causal_spec = _make_stage4_no_model_block_spec()
         visited_blocks: list[str] = []
@@ -7909,6 +8205,148 @@ class TestStage4Mechanics:
             incompatibility
             == "checkpoint direct-writer prompt blocks no longer match the scoped repair surface"
         )
+
+    def test_validate_stage4_runtime_checkpoint_rejects_done_state_with_invalid_validation(self):
+        causal_spec, skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
+        del causal_spec, skeleton, _data_for_model
+
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
+            model_spec={"parameters": [{"name": "rho_sleep"}]},
+            authored_priors={"rho_sleep": {"distribution": "Beta"}},
+            validation=AssemblyValidation(compile_ok=True, pp_checked=True, pp_valid=False),
+        )
+        _set_done_cursor(runtime)
+
+        incompatibility = _validate_stage4_runtime_checkpoint(plan, runtime)
+
+        assert (
+            incompatibility
+            == "checkpoint marks Stage 4 done without a valid accepted validation result"
+        )
+
+    def test_stage4_session_done_requires_valid_accepted_validation(self):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
+            model_spec={"parameters": [{"name": "rho_sleep"}]},
+            authored_priors={"rho_sleep": {"distribution": "Beta"}},
+            validation=AssemblyValidation(compile_ok=True, pp_checked=True, pp_valid=False),
+        )
+        _set_done_cursor(runtime)
+        session = _make_stage4_session(
+            question="test",
+            plan=plan,
+            runtime=runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=data_for_model,
+            indicator_audits={},
+            stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
+                "grounding should not run for completion checks"
+            ),
+        )
+
+        assert session.is_done() is False
+        with pytest.raises(
+            ValueError,
+            match="Stage 4 session has not completed a valid model_spec \\+ priors",
+        ):
+            session.result()
+
+    def test_stage4_session_submit_rolls_back_on_fatal_reducer_exception(self, monkeypatch):
+        causal_spec = _make_stage4_global_repair_spec()
+        skeleton = derive_deterministic_spec(causal_spec)
+        plan = build_stage4_plan(causal_spec, skeleton)
+        runtime = make_stage4_runtime(plan)
+        _set_runtime_block(plan, runtime, "review:prior_system")
+        runtime.domain.block_status["review:prior_system"] = "reopened"
+        runtime.domain.accepted = Stage4AcceptedArtifacts(
+            model_spec={"parameters": [{"name": "beta_activity_sleep"}]},
+            authored_priors={
+                "beta_activity_sleep": {
+                    "parameter": "beta_activity_sleep",
+                    "distribution": "Normal",
+                    "params": {"mu": 0.0, "sigma": 0.2},
+                    "sources": [],
+                    "reasoning": "accepted prior",
+                }
+            },
+        )
+        session = _make_stage4_session(
+            question="test",
+            plan=plan,
+            runtime=runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=pl.DataFrame(),
+            indicator_audits={},
+            stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
+                "grounding should not run when the reducer path is patched"
+            ),
+        )
+        persist_calls: list[tuple[Stage4Runtime, tuple[dict[str, Any], ...]]] = []
+        session.persist_runtime = lambda runtime, transitions: persist_calls.append(
+            (deepcopy(runtime), transitions)
+        )
+        snapshot = deepcopy(session.runtime)
+
+        def fail_compute(payload, *, plan, runtime, deps):
+            del payload, plan, deps
+            runtime.domain.active_block_id = None
+            runtime.domain.block_status["review:prior_system"] = "accepted"
+            runtime.domain.accepted.authored_priors["beta_activity_sleep"] = {
+                "distribution": "HalfNormal"
+            }
+            raise ValueError("Stage 4 exhausted the deterministic repair-scope ladder")
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
+            fail_compute,
+        )
+
+        with pytest.raises(
+            Stage4FatalSubmissionError,
+            match="Stage 4 reducer failed while applying a submit tool",
+        ):
+            session.submit_prior_block(
+                priors={
+                    "beta_activity_sleep": {
+                        "parameter": "beta_activity_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.1},
+                        "sources": [],
+                        "reasoning": "repair attempt",
+                    }
+                }
+            )
+
+        assert persist_calls == []
+        assert session.runtime == snapshot
+        assert session.current_block() is not None
+        assert session.current_block().id == "review:prior_system"
+
+    def test_execute_tools_reraises_stage4_fatal_submission_error(self):
+        async def _raise_fatal(*, priors):
+            del priors
+            raise Stage4FatalSubmissionError("fatal reducer failure")
+
+        assistant_message = {
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "submit_prior_block", "arguments": '{"priors": {}}'},
+                }
+            ]
+        }
+        tool = Tool(
+            name="submit_prior_block",
+            description="test",
+            parameters={"type": "object", "properties": {}, "required": []},
+            execute=_raise_fatal,
+        )
+
+        with pytest.raises(Stage4FatalSubmissionError, match="fatal reducer failure"):
+            asyncio.run(execute_tools(assistant_message, [tool]))
 
     def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
         from causal_ssm_agent.flows.stages.stage4.tools import (
