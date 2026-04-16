@@ -61,8 +61,10 @@ class Stage4FailureLocalization:
     diagnostic_codes: tuple[str, ...]
     direct_parameters: tuple[str, ...]
     supporting_parameters: tuple[str, ...]
+    manifest_names: tuple[str, ...]
     construct_names: tuple[str, ...]
     validator_repair_scope: PriorRepairScope | None
+    validator_parameter_hints: tuple[str, ...]
     pathology_certificate: PriorPathologyCertificate | None
     has_global_failure: bool
     issues_text: str
@@ -71,7 +73,15 @@ class Stage4FailureLocalization:
     @property
     def parameter_hints(self) -> tuple[str, ...]:
         """Return deterministic seed parameters for scope synthesis."""
-        return tuple(dict.fromkeys([*self.direct_parameters, *self.supporting_parameters]))
+        return tuple(
+            dict.fromkeys(
+                [
+                    *self.direct_parameters,
+                    *self.supporting_parameters,
+                    *self.validator_parameter_hints,
+                ]
+            )
+        )
 
 
 @dataclass(frozen=True)
@@ -83,6 +93,7 @@ class Stage4FailureEvidence:
     supporting_compile_diagnostics: tuple[PriorValidationResult, ...]
     diagnostic_codes: tuple[str, ...]
     supporting_codes: tuple[str, ...]
+    manifest_names: tuple[str, ...]
     global_failure_sites: frozenset[str]
 
     @property

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,7 @@ from .stage4_repair import (
     ResolvedRepairPlan,
     ResolvedRepairScope,
     Stage4PriorRepairDecision,
+    _ordered_block_ids,
     build_repair_plan,
     classify_validation_outcome,
     resolve_prior_repair_decision,
@@ -200,16 +202,60 @@ def _repair_barrier_pending(runtime: Stage4Runtime) -> bool:
     )
 
 
-def _model_lock_failure_block(
+_MISSING_DISTRIBUTION_CHOICE_RE = re.compile(
+    r"missing distribution_choice for ambiguous indicator '([^']+)'"
+)
+_DISTRIBUTION_CHOICE_INDEX_RE = re.compile(r"distribution_choices\[(\d+)\]")
+
+
+def _model_lock_failure_block_ids(
     plan: Stage4Plan,
+    draft_model: Stage4DraftModel,
+    errors: list[str],
     hint_block: Stage4FrontierBlock | None,
-) -> Stage4FrontierBlock | None:
-    """Return the representative block to blame when model lock fails."""
-    if hint_block is not None and hint_block.kind in {"model_configuration", "indicator_decision"}:
-        return hint_block
-    if plan.model_blocks:
-        return plan.model_blocks[-1]
-    return None
+) -> tuple[str, ...]:
+    """Return the model-decision blocks implicated by model-spec lock errors."""
+    del hint_block
+    block_ids: set[str] = set()
+    distribution_choices = list((draft_model.distribution_choices or {}).values())
+    model_configuration_block_id = next(
+        (block.id for block in plan.model_blocks if block.kind == "model_configuration"),
+        None,
+    )
+
+    for error in errors:
+        if not isinstance(error, str):
+            continue
+
+        if (
+            model_configuration_block_id is not None
+            and (
+                "initialization_policy" in error
+                or "equilibrium_forcing" in error
+            )
+        ):
+            block_ids.add(model_configuration_block_id)
+
+        missing_distribution_match = _MISSING_DISTRIBUTION_CHOICE_RE.search(error)
+        if missing_distribution_match is not None:
+            indicator_name = missing_distribution_match.group(1)
+            for block in plan.model_blocks:
+                if block.kind == "indicator_decision" and indicator_name in block.variable_names:
+                    block_ids.add(block.id)
+
+        indexed_distribution_match = _DISTRIBUTION_CHOICE_INDEX_RE.search(error)
+        if indexed_distribution_match is not None:
+            index = int(indexed_distribution_match.group(1))
+            if 0 <= index < len(distribution_choices):
+                indicator_name = distribution_choices[index].get("variable")
+                if isinstance(indicator_name, str):
+                    for block in plan.model_blocks:
+                        if block.kind == "indicator_decision" and indicator_name in block.variable_names:
+                            block_ids.add(block.id)
+
+    if block_ids:
+        return _ordered_block_ids(plan, block_ids)
+    return ()
 
 
 def _make_stage4_block_accepted_event(
@@ -994,7 +1040,7 @@ def settle_to_wait_state(
                 plan=plan,
                 runtime=runtime,
                 deps=deps,
-                failed_block=_model_lock_failure_block(plan, model_lock_hint_block),
+                failed_block=model_lock_hint_block,
             )
             transitions.extend(_apply_stage4_step_result(plan, runtime, lock_result))
             latest_stage_output = lock_result.stage_output
@@ -1106,14 +1152,21 @@ def _lock_stage4_model_spec(
     """Materialize and validate the locked model spec after model decisions."""
     model_spec, errors = build_model_spec_from_decisions(runtime.domain.draft_model, deps.skeleton)
     if model_spec is None:
-        if failed_block is None:
+        failed_block_ids = _model_lock_failure_block_ids(
+            plan,
+            runtime.domain.draft_model,
+            errors,
+            failed_block,
+        )
+        if not failed_block_ids:
             raise ValueError(
                 "Stage 4 could not materialize the initial ModelSpec: " + "; ".join(errors)
             )
+        active_failure_block_id = failed_block_ids[0]
         feedback = "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
         return Stage4StepResult(
             validation_packet=build_validation_packet_for_block(
-                block_id=failed_block.id,
+                block_id=active_failure_block_id,
                 status="validation_error",
                 feedback=feedback,
                 retain_for_next_prompt=True,
@@ -1126,12 +1179,12 @@ def _lock_stage4_model_spec(
                         ResolvedRepairScope(
                             scope_kind="model_spec_lock",
                             scope_rank=0,
-                            scope_key=f"model_spec_lock:{failed_block.id}",
-                            reason="locked model_spec could not be materialized",
-                            failure_family=("model_spec_lock", failed_block.id),
-                            prompt_block_hints=(failed_block.id,),
+                            scope_key=f"model_spec_lock:{'+'.join(failed_block_ids)}",
+                            reason=errors[0] if errors else "locked model_spec could not be materialized",
+                            failure_family=("model_spec_lock", failed_block_ids),
+                            prompt_block_hints=failed_block_ids,
                         ),
-                        prompt_block_ids=(failed_block.id,),
+                        prompt_block_ids=failed_block_ids,
                         requires_barrier_validation=False,
                     )
                 ),

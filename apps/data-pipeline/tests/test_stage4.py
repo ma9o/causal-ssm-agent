@@ -4463,6 +4463,60 @@ class TestStage4Mechanics:
             },
         )
 
+    def test_compile_failure_route_uses_structured_manifest_diagnostics_without_exact_feedback_match(
+        self,
+    ):
+        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+            classify_compile_failure_route,
+        )
+
+        causal_spec, skeleton, plan, _runtime, _data_for_model = _make_stage4_mechanics_context()
+        del causal_spec, skeleton, _runtime, _data_for_model
+
+        repair_plan = classify_compile_failure_route(
+            plan,
+            _require_plan_block(plan, "measurement:activity"),
+            "Compile error: validator-owned manifest failure.",
+            validation=AssemblyValidation(
+                compile_ok=False,
+                compile_error="Compile error: validator-owned manifest failure.",
+                diagnostics=[
+                    PriorValidationResult(
+                        parameter="prior_predictive",
+                        is_valid=False,
+                        code="support_violation",
+                        origin="compile",
+                        issue="Manifest support is incompatible with the chosen likelihood.",
+                        bad_manifest_names=["steps"],
+                    )
+                ],
+            ),
+        )
+
+        assert repair_plan.scope.scope_kind == "compile_local"
+        assert repair_plan.block_ids == ("indicator:steps",)
+        assert repair_plan.uses_repair_campaign is False
+
+    def test_model_lock_failure_block_ids_cover_configuration_and_indicator_attribution(self):
+        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer import (
+            _model_lock_failure_block_ids,
+        )
+
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        del causal_spec, skeleton, data_for_model
+
+        block_ids = _model_lock_failure_block_ids(
+            plan,
+            runtime.domain.draft_model,
+            [
+                "'equilibrium_forcing' must be a boolean",
+                "missing distribution_choice for ambiguous indicator 'steps'",
+            ],
+            None,
+        )
+
+        assert block_ids == ("model:configuration", "indicator:steps")
+
     def test_compute_stage4_validate_step_keeps_effect_block_when_only_budget_is_tight(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
             accept_default_configuration=True

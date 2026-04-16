@@ -6,9 +6,11 @@ from typing import TYPE_CHECKING, Any
 
 from .helpers import (
     _certificate_improved,
+    _find_block_for_parameter,
     _materialize_scope_candidate,
     _parameter_construct_names,
     _require_reason,
+    _validator_scope_block_hints,
     _validator_scope_construct_names,
 )
 from .localization import _localize_prior_failure
@@ -38,40 +40,42 @@ def _support_failure_scope(
     plan: Stage4Plan,
     localization: Stage4FailureLocalization,
 ) -> Stage4ScopeCandidateSpec | None:
-    """Localize support violations to indicator-decision blocks when possible."""
-    if (
-        "support check" not in localization.issues_text
-        and "outside support" not in localization.issues_text
-    ):
+    """Localize support violations to explicitly implicated indicator-decision blocks."""
+    if localization.reasons.support is None and not localization.manifest_names:
         return None
+    if not localization.manifest_names:
+        raise ValueError(
+            "Stage 4 support-repair routing requires structured manifest attribution"
+        )
 
     topology = plan.repair_topology
-    for indicator_name, block_id in topology.indicator_to_decision_block_id.items():
-        if indicator_name in localization.issues_text:
-            return Stage4ScopeCandidateSpec(
-                scope_kind="likelihood_support",
-                scope_rank=0,
-                reason=_require_reason(
-                    localization.reasons.support,
-                    context="likelihood support repair",
-                ),
-                prompt_block_hints=(block_id,),
-                scope_token=block_id,
-            )
+    ordered_block_ids = tuple(
+        dict.fromkeys(
+            block_id
+            for indicator_name in localization.manifest_names
+            if (block_id := topology.indicator_to_decision_block_id.get(indicator_name)) is not None
+        )
+    )
+    if not ordered_block_ids:
+        manifests = ", ".join(localization.manifest_names)
+        raise ValueError(
+            "Stage 4 support-repair routing could not map manifest attribution to "
+            f"indicator-decision blocks: {manifests}"
+        )
 
-    for block in plan.model_blocks:
-        if block.kind == "indicator_decision":
-            return Stage4ScopeCandidateSpec(
-                scope_kind="likelihood_support",
-                scope_rank=0,
-                reason=_require_reason(
-                    localization.reasons.support,
-                    context="likelihood support repair",
-                ),
-                prompt_block_hints=(block.id,),
-                scope_token=block.id,
-            )
-    return None
+    scope_token = "+".join(localization.manifest_names)
+    return Stage4ScopeCandidateSpec(
+        scope_kind="likelihood_support",
+        scope_rank=0,
+        reason=_require_reason(
+            localization.reasons.support,
+            localization.reasons.default,
+            context="likelihood support repair",
+        ),
+        construct_names=localization.construct_names,
+        prompt_block_hints=ordered_block_ids,
+        scope_token=f"support:{scope_token}",
+    )
 
 
 def _is_drift_related(localization: Stage4FailureLocalization) -> bool:
@@ -99,8 +103,27 @@ def _validator_scope_candidate_specs(
     localization: Stage4FailureLocalization,
 ) -> tuple[Stage4ScopeCandidateSpec, ...]:
     """Emit validator-owned candidate scopes."""
-    del plan
     if localization.validator_repair_scope is not None:
+        validator_parameter_names = tuple(
+            parameter_name
+            for parameter_name in localization.validator_parameter_hints
+            if _find_block_for_parameter(plan, parameter_name) is not None
+        )
+        validator_block_hints = tuple(
+            block_id
+            for block_id in _validator_scope_block_hints(localization.validator_repair_scope)
+            if plan.get_block(block_id) is not None
+        )
+        validator_construct_names = tuple(
+            dict.fromkeys(
+                [
+                    *_parameter_construct_names(
+                        plan.repair_topology, validator_parameter_names
+                    ),
+                    *_validator_scope_construct_names(localization.validator_repair_scope),
+                ]
+            )
+        )
         return (
             Stage4ScopeCandidateSpec(
                 scope_kind="validator_scope",
@@ -110,9 +133,9 @@ def _validator_scope_candidate_specs(
                     localization.reasons.drift,
                     context="validator_scope",
                 ),
-                construct_names=_validator_scope_construct_names(
-                    localization.validator_repair_scope
-                ),
+                parameter_names=validator_parameter_names,
+                construct_names=validator_construct_names or localization.construct_names,
+                prompt_block_hints=validator_block_hints,
             ),
         )
     return ()

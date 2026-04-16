@@ -274,11 +274,12 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
         system_task=(
             "Review the fully locked Stage 4 model form before prior elicitation. "
             "Do not propose priors. Either approve the locked model or reopen the relevant "
-            "indicator-likelihood decision blocks if something materially needs revision."
+            "model-decision blocks if something materially needs revision, including "
+            "`model:configuration` and any affected `indicator:*` blocks."
         ),
         user_task=(
             "Review the locked model form shown below. If it is coherent, approve it. If not, "
-            "reopen the relevant indicator-likelihood blocks and explain why. "
+            "reopen the relevant model-decision blocks and explain why, including `model:configuration` and any affected `indicator:*` blocks. "
             "Do not submit priors in this block."
         ),
         visible_sections=("distribution_cards", "loading_params", "construct_scale_cards"),
