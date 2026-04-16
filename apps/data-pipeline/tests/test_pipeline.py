@@ -1496,7 +1496,14 @@ def test_stage4_checkpoints_overwrite_per_block_and_track_cursor(monkeypatch, tm
 
     run_store_module.clear_stage4_checkpoint(workspace_id)
 
-    assert not checkpoint_dir.exists()
+    assert checkpoint_dir.exists()
+    assert sorted(path.name for path in checkpoint_dir.iterdir()) == [
+        "__done__.pkl",
+        "observation%3Aobs_ordered_base.pkl",
+        "review%3Amodel_spec.pkl",
+    ]
+    with pytest.raises(FileNotFoundError):
+        run_store_module.load_stage4_checkpoint(workspace_id)
 
 
 def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
