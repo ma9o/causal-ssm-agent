@@ -4,11 +4,12 @@ Computes log p(y|θ) analytically for linear Gaussian SSMs using the
 non-associative moments filter. No particles, no noise — the marginal
 likelihood is computed in closed form via the prediction error decomposition.
 
-Uses gaussian.moments with associative=False (not gaussian.kalman) because
-cuthbert's associative Kalman filter uses QR decomposition internally
-(tria()) which produces NaN gradients when matrices are ill-conditioned.
-The non-associative moments filter uses predict/update operations that have
-stable gradients, and is exact for linear models.
+Uses gaussian.moments with associative=False because cuthbert's associative
+moments path prepares each step with a dummy state and expects callbacks to
+ignore `state` entirely. This backend linearizes around `state.mean`, so
+flipping to associative=True feeds the dummy placeholder into
+`linearize_moments`, which produces broken gradients even though the forward
+log-likelihood stays correct for linear models.
 
 Use when:
 - Linear dynamics (drift matrix, not nonlinear transition)
@@ -191,7 +192,9 @@ class KalmanLikelihood:
 
             return obs_fn, state.mean, y_t
 
-        # Build non-associative moments filter (stable gradients)
+        # Build non-associative moments filter. The associative moments path
+        # uses dummy filter states during filter_prepare(), so these callbacks
+        # must remain stateful and sequential to keep gradients correct.
         filter_obj = build_filter(
             get_init_params=get_init_params,
             get_dynamics_params=get_dynamics_params,
