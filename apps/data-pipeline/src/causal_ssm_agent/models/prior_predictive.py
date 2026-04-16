@@ -7,7 +7,7 @@ values, scale plausibility).
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import jax.numpy as jnp
 import networkx as nx
@@ -85,7 +85,9 @@ def _pp_result(
         severity=severity,
         issue=issue,
         suggested_adjustment=suggested_adjustment,
-        related_parameters=related_parameters or ([parameter] if parameter else []),
+        related_parameters=(
+            related_parameters if related_parameters is not None else ([parameter] if parameter else [])
+        ),
         supporting_codes=supporting_codes or [],
         repair_scope=repair_scope,
         failure_stage=failure_stage,
@@ -95,6 +97,137 @@ def _pp_result(
         first_bad_time_index=first_bad_time_index,
         pathology_certificate=pathology_certificate,
     )
+
+
+def _indicator_to_construct_lookup(
+    model_spec: dict[str, Any] | None,
+    *,
+    causal_spec: dict[str, Any] | None = None,
+    indicator_to_construct: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Return the construct name implied by each manifest indicator."""
+    lookup: dict[str, str] = dict(indicator_to_construct or {})
+    if causal_spec:
+        from causal_ssm_agent.utils.causal_spec import get_indicators
+
+        for indicator in get_indicators(causal_spec):
+            if not isinstance(indicator, dict):
+                continue
+            indicator_name = indicator.get("name")
+            construct_name = indicator.get("construct_name")
+            if isinstance(indicator_name, str) and isinstance(construct_name, str):
+                lookup.setdefault(indicator_name, construct_name)
+
+    for parameter in (model_spec or {}).get("parameters") or ():
+        if not isinstance(parameter, dict):
+            continue
+        indicator_name = parameter.get("indicator")
+        construct_name = parameter.get("construct")
+        if isinstance(indicator_name, str) and isinstance(construct_name, str):
+            lookup.setdefault(indicator_name, construct_name)
+    return lookup
+
+
+def _indicator_likelihood_lookup(model_spec: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """Index active likelihood metadata by manifest indicator."""
+    return {
+        str(likelihood["variable"]): dict(likelihood)
+        for likelihood in (model_spec or {}).get("likelihoods") or ()
+        if isinstance(likelihood, dict) and isinstance(likelihood.get("variable"), str)
+    }
+
+
+def _parameter_indicator_names(parameter: dict[str, Any]) -> tuple[str, ...]:
+    """Return indicator names attached to one semantic parameter."""
+    indicator_names = tuple(
+        indicator_name
+        for indicator_name in (parameter.get("indicator_names") or ())
+        if isinstance(indicator_name, str)
+    )
+    if indicator_names:
+        return indicator_names
+    indicator_name = parameter.get("indicator")
+    return (str(indicator_name),) if isinstance(indicator_name, str) else ()
+
+
+def _observation_intercept_controls_scale(
+    likelihood: dict[str, Any] | None,
+) -> bool:
+    """Whether an observation intercept can change the manifest standard deviation."""
+    if not isinstance(likelihood, dict):
+        return True
+    distribution = str(likelihood.get("distribution") or "").lower()
+    link = str(likelihood.get("link") or "").lower()
+    return not (
+        distribution in {DistributionFamily.GAUSSIAN.value, DistributionFamily.STUDENT_T.value}
+        and link == "identity"
+    )
+
+
+def resolve_scale_target_parameters(
+    indicator_name: str,
+    model_spec: dict[str, Any] | None,
+    *,
+    causal_spec: dict[str, Any] | None = None,
+    indicator_to_construct: dict[str, str] | None = None,
+) -> list[str]:
+    """Return the active authored parameters most able to change one indicator's scale.
+
+    The mapping is intentionally narrower than construct-name substring matching:
+    it includes only indicator-local variance terms, construct-local state scale
+    terms, and incoming effects to that construct. Location-only terms such as
+    additive Gaussian intercepts and latent-state means are excluded.
+    """
+    parameters = [
+        parameter
+        for parameter in (model_spec or {}).get("parameters") or ()
+        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
+    ]
+    if not parameters:
+        return []
+
+    construct_name = _indicator_to_construct_lookup(
+        model_spec,
+        causal_spec=causal_spec,
+        indicator_to_construct=indicator_to_construct,
+    ).get(indicator_name)
+    likelihood = _indicator_likelihood_lookup(model_spec).get(indicator_name)
+    distribution = str((likelihood or {}).get("distribution") or "").lower()
+
+    targets: list[str] = []
+    for parameter in parameters:
+        name = str(parameter["name"])
+        role = str(parameter.get("role") or "")
+        parameter_indicator_names = _parameter_indicator_names(parameter)
+        parameter_construct = parameter.get("construct")
+
+        include = False
+        if role in {"loading", "measurement_error_sd"}:
+            include = indicator_name in parameter_indicator_names
+        elif role == "observation_intercept":
+            include = (
+                indicator_name in parameter_indicator_names
+                and _observation_intercept_controls_scale(likelihood)
+            )
+        elif role in {"observation_hyperparameter", "observation_hyperparameter_positive"}:
+            include = indicator_name in parameter_indicator_names
+            activation_families = {
+                str(family).lower()
+                for family in (parameter.get("activation_distribution_families") or ())
+                if family is not None
+            }
+            if include and activation_families and distribution:
+                include = distribution in activation_families
+        elif role in {"residual_sd", "initial_state_sd", "ar_coefficient"}:
+            include = isinstance(parameter_construct, str) and parameter_construct == construct_name
+        elif role == "fixed_effect":
+            include = (
+                isinstance(parameter.get("effect"), str) and parameter.get("effect") == construct_name
+            )
+
+        if include and name not in targets:
+            targets.append(name)
+    return targets
 
 
 def _artifact_compile_diagnostics(compiled_ssm: dict | None) -> list[PriorValidationResult]:
@@ -480,6 +613,7 @@ def _check_scale_plausibility(
     data_stats: dict[str, dict],
     manifest_names: list[str],
     *,
+    model_spec: dict[str, Any] | None = None,
     compiled_ssm: dict | None = None,
     causal_spec: dict | None = None,
     n_subsample: int = 50,
@@ -658,6 +792,11 @@ def _check_scale_plausibility(
                         f"ratio={ratio:.1g}"
                     ),
                     suggested_adjustment=("Adjust diffusion/drift priors to match data scale"),
+                    related_parameters=resolve_scale_target_parameters(
+                        name,
+                        model_spec,
+                        causal_spec=causal_spec,
+                    ),
                     failure_stage="observation_sample",
                 )
             )
@@ -850,6 +989,11 @@ def validate_prior_predictive(
         spec_obj = model_spec
 
     manifest_names = [lik.variable for lik in spec_obj.likelihoods]
+    spec_payload = (
+        model_spec
+        if isinstance(model_spec, dict)
+        else spec_obj.model_dump(mode="python", exclude_none=True)
+    )
 
     # 1. Build model
     try:
@@ -969,6 +1113,7 @@ def validate_prior_predictive(
                 samples,
                 scale_reference_stats,
                 manifest_names,
+                model_spec=spec_payload,
                 compiled_ssm=artifact,
                 causal_spec=causal_spec,
             )
@@ -1022,6 +1167,7 @@ def format_parameter_feedback(
     results: list[PriorValidationResult],
     prior: dict | None = None,
     data_stats: dict[str, dict] | None = None,
+    model_spec: dict[str, Any] | None = None,
 ) -> str:
     """Format per-parameter validation feedback for LLM re-elicitation.
 
@@ -1042,17 +1188,28 @@ def format_parameter_feedback(
     # Find results relevant to this parameter
     # Global failures (affect all parameters) are always included
     param_lower = parameter_name.lower()
-    relevant = [
-        r
-        for r in results
-        if not r.is_valid
-        and (
-            r.parameter == parameter_name
-            or param_lower in r.parameter.lower()
-            or r.parameter.lower().startswith("scale_")  # scale mismatch affects all
-            or r.parameter in GLOBAL_FAILURE_SITES
+    relevant = []
+    for result in results:
+        if result.is_valid:
+            continue
+
+        result_parameter = result.parameter.lower()
+        scale_targets = (
+            resolve_scale_target_parameters(
+                result.parameter.removeprefix("scale_"),
+                model_spec,
+            )
+            if result_parameter.startswith("scale_")
+            else []
         )
-    ]
+        if (
+            result.parameter == parameter_name
+            or parameter_name in (result.related_parameters or [])
+            or param_lower in result_parameter
+            or parameter_name in scale_targets
+            or result.parameter in GLOBAL_FAILURE_SITES
+        ):
+            relevant.append(result)
 
     if not relevant:
         return ""
@@ -1134,6 +1291,7 @@ def get_failed_parameters(
     results: list[PriorValidationResult],
     parameter_names: list[str],
     causal_spec: dict | None = None,
+    model_spec: dict[str, Any] | None = None,
 ) -> list[str]:
     """Extract parameter names that contributed to validation failure.
 
@@ -1206,14 +1364,25 @@ def get_failed_parameters(
         # Scale mismatch (scale_<indicator>) -> targeted or blanket
         if result_param.startswith("scale_"):
             indicator_name = r.parameter.removeprefix("scale_")
-            construct = indicator_to_construct.get(indicator_name)
-            if construct:
-                # Only re-elicit parameters whose name contains the construct
-                for param_name in parameter_names:
-                    if construct in param_name.lower():
-                        failed_params.add(param_name)
+            if model_spec:
+                failed_params.update(
+                    resolve_scale_target_parameters(
+                        indicator_name,
+                        model_spec,
+                        causal_spec=causal_spec,
+                    )
+                )
             else:
-                # No causal_spec or no match → fall back to all
-                failed_params.update(parameter_names)
+                construct = indicator_to_construct.get(indicator_name)
+                if construct:
+                    # Only re-elicit parameters whose name contains the construct
+                    for param_name in parameter_names:
+                        if construct in param_name.lower():
+                            failed_params.add(param_name)
+                else:
+                    # No causal_spec or no match → fall back to all
+                    failed_params.update(parameter_names)
+            if model_spec:
+                continue
 
     return list(failed_params) if failed_params else list(parameter_names)
