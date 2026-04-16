@@ -12,6 +12,7 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
+from causal_ssm_agent.artifacts.model_spec import DistributionFamily
 from causal_ssm_agent.models.ssm import (
     SSMModel,
     SSMPriors,
@@ -25,7 +26,6 @@ from causal_ssm_agent.models.ssm import (
     zero_square_mask,
     zero_vector_mask,
 )
-from causal_ssm_agent.models.ssm.diagnostics import simulate_ssm
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.helpers import assert_recovery_ci
 
@@ -203,15 +203,84 @@ def _build_mixed_support_observations(point_observations: jnp.ndarray) -> jnp.nd
     return jnp.asarray(mixed)
 
 
+def _sample_student_t_noise(
+    rng_key: jnp.ndarray,
+    *,
+    df: float,
+    shape: tuple[int, ...],
+    dtype: jnp.dtype,
+) -> jnp.ndarray:
+    normal_key, gamma_key = random.split(rng_key)
+    z = random.normal(normal_key, shape, dtype=dtype)
+    chi2 = 2.0 * random.gamma(gamma_key, df / 2.0, shape=shape, dtype=dtype)
+    return z * jnp.sqrt(jnp.asarray(df, dtype=dtype) / chi2)
+
+
+def _simulate_mixed_continuous_observations(
+    *,
+    drift_diag: jnp.ndarray,
+    diffusion_diag: jnp.ndarray,
+    lambda_mat: jnp.ndarray,
+    manifest_scales: jnp.ndarray,
+    manifest_dists: list[DistributionFamily],
+    t0_sd: jnp.ndarray,
+    times: jnp.ndarray,
+    rng_key: jnp.ndarray,
+    obs_df: float,
+) -> jnp.ndarray:
+    """Simulate continuous observations with mixed Gaussian and Student-t noise."""
+    n_latent = int(drift_diag.shape[0])
+    n_manifest = int(lambda_mat.shape[0])
+    dt = float(times[1] - times[0]) if times.shape[0] > 1 else 1.0
+
+    Ad, Qd, _ = discretize_system(
+        jnp.diag(drift_diag),
+        jnp.diag(diffusion_diag**2),
+        None,
+        dt,
+    )
+    qd_chol = jla.cholesky(Qd + jnp.eye(n_latent, dtype=times.dtype) * 1e-8, lower=True)
+
+    rng_key, init_key = random.split(rng_key)
+    states = [t0_sd * random.normal(init_key, (n_latent,), dtype=times.dtype)]
+    for _ in range(times.shape[0] - 1):
+        rng_key, state_key = random.split(rng_key)
+        states.append(
+            states[-1] @ Ad.T + qd_chol @ random.normal(state_key, (n_latent,), dtype=times.dtype)
+        )
+    latent = jnp.stack(states)
+    means = latent @ lambda_mat.T
+
+    student_mask = jnp.asarray(
+        [dist == DistributionFamily.STUDENT_T for dist in manifest_dists],
+        dtype=bool,
+    )
+    obs_keys = random.split(rng_key, times.shape[0])
+    draws: list[jnp.ndarray] = []
+    for obs_key, mean in zip(obs_keys, means, strict=False):
+        gaussian_key, student_key = random.split(obs_key)
+        gaussian_noise = random.normal(gaussian_key, (n_manifest,), dtype=times.dtype)
+        student_noise = _sample_student_t_noise(
+            student_key,
+            df=obs_df,
+            shape=(n_manifest,),
+            dtype=times.dtype,
+        )
+        base_noise = jnp.where(student_mask, student_noise, gaussian_noise)
+        draws.append(mean + manifest_scales * base_noise)
+    return jnp.stack(draws)
+
+
 def _make_laplace_em_mixed_support_recovery_data() -> dict:
-    """Build a recoverable mixed-support 10-latent benchmark for Laplace-EM."""
+    """Build a recoverable mixed-support mixed-family 10-latent benchmark."""
     n_latent, T = 10, 40
     n_manifest = 2 * n_latent
     true_drift_diag = -jnp.linspace(0.18, 0.45, n_latent, dtype=jnp.float32)
     true_diff_diag = jnp.linspace(0.10, 0.18, n_latent, dtype=jnp.float32)
-    point_obs_sd = jnp.linspace(0.08, 0.14, n_latent, dtype=jnp.float32)
-    interval_obs_sd = jnp.linspace(0.08, 0.14, n_latent, dtype=jnp.float32)
-    true_obs_sd = jnp.concatenate([point_obs_sd, interval_obs_sd])
+    point_obs_scale = jnp.linspace(0.08, 0.14, n_latent, dtype=jnp.float32)
+    interval_obs_scale = jnp.linspace(0.08, 0.14, n_latent, dtype=jnp.float32)
+    true_obs_scale = jnp.concatenate([point_obs_scale, interval_obs_scale])
+    true_obs_df = 3.0
     true_t0_sd = jnp.linspace(0.20, 0.32, n_latent, dtype=jnp.float32)
 
     times = jnp.arange(T, dtype=jnp.float32)
@@ -219,19 +288,23 @@ def _make_laplace_em_mixed_support_recovery_data() -> dict:
         [jnp.eye(n_latent, dtype=jnp.float32), jnp.eye(n_latent, dtype=jnp.float32)],
         axis=0,
     )
+    manifest_dists = [DistributionFamily.STUDENT_T] * n_latent + [
+        DistributionFamily.GAUSSIAN
+    ] * n_latent
     manifest_names = [
         *(f"y{i}_point" for i in range(n_latent)),
         *(f"y{i}_interval" for i in range(n_latent)),
     ]
-    point_observations = simulate_ssm(
-        drift=jnp.diag(true_drift_diag),
-        diffusion_chol=jnp.diag(true_diff_diag),
+    point_observations = _simulate_mixed_continuous_observations(
+        drift_diag=true_drift_diag,
+        diffusion_diag=true_diff_diag,
         lambda_mat=lambda_mat,
-        manifest_chol=jnp.diag(true_obs_sd),
-        t0_means=jnp.zeros(n_latent, dtype=jnp.float32),
-        t0_chol=jnp.diag(true_t0_sd),
+        manifest_scales=true_obs_scale,
+        manifest_dists=manifest_dists,
+        t0_sd=true_t0_sd,
         times=times,
         rng_key=random.PRNGKey(0),
+        obs_df=true_obs_df,
     )
     observations = _build_mixed_support_observations(point_observations)
     observation_support = _build_mixed_support_runtime(times, manifest_names)
@@ -259,6 +332,7 @@ def _make_laplace_em_mixed_support_recovery_data() -> dict:
         t0_chol=jnp.diag(true_t0_sd),
         latent_names=[f"x{i}" for i in range(n_latent)],
         manifest_names=manifest_names,
+        manifest_dists=manifest_dists,
     )
     priors = SSMPriors(
         drift_diag={"mu": -0.35, "sigma": 0.15},
@@ -274,16 +348,20 @@ def _make_laplace_em_mixed_support_recovery_data() -> dict:
         "observation_support": observation_support,
         "true_drift_diag": true_drift_diag,
         "true_diff_diag": true_diff_diag,
-        "true_obs_sd": true_obs_sd,
+        "true_obs_scale": true_obs_scale,
+        "true_obs_df": true_obs_df,
     }
 
 
-def _summarize_family_recovery(samples: dict[str, jnp.ndarray], data: dict) -> dict[str, dict[str, float]]:
+def _summarize_family_recovery(
+    samples: dict[str, jnp.ndarray], data: dict
+) -> dict[str, dict[str, float]]:
     """Summarize mean error, interval width, and empirical coverage by parameter family."""
     families = [
         ("drift", -jnp.abs(samples["drift_diag_free"]), data["true_drift_diag"]),
         ("diffusion_sd", samples["diffusion_diag_free"], data["true_diff_diag"]),
-        ("obs_sd", samples["manifest_var_diag_free"], data["true_obs_sd"]),
+        ("obs_scale", samples["manifest_var_diag_free"], data["true_obs_scale"]),
+        ("obs_df", samples["obs_df"], data["true_obs_df"]),
     ]
     summary: dict[str, dict[str, float]] = {}
     for family, draws, truth in families:
@@ -384,14 +462,68 @@ class TestLaplaceEM:
 
         assert summary["drift"]["coverage"] >= 0.9
         assert summary["diffusion_sd"]["coverage"] >= 0.9
-        assert summary["obs_sd"]["coverage"] >= 0.8
+        assert summary["obs_scale"]["coverage"] >= 0.8
+        assert summary["obs_df"]["coverage"] == 1.0
 
         assert summary["drift"]["mean_abs_error"] < 0.12
         assert summary["diffusion_sd"]["mean_abs_error"] < 0.16
-        assert summary["obs_sd"]["mean_abs_error"] < 0.10
+        assert summary["obs_scale"]["mean_abs_error"] < 0.10
+        assert summary["obs_df"]["mean_abs_error"] < 3.5
 
         assert summary["drift"]["mean_ci_width"] < 0.75
         assert summary["diffusion_sd"]["mean_ci_width"] < 1.0
-        assert summary["obs_sd"]["mean_ci_width"] < 0.5
+        assert summary["obs_scale"]["mean_ci_width"] < 0.5
+        assert summary["obs_df"]["mean_ci_width"] < 20.0
 
 
+class TestNUTS:
+    """Recovery tests for NUTS with IEKS/Laplace marginalization."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(600)
+    def test_nuts_mixed_support_particle_recovery(self):
+        """NUTS + IEKS runs on the mixed-support 10-latent benchmark.
+
+        The chain is intentionally modest to keep the benchmark practical, so
+        this focuses on posterior mean recovery and sampler health rather than
+        demanding tight empirical interval coverage for every family.
+        """
+        data = _make_laplace_em_mixed_support_recovery_data()
+        model = SSMModel(data["spec"], data["priors"], likelihood="particle")
+        model.set_observation_support(data["observation_support"])
+
+        result = fit(
+            model,
+            observations=data["observations"],
+            times=data["times"],
+            method="nuts",
+            num_warmup=60,
+            num_samples=60,
+            num_chains=1,
+            seed=0,
+            target_accept_prob=0.9,
+            max_tree_depth=5,
+            n_ieks_iters=5,
+            progress_bar=False,
+        )
+
+        summary = _summarize_family_recovery(result.get_samples(), data)
+        extra = result.diagnostics["mcmc"].get_extra_fields()
+
+        assert result.diagnostics["init_method"] == "pathfinder"
+        assert data["observation_support"].requires_interval_summary_handling is True
+        assert int(jnp.sum(extra["diverging"])) <= 3
+        assert float(jnp.mean(extra["accept_prob"])) >= 0.65
+
+        assert summary["drift"]["coverage"] >= 0.8
+        assert summary["diffusion_sd"]["coverage"] >= 0.8
+
+        assert summary["drift"]["mean_abs_error"] < 0.10
+        assert summary["diffusion_sd"]["mean_abs_error"] < 0.03
+        assert summary["obs_scale"]["mean_abs_error"] < 0.07
+        assert summary["obs_df"]["mean_abs_error"] < 2.0
+
+        assert summary["drift"]["mean_ci_width"] < 0.4
+        assert summary["diffusion_sd"]["mean_ci_width"] < 0.1
+        assert summary["obs_scale"]["mean_ci_width"] < 0.1
+        assert summary["obs_df"]["mean_ci_width"] < 4.0
