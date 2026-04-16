@@ -319,7 +319,7 @@ class TestApproximateAbductedState:
             }
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.methods.nuts_da._try_smoother",
+            "causal_ssm_agent.models.ssm.counterfactual._try_smoother",
             fake_try_smoother,
         )
         monkeypatch.setattr(

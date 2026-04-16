@@ -1306,7 +1306,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     builder = SimpleNamespace(spec=spec, model=_Unpicklable())
     result = InferenceResult(
         _samples={"drift": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
-        method="laplace_em",
+        method="map",
         diagnostics={"likelihood_backend": _Unpicklable()},
     )
     artifact = FittedArtifact(
@@ -1321,7 +1321,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     restored = cloudpickle.loads(cloudpickle.dumps(artifact))
 
     assert restored.result is not None
-    assert restored.result.method == "laplace_em"
+    assert restored.result.method == "map"
     np.testing.assert_allclose(
         np.asarray(restored.result.get_samples()["drift"]),
         np.asarray(result.get_samples()["drift"]),
@@ -1670,7 +1670,7 @@ def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload
             },
             "inference_structure": {
                 "likelihood_path": "composed",
-                "auto_method": "laplace_em",
+                "auto_method": "nuts",
                 "first_pass_rb": {
                     "status": "active",
                     "latent_variables": [{"name": "x", "method": "kalman"}],
@@ -1686,7 +1686,7 @@ def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload
     assert state.parametric_id.checked is True
     assert state.inference_structure is not None
     assert state.inference_structure.likelihood_path == "composed"
-    assert state.inference_structure.auto_method == "laplace_em"
+    assert state.inference_structure.auto_method == "nuts"
 
 
 def test_stage5a_uses_fit_metadata(monkeypatch):

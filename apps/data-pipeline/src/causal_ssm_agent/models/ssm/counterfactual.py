@@ -13,15 +13,23 @@ and discrete-time forward simulation for temporal trajectories.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
 from jax import vmap
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.discretization import discretize_system
+from causal_ssm_agent.models.ssm.constants import MIN_DT
+from causal_ssm_agent.models.ssm.discretization import discretize_system, discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
+
+if TYPE_CHECKING:
+    from cuthbert.gaussian.types import LinearizedKalmanFilterState
+    from cuthbertlib.linearize.moments import MeanAndCholCovFunc
+    from cuthbertlib.types import ArrayTreeLike
+    from jax import Array
+    from jax.typing import ArrayLike
 
 logger = get_prefect_logger(__name__)
 
@@ -367,7 +375,6 @@ def approximate_abducted_state(
     Falls back to a least-squares inversion of the contemporaneous observation
     model at the evidence boundary.
     """
-    from causal_ssm_agent.models.ssm.inference.methods.nuts_da import _try_smoother
     from causal_ssm_agent.models.ssm.inference.utils import _assemble_single_deterministics
 
     posterior_means = {name: jnp.mean(value, axis=0) for name, value in samples.items()}
@@ -545,3 +552,166 @@ def compute_interventions(
     results.sort(key=_abs_mean, reverse=True)
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Kalman smoother helpers (moved from nuts_da.py)
+# ---------------------------------------------------------------------------
+
+
+def _kalman_smooth_states(
+    observations: jnp.ndarray,
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    H: jnp.ndarray,
+    d: jnp.ndarray,
+    R: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+) -> jnp.ndarray:
+    """Kalman filter + RTS smoother for linear Gaussian SSM via cuthbert.
+
+    Returns smoothed state means (T, D).
+    Handles missing data (NaN) via variance inflation, matching KalmanLikelihood.
+    """
+    from cuthbert.filtering import filter as cuthbert_filter
+    from cuthbert.gaussian.moments import build_filter, build_smoother
+    from cuthbert.smoothing import smoother as cuthbert_smoother
+
+    from causal_ssm_agent.models.ssm.inference.targets.base import preprocess_missing_data
+
+    T, n_m = observations.shape
+    n = Ad.shape[1]
+    jitter_n = 1e-6 * jnp.eye(n)
+    jitter_m = 1e-6 * jnp.eye(n_m)
+
+    # Handle missing data: NaN → 0, inflate R for missing observations
+    clean_obs, R_adjusted, _obs_mask = preprocess_missing_data(observations, R, None)
+
+    # Cholesky factors for cuthbert (square-root form)
+    chol_Qd = vmap(lambda Q: jnp.linalg.cholesky(Q + jitter_n))(Qd)
+    chol_R = jnp.linalg.cholesky(R_adjusted + jitter_m)  # (T, n_m, n_m)
+    chol_P0 = jnp.linalg.cholesky(init_cov + jitter_n)
+
+    # model_inputs with leading dim T (cuthbert convention:
+    # [0] → init_prepare, [k>=1] → dynamics k-1→k + obs k)
+    model_inputs = {
+        "m0": jnp.broadcast_to(init_mean, (T, n)),
+        "chol_P0": jnp.broadcast_to(chol_P0, (T, n, n)),
+        "F": Ad,
+        "c": cd,
+        "chol_Q": chol_Qd,
+        "H": jnp.broadcast_to(H, (T, n_m, n)),
+        "d": jnp.broadcast_to(d, (T, n_m)),
+        "chol_R": chol_R,
+        "y": clean_obs,
+    }
+
+    # Callbacks matching KalmanLikelihood pattern
+    def get_init_params(model_inputs: ArrayTreeLike) -> tuple[Array, Array]:
+        return model_inputs["m0"], model_inputs["chol_P0"]
+
+    def get_dynamics_params(
+        state: LinearizedKalmanFilterState, model_inputs: ArrayTreeLike
+    ) -> tuple[MeanAndCholCovFunc, Array]:
+        F_t, c_t, chol_Q_t = model_inputs["F"], model_inputs["c"], model_inputs["chol_Q"]
+
+        def dynamics_fn(x: ArrayLike) -> tuple[Array, Array]:
+            return F_t @ x + c_t, chol_Q_t
+
+        return dynamics_fn, state.mean
+
+    def get_observation_params(
+        state: LinearizedKalmanFilterState, model_inputs: ArrayTreeLike
+    ) -> tuple[MeanAndCholCovFunc, Array, Array]:
+        H_t, d_t, chol_R_t, y_t = (
+            model_inputs["H"],
+            model_inputs["d"],
+            model_inputs["chol_R"],
+            model_inputs["y"],
+        )
+
+        def obs_fn(x: ArrayLike) -> tuple[Array, Array]:
+            return H_t @ x + d_t, chol_R_t
+
+        return obs_fn, state.mean, y_t
+
+    filter_obj = build_filter(
+        get_init_params=get_init_params,
+        get_dynamics_params=get_dynamics_params,
+        get_observation_params=get_observation_params,
+        associative=False,
+    )
+    filter_states = cuthbert_filter(filter_obj, model_inputs)
+
+    smoother_obj = build_smoother(
+        get_dynamics_params=get_dynamics_params,
+    )
+    smoothed_states = cuthbert_smoother(smoother_obj, filter_states)
+
+    return smoothed_states.mean
+
+
+def _try_smoother(
+    ssm_model: Any,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    det_values: dict,
+) -> jnp.ndarray | None:
+    """Try running Kalman smoother with estimated parameters."""
+    spec = ssm_model.spec
+    n_l = spec.n_latent
+    structure_runtime = ssm_model.structure_runtime
+
+    try:
+        drift = det_values["drift"]
+        diffusion_chol = det_values["diffusion"]
+        diffusion_cov = diffusion_chol @ diffusion_chol.T
+        lambda_mat = det_values["lambda"]
+        manifest_cov = det_values["manifest_cov"]
+        t0_mean = det_values["t0_means"]
+        t0_cov = det_values["t0_cov"]
+        cint = det_values.get("cint")
+
+        # Get manifest means (prefer SVI estimate over spec default)
+        manifest_means_val = det_values.get(
+            "manifest_means",
+            structure_runtime.manifest_means_template,
+        )
+
+        time_intervals = jnp.diff(times, prepend=times[0])
+        time_intervals = jnp.maximum(time_intervals, MIN_DT)
+
+        Ad_all, Qd_all, cd_all = discretize_system_batched(
+            drift, diffusion_cov, cint, time_intervals
+        )
+        cd_for_smoother = cd_all if cd_all is not None else jnp.zeros((len(time_intervals), n_l))
+
+        smoothed = _kalman_smooth_states(
+            observations,
+            Ad_all,
+            Qd_all,
+            cd_for_smoother,
+            lambda_mat,
+            manifest_means_val,
+            manifest_cov,
+            t0_mean,
+            t0_cov,
+        )
+
+        if not jnp.all(jnp.isfinite(smoothed)):
+            logger.warning("Kalman smoother produced NaN/Inf states")
+            return None
+
+        logger.info(
+            "Kalman smoother: states shape=%s, range=[%.3f, %.3f]",
+            smoothed.shape,
+            float(smoothed.min()),
+            float(smoothed.max()),
+        )
+        return smoothed
+
+    except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as e:
+        logger.warning("Kalman smoother failed: %s", e)
+        return None

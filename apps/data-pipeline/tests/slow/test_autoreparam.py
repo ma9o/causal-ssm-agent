@@ -124,28 +124,3 @@ class TestAutoReparamSSM:
         diag_names = {entry["parameter"] for entry in diag["per_parameter"]}
         assert all("_decentered" not in name for name in diag_names)
 
-    def test_fit_nuts_da_noncentered_with_reparam(self):
-        from causal_ssm_agent.models.ssm.inference import fit
-
-        model = _make_simple_ssm()
-        observations = jnp.zeros((4, 2))
-        times = jnp.linspace(0, 1, 4)
-
-        result = fit(
-            model,
-            observations,
-            times,
-            method="nuts_da",
-            centered=False,
-            num_warmup=1,
-            num_samples=1,
-            num_chains=1,
-            svi_warmstart=False,
-            seed=0,
-        )
-
-        sample_names = set(result.get_samples())
-        assert "drift_diag_free" in sample_names
-        assert "eps" not in sample_names
-        assert "eps_0" not in sample_names
-        assert all("_decentered" not in name for name in sample_names)

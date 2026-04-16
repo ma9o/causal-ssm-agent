@@ -17,7 +17,7 @@ from tests.ssm_test_utils import make_ssm_spec
 
 class _FakeResult(InferenceResult):
     def __init__(self) -> None:
-        self.method = "laplace_em"
+        self.method = "map"
         self.diagnostics = {}
         self._samples = {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
 
@@ -112,7 +112,7 @@ def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
         observation_support=_make_observation_support_runtime(),
         inference_structure=InferenceStructurePlan(
             structural_backend="particle",
-            resolved_method="laplace_em",
+            resolved_method="map",
             method_override=None,
             first_pass_partition=None,
         ),
@@ -154,7 +154,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "support=interval(1: sleep_avg) max_active_windows=2" in caplog.text
     assert "Manifest order: sleep_avg, energy" in caplog.text
     assert (
-        "Inference route: requested_method=auto resolved_method=laplace_em "
+        "Inference route: requested_method=auto resolved_method=map "
         "structural_backend=particle method_override=none first_pass_partition=none"
     ) in caplog.text
     assert "Starting inference kernel..." in caplog.text

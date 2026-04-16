@@ -3,22 +3,14 @@
 Separates inference from model definition. SSMModel defines the probabilistic
 model; this module provides fit() to run inference with different backends.
 
-Structural routing (method="auto", the default) selects the best method
-from model properties: "nuts" for Kalman-eligible models (all Gaussian +
-identity link), "laplace_em" for non-Gaussian emissions. Users can override
-to any specific method. See docs/reference/inference-routing.md for details.
+Auto-routing (method="auto", the default) always selects NUTS. NUTS
+auto-selects the state marginalization backend: exact Kalman filter for
+linear Gaussian models, IEKS/Laplace for non-Gaussian emissions.
 
 Available methods:
-- NUTS: HMC-based sampling. Gold standard for Kalman-eligible models.
+- NUTS: HMC-based sampling with Kalman or Laplace state marginalization.
+- MAP: L-BFGS mode finding + Laplace Gaussian parameter posterior.
 - SVI: Fast approximate posterior via ELBO optimization.
-- Tempered SMC: Adaptive tempering with preconditioned HMC/MALA mutations.
-- Hess-MC²: SMC with gradient-based change-of-variables L-kernels.
-- Laplace-SMC: IEKS + Laplace approximation inside tempered SMC.
-- Laplace-EM: KFAS-style mode finding and parameter-space Laplace posterior.
-- Structured VI: Backward-factored variational family.
-- DPF: Differentiable Particle Filter with learned proposals.
-- NUTS-DA: Data augmentation MCMC — jointly samples params and latent states.
-- PGAS: Particle Gibbs with ancestor sampling + gradient-informed proposals.
 """
 
 from __future__ import annotations
@@ -60,11 +52,7 @@ _AUTO_REPARAM = object()
 _AUTO_METHOD_CONFIG_KEYS: dict[str, str] = {
     "svi": "svi_config",
     "nuts": "nuts_config",
-    "laplace_em": "smc_config",
-    "tempered_smc": "smc_config",
-    "laplace_smc": "smc_config",
-    "structured_vi": "smc_config",
-    "dpf": "smc_config",
+    "map": "smc_config",
 }
 
 
@@ -101,8 +89,6 @@ def _resolve_reparam(reparam, method: InferenceMethod):
     # SVI benefits from learnable centering; all other methods use fixed NCP.
     if method == "svi":
         return AutoReparam()  # centered=None → learnable via numpyro.param
-    if method == "pgas":
-        return None
     return AutoReparam(centered=0.0)  # fully decentered
 
 
@@ -111,25 +97,32 @@ def _resolve_auto_method_kwargs(
     kwargs: dict[str, Any],
 ) -> dict[str, Any]:
     """Merge backend-specific config blocks emitted by ``method='auto'``."""
-    method_configs = {
-        "svi_config": kwargs.get("svi_config"),
-        "nuts_config": kwargs.get("nuts_config"),
-        "smc_config": kwargs.get("smc_config"),
-    }
+    nuts_config = kwargs.get("nuts_config") or {}
+    smc_config = kwargs.get("smc_config") or {}
     resolved = {
         key: value
         for key, value in kwargs.items()
         if key not in {"svi_config", "nuts_config", "smc_config"}
     }
+    if method == "nuts":
+        # n_ieks_iters controls the Laplace backend for non-Gaussian models.
+        n_ieks_iters = nuts_config.get("n_ieks_iters") or smc_config.get("n_ieks_iters")
+        merged = {**nuts_config, **resolved}
+        if n_ieks_iters is not None:
+            merged.setdefault("n_ieks_iters", n_ieks_iters)
+        return merged
+    if method == "map":
+        n_ieks_iters = smc_config.get("n_ieks_iters")
+        if n_ieks_iters is not None:
+            resolved["n_ieks_iters"] = n_ieks_iters
+        return resolved
+    if method == "svi":
+        svi_config = kwargs.get("svi_config") or {}
+        return {**svi_config, **resolved}
     config_key = _AUTO_METHOD_CONFIG_KEYS.get(method)
     if config_key is None:
         return resolved
-    method_config = method_configs.get(config_key) or {}
-    if method == "laplace_em":
-        n_ieks_iters = method_config.get("n_ieks_iters")
-        if n_ieks_iters is None:
-            return resolved
-        return {"n_ieks_iters": n_ieks_iters, **resolved}
+    method_config = kwargs.get(config_key) or {}
     return {**method_config, **resolved}
 
 
@@ -147,10 +140,8 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method - "auto" (structural routing, default),
-            "nuts", "svi", "hessmc2", "pgas", "tempered_smc", "laplace_smc",
-            "laplace_em",
-            "structured_vi", "dpf", or "nuts_da"
+        method: Inference method - "auto" (always NUTS, default),
+            "nuts", "map", or "svi"
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
               centering (learnable for SVI, fully decentered for MCMC/SMC).
@@ -173,48 +164,17 @@ def fit(
         kwargs = _resolve_auto_method_kwargs(method, kwargs)
 
     reparam = _resolve_reparam(reparam, method)
-    if method == "pgas" and reparam is not None:
-        raise ValueError("PGAS does not support reparameterization.")
     if method == "nuts":
         return _fit_nuts(model, observations, times, reparam=reparam, **kwargs)
-    if method == "nuts_da":
-        from causal_ssm_agent.models.ssm.inference.methods.nuts_da import fit_nuts_da
-
-        return fit_nuts_da(model, observations, times, reparam=reparam, **kwargs)
     if method == "svi":
         return _fit_svi(model, observations, times, reparam=reparam, **kwargs)
-    if method == "hessmc2":
-        from causal_ssm_agent.models.ssm.inference.methods.hessmc2 import fit_hessmc2
-
-        return fit_hessmc2(model, observations, times, reparam=reparam, **kwargs)
-    if method == "pgas":
-        from causal_ssm_agent.models.ssm.inference.methods.pgas import fit_pgas
-
-        return fit_pgas(model, observations, times, reparam=reparam, **kwargs)
-    if method == "tempered_smc":
-        from causal_ssm_agent.models.ssm.inference.engines.tempered_smc import fit_tempered_smc
-
-        return fit_tempered_smc(model, observations, times, reparam=reparam, **kwargs)
-    if method == "laplace_smc":
-        from causal_ssm_agent.models.ssm.inference.methods.laplace_smc import fit_laplace_smc
-
-        return fit_laplace_smc(model, observations, times, reparam=reparam, **kwargs)
-    if method == "laplace_em":
+    if method == "map":
         from causal_ssm_agent.models.ssm.inference.methods.laplace_em import fit_laplace_em
 
         return fit_laplace_em(model, observations, times, reparam=reparam, **kwargs)
-    if method == "structured_vi":
-        from causal_ssm_agent.models.ssm.inference.methods.structured_vi import fit_structured_vi
-
-        return fit_structured_vi(model, observations, times, reparam=reparam, **kwargs)
-    if method == "dpf":
-        from causal_ssm_agent.models.ssm.inference.methods.dpf import fit_dpf
-
-        return fit_dpf(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
         f"Unknown inference method: {method!r}. "
-        "Use 'auto', 'svi', 'nuts', 'nuts_da', 'hessmc2', 'pgas', 'tempered_smc', "
-        "'laplace_smc', 'laplace_em', 'structured_vi', or 'dpf'."
+        "Use 'auto', 'nuts', 'map', or 'svi'."
     )
 
 
@@ -259,10 +219,16 @@ def _fit_nuts(
     dense_mass: bool = False,
     target_accept_prob: float = 0.85,
     max_tree_depth: int = 8,
+    n_ieks_iters: int = 5,
     reparam=None,
     **kwargs: Any,
 ) -> InferenceResult:
     """Fit using NUTS (HMC).
+
+    For Kalman-eligible models (all Gaussian + identity link), uses the exact
+    Kalman marginal likelihood. For non-Gaussian models, uses the IEKS/Laplace
+    approximate marginal likelihood — the IEKS marginalizes latent states,
+    then NUTS samples the parameter posterior.
 
     Args:
         model: SSMModel instance
@@ -275,15 +241,19 @@ def _fit_nuts(
         dense_mass: Use dense mass matrix
         target_accept_prob: Target acceptance probability
         max_tree_depth: Max tree depth
+        n_ieks_iters: IEKS Newton iterations for Laplace backend (non-Gaussian only)
         reparam: Optional reparameterization config (Strategy, dict, or None)
         **kwargs: Additional MCMC arguments
 
     Returns:
         InferenceResult with NUTS samples
     """
-    base_model_fn = functools.partial(
-        model.model, likelihood_backend=model.make_likelihood_backend()
-    )
+    if model.likelihood == "kalman":
+        backend = model.make_likelihood_backend()
+    else:
+        backend = model.make_laplace_backend(n_ieks_iters)
+
+    base_model_fn = functools.partial(model.model, likelihood_backend=backend)
     public_sites = _trace_public_sites(base_model_fn, observations, times)
     model_fn = _apply_reparam(base_model_fn, reparam)
     kernel = NUTS(
@@ -299,6 +269,7 @@ def _fit_nuts(
         num_warmup=num_warmup,
         num_samples=num_samples,
         num_chains=num_chains,
+        jit_model_args=False,
         **kwargs,
     )
 

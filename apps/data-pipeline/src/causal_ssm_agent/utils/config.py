@@ -157,11 +157,7 @@ class InferenceConfig:
             config.update(dataclasses.asdict(self.svi))
         elif method == "nuts":
             config.update(dataclasses.asdict(self.nuts))
-        elif method in ("laplace_smc", "tempered_smc", "structured_vi", "dpf"):
-            if method != "laplace_smc":
-                smc.pop("n_ieks_iters", None)
-            config.update(smc)
-        elif method == "laplace_em":
+        elif method == "map":
             config["n_ieks_iters"] = self.smc.n_ieks_iters
         return config
 
