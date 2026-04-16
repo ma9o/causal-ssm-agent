@@ -65,7 +65,6 @@ def classify_compile_failure_route(
             scope_token=scope_token,
         ),
         prompt_block_ids=matching_block_ids,
-        requires_barrier_validation=False,
     )
 
 

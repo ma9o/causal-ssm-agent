@@ -91,7 +91,6 @@ class Stage4RepairCampaignState:
     scope_block_ids: tuple[str, ...]
     prompt_blocks_by_id: dict[str, Stage4FrontierBlock] = field(default_factory=dict)
     completed_block_ids: frozenset[str] = field(default_factory=frozenset)
-    requires_barrier_validation: bool = False
     attempts_at_scope: int = 1
     best_certificate: PriorPathologyCertificate | None = None
 
