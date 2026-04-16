@@ -15,21 +15,14 @@ Available methods:
 
 from __future__ import annotations
 
-import functools
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
-import jax.random as random
-from jax import tree_util
 from numpyro import handlers
-from numpyro.infer import MCMC, NUTS, SVI, Predictive, Trace_ELBO, init_to_median
-from numpyro.infer.autoguide import AutoDelta, AutoMultivariateNormal, AutoNormal
-from numpyro.optim import ClippedAdam
 
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.inference.shared import (
-    _filter_public_samples,
-    _trace_public_sites,
+    _apply_reparam as _apply_reparam,
 )
 from causal_ssm_agent.models.ssm.inference.shared import (
     select_default_method as select_default_method,
@@ -38,7 +31,7 @@ from causal_ssm_agent.models.ssm.inference.structure import plan_inference_struc
 from causal_ssm_agent.models.ssm.inference.types import (
     FittedArtifact as FittedArtifact,
 )
-from causal_ssm_agent.models.ssm.inference.types import (
+from causal_ssm_agent.models.ssm.inference.types import (  # noqa: TC001
     InferenceMethod,
     InferenceResult,
 )
@@ -54,32 +47,6 @@ _AUTO_METHOD_CONFIG_KEYS: dict[str, str] = {
     "nuts": "nuts_config",
     "map": "smc_config",
 }
-
-
-def _all_numeric_leaves_finite(tree: Any) -> bool:
-    """Return ``True`` when every numeric leaf in a pytree is finite."""
-    for leaf in tree_util.tree_leaves(tree):
-        arr = jnp.asarray(leaf)
-        if arr.dtype.kind not in {"b", "i", "u", "f", "c"}:
-            continue
-        if not bool(jnp.all(jnp.isfinite(arr))):
-            return False
-    return True
-
-
-def _apply_reparam(model_fn, reparam_config):
-    """Wrap a model function with reparameterization if config is provided.
-
-    Args:
-        model_fn: A NumPyro model function.
-        reparam_config: A dict, callable (Strategy), or None.
-
-    Returns:
-        The model function, possibly wrapped with handlers.reparam.
-    """
-    if reparam_config is None:
-        return model_fn
-    return handlers.reparam(model_fn, config=reparam_config)
 
 
 def _resolve_reparam(reparam, method: InferenceMethod):
@@ -165,13 +132,17 @@ def fit(
 
     reparam = _resolve_reparam(reparam, method)
     if method == "nuts":
-        return _fit_nuts(model, observations, times, reparam=reparam, **kwargs)
-    if method == "svi":
-        return _fit_svi(model, observations, times, reparam=reparam, **kwargs)
-    if method == "map":
-        from causal_ssm_agent.models.ssm.inference.methods.laplace_em import fit_laplace_em
+        from causal_ssm_agent.models.ssm.inference.methods.nuts import fit_nuts
 
-        return fit_laplace_em(model, observations, times, reparam=reparam, **kwargs)
+        return fit_nuts(model, observations, times, reparam=reparam, **kwargs)
+    if method == "svi":
+        from causal_ssm_agent.models.ssm.inference.methods.svi import fit_svi
+
+        return fit_svi(model, observations, times, reparam=reparam, **kwargs)
+    if method == "map":
+        from causal_ssm_agent.models.ssm.inference.methods.map import fit_map
+
+        return fit_map(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
         f"Unknown inference method: {method!r}. "
         "Use 'auto', 'nuts', 'map', or 'svi'."
@@ -205,183 +176,6 @@ def prior_predictive(
         times,
         num_samples=num_samples,
         seed=seed,
-    )
-
-
-def _fit_nuts(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    num_warmup: int = 1000,
-    num_samples: int = 1000,
-    num_chains: int = 4,
-    seed: int = 0,
-    dense_mass: bool = False,
-    target_accept_prob: float = 0.85,
-    max_tree_depth: int = 8,
-    n_ieks_iters: int = 5,
-    reparam=None,
-    **kwargs: Any,
-) -> InferenceResult:
-    """Fit using NUTS (HMC).
-
-    For Kalman-eligible models (all Gaussian + identity link), uses the exact
-    Kalman marginal likelihood. For non-Gaussian models, uses the IEKS/Laplace
-    approximate marginal likelihood — the IEKS marginalizes latent states,
-    then NUTS samples the parameter posterior.
-
-    Args:
-        model: SSMModel instance
-        observations: (N, n_manifest) observed data
-        times: (N,) observation times
-        num_warmup: Number of warmup samples
-        num_samples: Number of posterior samples
-        num_chains: Number of MCMC chains
-        seed: Random seed
-        dense_mass: Use dense mass matrix
-        target_accept_prob: Target acceptance probability
-        max_tree_depth: Max tree depth
-        n_ieks_iters: IEKS Newton iterations for Laplace backend (non-Gaussian only)
-        reparam: Optional reparameterization config (Strategy, dict, or None)
-        **kwargs: Additional MCMC arguments
-
-    Returns:
-        InferenceResult with NUTS samples
-    """
-    if model.likelihood == "kalman":
-        backend = model.make_likelihood_backend()
-    else:
-        backend = model.make_laplace_backend(n_ieks_iters)
-
-    base_model_fn = functools.partial(model.model, likelihood_backend=backend)
-    public_sites = _trace_public_sites(base_model_fn, observations, times)
-    model_fn = _apply_reparam(base_model_fn, reparam)
-    kernel = NUTS(
-        model_fn,
-        init_strategy=init_to_median(num_samples=15),
-        target_accept_prob=target_accept_prob,
-        max_tree_depth=max_tree_depth,
-        dense_mass=dense_mass,
-        regularize_mass_matrix=True,
-    )
-    mcmc = MCMC(
-        kernel,
-        num_warmup=num_warmup,
-        num_samples=num_samples,
-        num_chains=num_chains,
-        jit_model_args=False,
-        **kwargs,
-    )
-
-    rng_key = random.PRNGKey(seed)
-    mcmc.run(
-        rng_key,
-        observations,
-        times,
-        extra_fields=("diverging", "num_steps", "accept_prob", "energy"),
-    )
-
-    samples = _filter_public_samples(mcmc.get_samples(), public_sites)
-
-    return InferenceResult(
-        _samples=samples,
-        method="nuts",
-        diagnostics={"mcmc": mcmc, "public_sites": sorted(public_sites)},
-    )
-
-
-def _fit_svi(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    guide_type: str = "mvn",
-    num_steps: int = 5000,
-    num_samples: int = 1000,
-    learning_rate: float = 0.01,
-    init_scale: float = 0.01,
-    seed: int = 0,
-    reparam=None,
-    **kwargs: Any,  # noqa: ARG001
-) -> InferenceResult:
-    """Fit using Stochastic Variational Inference.
-
-    Uses AutoGuide to learn an approximate posterior. numpyro.factor() sites
-    are handled automatically - the guide only models latent sample sites.
-
-    Args:
-        model: SSMModel instance
-        observations: (N, n_manifest) observed data
-        times: (N,) observation times
-        guide_type: Guide family - "normal", "mvn", or "delta"
-        num_steps: Number of SVI optimization steps
-        num_samples: Number of posterior samples to draw after fitting
-        learning_rate: Adam learning rate
-        seed: Random seed
-        reparam: Optional reparameterization config (Strategy, dict, or None)
-        **kwargs: Ignored
-
-    Returns:
-        InferenceResult with approximate posterior samples
-    """
-    guide_cls = {
-        "normal": AutoNormal,
-        "mvn": AutoMultivariateNormal,
-        "delta": AutoDelta,
-    }[guide_type]
-    base_model_fn = functools.partial(
-        model.model,
-        likelihood_backend=model.make_likelihood_backend(),
-    )
-    public_sites = _trace_public_sites(base_model_fn, observations, times)
-    model_fn = _apply_reparam(base_model_fn, reparam)
-    guide_kwargs = {"init_loc_fn": init_to_median(num_samples=15)}
-    if guide_type != "delta":
-        guide_kwargs["init_scale"] = init_scale
-    guide = guide_cls(model_fn, **guide_kwargs)
-    optimizer = ClippedAdam(step_size=learning_rate)
-    svi = SVI(model_fn, guide, optimizer, Trace_ELBO())
-
-    rng_key = random.PRNGKey(seed)
-    rng_key, init_key, sample_key = random.split(rng_key, 3)
-    svi_state = svi.init(init_key, observations, times)
-
-    losses = []
-    for step in range(num_steps):
-        svi_state, loss = svi.update(
-            svi_state,
-            observations,
-            times,
-            forward_mode_differentiation=False,
-        )
-        if not bool(jnp.isfinite(loss)):
-            raise FloatingPointError(f"SVI produced non-finite losses at step {step + 1}")
-        losses.append(loss)
-
-    svi_losses = (
-        jnp.asarray(losses, dtype=jnp.float64) if losses else jnp.empty((0,), dtype=jnp.float64)
-    )
-    svi_params = svi.get_params(svi_state)
-
-    if not _all_numeric_leaves_finite(svi_params):
-        raise FloatingPointError("SVI produced non-finite guide parameters")
-
-    # Draw posterior samples from the fitted guide
-    predictive = Predictive(
-        model_fn,
-        guide=guide,
-        params=svi_params,
-        num_samples=num_samples,
-    )
-    raw_samples = predictive(sample_key, observations, times)
-
-    samples = _filter_public_samples(raw_samples, public_sites)
-    if not _all_numeric_leaves_finite(samples):
-        raise FloatingPointError("SVI produced non-finite posterior samples")
-
-    return InferenceResult(
-        _samples=samples,
-        method="svi",
-        diagnostics={"losses": svi_losses, "params": svi_params},
     )
 
 

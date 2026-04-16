@@ -15,10 +15,6 @@ from causal_ssm_agent.models.ssm import SSMModel, fit
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference import _apply_reparam, _eval_model
-from causal_ssm_agent.models.ssm.inference.methods.laplace_em import (
-    LaplaceLikelihood,
-    _dense_support_laplace_log_lik,
-)
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
@@ -29,6 +25,10 @@ from causal_ssm_agent.models.ssm.inference.targets.emissions import (
 )
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
+)
+from causal_ssm_agent.models.ssm.inference.targets.laplace import (
+    LaplaceLikelihood,
+    _dense_support_laplace_log_lik,
 )
 from causal_ssm_agent.models.ssm.inference.targets.particle import (
     ParticleLikelihood,
