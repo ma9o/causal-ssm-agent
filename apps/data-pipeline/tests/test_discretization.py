@@ -12,7 +12,11 @@ from causal_ssm_agent.models.ssm.discretization import (
     _kron_lyapunov_solve,
     compute_asymptotic_diffusion,
     compute_discrete_cint,
+    compute_discrete_cint_exact,
     compute_discrete_diffusion,
+    compute_discrete_diffusion_van_loan,
+    discretize_linear_system_exact,
+    discretize_linear_system_exact_batched,
     discretize_system,
     discretize_system_batched,
     solve_lyapunov,
@@ -145,6 +149,15 @@ class TestDiscreteDiffusion:
         actual = compute_discrete_diffusion(A, Q, dt)
         assert jnp.allclose(actual, expected, atol=1e-6)
 
+    def test_van_loan_matches_stationary_identity_for_stable_system(self):
+        """The exact Van Loan path should agree with the stable-system shortcut."""
+        A = jnp.array([[-0.8, 0.2], [0.1, -1.4]])
+        Q = jnp.array([[0.7, 0.1], [0.1, 0.5]])
+        dt = 0.4
+        exact = compute_discrete_diffusion_van_loan(A, Q, dt)
+        stable = compute_discrete_diffusion(A, Q, dt)
+        assert jnp.allclose(exact, stable, atol=1e-6)
+
 
 # =============================================================================
 # Discrete intercept
@@ -166,6 +179,15 @@ class TestDiscreteCint:
         c = jnp.array([1.0, 2.0])
         c_dt = compute_discrete_cint(A, c, dt=0.5)
         assert c_dt.shape == c.shape
+
+    def test_exact_handles_singular_drift(self):
+        """The exact block-exponential path should work for singular drift."""
+        A = jnp.array([[0.0, 0.0], [1.0, 0.0]])
+        c = jnp.array([2.0, 0.0])
+        dt = 0.5
+        c_dt = compute_discrete_cint_exact(A, c, dt)
+        expected = jnp.array([1.0, 0.25])
+        assert jnp.allclose(c_dt, expected, atol=1e-6)
 
 
 # =============================================================================
@@ -280,3 +302,22 @@ class TestDiscretizeSystemBatched:
         assert jnp.allclose(Ad_b, jnp.broadcast_to(Ad_single, Ad_b.shape), atol=1e-5)
         assert jnp.allclose(Qd_b, jnp.broadcast_to(Qd_single, Qd_b.shape), atol=1e-5)
         assert jnp.allclose(cd_b, jnp.broadcast_to(cd_single, cd_b.shape), atol=1e-5)
+
+    def test_exact_general_batched_matches_single(self):
+        """Exact batched discretization should match the single-step helper."""
+        A = jnp.array([[0.0, 0.0], [1.0, 0.0]])
+        Q = jnp.array([[0.2, 0.0], [0.0, 0.0]])
+        c = jnp.array([0.0, 1.0])
+        dts = jnp.array([0.25, 0.75])
+
+        Ad_b, Qd_b, cd_b = discretize_linear_system_exact_batched(A, Q, c, dts)
+        Ad_0, Qd_0, cd_0 = discretize_linear_system_exact(A, Q, c, dts[0])
+        Ad_1, Qd_1, cd_1 = discretize_linear_system_exact(A, Q, c, dts[1])
+
+        assert cd_b is not None
+        assert jnp.allclose(Ad_b[0], Ad_0, atol=1e-6)
+        assert jnp.allclose(Qd_b[0], Qd_0, atol=1e-6)
+        assert jnp.allclose(cd_b[0], cd_0, atol=1e-6)
+        assert jnp.allclose(Ad_b[1], Ad_1, atol=1e-6)
+        assert jnp.allclose(Qd_b[1], Qd_1, atol=1e-6)
+        assert jnp.allclose(cd_b[1], cd_1, atol=1e-6)

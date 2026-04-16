@@ -13,6 +13,8 @@ from causal_ssm_agent.models.ssm.discretization import (
     compute_asymptotic_diffusion,
     compute_discrete_cint,
     compute_discrete_diffusion,
+    discretize_linear_system_exact,
+    discretize_linear_system_exact_batched,
     discretize_system,
     discretize_system_batched,
     solve_lyapunov,
@@ -41,6 +43,8 @@ __all__ = [
     "compute_asymptotic_diffusion",
     "compute_discrete_diffusion",
     "compute_discrete_cint",
+    "discretize_linear_system_exact",
+    "discretize_linear_system_exact_batched",
     "discretize_system",
     "discretize_system_batched",
     # Model
