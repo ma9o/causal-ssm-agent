@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from .helpers import _all_dynamics_block_ids, _find_block_for_parameter, _ordered_block_ids
+from .helpers import _find_block_for_parameter, _ordered_block_ids
 from .types import ResolvedRepairPlan, ResolvedRepairScope, Stage4RepairScopeStrategy
 
 if TYPE_CHECKING:
@@ -36,16 +36,32 @@ def _narrow_prompt_block_to_scope_parameters(
         return block
 
     allowed_parameter_names = tuple(
-        parameter_name for parameter_name in block.parameter_names if parameter_name in scope.parameter_names
+        parameter_name
+        for parameter_name in block.parameter_names
+        if parameter_name in scope.parameter_names
     )
     if not allowed_parameter_names:
         return None
+    return _replace_block_parameter_surface(
+        block,
+        allowed_parameter_names=allowed_parameter_names,
+        label_suffix="repair-local parameters only",
+    )
+
+
+def _replace_block_parameter_surface(
+    block: Stage4FrontierBlock,
+    *,
+    allowed_parameter_names: tuple[str, ...],
+    label_suffix: str,
+) -> Stage4FrontierBlock:
+    """Return one prompt block with a narrowed parameter coverage surface."""
     if allowed_parameter_names == block.parameter_names:
         return block
 
     return replace(
         block,
-        label=f"{block.label} (repair-local parameters only)",
+        label=f"{block.label} ({label_suffix})",
         parameter_names=allowed_parameter_names,
         required_parameter_names=tuple(
             parameter_name
@@ -84,8 +100,6 @@ def _narrow_effect_prompt_block_to_scc(
     )
     if not allowed_parameter_names:
         return None
-    if allowed_parameter_names == block.parameter_names:
-        return block
 
     prompt_construct_names = tuple(
         construct_name
@@ -103,13 +117,27 @@ def _narrow_effect_prompt_block_to_scc(
         for indicator_name in topology.indicator_names_by_construct.get(construct_name, ())
     )
     return replace(
-        block,
-        label=f"{block.label} (internal SCC parameters only)",
+        _replace_block_parameter_surface(
+            block,
+            allowed_parameter_names=allowed_parameter_names,
+            label_suffix="internal SCC parameters only",
+        ),
         construct_names=prompt_construct_names,
         variable_names=prompt_variable_names,
-        parameter_names=allowed_parameter_names,
         expand_neighbor_topology=False,
     )
+
+
+def _narrow_validator_prompt_block(
+    plan: Stage4Plan,
+    block: Stage4FrontierBlock,
+    scope: ResolvedRepairScope,
+) -> Stage4FrontierBlock | None:
+    """Respect validator-local parameter hints before widening to SCC closure."""
+    narrowed_block = _narrow_prompt_block_to_scope_parameters(plan, block, scope)
+    if narrowed_block is None:
+        return None
+    return _narrow_effect_prompt_block_to_scc(plan, narrowed_block, scope)
 
 
 def _local_drift_motif_block_ids(
@@ -158,7 +186,9 @@ def _scc_drift_subsystem_block_ids(
     """Return the smallest SCC-closed drift subsystem for construct hints."""
     topology = plan.repair_topology
     if not construct_names:
-        return _all_dynamics_block_ids(plan)
+        raise ValueError(
+            "Stage 4 SCC drift routing requires construct-level attribution"
+        )
 
     closed_scc_ids: set[str] = set()
     for construct_name in construct_names:
@@ -167,7 +197,11 @@ def _scc_drift_subsystem_block_ids(
             closed_scc_ids.add(scc_id)
 
     if not closed_scc_ids:
-        return ()
+        constructs = ", ".join(construct_names)
+        raise ValueError(
+            "Stage 4 SCC drift routing could not map construct attribution to any SCC: "
+            f"{constructs}"
+        )
 
     bundle_block_ids: set[str] = set()
     for scc_id in closed_scc_ids:
@@ -237,6 +271,18 @@ def _scc_strategy_block_ids(
     return _scc_drift_subsystem_block_ids(plan, scope.construct_names)
 
 
+def _validator_strategy_block_ids(
+    plan: Stage4Plan,
+    scope: ResolvedRepairScope,
+) -> tuple[str, ...]:
+    """Preserve validator-local block and parameter hints before SCC escalation."""
+    if scope.prompt_block_hints:
+        return scope.prompt_block_hints
+    if scope.parameter_names:
+        return _direct_writer_block_ids(plan, scope.parameter_names)
+    return _scc_drift_subsystem_block_ids(plan, scope.construct_names)
+
+
 def _direct_writer_strategy_block_ids(
     plan: Stage4Plan,
     scope: ResolvedRepairScope,
@@ -254,7 +300,6 @@ _REPAIR_SCOPE_STRATEGIES: dict[str, Stage4RepairScopeStrategy] = {
     )
     for scope_kind in (
         "compile_local",
-        "compile_active_block",
         "global_review",
         "likelihood_support",
         "model_spec_lock",
@@ -282,8 +327,8 @@ _REPAIR_SCOPE_STRATEGIES.update(
         ),
         "validator_scope": Stage4RepairScopeStrategy(
             scope_kind="validator_scope",
-            resolve_prompt_block_ids=_scc_strategy_block_ids,
-            project_prompt_block=_narrow_effect_prompt_block_to_scc,
+            resolve_prompt_block_ids=_validator_strategy_block_ids,
+            project_prompt_block=_narrow_validator_prompt_block,
             uses_repair_campaign=True,
         ),
         "direct_writer_blocks": Stage4RepairScopeStrategy(
@@ -323,6 +368,11 @@ def build_repair_plan(
         prompt_block_ids = scope.prompt_block_hints or strategy.resolve_prompt_block_ids(
             plan, scope
         )
+    if not prompt_block_ids:
+        raise ValueError(
+            "Stage 4 repair scope projection produced no prompt blocks for "
+            f"{scope.scope_key!r}"
+        )
 
     prompt_blocks: list[Stage4FrontierBlock] = []
     for block_id in prompt_block_ids:
@@ -333,6 +383,11 @@ def build_repair_plan(
         if prompt_block is not None:
             prompt_blocks.append(prompt_block)
 
+    if not prompt_blocks:
+        raise ValueError(
+            "Stage 4 repair scope projection removed every prompt block for "
+            f"{scope.scope_key!r}"
+        )
     if requires_barrier_validation is None:
         requires_barrier_validation = len(prompt_blocks) > 1
     return ResolvedRepairPlan(

@@ -154,15 +154,69 @@ def _feedback_mentions_identifier(text: str, identifier: str) -> bool:
     return bool(re.search(pattern, text))
 
 
-def _choose_compile_local_block_id(
-    *,
-    active_block: Stage4FrontierBlock,
-    block_ids: tuple[str, ...],
-) -> str:
-    """Choose the narrowest compile-local block, preferring the active owner when matched."""
-    if active_block.id in block_ids:
-        return active_block.id
-    return block_ids[0]
+def _coerce_string_tuple(values: Any) -> tuple[str, ...]:
+    """Normalize one string or string sequence into a deterministic tuple."""
+    if isinstance(values, str):
+        return (values,) if values else ()
+    if not isinstance(values, (list, tuple, set, frozenset)):
+        return ()
+    return tuple(str(value) for value in values if isinstance(value, str) and value)
+
+
+def _scope_attr(scope: Any, name: str) -> Any:
+    """Read one attribute from a repair-scope object or mapping."""
+    if scope is None:
+        return None
+    if isinstance(scope, dict):
+        return scope.get(name)
+    return getattr(scope, name, None)
+
+
+def _validator_scope_parameter_names(repair_scope: PriorRepairScope | None) -> tuple[str, ...]:
+    """Return parameter names from a validator-owned repair scope."""
+    if repair_scope is None:
+        return ()
+    parameter_names: list[str] = []
+    for attr_name in (
+        "parameter_names",
+        "target_parameter_names",
+        "related_parameters",
+        "parameters",
+    ):
+        parameter_names.extend(_coerce_string_tuple(_scope_attr(repair_scope, attr_name)))
+    return tuple(dict.fromkeys(parameter_names))
+
+
+def _validator_scope_block_hints(repair_scope: PriorRepairScope | None) -> tuple[str, ...]:
+    """Return explicit block hints from a validator-owned repair scope."""
+    if repair_scope is None:
+        return ()
+    block_hints: list[str] = []
+    for attr_name in (
+        "prompt_block_hints",
+        "prompt_block_ids",
+        "block_ids",
+        "stage4_block_ids",
+    ):
+        block_hints.extend(_coerce_string_tuple(_scope_attr(repair_scope, attr_name)))
+    return tuple(dict.fromkeys(block_hints))
+
+
+def _validator_scope_identity(repair_scope: PriorRepairScope | None) -> tuple[Any, ...]:
+    """Return a stable hashable identifier for one validator-owned repair scope."""
+    if repair_scope is None:
+        return ()
+    scalar_tokens = tuple(
+        value
+        for attr_name in ("scope_key", "scope_kind", "kind", "name")
+        if isinstance((value := _scope_attr(repair_scope, attr_name)), str) and value
+    )
+    return (
+        scalar_tokens,
+        tuple(sorted(_validator_scope_block_hints(repair_scope))),
+        tuple(sorted(_validator_scope_parameter_names(repair_scope))),
+        tuple(sorted(_validator_scope_construct_names(repair_scope))),
+    )
 
 
 def _all_dynamics_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
@@ -220,4 +274,12 @@ def _validator_scope_construct_names(repair_scope: PriorRepairScope | None) -> t
     """Return construct names from a validator-owned repair scope."""
     if repair_scope is None:
         return ()
-    return tuple(repair_scope.construct_names or ())
+    construct_names: list[str] = []
+    for attr_name in (
+        "construct_names",
+        "target_construct_names",
+        "state_names",
+        "scc_construct_names",
+    ):
+        construct_names.extend(_coerce_string_tuple(_scope_attr(repair_scope, attr_name)))
+    return tuple(dict.fromkeys(construct_names))

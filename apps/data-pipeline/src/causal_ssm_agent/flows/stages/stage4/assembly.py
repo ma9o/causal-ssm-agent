@@ -100,6 +100,7 @@ def validate_assembly(
                 normalized_model_spec=candidate,
                 compile_ok=False,
                 compile_error=str(exc),
+                diagnostics=_collect_compile_failure_diagnostics(exc),
             )
         compile_diagnostics = _collect_compile_diagnostics(compiled_ssm)
     else:
@@ -108,7 +109,8 @@ def validate_assembly(
             return AssemblyValidation(
                 normalized_model_spec=candidate,
                 compile_ok=False,
-                compile_error=compile_error,
+                compile_error=str(compile_error),
+                diagnostics=_collect_compile_failure_diagnostics(compile_error),
             )
         compiled_ssm = None
         compile_diagnostics = []
@@ -144,6 +146,59 @@ def validate_assembly(
         diagnostics=compile_diagnostics,
         compiled_ssm=compiled_ssm,
     )
+
+
+def _collect_compile_failure_diagnostics(failure: Any) -> list[PriorValidationResult]:
+    """Best-effort extraction of structured diagnostics from a compile failure payload."""
+    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+
+    pending: list[Any] = [failure]
+    seen_ids: set[int] = set()
+    typed: list[PriorValidationResult] = []
+
+    while pending:
+        candidate = pending.pop(0)
+        if candidate is None:
+            continue
+        candidate_id = id(candidate)
+        if candidate_id in seen_ids:
+            continue
+        seen_ids.add(candidate_id)
+
+        if isinstance(candidate, PriorValidationResult):
+            typed.append(candidate)
+            continue
+
+        if isinstance(candidate, dict):
+            if "compile_diagnostics" in candidate:
+                pending.append(candidate.get("compile_diagnostics"))
+                continue
+            try:
+                typed.append(PriorValidationResult.model_validate(candidate))
+                continue
+            except ValidationError:
+                pass
+
+        model_dump = getattr(candidate, "model_dump", None)
+        if callable(model_dump):
+            pending.append(model_dump(mode="json"))
+            continue
+
+        legacy_dict = getattr(candidate, "dict", None)
+        if callable(legacy_dict):
+            pending.append(legacy_dict())
+            continue
+
+        if isinstance(candidate, (list, tuple, set, frozenset)):
+            pending.extend(candidate)
+            continue
+
+        for attr_name in ("compile_diagnostics", "diagnostics", "errors", "results"):
+            attr_value = getattr(candidate, attr_name, None)
+            if attr_value is not None:
+                pending.append(attr_value)
+
+    return typed
 
 
 def _attach_output_sensitivity_validation(

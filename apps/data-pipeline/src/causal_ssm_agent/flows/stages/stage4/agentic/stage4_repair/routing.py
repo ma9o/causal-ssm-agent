@@ -42,6 +42,7 @@ def classify_validation_outcome(
                 plan,
                 active_block,
                 validation.compile_error or feedback,
+                validation,
             ),
         )
     if (
