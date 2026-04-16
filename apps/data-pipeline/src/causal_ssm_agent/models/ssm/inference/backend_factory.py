@@ -19,11 +19,11 @@ def build_laplace_backend(
     observation_support: ObservationSupportRuntime | None = None,
 ):
     """Construct a Laplace likelihood backend for a compiled spec."""
-    from causal_ssm_agent.models.ssm.inference.methods.laplace_em import LaplaceLikelihood
     from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
         get_per_channel_links,
         get_per_channel_manifest,
     )
+    from causal_ssm_agent.models.ssm.inference.targets.laplace import LaplaceLikelihood
 
     return LaplaceLikelihood(
         n_latent=spec.n_latent,
