@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from .helpers import (
     _certificate_improved,
+    _feedback_mentions_identifier,
     _find_block_for_parameter,
     _materialize_scope_candidate,
     _parameter_construct_names,
@@ -41,29 +42,36 @@ def _support_failure_scope(
     localization: Stage4FailureLocalization,
 ) -> Stage4ScopeCandidateSpec | None:
     """Localize support violations to explicitly implicated indicator-decision blocks."""
-    if localization.reasons.support is None and not localization.manifest_names:
+    if localization.reasons.support is None:
         return None
-    if not localization.manifest_names:
-        raise ValueError(
-            "Stage 4 support-repair routing requires structured manifest attribution"
+
+    manifest_names = localization.manifest_names
+    if not manifest_names:
+        support_reason = localization.reasons.support or ""
+        manifest_names = tuple(
+            indicator_name
+            for indicator_name in plan.repair_topology.indicator_to_decision_block_id
+            if _feedback_mentions_identifier(support_reason, indicator_name)
         )
+    if not manifest_names:
+        raise ValueError("Stage 4 support-repair routing requires structured manifest attribution")
 
     topology = plan.repair_topology
     ordered_block_ids = tuple(
         dict.fromkeys(
             block_id
-            for indicator_name in localization.manifest_names
+            for indicator_name in manifest_names
             if (block_id := topology.indicator_to_decision_block_id.get(indicator_name)) is not None
         )
     )
     if not ordered_block_ids:
-        manifests = ", ".join(localization.manifest_names)
+        manifests = ", ".join(manifest_names)
         raise ValueError(
             "Stage 4 support-repair routing could not map manifest attribution to "
             f"indicator-decision blocks: {manifests}"
         )
 
-    scope_token = "+".join(localization.manifest_names)
+    scope_token = "+".join(manifest_names)
     return Stage4ScopeCandidateSpec(
         scope_kind="likelihood_support",
         scope_rank=0,
@@ -117,9 +125,7 @@ def _validator_scope_candidate_specs(
         validator_construct_names = tuple(
             dict.fromkeys(
                 [
-                    *_parameter_construct_names(
-                        plan.repair_topology, validator_parameter_names
-                    ),
+                    *_parameter_construct_names(plan.repair_topology, validator_parameter_names),
                     *_validator_scope_construct_names(localization.validator_repair_scope),
                 ]
             )
@@ -249,7 +255,7 @@ def _global_scope_candidate_specs(
     plan: Stage4Plan,
     localization: Stage4FailureLocalization,
 ) -> tuple[Stage4ScopeCandidateSpec, ...]:
-    """Emit whole-system candidate scopes for unattributed global failures."""
+    """Emit whole-system candidate scopes for global failures."""
     del plan
     if localization.has_global_failure:
         return (
@@ -355,16 +361,25 @@ def _advance_repair_scope(
         ),
         None,
     )
+    same_scope_improved = (
+        current_scope is not None
+        and current_scope.pathology_certificate is not None
+        and campaign.best_certificate is not None
+        and _certificate_improved(
+            current_scope.pathology_certificate,
+            campaign.best_certificate,
+        )
+    )
     if (
         current_scope is not None
-        and campaign.attempts_at_scope < _MAX_SCOPE_ATTEMPTS
+        and (
+            campaign.attempts_at_scope < _MAX_SCOPE_ATTEMPTS
+            or (current_scope.scope_kind == "global_prior_review" and same_scope_improved)
+        )
         and (
             current_scope.pathology_certificate is None
             or campaign.best_certificate is None
-            or _certificate_improved(
-                current_scope.pathology_certificate,
-                campaign.best_certificate,
-            )
+            or same_scope_improved
         )
     ):
         return current_scope
@@ -408,8 +423,8 @@ def classify_prior_failure_blocks(
             for result in global_failures
         )
         raise ValueError(
-            "Stage 4 exhausted the deterministic repair-scope ladder for an unattributed "
-            f"global prior-predictive failure. Details: {details}"
+            "Stage 4 exhausted the deterministic repair-scope ladder for a global "
+            f"prior-predictive failure. Details: {details}"
         )
 
     raise ValueError(

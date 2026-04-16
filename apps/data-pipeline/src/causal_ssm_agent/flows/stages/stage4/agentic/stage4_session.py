@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +17,10 @@ if TYPE_CHECKING:
 
     from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan
     from .stage4_prompt_context import Stage4Messages, Stage4Turn
+
+
+class Stage4FatalSubmissionError(Exception):
+    """Non-recoverable Stage 4 submit-tool failure."""
 
 
 @dataclass(frozen=True)
@@ -109,16 +114,31 @@ class Stage4Session:
         """Clear any active turn tracker after an aborted model call."""
         self._turn_tracker = None
 
+    def _restore_runtime(self, snapshot: Stage4Runtime) -> None:
+        """Restore one pre-submit runtime snapshot after a fatal reducer failure."""
+        self.runtime.domain = snapshot.domain
+        self.runtime.interaction = snapshot.interaction
+
     def _submit(self, payload: dict[str, Any]) -> str:
         """Apply one block-local submission and return reducer feedback."""
-        _stage_output, feedback, transitions = compute_stage4_validate_step_with_transitions(
-            payload,
-            plan=self.plan,
-            runtime=self.runtime,
-            deps=self.deps,
-        )
-        if self.persist_runtime is not None:
-            self.persist_runtime(self.runtime, transitions)
+        runtime_snapshot = deepcopy(self.runtime)
+        try:
+            _stage_output, feedback, transitions = compute_stage4_validate_step_with_transitions(
+                payload,
+                plan=self.plan,
+                runtime=self.runtime,
+                deps=self.deps,
+            )
+            if self.persist_runtime is not None:
+                self.persist_runtime(self.runtime, transitions)
+        except Stage4FatalSubmissionError:
+            self._restore_runtime(runtime_snapshot)
+            raise
+        except Exception as exc:
+            self._restore_runtime(runtime_snapshot)
+            raise Stage4FatalSubmissionError(
+                "Stage 4 reducer failed while applying a submit tool"
+            ) from exc
         if self._turn_tracker is not None:
             next_block = self.current_block()
             self._turn_tracker.submit_count += 1
@@ -186,19 +206,28 @@ class Stage4Session:
 
     def is_done(self) -> bool:
         """Whether Stage 4 has produced a final accepted result."""
+        validation = self.accepted.validation
         return (
             self.runtime.domain.done
             and self.accepted.model_spec is not None
             and bool(self.accepted.authored_priors)
+            and validation is not None
+            and validation.is_valid
         )
 
     def result(self) -> Stage4Result:
         """Materialize the current accepted Stage 4 result."""
-        if self.accepted.model_spec is None or not self.accepted.authored_priors:
+        validation = self.accepted.validation
+        if (
+            self.accepted.model_spec is None
+            or not self.accepted.authored_priors
+            or validation is None
+            or not validation.is_valid
+        ):
             raise ValueError("Stage 4 session has not completed a valid model_spec + priors")
         return Stage4Result(
             model_spec=self.accepted.model_spec,
             authored_priors=self.accepted.authored_priors,
             search_queries=dict(self.search_queries),
-            validation=self.accepted.validation,
+            validation=validation,
         )

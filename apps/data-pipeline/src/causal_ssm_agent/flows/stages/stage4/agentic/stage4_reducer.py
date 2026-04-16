@@ -195,10 +195,7 @@ def _needs_model_spec_lock(
 def _repair_barrier_pending(runtime: Stage4Runtime) -> bool:
     """Whether a repair campaign is waiting on deterministic barrier validation."""
     campaign = runtime.domain.repair_campaign
-    return bool(
-        campaign is not None
-        and not pending_repair_campaign_block_ids(campaign)
-    )
+    return bool(campaign is not None and not pending_repair_campaign_block_ids(campaign))
 
 
 _MISSING_DISTRIBUTION_CHOICE_RE = re.compile(
@@ -226,12 +223,8 @@ def _model_lock_failure_block_ids(
         if not isinstance(error, str):
             continue
 
-        if (
-            model_configuration_block_id is not None
-            and (
-                "initialization_policy" in error
-                or "equilibrium_forcing" in error
-            )
+        if model_configuration_block_id is not None and (
+            "initialization_policy" in error or "equilibrium_forcing" in error
         ):
             block_ids.add(model_configuration_block_id)
 
@@ -249,7 +242,10 @@ def _model_lock_failure_block_ids(
                 indicator_name = distribution_choices[index].get("variable")
                 if isinstance(indicator_name, str):
                     for block in plan.model_blocks:
-                        if block.kind == "indicator_decision" and indicator_name in block.variable_names:
+                        if (
+                            block.kind == "indicator_decision"
+                            and indicator_name in block.variable_names
+                        ):
                             block_ids.add(block.id)
 
     if block_ids:
@@ -673,11 +669,7 @@ def _build_campaign_progress_result(
 ) -> Stage4StepResult | None:
     """Return the in-campaign progress update when barrier validation is deferred."""
     campaign = campaign_context.campaign
-    if (
-        campaign is None
-        or not campaign_context.in_active_campaign
-        or state.repair_plan is not None
-    ):
+    if campaign is None or not campaign_context.in_active_campaign or state.repair_plan is not None:
         return None
 
     if not campaign_context.final_campaign_block:
@@ -736,7 +728,11 @@ def _promote_multi_block_repair_feedback(
 ) -> _Stage4PriorSubmissionState:
     """Rewrite packet feedback when a local failure widens into a repair campaign."""
     repair_plan = repair_decision.repair_plan
-    if repair_plan is None or not repair_decision.promote_campaign_feedback:
+    if (
+        repair_plan is None
+        or not repair_decision.promote_campaign_feedback
+        or not repair_plan.uses_repair_campaign
+    ):
         return state
 
     next_block_id = next(
@@ -1053,6 +1049,11 @@ def settle_to_wait_state(
             changed = True
             return latest_stage_output, latest_packet, tuple(transitions), changed
 
+        accepted_validation = runtime.domain.accepted.validation
+        if accepted_validation is None or not accepted_validation.is_valid:
+            raise ValueError(
+                "Stage 4 cannot enter the terminal state without a valid accepted validation result"
+            )
         _set_done_cursor(runtime)
         changed = True
         return latest_stage_output, latest_packet, tuple(transitions), changed
@@ -1174,7 +1175,9 @@ def _lock_stage4_model_spec(
                             scope_kind="model_spec_lock",
                             scope_rank=0,
                             scope_key=f"model_spec_lock:{'+'.join(failed_block_ids)}",
-                            reason=errors[0] if errors else "locked model_spec could not be materialized",
+                            reason=errors[0]
+                            if errors
+                            else "locked model_spec could not be materialized",
                             failure_family=("model_spec_lock", failed_block_ids),
                             prompt_block_hints=failed_block_ids,
                         ),

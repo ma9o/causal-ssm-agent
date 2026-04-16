@@ -124,7 +124,9 @@ def _validate_direct_writer_checkpoint_prompt_blocks(
             if parameter_name in scope_tokens
         )
         if not scoped_parameter_names:
-            return "checkpoint direct-writer repair scope no longer maps to active Stage 4 parameters"
+            return (
+                "checkpoint direct-writer repair scope no longer maps to active Stage 4 parameters"
+            )
         if scoped_parameter_names == plan_block.parameter_names:
             continue
 
@@ -143,7 +145,9 @@ def _validate_direct_writer_checkpoint_prompt_blocks(
             or prompt_block.required_parameter_names != scoped_required_parameter_names
             or prompt_block.optional_parameter_names != scoped_optional_parameter_names
         ):
-            return "checkpoint direct-writer prompt blocks no longer match the scoped repair surface"
+            return (
+                "checkpoint direct-writer prompt blocks no longer match the scoped repair surface"
+            )
 
     return None
 
@@ -200,6 +204,9 @@ def _validate_stage4_runtime_checkpoint(
             or not runtime.domain.accepted.authored_priors
         ):
             return "checkpoint marks Stage 4 done without a complete accepted result"
+        validation = runtime.domain.accepted.validation
+        if validation is None or not validation.is_valid:
+            return "checkpoint marks Stage 4 done without a valid accepted validation result"
         return None
 
     if runtime.domain.active_block_id is None:
@@ -230,6 +237,12 @@ def _load_resumable_stage4_runtime(
         return None
     incompatibility = _validate_stage4_runtime_checkpoint(plan, runtime)
     if incompatibility is None:
+        campaign = runtime.domain.repair_campaign
+        if campaign is not None:
+            # Retry budgets are scoped to one live Stage 4 run. A resumed run
+            # should keep the structural scope but get a fresh same-scope attempt.
+            campaign.attempts_at_scope = 1
+            campaign.best_certificate = None
         return runtime
     if clear_checkpoint is not None:
         clear_checkpoint()
