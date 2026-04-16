@@ -280,7 +280,6 @@ def _apply_repair_campaign_progress(
     scope_rank: int,
     prompt_blocks: tuple[Stage4FrontierBlock, ...],
     completed_block_ids: frozenset[str],
-    requires_barrier_validation: bool,
     attempts_at_scope: int,
     best_certificate: PriorPathologyCertificate | None,
 ) -> None:
@@ -294,7 +293,6 @@ def _apply_repair_campaign_progress(
         scope_block_ids=scope_block_ids,
         prompt_blocks_by_id={block.id: block for block in prompt_blocks},
         completed_block_ids=completed_block_ids,
-        requires_barrier_validation=requires_barrier_validation,
         attempts_at_scope=attempts_at_scope,
         best_certificate=best_certificate,
     )
@@ -351,7 +349,6 @@ def _start_repair_campaign(
         scope_rank=repair_plan.scope.scope_rank,
         prompt_blocks=repair_plan.prompt_blocks,
         completed_block_ids=completed_block_ids,
-        requires_barrier_validation=repair_plan.requires_barrier_validation,
         attempts_at_scope=attempts_at_scope,
         best_certificate=best_certificate,
     )
@@ -368,14 +365,6 @@ def _advance_repair_campaign_after_acceptance(
         return False
 
     completed_block_ids = frozenset((*campaign.completed_block_ids, accepted_block_id))
-    if (
-        len(completed_block_ids) == len(campaign.scope_block_ids)
-        and not campaign.requires_barrier_validation
-    ):
-        runtime.domain.repair_campaign = None
-        _clear_active_block(runtime)
-        return True
-
     _apply_repair_campaign_progress(
         runtime=runtime,
         failure_family_key=campaign.failure_family_key,
@@ -386,7 +375,6 @@ def _advance_repair_campaign_after_acceptance(
             campaign.prompt_blocks_by_id[block_id] for block_id in campaign.scope_block_ids
         ),
         completed_block_ids=completed_block_ids,
-        requires_barrier_validation=campaign.requires_barrier_validation,
         attempts_at_scope=campaign.attempts_at_scope,
         best_certificate=campaign.best_certificate,
     )

@@ -162,7 +162,6 @@ class ResolvedRepairPlan:
 
     scope: ResolvedRepairScope
     prompt_blocks: tuple[Stage4FrontierBlock, ...]
-    requires_barrier_validation: bool = False
     uses_repair_campaign: bool = False
 
     @property

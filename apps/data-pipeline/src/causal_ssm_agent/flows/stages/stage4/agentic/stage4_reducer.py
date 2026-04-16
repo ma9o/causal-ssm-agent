@@ -197,7 +197,6 @@ def _repair_barrier_pending(runtime: Stage4Runtime) -> bool:
     campaign = runtime.domain.repair_campaign
     return bool(
         campaign is not None
-        and campaign.requires_barrier_validation
         and not pending_repair_campaign_block_ids(campaign)
     )
 
@@ -486,10 +485,7 @@ def _ground_prior_submission(
         current=runtime.domain.accepted.as_current(),
         data_for_model=deps.data_for_model,
         indicator_audits=deps.indicator_audits,
-        skip_ppc=bool(
-            campaign_context.campaign is not None
-            and campaign_context.campaign.requires_barrier_validation
-        ),
+        skip_ppc=campaign_context.campaign is not None,
     )
     stage_output = grounding_result.stage_output
     validation = stage_output.get("validation") if stage_output else None
@@ -680,7 +676,6 @@ def _build_campaign_progress_result(
     if (
         campaign is None
         or not campaign_context.in_active_campaign
-        or not campaign.requires_barrier_validation
         or state.repair_plan is not None
     ):
         return None
@@ -945,7 +940,6 @@ def _apply_global_review_submission(
                         prompt_block_hints=reopen_block_ids,
                     ),
                     prompt_block_ids=reopen_block_ids,
-                    requires_barrier_validation=False,
                 )
             ),
         ),
@@ -1185,7 +1179,6 @@ def _lock_stage4_model_spec(
                             prompt_block_hints=failed_block_ids,
                         ),
                         prompt_block_ids=failed_block_ids,
-                        requires_barrier_validation=False,
                     )
                 ),
             ),
@@ -1314,11 +1307,7 @@ def _finalize_repair_campaign_if_complete(
     )
 
     campaign = runtime.domain.repair_campaign
-    if (
-        campaign is None
-        or not campaign.requires_barrier_validation
-        or pending_repair_campaign_block_ids(campaign)
-    ):
+    if campaign is None or pending_repair_campaign_block_ids(campaign):
         return ()
     if runtime.domain.accepted.model_spec is None or not runtime.domain.accepted.authored_priors:
         return ()

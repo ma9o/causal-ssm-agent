@@ -360,7 +360,6 @@ def build_repair_plan(
     scope: ResolvedRepairScope,
     *,
     prompt_block_ids: tuple[str, ...] | None = None,
-    requires_barrier_validation: bool | None = None,
 ) -> ResolvedRepairPlan:
     """Project a structural scope into the prompt blocks Stage 4 should run."""
     strategy = get_stage4_repair_scope_strategy(scope.scope_kind)
@@ -388,11 +387,8 @@ def build_repair_plan(
             "Stage 4 repair scope projection removed every prompt block for "
             f"{scope.scope_key!r}"
         )
-    if requires_barrier_validation is None:
-        requires_barrier_validation = len(prompt_blocks) > 1
     return ResolvedRepairPlan(
         scope=scope,
         prompt_blocks=tuple(prompt_blocks),
-        requires_barrier_validation=requires_barrier_validation,
         uses_repair_campaign=strategy.uses_repair_campaign,
     )
