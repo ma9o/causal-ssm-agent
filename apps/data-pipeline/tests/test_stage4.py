@@ -5614,7 +5614,7 @@ class TestStage4Mechanics:
         assert get_stage4_phase(runtime, plan=plan) == "prior_blocks"
         assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
 
-    def test_prior_failure_classification_allows_one_same_scope_retry_on_certificate_improvement(
+    def test_prior_failure_classification_allows_same_scope_retry_before_default_cap(
         self,
     ):
         causal_spec = _make_stage4_global_repair_spec()
@@ -5685,7 +5685,7 @@ class TestStage4Mechanics:
         assert repair_plan.scope.scope_kind == "local_drift_motif"
         assert repair_plan.scope.scope_key == "local_drift_motif:activity|sleep|beta_activity_sleep"
 
-    def test_prior_failure_classification_allows_global_prior_review_retry_after_cap_on_certificate_improvement(
+    def test_prior_failure_classification_uses_review_block_retry_budget_for_global_prior_review(
         self,
     ):
         causal_spec = _make_stage4_global_repair_spec()
@@ -5700,11 +5700,11 @@ class TestStage4Mechanics:
             scope_rank=3,
             scope_block_ids=("review:prior_system",),
             completed_block_ids=frozenset(("review:prior_system",)),
-            attempts_at_scope=2,
+            attempts_at_scope=4,
             best_certificate=PriorPathologyCertificate(
                 kind="nonfinite_samples",
-                primary_score=1.0,
-                secondary_score=8.0,
+                primary_score=0.5,
+                secondary_score=4.0,
             ),
         )
 
@@ -6349,7 +6349,7 @@ class TestStage4Mechanics:
         )
         assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
 
-    def test_compute_stage4_validate_step_raises_on_repeated_global_prior_review_failure_without_pathology_improvement(
+    def test_compute_stage4_validate_step_raises_after_review_block_retry_budget_exhausted(
         self,
     ):
         causal_spec = _make_stage4_global_repair_spec()
@@ -6436,34 +6436,22 @@ class TestStage4Mechanics:
                 ),
             }, "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
 
-        _apply_stage4_step_and_capture(
-            review_payload,
-            plan,
-            runtime,
-            skeleton=skeleton,
-            causal_spec=causal_spec,
-            data_for_model=pl.DataFrame(),
-            indicator_audits={},
-            stage4_grounding_fn=stub_stage4_grounding,
-        )
-        assert runtime.domain.repair_campaign is not None
-        assert runtime.domain.repair_campaign.scope_key == "global_prior_review:prior_system"
-        assert runtime.domain.repair_campaign.attempts_at_scope == 1
-        assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
-        assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
-
-        _apply_stage4_step_and_capture(
-            review_payload,
-            plan,
-            runtime,
-            skeleton=skeleton,
-            causal_spec=causal_spec,
-            data_for_model=pl.DataFrame(),
-            indicator_audits={},
-            stage4_grounding_fn=stub_stage4_grounding,
-        )
-        assert runtime.domain.repair_campaign is not None
-        assert runtime.domain.repair_campaign.attempts_at_scope == 2
+        for expected_attempt in range(1, 6):
+            _apply_stage4_step_and_capture(
+                review_payload,
+                plan,
+                runtime,
+                skeleton=skeleton,
+                causal_spec=causal_spec,
+                data_for_model=pl.DataFrame(),
+                indicator_audits={},
+                stage4_grounding_fn=stub_stage4_grounding,
+            )
+            assert runtime.domain.repair_campaign is not None
+            assert runtime.domain.repair_campaign.scope_key == "global_prior_review:prior_system"
+            assert runtime.domain.repair_campaign.attempts_at_scope == expected_attempt
+            assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
+            assert get_stage4_phase(runtime, plan=plan) == "global_prior_review"
 
         with pytest.raises(
             ValueError,

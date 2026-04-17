@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from .helpers import (
-    _certificate_improved,
     _feedback_mentions_identifier,
     _find_block_for_parameter,
     _materialize_scope_candidate,
@@ -19,13 +18,13 @@ from .planning import build_repair_plan
 from .types import (
     _DRIFT_RELATED_CODES,
     _GLOBAL_REVIEW_SCOPE_RANK,
-    _MAX_SCOPE_ATTEMPTS,
     _VALIDATOR_SCOPE_RANK,
     ResolvedRepairPlan,
     ResolvedRepairScope,
     Stage4FailureLocalization,
     Stage4ScopeCandidateSpec,
     Stage4ScopeCandidateStrategy,
+    _max_scope_attempts_for_block_ids,
 )
 
 if TYPE_CHECKING:
@@ -361,27 +360,8 @@ def _advance_repair_scope(
         ),
         None,
     )
-    same_scope_improved = (
-        current_scope is not None
-        and current_scope.pathology_certificate is not None
-        and campaign.best_certificate is not None
-        and _certificate_improved(
-            current_scope.pathology_certificate,
-            campaign.best_certificate,
-        )
-    )
-    if (
-        current_scope is not None
-        and (
-            campaign.attempts_at_scope < _MAX_SCOPE_ATTEMPTS
-            or (current_scope.scope_kind == "global_prior_review" and same_scope_improved)
-        )
-        and (
-            current_scope.pathology_certificate is None
-            or campaign.best_certificate is None
-            or same_scope_improved
-        )
-    ):
+    max_attempts = _max_scope_attempts_for_block_ids(campaign.scope_block_ids)
+    if current_scope is not None and campaign.attempts_at_scope < max_attempts:
         return current_scope
 
     for candidate in ordered_candidates:
