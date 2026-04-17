@@ -31,6 +31,7 @@ dependencies = [
     "python-dotenv>=1.2.1",
     "scikit-learn>=1.7.2",
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
+    "ipython>=9.12.0",
 ]
 
 [build-system]
