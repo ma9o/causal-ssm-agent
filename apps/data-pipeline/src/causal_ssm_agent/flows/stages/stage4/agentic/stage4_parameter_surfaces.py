@@ -6,7 +6,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from causal_ssm_agent.artifacts.model_spec import InitializationPolicy
+from causal_ssm_agent.artifacts.model_spec import (
+    InitializationPolicy,
+    ObservationInterceptPolicy,
+)
 from causal_ssm_agent.models.model_semantics import indicator_requires_observation_intercept
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
 from causal_ssm_agent.utils.causal_spec import get_estimation_edges
@@ -118,6 +121,7 @@ def parameter_is_active_for_model_spec(
     chosen_likelihood_by_variable: dict[str, dict[str, Any]],
     *,
     initialization_policy: str,
+    observation_intercept_policy: str,
     equilibrium_forcing: bool,
 ) -> bool:
     """Return whether a Stage 4 parameter survives the locked model decisions."""
@@ -142,6 +146,8 @@ def parameter_is_active_for_model_spec(
 
     role = str(parameter["role"])
     if role == "observation_intercept":
+        if observation_intercept_policy == ObservationInterceptPolicy.FIXED.value:
+            return False
         indicator_name = str(parameter.get("indicator") or "")
         likelihood = chosen_likelihood_by_variable.get(indicator_name) or {}
         distribution = likelihood.get("distribution")

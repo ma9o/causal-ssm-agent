@@ -1046,10 +1046,11 @@ class TestStage4TurnProjection:
         assert prompt[1]["role"] == "user"
         assert "`id`: `model:configuration`" in prompt[1]["content"]
         assert (
-            "Choose the global initialization policy and whether equilibrium forcing is enabled."
+            "Choose the global initialization policy, observation-intercept policy, and whether equilibrium forcing is enabled."
             in prompt[1]["content"]
         )
         assert "allowed initialization_policy values: `stationary`, `free`" in prompt[1]["content"]
+        assert "allowed observation_intercept_policy values: `fixed`, `free`" in prompt[1]["content"]
         assert "allowed equilibrium_forcing values: `true`, `false`" in prompt[1]["content"]
         assert (
             "centered-indicator constructs that can identify a latent baseline if forcing is enabled: `sleep`"

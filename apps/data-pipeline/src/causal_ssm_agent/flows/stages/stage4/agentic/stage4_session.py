@@ -168,6 +168,7 @@ class Stage4Session:
         self,
         *,
         initialization_policy: str,
+        observation_intercept_policy: str,
         equilibrium_forcing: bool,
         reasoning: str,
     ) -> str:
@@ -175,6 +176,7 @@ class Stage4Session:
         return self._submit(
             {
                 "initialization_policy": initialization_policy,
+                "observation_intercept_policy": observation_intercept_policy,
                 "equilibrium_forcing": equilibrium_forcing,
                 "reasoning": reasoning,
             }

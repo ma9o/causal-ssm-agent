@@ -14,6 +14,10 @@ THINK VERY HARD
 
 - For integration testing, starting services, health-checking the stack, or triggering pipeline runs manually, always read and follow [docs/guides/agentic_integration_testing.md](docs/guides/agentic_integration_testing.md). Do not improvise steps from memory.
 
+# Notebooks
+
+- Use `nbformat` and `jupyter-client` to programmatically read and write notebooks using a persistent kernel for your session, so that state is preserved across edits and you can run cells in-place without losing outputs. 
+
 # Docs
 
 - NEVER clump together links or references. ALWAYS either juxtapose references to the sentence or clause they support or use hyperlinks on the terms themselves.

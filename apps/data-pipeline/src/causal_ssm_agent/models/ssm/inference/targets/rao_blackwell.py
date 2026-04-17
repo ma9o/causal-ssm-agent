@@ -176,34 +176,25 @@ def _kalman_update_gaussian(
     n_manifest = H.shape[0]
     mask_float = obs_mask.astype(jnp.float64)
 
-    # Inflate R for missing observations
-    R_adj = symmetrize_with_jitter(inflate_missing_variance(R, mask_float))
+    R_adj = inflate_missing_variance(R, mask_float)
 
-    # Innovation
     y_pred = H @ m + d
-    v = (y - y_pred) * mask_float  # zero out missing
+    v = (y - y_pred) * mask_float
 
-    # Innovation covariance S = H P H' + R_adj
-    S = H @ P @ H.T + R_adj
-    S = symmetrize_with_jitter(S)
+    S = symmetrize_with_jitter(H @ P @ H.T + R_adj)
+    chol_S = jnp.linalg.cholesky(S)
 
-    # Kalman gain K = P H' S^{-1}
-    K = P @ H.T @ jnp.linalg.inv(S)
+    K = jla.cho_solve((chol_S, True), H @ P.T).T
 
-    # Update
     m_upd = m + K @ v
-    P_upd = P - K @ S @ K.T
-    P_upd = symmetrize(P_upd)
+    P_upd = symmetrize(P - K @ S @ K.T)
 
-    # Log marginal likelihood: log N(v | 0, S)
+    whitened = jla.solve_triangular(chol_S, v, lower=True)
+    logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol_S)))
     n_observed = jnp.sum(mask_float)
-    _sign, logdet = jnp.linalg.slogdet(S)
-    # Subtract out the contribution of inflated missing dimensions
     n_missing = n_manifest - n_observed
     logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
-
-    mahal = v @ jnp.linalg.solve(S, v)
-    log_marg = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + mahal)
+    log_marg = -0.5 * (n_observed * jnp.log(2 * jnp.pi) + logdet + whitened @ whitened)
     log_marg = jnp.where(n_observed > 0, log_marg, 0.0)
 
     return m_upd, P_upd, log_marg

@@ -207,6 +207,7 @@ class SSMSpec:
     manifest_names: list[str] | None = None
     static_factor_names: list[str] | None = None
     initialization_policy: str = "stationary"
+    observation_intercept_policy: str = "free"
 
     # drift_diag_mask: (n_latent,) bool — True where the diagonal self-dynamics
     # remain free to sample.

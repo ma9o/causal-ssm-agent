@@ -70,6 +70,10 @@ from causal_ssm_agent.models.ssm.inference.targets.laplace import (
     _support_aware_step_halving_search,
     block_profile_logdet_packed_cotangent,
 )
+from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+    lift_linear_summary_observation_trajectory,
+    row_observation_log_prob,
+)
 from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood, SSMAdapter
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     compile_observation_operator,
@@ -77,6 +81,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
     get_point_like_mask,
     get_summary_operator_codes,
     get_support_kind_codes,
+    trajectory_observation_log_prob,
     trajectory_observation_log_probs,
 )
 from causal_ssm_agent.models.ssm.inference.utils import _discover_sites
@@ -959,6 +964,98 @@ class TestLaplaceSupportAware:
         np.testing.assert_allclose(np.asarray(d_rows[:, 1]), np.zeros((3,), dtype=np.float32))
         assert float(Ad_aug[1, 1, 1]) == pytest.approx(0.0)
         assert float(Ad_aug[2, 1, 1]) == pytest.approx(1.0)
+
+    def test_linear_summary_augmented_row_likelihood_matches_support_aware_likelihood(self):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0, 2.0]),
+            manifest_names=["point_signal", "avg_signal"],
+            support_kinds=["point", "interval"],
+            summary_operators=["last", "mean"],
+            observation_windows=["1d", "2d"],
+            support_start_times=np.array([[np.nan, np.nan], [np.nan, np.nan], [np.nan, 0.0]]),
+            support_end_times=np.array([[np.nan, np.nan], [np.nan, np.nan], [np.nan, 2.0]]),
+            interval_prev_coeffs=np.array([[[0.0], [0.0]], [[0.0], [0.5]], [[0.0], [0.5]]]),
+            interval_curr_coeffs=np.array([[[0.0], [0.0]], [[0.0], [0.5]], [[0.0], [0.5]]]),
+            interval_weights=np.array([[[0.0], [0.0]], [[0.0], [1.0]], [[0.0], [1.0]]]),
+        )
+        plan = _build_linear_summary_accumulator_plan(
+            support,
+            [DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
+            [LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+        )
+        assert plan is not None
+
+        observations = jnp.array(
+            [
+                [0.50, jnp.nan],
+                [0.88, jnp.nan],
+                [1.34, 0.53],
+            ],
+            dtype=jnp.float32,
+        )
+        obs_mask = ~jnp.isnan(observations)
+        latent_trajectory = jnp.array([[0.10], [0.40], [0.70]], dtype=jnp.float32)
+        H = jnp.array([[1.5], [2.0]], dtype=jnp.float32)
+        d = jnp.array([0.3, -0.2], dtype=jnp.float32)
+        R = jnp.diag(jnp.array([0.04, 0.09], dtype=jnp.float32))
+
+        _Ad_aug, _Qd_aug, _cd_aug, _init_mean_aug, _init_cov_aug, H_rows, d_rows = (
+            _build_linear_summary_augmented_system(
+                plan=plan,
+                time_intervals=jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32),
+                drift=jnp.array([[-0.4]], dtype=jnp.float32),
+                diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
+                cint=jnp.array([0.2], dtype=jnp.float32),
+                H=H,
+                d=d,
+                init_mean=jnp.array([0.0], dtype=jnp.float32),
+                init_cov=jnp.array([[1.0]], dtype=jnp.float32),
+                support_kind_codes=get_support_kind_codes(support),
+            )
+        )
+
+        augmented_trajectory = lift_linear_summary_observation_trajectory(
+            latent_trajectory,
+            H=H,
+            d=d,
+            plan=plan,
+            observation_support=support,
+        )
+        support_semantics = compile_measurement_semantics(
+            [DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
+            manifest_cov=R,
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+            observation_support=support,
+        )
+        augmented_semantics = compile_measurement_semantics(
+            [DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
+            manifest_cov=R,
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+            observation_support=None,
+        )
+
+        support_lp = trajectory_observation_log_prob(
+            latent_trajectory,
+            observations,
+            obs_mask,
+            H,
+            d,
+            R,
+            support_semantics.obs_kernel,
+            support_semantics.mean_log_prob_fn,
+            support,
+        )
+        augmented_lp = row_observation_log_prob(
+            augmented_trajectory,
+            observations,
+            obs_mask,
+            H_rows,
+            d_rows,
+            R,
+            augmented_semantics.obs_kernel,
+        )
+
+        assert float(augmented_lp) == pytest.approx(float(support_lp), abs=1e-6)
 
     def test_profile_masked_banded_cholesky_matches_full_banded_solver(self):
         row_upper_bandwidths = jnp.array([3, 2, 1, 1, 0], dtype=jnp.int32)
@@ -2781,6 +2878,37 @@ def test_aux_gibbs_support_aware_interval_summary_smoke():
     assert summary["mean"].shape == (2, 1)
     assert bool(jnp.isfinite(summary["mean"]).all())
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
+
+
+def test_aux_gibbs_rejects_nonlinear_interval_summary_support():
+    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="particle")
+    support = _support_runtime(
+        anchor_times=np.array([0.0, 1.0]),
+        manifest_names=["y"],
+        support_kinds=["interval"],
+        summary_operators=["std"],
+        observation_windows=["1d"],
+        support_start_times=np.array([[np.nan], [0.0]]),
+        support_end_times=np.array([[np.nan], [1.0]]),
+        interval_prev_coeffs=np.array([[0.0], [0.5]], dtype=np.float32),
+        interval_curr_coeffs=np.array([[0.0], [0.5]], dtype=np.float32),
+        interval_weights=np.array([[0.0], [1.0]], dtype=np.float32),
+    )
+    model.set_observation_support(support)
+    observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="linear interval summaries"):
+        fit(
+            model,
+            observations=observations,
+            times=times,
+            method="aux_gibbs",
+            num_warmup=4,
+            num_samples=6,
+            num_chains=1,
+            seed=2,
+        )
 
 
 def test_aux_gibbs_heterogeneous_observation_families_smoke():

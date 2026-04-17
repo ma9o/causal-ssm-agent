@@ -21,6 +21,7 @@ from .stage4_navigation import (
     current_equilibrium_forcing,
     current_initialization_policy,
     current_likelihood_lookup,
+    current_observation_intercept_policy,
     get_stage4_phase,
     pending_repair_campaign_block_ids,
     repair_scope_summary,
@@ -180,6 +181,7 @@ def format_stage4_plan_status(
 ) -> str:
     """Summarize the reducer frontier in a compact prompt-local format."""
     initialization_policy = current_initialization_policy(runtime) or "unset"
+    observation_intercept_policy = current_observation_intercept_policy(runtime) or "unset"
     equilibrium_forcing = current_equilibrium_forcing(runtime)
     equilibrium_text = (
         "unset" if equilibrium_forcing is None else str(bool(equilibrium_forcing)).lower()
@@ -214,6 +216,7 @@ def format_stage4_plan_status(
         ),
         f"- model_spec locked: `{'yes' if runtime.domain.accepted.model_spec is not None else 'no'}`",
         f"- initialization_policy: `{initialization_policy}`",
+        f"- observation_intercept_policy: `{observation_intercept_policy}`",
         f"- equilibrium_forcing: `{equilibrium_text}`",
         f"- active prompt scope: `{block.kind}`",
         "- active scope names: "

@@ -318,6 +318,7 @@ def _compiler_authoritative_stage4_inventory(
     provisional_model_spec = {
         "likelihoods": provisional_likelihoods,
         "initialization_policy": "stationary",
+        "observation_intercept_policy": "free",
         "equilibrium_forcing": False,
         "parameters": [
             parameter
@@ -326,6 +327,7 @@ def _compiler_authoritative_stage4_inventory(
                 parameter,
                 provisional_likelihood_by_variable,
                 initialization_policy="stationary",
+                observation_intercept_policy="free",
                 equilibrium_forcing=False,
             )
         ],
@@ -550,7 +552,18 @@ def _measurement_error_parameters(
     retained_construct_names: set[str],
     indicators_per_construct: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
-    """Return one semantic measurement-error prior per free manifest channel."""
+    """Return one semantic measurement-error prior per free manifest channel.
+
+    Emitted as a conditional surface: it activates only when the indicator's
+    locked observation family actually reads per-channel manifest noise
+    (Gaussian or Student-t). For Poisson, Gamma, Negative-Binomial, Beta,
+    Bernoulli, Ordered-Logistic, or Categorical channels the emission log-prob
+    ignores R, so the parameter is filtered out by
+    ``parameter_is_active_for_model_spec`` before reaching authored priors.
+    """
+    noise_families = sorted(
+        family.value for family in DistributionFamily if family.uses_manifest_noise
+    )
     parameters: list[dict[str, Any]] = []
     for indicator in indicators:
         construct_name = indicator.get("construct_name")
@@ -569,6 +582,9 @@ def _measurement_error_parameters(
                 "description": f"Measurement-error SD for {indicator_name}",
                 "construct": construct_name,
                 "indicator": indicator_name,
+                "activation_indicator_names": [indicator_name],
+                "activation_distribution_families": list(noise_families),
+                "conditional_prior_surface": True,
             }
         )
     return parameters

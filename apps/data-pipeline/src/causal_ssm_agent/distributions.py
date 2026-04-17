@@ -40,6 +40,21 @@ class DistributionFamily(StrEnum):
             return 0.5
         return 0.0
 
+    @property
+    def uses_manifest_noise(self) -> bool:
+        """Whether this family's emission log-prob reads per-channel manifest noise R.
+
+        Only Gaussian and Student-t emissions read R in the ``emission_log_prob_*``
+        functions and the posterior-predictive switch branches. All other
+        families determine observation variance from family-level hyperparameters
+        (``obs_r``, ``obs_shape``, ``obs_concentration``, ...) and mark R as
+        unused with the ``_R`` / ``_std`` naming convention. Emitting a free
+        ``obs_sd_<indicator>`` parameter for a non-{Gaussian, Student-t} channel
+        therefore creates a disconnected parameter that contributes nothing to
+        the likelihood.
+        """
+        return self in {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}
+
 
 @dataclass(frozen=True)
 class ObservationFamilyCatalogEntry:

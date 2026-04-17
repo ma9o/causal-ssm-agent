@@ -55,6 +55,7 @@ class Stage4DraftModel:
 
     distribution_choices: dict[str, dict[str, Any]] = field(default_factory=dict)
     initialization_policy: str | None = None
+    observation_intercept_policy: str | None = None
     equilibrium_forcing: bool | None = None
 
     def sync_from_model_spec(self, model_spec: dict[str, Any] | None) -> None:
@@ -65,6 +66,11 @@ class Stage4DraftModel:
             None
             if model_spec.get("initialization_policy") is None
             else str(model_spec.get("initialization_policy"))
+        )
+        self.observation_intercept_policy = (
+            None
+            if model_spec.get("observation_intercept_policy") is None
+            else str(model_spec.get("observation_intercept_policy"))
         )
         equilibrium_forcing = model_spec.get("equilibrium_forcing")
         self.equilibrium_forcing = (

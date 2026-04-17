@@ -148,12 +148,13 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
         submission_payload_kind="model_configuration_choice",
         accepted_transition_kind="model_configuration",
         system_task=(
-            "Choose the global initialization policy and whether equilibrium forcing is enabled. "
-            "These are model-level semantics, not prior choices."
+            "Choose the global initialization policy, observation-intercept policy, and whether "
+            "equilibrium forcing is enabled. These are model-level semantics, not prior choices."
         ),
         user_task=(
-            "Choose the global initialization policy and whether equilibrium forcing is enabled. "
-            "Do not submit indicator likelihood decisions or priors in this block."
+            "Choose the global initialization policy, observation-intercept policy, and whether "
+            "equilibrium forcing is enabled. Do not submit indicator likelihood decisions or "
+            "priors in this block."
         ),
         visible_sections=("construct_scale_cards",),
         guidance_section_keys=(

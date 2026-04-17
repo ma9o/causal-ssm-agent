@@ -11,6 +11,7 @@ from causal_ssm_agent.artifacts.model_spec import (
     InitializationPolicy,
     LinkFunction,
     ModelSpec,
+    ObservationInterceptPolicy,
     validate_model_spec_dict,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_parameter_surfaces import (
@@ -29,10 +30,13 @@ class DistributionChoice(BaseModel):
 
 
 class ModelConfigurationChoice(BaseModel):
-    """LLM's global configuration for initialization and equilibrium forcing."""
+    """LLM's global configuration for initialization, manifest intercepts, and forcing."""
 
     initialization_policy: InitializationPolicy = Field(
         description="Whether dynamic-state initial conditions are stationary-derived or free"
+    )
+    observation_intercept_policy: ObservationInterceptPolicy = Field(
+        description="Whether eligible manifest intercepts remain free or are fixed"
     )
     equilibrium_forcing: bool = Field(
         description="Whether eligible dynamic states may have a continuous-time intercept"
@@ -45,6 +49,9 @@ class ModelSpecDecisions(BaseModel):
 
     initialization_policy: InitializationPolicy = Field(
         description="Global initial-state policy for retained dynamic states"
+    )
+    observation_intercept_policy: ObservationInterceptPolicy = Field(
+        description="Global policy for whether eligible manifest intercepts remain free"
     )
     equilibrium_forcing: bool = Field(
         description="Whether eligible dynamic states may have a continuous-time intercept"
@@ -149,6 +156,7 @@ def merge_decisions_to_spec(
             parameter,
             chosen_likelihood_by_variable,
             initialization_policy=decisions.initialization_policy.value,
+            observation_intercept_policy=decisions.observation_intercept_policy.value,
             equilibrium_forcing=decisions.equilibrium_forcing,
         )
     ]
@@ -157,6 +165,7 @@ def merge_decisions_to_spec(
         "likelihoods": likelihoods,
         "parameters": active_parameters,
         "initialization_policy": decisions.initialization_policy.value,
+        "observation_intercept_policy": decisions.observation_intercept_policy.value,
         "equilibrium_forcing": decisions.equilibrium_forcing,
     }
     return validate_model_spec_dict(spec_dict)
@@ -186,6 +195,17 @@ def validate_model_spec_decisions_dict(
         errors.append(
             "'initialization_policy' invalid; must be one of "
             f"{sorted(entry.value for entry in InitializationPolicy)}"
+        )
+
+    observation_intercept_policy = data.get("observation_intercept_policy")
+    if observation_intercept_policy is None:
+        errors.append("'observation_intercept_policy' is required")
+    elif observation_intercept_policy not in {
+        entry.value for entry in ObservationInterceptPolicy
+    }:
+        errors.append(
+            "'observation_intercept_policy' invalid; must be one of "
+            f"{sorted(entry.value for entry in ObservationInterceptPolicy)}"
         )
 
     if "equilibrium_forcing" not in data:
