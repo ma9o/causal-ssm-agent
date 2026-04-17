@@ -14,7 +14,7 @@ from causal_ssm_agent.flows.runtime_events import (
     emit_stage4_graph_event,
     emit_stage4_snapshot_event,
 )
-from causal_ssm_agent.utils.config import get_config
+from causal_ssm_agent.utils.config import get_config, get_secret
 from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
 from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
 
@@ -75,6 +75,11 @@ async def stage4_agentic_flow(
 
     config = get_config()
     s4 = config.stage4_prior_elicitation
+    literature_enabled = enable_literature and bool(get_secret("EXA_API_KEY"))
+    if enable_literature and not literature_enabled:
+        logger.warning(
+            "search_literature disabled: EXA_API_KEY is not set; tool will not be exposed to Stage 4."
+        )
 
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext("stage-4") as ctx:
@@ -99,7 +104,7 @@ async def stage4_agentic_flow(
                 data_for_model=data_for_model,
                 indicator_audits=indicator_audits,
                 generate=generate,
-                enable_literature=enable_literature and s4.literature_search.enabled,
+                enable_literature=literature_enabled,
                 enable_paraphrasing=s4.paraphrasing.enabled,
                 n_paraphrases=s4.paraphrasing.n_paraphrases,
                 gmm_model=s4.paraphrasing.gmm_model or s4.model,
