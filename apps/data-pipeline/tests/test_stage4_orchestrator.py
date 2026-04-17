@@ -1231,7 +1231,11 @@ class TestStage4PromptScopePolicy:
 
         assert policy.system_task.startswith("Propose full prior specifications")
         assert policy.user_task.startswith("Propose full prior specifications")
-        assert policy.visible_sections == ("construct_scale_cards", "prior_cards")
+        assert policy.visible_sections == (
+            "distribution_cards",
+            "construct_scale_cards",
+            "prior_cards",
+        )
         assert policy.guidance_section_keys == (
             "prior_distribution_types",
             "parameter_guidance",
@@ -1269,6 +1273,12 @@ class TestStage4PromptScopePolicy:
 
         assert dynamics_policy.allowed_tool_names == ("submit_prior_block", "elicit_prior_gmm")
         assert correlation_policy.allowed_tool_names == ("submit_prior_block", "elicit_prior_gmm")
+        assert correlation_policy.guidance_section_keys == (
+            "prior_distribution_types",
+            "parameter_guidance",
+            "continuous_time_dynamics",
+            "latent_initial_state_guidance",
+        )
 
     def test_global_review_policy_is_validate_only(self):
         policy = get_stage4_prompt_scope_policy("global_review")

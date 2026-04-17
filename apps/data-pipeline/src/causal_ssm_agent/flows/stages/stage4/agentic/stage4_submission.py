@@ -6,6 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import networkx as nx
 from pydantic import ValidationError
 
 from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
@@ -88,12 +89,79 @@ def _project_effect_prior_model_topology(
             if edge.get("cause") in construct_names and edge.get("effect") in construct_names
         ]
 
+    ordered_focus_constructs = tuple(
+        dict.fromkeys(
+            name
+            for name in (block.payload.get("target_construct"), *block.construct_names)
+            if isinstance(name, str) and name
+        )
+    )
+    scc_memberships = _effect_prior_scc_memberships(
+        model_topology.get("latent_edges") or [],
+        ordered_focus_constructs,
+    )
+
     return {
         "model_clock": model_topology.get("model_clock"),
         "model_interval_days": model_topology.get("model_interval_days"),
         "outcome": model_topology.get("outcome"),
         "latent_edges": filtered_edges,
+        "scc_memberships": scc_memberships,
     }
+
+
+def _effect_prior_scc_memberships(
+    latent_edges: list[dict[str, Any]],
+    focus_constructs: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    """Return compact SCC summaries for the constructs visible in an effect block."""
+    if not latent_edges or not focus_constructs:
+        return []
+
+    graph = nx.DiGraph()
+    node_order: dict[str, int] = {}
+
+    def _remember_node(name: str) -> None:
+        if name not in node_order:
+            node_order[name] = len(node_order)
+
+    for edge in latent_edges:
+        cause = edge.get("cause")
+        effect = edge.get("effect")
+        if not isinstance(cause, str) or not isinstance(effect, str):
+            continue
+        _remember_node(cause)
+        _remember_node(effect)
+        graph.add_edge(cause, effect)
+    for name in focus_constructs:
+        _remember_node(name)
+        graph.add_node(name)
+
+    component_by_node = {
+        node: component for component in nx.strongly_connected_components(graph) for node in component
+    }
+
+    seen_components: set[tuple[str, ...]] = set()
+    summaries: list[dict[str, Any]] = []
+    for focus_name in focus_constructs:
+        component = component_by_node.get(focus_name)
+        if component is None:
+            continue
+        ordered_members = tuple(sorted(component, key=node_order.__getitem__))
+        if ordered_members in seen_components:
+            continue
+        seen_components.add(ordered_members)
+        summaries.append(
+            {
+                "focus_constructs": [
+                    name for name in focus_constructs if name in component
+                ],
+                "members": list(ordered_members),
+                "feedback_coupled": len(component) > 1
+                or any(graph.has_edge(name, name) for name in component),
+            }
+        )
+    return summaries
 
 
 def _default_frontier_status_lines(
