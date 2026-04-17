@@ -18,6 +18,7 @@ from pydantic import ValidationError
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, ModelSpec
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
+from causal_ssm_agent.models.ssm.parameter_names import split_compound_name
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorProposal,
@@ -150,6 +151,79 @@ def _parameter_indicator_names(parameter: dict[str, Any]) -> tuple[str, ...]:
     return (str(indicator_name),) if isinstance(indicator_name, str) else ()
 
 
+def _fallback_indicator_names_for_parameter(
+    parameter: dict[str, Any],
+    *,
+    indicator_names: set[str],
+    construct_names: set[str],
+) -> tuple[str, ...]:
+    """Infer indicator names from a semantic parameter name when metadata is sparse."""
+    name = str(parameter.get("name") or "")
+    role = str(parameter.get("role") or "")
+    if role == "loading":
+        result = split_compound_name(name.removeprefix("lambda_"), indicator_names, construct_names)
+        return (result[0],) if result is not None else ()
+    if role == "observation_intercept" and name.startswith("manifest_mean_"):
+        indicator_name = name.removeprefix("manifest_mean_")
+        return (indicator_name,) if indicator_name in indicator_names else ()
+    if role == "measurement_error_sd" and name.startswith("obs_sd_"):
+        indicator_name = name.removeprefix("obs_sd_")
+        return (indicator_name,) if indicator_name in indicator_names else ()
+    return ()
+
+
+def _fallback_construct_for_parameter(
+    parameter: dict[str, Any],
+    *,
+    indicator_names: set[str],
+    construct_names: set[str],
+) -> str | None:
+    """Infer construct ownership from a semantic parameter name when metadata is sparse."""
+    name = str(parameter.get("name") or "")
+    role = str(parameter.get("role") or "")
+    if role == "ar_coefficient":
+        candidate = name.removeprefix("rho_").removeprefix("ar_")
+        return candidate if candidate in construct_names else None
+    if role == "residual_sd":
+        candidate = name.removeprefix("sigma_")
+        return candidate if candidate in construct_names else None
+    if role == "initial_state_sd":
+        candidate = name.removeprefix("t0_sd_")
+        return candidate if candidate in construct_names else None
+    if role == "loading":
+        result = split_compound_name(name.removeprefix("lambda_"), indicator_names, construct_names)
+        return result[1] if result is not None else None
+    return None
+
+
+def _fallback_effect_for_parameter(
+    parameter: dict[str, Any],
+    *,
+    construct_names: set[str],
+) -> str | None:
+    """Infer fixed-effect targets from a semantic parameter name when metadata is sparse."""
+    name = str(parameter.get("name") or "")
+    role = str(parameter.get("role") or "")
+    if role != "fixed_effect":
+        return None
+    result = split_compound_name(name.removeprefix("beta_"), construct_names, construct_names)
+    return result[1] if result is not None else None
+
+
+def _fallback_activation_families_for_parameter(parameter: dict[str, Any]) -> set[str]:
+    """Infer observation-family activation from a semantic hyperparameter name."""
+    name = str(parameter.get("name") or "")
+    if name == "obs_df":
+        return {DistributionFamily.STUDENT_T.value}
+    if name == "obs_shape":
+        return {DistributionFamily.GAMMA.value}
+    if name == "obs_r":
+        return {DistributionFamily.NEGATIVE_BINOMIAL.value}
+    if name == "obs_concentration":
+        return {DistributionFamily.BETA.value}
+    return set()
+
+
 def _observation_intercept_controls_scale(
     likelihood: dict[str, Any] | None,
 ) -> bool:
@@ -186,20 +260,49 @@ def resolve_scale_target_parameters(
     if not parameters:
         return []
 
-    construct_name = _indicator_to_construct_lookup(
+    indicator_to_construct_lookup = _indicator_to_construct_lookup(
         model_spec,
         causal_spec=causal_spec,
         indicator_to_construct=indicator_to_construct,
-    ).get(indicator_name)
-    likelihood = _indicator_likelihood_lookup(model_spec).get(indicator_name)
+    )
+    construct_name = indicator_to_construct_lookup.get(indicator_name)
+    likelihood_lookup = _indicator_likelihood_lookup(model_spec)
+    likelihood = likelihood_lookup.get(indicator_name)
     distribution = str((likelihood or {}).get("distribution") or "").lower()
+    indicator_names = {
+        *indicator_to_construct_lookup,
+        *likelihood_lookup,
+    }
+    construct_names = {
+        name
+        for name in indicator_to_construct_lookup.values()
+        if isinstance(name, str) and name
+    }
 
     targets: list[str] = []
     for parameter in parameters:
         name = str(parameter["name"])
         role = str(parameter.get("role") or "")
-        parameter_indicator_names = _parameter_indicator_names(parameter)
+        parameter_indicator_names = _parameter_indicator_names(parameter) or (
+            _fallback_indicator_names_for_parameter(
+                parameter,
+                indicator_names=indicator_names,
+                construct_names=construct_names,
+            )
+        )
         parameter_construct = parameter.get("construct")
+        if not isinstance(parameter_construct, str) or not parameter_construct:
+            parameter_construct = _fallback_construct_for_parameter(
+                parameter,
+                indicator_names=indicator_names,
+                construct_names=construct_names,
+            )
+        parameter_effect = parameter.get("effect")
+        if not isinstance(parameter_effect, str) or not parameter_effect:
+            parameter_effect = _fallback_effect_for_parameter(
+                parameter,
+                construct_names=construct_names,
+            )
 
         include = False
         if role in {"loading", "measurement_error_sd"}:
@@ -215,15 +318,13 @@ def resolve_scale_target_parameters(
                 str(family).lower()
                 for family in (parameter.get("activation_distribution_families") or ())
                 if family is not None
-            }
+            } or _fallback_activation_families_for_parameter(parameter)
             if include and activation_families and distribution:
                 include = distribution in activation_families
         elif role in {"residual_sd", "initial_state_sd", "ar_coefficient"}:
             include = isinstance(parameter_construct, str) and parameter_construct == construct_name
         elif role == "fixed_effect":
-            include = (
-                isinstance(parameter.get("effect"), str) and parameter.get("effect") == construct_name
-            )
+            include = isinstance(parameter_effect, str) and parameter_effect == construct_name
 
         if include and name not in targets:
             targets.append(name)

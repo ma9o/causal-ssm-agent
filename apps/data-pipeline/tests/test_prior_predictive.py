@@ -23,6 +23,7 @@ from causal_ssm_agent.models.prior_predictive import (
     format_parameter_feedback,
     format_validation_report,
     get_failed_parameters,
+    resolve_scale_target_parameters,
 )
 from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec, full_diagonal_mask
 from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
@@ -415,6 +416,98 @@ class TestGetFailedParameters:
         )
 
         assert failed == ["t0_sd_chronotype"]
+
+    def test_scale_mismatch_with_sparse_model_spec_targets_variance_parameter(self):
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "monthly_eveningness_activity_timing",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "centered": True,
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "t0_mean_chronotype",
+                    "role": "initial_state_mean",
+                },
+                {
+                    "name": "t0_sd_chronotype",
+                    "role": "initial_state_sd",
+                },
+                {
+                    "name": "beta_chronotype_sleep_quality",
+                    "role": "fixed_effect",
+                },
+                {
+                    "name": "manifest_mean_monthly_eveningness_activity_timing",
+                    "role": "observation_intercept",
+                },
+            ],
+        }
+        causal_spec = {
+            "measurement": {
+                "indicators": [
+                    {
+                        "name": "monthly_eveningness_activity_timing",
+                        "construct_name": "chronotype",
+                    }
+                ]
+            }
+        }
+        results = [
+            PriorValidationResult(
+                parameter="scale_monthly_eveningness_activity_timing",
+                is_valid=False,
+                issue="Scale mismatch for monthly_eveningness_activity_timing",
+            )
+        ]
+
+        failed = get_failed_parameters(
+            results,
+            [parameter["name"] for parameter in model_spec["parameters"]],
+            causal_spec=causal_spec,
+            model_spec=model_spec,
+        )
+
+        assert failed == ["t0_sd_chronotype"]
+
+
+class TestResolveScaleTargetParameters:
+    def test_sparse_model_spec_infers_construct_from_parameter_names(self):
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "monthly_eveningness_activity_timing",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "centered": True,
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "t0_mean_chronotype",
+                    "role": "initial_state_mean",
+                },
+                {
+                    "name": "t0_sd_chronotype",
+                    "role": "initial_state_sd",
+                },
+                {
+                    "name": "manifest_mean_monthly_eveningness_activity_timing",
+                    "role": "observation_intercept",
+                },
+            ],
+        }
+
+        resolved = resolve_scale_target_parameters(
+            "monthly_eveningness_activity_timing",
+            model_spec,
+            indicator_to_construct={"monthly_eveningness_activity_timing": "chronotype"},
+        )
+
+        assert resolved == ["t0_sd_chronotype"]
 
 
 # =============================================================================
