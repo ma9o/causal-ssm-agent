@@ -58,6 +58,8 @@ from causal_ssm_agent.models.ssm.inference.targets.laplace import (
     _infer_support_groups,
     _linear_summary_augmented_ieks_laplace,
     _make_support_window_derivatives,
+    _point_ieks_mode,
+    _point_laplace_from_mode,
     _predictive_latent_init,
     _should_use_dense_support_laplace,
     _solve_block_banded_from_cholesky,
@@ -279,6 +281,215 @@ class TestLaplaceEMBlockSolver:
 
         np.testing.assert_allclose(z_smooth, z_dense, atol=1e-4, rtol=1e-4)
         assert jnp.isfinite(log_lik).all()
+
+    def test_point_implicit_laplace_value_matches_direct_mode_evaluation(self):
+        """Implicit point-path wrapper should match direct mode solve + Laplace eval."""
+        observations = jnp.array([[0.1], [0.3], [-0.2], [0.15]], dtype=jnp.float32)
+        obs_mask = jnp.ones_like(observations, dtype=bool)
+        Ad = jnp.broadcast_to(jnp.array([[0.91]], dtype=jnp.float32), (4, 1, 1))
+        Qd = jnp.broadcast_to(jnp.array([[0.07]], dtype=jnp.float32), (4, 1, 1))
+        cd = jnp.zeros((4, 1), dtype=jnp.float32)
+        H_rows = jnp.broadcast_to(jnp.array([[[1.0]]], dtype=jnp.float32), (4, 1, 1))
+        d_rows = jnp.zeros((4, 1), dtype=jnp.float32)
+        init_mean = jnp.array([0.05], dtype=jnp.float32)
+        init_cov = jnp.array([[0.6]], dtype=jnp.float32)
+
+        def _runtime(raw_params):
+            obs_df = jnp.exp(raw_params[0]) + 2.5
+            obs_var = jnp.exp(raw_params[1]) + 0.1
+            obs_kernel = build_observation_kernel(
+                DistributionFamily.STUDENT_T,
+                LinkFunction.IDENTITY,
+                {"obs_df": obs_df},
+            )
+            return jnp.array([[obs_var]], dtype=jnp.float32), obs_kernel
+
+        def _implicit_objective(raw_params):
+            R, obs_kernel = _runtime(raw_params)
+            _z_mode, log_lik, _inner_eval_aux = _ieks_smooth(
+                observations,
+                obs_mask,
+                Ad,
+                Qd,
+                cd,
+                H_rows,
+                d_rows,
+                R,
+                init_mean,
+                init_cov,
+                obs_kernel,
+                n_ieks_iters=12,
+            )
+            return log_lik
+
+        def _direct_objective(raw_params):
+            R, obs_kernel = _runtime(raw_params)
+            z_mode, mode_aux = _point_ieks_mode(
+                observations,
+                obs_mask,
+                Ad,
+                Qd,
+                cd,
+                H_rows,
+                d_rows,
+                R,
+                init_mean,
+                init_cov,
+                obs_kernel,
+                n_ieks_iters=12,
+            )
+            log_lik, _inner_eval_aux = _point_laplace_from_mode(
+                z_mode,
+                mode_aux,
+                observations,
+                obs_mask,
+                Ad,
+                Qd,
+                cd,
+                H_rows,
+                d_rows,
+                R,
+                init_mean,
+                init_cov,
+                obs_kernel,
+            )
+            return log_lik
+
+        raw_params = jnp.array([0.35, -1.2], dtype=jnp.float32)
+        implicit_value = _implicit_objective(raw_params)
+        direct_value = _direct_objective(raw_params)
+
+        np.testing.assert_allclose(
+            np.asarray(implicit_value),
+            np.asarray(direct_value),
+            rtol=1e-5,
+            atol=1e-5,
+        )
+
+    def test_point_implicit_gradient_matches_finite_difference(self):
+        """Implicit point-path gradient should agree with finite differences."""
+        observations = jnp.array([[0.1], [0.3], [-0.2], [0.15]], dtype=jnp.float32)
+        obs_mask = jnp.ones_like(observations, dtype=bool)
+        Ad = jnp.broadcast_to(jnp.array([[0.91]], dtype=jnp.float32), (4, 1, 1))
+        Qd = jnp.broadcast_to(jnp.array([[0.07]], dtype=jnp.float32), (4, 1, 1))
+        cd = jnp.zeros((4, 1), dtype=jnp.float32)
+        H_rows = jnp.broadcast_to(jnp.array([[[1.0]]], dtype=jnp.float32), (4, 1, 1))
+        d_rows = jnp.zeros((4, 1), dtype=jnp.float32)
+        init_mean = jnp.array([0.05], dtype=jnp.float32)
+        init_cov = jnp.array([[0.6]], dtype=jnp.float32)
+
+        def _build_measurement_objects(manifest_cov, runtime_extra_params):
+            return compile_measurement_semantics(
+                [DistributionFamily.STUDENT_T],
+                manifest_cov=manifest_cov,
+                extra_params=runtime_extra_params,
+                manifest_links=[LinkFunction.IDENTITY],
+                observation_support=None,
+            )
+
+        def _objective(raw_params):
+            obs_df = jnp.exp(raw_params[0]) + 2.5
+            obs_var = jnp.exp(raw_params[1]) + 0.1
+            extra_params = {"obs_df": obs_df}
+            R = jnp.array([[obs_var]], dtype=jnp.float32)
+            measurement_semantics = _build_measurement_objects(R, extra_params)
+            _z_mode, log_lik, _inner_eval_aux = _ieks_smooth(
+                observations,
+                obs_mask,
+                Ad,
+                Qd,
+                cd,
+                H_rows,
+                d_rows,
+                R,
+                init_mean,
+                init_cov,
+                measurement_semantics.obs_kernel,
+                n_ieks_iters=12,
+                build_measurement_objects=_build_measurement_objects,
+                extra_params=extra_params,
+            )
+            return log_lik
+
+        raw_params = jnp.array([0.35, -1.2], dtype=jnp.float32)
+        implicit_grad = jax.grad(_objective)(raw_params)
+
+        eps = 1e-3
+        finite_diff = np.zeros((2,), dtype=np.float32)
+        raw_params_np = np.asarray(raw_params)
+        for idx in range(raw_params_np.shape[0]):
+            step = np.zeros_like(raw_params_np)
+            step[idx] = eps
+            finite_diff[idx] = (
+                float(_objective(jnp.asarray(raw_params_np + step, dtype=jnp.float32)))
+                - float(_objective(jnp.asarray(raw_params_np - step, dtype=jnp.float32)))
+            ) / (2.0 * eps)
+
+        np.testing.assert_allclose(
+            np.asarray(implicit_grad),
+            finite_diff,
+            rtol=5e-2,
+            atol=5e-2,
+        )
+
+    def test_point_backend_gradient_supports_traced_observation_hyperparameters(self):
+        """LaplaceLikelihood point path should differentiate through traced obs hyperparameters."""
+        backend = LaplaceLikelihood(
+            n_latent=1,
+            n_manifest=1,
+            manifest_dists=[DistributionFamily.STUDENT_T],
+            manifest_links=[LinkFunction.IDENTITY],
+            n_ieks_iters=12,
+        )
+        ct_params = CTParams(
+            drift=jnp.array([[-0.09]], dtype=jnp.float32),
+            diffusion_cov=jnp.array([[0.07]], dtype=jnp.float32),
+            cint=jnp.array([0.0], dtype=jnp.float32),
+        )
+        init = InitialStateParams(
+            mean=jnp.array([0.05], dtype=jnp.float32),
+            cov=jnp.array([[0.6]], dtype=jnp.float32),
+        )
+        observations = jnp.array([[0.1], [0.3], [-0.2], [0.15]], dtype=jnp.float32)
+        time_intervals = jnp.array([1.0, 1.0, 1.0, 1.0], dtype=jnp.float32)
+
+        def _objective(raw_params):
+            obs_df = jnp.exp(raw_params[0]) + 2.5
+            obs_var = jnp.exp(raw_params[1]) + 0.1
+            meas_params = MeasurementParams(
+                lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
+                manifest_means=jnp.array([0.0], dtype=jnp.float32),
+                manifest_cov=jnp.array([[obs_var]], dtype=jnp.float32),
+            )
+            return backend.compute_log_likelihood(
+                ct_params,
+                meas_params,
+                init,
+                observations,
+                time_intervals,
+                extra_params={"obs_df": obs_df},
+            )
+
+        raw_params = jnp.array([0.35, -1.2], dtype=jnp.float32)
+        implicit_grad = jax.grad(_objective)(raw_params)
+
+        eps = 1e-3
+        finite_diff = np.zeros((2,), dtype=np.float32)
+        raw_params_np = np.asarray(raw_params)
+        for idx in range(raw_params_np.shape[0]):
+            step = np.zeros_like(raw_params_np)
+            step[idx] = eps
+            finite_diff[idx] = (
+                float(_objective(jnp.asarray(raw_params_np + step, dtype=jnp.float32)))
+                - float(_objective(jnp.asarray(raw_params_np - step, dtype=jnp.float32)))
+            ) / (2.0 * eps)
+
+        np.testing.assert_allclose(
+            np.asarray(implicit_grad),
+            finite_diff,
+            rtol=5e-2,
+            atol=5e-2,
+        )
 
 
 class TestParticleLikelihoodCore:
@@ -740,7 +951,9 @@ class TestLaplaceSupportAware:
         assert init_cov_aug.shape == (2, 2)
         assert H_rows.shape == (3, 2, 2)
         assert d_rows.shape == (3, 2)
-        np.testing.assert_allclose(np.asarray(H_rows[:, 0, 0]), np.full((3,), 1.5, dtype=np.float32))
+        np.testing.assert_allclose(
+            np.asarray(H_rows[:, 0, 0]), np.full((3,), 1.5, dtype=np.float32)
+        )
         np.testing.assert_allclose(np.asarray(d_rows[:, 0]), np.full((3,), 0.3, dtype=np.float32))
         np.testing.assert_allclose(np.asarray(H_rows[2, 1]), np.array([0.0, 0.5], dtype=np.float32))
         np.testing.assert_allclose(np.asarray(d_rows[:, 1]), np.zeros((3,), dtype=np.float32))
@@ -1209,6 +1422,78 @@ class TestLaplaceSupportAware:
             atol=1e-2,
         )
 
+    def test_linear_summary_augmented_backend_gradient_supports_traced_observation_hyperparameters(
+        self,
+    ):
+        support = _support_runtime(
+            anchor_times=np.array([0.0, 1.0, 2.0]),
+            manifest_names=["avg_signal"],
+            support_kinds=["interval"],
+            observation_windows=["2d"],
+            support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
+            support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
+            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5]], dtype=np.float32),
+            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5]], dtype=np.float32),
+            interval_weights=np.array([[0.0], [1.0], [1.0]], dtype=np.float32),
+        )
+        backend = LaplaceLikelihood(
+            n_latent=1,
+            n_manifest=1,
+            manifest_dists=[DistributionFamily.STUDENT_T],
+            manifest_links=[LinkFunction.IDENTITY],
+            n_ieks_iters=8,
+            observation_support=support,
+        )
+        ct_params = CTParams(
+            drift=jnp.array([[-0.15]], dtype=jnp.float32),
+            diffusion_cov=jnp.array([[0.08]], dtype=jnp.float32),
+            cint=jnp.array([0.0], dtype=jnp.float32),
+        )
+        init = InitialStateParams(
+            mean=jnp.array([0.05], dtype=jnp.float32),
+            cov=jnp.array([[0.7]], dtype=jnp.float32),
+        )
+        observations = jnp.array([[jnp.nan], [jnp.nan], [0.2]], dtype=jnp.float32)
+        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
+
+        def _objective(raw_params):
+            obs_df = jnp.exp(raw_params[0]) + 2.5
+            obs_var = jnp.exp(raw_params[1]) + 0.1
+            meas_params = MeasurementParams(
+                lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
+                manifest_means=jnp.array([0.0], dtype=jnp.float32),
+                manifest_cov=jnp.array([[obs_var]], dtype=jnp.float32),
+            )
+            return backend.compute_log_likelihood(
+                ct_params,
+                meas_params,
+                init,
+                observations,
+                time_intervals,
+                extra_params={"obs_df": obs_df},
+            )
+
+        raw_params = jnp.array([0.25, -1.0], dtype=jnp.float32)
+        implicit_grad = jax.grad(_objective)(raw_params)
+
+        eps = 1e-3
+        finite_diff = np.zeros((2,), dtype=np.float32)
+        raw_params_np = np.asarray(raw_params)
+        for idx in range(raw_params_np.shape[0]):
+            step = np.zeros_like(raw_params_np)
+            step[idx] = eps
+            finite_diff[idx] = (
+                float(_objective(jnp.asarray(raw_params_np + step, dtype=jnp.float32)))
+                - float(_objective(jnp.asarray(raw_params_np - step, dtype=jnp.float32)))
+            ) / (2.0 * eps)
+
+        np.testing.assert_allclose(
+            np.asarray(implicit_grad),
+            finite_diff,
+            rtol=7e-2,
+            atol=7e-2,
+        )
+
     def test_block_profile_logdet_cotangent_matches_direct_autodiff(self):
         row_upper_bandwidths = jnp.array([2, 2, 1, 0], dtype=jnp.int32)
         row_lower_bandwidths = jnp.asarray(
@@ -1340,9 +1625,7 @@ class TestLaplaceSupportAware:
         assert seen_inits[0] is None
         np.testing.assert_allclose(seen_inits[1], np.asarray(returned_mode))
 
-    def test_laplace_backend_linear_summary_mode_init_explicitly_overrides_cache(
-        self, monkeypatch
-    ):
+    def test_laplace_backend_linear_summary_mode_init_explicitly_overrides_cache(self, monkeypatch):
         support = _support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
             manifest_names=["avg_signal"],

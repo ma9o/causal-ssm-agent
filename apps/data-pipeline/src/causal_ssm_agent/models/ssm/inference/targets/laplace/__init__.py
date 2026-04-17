@@ -32,6 +32,8 @@ from .point import (
     _dense_support_laplace_log_lik,
     _ieks_smooth,
     _linear_summary_augmented_ieks_laplace,
+    _point_ieks_mode,
+    _point_laplace_from_mode,
 )
 from .shared import (
     _block_banded_logdet,
@@ -248,6 +250,18 @@ class LaplaceLikelihood:
                 extra_params,
             )
             if self._linear_summary_plan is not None:
+                def _build_linear_summary_measurement_objects(
+                    manifest_cov: jnp.ndarray,
+                    runtime_extra_params: dict | None,
+                ):
+                    return compile_measurement_semantics(
+                        self.manifest_dists,
+                        manifest_cov=manifest_cov,
+                        extra_params=runtime_extra_params,
+                        manifest_links=self.manifest_links,
+                        observation_support=self.observation_support,
+                    )
+
                 can_reuse_linear_summary_mode = allow_stateful_cache and not _tree_contains_tracer(
                     cache_inputs
                 )
@@ -288,6 +302,8 @@ class LaplaceLikelihood:
                         self._support_kind_codes,
                         self.n_ieks_iters,
                         z_init=linear_summary_mode_init,
+                        build_measurement_objects=_build_linear_summary_measurement_objects,
+                        extra_params=extra_params,
                     )
                     if can_reuse_linear_summary_mode:
                         self._linear_summary_mode_cache = jax.device_get(z_mode)
@@ -413,6 +429,17 @@ class LaplaceLikelihood:
             measurement_params.manifest_means[None, :],
             (T_obs, *measurement_params.manifest_means.shape),
         )
+        def _build_point_measurement_objects(
+            manifest_cov: jnp.ndarray,
+            runtime_extra_params: dict | None,
+        ):
+            return compile_measurement_semantics(
+                self.manifest_dists,
+                manifest_cov=manifest_cov,
+                extra_params=runtime_extra_params,
+                manifest_links=self.manifest_links,
+                observation_support=self.observation_support,
+            )
         with jax.named_scope("laplace_em/ieks_backend"):
             z_mode, log_lik, inner_eval_aux = _ieks_smooth(
                 clean_obs,
@@ -428,6 +455,8 @@ class LaplaceLikelihood:
                 obs_kernel,
                 n_ieks_iters=self.n_ieks_iters,
                 z_init=point_mode_init,
+                build_measurement_objects=_build_point_measurement_objects,
+                extra_params=extra_params,
             )
             if can_reuse_point_mode:
                 self._point_mode_cache = jax.device_get(z_mode)
@@ -499,6 +528,8 @@ __all__ = [
     "_dense_support_laplace_log_lik",
     "_ieks_smooth",
     "_linear_summary_augmented_ieks_laplace",
+    "_point_ieks_mode",
+    "_point_laplace_from_mode",
     # shared.py re-exports
     "_block_banded_logdet",
     "_build_ieks_system_from_prior",
