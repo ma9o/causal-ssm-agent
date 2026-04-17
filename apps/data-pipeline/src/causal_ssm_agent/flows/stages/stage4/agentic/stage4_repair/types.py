@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 
 _MAX_SCOPE_ATTEMPTS = 2
+_MAX_SCOPE_ATTEMPTS_BY_BLOCK_ID = {
+    "review:prior_system": 5,
+}
 _GLOBAL_REVIEW_SCOPE_RANK = 3
 _VALIDATOR_SCOPE_RANK = 2
 _DRIFT_RELATED_CODES = frozenset(
@@ -33,6 +36,18 @@ _DRIFT_RELATED_CODES = frozenset(
         "jacobian_sensitivity_drift",
     }
 )
+
+
+def _max_scope_attempts_for_block_ids(block_ids: tuple[str, ...]) -> int:
+    """Return the configured retry budget for one scope's prompt blocks."""
+    return max(
+        (
+            _MAX_SCOPE_ATTEMPTS_BY_BLOCK_ID.get(block_id, _MAX_SCOPE_ATTEMPTS)
+            for block_id in block_ids
+        ),
+        default=_MAX_SCOPE_ATTEMPTS,
+    )
+
 
 Stage4ValidationOutcome = Literal[
     "accepted",
