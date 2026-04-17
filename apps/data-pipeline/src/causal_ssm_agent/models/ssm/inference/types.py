@@ -31,6 +31,7 @@ logger = get_prefect_logger(__name__)
 
 InferenceMethod = Literal[
     "auto",
+    "aux_gibbs",
     "nuts",
     "map",
     "svi",
@@ -48,6 +49,14 @@ class InferenceResult:
     def get_samples(self) -> dict[str, jnp.ndarray]:
         """Return posterior samples dict."""
         return self._samples
+
+    def get_latent_posterior_summary(self) -> dict[str, Any] | None:
+        """Return latent-path posterior summaries when available."""
+        return self.diagnostics.get("latent_posterior_summary")
+
+    def get_latent_paths(self) -> jnp.ndarray | None:
+        """Return retained latent path samples when available."""
+        return self.diagnostics.get("latent_paths")
 
     def get_mcmc_diagnostics(self) -> dict[str, Any] | None:
         """Extract JSON-serializable MCMC diagnostics."""
@@ -122,6 +131,12 @@ class InferenceResult:
         if "accept_prob" in extra:
             ap = extra["accept_prob"]
             result["accept_prob_mean"] = float(jnp.mean(ap))
+        if "latent_accept_prob" in extra:
+            ap = extra["latent_accept_prob"]
+            result["latent_accept_prob_mean"] = float(jnp.mean(ap))
+        if "parameter_accept_prob" in extra:
+            ap = extra["parameter_accept_prob"]
+            result["parameter_accept_prob_mean"] = float(jnp.mean(ap))
         if "energy" in extra:
             energy = extra["energy"]
             n_ch = int(mcmc.num_chains)

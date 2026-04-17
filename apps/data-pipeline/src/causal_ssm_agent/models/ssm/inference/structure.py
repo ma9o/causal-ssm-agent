@@ -13,11 +13,13 @@ if TYPE_CHECKING:
 StructuralBackend = Literal["kalman", "composed", "particle"]
 RequestedMethod = Literal[
     "auto",
+    "aux_gibbs",
     "nuts",
     "map",
     "svi",
 ]
 ResolvedMethod = Literal[
+    "aux_gibbs",
     "nuts",
     "map",
     "svi",

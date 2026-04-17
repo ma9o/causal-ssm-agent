@@ -4,6 +4,9 @@ import asyncio
 import textwrap
 
 from causal_ssm_agent.utils.config import (
+    AuxGibbsConfig,
+    AuxGibbsLatentKernelConfig,
+    AuxGibbsParameterKernelConfig,
     InferenceConfig,
     NUTSConfig,
     SVIConfig,
@@ -67,6 +70,37 @@ class TestToSamplerConfig:
         result = cfg.to_sampler_config()
         assert result["target_accept_prob"] == 0.95
         assert result["max_tree_depth"] == 12
+
+    def test_aux_gibbs_settings(self):
+        cfg = InferenceConfig(
+            method="aux_gibbs",
+            aux_gibbs=AuxGibbsConfig(
+                adaptation_rate=0.07,
+                init_scale=0.02,
+                retain_latent_paths=True,
+                latent_kernel=AuxGibbsLatentKernelConfig(
+                    kernel="kalman",
+                    delta=0.15,
+                    target_accept=0.45,
+                ),
+                parameter_kernel=AuxGibbsParameterKernelConfig(
+                    kernel="mala",
+                    step_size=0.03,
+                    target_accept=0.61,
+                ),
+            ),
+        )
+        result = cfg.to_sampler_config()
+        assert result["method"] == "aux_gibbs"
+        assert result["latent_kernel"] == "kalman"
+        assert result["latent_delta"] == 0.15
+        assert result["latent_target_accept"] == 0.45
+        assert result["parameter_kernel"] == "mala"
+        assert result["param_step_size"] == 0.03
+        assert result["param_target_accept"] == 0.61
+        assert result["adaptation_rate"] == 0.07
+        assert result["init_scale"] == 0.02
+        assert result["retain_latent_paths"] is True
 
     def test_unknown_method_returns_base_keys_only(self):
         cfg = InferenceConfig(method="hmc")

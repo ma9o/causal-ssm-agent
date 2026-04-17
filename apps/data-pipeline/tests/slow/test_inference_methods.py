@@ -530,3 +530,56 @@ class TestNUTS:
         assert summary["diffusion_sd"]["mean_ci_width"] < 0.1
         assert summary["obs_scale"]["mean_ci_width"] < 0.1
         assert summary["obs_df"]["mean_ci_width"] < 4.0
+
+
+class TestAuxGibbs:
+    """Recovery tests for the auxiliary Gibbs trajectory sampler."""
+
+    @pytest.mark.slow
+    @pytest.mark.timeout(600)
+    def test_aux_gibbs_mixed_support_particle_recovery(self):
+        """Auxiliary Gibbs runs on the mixed-support 10-latent benchmark.
+
+        This uses the same benchmark as MAP+IEKS and NUTS, but the current
+        auxiliary Kalman latent kernel needs a materially smaller latent step
+        size than the small-model smoke tests. The goal here is to pin down:
+        1. support-aware mixed-family execution on the real benchmark,
+        2. non-degenerate latent and parameter acceptance,
+        3. useful posterior mean recovery with finite interval width.
+        """
+        data = _make_laplace_em_mixed_support_recovery_data()
+        model = SSMModel(data["spec"], data["priors"], likelihood="particle")
+        model.set_observation_support(data["observation_support"])
+
+        result = fit(
+            model,
+            observations=data["observations"],
+            times=data["times"],
+            method="aux_gibbs",
+            num_warmup=50,
+            num_samples=50,
+            num_chains=4,
+            seed=0,
+            latent_delta=1e-3,
+            latent_target_accept=0.5,
+            param_step_size=0.02,
+            param_target_accept=0.57,
+            adaptation_rate=0.05,
+        )
+
+        summary = _summarize_family_recovery(result.get_samples(), data)
+        extra = result.diagnostics["mcmc"].get_extra_fields()
+
+        assert data["observation_support"].requires_interval_summary_handling is True
+        assert float(jnp.mean(extra["latent_accept_prob"])) >= 0.35
+        assert float(jnp.mean(extra["parameter_accept_prob"])) >= 0.8
+
+        assert summary["drift"]["mean_abs_error"] < 0.14
+        assert summary["diffusion_sd"]["mean_abs_error"] < 0.08
+        assert summary["obs_scale"]["mean_abs_error"] < 0.07
+        assert summary["obs_df"]["mean_abs_error"] < 2.0
+
+        assert summary["drift"]["mean_ci_width"] < 0.2
+        assert summary["diffusion_sd"]["mean_ci_width"] < 0.08
+        assert summary["obs_scale"]["mean_ci_width"] < 0.12
+        assert summary["obs_df"]["mean_ci_width"] < 3.5
