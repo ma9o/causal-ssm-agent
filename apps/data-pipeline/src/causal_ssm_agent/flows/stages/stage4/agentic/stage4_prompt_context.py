@@ -35,6 +35,22 @@ if TYPE_CHECKING:
 
 
 _STAGE4_FRONTIER_PREFIX = "ACTIVE FRONTIER (machine-generated)"
+_DYNAMICS_CONTEXT_ROLES = frozenset(
+    {
+        "ar_coefficient",
+        "residual_sd",
+        "state_intercept",
+        "initial_state_mean",
+        "initial_state_sd",
+    }
+)
+_CORRELATION_SCALE_CONTEXT_ROLES = frozenset(
+    {
+        "residual_sd",
+        "initial_state_sd",
+        "static_state_sd",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -77,6 +93,65 @@ def _visible_block_section(
     if section_name not in visible_sections:
         return []
     return items
+
+
+def _card_construct_names(card: dict[str, Any]) -> tuple[str, ...]:
+    """Return construct names implied by one prior card."""
+    structural_context = card.get("structural_context") or {}
+    construct_names: list[str] = []
+    for key in ("construct", "cause", "effect", "construct_1", "construct_2"):
+        value = structural_context.get(key)
+        if isinstance(value, str) and value:
+            construct_names.append(value)
+    extra_construct_names = structural_context.get("construct_names") or ()
+    if isinstance(extra_construct_names, (list, tuple)):
+        construct_names.extend(
+            value for value in extra_construct_names if isinstance(value, str) and value
+        )
+    return tuple(dict.fromkeys(construct_names))
+
+
+def _structural_coupled_parameter_names(
+    block: Stage4FrontierBlock,
+    prior_cards: list[dict[str, Any]],
+) -> tuple[str, ...]:
+    """Return accepted-prior context that should be visible before any validator failure."""
+    local_parameter_names = set(block.parameter_names)
+    coupled_parameter_names: list[str] = []
+    active_construct_names = set(block.construct_names)
+    target_construct = block.payload.get("target_construct")
+    target_constructs = (
+        {target_construct}
+        if isinstance(target_construct, str) and target_construct
+        else active_construct_names
+    )
+
+    for card in prior_cards:
+        parameter_name = card.get("parameter")
+        if not isinstance(parameter_name, str) or parameter_name in local_parameter_names:
+            continue
+        role = str(card.get("role") or "")
+        structural_context = card.get("structural_context") or {}
+        card_construct_names = set(_card_construct_names(card))
+
+        include = False
+        if block.kind == "effect_prior":
+            include = role in _DYNAMICS_CONTEXT_ROLES and bool(
+                card_construct_names & active_construct_names
+            )
+        elif block.kind == "dynamics_prior":
+            include = role == "fixed_effect" and (
+                structural_context.get("effect") in target_constructs
+            )
+        elif block.kind == "correlation_prior":
+            include = role in _CORRELATION_SCALE_CONTEXT_ROLES and bool(
+                card_construct_names & active_construct_names
+            )
+
+        if include:
+            coupled_parameter_names.append(parameter_name)
+
+    return tuple(dict.fromkeys(coupled_parameter_names))
 
 
 def _count_accepted_blocks(
@@ -276,10 +351,22 @@ class Stage4Messages:
             ]
         latest_validation = self._current_validation_packet(runtime)
         local_parameter_names = set(block.parameter_names)
-        coupled_parameter_names = tuple(
+        validator_coupled_parameter_names = tuple(
             parameter_name
             for parameter_name in latest_validation.coupled_parameters
             if parameter_name not in local_parameter_names
+        )
+        structural_coupled_parameter_names = _structural_coupled_parameter_names(
+            block,
+            prior_cards,
+        )
+        coupled_parameter_names = tuple(
+            dict.fromkeys(
+                (
+                    *validator_coupled_parameter_names,
+                    *structural_coupled_parameter_names,
+                )
+            )
         )
         coupled_prior_cards = [
             card

@@ -194,6 +194,7 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
         ),
         extra_guidance_section_keys=("measurement_prior_guidance",),
         parameter_guidance_prefixes=("lambda", "obs_sd"),
+        visible_sections=("distribution_cards", "construct_scale_cards", "prior_cards"),
     ),
     "observation_prior": _make_prior_block_kind_spec(
         "observation_prior",
@@ -263,6 +264,10 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
         user_task=(
             "Propose full prior specifications only for this block's parameters. "
             "Do not send model decisions or priors for other blocks."
+        ),
+        extra_guidance_section_keys=(
+            "continuous_time_dynamics",
+            "latent_initial_state_guidance",
         ),
         parameter_guidance_prefixes=("cor", "tau"),
     ),

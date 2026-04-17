@@ -152,6 +152,28 @@ def format_model_topology(model_topology: dict) -> str:
                 description=edge.get("description") or "-",
             )
         )
+
+    scc_memberships = model_topology.get("scc_memberships") or []
+    if scc_memberships:
+        lines.extend(
+            [
+                "",
+                "### SCC Membership",
+                "",
+                "| Focus Constructs | SCC Members | Feedback Coupled |",
+                "|------------------|-------------|------------------|",
+            ]
+        )
+        for summary in scc_memberships:
+            lines.append(
+                "| {focus_constructs} | {members} | {feedback_coupled} |".format(
+                    focus_constructs=", ".join(summary.get("focus_constructs") or ["-"]),
+                    members=", ".join(summary.get("members") or ["-"]),
+                    feedback_coupled=(
+                        "yes" if summary.get("feedback_coupled") else "no"
+                    ),
+                )
+            )
     return "\n".join(lines)
 
 

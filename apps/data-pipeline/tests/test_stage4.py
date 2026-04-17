@@ -468,6 +468,111 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
     )
 
 
+def test_scale_mismatch_for_sparse_model_spec_routes_to_dynamics_block():
+    causal_spec = _with_positive_indicator_polarity(
+        {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "chronotype",
+                        "role": "exogenous",
+                        "temporal_status": "time_invariant",
+                    },
+                    {
+                        "name": "sleep_quality",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                        "is_outcome": True,
+                    },
+                ],
+                "edges": [
+                    {"cause": "chronotype", "effect": "sleep_quality", "lagged": False},
+                ],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "monthly_eveningness_activity_timing",
+                        "construct_name": "chronotype",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                        "observation_window": "1mo",
+                    },
+                    {
+                        "name": "sleep_quality_search_count",
+                        "construct_name": "sleep_quality",
+                        "measurement_dtype": "count",
+                        "aggregation": "sum",
+                    },
+                ],
+            },
+            "estimation": {
+                "state_order": ["chronotype", "sleep_quality"],
+                "edges": [
+                    {"cause": "chronotype", "effect": "sleep_quality", "lagged": False},
+                ],
+                "induced_dependencies": [],
+            },
+        }
+    )
+    skeleton = derive_deterministic_spec(causal_spec)
+    plan = build_stage4_plan(causal_spec, skeleton)
+    runtime = make_stage4_runtime(plan)
+    active_block = _require_plan_block(plan, "dynamics:sleep_quality")
+
+    repair_plan = classify_prior_failure_blocks(
+        plan,
+        active_block,
+        AssemblyValidation(
+            normalized_model_spec={
+                "likelihoods": [
+                    {
+                        "variable": "monthly_eveningness_activity_timing",
+                        "distribution": "gaussian",
+                        "link": "identity",
+                        "centered": True,
+                    }
+                ],
+                "parameters": [
+                    {
+                        "name": "t0_mean_chronotype",
+                        "role": "initial_state_mean",
+                    },
+                    {
+                        "name": "t0_sd_chronotype",
+                        "role": "initial_state_sd",
+                    },
+                    {
+                        "name": "beta_chronotype_sleep_quality",
+                        "role": "fixed_effect",
+                    },
+                ],
+            },
+            compile_ok=True,
+            pp_checked=True,
+            pp_valid=False,
+            diagnostics=[
+                PriorValidationResult(
+                    parameter="scale_monthly_eveningness_activity_timing",
+                    is_valid=False,
+                    code="scale_mismatch",
+                    origin="prior_predictive",
+                    issue="Scale mismatch for monthly_eveningness_activity_timing",
+                    suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+                )
+            ],
+        ),
+        runtime,
+    )
+
+    assert repair_plan.scope.scope_kind == "direct_writer_blocks"
+    assert repair_plan.scope.parameter_names == ("t0_sd_chronotype",)
+    assert repair_plan.block_ids == ("dynamics:chronotype",)
+    assert repair_plan.prompt_blocks[0].parameter_names == ("t0_sd_chronotype",)
+    assert repair_plan.uses_repair_campaign is True
+
+
 def test_scale_mismatch_escalates_to_global_prior_review_after_local_scope_exhausts():
     causal_spec = _with_positive_indicator_polarity(
         {
@@ -938,7 +1043,19 @@ class TestStage4Messages:
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
             model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
-            distribution_cards=[],
+            distribution_cards=[
+                {
+                    "variable": "worry_score",
+                    "construct": "stress",
+                    "measurement_dtype": "binary",
+                    "aggregation": "mean",
+                    "effective_window": "1d",
+                    "how_to_measure": "Daily worry indicator",
+                    "options": [{"distribution": "bernoulli", "links": ["logit", "probit"]}],
+                    "profile": {"n_obs": 40},
+                    "validation_issues": [],
+                }
+            ],
             loading_params=[],
             construct_scale_cards=[
                 {
@@ -1012,7 +1129,19 @@ class TestStage4Messages:
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
             model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
-            distribution_cards=[],
+            distribution_cards=[
+                {
+                    "variable": "worry_score",
+                    "construct": "stress",
+                    "measurement_dtype": "binary",
+                    "aggregation": "mean",
+                    "effective_window": "1d",
+                    "how_to_measure": "Daily worry indicator",
+                    "options": [{"distribution": "bernoulli", "links": ["logit", "probit"]}],
+                    "profile": {"n_obs": 40},
+                    "validation_issues": [],
+                }
+            ],
             loading_params=[],
             construct_scale_cards=[],
             prior_cards=[
@@ -1098,6 +1227,104 @@ class TestStage4Messages:
         assert "Beta(alpha=3.0, beta=2.0)" in user_content
         assert "`rho_stress`" in user_content
 
+    def test_messages_for_effect_scope_include_structural_coupled_dynamics_priors_pre_failure(self):
+        block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            construct_names=("stress", "sleep"),
+            parameter_names=("beta_stress_sleep",),
+            payload={"target_construct": "sleep", "cause_names": ("stress",)},
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
+            distribution_cards=[
+                {
+                    "variable": "worry_score",
+                    "construct": "stress",
+                    "measurement_dtype": "binary",
+                    "aggregation": "mean",
+                    "effective_window": "1d",
+                    "how_to_measure": "Daily worry indicator",
+                    "options": [{"distribution": "bernoulli", "links": ["logit", "probit"]}],
+                    "profile": {"n_obs": 40},
+                    "validation_issues": [],
+                }
+            ],
+            loading_params=[],
+            construct_scale_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                },
+                {
+                    "parameter": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "structural_context": {"construct": "stress"},
+                },
+                {
+                    "parameter": "sigma_sleep",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "structural_context": {"construct": "sleep"},
+                },
+            ],
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedArtifacts(
+                model_spec={
+                    "parameters": [
+                        {"name": "beta_stress_sleep"},
+                        {"name": "rho_stress"},
+                        {"name": "sigma_sleep"},
+                    ]
+                },
+                authored_priors={
+                    "rho_stress": {
+                        "parameter": "rho_stress",
+                        "distribution": "Beta",
+                        "params": {"alpha": 3.0, "beta": 2.0},
+                        "sources": [],
+                        "reasoning": "stress persistence prior",
+                    },
+                    "sigma_sleep": {
+                        "parameter": "sigma_sleep",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.3},
+                        "sources": [],
+                        "reasoning": "sleep innovation scale prior",
+                    },
+                },
+            ),
+        )
+
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "Accepted Coupled Priors Outside This Edit Scope" in user_content
+        assert "`rho_stress`" in user_content
+        assert "`sigma_sleep`" in user_content
+        assert "Beta(alpha=3.0, beta=2.0)" in user_content
+        assert "HalfNormal(sigma=0.3)" in user_content
+
     def test_messages_for_dynamics_scope_include_budget_discipline(self):
         block = Stage4FrontierBlock(
             id="dynamics:sleep",
@@ -1163,6 +1390,82 @@ class TestStage4Messages:
         assert "clear damping headroom for later incoming effects" in user_content
         assert "## Dynamics Budget Discipline" in system_content
         assert "conservative decay" in system_content
+
+    def test_messages_for_dynamics_scope_include_structural_coupled_effect_priors_pre_failure(self):
+        block = Stage4FrontierBlock(
+            id="dynamics:sleep",
+            kind="dynamics_prior",
+            label="Dynamics prior",
+            construct_names=("sleep",),
+            parameter_names=("rho_sleep", "sigma_sleep"),
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "rho_sleep",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "structural_context": {"construct": "sleep"},
+                },
+                {
+                    "parameter": "sigma_sleep",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "structural_context": {"construct": "sleep"},
+                },
+                {
+                    "parameter": "beta_stress_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "stress",
+                        "effect": "sleep",
+                        "lagged": True,
+                    },
+                },
+            ],
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedArtifacts(
+                model_spec={
+                    "parameters": [
+                        {"name": "rho_sleep"},
+                        {"name": "sigma_sleep"},
+                        {"name": "beta_stress_sleep"},
+                    ]
+                },
+                authored_priors={
+                    "beta_stress_sleep": {
+                        "parameter": "beta_stress_sleep",
+                        "distribution": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.15},
+                        "sources": [],
+                        "reasoning": "incoming effect prior",
+                    }
+                },
+            ),
+        )
+
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "Accepted Coupled Priors Outside This Edit Scope" in user_content
+        assert "`beta_stress_sleep`" in user_content
+        assert "Normal(mu=0.0, sigma=0.15)" in user_content
 
     def test_messages_for_effect_scope_include_neighboring_topology_context(self):
         block = Stage4FrontierBlock(
@@ -1231,6 +1534,87 @@ class TestStage4Messages:
 
         assert "| stress | sleep | yes | Primary effect under review |" in user_content
         assert "| mood | sleep | yes | Competing parent of sleep |" in user_content
+
+    def test_messages_for_effect_scope_include_feedback_scc_membership_summary(self):
+        block = Stage4FrontierBlock(
+            id="effects:sleep",
+            kind="effect_prior",
+            label="Effect prior",
+            construct_names=("activity", "sleep"),
+            parameter_names=("beta_activity_sleep",),
+            payload={"target_construct": "sleep", "cause_names": ("activity",)},
+        )
+        msgs = Stage4Messages(
+            question="Does activity affect sleep?",
+            model_topology={
+                "model_clock": "1d",
+                "model_interval_days": 1.0,
+                "outcome": "sleep",
+                "latent_edges": [
+                    {
+                        "cause": "activity",
+                        "effect": "sleep",
+                        "lagged": True,
+                        "description": "Incoming edge under review",
+                    },
+                    {
+                        "cause": "sleep",
+                        "effect": "mood",
+                        "lagged": True,
+                        "description": "Cycle continuation",
+                    },
+                    {
+                        "cause": "mood",
+                        "effect": "stress",
+                        "lagged": True,
+                        "description": "Cycle continuation",
+                    },
+                    {
+                        "cause": "stress",
+                        "effect": "activity",
+                        "lagged": True,
+                        "description": "Cycle closure",
+                    },
+                ],
+            },
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "beta_activity_sleep",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "structural_context": {
+                        "cause": "activity",
+                        "effect": "sleep",
+                        "lagged": True,
+                        "expected_lag_days": 1.0,
+                        "feedback_loop": True,
+                    },
+                }
+            ],
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedArtifacts(
+                model_spec={"parameters": [{"name": "beta_activity_sleep"}]}
+            ),
+        )
+
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        user_content = messages[1]["content"]
+
+        assert "### SCC Membership" in user_content
+        assert "| sleep, activity | activity, sleep, mood, stress | yes |" in user_content
 
     def test_messages_for_narrowed_effect_repair_scope_do_not_reexpand_neighboring_topology(self):
         block = Stage4FrontierBlock(
@@ -1308,6 +1692,92 @@ class TestStage4Messages:
         assert "| sleep | activity | yes | Reciprocal SCC edge under repair |" in user_content
         assert "Outside-SCC parent that should stay hidden" not in user_content
         assert "| stress | sleep | yes |" not in user_content
+
+    def test_messages_for_correlation_scope_include_scale_coupling_context_and_guidance(self):
+        block = Stage4FrontierBlock(
+            id="correlation:cor_sleep_stress",
+            kind="correlation_prior",
+            label="Correlation prior",
+            construct_names=("sleep", "stress"),
+            parameter_names=("cor_sleep_stress",),
+        )
+        msgs = Stage4Messages(
+            question="Does stress affect sleep?",
+            model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
+            distribution_cards=[],
+            loading_params=[],
+            construct_scale_cards=[],
+            prior_cards=[
+                {
+                    "parameter": "cor_sleep_stress",
+                    "role": "correlation",
+                    "constraint": "correlation",
+                    "structural_context": {
+                        "construct_1": "sleep",
+                        "construct_2": "stress",
+                        "dependency_kind": "diffusion",
+                    },
+                },
+                {
+                    "parameter": "sigma_sleep",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "structural_context": {"construct": "sleep"},
+                },
+                {
+                    "parameter": "t0_sd_stress",
+                    "role": "initial_state_sd",
+                    "constraint": "positive",
+                    "structural_context": {"construct": "stress"},
+                },
+            ],
+        )
+        plan = _make_plan(prior_blocks=(block,))
+        runtime = _make_runtime(
+            plan,
+            phase="prior_blocks",
+            active_block_id=block.id,
+            accepted=Stage4AcceptedArtifacts(
+                model_spec={
+                    "parameters": [
+                        {"name": "cor_sleep_stress"},
+                        {"name": "sigma_sleep"},
+                        {"name": "t0_sd_stress"},
+                    ]
+                },
+                authored_priors={
+                    "sigma_sleep": {
+                        "parameter": "sigma_sleep",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.25},
+                        "sources": [],
+                        "reasoning": "sleep scale prior",
+                    },
+                    "t0_sd_stress": {
+                        "parameter": "t0_sd_stress",
+                        "distribution": "HalfNormal",
+                        "params": {"sigma": 0.8},
+                        "sources": [],
+                        "reasoning": "stress initial-state scale prior",
+                    },
+                },
+            ),
+        )
+
+        messages = msgs.messages_for_block(
+            block,
+            plan,
+            runtime,
+            get_stage4_block_handler(block.kind),
+        )
+        system_content = messages[0]["content"]
+        user_content = messages[1]["content"]
+
+        assert "## Continuous-Time Dynamics" in system_content
+        assert "## Initial-State Scale Discipline" in system_content
+        assert "Accepted Coupled Priors Outside This Edit Scope" in user_content
+        assert "`sigma_sleep`" in user_content
+        assert "`t0_sd_stress`" in user_content
 
     def test_messages_for_scope_respects_visible_sections_even_when_data_matches(self):
         block = Stage4FrontierBlock(
@@ -1474,7 +1944,19 @@ class TestStage4Messages:
         msgs = Stage4Messages(
             question="Does stress affect sleep?",
             model_topology={"model_clock": "1d", "model_interval_days": 1.0, "outcome": "sleep"},
-            distribution_cards=[],
+            distribution_cards=[
+                {
+                    "variable": "worry_score",
+                    "construct": "stress",
+                    "measurement_dtype": "binary",
+                    "aggregation": "mean",
+                    "effective_window": "1d",
+                    "how_to_measure": "Daily worry indicator",
+                    "options": [{"distribution": "bernoulli", "links": ["logit", "probit"]}],
+                    "profile": {"n_obs": 40},
+                    "validation_issues": [],
+                }
+            ],
             loading_params=[],
             construct_scale_cards=[
                 {
@@ -1558,6 +2040,7 @@ class TestStage4Messages:
         )
         user_content = messages[1]["content"]
 
+        assert "### Distribution Decision Cards" in user_content
         assert "`bernoulli` / `probit`" in user_content
         assert (
             "| lambda_worry_score_stress | stress | worry_score | pss_score | positive |"
