@@ -499,6 +499,7 @@ def _support_aware_ieks_mode(
     window_derivatives: tuple[Any, ...],
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
+    iterate_to_convergence: bool = False,
     factor_block_cholesky_fn=_factor_block_profile_cholesky,
     solve_block_from_cholesky_fn=_solve_block_profile_from_cholesky,
 ) -> tuple[
@@ -566,124 +567,122 @@ def _support_aware_ieks_mode(
     log_joint_curr = _support_log_joint(z_est)
     init_log_joint = log_joint_curr
 
-    def _newton_step(carry, _idx):
+    def _newton_step(carry):
         (
             z_curr,
             log_joint_prev,
             damping,
-            active,
+            _active,
             n_iterations,
             n_accepted_steps,
-            last_rel_change,
-            last_alpha,
-            last_step_norm,
+            _last_rel_change,
+            _last_alpha,
+            _last_step_norm,
         ) = carry
-        damping = jnp.asarray(damping, dtype=z_curr.dtype)
-        carry_cast = (
+        damping_curr = damping
+        with jax.named_scope("laplace_em/support_aware_observation_system"):
+            obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
+                z_curr,
+                observations,
+                obs_mask,
+                H,
+                d,
+                R,
+                obs_kernel,
+                support_window_batches,
+                point_like_mask,
+                window_derivatives,
+                bandwidth,
+            )
+        system_diag = (
+            prior_diag + obs_diag + damping_curr * jnp.eye(D, dtype=z_curr.dtype)[None, :, :]
+        )
+        system_upper = prior_upper + obs_upper
+        system_rhs = prior_rhs + obs_rhs
+        system_diag = system_diag.astype(system_dtype)
+        system_upper = system_upper.astype(system_dtype)
+        system_rhs = system_rhs.astype(system_dtype)
+        with jax.named_scope("laplace_em/support_aware_solve"):
+            chol_diag, lower = factor_block_cholesky_fn(
+                system_diag,
+                system_upper,
+                row_upper_bandwidths,
+                row_lower_bandwidths,
+            )
+            z_newton = solve_block_from_cholesky_fn(
+                chol_diag,
+                lower,
+                system_rhs,
+                row_upper_bandwidths,
+                row_lower_bandwidths,
+            )
+
+        step_direction = z_newton - z_curr
+        step_norm = jnp.linalg.norm(step_direction)
+        z_next, log_joint_next, accepted, accepted_alpha = _support_aware_step_halving_search(
             z_curr,
+            step_direction,
             log_joint_prev,
-            damping,
-            active,
-            n_iterations,
-            n_accepted_steps,
-            last_rel_change,
-            last_alpha,
-            last_step_norm,
+            _support_log_joint,
         )
 
-        def _do_step(_):
-            damping_curr = damping
-            with jax.named_scope("laplace_em/support_aware_observation_system"):
-                obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
-                    z_curr,
-                    observations,
-                    obs_mask,
-                    H,
-                    d,
-                    R,
-                    obs_kernel,
-                    support_window_batches,
-                    point_like_mask,
-                    window_derivatives,
-                    bandwidth,
-                )
-            system_diag = (
-                prior_diag + obs_diag + damping_curr * jnp.eye(D, dtype=z_curr.dtype)[None, :, :]
-            )
-            system_upper = prior_upper + obs_upper
-            system_rhs = prior_rhs + obs_rhs
-            system_diag = system_diag.astype(system_dtype)
-            system_upper = system_upper.astype(system_dtype)
-            system_rhs = system_rhs.astype(system_dtype)
-            with jax.named_scope("laplace_em/support_aware_solve"):
-                chol_diag, lower = factor_block_cholesky_fn(
-                    system_diag,
-                    system_upper,
-                    row_upper_bandwidths,
-                    row_lower_bandwidths,
-                )
-                z_newton = solve_block_from_cholesky_fn(
-                    chol_diag,
-                    lower,
-                    system_rhs,
-                    row_upper_bandwidths,
-                    row_lower_bandwidths,
-                )
+        rel_change = jnp.linalg.norm(z_next - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
+        accepted_full_step = accepted & (accepted_alpha > 0.999)
 
-            step_direction = z_newton - z_curr
-            step_norm = jnp.linalg.norm(step_direction)
-            z_next, log_joint_next, accepted, accepted_alpha = _support_aware_step_halving_search(
-                z_curr,
-                step_direction,
-                log_joint_prev,
-                _support_log_joint,
-            )
-
-            rel_change = jnp.linalg.norm(z_next - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
-            accepted_full_step = accepted & (accepted_alpha > 0.999)
-
-            damping_next = jax.lax.cond(
-                accepted_full_step,
-                lambda _: jnp.maximum(
-                    damping * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_SHRINK, dtype=z_curr.dtype),
-                    jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MIN, dtype=z_curr.dtype),
-                ),
-                lambda _: jax.lax.cond(
-                    accepted,
-                    lambda __: damping_curr,
-                    lambda __: jnp.minimum(
-                        damping_curr
-                        * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_GROWTH, dtype=z_curr.dtype),
-                        jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_curr.dtype),
-                    ),
-                    operand=None,
-                ),
-                operand=None,
-            )
-            next_active = jax.lax.cond(
+        damping_next = jax.lax.cond(
+            accepted_full_step,
+            lambda _: jnp.maximum(
+                damping * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_SHRINK, dtype=z_curr.dtype),
+                jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MIN, dtype=z_curr.dtype),
+            ),
+            lambda _: jax.lax.cond(
                 accepted,
-                lambda _: rel_change > _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL,
-                lambda _: (
-                    damping_next < jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_curr.dtype)
+                lambda __: damping_curr,
+                lambda __: jnp.minimum(
+                    damping_curr
+                    * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_GROWTH, dtype=z_curr.dtype),
+                    jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_curr.dtype),
                 ),
                 operand=None,
-            )
-            return (
-                z_next,
-                log_joint_next,
-                damping_next,
-                next_active,
-                n_iterations + jnp.asarray(1, dtype=jnp.int32),
-                n_accepted_steps + accepted.astype(jnp.int32),
-                rel_change,
-                accepted_alpha,
-                step_norm,
-            )
+            ),
+            operand=None,
+        )
+        next_active = jax.lax.cond(
+            accepted,
+            lambda _: rel_change > _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL,
+            lambda _: damping_next < jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_curr.dtype),
+            operand=None,
+        )
+        return (
+            z_next,
+            log_joint_next,
+            damping_next,
+            next_active,
+            n_iterations + jnp.asarray(1, dtype=jnp.int32),
+            n_accepted_steps + accepted.astype(jnp.int32),
+            rel_change,
+            accepted_alpha,
+            step_norm,
+        )
 
-        return jax.lax.cond(active, _do_step, lambda _: carry_cast, operand=None), None
+    init_carry = (
+        z_est,
+        log_joint_curr,
+        jnp.asarray(_SUPPORT_AWARE_LM_DAMPING, dtype=z_est.dtype),
+        jnp.asarray(True),
+        jnp.asarray(0, dtype=jnp.int32),
+        jnp.asarray(0, dtype=jnp.int32),
+        jnp.asarray(jnp.nan, dtype=z_est.dtype),
+        jnp.asarray(jnp.nan, dtype=z_est.dtype),
+        jnp.asarray(jnp.nan, dtype=z_est.dtype),
+    )
+    max_iters = jnp.asarray(max(n_ieks_iters, 1), dtype=jnp.int32)
 
     with jax.named_scope("laplace_em/support_aware_newton"):
-        (
+        if iterate_to_convergence:
+            def _continue(carry):
+                return carry[3] & (carry[4] < max_iters)
+
             (
                 z_est,
                 _mode_log_joint,
@@ -694,23 +693,39 @@ def _support_aware_ieks_mode(
                 final_rel_change,
                 final_step_alpha,
                 final_step_norm,
-            ),
-            _,
-        ) = jax.lax.scan(
-            _newton_step,
+            ) = jax.lax.while_loop(
+                _continue,
+                _newton_step,
+                init_carry,
+            )
+        else:
+            def _scan_step(carry, _idx):
+                carry_cast = carry
+                return jax.lax.cond(
+                    carry[3],
+                    _newton_step,
+                    lambda _: carry_cast,
+                    operand=carry,
+                ), None
+
             (
-                z_est,
-                log_joint_curr,
-                jnp.asarray(_SUPPORT_AWARE_LM_DAMPING, dtype=z_est.dtype),
-                jnp.asarray(True),
-                jnp.asarray(0, dtype=jnp.int32),
-                jnp.asarray(0, dtype=jnp.int32),
-                jnp.asarray(jnp.nan, dtype=z_est.dtype),
-                jnp.asarray(jnp.nan, dtype=z_est.dtype),
-                jnp.asarray(jnp.nan, dtype=z_est.dtype),
-            ),
-            xs=jnp.arange(max(n_ieks_iters, 1)),
-        )
+                (
+                    z_est,
+                    _mode_log_joint,
+                    final_damping,
+                    _active,
+                    n_iterations,
+                    n_accepted_steps,
+                    final_rel_change,
+                    final_step_alpha,
+                    final_step_norm,
+                ),
+                _,
+            ) = jax.lax.scan(
+                _scan_step,
+                init_carry,
+                xs=jnp.arange(max(n_ieks_iters, 1)),
+            )
 
     return z_est, (
         init_log_joint,
@@ -952,6 +967,7 @@ def _support_aware_ieks_laplace_core(
             window_derivatives=window_derivatives_curr,
             n_ieks_iters=n_ieks_iters,
             z_init=z_init,
+            iterate_to_convergence=True,
         )
 
     @jax.custom_vjp
