@@ -115,6 +115,35 @@ class SMCConfig:
 
 
 @dataclass(frozen=True)
+class AuxGibbsLatentKernelConfig:
+    """Latent-kernel settings for auxiliary Gibbs inference."""
+
+    kernel: str = "kalman"
+    delta: float = 0.2
+    target_accept: float = 0.5
+
+
+@dataclass(frozen=True)
+class AuxGibbsParameterKernelConfig:
+    """Parameter-kernel settings for auxiliary Gibbs inference."""
+
+    kernel: str = "mala"
+    step_size: float = 0.05
+    target_accept: float = 0.57
+
+
+@dataclass(frozen=True)
+class AuxGibbsConfig:
+    """Auxiliary Gibbs inference settings."""
+
+    adaptation_rate: float = 0.05
+    init_scale: float = 0.05
+    retain_latent_paths: bool = False
+    latent_kernel: AuxGibbsLatentKernelConfig = AuxGibbsLatentKernelConfig()
+    parameter_kernel: AuxGibbsParameterKernelConfig = AuxGibbsParameterKernelConfig()
+
+
+@dataclass(frozen=True)
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
@@ -126,6 +155,7 @@ class InferenceConfig:
     svi: SVIConfig = SVIConfig()
     nuts: NUTSConfig = NUTSConfig()
     smc: SMCConfig = SMCConfig()
+    aux_gibbs: AuxGibbsConfig = AuxGibbsConfig()
 
     def to_sampler_config(self, method_override: str | None = None) -> dict:
         """Build a flat sampler config dict for SSMModelBuilder.
@@ -157,6 +187,20 @@ class InferenceConfig:
             config.update(dataclasses.asdict(self.svi))
         elif method == "nuts":
             config.update(dataclasses.asdict(self.nuts))
+        elif method == "aux_gibbs":
+            config.update(
+                {
+                    "latent_kernel": self.aux_gibbs.latent_kernel.kernel,
+                    "latent_delta": self.aux_gibbs.latent_kernel.delta,
+                    "latent_target_accept": self.aux_gibbs.latent_kernel.target_accept,
+                    "parameter_kernel": self.aux_gibbs.parameter_kernel.kernel,
+                    "param_step_size": self.aux_gibbs.parameter_kernel.step_size,
+                    "param_target_accept": self.aux_gibbs.parameter_kernel.target_accept,
+                    "adaptation_rate": self.aux_gibbs.adaptation_rate,
+                    "init_scale": self.aux_gibbs.init_scale,
+                    "retain_latent_paths": self.aux_gibbs.retain_latent_paths,
+                }
+            )
         elif method == "map":
             config["n_ieks_iters"] = self.smc.n_ieks_iters
         return config
@@ -245,11 +289,29 @@ def load_config() -> PipelineConfig:
     svi_raw = inference_raw.pop("svi", {})
     nuts_raw = inference_raw.pop("nuts", {})
     smc_raw = inference_raw.pop("smc", {})
+    aux_gibbs_raw = inference_raw.pop("aux_gibbs", {})
+    aux_gibbs_latent_raw = aux_gibbs_raw.pop("latent_kernel", {})
+    aux_gibbs_parameter_raw = aux_gibbs_raw.pop("parameter_kernel", {})
     inference_config = InferenceConfig(
         **inference_raw,
         svi=SVIConfig(**svi_raw) if svi_raw else SVIConfig(),
         nuts=NUTSConfig(**nuts_raw) if nuts_raw else NUTSConfig(),
         smc=SMCConfig(**smc_raw) if smc_raw else SMCConfig(),
+        aux_gibbs=AuxGibbsConfig(
+            **aux_gibbs_raw,
+            latent_kernel=(
+                AuxGibbsLatentKernelConfig(**aux_gibbs_latent_raw)
+                if aux_gibbs_latent_raw
+                else AuxGibbsLatentKernelConfig()
+            ),
+            parameter_kernel=(
+                AuxGibbsParameterKernelConfig(**aux_gibbs_parameter_raw)
+                if aux_gibbs_parameter_raw
+                else AuxGibbsParameterKernelConfig()
+            ),
+        )
+        if aux_gibbs_raw or aux_gibbs_latent_raw or aux_gibbs_parameter_raw
+        else AuxGibbsConfig(),
     )
 
     # Parse llm section (optional)

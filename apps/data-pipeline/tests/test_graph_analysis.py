@@ -765,6 +765,21 @@ class TestPlanInferenceStructure:
         assert plan.method_override == "map"
         assert plan.first_pass_partition is None
 
+    def test_aux_gibbs_override_is_preserved_in_plan(self):
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            lambda_mat=jnp.eye(2),
+            drift_mask=np.eye(2, dtype=bool),
+        )
+
+        plan = plan_inference_structure(spec, method_override="aux_gibbs")
+
+        assert plan.structural_backend == "kalman"
+        assert plan.resolved_method == "aux_gibbs"
+        assert plan.method_override == "aux_gibbs"
+        assert plan.first_pass_partition is None
+
     def test_student_t_diffusion_routes_to_nuts(self):
         """Student-t diffusion noise → nuts."""
         spec = _make_spec(
