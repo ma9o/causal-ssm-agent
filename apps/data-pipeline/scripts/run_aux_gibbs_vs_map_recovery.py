@@ -1,4 +1,9 @@
-"""Compare joint aux_gibbs vs MAP+IEKS on the 10-latent mixed-support recovery.
+"""Recovery comparison: aux_gibbs (default config) vs MAP+IEKS.
+
+Uses the 10-latent mixed-support benchmark from run_nuts_mixed_support_recovery.
+After the cleanup, aux_gibbs defaults are DA+Pathfinder — this script just
+calls ``fit(..., method="aux_gibbs")`` with its defaults so a regression vs
+MAP would immediately show up as width collapse or MAE blow-up.
 
 Usage:
     uv run python scripts/run_aux_gibbs_vs_map_recovery.py
@@ -13,19 +18,21 @@ from pathlib import Path
 from typing import Any
 
 import jax
+import jax.numpy as jnp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_nuts_mixed_support_recovery import (  # noqa: E402
+from run_nuts_mixed_support_recovery import (
     _make_mixed_support_recovery_data,
     _summarize_family_recovery,
 )
 
-from causal_ssm_agent.models.ssm import SSMModel, fit  # noqa: E402
+from causal_ssm_agent.models.ssm import SSMModel, fit
 
 
-def _run_one(method: str, data: dict[str, Any], **fit_kwargs: Any) -> dict[str, Any]:
+def _run_one(method: str, label: str, data: dict[str, Any], **fit_kwargs: Any) -> dict[str, Any]:
     model = SSMModel(data["spec"], data["priors"], likelihood="particle")
     model.set_observation_support(data["observation_support"])
+    print(f"[compare] running {label}...", flush=True)
     t0 = time.perf_counter()
     result = fit(
         model,
@@ -36,71 +43,69 @@ def _run_one(method: str, data: dict[str, Any], **fit_kwargs: Any) -> dict[str, 
     )
     elapsed = time.perf_counter() - t0
     summary = _summarize_family_recovery(result.get_samples(), data)
-    sampler_diag: dict[str, Any] = {}
+    diag: dict[str, Any] = {}
     if method == "aux_gibbs":
-        sampler_diag = {
-            k: v
-            for k, v in result.diagnostics.get("aux_gibbs", {}).items()
-            if not isinstance(v, dict)
-        }
-    return {
-        "method": method,
-        "elapsed_seconds": elapsed,
-        "summary": summary,
-        "sampler_diag": sampler_diag,
-    }
+        aux = result.diagnostics.get("aux_gibbs", {})
+        for k in (
+            "adaptation_scheme",
+            "init_method",
+            "latent_accept_rate",
+            "parameter_accept_rate",
+        ):
+            if k in aux:
+                diag[k] = aux[k]
+        for k in ("final_latent_delta", "final_param_step_size"):
+            if k in aux:
+                diag[k + "_mean"] = float(jnp.asarray(aux[k]).mean())
+    print(f"[compare] {label} done in {elapsed:.1f}s  diag={diag}")
+    return {"label": label, "elapsed_seconds": elapsed, "summary": summary, "diag": diag}
 
 
 def main() -> None:
-    n_time = 40
-    print(f"[compare] backend={jax.default_backend()} devices={jax.devices()}")
-    print(f"[compare] building 10-latent mixed-support recovery (n_time={n_time})")
-    data = _make_mixed_support_recovery_data(n_time=n_time)
+    print(f"[compare] backend={jax.default_backend()}")
+    data = _make_mixed_support_recovery_data(n_time=40)
+    runs = [
+        _run_one(
+            "map",
+            "map",
+            data,
+            num_samples=500,
+            seed=0,
+            n_ieks_iters=6,
+            maxiter=200,
+            parameter_covariance_method="optimizer_hess_inv",
+        ),
+        _run_one(
+            "aux_gibbs",
+            "aux_gibbs (defaults)",
+            data,
+            num_warmup=500,
+            num_samples=500,
+            num_chains=4,
+            seed=0,
+            latent_delta=0.01,
+            param_step_size=0.03,
+            init_scale=0.03,
+        ),
+    ]
 
-    # MAP + IEKS baseline.
-    print("[compare] running method=map (MAP + IEKS + Laplace widths)...", flush=True)
-    map_run = _run_one(
-        "map",
-        data,
-        num_samples=400,
-        seed=0,
-        n_ieks_iters=6,
-        maxiter=200,
-        parameter_covariance_method="optimizer_hess_inv",
-    )
-    print(f"[compare] map done in {map_run['elapsed_seconds']:.1f}s")
-
-    # Joint aux_gibbs (new kernel under eq 8 reparametrisation).
-    print("[compare] running method=aux_gibbs (joint (x, theta) MH)...", flush=True)
-    aux_run = _run_one(
-        "aux_gibbs",
-        data,
-        num_warmup=2000,
-        num_samples=400,
-        num_chains=4,
-        seed=0,
-        latent_delta=0.01,
-        param_step_size=0.03,
-        latent_target_accept=0.5,
-        param_target_accept=0.57,
-        adaptation_rate=0.05,
-        init_scale=0.03,
-    )
-    print(f"[compare] aux_gibbs done in {aux_run['elapsed_seconds']:.1f}s")
-    print(f"[aux_gibbs diag] {aux_run['sampler_diag']}")
+    families = ("drift", "diffusion_sd", "obs_scale", "obs_df")
+    metrics = ("mean_abs_error", "mean_ci_width", "coverage")
+    print()
+    header = f"{'family':<14}{'metric':<14}" + "".join(f"{r['label']:>26}" for r in runs)
+    print(header)
+    print("-" * len(header))
+    for fam in families:
+        for metric in metrics:
+            row = f"{fam:<14}{metric:<14}"
+            for r in runs:
+                row += f"{r['summary'][fam][metric]:>26.4f}"
+            print(row)
 
     print()
-    print(f"{'family':<16}{'metric':<12}{'aux_gibbs':>12}{'map':>12}")
-    print("-" * 52)
-    for family in ("drift", "diffusion_sd", "obs_scale", "obs_df"):
-        for metric in ("mean_abs_error", "mean_ci_width", "coverage"):
-            av = aux_run["summary"][family][metric]
-            mv = map_run["summary"][family][metric]
-            print(f"{family:<16}{metric:<12}{av:>12.4f}{mv:>12.4f}")
-
+    print("elapsed_seconds: " + ", ".join(f"{r['label']}={r['elapsed_seconds']:.1f}" for r in runs))
     print()
-    payload = {"aux_gibbs": aux_run, "map": map_run}
-    print(json.dumps(payload, indent=2, default=float, sort_keys=True))
+    print(json.dumps(runs, indent=2, default=float, sort_keys=True))
 
 
 if __name__ == "__main__":
