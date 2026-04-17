@@ -1,4 +1,4 @@
-"""Auxiliary Gibbs sampler with pluggable latent and parameter kernels."""
+"""Auxiliary Gibbs sampler: blocked eq-8 aux-Kalman latent + MALA parameter."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def fit_aux_gibbs(
     reparam=None,
     **_kwargs,
 ) -> InferenceResult:
-    """Fit an SSM with blocked trajectory/parameter updates."""
+    """Fit an SSM with blocked aux-Kalman/MALA MCMC (eq-8 reparametrisation)."""
     if latent_kernel != "kalman":
         raise ValueError(
             f"Unsupported aux_gibbs latent kernel {latent_kernel!r}. Supported: 'kalman'."

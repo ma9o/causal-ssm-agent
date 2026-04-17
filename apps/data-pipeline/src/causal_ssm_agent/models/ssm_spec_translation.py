@@ -11,6 +11,7 @@ from causal_ssm_agent.artifacts.model_spec import (
     InitializationPolicy,
     LinkFunction,
     ModelSpec,
+    ObservationInterceptPolicy,
     ParameterRole,
 )
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
@@ -266,20 +267,31 @@ def build_masks_from_causal_spec(
 def build_manifest_variance_from_causal_spec(
     latent_names: list[str] | None,
     manifest_cols: list[str],
+    manifest_dists: list[DistributionFamily],
     *,
     causal_spec: dict | None,
 ) -> tuple[jnp.ndarray, np.ndarray]:
     """Build manifest-noise structure from the retained measurement model.
 
-    Single-indicator constructs absorb measurement error into the structural
-    residual, so their manifest channels get fixed zero observation noise.
-    Multi-indicator constructs keep free diagonal manifest noise.
+    A diagonal manifest-noise entry is free only when both conditions hold:
+    - the construct has more than one indicator (single-indicator constructs
+      absorb measurement error into the structural residual, so their manifest
+      channels get fixed zero observation noise), and
+    - the indicator's observation family actually reads per-channel noise in
+      its emission log-prob (see ``DistributionFamily.uses_manifest_noise``).
+      Non-Gaussian, non-Student-t families (Poisson, Gamma, Bernoulli,
+      Negative-Binomial, Beta, Ordered-Logistic, Categorical) ignore R, so a
+      free noise site would be a disconnected parameter.
     """
+    n_manifest = len(manifest_cols)
+    empty_variance = jnp.zeros((n_manifest, n_manifest))
+    family_noise_mask = np.array(
+        [dist.uses_manifest_noise for dist in manifest_dists],
+        dtype=bool,
+    )
+
     if causal_spec is None or latent_names is None:
-        return (
-            jnp.zeros((len(manifest_cols), len(manifest_cols))),
-            full_diagonal_mask(len(manifest_cols)),
-        )
+        return empty_variance, family_noise_mask
 
     indicators = get_indicators(causal_spec)
     latent_name_set = set(latent_names)
@@ -302,17 +314,18 @@ def build_manifest_variance_from_causal_spec(
         )
 
     if not manifest_to_construct:
-        return (
-            jnp.zeros((len(manifest_cols), len(manifest_cols))),
-            full_diagonal_mask(len(manifest_cols)),
-        )
+        return empty_variance, family_noise_mask
 
-    manifest_var_mask = np.ones(len(manifest_cols), dtype=bool)
+    manifest_var_mask = np.zeros(n_manifest, dtype=bool)
     for manifest_name, construct_name in manifest_to_construct.items():
-        if indicators_per_construct.get(construct_name) == 1:
-            manifest_var_mask[manifest_idx[manifest_name]] = False
+        if indicators_per_construct.get(construct_name, 0) <= 1:
+            continue
+        idx = manifest_idx[manifest_name]
+        if not manifest_dists[idx].uses_manifest_noise:
+            continue
+        manifest_var_mask[idx] = True
 
-    manifest_var = np.zeros((len(manifest_cols), len(manifest_cols)), dtype=np.float64)
+    manifest_var = np.zeros((n_manifest, n_manifest), dtype=np.float64)
     return jnp.array(manifest_var), manifest_var_mask
 
 
@@ -584,6 +597,7 @@ def translate_spec(
     manifest_chol, manifest_chol_diag_mask = build_manifest_variance_from_causal_spec(
         latent_names,
         manifest_cols,
+        manifest_dists,
         causal_spec=causal_spec,
     )
     try:
@@ -641,12 +655,18 @@ def translate_spec(
         t0_chol_diag_mask = np.zeros(n_latent, dtype=bool)
         t0_chol_diag_mask[~dynamic_mask] = True
 
-    manifest_means_mask = _build_role_index_lookup(
-        model_spec,
-        role=ParameterRole.OBSERVATION_INTERCEPT,
-        prefix="manifest_mean_",
-        names=manifest_cols,
+    observation_intercept_policy = ObservationInterceptPolicy(
+        model_spec.observation_intercept_policy
     )
+    if observation_intercept_policy == ObservationInterceptPolicy.FIXED:
+        manifest_means_mask = zero_vector_mask(n_manifest)
+    else:
+        manifest_means_mask = _build_role_index_lookup(
+            model_spec,
+            role=ParameterRole.OBSERVATION_INTERCEPT,
+            prefix="manifest_mean_",
+            names=manifest_cols,
+        )
     if model_spec.equilibrium_forcing:
         cint_mask = _build_role_index_lookup(
             model_spec,
@@ -704,6 +724,7 @@ def translate_spec(
         manifest_names=manifest_cols,
         static_factor_names=static_factor_names,
         initialization_policy=initialization_policy.value,
+        observation_intercept_policy=observation_intercept_policy.value,
         lambda_mask=lambda_mask,
         time_invariant_mask=time_invariant_mask,
     )

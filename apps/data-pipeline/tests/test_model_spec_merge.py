@@ -8,6 +8,7 @@ from causal_ssm_agent.artifacts import (
     DistributionFamily,
     InitializationPolicy,
     LinkFunction,
+    ObservationInterceptPolicy,
     ParameterConstraint,
     validate_model_spec_dict,
 )
@@ -253,6 +254,7 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             initialization_policy=InitializationPolicy.STATIONARY,
+            observation_intercept_policy=ObservationInterceptPolicy.FREE,
             equilibrium_forcing=False,
             distribution_choices=[],
         )
@@ -274,6 +276,7 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             initialization_policy=InitializationPolicy.STATIONARY,
+            observation_intercept_policy=ObservationInterceptPolicy.FREE,
             equilibrium_forcing=False,
             distribution_choices=[
                 DistributionChoice(
@@ -309,6 +312,7 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             initialization_policy=InitializationPolicy.STATIONARY,
+            observation_intercept_policy=ObservationInterceptPolicy.FREE,
             equilibrium_forcing=False,
             distribution_choices=[
                 DistributionChoice(
@@ -363,6 +367,7 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             initialization_policy=InitializationPolicy.STATIONARY,
+            observation_intercept_policy=ObservationInterceptPolicy.FREE,
             equilibrium_forcing=False,
             distribution_choices=[],
         )
@@ -372,6 +377,83 @@ class TestMergeDecisionsToSpec:
         assert errors == []
         assert spec is not None
         assert [parameter.name for parameter in spec.parameters] == ["beta_x"]
+
+    def test_merge_filters_observation_intercepts_when_policy_fixed(self):
+        resolved = [
+            {
+                "variable": "steps",
+                "distribution": "poisson",
+                "link": "log",
+                "reasoning": "resolved for test",
+            },
+        ]
+        params = [
+            {
+                "name": "manifest_mean_steps",
+                "role": "observation_intercept",
+                "constraint": "none",
+                "description": "Observation intercept for steps",
+                "indicator": "steps",
+            },
+            {
+                "name": "beta_x",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "Effect of X",
+            },
+        ]
+        decisions = ModelSpecDecisions(
+            initialization_policy=InitializationPolicy.STATIONARY,
+            observation_intercept_policy=ObservationInterceptPolicy.FIXED,
+            equilibrium_forcing=False,
+            distribution_choices=[],
+        )
+
+        spec, errors = merge_decisions_to_spec(resolved, [], params, decisions)
+
+        assert errors == []
+        assert spec is not None
+        assert [parameter.name for parameter in spec.parameters] == ["beta_x"]
+
+    def test_merge_retains_observation_intercepts_when_policy_free(self):
+        resolved = [
+            {
+                "variable": "steps",
+                "distribution": "poisson",
+                "link": "log",
+                "reasoning": "resolved for test",
+            },
+        ]
+        params = [
+            {
+                "name": "manifest_mean_steps",
+                "role": "observation_intercept",
+                "constraint": "none",
+                "description": "Observation intercept for steps",
+                "indicator": "steps",
+            },
+            {
+                "name": "beta_x",
+                "role": "fixed_effect",
+                "constraint": "none",
+                "description": "Effect of X",
+            },
+        ]
+        decisions = ModelSpecDecisions(
+            initialization_policy=InitializationPolicy.STATIONARY,
+            observation_intercept_policy=ObservationInterceptPolicy.FREE,
+            equilibrium_forcing=False,
+            distribution_choices=[],
+        )
+
+        spec, errors = merge_decisions_to_spec(resolved, [], params, decisions)
+
+        assert errors == []
+        assert spec is not None
+        assert [parameter.name for parameter in spec.parameters] == [
+            "manifest_mean_steps",
+            "beta_x",
+        ]
 
     def test_merge_marks_centered_gaussian_interval_mean(self):
         resolved = [
@@ -387,6 +469,7 @@ class TestMergeDecisionsToSpec:
         ]
         decisions = ModelSpecDecisions(
             initialization_policy=InitializationPolicy.STATIONARY,
+            observation_intercept_policy=ObservationInterceptPolicy.FREE,
             equilibrium_forcing=False,
             distribution_choices=[],
         )
@@ -430,6 +513,7 @@ class TestValidateModelSpecDecisionsDict:
     def test_valid_decisions(self):
         data = {
             "initialization_policy": "stationary",
+            "observation_intercept_policy": "free",
             "equilibrium_forcing": False,
             "distribution_choices": [
                 {
@@ -457,6 +541,7 @@ class TestValidateModelSpecDecisionsDict:
     def test_missing_ambiguous_decision(self):
         data = {
             "initialization_policy": "stationary",
+            "observation_intercept_policy": "free",
             "equilibrium_forcing": False,
             "distribution_choices": [],  # missing decision for 'steps'
             "reasoning": "test",
@@ -470,6 +555,7 @@ class TestValidateModelSpecDecisionsDict:
     def test_invalid_distribution_in_choices(self):
         data = {
             "initialization_policy": "stationary",
+            "observation_intercept_policy": "free",
             "equilibrium_forcing": False,
             "distribution_choices": [
                 {"variable": "steps", "distribution": "bad_dist", "link": "log", "reasoning": "r"},
@@ -486,6 +572,7 @@ class TestValidateModelSpecDecisionsDict:
         """When no ambiguous indicators, no distribution_choices needed."""
         data = {
             "initialization_policy": "stationary",
+            "observation_intercept_policy": "free",
             "equilibrium_forcing": False,
             "distribution_choices": [],
             "reasoning": "test",
@@ -513,6 +600,7 @@ class TestValidateModelSpecDecisionsDict:
 
         assert spec is None
         assert any("initialization_policy" in error for error in errors)
+        assert any("observation_intercept_policy" in error for error in errors)
         assert any("equilibrium_forcing" in error for error in errors)
 
 

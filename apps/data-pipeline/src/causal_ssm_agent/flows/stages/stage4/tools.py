@@ -108,18 +108,23 @@ def make_submit_model_configuration_tool(state: Any) -> Any:
     async def _execute(
         *,
         initialization_policy: str,
+        observation_intercept_policy: str,
         equilibrium_forcing: bool,
         reasoning: str,
     ) -> str:
         return state.submit_model_configuration(
             initialization_policy=initialization_policy,
+            observation_intercept_policy=observation_intercept_policy,
             equilibrium_forcing=equilibrium_forcing,
             reasoning=reasoning,
         )
 
     return Tool(
         name="submit_model_configuration",
-        description="Submit the global initialization and equilibrium-forcing decision.",
+        description=(
+            "Submit the global initialization, observation-intercept, and "
+            "equilibrium-forcing decision."
+        ),
         parameters={
             "type": "object",
             "properties": {
@@ -127,6 +132,11 @@ def make_submit_model_configuration_tool(state: Any) -> Any:
                     "type": "string",
                     "enum": ["stationary", "free"],
                     "description": "Global initial-state policy for retained dynamic states.",
+                },
+                "observation_intercept_policy": {
+                    "type": "string",
+                    "enum": ["fixed", "free"],
+                    "description": "Whether eligible manifest intercepts remain free or are fixed.",
                 },
                 "equilibrium_forcing": {
                     "type": "boolean",
@@ -137,7 +147,12 @@ def make_submit_model_configuration_tool(state: Any) -> Any:
                     "description": "Short justification for the global model configuration.",
                 },
             },
-            "required": ["initialization_policy", "equilibrium_forcing", "reasoning"],
+            "required": [
+                "initialization_policy",
+                "observation_intercept_policy",
+                "equilibrium_forcing",
+                "reasoning",
+            ],
             "additionalProperties": False,
         },
         execute=_execute,

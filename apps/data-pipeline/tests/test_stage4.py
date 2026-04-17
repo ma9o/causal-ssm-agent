@@ -2449,6 +2449,7 @@ def _accept_default_model_configuration(
             "block_kind": "model_configuration",
             "proposal": {
                 "initialization_policy": "stationary",
+                "observation_intercept_policy": "free",
                 "equilibrium_forcing": False,
                 "reasoning": "Default Stage 4 test configuration.",
             },
@@ -2749,6 +2750,7 @@ def _make_scripted_stage4_generate(
             submit_tool = next(tool for tool in tools if tool.name == "submit_model_configuration")
             feedback = await submit_tool(
                 initialization_policy="stationary",
+                observation_intercept_policy="free",
                 equilibrium_forcing=False,
                 reasoning="Default Stage 4 test configuration.",
             )
@@ -2810,6 +2812,7 @@ def _make_scripted_stage4_generate_by_block(
             submit_tool = next(tool for tool in tools if tool.name == "submit_model_configuration")
             feedback = await submit_tool(
                 initialization_policy="stationary",
+                observation_intercept_policy="free",
                 equilibrium_forcing=False,
                 reasoning="Default Stage 4 test configuration.",
             )
@@ -4207,6 +4210,7 @@ class TestSSMPriorConversion:
                 },
             ],
             "initialization_policy": "stationary",
+            "observation_intercept_policy": "free",
             "equilibrium_forcing": False,
         }
         priors = {
@@ -4609,6 +4613,7 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
             domain=Stage4DomainState(
                 draft_model=Stage4DraftModel(
                     initialization_policy="stationary",
+                    observation_intercept_policy="free",
                     equilibrium_forcing=False,
                 )
             )
@@ -5497,6 +5502,7 @@ class TestStage4Mechanics:
                     {"name": "tau_U"},
                 ],
                 "initialization_policy": "stationary",
+                "observation_intercept_policy": "free",
                 "equilibrium_forcing": False,
             },
             authored_priors={
@@ -5616,6 +5622,7 @@ class TestStage4Mechanics:
                     {"name": "tau_U"},
                 ],
                 "initialization_policy": "stationary",
+                "observation_intercept_policy": "free",
                 "equilibrium_forcing": False,
             },
             authored_priors={
@@ -5854,6 +5861,7 @@ class TestStage4Mechanics:
                 {"name": "tau_U"},
             ],
             "initialization_policy": "stationary",
+            "observation_intercept_policy": "free",
             "equilibrium_forcing": False,
         }
         runtime.domain.accepted = Stage4AcceptedArtifacts(
@@ -8336,6 +8344,7 @@ class TestStage4Mechanics:
                 )
                 feedback = await submit_tool(
                     initialization_policy="stationary",
+                    observation_intercept_policy="free",
                     equilibrium_forcing=False,
                     reasoning="Default Stage 4 test configuration.",
                 )

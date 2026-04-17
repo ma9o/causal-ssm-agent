@@ -22,13 +22,15 @@ import numpy as np
 
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
+from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+    build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
+)
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     get_summary_operator_codes,
     get_support_kind_codes,
 )
 
 from .point import (
-    _build_linear_summary_augmented_system,
     _dense_support_laplace_log_lik,
     _ieks_smooth,
     _linear_summary_augmented_ieks_laplace,
@@ -250,6 +252,7 @@ class LaplaceLikelihood:
                 extra_params,
             )
             if self._linear_summary_plan is not None:
+
                 def _build_linear_summary_measurement_objects(
                     manifest_cov: jnp.ndarray,
                     runtime_extra_params: dict | None,
@@ -429,6 +432,7 @@ class LaplaceLikelihood:
             measurement_params.manifest_means[None, :],
             (T_obs, *measurement_params.manifest_means.shape),
         )
+
         def _build_point_measurement_objects(
             manifest_cov: jnp.ndarray,
             runtime_extra_params: dict | None,
@@ -440,6 +444,7 @@ class LaplaceLikelihood:
                 manifest_links=self.manifest_links,
                 observation_support=self.observation_support,
             )
+
         with jax.named_scope("laplace_em/ieks_backend"):
             z_mode, log_lik, inner_eval_aux = _ieks_smooth(
                 clean_obs,

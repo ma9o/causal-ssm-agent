@@ -33,6 +33,13 @@ class InitializationPolicy(StrEnum):
     FREE = "free"
 
 
+class ObservationInterceptPolicy(StrEnum):
+    """Global policy for whether eligible manifest intercepts remain free."""
+
+    FIXED = "fixed"
+    FREE = "free"
+
+
 class ParameterRole(StrEnum):
     """Role of a parameter in the model."""
 
@@ -122,6 +129,10 @@ class ModelSpec(BaseModel):
         default=InitializationPolicy.STATIONARY,
         description="Whether dynamic-state initial conditions are stationary-derived or free",
     )
+    observation_intercept_policy: ObservationInterceptPolicy = Field(
+        default=ObservationInterceptPolicy.FREE,
+        description="Whether eligible manifest intercepts remain free or are fixed",
+    )
     equilibrium_forcing: bool = Field(
         default=False,
         description="Whether eligible dynamic states may carry a continuous-time intercept term",
@@ -143,6 +154,9 @@ def validate_model_spec_dict(
     valid_distributions = {entry.value for entry in DistributionFamily}
     valid_links = {entry.value for entry in LinkFunction}
     valid_initialization_policies = {entry.value for entry in InitializationPolicy}
+    valid_observation_intercept_policies = {
+        entry.value for entry in ObservationInterceptPolicy
+    }
 
     likelihoods = data.get("likelihoods", [])
     if not isinstance(likelihoods, list):
@@ -179,6 +193,16 @@ def validate_model_spec_dict(
         errors.append(
             "'initialization_policy' invalid; must be one of "
             f"{sorted(valid_initialization_policies)}"
+        )
+
+    observation_intercept_policy = data.get(
+        "observation_intercept_policy",
+        ObservationInterceptPolicy.FREE.value,
+    )
+    if observation_intercept_policy not in valid_observation_intercept_policies:
+        errors.append(
+            "'observation_intercept_policy' invalid; must be one of "
+            f"{sorted(valid_observation_intercept_policies)}"
         )
 
     equilibrium_forcing = data.get("equilibrium_forcing", False)

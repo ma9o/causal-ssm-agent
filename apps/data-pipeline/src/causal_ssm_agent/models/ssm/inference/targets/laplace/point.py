@@ -8,12 +8,17 @@ import jax.scipy.linalg as jla
 import numpy as np
 
 from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.discretization import discretize_linear_system_exact_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
     build_likelihood_eval_aux,
+)
+from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+    build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
+)
+from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+    row_observation_log_prob as _row_observation_log_prob,
 )
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_prob,
@@ -42,141 +47,6 @@ from .shared import (
     _trajectory_prior_log_prob_from_terms,
     block_profile_logdet_packed_cotangent,
 )
-
-
-def _build_linear_summary_augmented_system(
-    *,
-    plan: LinearSummaryAccumulatorPlan,
-    time_intervals: jnp.ndarray,
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    cint: jnp.ndarray,
-    H: jnp.ndarray,
-    d: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
-    support_kind_codes: jnp.ndarray,
-) -> tuple[
-    jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray
-]:
-    """Build augmented dynamics and per-row observation operators for linear interval summaries."""
-    dtype = jnp.result_type(
-        time_intervals,
-        drift,
-        diffusion_cov,
-        cint,
-        H,
-        d,
-        init_mean,
-        init_cov,
-    )
-    time_intervals = jnp.asarray(time_intervals, dtype=dtype)
-    drift = jnp.asarray(drift, dtype=dtype)
-    diffusion_cov = jnp.asarray(diffusion_cov, dtype=dtype)
-    cint = jnp.asarray(cint, dtype=dtype)
-    H = jnp.asarray(H, dtype=dtype)
-    d = jnp.asarray(d, dtype=dtype)
-    init_mean = jnp.asarray(init_mean, dtype=dtype)
-    init_cov = jnp.asarray(init_cov, dtype=dtype)
-
-    T = int(time_intervals.shape[0])
-    n_latent = int(drift.shape[0])
-    n_manifest = int(H.shape[0])
-    n_accumulators = plan.n_accumulators
-    augmented_dim = n_latent + n_accumulators
-
-    drift_aug = jnp.zeros((augmented_dim, augmented_dim), dtype=dtype)
-    drift_aug = drift_aug.at[:n_latent, :n_latent].set(drift)
-    if n_accumulators > 0:
-        drift_aug = drift_aug.at[n_latent:, :n_latent].set(H[plan.accumulator_manifest_indices])
-
-    diffusion_aug = jnp.zeros((augmented_dim, augmented_dim), dtype=dtype)
-    diffusion_aug = diffusion_aug.at[:n_latent, :n_latent].set(diffusion_cov)
-
-    cint_aug = jnp.zeros((augmented_dim,), dtype=dtype)
-    cint_aug = cint_aug.at[:n_latent].set(cint)
-    if n_accumulators > 0:
-        cint_aug = cint_aug.at[n_latent:].set(d[plan.accumulator_manifest_indices])
-
-    Ad_aug, Qd_aug, cd_aug = discretize_linear_system_exact_batched(
-        drift_aug,
-        diffusion_aug,
-        cint_aug,
-        time_intervals,
-    )
-    if cd_aug is None:
-        cd_aug = jnp.zeros((T, augmented_dim), dtype=dtype)
-    else:
-        cd_aug = jnp.asarray(cd_aug, dtype=dtype)
-        if cd_aug.ndim == 1:
-            cd_aug = cd_aug[:, None]
-
-    init_mean_aug = jnp.concatenate(
-        [
-            init_mean,
-            jnp.zeros((n_accumulators,), dtype=dtype),
-        ],
-        axis=0,
-    )
-    init_cov_aug = jnp.zeros((augmented_dim, augmented_dim), dtype=dtype)
-    init_cov_aug = init_cov_aug.at[:n_latent, :n_latent].set(init_cov)
-
-    H_rows = jnp.zeros((T, n_manifest, augmented_dim), dtype=dtype)
-    d_rows = jnp.zeros((T, n_manifest), dtype=dtype)
-
-    point_manifest_indices = np.flatnonzero(np.asarray(support_kind_codes) == 0)
-    if point_manifest_indices.size > 0:
-        point_idx = jnp.asarray(point_manifest_indices, dtype=jnp.int64)
-        H_rows = H_rows.at[:, point_idx, :n_latent].set(
-            jnp.broadcast_to(H[point_idx], (T, point_idx.shape[0], n_latent))
-        )
-        d_rows = d_rows.at[:, point_idx].set(
-            jnp.broadcast_to(d[point_idx], (T, point_idx.shape[0]))
-        )
-
-    emission_indices = np.asarray(plan.row_emission_accumulator_indices)
-    emission_scales = np.asarray(plan.row_emission_scales, dtype=np.float64)
-    for time_idx in range(T):
-        for manifest_idx in range(n_manifest):
-            accumulator_idx = int(emission_indices[time_idx, manifest_idx])
-            if accumulator_idx < 0:
-                continue
-            H_rows = H_rows.at[time_idx, manifest_idx, n_latent + accumulator_idx].set(
-                jnp.asarray(emission_scales[time_idx, manifest_idx], dtype=dtype)
-            )
-
-    reset_scales = jnp.ones((T, augmented_dim), dtype=dtype)
-    if n_accumulators > 0:
-        reset_scales = reset_scales.at[:, n_latent:].set(1.0 - plan.row_reset_mask.astype(dtype))
-    if T > 1:
-        Ad_aug = Ad_aug.at[1:].set(Ad_aug[1:] * reset_scales[:-1, None, :])
-
-    return Ad_aug, Qd_aug, cd_aug, init_mean_aug, init_cov_aug, H_rows, d_rows
-
-
-def _row_observation_log_prob(
-    latent_trajectory: jnp.ndarray,
-    observations: jnp.ndarray,
-    obs_mask: jnp.ndarray,
-    H_rows: jnp.ndarray,
-    d_rows: jnp.ndarray,
-    R: jnp.ndarray,
-    obs_kernel,
-) -> jnp.ndarray:
-    """Return the point-observation log-probability for per-row observation operators."""
-    obs_mask_float = obs_mask.astype(latent_trajectory.dtype)
-    return jnp.sum(
-        jax.vmap(
-            lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.emission_fn(
-                y_t,
-                z_t,
-                H_t,
-                d_t,
-                R,
-                mask_t,
-            )
-        )(observations, latent_trajectory, obs_mask_float, H_rows, d_rows)
-    )
 
 
 def _row_joint_log_prob(
@@ -220,13 +90,7 @@ def _add_cotangent_trees(lhs, rhs):
     if not leaves_rhs:
         return lhs
     return jax.tree_util.tree_map(
-        lambda left, right: (
-            right
-            if left is None
-            else left
-            if right is None
-            else left + right
-        ),
+        lambda left, right: right if left is None else left if right is None else left + right,
         lhs,
         rhs,
         is_leaf=lambda leaf: leaf is None,

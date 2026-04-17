@@ -24,6 +24,7 @@ from .stage4_navigation import (
     active_block_parameter_names,
     current_equilibrium_forcing,
     current_initialization_policy,
+    current_observation_intercept_policy,
     required_block_parameter_names,
 )
 from .stage4_text import summarize_stage4_names
@@ -214,12 +215,15 @@ def _model_configuration_frontier_status_lines(
     del causal_spec
     payload = block.payload
     initialization_policy = current_initialization_policy(runtime) or "unset"
+    observation_intercept_policy = current_observation_intercept_policy(runtime) or "unset"
     equilibrium_forcing = current_equilibrium_forcing(runtime)
     equilibrium_text = "unset" if equilibrium_forcing is None else str(equilibrium_forcing).lower()
     return (
         "- allowed initialization_policy values: `stationary`, `free`",
+        "- allowed observation_intercept_policy values: `fixed`, `free`",
         "- allowed equilibrium_forcing values: `true`, `false`",
         f"- current draft initialization_policy: `{initialization_policy}`",
+        f"- current draft observation_intercept_policy: `{observation_intercept_policy}`",
         f"- current draft equilibrium_forcing: `{equilibrium_text}`",
         (
             "- centered-indicator constructs that can identify a latent baseline if forcing is enabled: "
@@ -340,6 +344,7 @@ def _build_model_configuration_transition(
         "status": "accepted",
         "detail_kind": "model_configuration",
         "initialization_policy": choice.get("initialization_policy"),
+        "observation_intercept_policy": choice.get("observation_intercept_policy"),
         "equilibrium_forcing": choice.get("equilibrium_forcing"),
         "reasoning": choice.get("reasoning"),
     }
@@ -424,11 +429,13 @@ def _model_configuration_submission_example(
     del block, prior_cards
     return {
         "initialization_policy": "stationary",
+        "observation_intercept_policy": "free",
         "equilibrium_forcing": False,
         "reasoning": (
             "Choose stationary initialization when the dynamic block should start on its "
-            "equilibrium residual distribution; enable forcing only when centered additive "
-            "indicators identify a latent baseline shift."
+            "equilibrium residual distribution, keep observation intercepts free when eligible "
+            "channels need their own measurement baseline, and enable forcing only when centered "
+            "additive indicators identify a latent baseline shift."
         ),
     }
 

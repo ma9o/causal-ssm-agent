@@ -236,7 +236,10 @@ STAGE4_TOOL_SPECS: tuple[Stage4ToolSpec, ...] = (
     ),
     Stage4ToolSpec(
         name="submit_model_configuration",
-        description="Submit the global initialization and equilibrium-forcing decision.",
+        description=(
+            "Submit the global initialization, observation-intercept, and "
+            "equilibrium-forcing decision."
+        ),
         session_factory=_session_tool_factory(make_submit_model_configuration_tool),
         allowed_block_kinds=frozenset({"model_configuration"}),
     ),

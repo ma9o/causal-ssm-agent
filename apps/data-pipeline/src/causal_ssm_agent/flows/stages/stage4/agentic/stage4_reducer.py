@@ -224,7 +224,9 @@ def _model_lock_failure_block_ids(
             continue
 
         if model_configuration_block_id is not None and (
-            "initialization_policy" in error or "equilibrium_forcing" in error
+            "initialization_policy" in error
+            or "observation_intercept_policy" in error
+            or "equilibrium_forcing" in error
         ):
             block_ids.add(model_configuration_block_id)
 
@@ -387,6 +389,9 @@ def _apply_event_acceptance_side_effects(
         runtime.domain.model_lock_pending = True
     if model_configuration is not None:
         draft_model.initialization_policy = str(model_configuration["initialization_policy"])
+        draft_model.observation_intercept_policy = str(
+            model_configuration["observation_intercept_policy"]
+        )
         draft_model.equilibrium_forcing = bool(model_configuration["equilibrium_forcing"])
         runtime.domain.model_lock_pending = True
     if stage_output is not None:
@@ -957,6 +962,7 @@ def build_model_spec_from_decisions(
     """Materialize a ModelSpec from accepted model-decision state."""
     decisions_data = {
         "initialization_policy": decisions.initialization_policy,
+        "observation_intercept_policy": decisions.observation_intercept_policy,
         "equilibrium_forcing": decisions.equilibrium_forcing,
         "distribution_choices": list(decisions.distribution_choices.values()),
     }

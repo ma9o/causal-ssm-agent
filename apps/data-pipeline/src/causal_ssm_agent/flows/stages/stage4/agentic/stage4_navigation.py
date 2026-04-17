@@ -98,6 +98,13 @@ def current_initialization_policy(runtime: Stage4Runtime) -> str | None:
     ).get("initialization_policy")
 
 
+def current_observation_intercept_policy(runtime: Stage4Runtime) -> str | None:
+    """Return the latest draft-or-accepted observation-intercept policy."""
+    return runtime.domain.draft_model.observation_intercept_policy or (
+        runtime.domain.accepted.model_spec or {}
+    ).get("observation_intercept_policy")
+
+
 def current_equilibrium_forcing(runtime: Stage4Runtime) -> bool | None:
     """Return the latest draft-or-accepted equilibrium-forcing decision."""
     equilibrium_forcing = runtime.domain.draft_model.equilibrium_forcing
