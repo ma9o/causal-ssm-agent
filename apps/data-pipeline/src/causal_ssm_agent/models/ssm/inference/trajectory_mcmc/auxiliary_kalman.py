@@ -566,6 +566,34 @@ def build_auxiliary_kalman_bundle(
             )
         return jnp.asarray(obs_lp, dtype=latent_trajectory.dtype)
 
+    clean_observations = jnp.nan_to_num(observations, nan=0.0)
+
+    def observation_increment_log_prob_from_context_fn(
+        context: _LatentContext,
+        latent_state: jnp.ndarray,
+        time_idx: jnp.ndarray,
+    ) -> jnp.ndarray:
+        measurement_semantics = _measurement_semantics_from_context(context)
+        y_t = clean_observations[time_idx].astype(latent_state.dtype)
+        mask_t = obs_mask[time_idx].astype(latent_state.dtype)
+        if use_linear_summary_augmentation:
+            assert context.H_rows is not None
+            assert context.d_rows is not None
+            H_t = context.H_rows[time_idx]
+            d_t = context.d_rows[time_idx]
+        else:
+            H_t = context.H
+            d_t = context.d_meas
+        obs_lp = measurement_semantics.obs_kernel.emission_fn(
+            y_t,
+            latent_state,
+            H_t,
+            d_t,
+            context.R,
+            mask_t,
+        )
+        return jnp.asarray(obs_lp, dtype=latent_state.dtype)
+
     def observation_log_prob_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
         context = latent_context_fn(z)
         return observation_log_prob_from_context_fn(context, latent_trajectory)
@@ -641,6 +669,9 @@ def build_auxiliary_kalman_bundle(
         "latent_context_fn": latent_context_fn,
         "observation_log_prob_fn": observation_log_prob_fn,
         "observation_log_prob_from_context_fn": observation_log_prob_from_context_fn,
+        "observation_increment_log_prob_from_context_fn": (
+            observation_increment_log_prob_from_context_fn
+        ),
         "observation_grad_fn": observation_grad_fn,
         "observation_grad_from_context_fn": observation_grad_from_context_fn,
         "trajectory_log_prob_fn": trajectory_log_prob_fn,
@@ -650,6 +681,7 @@ def build_auxiliary_kalman_bundle(
         "complete_log_posterior_with_aux_fn": complete_log_posterior_with_aux_fn,
         "initial_latent_fn": initial_latent_fn,
         "initial_latent_from_context_fn": initial_latent_from_context_fn,
+        "initial_latent_moments_from_context_fn": _initial_latent_moments,
         "project_latent_trajectory_fn": (
             (lambda latent_trajectory: latent_trajectory[:, : model.spec.n_latent])
             if use_linear_summary_augmentation
@@ -695,14 +727,10 @@ def build_auxiliary_kalman_latent_kernel(
 
         prior_terms = bundle["prior_terms_from_context_fn"](context)
         traj_curr = jnp.asarray(
-            bundle["trajectory_log_prob_from_context_fn"](
-                context, x_curr, prior_terms
-            ),
+            bundle["trajectory_log_prob_from_context_fn"](context, x_curr, prior_terms),
             dtype=traj_dtype,
         )
-        log_prior_z = jnp.asarray(
-            bundle["log_prior_unc_fn"](state.position), dtype=complete_dtype
-        )
+        log_prior_z = jnp.asarray(bundle["log_prior_unc_fn"](state.position), dtype=complete_dtype)
 
         # (1) grad_x log g at current x.
         grad_curr = jnp.asarray(
@@ -714,8 +742,7 @@ def build_auxiliary_kalman_latent_kernel(
         u = (
             x_curr
             + half_delta * grad_curr
-            + jnp.sqrt(half_delta)
-            * random.normal(aux_key, x_curr.shape, dtype=latent_dtype)
+            + jnp.sqrt(half_delta) * random.normal(aux_key, x_curr.shape, dtype=latent_dtype)
         )
 
         # (3) Single filter pass at current theta with pseudo-obs = u.
@@ -760,9 +787,7 @@ def build_auxiliary_kalman_latent_kernel(
             dtype=latent_dtype,
         )
         traj_prop = jnp.asarray(
-            bundle["trajectory_log_prob_from_context_fn"](
-                context, x_prop, prior_terms
-            ),
+            bundle["trajectory_log_prob_from_context_fn"](context, x_prop, prior_terms),
             dtype=traj_dtype,
         )
 
@@ -778,12 +803,8 @@ def build_auxiliary_kalman_latent_kernel(
 
         accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
         accept = random.bernoulli(accept_key, accept_prob)
-        next_traj = jnp.asarray(
-            jnp.where(accept, x_prop, x_curr), dtype=latent_dtype
-        )
-        next_traj_lp = jnp.asarray(
-            jnp.where(accept, traj_prop, traj_curr), dtype=traj_dtype
-        )
+        next_traj = jnp.asarray(jnp.where(accept, x_prop, x_curr), dtype=latent_dtype)
+        next_traj_lp = jnp.asarray(jnp.where(accept, traj_prop, traj_curr), dtype=traj_dtype)
         next_complete = log_prior_z + next_traj_lp.astype(complete_dtype)
         next_state = state._replace(
             latent_trajectory=next_traj,
@@ -817,30 +838,24 @@ def build_mala_parameter_kernel(
 
     def _parameter_mala_step(state, key: jnp.ndarray):
         if bundle["dim"] == 0:
-            return state, {
-                "accepted": jnp.asarray(1.0, dtype=state.latent_trajectory.dtype)
-            }
+            return state, {"accepted": jnp.asarray(1.0, dtype=state.latent_trajectory.dtype)}
 
         proposal_key, accept_key = random.split(key)
-        (complete_curr, (traj_curr, _curr_context)), grad_curr = (
-            complete_value_and_grad(state.position, state.latent_trajectory)
+        (complete_curr, (traj_curr, _curr_context)), grad_curr = complete_value_and_grad(
+            state.position, state.latent_trajectory
         )
         h = state.param_step_size
-        mean_fwd = state.position + 0.5 * (h ** 2) * grad_curr
+        mean_fwd = state.position + 0.5 * (h**2) * grad_curr
         proposal = mean_fwd + h * random.normal(
             proposal_key, state.position.shape, dtype=state.position.dtype
         )
-        (complete_prop, (traj_prop, context_prop)), grad_prop = (
-            complete_value_and_grad(proposal, state.latent_trajectory)
+        (complete_prop, (traj_prop, context_prop)), grad_prop = complete_value_and_grad(
+            proposal, state.latent_trajectory
         )
-        mean_rev = proposal + 0.5 * (h ** 2) * grad_prop
+        mean_rev = proposal + 0.5 * (h**2) * grad_prop
         log_alpha = complete_prop - complete_curr
-        log_alpha = log_alpha + _gaussian_log_prob_isotropic(
-            state.position, mean_rev, h ** 2
-        )
-        log_alpha = log_alpha - _gaussian_log_prob_isotropic(
-            proposal, mean_fwd, h ** 2
-        )
+        log_alpha = log_alpha + _gaussian_log_prob_isotropic(state.position, mean_rev, h**2)
+        log_alpha = log_alpha - _gaussian_log_prob_isotropic(proposal, mean_fwd, h**2)
         accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
         accept = random.bernoulli(accept_key, accept_prob)
         next_context = _select_tree(accept, context_prop, state.latent_context)
