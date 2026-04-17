@@ -67,6 +67,18 @@ class InferenceResult:
         if public_sites is not None:
             chain_samples = _filter_public_samples(chain_samples, set(public_sites))
 
+        def _arviz_idata_from_posterior(posterior_dict, *, log_likelihood=None):
+            import arviz as az
+            import numpy as np
+
+            posterior_np = {name: np.asarray(values) for name, values in posterior_dict.items()}
+            kwargs = {"posterior": posterior_np}
+            if log_likelihood is not None:
+                kwargs["log_likelihood"] = {
+                    name: np.asarray(values) for name, values in log_likelihood.items()
+                }
+            return az.from_dict(**kwargs)
+
         summ = numpyro_summary(chain_samples)
         per_param: list[dict[str, Any]] = []
         for name, stats in summ.items():
@@ -82,7 +94,10 @@ class InferenceResult:
 
         import arviz as az
 
-        idata = az.from_numpyro(mcmc)
+        if getattr(mcmc, "backend", None) in {"blackjax_chees_hmc", "aux_gibbs"}:
+            idata = _arviz_idata_from_posterior(chain_samples)
+        else:
+            idata = az.from_numpyro(mcmc)
         ess_tail = az.ess(idata, method="tail")
         mcse_mean = az.mcse(idata, method="mean")
 
@@ -180,6 +195,18 @@ class InferenceResult:
         pred = Predictive(model_fn, posterior_samples=flat_samples)
         pred_result = pred(random.PRNGKey(0), observations, times)
 
+        def _arviz_idata_from_posterior(posterior_dict, *, log_likelihood=None):
+            import arviz as az
+            import numpy as np
+
+            posterior_np = {name: np.asarray(values) for name, values in posterior_dict.items()}
+            kwargs = {"posterior": posterior_np}
+            if log_likelihood is not None:
+                kwargs["log_likelihood"] = {
+                    name: np.asarray(values) for name, values in log_likelihood.items()
+                }
+            return az.from_dict(**kwargs)
+
         if "ll_per_timestep" in pred_result:
             ll_per_t = pred_result["ll_per_timestep"]
             if observations.ndim == 2:
@@ -192,10 +219,19 @@ class InferenceResult:
                 n_chains, n_per_chain, n_timesteps
             )
             if mcmc is not None:
-                idata = az.from_numpyro(
-                    mcmc,
-                    log_likelihood={"ll_per_timestep": ll_chained},
-                )
+                if getattr(mcmc, "backend", None) in {"blackjax_chees_hmc", "aux_gibbs"}:
+                    chain_samples = mcmc.get_samples(group_by_chain=True)
+                    if public_sites is not None:
+                        chain_samples = _filter_public_samples(chain_samples, set(public_sites))
+                    idata = _arviz_idata_from_posterior(
+                        chain_samples,
+                        log_likelihood={"ll_per_timestep": ll_chained},
+                    )
+                else:
+                    idata = az.from_numpyro(
+                        mcmc,
+                        log_likelihood={"ll_per_timestep": ll_chained},
+                    )
             else:
                 import numpy as np
 
@@ -210,7 +246,13 @@ class InferenceResult:
                 )
             ll_per_timestep_found = True
         elif mcmc is not None:
-            idata = az.from_numpyro(mcmc)
+            if getattr(mcmc, "backend", None) in {"blackjax_chees_hmc", "aux_gibbs"}:
+                chain_samples = mcmc.get_samples(group_by_chain=True)
+                if public_sites is not None:
+                    chain_samples = _filter_public_samples(chain_samples, set(public_sites))
+                idata = _arviz_idata_from_posterior(chain_samples)
+            else:
+                idata = az.from_numpyro(mcmc)
             if not hasattr(idata, "log_likelihood"):
                 return None
             ll_per_timestep_found = False

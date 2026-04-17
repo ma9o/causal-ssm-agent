@@ -484,9 +484,9 @@ class TestNUTS:
     def test_nuts_mixed_support_particle_recovery(self):
         """NUTS + IEKS runs on the mixed-support 10-latent benchmark.
 
-        The chain is intentionally modest to keep the benchmark practical, so
-        this focuses on posterior mean recovery and sampler health rather than
-        demanding tight empirical interval coverage for every family.
+        The sampler budget is intentionally cheap, so this focuses on posterior
+        mean recovery and sampler health rather than demanding tight empirical
+        interval coverage for every family.
         """
         data = _make_laplace_em_mixed_support_recovery_data()
         model = SSMModel(data["spec"], data["priors"], likelihood="particle")
@@ -497,13 +497,16 @@ class TestNUTS:
             observations=data["observations"],
             times=data["times"],
             method="nuts",
-            num_warmup=60,
-            num_samples=60,
-            num_chains=1,
+            num_warmup=25,
+            num_samples=25,
+            num_chains=4,
             seed=0,
+            dense_mass=False,
             target_accept_prob=0.9,
-            max_tree_depth=5,
-            n_ieks_iters=5,
+            max_tree_depth=6,
+            n_ieks_iters=6,
+            pathfinder_num_elbo_samples=20,
+            pathfinder_maxiter=20,
             progress_bar=False,
         )
 
