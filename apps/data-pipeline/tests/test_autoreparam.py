@@ -533,9 +533,10 @@ class TestAutoReparamSSM:
             name: info["transform"].inv(info["value"]) for name, info in site_info.items()
         }
         flat, unravel_fn = ravel_pytree(example_unc)
+        particles = jnp.stack([flat, flat + 0.05])
 
         samples = extract_constrained_samples(
-            flat[None, :],
+            particles,
             site_info,
             unravel_fn,
             model.spec,
@@ -548,4 +549,5 @@ class TestAutoReparamSSM:
         assert "drift_diag_free" in samples
         assert "diffusion_diag_free" in samples
         assert all("_decentered" not in name for name in samples)
-
+        assert samples["drift_diag_free"].shape[0] == 2
+        assert samples["diffusion_diag_free"].shape[0] == 2

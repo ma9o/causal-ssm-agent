@@ -10,6 +10,7 @@ Functions used by hessmc2, pgas, tempered_smc, and parametric_id:
 from __future__ import annotations
 
 import functools
+import time
 from typing import TYPE_CHECKING
 
 import jax
@@ -249,6 +250,30 @@ def _assemble_likelihood_inputs(
     )
 
 
+def _block_until_ready_tree(tree):
+    return jax.tree_util.tree_map(
+        lambda value: value.block_until_ready() if hasattr(value, "block_until_ready") else value,
+        tree,
+    )
+
+
+def _constrain_particles_batched(
+    particles: jnp.ndarray,
+    site_info: dict,
+    unravel_fn,
+) -> dict[str, jnp.ndarray]:
+    """Map a batch of unconstrained particles to constrained site samples."""
+    if not site_info:
+        return {}
+
+    transforms = {name: info["transform"] for name, info in site_info.items()}
+    unconstrained = jax.vmap(unravel_fn)(particles)
+    return {
+        name: jax.vmap(transforms[name])(unconstrained[name])
+        for name in unconstrained
+    }
+
+
 def extract_constrained_samples(
     particles: jnp.ndarray,
     site_info: dict,
@@ -259,6 +284,7 @@ def extract_constrained_samples(
     model=None,
     observations: jnp.ndarray | None = None,
     times: jnp.ndarray | None = None,
+    profiling: dict[str, float] | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Extract constrained samples from unconstrained particles and assemble deterministics.
 
@@ -281,26 +307,31 @@ def extract_constrained_samples(
     Returns:
         Dict of constrained samples including deterministic sites
     """
-    transforms = {name: info["transform"] for name, info in site_info.items()}
-    samples = {}
-    for name in transforms:
-
-        def _extract_one(z, _name=name):
-            unc = unravel_fn(z)
-            return transforms[_name](unc[_name])
-
-        samples[name] = jax.vmap(_extract_one)(particles)
+    total_start = time.perf_counter()
+    constrain_start = time.perf_counter()
+    samples = _constrain_particles_batched(particles, site_info, unravel_fn)
+    _block_until_ready_tree(samples)
+    if profiling is not None:
+        profiling["constrain_batched_seconds"] = time.perf_counter() - constrain_start
 
     if reparam is None:
         structure_runtime = (
             model.structure_runtime if model is not None else SSMStructureRuntime(spec)
         )
+        det_start = time.perf_counter()
         det_samples = _assemble_deterministics(
             samples,
             spec,
             structure_runtime=structure_runtime,
         )
+        _block_until_ready_tree(det_samples)
+        if profiling is not None:
+            profiling["deterministic_assembly_seconds"] = time.perf_counter() - det_start
         samples.update(det_samples)
+        if profiling is not None:
+            profiling["extract_constrained_samples_total_seconds"] = (
+                time.perf_counter() - total_start
+            )
         return samples
 
     if observations is None or times is None:
@@ -308,6 +339,7 @@ def extract_constrained_samples(
             "extract_constrained_samples requires observations and times when reparam is enabled"
         )
 
+    resolver_build_start = time.perf_counter()
     sample_resolver = _build_original_sample_resolver(
         site_info,
         model=model,
@@ -315,22 +347,34 @@ def extract_constrained_samples(
         times=times,
         reparam=reparam,
     )
+    if profiling is not None:
+        profiling["resolver_build_seconds"] = time.perf_counter() - resolver_build_start
     if sample_resolver is None:
         raise ValueError(
             "extract_constrained_samples only supports no reparameterization "
             "or AutoReparam with fixed centering."
         )
 
+    resolve_start = time.perf_counter()
     original_samples = sample_resolver(samples)
+    _block_until_ready_tree(original_samples)
+    if profiling is not None:
+        profiling["original_sample_resolution_seconds"] = time.perf_counter() - resolve_start
 
     # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
     structure_runtime = model.structure_runtime if model is not None else SSMStructureRuntime(spec)
+    det_start = time.perf_counter()
     det_samples = _assemble_deterministics(
         original_samples,
         spec,
         structure_runtime=structure_runtime,
     )
+    _block_until_ready_tree(det_samples)
+    if profiling is not None:
+        profiling["deterministic_assembly_seconds"] = time.perf_counter() - det_start
     original_samples.update(det_samples)
+    if profiling is not None:
+        profiling["extract_constrained_samples_total_seconds"] = time.perf_counter() - total_start
     return original_samples
 
 

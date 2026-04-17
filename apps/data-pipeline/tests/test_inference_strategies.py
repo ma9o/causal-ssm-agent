@@ -2324,6 +2324,102 @@ class TestInferenceCaching:
         assert "drift_diag_free" in site_info
         assert "manifest_var_diag_free" in site_info
 
+    def test_particle_fit_nuts_uses_blackjax_chees_hmc_path(self, monkeypatch):
+        spec = make_ssm_spec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1),
+            **diagonal_diffusion_kwargs(1),
+        )
+        model = SSMModel(spec, likelihood="particle")
+        observations = jnp.zeros((4, 1), dtype=jnp.float32)
+        times = jnp.arange(4, dtype=jnp.float32)
+
+        def _fake_pathfinder(_log_posterior_fn, flat_example, **_kwargs):
+            return SimpleNamespace(position=flat_example, elbo=jnp.array(0.0)), {
+                "init_method": "pathfinder",
+                "pathfinder_elbo": 0.0,
+            }
+
+        def _fake_pathfinder_positions(state, *, num_chains, dtype, **_kwargs):
+            dim = int(np.asarray(state.position).shape[0])
+            base = jnp.zeros((num_chains, dim), dtype=dtype)
+            offsets = jnp.arange(num_chains, dtype=dtype)[:, None] * 0.05
+            return base + offsets
+
+        def _fake_blackjax_run(
+            _log_posterior_fn,
+            *,
+            init_positions,
+            num_samples,
+            num_chains,
+            **_kwargs,
+        ):
+            dim = init_positions.shape[1]
+            particle_history = jnp.broadcast_to(
+                init_positions[:, None, :],
+                (num_chains, num_samples, dim),
+            )
+            particle_history = particle_history.at[:, :, 0].add(
+                jnp.arange(num_samples, dtype=init_positions.dtype) * 0.1
+            )
+            extra = {
+                "lp": jnp.zeros((num_chains, num_samples), dtype=init_positions.dtype),
+                "accept_prob": jnp.full((num_chains, num_samples), 0.8, dtype=init_positions.dtype),
+                "diverging": jnp.zeros((num_chains, num_samples), dtype=bool),
+                "energy": jnp.ones((num_chains, num_samples), dtype=init_positions.dtype),
+                "num_steps": jnp.full((num_chains, num_samples), 3, dtype=jnp.int32),
+            }
+            return particle_history, extra, {"sampler_backend": "blackjax_chees_hmc"}
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.inference.methods.nuts._run_pathfinder_approximation",
+            _fake_pathfinder,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.inference.methods.nuts._sample_pathfinder_positions",
+            _fake_pathfinder_positions,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.inference.methods.nuts._run_blackjax_chees_hmc",
+            _fake_blackjax_run,
+        )
+
+        result = fit(
+            model,
+            observations=observations,
+            times=times,
+            method="nuts",
+            num_warmup=4,
+            num_samples=4,
+            num_chains=2,
+            seed=0,
+        )
+
+        assert result.method == "nuts"
+        assert result.diagnostics["init_method"] == "pathfinder"
+        assert result.diagnostics["sampler_backend"] == "blackjax_chees_hmc"
+        assert result.diagnostics["dense_mass_used"] is False
+        assert result.diagnostics["mcmc"].backend == "blackjax_chees_hmc"
+
+        sample_names = set(result.get_samples())
+        assert "drift_diag_free" in sample_names
+        assert "diffusion_diag_free" in sample_names
+        assert all("_decentered" not in name for name in sample_names)
+
+        extra = result.diagnostics["mcmc"].get_extra_fields()
+        assert set(extra) == {"lp", "accept_prob", "diverging", "energy", "num_steps"}
+        assert extra["accept_prob"].shape == (8,)
+
+        diag = result.get_mcmc_diagnostics()
+        assert diag is not None
+        diag_names = {entry["parameter"] for entry in diag["per_parameter"]}
+        assert all("_decentered" not in name for name in diag_names)
+        assert diag["accept_prob_mean"] == pytest.approx(0.8)
+        assert diag["num_chains"] == 2
+        assert diag["num_samples"] == 4
+
+
 class TestSVIBackend:
     """Tests specific to SVI inference backend."""
 
@@ -2399,7 +2495,9 @@ class TestSVIBackend:
                 return {"drift": jnp.array([[[jnp.nan]]], dtype=jnp.float32)}
 
         monkeypatch.setattr("causal_ssm_agent.models.ssm.inference.methods.svi.SVI", FakeSVI)
-        monkeypatch.setattr("causal_ssm_agent.models.ssm.inference.methods.svi.Predictive", FakePredictive)
+        monkeypatch.setattr(
+            "causal_ssm_agent.models.ssm.inference.methods.svi.Predictive", FakePredictive
+        )
 
         with pytest.raises(FloatingPointError, match="non-finite posterior samples"):
             fit(
