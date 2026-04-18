@@ -8,6 +8,7 @@ auto-selects the state marginalization backend: exact Kalman filter for
 linear Gaussian models, IEKS/Laplace for non-Gaussian emissions.
 
 Available methods:
+- Auxiliary cSMC: blocked complete-data updates with auxiliary conditional SMC latent proposals.
 - Auxiliary Gibbs: blocked complete-data updates with auxiliary Kalman latent proposals.
 - NUTS: HMC-based sampling with Kalman or Laplace state marginalization.
 - MAP: L-BFGS mode finding + Laplace Gaussian parameter posterior.
@@ -109,7 +110,7 @@ def fit(
         observations: (N, n_manifest) observed data
         times: (N,) observation times
         method: Inference method - "auto" (always NUTS, default),
-            "aux_gibbs", "nuts", "map", or "svi"
+            "aux_csmc", "aux_gibbs", "nuts", "map", or "svi"
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
               centering (learnable for SVI, fully decentered for MCMC/SMC).
@@ -132,6 +133,10 @@ def fit(
         kwargs = _resolve_auto_method_kwargs(method, kwargs)
 
     reparam = _resolve_reparam(reparam, method)
+    if method == "aux_csmc":
+        from causal_ssm_agent.models.ssm.inference.methods.aux_csmc import fit_aux_csmc
+
+        return fit_aux_csmc(model, observations, times, reparam=reparam, **kwargs)
     if method == "aux_gibbs":
         from causal_ssm_agent.models.ssm.inference.methods.aux_gibbs import fit_aux_gibbs
 
@@ -149,7 +154,7 @@ def fit(
 
         return fit_map(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
-        f"Unknown inference method: {method!r}. Use 'auto', 'aux_gibbs', 'nuts', 'map', or 'svi'."
+        f"Unknown inference method: {method!r}. Use 'auto', 'aux_csmc', 'aux_gibbs', 'nuts', 'map', or 'svi'."
     )
 
 
