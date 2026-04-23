@@ -603,10 +603,10 @@ def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
     """Check that binaries and credentials required by the configured harnesses exist.
 
     ``harness: none`` still requires ``OPENROUTER_API_KEY``. ``claude-code``
-    and ``codex`` authenticate via their respective CLIs — we check that
-    those CLIs are logged in (Claude Max/Pro subscription or ChatGPT
-    Plus/Pro/Team/Enterprise), with API-key env vars accepted as a
-    fallback. Run from the validator CLI or CI, not every
+    and ``codex`` authenticate via their respective CLIs' subscription
+    logins (Claude Max/Pro and ChatGPT Plus/Pro/Team/Enterprise) — we
+    check that the CLI is logged in via ``claude auth status`` and
+    ``~/.codex/auth.json``. Run from the validator CLI or CI, not every
     ``get_config()`` call.
     """
     import subprocess
@@ -636,10 +636,10 @@ def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
             except (subprocess.SubprocessError, OSError) as exc:
                 errors.append(f"`claude auth status` failed: {exc}")
             else:
-                if status.returncode != 0 and not os.getenv("ANTHROPIC_API_KEY"):
+                if status.returncode != 0:
                     errors.append(
-                        "claude is not logged in (run `claude auth login`) and "
-                        "ANTHROPIC_API_KEY is not set"
+                        "claude is not logged in — run `claude auth login` "
+                        f"(exit={status.returncode})"
                     )
 
     if "codex" in harnesses_used:
@@ -648,11 +648,10 @@ def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
             errors.append(
                 f"codex binary {bin_name!r} not found on PATH (required for harness=codex)"
             )
-        auth_path = Path("~/.codex/auth.json").expanduser()
-        if not auth_path.exists() and not os.getenv("OPENAI_API_KEY"):
+        if not Path("~/.codex/auth.json").expanduser().exists():
             errors.append(
-                "codex is not authenticated: neither ~/.codex/auth.json exists "
-                "(subscription login via `codex login`) nor OPENAI_API_KEY is set"
+                "codex is not logged in — run `codex login` "
+                "(expected ~/.codex/auth.json to exist)"
             )
 
     return errors

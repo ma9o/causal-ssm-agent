@@ -15,9 +15,9 @@ at it by exporting ``CODEX_HOME`` for the child process.
 Subscription auth (ChatGPT Plus/Pro/Team) lives in
 ``~/.codex/auth.json``. Because we override ``CODEX_HOME`` for the
 MCP config, we also symlink the user's ``auth.json`` into the scratch
-directory so the subscription credentials are still found. When the
-user is authenticated via ``OPENAI_API_KEY`` instead, the symlink is
-skipped (codex reads the env var directly).
+directory so subscription credentials survive the override. The
+validator (``validate_runtime_prereqs``) refuses to start any Codex
+stage when ``~/.codex/auth.json`` is missing.
 
 Pipeline-fixed flags: ``--sandbox read-only`` (our only side-effect
 channel is the MCP tools we expose; no approvals are needed under a
@@ -263,10 +263,10 @@ class CodexHarnessSession:
 def _link_codex_auth(codex_home: Path) -> None:
     """Symlink ``~/.codex/auth.json`` into a scratch CODEX_HOME.
 
-    Subscription auth (ChatGPT Plus/Pro/Team) lives in that file; without
-    the symlink, setting CODEX_HOME to a fresh directory would drop the
-    user out of their session. API-key users are unaffected (codex reads
-    ``OPENAI_API_KEY`` from the environment directly).
+    Subscription auth (ChatGPT Plus/Pro/Team) lives in that file.
+    Without this symlink, setting CODEX_HOME to a fresh directory would
+    drop the user out of their session. ``validate_runtime_prereqs``
+    ensures the file is present before any Codex stage runs.
     """
     user_auth = Path("~/.codex/auth.json").expanduser()
     if not user_auth.exists():

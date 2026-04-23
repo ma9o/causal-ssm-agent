@@ -273,7 +273,8 @@ def apply_codex_event(state: CodexStreamState, event: dict[str, Any]) -> None:
     # events; both shapes are handled.
     if etype == "item.completed":
         item = event.get("item") or {}
-        return apply_codex_event(state, {**item, "_from_item_completed": True})
+        apply_codex_event(state, {**item, "_from_item_completed": True})
+        return
 
     if etype in {"agent_message", "message"}:
         # The item may or may not carry an explicit role; codex's
