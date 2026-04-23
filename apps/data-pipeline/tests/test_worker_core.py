@@ -195,7 +195,10 @@ class TestRunWorkerExtraction:
 
         with (
             caplog.at_level(logging.INFO, logger=logger.name),
-            pytest.raises(ValueError, match="Failed to parse model response as JSON"),
+            pytest.raises(
+                RuntimeError,
+                match="did not capture structured output",
+            ),
         ):
             _run(
                 run_worker_extraction(
@@ -209,7 +212,6 @@ class TestRunWorkerExtraction:
             )
 
         assert "Model call returned 0 characters" in caplog.text
-        assert "falling back to completion parsing" in caplog.text
 
     def test_call_label_passed_when_generate_supports_it(self, caplog):
         factory = make_mock_session_factory(
