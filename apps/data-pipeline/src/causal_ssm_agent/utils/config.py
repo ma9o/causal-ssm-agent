@@ -599,6 +599,58 @@ def validate_config(config: PipelineConfig) -> list[str]:
     return errors
 
 
+def _check_embedded_prereqs() -> list[str]:
+    errors: list[str] = []
+    if not os.getenv("OPENROUTER_API_KEY"):
+        errors.append("OPENROUTER_API_KEY is not set (required for harness=none)")
+    return errors
+
+
+def _check_claude_code_prereqs(config: PipelineConfig) -> list[str]:
+    import subprocess
+
+    errors: list[str] = []
+    bin_name = config.llm.claude_code.bin
+    bin_path = shutil.which(bin_name)
+    if bin_path is None:
+        errors.append(
+            f"claude binary {bin_name!r} not found on PATH (required for harness=claude-code)"
+        )
+        return errors
+    try:
+        status = subprocess.run(
+            [bin_path, "auth", "status", "--text"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        errors.append(f"`claude auth status` failed: {exc}")
+    else:
+        if status.returncode != 0:
+            errors.append(
+                "claude is not logged in — run `claude auth login` "
+                f"(exit={status.returncode})"
+            )
+    return errors
+
+
+def _check_codex_prereqs(config: PipelineConfig) -> list[str]:
+    errors: list[str] = []
+    bin_name = config.llm.codex.bin
+    if shutil.which(bin_name) is None:
+        errors.append(
+            f"codex binary {bin_name!r} not found on PATH (required for harness=codex)"
+        )
+    if not Path("~/.codex/auth.json").expanduser().exists():
+        errors.append(
+            "codex is not logged in — run `codex login` "
+            "(expected ~/.codex/auth.json to exist)"
+        )
+    return errors
+
+
 def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
     """Check that binaries and credentials required by the configured harnesses exist.
 
@@ -606,52 +658,51 @@ def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
     and ``codex`` authenticate via their respective CLIs' subscription
     logins (Claude Max/Pro and ChatGPT Plus/Pro/Team/Enterprise) — we
     check that the CLI is logged in via ``claude auth status`` and
-    ``~/.codex/auth.json``. Run from the validator CLI or CI, not every
-    ``get_config()`` call.
+    ``~/.codex/auth.json``. Safe to call repeatedly; the pipeline also
+    runs per-harness subsets of this via :func:`ensure_harness_prereqs`
+    the first time each backend opens a session.
     """
-    import subprocess
-
     errors: list[str] = []
     harnesses_used = {llm.harness for _name, llm in _iter_stage_llms(config)}
-
-    if "none" in harnesses_used and not os.getenv("OPENROUTER_API_KEY"):
-        errors.append("OPENROUTER_API_KEY is not set (required for harness=none)")
-
+    if "none" in harnesses_used:
+        errors.extend(_check_embedded_prereqs())
     if "claude-code" in harnesses_used:
-        bin_name = config.llm.claude_code.bin
-        bin_path = shutil.which(bin_name)
-        if bin_path is None:
-            errors.append(
-                f"claude binary {bin_name!r} not found on PATH (required for harness=claude-code)"
-            )
-        else:
-            try:
-                status = subprocess.run(
-                    [bin_path, "auth", "status", "--text"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    check=False,
-                )
-            except (subprocess.SubprocessError, OSError) as exc:
-                errors.append(f"`claude auth status` failed: {exc}")
-            else:
-                if status.returncode != 0:
-                    errors.append(
-                        "claude is not logged in — run `claude auth login` "
-                        f"(exit={status.returncode})"
-                    )
-
+        errors.extend(_check_claude_code_prereqs(config))
     if "codex" in harnesses_used:
-        bin_name = config.llm.codex.bin
-        if shutil.which(bin_name) is None:
-            errors.append(
-                f"codex binary {bin_name!r} not found on PATH (required for harness=codex)"
-            )
-        if not Path("~/.codex/auth.json").expanduser().exists():
-            errors.append(
-                "codex is not logged in — run `codex login` "
-                "(expected ~/.codex/auth.json to exist)"
-            )
-
+        errors.extend(_check_codex_prereqs(config))
     return errors
+
+
+_verified_harnesses: set[str] = set()
+
+
+def ensure_harness_prereqs(harness: str) -> None:
+    """Run the prereq check for ``harness``, once per process, or raise.
+
+    Harness openers call this on first invocation so a pipeline with a
+    logged-out CLI or a missing ``OPENROUTER_API_KEY`` fails within
+    milliseconds of starting the relevant stage, instead of crashing
+    deep inside the subprocess or the OpenAI SDK.
+    """
+    if harness in _verified_harnesses:
+        return
+    config = get_config()
+    if harness == "none":
+        errors = _check_embedded_prereqs()
+    elif harness == "claude-code":
+        errors = _check_claude_code_prereqs(config)
+    elif harness == "codex":
+        errors = _check_codex_prereqs(config)
+    else:
+        raise ValueError(f"Unknown harness: {harness!r}")
+    if errors:
+        raise RuntimeError(
+            f"Harness {harness!r} prereqs not satisfied:\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+    _verified_harnesses.add(harness)
+
+
+def _reset_verified_harnesses_for_testing() -> None:
+    """Clear the per-process cache; used by tests that patch env/subprocess."""
+    _verified_harnesses.clear()

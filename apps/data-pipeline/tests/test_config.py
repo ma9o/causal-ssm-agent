@@ -467,3 +467,62 @@ class TestGetSecret:
     def test_async_reads_env_var(self, monkeypatch):
         monkeypatch.setenv("TEST_SECRET_ABC", "from-env")
         assert asyncio.run(get_secret_async("TEST_SECRET_ABC")) == "from-env"
+
+
+# =============================================================================
+# ensure_harness_prereqs
+# =============================================================================
+
+
+class TestEnsureHarnessPrereqs:
+    def _reset(self):
+        from causal_ssm_agent.utils.config import _reset_verified_harnesses_for_testing
+
+        _reset_verified_harnesses_for_testing()
+
+    def test_missing_openrouter_key_raises_for_embedded(self, monkeypatch):
+        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+        self._reset()
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+        with pytest.raises(RuntimeError, match="OPENROUTER_API_KEY"):
+            ensure_harness_prereqs("none")
+
+    def test_passes_when_openrouter_key_set(self, monkeypatch):
+        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+        self._reset()
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        ensure_harness_prereqs("none")  # no raise
+
+    def test_caches_successful_check(self, monkeypatch):
+        """Once verified, removing the env var doesn't re-trigger the check."""
+        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+        self._reset()
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        ensure_harness_prereqs("none")
+
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        # Still cached — does not raise.
+        ensure_harness_prereqs("none")
+
+    def test_reset_clears_cache(self, monkeypatch):
+        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+        self._reset()
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        ensure_harness_prereqs("none")
+
+        self._reset()
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        with pytest.raises(RuntimeError):
+            ensure_harness_prereqs("none")
+
+    def test_unknown_harness_raises_value_error(self):
+        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+        self._reset()
+        with pytest.raises(ValueError, match="Unknown harness"):
+            ensure_harness_prereqs("bedrock")
