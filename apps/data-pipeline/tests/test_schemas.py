@@ -561,6 +561,59 @@ class TestCausalSpec:
         assert len(causal_spec.latent.constructs) == 2
         assert len(causal_spec.measurement.indicators) == 1
 
+    def test_confounder_kind_inconsistency_in_estimation_spec_rejected(
+        self, construct_factory, indicator_factory
+    ):
+        """A single confounder cannot project to more than one covariance block."""
+        latent = LatentModel(
+            constructs=[
+                construct_factory("x", Role.ENDOGENOUS),
+                construct_factory("y", Role.ENDOGENOUS),
+                construct_factory("z", Role.ENDOGENOUS, is_outcome=True),
+                construct_factory(
+                    "c", Role.EXOGENOUS, temporal_status=TemporalStatus.TIME_INVARIANT
+                ),
+            ],
+            edges=[
+                CausalEdge(cause="c", effect="x", description="Latent fork"),
+                CausalEdge(cause="c", effect="y", description="Latent fork"),
+                CausalEdge(cause="c", effect="z", description="Latent fork"),
+                CausalEdge(cause="x", effect="z", description="Treatment path"),
+            ],
+        )
+        measurement = MeasurementModel(
+            model_clock="1d",
+            indicators=[
+                indicator_factory("x_obs", "x"),
+                indicator_factory("y_obs", "y"),
+                indicator_factory("z_obs", "z"),
+            ],
+        )
+        estimation = {
+            "state_order": ["x", "y", "z"],
+            "edges": [{"cause": "x", "effect": "z", "description": "Treatment path"}],
+            "induced_dependencies": [
+                {
+                    "between": ["x", "y"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["c"],
+                },
+                {
+                    "between": ["y", "z"],
+                    "kind": "innovation_correlation",
+                    "source_confounders": ["c"],
+                },
+            ],
+        }
+        with pytest.raises(ValueError, match="inconsistent kinds"):
+            CausalSpec.model_validate(
+                {
+                    "latent": latent.model_dump(),
+                    "measurement": measurement.model_dump(),
+                    "estimation": estimation,
+                }
+            )
+
     def test_get_edge_lag_hours(self, construct_factory, indicator_factory):
         """CausalSpec.get_edge_lag_hours returns model_clock_hours for lagged, 0 for contemporaneous."""
         latent = LatentModel(

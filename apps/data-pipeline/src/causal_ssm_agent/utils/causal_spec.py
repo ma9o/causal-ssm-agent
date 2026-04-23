@@ -8,6 +8,8 @@ Use the explicit latent/estimation accessors in new code. The historical
 ``get_constructs()`` / ``get_edges()`` helpers still refer to the latent DAG.
 """
 
+from collections import defaultdict
+
 import networkx as nx
 
 from causal_ssm_agent.utils.observation_semantics import (
@@ -107,6 +109,77 @@ def get_estimation_constructs(causal_spec: dict) -> list[dict]:
 def get_induced_dependencies(causal_spec: dict) -> list[dict]:
     """Get induced dependencies created by marginalizing latent roots."""
     return list(get_estimation_spec(causal_spec).get("induced_dependencies") or [])
+
+
+def _canonical_scale_name(sources: list[str]) -> str:
+    """Canonical identifier for a confounder equivalence class."""
+    return "tau_" + "__".join(sorted(sources))
+
+
+def get_marginalized_scales(causal_spec: dict) -> list[dict]:
+    """Return the scale-indexed view of marginalized confounders.
+
+    Confounders sharing the same *footprint* — the union of retained state
+    pairs they induce a dependency between — form one identifiable equivalence
+    class. The likelihood depends only on the class's sum-of-squares
+    contribution, so each class corresponds to exactly one static-factor scale
+    parameter, regardless of how many source confounders it aggregates.
+
+    Each returned entry is:
+        - ``parameter``: canonical name ``tau_<sorted_sources_joined>``.
+        - ``kind``: ``initial_state_correlation`` | ``innovation_correlation``.
+        - ``sources``: the source confounders aggregated into this scale.
+        - ``affected_states``: states in the scale's loading column.
+        - ``directions``: state pairs this scale contributes to.
+
+    Raises:
+        ValueError: a confounder's ``kind`` is inconsistent across the deps it
+        appears in (structurally impossible under the projection contract; if
+        it happens, the estimation spec is malformed).
+    """
+    deps = get_induced_dependencies(causal_spec)
+
+    footprint_by_confounder: dict[str, set[str]] = defaultdict(set)
+    kind_by_confounder: dict[str, str] = {}
+    directions_by_confounder: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for dep in deps:
+        kind = dep.get("kind")
+        between = tuple(dep.get("between") or ())
+        if len(between) != 2:
+            continue
+        for confounder in dep.get("source_confounders") or ():
+            footprint_by_confounder[confounder].update(between)
+            directions_by_confounder[confounder].append(between)
+            prior_kind = kind_by_confounder.setdefault(confounder, kind)
+            if prior_kind != kind:
+                raise ValueError(
+                    f"Confounder {confounder!r} participates in dependencies with "
+                    f"inconsistent kinds ({prior_kind!r} and {kind!r}); a confounder "
+                    "must project to exactly one covariance block."
+                )
+
+    members_by_footprint: dict[tuple[str, frozenset[str]], list[str]] = defaultdict(list)
+    for confounder, footprint in footprint_by_confounder.items():
+        key = (kind_by_confounder[confounder], frozenset(footprint))
+        members_by_footprint[key].append(confounder)
+
+    scales: list[dict] = []
+    for (kind, footprint), members in members_by_footprint.items():
+        sources = sorted(members)
+        directions: set[tuple[str, str]] = set()
+        for confounder in sources:
+            directions.update(directions_by_confounder[confounder])
+        scales.append(
+            {
+                "parameter": _canonical_scale_name(sources),
+                "kind": kind,
+                "sources": sources,
+                "affected_states": sorted(footprint),
+                "directions": sorted(directions),
+            }
+        )
+    scales.sort(key=lambda scale: scale["parameter"])
+    return scales
 
 
 def get_effective_observation_window(indicator: dict, model_clock: str | None) -> str | None:

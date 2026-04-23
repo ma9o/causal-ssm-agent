@@ -10,11 +10,14 @@ the helpers with real transformation or graph logic:
 - ``get_estimable_treatments``
 """
 
+import pytest
+
 from causal_ssm_agent.utils.causal_spec import (
     build_digraph,
     get_all_treatments,
     get_estimable_treatments,
     get_estimation_constructs,
+    get_marginalized_scales,
     get_outcome_name,
     make_extraction_context,
 )
@@ -341,3 +344,111 @@ class TestEstimationAccessors:
         )
 
         assert get_estimable_treatments(spec) == ["stress"]
+
+
+class TestGetMarginalizedScales:
+    @staticmethod
+    def _spec(induced_dependencies: list[dict]) -> dict:
+        return {
+            "estimation": {
+                "state_order": [],
+                "edges": [],
+                "induced_dependencies": induced_dependencies,
+            }
+        }
+
+    def test_golden_like_three_plus_one_confounders_yield_two_scales(self):
+        spec = self._spec(
+            [
+                {
+                    "between": ["screen_time", "sleep_quality"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["age", "living_situation", "personality_traits"],
+                },
+                {
+                    "between": ["screen_time", "stress"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["occupation_demands"],
+                },
+            ]
+        )
+        scales = get_marginalized_scales(spec)
+
+        assert [scale["parameter"] for scale in scales] == [
+            "tau_age__living_situation__personality_traits",
+            "tau_occupation_demands",
+        ]
+        merged, solo = scales
+        assert merged["sources"] == ["age", "living_situation", "personality_traits"]
+        assert merged["affected_states"] == ["screen_time", "sleep_quality"]
+        assert merged["directions"] == [("screen_time", "sleep_quality")]
+        assert merged["kind"] == "initial_state_correlation"
+        assert solo["sources"] == ["occupation_demands"]
+        assert solo["affected_states"] == ["screen_time", "stress"]
+
+    def test_multi_scale_per_dep_when_footprints_differ(self):
+        spec = self._spec(
+            [
+                {
+                    "between": ["x", "y"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["c1", "c2"],
+                },
+                {
+                    "between": ["x", "z"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["c2"],
+                },
+                {
+                    "between": ["y", "z"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["c2"],
+                },
+            ]
+        )
+        scales = get_marginalized_scales(spec)
+
+        assert len(scales) == 2
+        by_name = {scale["parameter"]: scale for scale in scales}
+        assert by_name["tau_c1"]["affected_states"] == ["x", "y"]
+        assert by_name["tau_c1"]["directions"] == [("x", "y")]
+        assert by_name["tau_c2"]["affected_states"] == ["x", "y", "z"]
+        assert by_name["tau_c2"]["directions"] == [
+            ("x", "y"),
+            ("x", "z"),
+            ("y", "z"),
+        ]
+
+    def test_confounder_with_inconsistent_kind_raises(self):
+        spec = self._spec(
+            [
+                {
+                    "between": ["x", "y"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["c"],
+                },
+                {
+                    "between": ["y", "z"],
+                    "kind": "innovation_correlation",
+                    "source_confounders": ["c"],
+                },
+            ]
+        )
+        with pytest.raises(ValueError, match="inconsistent kinds"):
+            get_marginalized_scales(spec)
+
+    def test_empty_dependencies_yield_empty_scales(self):
+        assert get_marginalized_scales(self._spec([])) == []
+
+    def test_canonical_name_is_sorted(self):
+        spec = self._spec(
+            [
+                {
+                    "between": ["x", "y"],
+                    "kind": "initial_state_correlation",
+                    "source_confounders": ["zebra", "apple", "mango"],
+                }
+            ]
+        )
+        (scale,) = get_marginalized_scales(spec)
+        assert scale["parameter"] == "tau_apple__mango__zebra"

@@ -37,7 +37,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_estimation_state_order,
     get_indicator_polarity,
     get_indicators,
-    get_induced_dependencies,
+    get_marginalized_scales,
 )
 from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
 
@@ -444,7 +444,7 @@ def _build_static_factor_structure(
     *,
     causal_spec: dict | None,
 ) -> tuple[np.ndarray, jnp.ndarray, jnp.ndarray, list[str]]:
-    """Compile deterministic baseline-factor loadings from induced confounders."""
+    """Compile deterministic baseline-factor loadings from marginalized scales."""
     factor_names = [
         parameter.name
         for parameter in model_spec.parameters
@@ -466,33 +466,28 @@ def _build_static_factor_structure(
             ]
         )
 
+    scales_by_name = {
+        scale["parameter"]: scale
+        for scale in get_marginalized_scales(causal_spec)
+        if scale["kind"] == "initial_state_correlation"
+    }
+
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
     loadings = np.zeros((len(latent_names), len(factor_names)), dtype=np.float64)
-    dependency_lookup = [
-        dependency
-        for dependency in get_induced_dependencies(causal_spec)
-        if dependency.get("kind") == "initial_state_correlation"
-    ]
     errors: list[str] = []
 
     for factor_idx, factor_name in enumerate(factor_names):
-        confounder = factor_name.removeprefix("tau_")
-        affected_states: set[str] = set()
-        for dependency in dependency_lookup:
-            if confounder not in set(dependency.get("source_confounders") or ()):
-                continue
-            for state_name in dependency.get("between") or ():
-                if isinstance(state_name, str):
-                    affected_states.add(state_name)
-        for state_name in sorted(affected_states):
+        scale = scales_by_name.get(factor_name)
+        if scale is None:
+            errors.append(
+                "STATIC_STATE_SD parameter does not match any marginalized "
+                f"initial-state-correlation scale: {factor_name!r}"
+            )
+            continue
+        for state_name in scale["affected_states"]:
             latent_idx_value = latent_idx.get(state_name)
             if latent_idx_value is not None:
                 loadings[latent_idx_value, factor_idx] = 1.0
-        if not affected_states:
-            errors.append(
-                "STATIC_STATE_SD parameter does not match any induced time-invariant "
-                f"confounder dependency: {factor_name!r}"
-            )
 
     if errors:
         raise SpecTranslationError(errors)

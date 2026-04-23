@@ -169,9 +169,7 @@ def format_model_topology(model_topology: dict) -> str:
                 "| {focus_constructs} | {members} | {feedback_coupled} |".format(
                     focus_constructs=", ".join(summary.get("focus_constructs") or ["-"]),
                     members=", ".join(summary.get("members") or ["-"]),
-                    feedback_coupled=(
-                        "yes" if summary.get("feedback_coupled") else "no"
-                    ),
+                    feedback_coupled=("yes" if summary.get("feedback_coupled") else "no"),
                 )
             )
     return "\n".join(lines)
@@ -340,6 +338,16 @@ def _format_structural_context(structural_context: dict) -> str:
             f"cause=`{structural_context['cause']}`; "
             f"effect=`{structural_context['effect']}`; "
             f"relation=`{relation}`"
+        )
+    if "affected_states" in structural_context:
+        return (
+            "affected_states=`{}`; ".format(
+                ",".join(structural_context.get("affected_states") or [])
+            )
+            + f"dependency_kind=`{structural_context.get('dependency_kind')}`; "
+            + "source_confounders=`{}`".format(
+                ",".join(structural_context.get("source_confounders") or [])
+            )
         )
     if "construct_1" in structural_context and "construct_2" in structural_context:
         return (
@@ -618,6 +626,33 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             )
         lines.append("")
 
+    static_state_sd_cards = groups.get("static_state_sd") or []
+    if static_state_sd_cards:
+        lines.extend(
+            [
+                "#### Confounder Scales",
+                "",
+                "Each row is one identifiable baseline-factor scale. `Sources` lists the "
+                "marginalized time-invariant confounders whose loading columns are identical "
+                "and therefore aggregate into this scale (only the sum of their squared "
+                "magnitudes is identified from data).",
+                "",
+                "| Parameter | Affected States | Sources | Constraint |",
+                "|-----------|-----------------|---------|------------|",
+            ]
+        )
+        for card in static_state_sd_cards:
+            structural_context = card.get("structural_context") or {}
+            lines.append(
+                "| {parameter} | {affected_states} | {sources} | {constraint} |".format(
+                    parameter=card["parameter"],
+                    affected_states=", ".join(structural_context.get("affected_states") or ["-"]),
+                    sources=", ".join(structural_context.get("source_confounders") or ["-"]),
+                    constraint=card["constraint"],
+                )
+            )
+        lines.append("")
+
     other_roles = [
         role
         for role in groups
@@ -634,6 +669,7 @@ def format_prior_cards(prior_cards: list[dict]) -> str:
             "observation_hyperparameter_positive",
             "correlation",
             "initial_state_correlation",
+            "static_state_sd",
         }
     ]
     for role in sorted(other_roles):

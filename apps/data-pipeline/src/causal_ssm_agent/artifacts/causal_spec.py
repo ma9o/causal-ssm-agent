@@ -128,6 +128,7 @@ class CausalSpec(BaseModel):
                         f"{edge.cause!r} -> {edge.effect!r}"
                     )
 
+            kind_by_confounder: dict[str, str] = {}
             for dependency in estimation.induced_dependencies:
                 state_1, state_2 = dependency.between
                 if state_1 not in state_names or state_2 not in state_names:
@@ -140,6 +141,15 @@ class CausalSpec(BaseModel):
                         "Induced dependency references unknown source confounders: "
                         f"{sorted(unknown_sources)}"
                     )
+                for confounder in dependency.source_confounders:
+                    prior_kind = kind_by_confounder.setdefault(confounder, dependency.kind)
+                    if prior_kind != dependency.kind:
+                        raise ValueError(
+                            f"Confounder {confounder!r} induces dependencies with "
+                            f"inconsistent kinds ({prior_kind!r} and "
+                            f"{dependency.kind!r}); a marginalized confounder must "
+                            "project to exactly one covariance block."
+                        )
 
         return self
 
