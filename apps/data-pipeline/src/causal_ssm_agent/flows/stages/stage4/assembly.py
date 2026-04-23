@@ -63,7 +63,9 @@ class AssemblyValidation:
 
     @property
     def has_sensitivity_failure(self) -> bool:
-        return self.sensitivity_consulted and self.sensitivity_supported and not self.sensitivity_valid
+        return (
+            self.sensitivity_consulted and self.sensitivity_supported and not self.sensitivity_valid
+        )
 
 
 def validate_assembly(
@@ -649,7 +651,9 @@ def _format_sensitivity_direction_message(
         if isinstance(loading, dict)
         and (loading.get("interpretable_parameter") or loading.get("parameter"))
     ][:4]
-    dominant_text = ", ".join(parameter_names) if parameter_names else "the active parameter surface"
+    dominant_text = (
+        ", ".join(parameter_names) if parameter_names else "the active parameter surface"
+    )
     return (
         f"{prefix}: Jacobian sensitivity found weak normalized direction "
         f"{index} (normalized singular value={normalized_sv_text}) dominated by {dominant_text}."

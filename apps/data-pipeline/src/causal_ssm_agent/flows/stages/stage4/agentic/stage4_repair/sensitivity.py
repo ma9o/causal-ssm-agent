@@ -93,13 +93,9 @@ def _partition_direction_parameters(
     cumulative_weight = 0.0
 
     for parameter_name, weight in ranked_parameters:
-        if (
-            len(direct) < _SENSITIVITY_MAX_DIRECT_PARAMETERS
-            and (
-                not direct
-                or cumulative_weight / max(total_weight, 1e-12)
-                < _SENSITIVITY_DIRECT_LOADING_COVERAGE
-            )
+        if len(direct) < _SENSITIVITY_MAX_DIRECT_PARAMETERS and (
+            not direct
+            or cumulative_weight / max(total_weight, 1e-12) < _SENSITIVITY_DIRECT_LOADING_COVERAGE
         ):
             direct.append(parameter_name)
             cumulative_weight += weight * weight
@@ -132,8 +128,7 @@ def _format_sensitivity_reason(
         reason += f" dominated by {summarize_stage4_names(list(direct_parameters))}"
     if supporting_parameters:
         reason += (
-            "; secondary coupled parameters: "
-            f"{summarize_stage4_names(list(supporting_parameters))}"
+            f"; secondary coupled parameters: {summarize_stage4_names(list(supporting_parameters))}"
         )
     return reason + "."
 

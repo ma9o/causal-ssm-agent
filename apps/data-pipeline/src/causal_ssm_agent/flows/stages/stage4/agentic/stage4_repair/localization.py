@@ -107,7 +107,6 @@ def _diagnostic_manifest_names(
     )
 
 
-
 def _authored_parameter_names_from_tokens(
     plan: Stage4Plan,
     parameter_tokens: tuple[str, ...],
@@ -142,8 +141,7 @@ def _authored_parameter_names_from_tokens(
             retained_tokens = tuple(
                 resolved_token
                 for resolved_token in resolved_tokens
-                if resolved_token
-                and _find_block_for_parameter(plan, resolved_token) is not None
+                if resolved_token and _find_block_for_parameter(plan, resolved_token) is not None
             )
             if not retained_tokens:
                 unresolved_scale_tokens.append(token)
@@ -155,8 +153,7 @@ def _authored_parameter_names_from_tokens(
     if unresolved_scale_tokens:
         unresolved = ", ".join(sorted(dict.fromkeys(unresolved_scale_tokens)))
         raise ValueError(
-            "Stage 4 could not resolve authored parameters for "
-            f"{context}: {unresolved}"
+            f"Stage 4 could not resolve authored parameters for {context}: {unresolved}"
         )
     return tuple(sorted(dict.fromkeys(authored_parameter_names)))
 

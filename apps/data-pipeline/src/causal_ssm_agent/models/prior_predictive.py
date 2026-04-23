@@ -87,7 +87,9 @@ def _pp_result(
         issue=issue,
         suggested_adjustment=suggested_adjustment,
         related_parameters=(
-            related_parameters if related_parameters is not None else ([parameter] if parameter else [])
+            related_parameters
+            if related_parameters is not None
+            else ([parameter] if parameter else [])
         ),
         supporting_codes=supporting_codes or [],
         repair_scope=repair_scope,
@@ -274,9 +276,7 @@ def resolve_scale_target_parameters(
         *likelihood_lookup,
     }
     construct_names = {
-        name
-        for name in indicator_to_construct_lookup.values()
-        if isinstance(name, str) and name
+        name for name in indicator_to_construct_lookup.values() if isinstance(name, str) and name
     }
 
     targets: list[str] = []

@@ -123,4 +123,3 @@ class TestAutoReparamSSM:
         assert diag is not None
         diag_names = {entry["parameter"] for entry in diag["per_parameter"]}
         assert all("_decentered" not in name for name in diag_names)
-

@@ -206,9 +206,7 @@ def _run_blackjax_chees_hmc(
     _last_state, history = jax.lax.scan(_one_step, warmup_result.state, sample_keys)
     grouped_positions = jnp.swapaxes(history["position"], 0, 1)
     grouped_extra = {
-        name: jnp.swapaxes(values, 0, 1)
-        for name, values in history.items()
-        if name != "position"
+        name: jnp.swapaxes(values, 0, 1) for name, values in history.items() if name != "position"
     }
     _block_until_ready_tree((grouped_positions, grouped_extra))
     posterior_sampling_seconds = time.perf_counter() - sampling_start
@@ -219,15 +217,19 @@ def _run_blackjax_chees_hmc(
             f"({num_samples} draws per chain) in {posterior_sampling_seconds:.1f}s"
         ),
     )
-    return grouped_positions, grouped_extra, {
-        "warmup_method": "blackjax_chees_hmc",
-        "warmup_initial_step_size": _CHEES_INITIAL_STEP_SIZE,
-        "warmup_max_leapfrog_steps": int(2**max_tree_depth),
-        "warmup_trajectory_opt_lr": _CHEES_TRAJECTORY_OPT_LR,
-        "sampler_backend": "blackjax_chees_hmc",
-        "warmup_seconds": warmup_seconds,
-        "posterior_sampling_seconds": posterior_sampling_seconds,
-    }
+    return (
+        grouped_positions,
+        grouped_extra,
+        {
+            "warmup_method": "blackjax_chees_hmc",
+            "warmup_initial_step_size": _CHEES_INITIAL_STEP_SIZE,
+            "warmup_max_leapfrog_steps": int(2**max_tree_depth),
+            "warmup_trajectory_opt_lr": _CHEES_TRAJECTORY_OPT_LR,
+            "sampler_backend": "blackjax_chees_hmc",
+            "warmup_seconds": warmup_seconds,
+            "posterior_sampling_seconds": posterior_sampling_seconds,
+        },
+    )
 
 
 def _fit_numpyro_nuts(
@@ -339,8 +341,7 @@ def _fit_blackjax_chees_hmc(
     if kwargs:
         unsupported = ", ".join(sorted(kwargs))
         raise TypeError(
-            "Unsupported fit_nuts kwargs for the BlackJAX ChEES-HMC path: "
-            f"{unsupported}"
+            f"Unsupported fit_nuts kwargs for the BlackJAX ChEES-HMC path: {unsupported}"
         )
     if dense_mass:
         logger.info(
@@ -461,7 +462,9 @@ def _fit_blackjax_chees_hmc(
     timings.update(extraction_timings)
     filter_start = time.perf_counter()
     constrained_samples = {
-        name: constrained_samples[name] for name in original_site_info if name in constrained_samples
+        name: constrained_samples[name]
+        for name in original_site_info
+        if name in constrained_samples
     }
     timings["sample_site_filter_seconds"] = time.perf_counter() - filter_start
     regroup_start = time.perf_counter()

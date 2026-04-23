@@ -200,9 +200,7 @@ def validate_model_spec_decisions_dict(
     observation_intercept_policy = data.get("observation_intercept_policy")
     if observation_intercept_policy is None:
         errors.append("'observation_intercept_policy' is required")
-    elif observation_intercept_policy not in {
-        entry.value for entry in ObservationInterceptPolicy
-    }:
+    elif observation_intercept_policy not in {entry.value for entry in ObservationInterceptPolicy}:
         errors.append(
             "'observation_intercept_policy' invalid; must be one of "
             f"{sorted(entry.value for entry in ObservationInterceptPolicy)}"
