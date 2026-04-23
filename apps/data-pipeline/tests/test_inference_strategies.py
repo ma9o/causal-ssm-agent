@@ -2811,6 +2811,47 @@ def test_aux_gibbs_smoke_on_small_kalman_model():
     assert latent_paths.shape == (1, 10, 3, 1)
 
 
+def test_aux_gibbs_eq10_11_smoke_on_small_kalman_model():
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="aux_gibbs",
+        num_warmup=8,
+        num_samples=10,
+        num_chains=1,
+        seed=11,
+        latent_proposal_family="eq10_11",
+        latent_delta=0.2,
+        param_step_size=0.03,
+        init_scale=0.01,
+        retain_latent_paths=True,
+    )
+
+    assert result.method == "aux_gibbs"
+    aux_diag = result.diagnostics["aux_gibbs"]
+    assert aux_diag["latent_proposal_family"] == "eq10_11"
+    samples = result.get_samples()
+    assert samples["diffusion_diag_free"].shape == (10, 1)
+    assert samples["manifest_var_diag_free"].shape == (10, 1)
+    assert samples["t0_var_diag_free"].shape == (10, 1)
+    assert bool(jnp.isfinite(samples["diffusion_diag_free"]).all())
+    assert bool(jnp.isfinite(samples["manifest_var_diag_free"]).all())
+    assert bool(jnp.isfinite(samples["t0_var_diag_free"]).all())
+    latent_summary = result.get_latent_posterior_summary()
+    assert latent_summary is not None
+    assert latent_summary["mean"].shape == (3, 1)
+    assert bool(jnp.isfinite(latent_summary["mean"]).all())
+    latent_paths = result.get_latent_paths()
+    assert latent_paths is not None
+    assert latent_paths.shape == (1, 10, 3, 1)
+
+
 def test_aux_csmc_smoke_on_small_kalman_model():
     spec = _make_aux_gibbs_smoke_spec()
     model = SSMModel(spec, likelihood="kalman")
@@ -2852,11 +2893,54 @@ def test_aux_csmc_smoke_on_small_kalman_model():
     assert latent_paths.shape == (1, 8, 3, 1)
 
 
+def test_particle_mgrad_smoke_on_small_kalman_model():
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="particle_mgrad",
+        num_warmup=6,
+        num_samples=8,
+        num_chains=1,
+        seed=17,
+        latent_delta=0.2,
+        latent_target_accept=0.5,
+        n_particles=6,
+        param_step_size=0.03,
+        init_scale=0.01,
+        retain_latent_paths=True,
+    )
+
+    assert result.method == "particle_mgrad"
+    assert "particle_mgrad" in result.diagnostics
+    samples = result.get_samples()
+    assert samples["diffusion_diag_free"].shape == (8, 1)
+    assert samples["manifest_var_diag_free"].shape == (8, 1)
+    assert samples["t0_var_diag_free"].shape == (8, 1)
+    assert bool(jnp.isfinite(samples["diffusion_diag_free"]).all())
+    assert bool(jnp.isfinite(samples["manifest_var_diag_free"]).all())
+    assert bool(jnp.isfinite(samples["t0_var_diag_free"]).all())
+    latent_summary = result.get_latent_posterior_summary()
+    assert latent_summary is not None
+    assert latent_summary["mean"].shape == (3, 1)
+    assert bool(jnp.isfinite(latent_summary["mean"]).all())
+    latent_paths = result.get_latent_paths()
+    assert latent_paths is not None
+    assert latent_paths.shape == (1, 8, 3, 1)
+
+
 def test_aux_csmc_dual_averaging_supports_pathfinder_init(monkeypatch):
     spec = _make_aux_gibbs_smoke_spec()
     model = SSMModel(spec, likelihood="kalman")
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+    latent_delta_min = 0.05
+    latent_delta_max = 0.12
 
     def _fake_pathfinder_approximate(_key, _log_posterior_fn, flat_example, **_kwargs):
         return SimpleNamespace(
@@ -2893,12 +2977,17 @@ def test_aux_csmc_dual_averaging_supports_pathfinder_init(monkeypatch):
         init_scale=0.01,
         adaptation_scheme="dual_averaging",
         init_method="pathfinder",
+        latent_delta_min=latent_delta_min,
+        latent_delta_max=latent_delta_max,
     )
 
     diag = result.diagnostics["aux_csmc"]
     assert diag["adaptation_scheme"] == "dual_averaging"
     assert diag["init_method"] == "pathfinder"
-    assert np.asarray(diag["final_latent_delta"]).shape == (2, 3)
+    final_latent_delta = np.asarray(diag["final_latent_delta"])
+    assert final_latent_delta.shape == (2, 3)
+    assert np.all(final_latent_delta >= latent_delta_min)
+    assert np.all(final_latent_delta <= latent_delta_max)
 
 
 def test_aux_gibbs_multi_chain_diagnostics():
@@ -2949,6 +3038,39 @@ def test_aux_csmc_multi_chain_diagnostics():
         latent_delta=0.2,
         latent_target_accept=0.5,
         n_csmc_particles=6,
+        param_step_size=0.03,
+        init_scale=0.01,
+    )
+
+    samples = result.get_samples()
+    assert samples["diffusion_diag_free"].shape == (10, 1)
+    diag = result.get_mcmc_diagnostics()
+    assert diag is not None
+    assert diag["num_chains"] == 2
+    assert diag["num_samples"] == 5
+    assert "latent_accept_prob_mean" in diag
+    assert "parameter_accept_prob_mean" in diag
+    assert "trace_data" in diag
+    assert "rank_histograms" in diag
+
+
+def test_particle_mgrad_multi_chain_diagnostics():
+    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="particle_mgrad",
+        num_warmup=4,
+        num_samples=5,
+        num_chains=2,
+        seed=18,
+        latent_delta=0.2,
+        latent_target_accept=0.5,
+        n_particles=6,
         param_step_size=0.03,
         init_scale=0.01,
     )
@@ -3032,6 +3154,46 @@ def test_aux_csmc_support_aware_interval_summary_smoke():
         latent_delta=0.15,
         latent_target_accept=0.5,
         n_csmc_particles=6,
+        param_step_size=0.03,
+        init_scale=0.01,
+    )
+
+    summary = result.get_latent_posterior_summary()
+    assert summary is not None
+    assert summary["mean"].shape == (2, 1)
+    assert bool(jnp.isfinite(summary["mean"]).all())
+    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
+
+
+def test_particle_mgrad_support_aware_interval_summary_smoke():
+    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="particle")
+    support = _support_runtime(
+        anchor_times=np.array([0.0, 1.0]),
+        manifest_names=["y"],
+        support_kinds=["interval"],
+        observation_windows=["1d"],
+        support_start_times=np.array([[np.nan], [0.0]]),
+        support_end_times=np.array([[np.nan], [1.0]]),
+        interval_prev_coeffs=np.array([[0.0], [0.5]], dtype=np.float32),
+        interval_curr_coeffs=np.array([[0.0], [0.5]], dtype=np.float32),
+        interval_weights=np.array([[0.0], [1.0]], dtype=np.float32),
+    )
+    model.set_observation_support(support)
+    observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="particle_mgrad",
+        num_warmup=4,
+        num_samples=6,
+        num_chains=1,
+        seed=19,
+        latent_delta=0.15,
+        latent_target_accept=0.5,
+        n_particles=6,
         param_step_size=0.03,
         init_scale=0.01,
     )
@@ -3137,6 +3299,25 @@ def test_aux_gibbs_supports_fixed_centering_autoreparam():
     assert diag is not None
     diag_names = {entry["parameter"] for entry in diag["per_parameter"]}
     assert all("_decentered" not in name for name in diag_names)
+
+
+def test_aux_gibbs_rejects_unknown_latent_proposal_family():
+    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="latent proposal family"):
+        fit(
+            model,
+            observations=observations,
+            times=times,
+            method="aux_gibbs",
+            num_warmup=2,
+            num_samples=2,
+            num_chains=1,
+            seed=12,
+            latent_proposal_family="bad_family",
+        )
 
 
 def test_aux_csmc_supports_fixed_centering_autoreparam():
