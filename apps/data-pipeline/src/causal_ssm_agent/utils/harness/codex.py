@@ -12,9 +12,16 @@ config file in ``$CODEX_HOME`` (default ``~/.codex``); we write a
 per-session ``config.toml`` into a scratch directory and point Codex
 at it by exporting ``CODEX_HOME`` for the child process.
 
+Subscription auth (ChatGPT Plus/Pro/Team) lives in
+``~/.codex/auth.json``. Because we override ``CODEX_HOME`` for the
+MCP config, we also symlink the user's ``auth.json`` into the scratch
+directory so the subscription credentials are still found. When the
+user is authenticated via ``OPENAI_API_KEY`` instead, the symlink is
+skipped (codex reads the env var directly).
+
 Pipeline-fixed flags: ``--sandbox read-only`` (our only side-effect
-channel is the MCP tools we expose), ``--ask-for-approval never`` for
-non-interactive use, ``--json`` for event streaming, and
+channel is the MCP tools we expose; no approvals are needed under a
+read-only sandbox), ``--json`` for event streaming, and
 ``--skip-git-repo-check`` so the pipeline can run outside a repo.
 
 Integration status: the ``codex`` CLI's MCP config key names for HTTP
@@ -84,8 +91,6 @@ def build_codex_argv(
             "--json",
             "--sandbox",
             "read-only",
-            "--ask-for-approval",
-            "never",
             "--skip-git-repo-check",
             "-m",
             model,
@@ -94,7 +99,7 @@ def build_codex_argv(
     if reasoning_effort is not None:
         argv.extend(["-c", f"model_reasoning_effort={reasoning_effort}"])
     if cwd is not None:
-        argv.extend(["--cd", str(cwd)])
+        argv.extend(["-C", str(cwd)])
     for key, value in extra_config or []:
         argv.extend(["-c", f"{key}={value}"])
     argv.append(user_message)
@@ -198,14 +203,25 @@ class CodexHarnessSession:
     def _build_turn_result(self, turn_events: list[dict]) -> TurnResult:
         tool_calls_fired: list[str] = []
         terminal: tuple[str, str] | None = None
-        for event in turn_events:
+
+        def _unwrap(event: dict) -> dict:
+            # Codex 0.121 nests items inside `item.completed`; older/prototype
+            # schemas put tool_call/tool_result at the top level.
+            if event.get("type") == "item.completed" and isinstance(event.get("item"), dict):
+                return event["item"]
+            return event
+
+        for raw in turn_events:
+            event = _unwrap(raw)
             etype = event.get("type")
-            if etype == "tool_call":
-                name = str(event.get("name") or "")
+            if etype in {"tool_call", "mcp_tool_call"}:
+                name = str(event.get("name") or event.get("tool") or "")
                 if name:
                     tool_calls_fired.append(name)
-            elif etype == "tool_result":
-                result_raw = event.get("output") or event.get("result") or ""
+            elif etype in {"tool_result", "mcp_tool_result"}:
+                result_raw = (
+                    event.get("output") or event.get("result") or event.get("text") or ""
+                )
                 result_text = result_raw if isinstance(result_raw, str) else json.dumps(result_raw)
                 is_error = bool(event.get("is_error", False))
                 matched = self._match_terminal(result_text, is_error=is_error)
@@ -244,6 +260,25 @@ class CodexHarnessSession:
         return None
 
 
+def _link_codex_auth(codex_home: Path) -> None:
+    """Symlink ``~/.codex/auth.json`` into a scratch CODEX_HOME.
+
+    Subscription auth (ChatGPT Plus/Pro/Team) lives in that file; without
+    the symlink, setting CODEX_HOME to a fresh directory would drop the
+    user out of their session. API-key users are unaffected (codex reads
+    ``OPENAI_API_KEY`` from the environment directly).
+    """
+    user_auth = Path("~/.codex/auth.json").expanduser()
+    if not user_auth.exists():
+        return
+    link = codex_home / "auth.json"
+    try:
+        link.symlink_to(user_auth)
+    except OSError:
+        # Fall back to a copy on filesystems that don't support symlinks.
+        link.write_bytes(user_auth.read_bytes())
+
+
 @asynccontextmanager
 async def open_codex_harness_session(
     *,
@@ -258,15 +293,17 @@ async def open_codex_harness_session(
     """Open a Codex-backed agent session scoped to an ``async with`` block.
 
     Starts an in-process MCP server for ``tools``, writes a
-    per-invocation ``config.toml`` in a scratch ``CODEX_HOME`` that
-    points Codex at it, then yields a :class:`CodexHarnessSession`.
-    The scratch directory and MCP server are cleaned up on exit.
+    per-invocation ``config.toml`` in a scratch ``CODEX_HOME`` (with
+    ``auth.json`` symlinked from the user's ``~/.codex`` so subscription
+    auth survives), then yields a :class:`CodexHarnessSession`. The
+    scratch directory and MCP server are cleaned up on exit.
     """
     async with serve_tools_http(tools, name=MCP_SERVER_NAME) as mcp_url:
         mcp_toml = build_codex_mcp_toml(mcp_url)
         with tempfile.TemporaryDirectory(prefix="codex-home-") as tmpdir:
             codex_home = Path(tmpdir)
             (codex_home / "config.toml").write_text(mcp_toml)
+            _link_codex_auth(codex_home)
             session = CodexHarnessSession(
                 tools=tools,
                 codex_home=codex_home,

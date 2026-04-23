@@ -424,21 +424,14 @@ class TestSessionTurn:
 # ---------------------------------------------------------------------------
 
 
-_CLAUDE_AVAILABLE = (
-    shutil.which("claude") is not None
-    and bool(os.getenv("CAUSAL_SSM_RUN_CLAUDE_HARNESS"))
-    # Pipeline uses --bare, which skips OAuth/keychain reads; Anthropic auth
-    # must come from ANTHROPIC_API_KEY in --bare mode (documented behavior).
-    and bool(os.getenv("ANTHROPIC_API_KEY"))
+_CLAUDE_AVAILABLE = shutil.which("claude") is not None and bool(
+    os.getenv("CAUSAL_SSM_RUN_CLAUDE_HARNESS")
 )
 
 
 @pytest.mark.skipif(
     not _CLAUDE_AVAILABLE,
-    reason=(
-        "claude binary, CAUSAL_SSM_RUN_CLAUDE_HARNESS, or ANTHROPIC_API_KEY not set "
-        "(subscription auth does not flow through --bare)"
-    ),
+    reason="claude binary or CAUSAL_SSM_RUN_CLAUDE_HARNESS not set",
 )
 class TestClaudeIntegration:
     def test_round_trip(self):

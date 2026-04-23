@@ -106,7 +106,6 @@ class TestBuildCodexArgv:
         assert "--json" in argv
         assert argv[argv.index("-m") + 1] == "gpt-5.4"
         assert argv[argv.index("--sandbox") + 1] == "read-only"
-        assert argv[argv.index("--ask-for-approval") + 1] == "never"
         # user message is last
         assert argv[-1] == "hello"
         # reasoning_effort passes through -c
@@ -133,7 +132,7 @@ class TestBuildCodexArgv:
         )
         # No stray reasoning_effort key=value entries.
         assert not any("model_reasoning_effort" in arg for arg in argv)
-        assert "--cd" not in argv
+        assert "-C" not in argv
 
     def test_cwd_and_extra_config_pass_through(self):
         argv = build_codex_argv(
@@ -145,7 +144,7 @@ class TestBuildCodexArgv:
             cwd="/tmp/work",
             extra_config=[("key1", "val1"), ("key2", "val2")],
         )
-        assert argv[argv.index("--cd") + 1] == "/tmp/work"
+        assert argv[argv.index("-C") + 1] == "/tmp/work"
         assert "key1=val1" in argv
         assert "key2=val2" in argv
 
