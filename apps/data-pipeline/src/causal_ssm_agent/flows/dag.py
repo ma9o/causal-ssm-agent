@@ -199,66 +199,55 @@ async def stage3(
 
     validation_task = validate_extraction(causal_spec, [data_for_model])
     audit_result = unwrap_task_result(validation_task)
-    outcome = "fail"
-    fail_reason: str | None = "data_validation_failed"
+    if not audit_result:
+        raise RuntimeError(
+            "Stage 3 validate_extraction returned an empty audit result; "
+            "refusing to fabricate an is_valid=False report with empty indicators."
+        )
 
-    if audit_result:
-        indicator_issues = [
-            issue
-            for audit in audit_result.get("indicators", {}).values()
-            for issue in audit.get("validation", {}).get("issues", [])
-        ]
-        dataset_issues = audit_result.get("dataset_issues", [])
-        all_issues = [*indicator_issues, *dataset_issues]
-        status = derive_validation_status(all_issues)
-        audit_result = {**audit_result, "is_valid": status["is_valid"]}
-        outcome = status["outcome"]
-        fail_reason = status["fail_reason"] if isinstance(status["fail_reason"], str) else None
+    indicator_issues = [
+        issue
+        for audit in audit_result.get("indicators", {}).values()
+        for issue in audit.get("validation", {}).get("issues", [])
+    ]
+    dataset_issues = audit_result.get("dataset_issues", [])
+    all_issues = [*indicator_issues, *dataset_issues]
+    status = derive_validation_status(all_issues)
+    audit_result = {**audit_result, "is_valid": status["is_valid"]}
+    outcome = status["outcome"]
+    fail_reason = status["fail_reason"] if isinstance(status["fail_reason"], str) else None
 
-        if not status["is_valid"]:
-            logger.warning("Stage 3 validation errors detected:")
-            for issue in all_issues:
-                logger.warning(
-                    "    - %s: %s (%s) %s",
-                    issue.get("indicator") or "dataset",
-                    issue["issue_type"],
-                    issue["severity"],
-                    issue["message"],
-                )
-        elif all_issues:
-            logger.warning("Stage 3 validation warnings:")
-            for issue in all_issues:
-                logger.warning(
-                    "    - %s: %s (%s) %s",
-                    issue.get("indicator") or "dataset",
-                    issue["issue_type"],
-                    issue["severity"],
-                    issue["message"],
-                )
+    if not status["is_valid"]:
+        logger.warning("Stage 3 validation errors detected:")
+    elif all_issues:
+        logger.warning("Stage 3 validation warnings:")
+    for issue in all_issues:
+        logger.warning(
+            "    - %s: %s (%s) %s",
+            issue.get("indicator") or "dataset",
+            issue["issue_type"],
+            issue["severity"],
+            issue["message"],
+        )
 
-        if all_issues:
-            await _await_artifact(
-                create_table_artifact(
-                    key="validation-issues",
-                    table=[
-                        {
-                            "indicator": i.get("indicator") or "dataset",
-                            "type": i["issue_type"],
-                            "severity": i["severity"],
-                            "message": i["message"],
-                        }
-                        for i in all_issues
-                    ],
-                    description="Stage 3 extraction validation issues",
-                )
+    if all_issues:
+        await _await_artifact(
+            create_table_artifact(
+                key="validation-issues",
+                table=[
+                    {
+                        "indicator": i.get("indicator") or "dataset",
+                        "type": i["issue_type"],
+                        "severity": i["severity"],
+                        "message": i["message"],
+                    }
+                    for i in all_issues
+                ],
+                description="Stage 3 extraction validation issues",
             )
+        )
 
-    report = audit_result or {
-        "is_valid": False,
-        "indicators": {},
-        "dataset_issues": [],
-    }
-    report["outcome"] = outcome
+    report = {**audit_result, "outcome": outcome}
     if fail_reason is not None:
         report["fail_reason"] = fail_reason
 
