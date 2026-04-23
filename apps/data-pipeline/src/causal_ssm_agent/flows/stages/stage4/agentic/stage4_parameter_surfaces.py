@@ -326,19 +326,22 @@ def _build_parameter_surface(
             )
             if isinstance(name, str)
         )
+        structural_context: dict[str, Any] = {
+            "construct_names": list(construct_names),
+            "dependency_kind": parameter.get("dependency_kind"),
+            "source_confounders": parameter.get("source_confounders"),
+        }
+        if role == "static_state_sd":
+            structural_context["affected_states"] = list(construct_names)
+        else:
+            structural_context["construct_1"] = parameter.get("construct_1")
+            structural_context["construct_2"] = parameter.get("construct_2")
         return Stage4ParameterSurface(
             parameter=parameter,
             block_kind="correlation_prior",
             owner_key=str(parameter["name"]),
             construct_names=construct_names,
-            structural_context={
-                "construct_1": parameter.get("construct_1"),
-                "construct_2": parameter.get("construct_2"),
-                "construct_names": list(construct_names),
-                "dependency_kind": parameter.get("dependency_kind"),
-                "source_confounders": parameter.get("source_confounders"),
-                "source_confounder": parameter.get("source_confounder"),
-            },
+            structural_context=structural_context,
         )
 
     raise ValueError(f"Unsupported Stage 4 parameter role {role!r}")

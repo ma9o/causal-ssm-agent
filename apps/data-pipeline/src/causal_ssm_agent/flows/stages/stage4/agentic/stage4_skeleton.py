@@ -15,6 +15,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_indicator_polarity,
     get_indicators,
     get_induced_dependencies,
+    get_marginalized_scales,
 )
 from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
 
@@ -217,7 +218,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
 
     seed_parameters.extend(
         _confounder_baseline_factor_parameters(
-            induced_dependencies,
+            get_marginalized_scales(causal_spec),
             retained_state_order=retained_state_order,
         )
     )
@@ -672,43 +673,43 @@ def _candidate_observation_intercept_parameters(
 
 
 def _confounder_baseline_factor_parameters(
-    induced_dependencies: list[dict[str, Any]],
+    marginalized_scales: list[dict[str, Any]],
     *,
     retained_state_order: list[str],
 ) -> list[dict[str, Any]]:
-    """Return one baseline-factor scale per marginalized time-invariant confounder."""
-    construct_order = {name: idx for idx, name in enumerate(retained_state_order)}
-    affected_by_confounder: dict[str, set[str]] = {}
-    for dependency in induced_dependencies:
-        if dependency.get("kind") != "initial_state_correlation":
-            continue
-        affected_states = dependency.get("between") or ()
-        for confounder in dependency.get("source_confounders") or ():
-            affected = affected_by_confounder.setdefault(str(confounder), set())
-            for state_name in affected_states:
-                if isinstance(state_name, str):
-                    affected.add(state_name)
+    """Return one baseline-factor scale per identifiable confounder equivalence class.
 
+    Confounders sharing the same loading column (same set of retained children)
+    contribute only to ``Σ τ_c²`` in the induced covariance — their individual
+    scales are not separately identifiable from data. Emit one scale per class
+    and list the aggregated source confounders for elicitation context.
+    """
+    construct_order = {name: idx for idx, name in enumerate(retained_state_order)}
     parameters: list[dict[str, Any]] = []
-    for confounder, construct_names in sorted(affected_by_confounder.items()):
+    for scale in marginalized_scales:
+        if scale["kind"] != "initial_state_correlation":
+            continue
+        affected_states = scale["affected_states"]
+        if len(affected_states) < 2:
+            continue
         ordered_construct_names = sorted(
-            construct_names,
+            affected_states,
             key=lambda name: (construct_order.get(name, len(construct_order)), name),
         )
-        if len(ordered_construct_names) < 2:
-            continue
+        sources = list(scale["sources"])
+        description_sources = ", ".join(sources)
         parameters.append(
             {
-                "name": f"tau_{confounder}",
+                "name": scale["parameter"],
                 "role": "static_state_sd",
                 "constraint": "positive",
                 "description": (
-                    "Baseline-factor SD induced by marginalized time-invariant confounder "
-                    f"{confounder}"
+                    "Baseline-factor SD aggregating time-invariant confounders "
+                    f"({description_sources}) that share the induced loading on "
+                    f"{', '.join(ordered_construct_names)}"
                 ),
                 "construct_names": ordered_construct_names,
-                "source_confounder": confounder,
-                "source_confounders": [confounder],
+                "source_confounders": sources,
                 "dependency_kind": "initial_state_correlation",
             }
         )
