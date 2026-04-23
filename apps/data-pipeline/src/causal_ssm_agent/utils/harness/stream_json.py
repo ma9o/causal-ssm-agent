@@ -267,13 +267,23 @@ def apply_codex_event(state: CodexStreamState, event: dict[str, Any]) -> None:
             state.thread_id = tid
         return
 
+    # Codex 0.121 emits `item.completed` with a nested ``item`` carrying
+    # the actual type (``agent_message``, ``reasoning``, ``mcp_tool_call``,
+    # etc.). Earlier/prototype schemas used top-level ``agent_message``
+    # events; both shapes are handled.
+    if etype == "item.completed":
+        item = event.get("item") or {}
+        return apply_codex_event(state, {**item, "_from_item_completed": True})
+
     if etype in {"agent_message", "message"}:
+        # The item may or may not carry an explicit role; codex's
+        # agent_message items are always assistant output.
         message = event.get("message") or event
         role = message.get("role") or "assistant"
-        content = message.get("content") or message.get("text") or ""
-        if isinstance(content, list):
-            content = _coerce_content_text(content)
-        text = str(content)
+        text = message.get("text")
+        if not isinstance(text, str):
+            content = message.get("content") or ""
+            text = _coerce_content_text(content) if isinstance(content, list) else str(content)
         if role == "assistant":
             state.messages.append(TraceMessage(role="assistant", content=text))
             if text:
@@ -282,10 +292,10 @@ def apply_codex_event(state: CodexStreamState, event: dict[str, Any]) -> None:
             state.messages.append(TraceMessage(role="user", content=text))
         return
 
-    if etype == "tool_call":
+    if etype in {"tool_call", "mcp_tool_call"}:
         call_id = str(event.get("call_id") or event.get("id") or "")
-        tool_name = str(event.get("name") or "")
-        arguments = event.get("arguments") or {}
+        tool_name = str(event.get("name") or event.get("tool") or "")
+        arguments = event.get("arguments") or event.get("input") or {}
         if isinstance(arguments, dict):
             arguments_json = json.dumps(arguments)
         else:
@@ -305,9 +315,9 @@ def apply_codex_event(state: CodexStreamState, event: dict[str, Any]) -> None:
         state._open_tool_calls[call_id] = tool_call_entry
         return
 
-    if etype == "tool_result":
+    if etype in {"tool_result", "mcp_tool_result"}:
         call_id = str(event.get("call_id") or event.get("id") or "")
-        result = event.get("output") or event.get("result") or ""
+        result = event.get("output") or event.get("result") or event.get("text") or ""
         if not isinstance(result, str):
             result = json.dumps(result)
         state.messages.append(
@@ -322,7 +332,7 @@ def apply_codex_event(state: CodexStreamState, event: dict[str, Any]) -> None:
         state._open_tool_calls.pop(call_id, None)
         return
 
-    if etype in {"thread.completed", "done", "result"}:
+    if etype in {"thread.completed", "turn.completed", "done", "result"}:
         usage = _extract_usage(event.get("usage"))
         if usage.input_tokens or usage.output_tokens:
             state.usage = usage
@@ -332,6 +342,14 @@ def apply_codex_event(state: CodexStreamState, event: dict[str, Any]) -> None:
         reason = event.get("stop_reason") or event.get("subtype")
         if isinstance(reason, str):
             state.stop_reason = reason
+        return
+
+    if etype in {"turn.failed", "error"}:
+        err = event.get("error") or event.get("message") or ""
+        if isinstance(err, dict):
+            err = json.dumps(err)
+        state.stop_reason = "error"
+        state.final_text = state.final_text or str(err)
         return
 
 

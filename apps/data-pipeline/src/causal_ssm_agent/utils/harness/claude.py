@@ -83,15 +83,22 @@ def build_claude_argv(
 ) -> list[str]:
     """Build the argv for one ``claude -p`` invocation.
 
-    Pipeline-fixed flags: ``--bare``, ``--strict-mcp-config``,
-    ``--permission-mode bypassPermissions``, ``--tools ""`` (disable all
-    built-in tools — only the MCP ones are allowed),
+    Pipeline-fixed flags: ``--strict-mcp-config`` (only our MCP server
+    is loaded), ``--permission-mode bypassPermissions``,
+    ``--tools ""`` + ``--allowedTools mcp__pipeline-tools__*``
+    (disable built-in tools; only our MCP tools are reachable),
+    ``--disable-slash-commands`` (no user-level skills),
     ``--output-format stream-json``, ``--verbose``,
-    ``--exclude-dynamic-system-prompt-sections``.
+    ``--exclude-dynamic-system-prompt-sections`` (stable prompt cache).
+
+    Deliberately does NOT pass ``--bare``: bare mode skips OAuth /
+    keychain reads, so Claude Max / Pro subscription auth is lost. We
+    accept the minor hermeticity loss (user's ``~/.claude`` hooks and
+    ``CLAUDE.md`` auto-memory may load) in exchange for subscription
+    auth working out of the box.
     """
     argv: list[str] = [
         str(bin),
-        "--bare",
         "-p",
         user_message,
         "--mcp-config",
@@ -103,6 +110,7 @@ def build_claude_argv(
         "",
         "--allowedTools",
         tool_allowlist,
+        "--disable-slash-commands",
         "--output-format",
         "stream-json",
         "--verbose",

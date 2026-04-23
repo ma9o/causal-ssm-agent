@@ -600,12 +600,17 @@ def validate_config(config: PipelineConfig) -> list[str]:
 
 
 def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
-    """Check that binaries and secrets required by the configured harnesses exist.
+    """Check that binaries and credentials required by the configured harnesses exist.
 
-    This is separate from :func:`validate_config` because it touches the
-    environment and the filesystem — only run it when you need a pre-flight
-    check (the validator CLI, CI, not every ``get_config()`` call).
+    ``harness: none`` still requires ``OPENROUTER_API_KEY``. ``claude-code``
+    and ``codex`` authenticate via their respective CLIs — we check that
+    those CLIs are logged in (Claude Max/Pro subscription or ChatGPT
+    Plus/Pro/Team/Enterprise), with API-key env vars accepted as a
+    fallback. Run from the validator CLI or CI, not every
+    ``get_config()`` call.
     """
+    import subprocess
+
     errors: list[str] = []
     harnesses_used = {llm.harness for _name, llm in _iter_stage_llms(config)}
 
@@ -614,12 +619,28 @@ def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
 
     if "claude-code" in harnesses_used:
         bin_name = config.llm.claude_code.bin
-        if shutil.which(bin_name) is None:
+        bin_path = shutil.which(bin_name)
+        if bin_path is None:
             errors.append(
                 f"claude binary {bin_name!r} not found on PATH (required for harness=claude-code)"
             )
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            errors.append("ANTHROPIC_API_KEY is not set (required for harness=claude-code)")
+        else:
+            try:
+                status = subprocess.run(
+                    [bin_path, "auth", "status", "--text"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            except (subprocess.SubprocessError, OSError) as exc:
+                errors.append(f"`claude auth status` failed: {exc}")
+            else:
+                if status.returncode != 0 and not os.getenv("ANTHROPIC_API_KEY"):
+                    errors.append(
+                        "claude is not logged in (run `claude auth login`) and "
+                        "ANTHROPIC_API_KEY is not set"
+                    )
 
     if "codex" in harnesses_used:
         bin_name = config.llm.codex.bin
@@ -627,7 +648,11 @@ def validate_runtime_prereqs(config: PipelineConfig) -> list[str]:
             errors.append(
                 f"codex binary {bin_name!r} not found on PATH (required for harness=codex)"
             )
-        if not os.getenv("OPENAI_API_KEY"):
-            errors.append("OPENAI_API_KEY is not set (required for harness=codex)")
+        auth_path = Path("~/.codex/auth.json").expanduser()
+        if not auth_path.exists() and not os.getenv("OPENAI_API_KEY"):
+            errors.append(
+                "codex is not authenticated: neither ~/.codex/auth.json exists "
+                "(subscription login via `codex login`) nor OPENAI_API_KEY is set"
+            )
 
     return errors
