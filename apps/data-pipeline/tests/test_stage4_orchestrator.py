@@ -1050,7 +1050,9 @@ class TestStage4TurnProjection:
             in prompt[1]["content"]
         )
         assert "allowed initialization_policy values: `stationary`, `free`" in prompt[1]["content"]
-        assert "allowed observation_intercept_policy values: `fixed`, `free`" in prompt[1]["content"]
+        assert (
+            "allowed observation_intercept_policy values: `fixed`, `free`" in prompt[1]["content"]
+        )
         assert "allowed equilibrium_forcing values: `true`, `false`" in prompt[1]["content"]
         assert (
             "centered-indicator constructs that can identify a latent baseline if forcing is enabled: `sleep`"

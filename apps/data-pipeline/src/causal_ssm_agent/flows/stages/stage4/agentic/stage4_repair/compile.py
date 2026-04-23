@@ -38,7 +38,11 @@ def classify_compile_failure_route(
     failure_family = ("compile_failure", active_block.id)
     matching_block_ids = _compile_failure_matching_block_ids(plan, text, validation=validation)
     if not matching_block_ids:
-        diagnostics = () if validation is None else tuple(validation.compile_diagnostics or validation.diagnostics)
+        diagnostics = (
+            ()
+            if validation is None
+            else tuple(validation.compile_diagnostics or validation.diagnostics)
+        )
         diagnostic_codes = tuple(
             diagnostic.code
             for diagnostic in diagnostics
@@ -77,7 +81,11 @@ def _compile_failure_matching_block_ids(
     """Return owner block ids for structured or exact identifiers on compile failure."""
     matched_block_ids: set[str] = set()
 
-    diagnostics = () if validation is None else tuple(validation.compile_diagnostics or validation.diagnostics)
+    diagnostics = (
+        ()
+        if validation is None
+        else tuple(validation.compile_diagnostics or validation.diagnostics)
+    )
     if diagnostics:
         matched_block_ids.update(
             _compile_failure_matching_block_ids_from_diagnostics(
@@ -172,7 +180,9 @@ def _compile_failure_matching_block_ids_from_diagnostics(
                     dynamics_block_id = topology.dynamics_block_id_by_construct.get(construct_name)
                     if dynamics_block_id is not None:
                         matched_block_ids.add(dynamics_block_id)
-                matched_block_ids.update(topology.internal_effect_block_ids_by_scc_id.get(scc_id, ()))
+                matched_block_ids.update(
+                    topology.internal_effect_block_ids_by_scc_id.get(scc_id, ())
+                )
             continue
 
         for construct_name in repair_construct_names:

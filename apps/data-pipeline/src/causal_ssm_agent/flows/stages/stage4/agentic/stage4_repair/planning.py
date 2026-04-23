@@ -186,9 +186,7 @@ def _scc_drift_subsystem_block_ids(
     """Return the smallest SCC-closed drift subsystem for construct hints."""
     topology = plan.repair_topology
     if not construct_names:
-        raise ValueError(
-            "Stage 4 SCC drift routing requires construct-level attribution"
-        )
+        raise ValueError("Stage 4 SCC drift routing requires construct-level attribution")
 
     closed_scc_ids: set[str] = set()
     for construct_name in construct_names:
@@ -369,8 +367,7 @@ def build_repair_plan(
         )
     if not prompt_block_ids:
         raise ValueError(
-            "Stage 4 repair scope projection produced no prompt blocks for "
-            f"{scope.scope_key!r}"
+            f"Stage 4 repair scope projection produced no prompt blocks for {scope.scope_key!r}"
         )
 
     prompt_blocks: list[Stage4FrontierBlock] = []
@@ -384,8 +381,7 @@ def build_repair_plan(
 
     if not prompt_blocks:
         raise ValueError(
-            "Stage 4 repair scope projection removed every prompt block for "
-            f"{scope.scope_key!r}"
+            f"Stage 4 repair scope projection removed every prompt block for {scope.scope_key!r}"
         )
     return ResolvedRepairPlan(
         scope=scope,

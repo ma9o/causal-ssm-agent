@@ -154,9 +154,7 @@ def validate_model_spec_dict(
     valid_distributions = {entry.value for entry in DistributionFamily}
     valid_links = {entry.value for entry in LinkFunction}
     valid_initialization_policies = {entry.value for entry in InitializationPolicy}
-    valid_observation_intercept_policies = {
-        entry.value for entry in ObservationInterceptPolicy
-    }
+    valid_observation_intercept_policies = {entry.value for entry in ObservationInterceptPolicy}
 
     likelihoods = data.get("likelihoods", [])
     if not isinstance(likelihoods, list):

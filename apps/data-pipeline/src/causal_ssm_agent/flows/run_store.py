@@ -208,20 +208,14 @@ def load_stage4_checkpoint(workspace_id: str) -> Any:
         )
     cursor = storage.read_json(cursor_path)
     if not isinstance(cursor, dict):
-        raise TypeError(
-            f"Stage 4 checkpoint cursor for workspace_id {workspace_id} is not a dict"
-        )
+        raise TypeError(f"Stage 4 checkpoint cursor for workspace_id {workspace_id} is not a dict")
     if cursor.get("kind") == "done":
         cache_key = STAGE4_DONE_CHECKPOINT_CACHE_KEY
     elif cursor.get("kind") == "block" and isinstance(cursor.get("block_id"), str):
         cache_key = str(cursor["block_id"])
     else:
-        raise ValueError(
-            f"Stage 4 checkpoint cursor for workspace_id {workspace_id} is invalid"
-        )
-    return load_pickle(
-        _stage4_checkpoint_path_for_cache_key(workspace_id, cache_key, create=False)
-    )
+        raise ValueError(f"Stage 4 checkpoint cursor for workspace_id {workspace_id} is invalid")
+    return load_pickle(_stage4_checkpoint_path_for_cache_key(workspace_id, cache_key, create=False))
 
 
 def clear_stage4_checkpoint(workspace_id: str) -> None:

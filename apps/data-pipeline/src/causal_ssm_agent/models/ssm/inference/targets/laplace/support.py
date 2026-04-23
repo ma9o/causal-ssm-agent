@@ -680,6 +680,7 @@ def _support_aware_ieks_mode(
 
     with jax.named_scope("laplace_em/support_aware_newton"):
         if iterate_to_convergence:
+
             def _continue(carry):
                 return carry[3] & (carry[4] < max_iters)
 
@@ -699,6 +700,7 @@ def _support_aware_ieks_mode(
                 init_carry,
             )
         else:
+
             def _scan_step(carry, _idx):
                 carry_cast = carry
                 return jax.lax.cond(

@@ -218,9 +218,7 @@ def stage4_grounding(
         changed_params=list(new_priors) if new_priors else list(authored_priors or {}),
     )
     failure_status = (
-        "sensitivity_failure"
-        if validation.has_sensitivity_failure
-        else "prior_predictive_failure"
+        "sensitivity_failure" if validation.has_sensitivity_failure else "prior_predictive_failure"
     )
     return make_stage4_grounding_result(
         stage_output=output,

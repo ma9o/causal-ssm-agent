@@ -268,10 +268,7 @@ def _constrain_particles_batched(
 
     transforms = {name: info["transform"] for name, info in site_info.items()}
     unconstrained = jax.vmap(unravel_fn)(particles)
-    return {
-        name: jax.vmap(transforms[name])(unconstrained[name])
-        for name in unconstrained
-    }
+    return {name: jax.vmap(transforms[name])(unconstrained[name]) for name in unconstrained}
 
 
 def extract_constrained_samples(

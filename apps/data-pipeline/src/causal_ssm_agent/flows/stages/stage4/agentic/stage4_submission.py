@@ -139,7 +139,9 @@ def _effect_prior_scc_memberships(
         graph.add_node(name)
 
     component_by_node = {
-        node: component for component in nx.strongly_connected_components(graph) for node in component
+        node: component
+        for component in nx.strongly_connected_components(graph)
+        for node in component
     }
 
     seen_components: set[tuple[str, ...]] = set()
@@ -154,9 +156,7 @@ def _effect_prior_scc_memberships(
         seen_components.add(ordered_members)
         summaries.append(
             {
-                "focus_constructs": [
-                    name for name in focus_constructs if name in component
-                ],
+                "focus_constructs": [name for name in focus_constructs if name in component],
                 "members": list(ordered_members),
                 "feedback_coupled": len(component) > 1
                 or any(graph.has_edge(name, name) for name in component),

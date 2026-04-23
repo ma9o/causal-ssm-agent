@@ -200,8 +200,6 @@ class TestLaplaceSupportAware:
         assert banded == pytest.approx(float(dense), rel=1e-2, abs=1e-2)
 
 
-
-
 class TestStudentTProcessNoise:
     """Tests for Student-t process noise variance calibration."""
 
@@ -526,5 +524,3 @@ class TestSVIBackend:
         assert late_mean < early_mean, (
             f"SVI loss did not decrease: early={early_mean:.1f}, late={late_mean:.1f}"
         )
-
-
