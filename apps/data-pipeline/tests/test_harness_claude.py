@@ -132,7 +132,8 @@ class TestBuildClaudeArgv:
         assert argv[argv.index("--model") + 1] == "claude-sonnet-4-6"
         assert argv[argv.index("--effort") + 1] == "high"
         assert argv[argv.index("--max-turns") + 1] == "20"
-        assert "--bare" in argv
+        assert "--bare" not in argv  # subscription auth needs OAuth/keychain
+        assert "--disable-slash-commands" in argv
         assert "--strict-mcp-config" in argv
         assert argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
         assert argv[argv.index("--output-format") + 1] == "stream-json"
