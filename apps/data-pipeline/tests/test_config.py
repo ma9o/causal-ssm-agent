@@ -80,6 +80,7 @@ class TestToSamplerConfig:
                 retain_latent_paths=True,
                 latent_kernel=AuxGibbsLatentKernelConfig(
                     kernel="kalman",
+                    proposal_family="eq10_11",
                     delta=0.15,
                     target_accept=0.45,
                 ),
@@ -93,6 +94,7 @@ class TestToSamplerConfig:
         result = cfg.to_sampler_config()
         assert result["method"] == "aux_gibbs"
         assert result["latent_kernel"] == "kalman"
+        assert result["latent_proposal_family"] == "eq10_11"
         assert result["latent_delta"] == 0.15
         assert result["latent_target_accept"] == 0.45
         assert result["parameter_kernel"] == "mala"

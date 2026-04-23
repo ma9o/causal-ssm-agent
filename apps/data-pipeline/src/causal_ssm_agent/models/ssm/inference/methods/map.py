@@ -867,6 +867,10 @@ def fit_map(
         "parameter_hessian_min_eig": parameter_hessian_min_eig,
         "parameter_hessian_max_eig": parameter_hessian_max_eig,
         "covariance_diag": np.asarray(jnp.diag(covariance)).tolist(),
+        # Full parameter covariance in the flat unconstrained layout used by
+        # the auxiliary-Kalman bundle. Downstream MCMC methods can use this as
+        # a preconditioner / mass matrix for MALA (see `build_mala_parameter_kernel`).
+        "parameter_covariance": np.asarray(covariance),
         "likelihood_backend": backend,
     }
 
