@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from causal_ssm_agent.utils.llm import GenerateFn
+    from causal_ssm_agent.utils.agent_session import StageSessionFactory
 
     from .stage4_orchestrator import Stage4Plan
 
@@ -36,7 +36,7 @@ def _build_stage4_tool_map(
     enable_literature: bool,
     enable_paraphrasing: bool,
     n_paraphrases: int,
-    gmm_model: str | None,
+    paraphrase_session_factory: StageSessionFactory,
     max_tool_turns: int,
 ) -> dict[str, Any]:
     """Build the Stage 4 tool map for one reducer-owned session."""
@@ -50,26 +50,48 @@ def _build_stage4_tool_map(
         enable_literature=enable_literature,
         enable_paraphrasing=enable_paraphrasing,
         n_paraphrases=n_paraphrases,
-        gmm_model=gmm_model,
+        paraphrase_session_factory=paraphrase_session_factory,
         max_tool_turns=max_tool_turns,
     )
 
 
 async def _run_stage4_turn(
     session: Stage4Session,
-    generate: GenerateFn,
+    session_factory: StageSessionFactory,
     tool_map: dict[str, Any],
 ) -> None:
-    """Run one Stage 4 outer turn and require the block's submit tool."""
+    """Run one Stage 4 outer turn and require the block's submit tool.
+
+    Each block opens its own fresh :class:`AgentSession` so context is
+    scoped to the block's parameter surface; cross-block contamination
+    was never intended and isn't preserved when the embedded path is
+    swapped for a harness backend.
+    """
     turn = session.current_turn()
     if turn is None:
         raise ValueError("Stage 4 turn requested with no active block")
 
     allowed_tools = [tool_map[name] for name in turn.allowed_tool_names if name in tool_map]
     block_before = turn.block.id
+
+    system_prompt: str | None = None
+    user_messages: list[str] = []
+    for msg in turn.messages:
+        role = msg.get("role")
+        if role == "system":
+            system_prompt = msg.get("content", "")
+        elif role == "user":
+            user_messages.append(msg.get("content", ""))
+
     session.begin_turn(block_before)
     try:
-        await generate(turn.messages, allowed_tools, label=f"stage-4:{block_before}")
+        async with session_factory.open(
+            system_prompt=system_prompt,
+            tools=allowed_tools,
+            log_label=f"stage-4:{block_before}",
+        ) as agent_session:
+            for user_msg in user_messages:
+                await agent_session.turn(user_msg)
     except Exception:
         session.discard_turn()
         raise
@@ -254,12 +276,12 @@ async def run_stage4(
     question: str,
     data_for_model: pl.DataFrame,
     indicator_audits: dict[str, dict[str, Any]],
-    generate: GenerateFn,
+    session_factory: StageSessionFactory,
     *,
+    paraphrase_session_factory: StageSessionFactory | None = None,
     enable_literature: bool = True,
     enable_paraphrasing: bool = False,
     n_paraphrases: int = 10,
-    gmm_model: str | None = None,
     max_tool_turns: int = 40,
     load_checkpoint: Callable[[], Stage4Runtime | None] | None = None,
     save_checkpoint: Callable[[Stage4Runtime], None] | None = None,
@@ -340,7 +362,7 @@ async def run_stage4(
         enable_literature=enable_literature,
         enable_paraphrasing=enable_paraphrasing,
         n_paraphrases=n_paraphrases,
-        gmm_model=gmm_model,
+        paraphrase_session_factory=paraphrase_session_factory or session_factory,
         max_tool_turns=max_tool_turns,
     )
 
@@ -355,7 +377,7 @@ async def run_stage4(
                 "Stage 4 stalled with no promptable wait-state "
                 f"(active_block_id={session.runtime.domain.active_block_id!r}, done={session.runtime.domain.done!r})"
             )
-        await _run_stage4_turn(session, generate, tool_map)
+        await _run_stage4_turn(session, session_factory, tool_map)
     else:
         raise ValueError(
             "Stage 4 agentic flow exceeded the outer block-turn limit without converging"

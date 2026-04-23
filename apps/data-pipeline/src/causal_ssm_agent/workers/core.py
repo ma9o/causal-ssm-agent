@@ -10,12 +10,12 @@ from typing import Any
 
 import polars as pl
 
+from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.utils.causal_spec import (
     get_indicators,
     get_outcome_construct,
 )
 from causal_ssm_agent.utils.llm import (
-    GenerateFn,
     make_validation_tool,
     parse_json_response,
     scoped_log,
@@ -106,32 +106,18 @@ async def run_worker_extraction(
     window_starts: list[str],
     question: str,
     causal_spec: dict,
-    generate: GenerateFn,
+    session_factory: StageSessionFactory,
     logger: Any | None = None,
     call_label: str | None = None,
 ) -> WorkerResult:
-    """
-    Run worker extraction for a chunk of support windows.
+    """Run worker extraction for a chunk of support windows.
 
-    This is the core logic, decoupled from any framework. The caller provides
-    a `generate` function that handles LLM calls.
-
-    Args:
-        window_text: Pre-formatted text of support-window events for the LLM prompt.
-        window_starts: Expected support-window starts in this chunk (for validation).
-        question: The causal research question.
-        causal_spec: The CausalSpec dict with latent and measurement.
-        generate: Async function (messages, tools) -> completion.
-        logger: Optional logger instance.
-        call_label: Optional label for log messages.
-
-    Returns:
-        WorkerResult with output, dataframe, and raw completion.
+    Opens a single :class:`AgentSession` with the validation tool bound,
+    sends the extraction prompt, and returns the tool-captured result.
     """
     active_logger = logger or logging.getLogger(__name__)
     msgs = WorkerMessages(question, causal_spec, window_text, n_windows=len(window_starts))
 
-    # Build messages and tools
     extraction_msgs = msgs.extraction_messages()
     from causal_ssm_agent.workers.schemas import validate_worker_output
 
@@ -146,6 +132,15 @@ async def run_worker_extraction(
     tools = [tool]
     tool_names = [tool.name for tool in tools]
 
+    # extraction_messages() returns [system, user] — split for the session API.
+    system_prompt = None
+    user_message = ""
+    for msg in extraction_msgs:
+        if msg["role"] == "system":
+            system_prompt = msg["content"]
+        elif msg["role"] == "user":
+            user_message = msg["content"]
+
     active_logger.info(
         scoped_log(
             call_label,
@@ -156,20 +151,24 @@ async def run_worker_extraction(
         len(window_text),
     )
     active_logger.info(scoped_log(call_label, "Using worker tools: %s"), tool_names)
-
-    # Generate extraction
     active_logger.info(scoped_log(call_label, "Calling extraction model"))
-    completion = await generate(extraction_msgs, tools=tools, label=call_label)
+
+    async with session_factory.open(
+        system_prompt=system_prompt,
+        tools=tools,
+        log_label=call_label,
+    ) as session:
+        turn_result = await session.turn(user_message)
+    completion = turn_result.completion
     active_logger.info(scoped_log(call_label, "Model call returned %d characters"), len(completion))
 
-    # Prefer the captured result from the validation tool
     data = capture.get("output")
     if data is None:
-        # Fallback: try parsing the final completion directly
         active_logger.warning(
             scoped_log(
                 call_label,
-                "Validation tool did not capture structured output; falling back to completion parsing",
+                "Validation tool did not capture structured output; "
+                "falling back to completion parsing",
             ),
         )
         data = parse_json_response(completion)

@@ -74,22 +74,14 @@ def build_mcp_server(tools: list[Tool], *, name: str = "pipeline-tools") -> Serv
         ]
 
     @server.call_tool()
-    async def _call_tool(
-        name: str, arguments: dict | None
-    ) -> list[mcp_types.TextContent]:
+    async def _call_tool(name: str, arguments: dict | None) -> list[mcp_types.TextContent]:
         tool = tool_map.get(name)
         if tool is None:
-            return [
-                mcp_types.TextContent(type="text", text=f"Unknown tool: {name}")
-            ]
+            return [mcp_types.TextContent(type="text", text=f"Unknown tool: {name}")]
         try:
             result = await tool.execute(**(arguments or {}))
         except Exception as exc:  # noqa: BLE001 — surface to harness as tool error
-            return [
-                mcp_types.TextContent(
-                    type="text", text=f"Tool execution failed: {exc}"
-                )
-            ]
+            return [mcp_types.TextContent(type="text", text=f"Tool execution failed: {exc}")]
         return [mcp_types.TextContent(type="text", text=str(result))]
 
     return server
@@ -139,9 +131,7 @@ async def serve_tools_http(
     uvicorn_server = uvicorn.Server(config)
 
     async with session_manager.run():
-        serve_task = asyncio.create_task(
-            uvicorn_server.serve(), name=f"mcp-server-{resolved_port}"
-        )
+        serve_task = asyncio.create_task(uvicorn_server.serve(), name=f"mcp-server-{resolved_port}")
         try:
             # Wait for uvicorn to finish startup before yielding the URL.
             while not uvicorn_server.started and not serve_task.done():

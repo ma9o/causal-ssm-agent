@@ -122,6 +122,4 @@ class StageSessionFactory:
                     # No turns were executed inside the block.
                     this_trace = None
                 if this_trace is not None:
-                    self.accumulated_trace = _merge_trace(
-                        self.accumulated_trace, this_trace
-                    )
+                    self.accumulated_trace = _merge_trace(self.accumulated_trace, this_trace)

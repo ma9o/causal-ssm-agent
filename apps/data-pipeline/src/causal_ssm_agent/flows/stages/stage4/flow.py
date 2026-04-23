@@ -4,6 +4,8 @@ Thin Prefect wrapper around the Stage 4 agent loop and runtime projections.
 This module manages config, Prefect lifecycle, and materialization.
 """
 
+from dataclasses import replace
+
 import polars as pl
 from prefect import flow
 
@@ -14,29 +16,11 @@ from causal_ssm_agent.flows.runtime_events import (
     emit_stage4_graph_event,
     emit_stage4_snapshot_event,
 )
+from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.utils.config import get_config, get_secret
-from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
+from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 logger = get_prefect_logger(__name__)
-
-
-def _stage4_generate_config() -> GenerateConfig:
-    """Return the Stage 4 LLM config.
-
-    Stage 4 intentionally removes the shared max-token cap and tool-output
-    truncation so the model can continue beyond the default global ceiling on
-    long prior-authoring turns and retain full literature/validator payloads.
-    It also enforces a bounded per-request timeout so hung provider calls do
-    not stall the whole stage indefinitely.
-    """
-    base = get_generate_config()
-    return GenerateConfig(
-        max_tokens=None,
-        timeout=180,
-        reasoning_effort=base.reasoning_effort,
-        max_tool_output=None,
-    )
 
 
 @flow(name="stage4-agentic", log_prints=True, persist_result=True, result_serializer="json")
@@ -81,60 +65,78 @@ async def stage4_agentic_flow(
             "search_literature disabled: EXA_API_KEY is not set; tool will not be exposed to Stage 4."
         )
 
+    # Stage 4 enforces a bounded per-request timeout so hung provider calls
+    # do not stall the whole stage indefinitely. Other fields inherit.
+    stage4_llm = replace(s4.llm, timeout=180)
+
     with use_openrouter_api_key(openrouter_api_key):
-        async with LLMStageContext("stage-4") as ctx:
-            generate = ctx.make_generate(
-                s4.model,
-                config=_stage4_generate_config(),
+        factory = StageSessionFactory(
+            stage4_llm,
+            config.llm,
+            stage_id="stage-4",
+            max_tool_turns=s4.max_tool_turns,
+        )
+
+        paraphrase_factory: StageSessionFactory | None = None
+        if s4.paraphrasing.enabled:
+            paraphrase_llm = stage4_llm
+            if s4.paraphrasing.gmm_model:
+                paraphrase_llm = replace(stage4_llm, model=s4.paraphrasing.gmm_model)
+            paraphrase_factory = StageSessionFactory(
+                paraphrase_llm,
+                config.llm,
+                stage_id="stage-4/paraphrase",
                 max_tool_turns=s4.max_tool_turns,
             )
 
-            def _on_state_change(plan, runtime, transitions):
-                if root_run_id:
-                    graph = project_stage4_graph(plan)
-                    emit_stage4_graph_event(root_run_id, graph=graph)
-                    for transition in transitions:
-                        emit_stage4_block_transition_event(root_run_id, transition=transition)
-                    snapshot = project_stage4_snapshot(plan, runtime)
-                    emit_stage4_snapshot_event(root_run_id, snapshot=snapshot)
+        def _on_state_change(plan, runtime, transitions):
+            if root_run_id:
+                graph = project_stage4_graph(plan)
+                emit_stage4_graph_event(root_run_id, graph=graph)
+                for transition in transitions:
+                    emit_stage4_block_transition_event(root_run_id, transition=transition)
+                snapshot = project_stage4_snapshot(plan, runtime)
+                emit_stage4_snapshot_event(root_run_id, snapshot=snapshot)
 
-            result = await run_stage4(
-                causal_spec=causal_spec,
-                question=question,
-                data_for_model=data_for_model,
-                indicator_audits=indicator_audits,
-                generate=generate,
-                enable_literature=literature_enabled,
-                enable_paraphrasing=s4.paraphrasing.enabled,
-                n_paraphrases=s4.paraphrasing.n_paraphrases,
-                gmm_model=s4.paraphrasing.gmm_model or s4.model,
-                max_tool_turns=s4.max_tool_turns,
-                load_checkpoint=(
-                    None
-                    if workspace_id is None
-                    else lambda: _load_stage4_checkpoint_or_none(workspace_id)
-                ),
-                save_checkpoint=(
-                    None
-                    if workspace_id is None
-                    else lambda runtime: save_stage4_checkpoint(runtime, workspace_id)
-                ),
-                clear_checkpoint=(
-                    None if workspace_id is None else lambda: clear_stage4_checkpoint(workspace_id)
-                ),
-                on_state_change=_on_state_change if root_run_id else None,
-            )
+        result = await run_stage4(
+            causal_spec=causal_spec,
+            question=question,
+            data_for_model=data_for_model,
+            indicator_audits=indicator_audits,
+            session_factory=factory,
+            paraphrase_session_factory=paraphrase_factory,
+            enable_literature=literature_enabled,
+            enable_paraphrasing=s4.paraphrasing.enabled,
+            n_paraphrases=s4.paraphrasing.n_paraphrases,
+            max_tool_turns=s4.max_tool_turns,
+            load_checkpoint=(
+                None
+                if workspace_id is None
+                else lambda: _load_stage4_checkpoint_or_none(workspace_id)
+            ),
+            save_checkpoint=(
+                None
+                if workspace_id is None
+                else lambda runtime: save_stage4_checkpoint(runtime, workspace_id)
+            ),
+            clear_checkpoint=(
+                None if workspace_id is None else lambda: clear_stage4_checkpoint(workspace_id)
+            ),
+            on_state_change=_on_state_change if root_run_id else None,
+        )
 
-            materialized = materialize_stage4_result(
-                model_spec=result.model_spec,
-                authored_priors=result.authored_priors,
-                data_for_model=data_for_model,
-                indicator_audits=indicator_audits,
-                causal_spec=causal_spec,
-                validation=result.validation,
-                search_queries=result.search_queries,
-            )
-            return ctx.finalize(materialized)
+        materialized = materialize_stage4_result(
+            model_spec=result.model_spec,
+            authored_priors=result.authored_priors,
+            data_for_model=data_for_model,
+            indicator_audits=indicator_audits,
+            causal_spec=causal_spec,
+            validation=result.validation,
+            search_queries=result.search_queries,
+        )
+        if factory.accumulated_trace.messages:
+            materialized["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+        return materialized
 
 
 def _load_stage4_checkpoint_or_none(workspace_id: str):

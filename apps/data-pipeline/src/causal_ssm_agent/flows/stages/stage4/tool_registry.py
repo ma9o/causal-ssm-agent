@@ -83,7 +83,7 @@ class Stage4SessionToolConfig:
     enable_literature: bool
     enable_paraphrasing: bool
     n_paraphrases: int
-    gmm_model: str | None
+    paraphrase_session_factory: Any  # StageSessionFactory, optional
     max_tool_turns: int
 
 
@@ -216,9 +216,8 @@ def _make_elicit_prior_gmm_session_tool(
 
     return make_elicit_prior_gmm_tool(
         question=config.question,
-        model_name=config.gmm_model or "",
+        paraphrase_session_factory=config.paraphrase_session_factory,
         n_paraphrases=config.n_paraphrases,
-        max_tool_turns=config.max_tool_turns,
     )
 
 
@@ -312,7 +311,7 @@ def build_stage4_session_tool_map(
     enable_literature: bool,
     enable_paraphrasing: bool,
     n_paraphrases: int,
-    gmm_model: str | None,
+    paraphrase_session_factory: Any,
     max_tool_turns: int,
 ) -> dict[str, Any]:
     """Build the reducer-owned Stage 4 session tool map from the shared registry."""
@@ -321,7 +320,7 @@ def build_stage4_session_tool_map(
         enable_literature=enable_literature,
         enable_paraphrasing=enable_paraphrasing,
         n_paraphrases=n_paraphrases,
-        gmm_model=gmm_model,
+        paraphrase_session_factory=paraphrase_session_factory,
         max_tool_turns=max_tool_turns,
     )
     tool_map: dict[str, Any] = {}
