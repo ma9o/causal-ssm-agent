@@ -378,7 +378,7 @@ class TestRunAgenticIngestion:
 
         calls: list[list[str]] = []
 
-        async def generate(messages, tools, *_args, **_kwargs):
+        async def handler(tools, _user_message):
             calls.append([tool.name for tool in tools])
             tool_map = {tool.name: tool for tool in tools}
             await tool_map["execute_python"](
@@ -398,7 +398,10 @@ class TestRunAgenticIngestion:
             )
             return ""
 
-        result = _run(mod.run_agentic_ingestion(tmp_path, generate))
+        from tests.helpers import make_session_factory_from_handler
+
+        factory = make_session_factory_from_handler(handler)
+        result = _run(mod.run_agentic_ingestion(tmp_path, factory))
 
         assert calls == [["list_files", "read_file_sample", "execute_python", "submit_table"]]
         assert result.column_descriptions == {
@@ -415,7 +418,7 @@ class TestRunAgenticIngestion:
 
         monkeypatch.setattr(mod, "ModalCodeSandbox", _MockSandboxContext)
 
-        async def generate(_messages, tools, *_args, **_kwargs):
+        async def handler(tools, _user_message):
             tool_map = {tool.name: tool for tool in tools}
             if "execute_python" in tool_map:
                 await tool_map["execute_python"](
@@ -426,7 +429,10 @@ class TestRunAgenticIngestion:
                 )
             return ""
 
-        result = _run(mod.run_agentic_ingestion(tmp_path, generate))
+        from tests.helpers import make_session_factory_from_handler
+
+        factory = make_session_factory_from_handler(handler)
+        result = _run(mod.run_agentic_ingestion(tmp_path, factory))
 
         assert result.dataframe.shape == (1, 2)
         assert result.column_descriptions == {}

@@ -9,7 +9,6 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage2 import flow as stage2_extract
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 
 
 class _FakeFuture:
@@ -112,16 +111,25 @@ def test_collect_batch_results_records_failures(monkeypatch):
 def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
     import causal_ssm_agent.utils.causal_spec as causal_spec_mod
     import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.utils.llm as llm_mod
     import causal_ssm_agent.workers.core as worker_core
+    from causal_ssm_agent.utils.agent_session import StageSessionFactory
+    from causal_ssm_agent.utils.config import (
+        ClaudeCodeDefaults,
+        CodexDefaults,
+        EmbeddedLLMDefaults,
+        LLMDefaults,
+        StageLLMConfig,
+    )
 
     logger = logging.getLogger("test_stage2_extract")
-    generate_config = GenerateConfig(
-        max_tokens=1234,
-        reasoning_effort="medium",
-        timeout=None,
-    )
     captured: dict[str, object] = {}
+
+    stage2_llm = StageLLMConfig(harness="none", model="openrouter/mock-stage2-model")
+    llm_defaults = LLMDefaults(
+        embedded=EmbeddedLLMDefaults(max_tokens=1234, timeout=900, reasoning_effort="medium"),
+        claude_code=ClaudeCodeDefaults(),
+        codex=CodexDefaults(),
+    )
 
     monkeypatch.setattr(stage2_extract, "get_run_logger", lambda: logger)
     monkeypatch.setattr(
@@ -129,8 +137,11 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         "get_config",
         lambda: SimpleNamespace(
             stage2_workers=SimpleNamespace(
-                llm=SimpleNamespace(model="mock-stage2-model"), max_tool_turns=55
-            )
+                llm=stage2_llm,
+                max_tool_turns=55,
+                worker_timeout=120,
+            ),
+            llm=llm_defaults,
         ),
     )
     monkeypatch.setattr(
@@ -138,13 +149,6 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         "get_indicators",
         lambda _causal_spec: [{"name": "indicator_a"}, {"name": "indicator_b"}],
     )
-    monkeypatch.setattr(llm_mod, "get_generate_config", lambda: generate_config)
-
-    def fake_make_generate_fn(model_name, config=None, **_kwargs):
-        captured["model_name"] = model_name
-        captured["generate_config"] = config
-        captured["generate_kwargs"] = _kwargs
-        return "mock-generate"
 
     async def fake_run_worker_extraction(**kwargs):
         captured["worker_kwargs"] = kwargs
@@ -155,7 +159,6 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
             ),
         )
 
-    monkeypatch.setattr(llm_mod, "make_generate_fn", fake_make_generate_fn)
     monkeypatch.setattr(worker_core, "run_worker_extraction", fake_run_worker_extraction)
 
     window_text = "## Window Start: 2024-01-01\n\n08:00  event1\n09:00  event2"
@@ -183,29 +186,33 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         "n_extractions": 1,
         "status": "completed",
     }
-    assert captured["model_name"] == "mock-stage2-model"
-    captured_generate_config = captured["generate_config"]
-    assert isinstance(captured_generate_config, GenerateConfig)
-    assert captured_generate_config.max_tokens == generate_config.max_tokens
-    assert captured_generate_config.reasoning_effort == generate_config.reasoning_effort
-    captured_generate_kwargs = _require_mapping(captured["generate_kwargs"])
-    assert captured_generate_kwargs["max_tool_turns"] == 55
     worker_kwargs = _require_mapping(captured["worker_kwargs"])
     assert worker_kwargs["window_text"] == window_text
     assert worker_kwargs["window_starts"] == window_starts
     assert worker_kwargs["question"] == "Does treatment affect outcome?"
     assert worker_kwargs["causal_spec"] == {"measurement": {"model_clock": "1d", "indicators": []}}
-    assert worker_kwargs["generate"] == "mock-generate"
     assert worker_kwargs["logger"] is logger
-    assert "max_tokens=1234" in caplog.text
-    assert "reasoning_effort=medium" in caplog.text
+    factory = worker_kwargs["session_factory"]
+    assert isinstance(factory, StageSessionFactory)
+    # Worker timeout is applied as an override on the stage_llm inside the factory.
+    assert factory._stage_llm.model == "openrouter/mock-stage2-model"
+    assert factory._stage_llm.timeout == 120
+    assert factory._max_tool_turns == 55
+    assert "timeout=120s" in caplog.text
+    assert "mock-stage2-model" in caplog.text
 
 
 def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_events(monkeypatch):
     import causal_ssm_agent.utils.causal_spec as causal_spec_mod
     import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.utils.llm as llm_mod
     import causal_ssm_agent.workers.core as worker_core
+    from causal_ssm_agent.utils.config import (
+        ClaudeCodeDefaults,
+        CodexDefaults,
+        EmbeddedLLMDefaults,
+        LLMDefaults,
+        StageLLMConfig,
+    )
 
     worker_events: list[dict[str, object]] = []
     snapshot_events: list[dict[str, object]] = []
@@ -218,8 +225,15 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
         "get_config",
         lambda: SimpleNamespace(
             stage2_workers=SimpleNamespace(
-                llm=SimpleNamespace(model="mock-stage2-model"), max_tool_turns=40
-            )
+                llm=StageLLMConfig(harness="none", model="openrouter/mock-stage2-model"),
+                max_tool_turns=40,
+                worker_timeout=120,
+            ),
+            llm=LLMDefaults(
+                embedded=EmbeddedLLMDefaults(),
+                claude_code=ClaudeCodeDefaults(),
+                codex=CodexDefaults(),
+            ),
         ),
     )
     monkeypatch.setattr(
@@ -227,17 +241,6 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
         "get_indicators",
         lambda _causal_spec: [{"name": "indicator_a"}],
     )
-    monkeypatch.setattr(
-        llm_mod,
-        "get_generate_config",
-        lambda: SimpleNamespace(
-            max_tokens=4096,
-            reasoning_effort="medium",
-            timeout=None,
-            max_tool_output=None,
-        ),
-    )
-    monkeypatch.setattr(llm_mod, "make_generate_fn", lambda *_args, **_kwargs: "mock-generate")
 
     async def fake_run_worker_extraction(**_kwargs):
         return SimpleNamespace(

@@ -134,7 +134,6 @@ def _record_trace_segment(
 # Type aliases for generate functions (unified)
 # ---------------------------------------------------------------------------
 
-GenerateFn = Callable[..., Awaitable[str]]
 MessageRewriter = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
 ToolRewriter = Callable[[list[Tool]], list[Tool]]
 
@@ -228,7 +227,7 @@ def make_generate_fn(
     config: GenerateConfig | None = None,
     trace_capture: dict | None = None,
     max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
-) -> GenerateFn:
+) -> Callable[..., Awaitable[str]]:
     """Create a generate function for LLM calls.
 
     The returned function has signature: (messages, tools=None, follow_ups=None) -> str
@@ -785,97 +784,11 @@ async def multi_turn_generate(
 
 
 # ---------------------------------------------------------------------------
-# LLMStageContext — eliminates per-stage LLM trace boilerplate
+# Legacy note
 # ---------------------------------------------------------------------------
-
-
-class LLMStageContext:
-    """Encapsulates trace capture, generate function creation, and lifecycle logging.
-
-    Replaces the repeated boilerplate of:
-        trace_capture = {}
-        generate = make_generate_fn(model, trace_capture=trace_capture)
-        ...
-        attach_trace(output, trace_capture)
-
-    Usage::
-
-        async with LLMStageContext("stage-1a") as ctx:
-            generate = ctx.make_generate(model_name)
-            # ... run stage logic ...
-            return ctx.finalize({"latent_model": ...})
-            # output now has llm_trace attached; lifecycle logged automatically
-
-    Can also be used without ``async with`` — lifecycle logging still works
-    via :meth:`make_generate` (start) and :meth:`finalize` (completion).
-    """
-
-    def __init__(self, stage_id: str) -> None:
-        self.stage_id = stage_id
-        self._t0 = time.monotonic()
-        self._model_name: str | None = None
-        self._trace_capture: dict = {}
-
-    @property
-    def trace_capture(self) -> dict:
-        """Direct access to the trace capture dict (for advanced use)."""
-        return self._trace_capture
-
-    def make_generate(
-        self,
-        model_name: str,
-        config: GenerateConfig | None = None,
-        *,
-        max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
-    ) -> GenerateFn:
-        """Create a generate function wired to this context's trace capture."""
-        self._model_name = model_name
-        logger.info("[%s] starting (model=%s)", self.stage_id, model_name)
-        return make_generate_fn(
-            model_name,
-            config=config,
-            trace_capture=self._trace_capture,
-            max_tool_turns=max_tool_turns,
-        )
-
-    def finalize(self, output: dict) -> dict:
-        """Attach the captured LLM trace to the output dict and return it."""
-        elapsed = time.monotonic() - self._t0
-        attach_trace(output, self._trace_capture)
-        # Build a concise completion summary
-        parts = [f"completed in {elapsed:.1f}s"]
-        trace: LLMTrace | None = self._trace_capture.get("trace")
-        if trace and trace.usage:
-            u = trace.usage
-            parts.append(f"tokens(in={u.input_tokens},out={u.output_tokens})")
-        logger.info("[%s] %s", self.stage_id, " ".join(parts))
-        return output
-
-    async def __aenter__(self) -> "LLMStageContext":
-        return self
-
-    async def __aexit__(
-        self, exc_type: type | None, exc_val: BaseException | None, exc_tb: object
-    ) -> bool:
-        if exc_type is not None:
-            elapsed = time.monotonic() - self._t0
-            logger.error("[%s] failed after %.1fs: %s", self.stage_id, elapsed, exc_val)
-        return False
-
-
-# ---------------------------------------------------------------------------
-# Trace capture helper
-# ---------------------------------------------------------------------------
-
-
-def attach_trace(output: dict, trace_capture: dict) -> None:
-    """Attach LLM trace to output dict if available.
-
-    Replaces the repeated boilerplate:
-        trace = trace_capture.get("trace")
-        if trace is not None:
-            out["llm_trace"] = trace.model_dump(mode="json")
-    """
-    trace = trace_capture.get("trace")
-    if trace is not None:
-        output["llm_trace"] = trace.model_dump(mode="json")
+# The previous ``LLMStageContext`` + ``attach_trace`` helpers have been
+# removed; stages now use :class:`causal_ssm_agent.utils.agent_session.StageSessionFactory`
+# which subsumes both trace accumulation and lifecycle logging. The
+# ``multi_turn_generate`` + ``make_generate_fn`` pair is kept for eval
+# scripts outside the main pipeline; new production code should use
+# :func:`causal_ssm_agent.utils.agent_session_factory.open_session`.

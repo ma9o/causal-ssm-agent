@@ -973,31 +973,39 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         lambda _workspace_id, _filenames: "unused.pkl",
     )
 
-    class _FakeLLMStageContext:
+    from contextlib import asynccontextmanager
+
+    from causal_ssm_agent.utils.agent_session import AgentResult, TurnResult
+    from causal_ssm_agent.utils.llm import LLMTrace, TraceMessage
+
+    class _FakeAgentSession:
+        async def turn(self, _user_message):
+            return TurnResult(completion="stubbed summary")
+
+        @property
+        def result(self):
+            return AgentResult(
+                completion="stubbed summary",
+                trace=LLMTrace(
+                    messages=[TraceMessage(role="assistant", content="stubbed summary")]
+                ),
+            )
+
+    class _FakeStageSessionFactory:
         def __init__(self, *_args, **_kwargs):
-            self.trace_capture = {"trace": None}
+            self.accumulated_trace = LLMTrace(
+                messages=[TraceMessage(role="assistant", content="stubbed summary")]
+            )
 
-        async def __aenter__(self):
-            return self
+        @asynccontextmanager
+        async def open(self, *, system_prompt=None, tools=None, log_label=None):
+            captured["commentary_label"] = log_label
+            yield _FakeAgentSession()
 
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        def make_generate(self, _model: str, **_kwargs):
-            async def _generate(messages: list[dict], label: str | None = None):
-                captured["commentary_messages"] = messages
-                captured["commentary_label"] = label
-                self.trace_capture["trace"] = SimpleNamespace(
-                    messages=[SimpleNamespace(role="assistant", content="stubbed summary")]
-                )
-                return {"content": "stubbed"}
-
-            return _generate
-
-        def finalize(self, result: dict) -> dict:
-            return result
-
-    monkeypatch.setattr("causal_ssm_agent.utils.llm.LLMStageContext", _FakeLLMStageContext)
+    monkeypatch.setattr(
+        "causal_ssm_agent.utils.agent_session.StageSessionFactory",
+        _FakeStageSessionFactory,
+    )
 
     def fake_compute_interventions(**kwargs):
         captured.update(kwargs)

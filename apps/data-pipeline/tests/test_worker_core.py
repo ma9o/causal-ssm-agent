@@ -15,7 +15,7 @@ from causal_ssm_agent.workers.core import (
     _get_outcome_description,
     run_worker_extraction,
 )
-from tests.helpers import _run
+from tests.helpers import _run, make_mock_session_factory
 
 
 def _causal_spec():
@@ -190,9 +190,7 @@ class TestRunWorkerExtraction:
         return ["2024-01-01"]
 
     def test_empty_completion_raises_parse_error(self, caplog):
-        async def fake_generate(messages, tools=None, follow_ups=None, label=None):
-            return ""
-
+        factory = make_mock_session_factory([""])
         logger = logging.getLogger("test_worker_core")
 
         with (
@@ -205,7 +203,7 @@ class TestRunWorkerExtraction:
                     window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
                     causal_spec=_causal_spec(),
-                    generate=fake_generate,
+                    session_factory=factory,
                     logger=logger,
                 )
             )
@@ -214,21 +212,21 @@ class TestRunWorkerExtraction:
         assert "falling back to completion parsing" in caplog.text
 
     def test_call_label_passed_when_generate_supports_it(self, caplog):
-        captured: dict[str, str | None] = {}
-
-        async def fake_generate(messages, tools=None, follow_ups=None, label=None):
-            captured["label"] = label
-            return json.dumps(
-                {
-                    "extractions": [
-                        {
-                            "window_start": "2024-01-01",
-                            "indicator": "pss_score",
-                            "value": 12.0,
-                        }
-                    ]
-                }
-            )
+        factory = make_mock_session_factory(
+            [
+                json.dumps(
+                    {
+                        "extractions": [
+                            {
+                                "window_start": "2024-01-01",
+                                "indicator": "pss_score",
+                                "value": 12.0,
+                            }
+                        ]
+                    }
+                )
+            ]
+        )
 
         logger = logging.getLogger("test_worker_core")
 
@@ -239,12 +237,11 @@ class TestRunWorkerExtraction:
                     window_starts=self._sample_window_starts(),
                     question="How does screen time affect sleep?",
                     causal_spec=_causal_spec(),
-                    generate=fake_generate,
+                    session_factory=factory,
                     logger=logger,
                     call_label="stage2 chunk=3 windows=1 events=1",
                 )
             )
 
-        assert captured["label"] == "stage2 chunk=3 windows=1 events=1"
         assert result.dataframe.height == 1
         assert "[stage2 chunk=3 windows=1 events=1] Calling extraction model" in caplog.text

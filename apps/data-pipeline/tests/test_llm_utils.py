@@ -1,7 +1,7 @@
 """Tests for utils/llm.py pure utility functions.
 
-Covers: parse_json_response, _validate_json_and_format, attach_trace,
-        dict_messages_to_chat, calculate, parse_date.
+Covers: parse_json_response, _validate_json_and_format, make_generate_fn,
+        multi_turn_generate, dict_messages_to_chat, OpenRouter client.
 """
 
 import asyncio
@@ -13,9 +13,7 @@ import pytest
 
 from causal_ssm_agent.utils.llm import (
     LLMTrace,
-    TraceMessage,
     _validate_json_and_format,
-    attach_trace,
     make_generate_fn,
     make_validation_tool,
     multi_turn_generate,
@@ -844,27 +842,6 @@ class TestMakeGenerateFn:
         assert all("compact-context" not in message.content for message in trace.messages)
 
 
-# =============================================================================
-# attach_trace
-# =============================================================================
-
-
-class TestAttachTrace:
-    def test_attaches_trace(self):
-        trace = LLMTrace(messages=[TraceMessage(role="user", content="hello")])
-        capture = {"trace": trace}
-        output = {}
-        attach_trace(output, capture)
-        assert "llm_trace" in output
-        assert output["llm_trace"]["messages"][0]["content"] == "hello"
-
-    def test_no_trace_no_op(self):
-        capture = {}
-        output = {}
-        attach_trace(output, capture)
-        assert "llm_trace" not in output
-
-
 class _FakeChatCompletions:
     def __init__(self, response: dict[str, object], seen: dict[str, object]):
         self._response = response
@@ -1162,97 +1139,48 @@ class TestDictMessagesToChat:
         assert msgs[0]["reasoning_details"] == [{"type": "reasoning.text", "text": "thinking"}]
 
 
-class TestOpenRouterKeyContext:
-    def test_llm_stage_task_uses_request_local_key_without_explicit_override(self, monkeypatch):
+class TestMakeLLMStageTask:
+    """Tests for the session-based make_llm_stage_task wrapper."""
+
+    def test_forwards_stage_llm_and_api_key_via_session_factory(self, monkeypatch):
         from causal_ssm_agent.flows.llm_stage_task import make_llm_stage_task
         from causal_ssm_agent.utils import openrouter_client
-
-        class _FakeLLMStageContext:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return False
-
-            def make_generate(self, _model_name, **_kwargs):
-                async def _generate(_messages):
-                    return {"content": "ok"}
-
-                return _generate
-
-            def finalize(self, result):
-                return result
-
-        async def orchestrator_fn(*, generate):
-            _ = await generate([{"role": "user", "content": "hello"}])
-            return {"api_key": openrouter_client.get_openrouter_api_key()}
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.llm_stage_task.LLMStageContext",
-            _FakeLLMStageContext,
+        from causal_ssm_agent.utils.agent_session import StageSessionFactory
+        from causal_ssm_agent.utils.config import (
+            ClaudeCodeDefaults,
+            CodexDefaults,
+            EmbeddedLLMDefaults,
+            LLMDefaults,
+            StageLLMConfig,
         )
+
+        stage_llm = StageLLMConfig(harness="none", model="openrouter/test-model")
+        llm_defaults = LLMDefaults(
+            embedded=EmbeddedLLMDefaults(),
+            claude_code=ClaudeCodeDefaults(),
+            codex=CodexDefaults(),
+        )
+        captured: dict[str, object] = {}
+
+        async def orchestrator_fn(*, session_factory):
+            assert isinstance(session_factory, StageSessionFactory)
+            captured["api_key"] = openrouter_client.get_openrouter_api_key()
+            captured["max_tool_turns"] = session_factory._max_tool_turns
+            return {"ok": True}
 
         task = make_llm_stage_task(
             stage_id="test-stage",
             orchestrator_fn=orchestrator_fn,
+            stage_llm_getter=lambda: stage_llm,
+            llm_defaults_getter=lambda: llm_defaults,
+            max_tool_turns_getter=lambda: 77,
             payload_builder=lambda result: result,
-            model_name_getter=lambda: "test-model",
             task_options={"cache_policy": None},
         )
 
         with openrouter_client.use_openrouter_api_key("user-key"):
             result = _run(task())
 
-        assert result == {"api_key": "user-key"}
-
-    def test_llm_stage_task_forwards_stage_max_tool_turns(self, monkeypatch):
-        from causal_ssm_agent.flows.llm_stage_task import make_llm_stage_task
-
-        captured: dict[str, object] = {}
-
-        class _FakeLLMStageContext:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return False
-
-            def make_generate(self, _model_name, **kwargs):
-                captured["make_generate_kwargs"] = kwargs
-
-                async def _generate(_messages):
-                    return {"content": "ok"}
-
-                return _generate
-
-            def finalize(self, result):
-                return result
-
-        async def orchestrator_fn(*, generate):
-            _ = await generate([{"role": "user", "content": "hello"}])
-            return {"ok": True}
-
-        monkeypatch.setattr(
-            "causal_ssm_agent.flows.llm_stage_task.LLMStageContext",
-            _FakeLLMStageContext,
-        )
-
-        task = make_llm_stage_task(
-            stage_id="test-stage-turn-cap",
-            orchestrator_fn=orchestrator_fn,
-            payload_builder=lambda result: result,
-            model_name_getter=lambda: "test-model",
-            max_tool_turns_getter=lambda: 77,
-            task_options={"cache_policy": None},
-        )
-
-        result = _run(task())
-
         assert result == {"ok": True}
-        assert _require_mapping(captured["make_generate_kwargs"])["max_tool_turns"] == 77
+        assert captured["api_key"] == "user-key"
+        assert captured["max_tool_turns"] == 77

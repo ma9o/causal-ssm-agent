@@ -172,7 +172,7 @@ async def run_stage6(
 
     async with factory.open(
         system_prompt=system_prompt,
-        log_label="stage-6",
+        log_label="comment-results",
     ) as session:
         await session.turn(user_prompt)
 
