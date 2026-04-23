@@ -2852,6 +2852,96 @@ def test_aux_gibbs_eq10_11_smoke_on_small_kalman_model():
     assert latent_paths.shape == (1, 10, 3, 1)
 
 
+def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypatch):
+    from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import build_auxiliary_kalman_bundle
+
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+    aux_bundle = build_auxiliary_kalman_bundle(
+        model,
+        observations,
+        times,
+        trace_key=random.PRNGKey(0),
+        reparam=None,
+    )
+    flat_example = aux_bundle["flat_example"]
+    dim = int(aux_bundle["dim"])
+    fake_state = SimpleNamespace(
+        position=flat_example,
+        alpha=jnp.full((dim,), 0.25, dtype=flat_example.dtype),
+        beta=jnp.zeros((dim, 0), dtype=flat_example.dtype),
+        gamma=jnp.zeros((0, 0), dtype=flat_example.dtype),
+        elbo=jnp.array(3.0, dtype=flat_example.dtype),
+    )
+    pathfinder_runs = {"count": 0}
+
+    def _fake_run_pathfinder_approximation(*_args, **_kwargs):
+        pathfinder_runs["count"] += 1
+        return fake_state, {
+            "n_pathfinder_starts": 2,
+            "n_pathfinder_starts_finite": 2,
+            "best_pathfinder_elbo": 3.0,
+            "pathfinder_elbo": 3.0,
+            "pathfinder_elbo_min": 2.5,
+            "pathfinder_elbo_max": 3.0,
+            "pathfinder_elbo_spread": 0.5,
+            "pathfinder_elbos": [2.5, 3.0],
+        }
+
+    def _fake_pathfinder_sample(_key, state, *, num_samples):
+        base = jnp.broadcast_to(state.position, (num_samples, state.position.shape[0]))
+        offsets = jnp.arange(num_samples, dtype=base.dtype)[:, None] * 0.01
+        return base + offsets, jnp.zeros((num_samples,), dtype=base.dtype)
+
+    def _unexpected_fit_map(*_args, **_kwargs):
+        raise AssertionError(
+            "fit_map should not run when auto_preconditioner_method='pathfinder'."
+        )
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs._run_pathfinder_approximation",
+        _fake_run_pathfinder_approximation,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs.pathfinder.sample",
+        _fake_pathfinder_sample,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs.fit_map",
+        _unexpected_fit_map,
+    )
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="aux_gibbs",
+        num_warmup=4,
+        num_samples=5,
+        num_chains=2,
+        seed=13,
+        latent_delta=0.2,
+        param_step_size=0.03,
+        init_scale=0.01,
+        auto_preconditioner_method="pathfinder",
+        pathfinder_preconditioner_low_rank_scale=0.5,
+    )
+
+    aux_diag = result.diagnostics["aux_gibbs"]
+    assert pathfinder_runs["count"] == 1
+    assert aux_diag["init_method"] == "pathfinder"
+    assert aux_diag["auto_preconditioner"] is True
+    assert aux_diag["auto_preconditioner_method"] == "pathfinder"
+    assert aux_diag["pathfinder_preconditioner_low_rank_scale"] == pytest.approx(0.5)
+    assert aux_diag["auto_preconditioner_n_pathfinder_starts"] == 2
+    assert aux_diag["auto_preconditioner_n_pathfinder_starts_finite"] == 2
+    assert aux_diag["auto_preconditioner_best_pathfinder_elbo"] == pytest.approx(3.0)
+    assert aux_diag["auto_preconditioner_pathfinder_elbo_spread"] == pytest.approx(0.5)
+    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
+
+
 def test_aux_csmc_smoke_on_small_kalman_model():
     spec = _make_aux_gibbs_smoke_spec()
     model = SSMModel(spec, likelihood="kalman")
