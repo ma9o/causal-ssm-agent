@@ -209,7 +209,7 @@ async def agentic_ingest(
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext("stage-0") as ctx:
             generate = ctx.make_generate(
-                config.stage0_ingestion.model,
+                config.stage0_ingestion.llm.model,
                 max_tool_turns=config.stage0_ingestion.max_tool_turns,
             )
 

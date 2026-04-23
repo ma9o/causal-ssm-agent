@@ -693,7 +693,7 @@ async def extract_window_chunk_task(
         chunk_label,
         len(window_starts),
         indicator_count,
-        config.stage2_workers.model,
+        config.stage2_workers.llm.model,
         generate_config.max_tokens,
         generate_config.reasoning_effort,
     )
@@ -711,7 +711,7 @@ async def extract_window_chunk_task(
     with use_openrouter_api_key(openrouter_api_key):
         async with LLMStageContext(f"stage-2/chunk-{chunk_idx}") as ctx:
             generate = ctx.make_generate(
-                config.stage2_workers.model,
+                config.stage2_workers.llm.model,
                 config=generate_config,
                 max_tool_turns=config.stage2_workers.max_tool_turns,
             )

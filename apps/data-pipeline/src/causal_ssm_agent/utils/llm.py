@@ -159,25 +159,25 @@ def get_generate_config() -> GenerateConfig:
     """
     from causal_ssm_agent.utils.config import get_config
 
-    llm = get_config().llm
+    embedded = get_config().llm.embedded
     reasoning_effort: ReasoningEffort | None
-    if llm.reasoning_effort == "none":
+    if embedded.reasoning_effort == "none":
         reasoning_effort = "none"
-    elif llm.reasoning_effort == "minimal":
+    elif embedded.reasoning_effort == "minimal":
         reasoning_effort = "minimal"
-    elif llm.reasoning_effort == "low":
+    elif embedded.reasoning_effort == "low":
         reasoning_effort = "low"
-    elif llm.reasoning_effort == "medium":
+    elif embedded.reasoning_effort == "medium":
         reasoning_effort = "medium"
-    elif llm.reasoning_effort == "high":
+    elif embedded.reasoning_effort == "high":
         reasoning_effort = "high"
-    elif llm.reasoning_effort == "xhigh":
+    elif embedded.reasoning_effort == "xhigh":
         reasoning_effort = "xhigh"
     else:
         reasoning_effort = None
     return GenerateConfig(
-        max_tokens=llm.max_tokens,
-        timeout=llm.timeout,
+        max_tokens=embedded.max_tokens,
+        timeout=embedded.timeout,
         reasoning_effort=reasoning_effort,
     )
 
