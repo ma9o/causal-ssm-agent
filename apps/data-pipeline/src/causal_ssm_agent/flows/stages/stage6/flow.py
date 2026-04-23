@@ -171,7 +171,7 @@ async def run_stage6(
     ]
 
     async with LLMStageContext("stage-6") as ctx:
-        generate = ctx.make_generate(get_config().stage6_commentary.model)
+        generate = ctx.make_generate(get_config().stage6_commentary.llm.model)
         await generate(commentary_messages, label="comment-results")
         result = {
             "intervention_results": intervention_results,

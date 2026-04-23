@@ -128,7 +128,9 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
         config_mod,
         "get_config",
         lambda: SimpleNamespace(
-            stage2_workers=SimpleNamespace(model="mock-stage2-model", max_tool_turns=55)
+            stage2_workers=SimpleNamespace(
+                llm=SimpleNamespace(model="mock-stage2-model"), max_tool_turns=55
+            )
         ),
     )
     monkeypatch.setattr(
@@ -215,7 +217,9 @@ def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_even
         config_mod,
         "get_config",
         lambda: SimpleNamespace(
-            stage2_workers=SimpleNamespace(model="mock-stage2-model", max_tool_turns=40)
+            stage2_workers=SimpleNamespace(
+                llm=SimpleNamespace(model="mock-stage2-model"), max_tool_turns=40
+            )
         ),
     )
     monkeypatch.setattr(

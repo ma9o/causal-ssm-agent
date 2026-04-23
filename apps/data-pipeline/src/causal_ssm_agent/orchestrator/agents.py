@@ -41,7 +41,7 @@ async def propose_latent_model_async(question: str) -> dict:
         LatentModel as a dictionary
     """
     stage1 = get_config().stage1_structure_proposal
-    generate = make_generate_fn(stage1.model, max_tool_turns=stage1.stage1a_max_tool_turns)
+    generate = make_generate_fn(stage1.llm.model, max_tool_turns=stage1.stage1a_max_tool_turns)
     result = await run_stage1a(question=question, generate=generate)
     return result.latent_model
 
@@ -89,7 +89,7 @@ async def propose_measurement_model_async(
         MeasurementModel as a dictionary
     """
     stage1 = get_config().stage1_structure_proposal
-    generate = make_generate_fn(stage1.model, max_tool_turns=stage1.stage1b_max_tool_turns)
+    generate = make_generate_fn(stage1.llm.model, max_tool_turns=stage1.stage1b_max_tool_turns)
     result = await run_stage1b(
         question=question,
         latent_model=latent_model,

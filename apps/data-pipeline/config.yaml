@@ -1,55 +1,86 @@
 # Causal Agent Pipeline Configuration
 
+# --- LLM backend defaults --------------------------------------------------
+# Each stage below picks a harness via `llm.harness`; these defaults apply
+# when a stage doesn't override individual fields.
+llm:
+  # harness: none  (OpenRouter direct)
+  embedded:
+    max_tokens: 65536
+    timeout: 900
+    reasoning_effort: xhigh
+
+  # harness: claude-code  (spawns `claude -p`)
+  claude_code:
+    bin: claude
+    effort: high          # low | medium | high | xhigh | max
+    max_turns: 40
+    max_budget_usd: null
+    fallback_model: null
+
+  # harness: codex  (spawns `codex exec`)
+  codex:
+    bin: codex
+    reasoning_effort: high  # low | medium | high | xhigh | max
+
+# --- Stages ----------------------------------------------------------------
+
 # Stage 0: Agentic Data Ingestion
-# LLM agent that explores zip archives and parses data into a Polars DataFrame
 stage0_ingestion:
-  model: openrouter/xiaomi/mimo-v2-pro
   max_tool_turns: 40
+  llm:
+    harness: none
+    model: openrouter/xiaomi/mimo-v2-pro
 
 # Stage 1: Structure Proposal (Orchestrator)
-# The orchestrator proposes dimensions, autocorrelations, time granularities, and DAG
 stage1_structure_proposal:
-  model: openrouter/openai/gpt-5.4
-  sample_chunks: 10  # Number of chunks to show orchestrator
-  chunk_size: 100    # Lines per chunk for orchestrator
+  sample_chunks: 10
+  chunk_size: 100
   stage1a_max_tool_turns: 40
   stage1b_max_tool_turns: 40
+  llm:
+    harness: none
+    model: openrouter/openai/gpt-5.4
 
-# Stage 2: Support-Window Extraction
-# Workers process chunks of support windows in parallel to extract indicator values
+# Stage 2: Support-Window Extraction (Workers)
+# Stage 2 fans out across thousands of workers; harness cold-start per worker
+# is untenable, so `harness` is locked to `none` (enforced by config validator).
 stage2_workers:
-  model: openrouter/google/gemini-3.1-flash-lite-preview
-  windows_per_chunk: 1         # Support windows per LLM call
-  max_concurrent_workers: 30   # Actual concurrent LLM worker calls
-  max_events_per_window: 300   # Truncate/sample text beyond this per support window
-  max_rpm: 450                 # OpenRouter sliding-window RPM limit
-  worker_timeout: 120          # Per-LLM-call timeout in seconds (prevents hung workers)
+  windows_per_chunk: 1
+  max_concurrent_workers: 30
+  max_events_per_window: 300
+  max_rpm: 450               # OpenRouter sliding-window RPM (embedded-only)
+  worker_timeout: 120        # per-LLM-call timeout in seconds
   max_tool_turns: 40
-  max_free_windows: 100        # Max support windows for anonymous users in production
+  max_free_windows: 100
+  llm:
+    harness: none
+    model: openrouter/google/gemini-3.1-flash-lite-preview
 
-# Stage 3: Validation
-# Rule-based extraction validation and indicator audits - no LLM needed
+# Stage 3: Validation — no LLM (rule-based)
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
-  model: openrouter/xiaomi/mimo-v2-pro
   max_tool_turns: 100
-  # Literature search for grounding priors (requires EXA_API_KEY in .env)
   literature_search:
     enabled: true
-  # AutoElicit-style paraphrased prompting for prior elicitation
   paraphrasing:
-    enabled: false       # Off by default (increases LLM cost)
-    n_paraphrases: 10    # Number of paraphrased prompts per parameter
+    enabled: false
+    n_paraphrases: 10
+    gmm_model: null          # optional; null = inherit stage's llm.model
+  llm:
+    harness: none
+    model: openrouter/xiaomi/mimo-v2-pro
+
+# Stages 5a/5b: Inference — no LLM (NumPyro SSM)
 
 # Stage 6: Narrative Commentary
 stage6_commentary:
-  model: openrouter/xiaomi/mimo-v2-pro
+  llm:
+    harness: none
+    model: openrouter/xiaomi/mimo-v2-pro
 
-# Stages 5a/5b: Inference preflight + full inference
-# Uses NumPyro SSM - no LLM needed
-
-# Inference settings (shared across pipeline and benchmarks)
+# --- Inference (unchanged) -------------------------------------------------
 inference:
   method: auto
   num_warmup: 1000
@@ -72,9 +103,3 @@ inference:
     n_leapfrog: 1
     adaptive_tempering: false
     n_ieks_iters: 3
-
-# LLM generation settings (shared across all model calls)
-llm:
-  max_tokens: 65536
-  timeout: 900
-  reasoning_effort: xhigh
