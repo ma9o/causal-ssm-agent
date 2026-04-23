@@ -14,6 +14,7 @@ StructuralBackend = Literal["kalman", "composed", "particle"]
 RequestedMethod = Literal[
     "auto",
     "aux_csmc",
+    "particle_mgrad",
     "aux_gibbs",
     "nuts",
     "map",
@@ -21,6 +22,7 @@ RequestedMethod = Literal[
 ]
 ResolvedMethod = Literal[
     "aux_csmc",
+    "particle_mgrad",
     "aux_gibbs",
     "nuts",
     "map",
