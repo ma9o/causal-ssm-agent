@@ -44,7 +44,6 @@ async def run_stage6(
     from causal_ssm_agent.flows import get_prefect_logger
     from causal_ssm_agent.utils.causal_spec import get_outcome_name
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import LLMStageContext
 
     logger = get_prefect_logger(__name__)
     fitted_artifact = load_pickle(stage5b["_fitted_result_path"])
@@ -149,35 +148,41 @@ async def run_stage6(
         },
     }
 
-    commentary_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are writing the opening commentary for Stage 6 of a causal state-space "
-                "analysis. Comment on the treatment-effect results for a technical user. "
-                "Be concise and grounded. Do not invent certainty. Mention the strongest "
-                "effects, note warnings or identifiability limits, and end by stating that "
-                "follow-up chat can inspect model details or run Pearl rung 2 and rung 3 "
-                "simulations. Return plain Markdown only."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                "Comment the results of Stage 6.\n\n"
-                f"{json.dumps(commentary_input, indent=2, sort_keys=True)}"
-            ),
-        },
-    ]
+    system_prompt = (
+        "You are writing the opening commentary for Stage 6 of a causal state-space "
+        "analysis. Comment on the treatment-effect results for a technical user. "
+        "Be concise and grounded. Do not invent certainty. Mention the strongest "
+        "effects, note warnings or identifiability limits, and end by stating that "
+        "follow-up chat can inspect model details or run Pearl rung 2 and rung 3 "
+        "simulations. Return plain Markdown only."
+    )
+    user_prompt = (
+        "Comment the results of Stage 6.\n\n"
+        f"{json.dumps(commentary_input, indent=2, sort_keys=True)}"
+    )
 
-    async with LLMStageContext("stage-6") as ctx:
-        generate = ctx.make_generate(get_config().stage6_commentary.llm.model)
-        await generate(commentary_messages, label="comment-results")
-        result = {
-            "intervention_results": intervention_results,
-            "outcome": "warn" if has_warnings else "success",
-        }
-        final_summary = _first_assistant_summary(ctx.trace_capture.get("trace"))
-        if final_summary:
-            result["final_summary"] = final_summary
-        return ctx.finalize(result)
+    from causal_ssm_agent.utils.agent_session import StageSessionFactory
+
+    cfg = get_config()
+    factory = StageSessionFactory(
+        cfg.stage6_commentary.llm,
+        cfg.llm,
+        stage_id="stage-6",
+    )
+
+    async with factory.open(
+        system_prompt=system_prompt,
+        log_label="stage-6",
+    ) as session:
+        await session.turn(user_prompt)
+
+    result: dict[str, Any] = {
+        "intervention_results": intervention_results,
+        "outcome": "warn" if has_warnings else "success",
+    }
+    final_summary = _first_assistant_summary(factory.accumulated_trace)
+    if final_summary:
+        result["final_summary"] = final_summary
+    if factory.accumulated_trace.messages:
+        result["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+    return result

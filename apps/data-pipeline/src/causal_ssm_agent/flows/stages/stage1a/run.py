@@ -1,10 +1,14 @@
 """Stage 1a: Latent Model Proposal."""
 
-from dataclasses import dataclass
+from __future__ import annotations
 
-from causal_ssm_agent.utils.llm import GenerateFn
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .prompting import templates
+
+if TYPE_CHECKING:
+    from causal_ssm_agent.utils.agent_session import StageSessionFactory
 
 
 @dataclass
@@ -24,41 +28,18 @@ class Stage1aResult:
         return len(self.latent_model.get("edges", []))
 
 
-@dataclass
-class Stage1aMessages:
-    """Message builders for Stage 1a prompts."""
-
-    question: str
-
-    def proposal_messages(self) -> list[dict]:
-        """Build messages for initial latent model proposal."""
-        return [
-            {"role": "system", "content": templates.SYSTEM},
-            {"role": "user", "content": templates.USER.format(question=self.question)},
-        ]
-
-
 async def run_stage1a(
     question: str,
-    generate: GenerateFn,
+    session_factory: StageSessionFactory,
 ) -> Stage1aResult:
-    """
-    Run the full Stage 1a flow: latent model proposal with self-review.
+    """Run the Stage 1a flow: latent model proposal + self-review.
 
-    This is the core logic, decoupled from any framework. The caller provides
-    a `generate` function that handles LLM calls.
-
-    Args:
-        question: The causal research question
-        generate: Async function (messages, tools, follow_ups) -> completion
-
-    Returns:
-        Stage1aResult with the validated latent model
+    Opens one :class:`AgentSession` with the validation tool bound, sends
+    the proposal prompt, then sends the review follow-up in the same
+    session so the model keeps its prior reasoning context.
     """
     from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
     from causal_ssm_agent.flows.stages.stage1a.grounding import stage1a_grounding
-
-    msgs = Stage1aMessages(question)
 
     tool, capture = make_stage_tool(
         name="validate_latent_model",
@@ -68,7 +49,13 @@ async def run_stage1a(
         compute_fn=stage1a_grounding,
     )
 
-    await generate(msgs.proposal_messages(), [tool], [templates.REVIEW])
+    async with session_factory.open(
+        system_prompt=templates.SYSTEM,
+        tools=[tool],
+        log_label="stage-1a",
+    ) as session:
+        await session.turn(templates.USER.format(question=question))
+        await session.turn(templates.REVIEW)
 
     if not capture.get("latent_model"):
         raise ValueError("No valid latent model produced")

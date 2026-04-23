@@ -19,7 +19,7 @@ from causal_ssm_agent.flows.stages.stage1b.run import (
 )
 from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
 from causal_ssm_agent.utils.causal_spec import get_outcome_name
-from tests.helpers import make_mock_generate
+from tests.helpers import make_mock_session_factory
 
 # ══════════════════════════════════════════════════════════════════════════════
 # UNIT TESTS: Measurement Compiler
@@ -273,14 +273,14 @@ class TestStage1bFlow:
         stage1b_dummy_chunks,
     ):
         """When all effects are identifiable, result has empty non_identifiable_treatments."""
-        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_all_observed)])
+        factory = make_mock_session_factory([json.dumps(stage1b_measurement_all_observed)])
 
         result = asyncio.run(
             run_stage1b(
                 question="Does treatment improve outcome?",
                 latent_model=stage1b_simple_latent,
                 chunks=stage1b_dummy_chunks,
-                generate=mock_generate,
+                session_factory=factory,
             )
         )
 
@@ -297,14 +297,14 @@ class TestStage1bFlow:
         stage1b_dummy_chunks,
     ):
         """Non-identifiable model still produces a result (fat tool captures on structural validity)."""
-        mock_generate = make_mock_generate([json.dumps(stage1b_measurement_all_observed)])
+        factory = make_mock_session_factory([json.dumps(stage1b_measurement_all_observed)])
 
         result = asyncio.run(
             run_stage1b(
                 question="Does treatment improve outcome?",
                 latent_model=stage1b_confounded_latent,
                 chunks=stage1b_dummy_chunks,
-                generate=mock_generate,
+                session_factory=factory,
             )
         )
 

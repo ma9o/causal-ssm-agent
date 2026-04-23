@@ -9,8 +9,8 @@ import asyncio
 
 from causal_ssm_agent.flows.stages.stage1a.run import run_stage1a
 from causal_ssm_agent.flows.stages.stage1b.run import run_stage1b
+from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.utils.config import get_config  # also loads .env
-from causal_ssm_agent.utils.llm import make_generate_fn
 
 __all__ = [
     "propose_latent_model",
@@ -40,9 +40,15 @@ async def propose_latent_model_async(question: str) -> dict:
     Returns:
         LatentModel as a dictionary
     """
-    stage1 = get_config().stage1_structure_proposal
-    generate = make_generate_fn(stage1.llm.model, max_tool_turns=stage1.stage1a_max_tool_turns)
-    result = await run_stage1a(question=question, generate=generate)
+    cfg = get_config()
+    stage1 = cfg.stage1_structure_proposal
+    factory = StageSessionFactory(
+        stage1.llm,
+        cfg.llm,
+        stage_id="stage-1a",
+        max_tool_turns=stage1.stage1a_max_tool_turns,
+    )
+    result = await run_stage1a(question=question, session_factory=factory)
     return result.latent_model
 
 
@@ -88,13 +94,19 @@ async def propose_measurement_model_async(
     Returns:
         MeasurementModel as a dictionary
     """
-    stage1 = get_config().stage1_structure_proposal
-    generate = make_generate_fn(stage1.llm.model, max_tool_turns=stage1.stage1b_max_tool_turns)
+    cfg = get_config()
+    stage1 = cfg.stage1_structure_proposal
+    factory = StageSessionFactory(
+        stage1.llm,
+        cfg.llm,
+        stage_id="stage-1b",
+        max_tool_turns=stage1.stage1b_max_tool_turns,
+    )
     result = await run_stage1b(
         question=question,
         latent_model=latent_model,
         chunks=data_sample,
-        generate=generate,
+        session_factory=factory,
         dataset_summary=dataset_summary,
     )
     return result.measurement_model

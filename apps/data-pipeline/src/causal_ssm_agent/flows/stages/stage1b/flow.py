@@ -21,8 +21,10 @@ def build_causal_spec(
 propose_measurement_with_identifiability_fix = make_llm_stage_task(
     stage_id="stage-1b",
     orchestrator_fn=run_stage1b,
-    model_name_getter=lambda: get_config().stage1_structure_proposal.llm.model,
-    max_tool_turns_getter=lambda: get_config().stage1_structure_proposal.stage1b_max_tool_turns,
+    stage_llm_getter=lambda: get_config().stage1_structure_proposal.llm,
+    max_tool_turns_getter=lambda: (
+        get_config().stage1_structure_proposal.stage1b_max_tool_turns
+    ),
     payload_builder=lambda result: {"causal_spec": result.causal_spec},
     task_options={
         "result_serializer": "json",

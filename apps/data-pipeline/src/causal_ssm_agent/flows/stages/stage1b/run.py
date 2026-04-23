@@ -1,12 +1,17 @@
 """Stage 1b: Measurement Model with Identifiability."""
 
+from __future__ import annotations
+
 import json
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.llm import GenerateFn
 
 from .prompting import templates
+
+if TYPE_CHECKING:
+    from causal_ssm_agent.utils.agent_session import StageSessionFactory
 
 logger = get_prefect_logger(__name__)
 
@@ -20,69 +25,57 @@ class Stage1bResult:
     causal_spec: dict
 
 
-@dataclass
-class Stage1bMessages:
-    """Message builders for Stage 1b prompts."""
-
-    question: str
-    latent_model: dict
-    chunks: list[str]
-    dataset_summary: str = ""
-
-    def proposal_messages(self) -> list[dict]:
-        """Build messages for initial measurement proposal."""
-        return [
-            {"role": "system", "content": templates.SYSTEM},
-            {
-                "role": "user",
-                "content": templates.USER.format(
-                    question=self.question,
-                    latent_model_json=json.dumps(self.latent_model, indent=2),
-                    dataset_summary=self.dataset_summary or "Not provided",
-                    chunks="\n".join(self.chunks),
-                ),
-            },
-        ]
+def _build_stage1b_user_prompt(
+    question: str,
+    latent_model: dict,
+    chunks: list[str],
+    dataset_summary: str,
+) -> str:
+    return templates.USER.format(
+        question=question,
+        latent_model_json=json.dumps(latent_model, indent=2),
+        dataset_summary=dataset_summary or "Not provided",
+        chunks="\n".join(chunks),
+    )
 
 
 async def run_stage1b(
     question: str,
     latent_model: dict,
     chunks: list[str],
-    generate: GenerateFn,
+    session_factory: StageSessionFactory,
     dataset_summary: str = "",
 ) -> Stage1bResult:
-    """
-    Run the full Stage 1b flow: measurement proposal with identifiability checking.
+    """Run the Stage 1b flow: measurement model + identifiability check.
 
-    The fat validation tool checks both structural validity and causal identifiability.
-    When identifiability fails, it returns rich feedback so the LLM can add proxy
-    indicators and resubmit - all within a single tool loop.
-
-    Args:
-        question: The causal research question
-        latent_model: The latent model dict from Stage 1a
-        chunks: Data chunks for operationalization
-        generate: Async function (messages, tools, follow_ups) -> completion
-        dataset_summary: Optional description of the dataset
-
-    Returns:
-        Stage1bResult with measurement model, identifiability, and causal spec
+    The fat validation tool checks structural validity and causal
+    identifiability together. When identifiability fails, the tool
+    returns rich feedback the model can use to add proxy indicators in
+    the next turn — all within one session.
     """
     from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
     from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
 
-    msgs = Stage1bMessages(question, latent_model, chunks, dataset_summary)
-
     tool, capture = make_stage_tool(
         name="validate_measurement_model",
-        description="Validate measurement model JSON, check compiler constraints, and verify causal identifiability.",
+        description=(
+            "Validate measurement model JSON, check compiler constraints, "
+            "and verify causal identifiability."
+        ),
         param_name="measurement_json",
         param_description="The JSON string containing the measurement model.",
         compute_fn=lambda data: stage1b_grounding(data, latent_model),
     )
 
-    await generate(msgs.proposal_messages(), [tool], [templates.REVIEW])
+    async with session_factory.open(
+        system_prompt=templates.SYSTEM,
+        tools=[tool],
+        log_label="stage-1b",
+    ) as session:
+        await session.turn(
+            _build_stage1b_user_prompt(question, latent_model, chunks, dataset_summary)
+        )
+        await session.turn(templates.REVIEW)
 
     causal_spec = capture.get("causal_spec")
     if causal_spec is None:

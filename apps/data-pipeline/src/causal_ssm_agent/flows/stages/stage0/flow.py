@@ -17,9 +17,9 @@ from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.utils import storage
+from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import input_dir
-from causal_ssm_agent.utils.llm import GenerateFn, LLMStageContext
 from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 from .tools import ModalCodeSandbox, make_ingestion_tools
@@ -113,34 +113,22 @@ Explore the contents and parse all relevant data into a single Polars DataFrame.
 
 async def run_agentic_ingestion(
     extract_dir: Path,
-    generate: GenerateFn,
+    session_factory: StageSessionFactory,
 ) -> IngestionResult:
     """Run the agentic ingestion loop.
 
     Spins up a Modal CPU sandbox, then lets the LLM agent explore the
     prepared input directory using tools and produce a Polars DataFrame.
-
-    Args:
-        extract_dir: Root directory of the prepared input files.
-        generate: Async generate function (from make_generate_fn).
-
-    Returns:
-        IngestionResult with the parsed DataFrame and metadata.
-
-    Raises:
-        ValueError: If the agent did not produce a valid table.
     """
     with ModalCodeSandbox(extract_dir) as sandbox:
         tools, capture = make_ingestion_tools(extract_dir, sandbox)
+        async with session_factory.open(
+            system_prompt=SYSTEM_PROMPT,
+            tools=tools,
+            log_label="stage-0",
+        ) as session:
+            await session.turn(USER_PROMPT)
 
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": USER_PROMPT},
-        ]
-
-        await generate(messages, tools)
-
-    # Extract result from capture
     df = capture.get("dataframe")
     if df is None or df.is_empty():
         raise ValueError("Ingestion agent did not produce a valid DataFrame")
@@ -207,30 +195,30 @@ async def agentic_ingest(
 
     config = get_config()
     with use_openrouter_api_key(openrouter_api_key):
-        async with LLMStageContext("stage-0") as ctx:
-            generate = ctx.make_generate(
-                config.stage0_ingestion.llm.model,
-                max_tool_turns=config.stage0_ingestion.max_tool_turns,
-            )
+        factory = StageSessionFactory(
+            config.stage0_ingestion.llm,
+            config.llm,
+            stage_id="stage-0",
+            max_tool_turns=config.stage0_ingestion.max_tool_turns,
+        )
 
-            with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-                if storage.is_remote():
-                    local_raw = Path(tmpdir) / "download" / raw_name
-                    local_raw.parent.mkdir(parents=True, exist_ok=True)
-                    storage.get_fs().get(raw_storage_path, str(local_raw))
-                else:
-                    local_raw = Path(raw_storage_path)
+        with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
+            if storage.is_remote():
+                local_raw = Path(tmpdir) / "download" / raw_name
+                local_raw.parent.mkdir(parents=True, exist_ok=True)
+                storage.get_fs().get(raw_storage_path, str(local_raw))
+            else:
+                local_raw = Path(raw_storage_path)
 
-                extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
-                result = await run_agentic_ingestion(extract_dir, generate)
+            extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
+            result = await run_agentic_ingestion(extract_dir, factory)
 
-            trace_out = ctx.finalize({})
-            if "llm_trace" in trace_out:
-                result.llm_trace = trace_out["llm_trace"]
+        if factory.accumulated_trace.messages:
+            result.llm_trace = factory.accumulated_trace.model_dump(mode="json")
 
-            logger.info(
-                "Ingested %d rows x %d columns",
-                result.dataframe.shape[0],
-                result.dataframe.shape[1],
-            )
-            return result
+        logger.info(
+            "Ingested %d rows x %d columns",
+            result.dataframe.shape[0],
+            result.dataframe.shape[1],
+        )
+        return result
