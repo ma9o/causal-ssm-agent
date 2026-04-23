@@ -238,6 +238,11 @@ def build_array_prior_payload(
     ssm_spec: SSMSpec | None,
 ) -> dict[str, list[float] | list[int]]:
     """Build the array-valued SSMPriors payload for a structured parameter family."""
+    if not entries:
+        raise ValueError(
+            f"build_array_prior_payload({attr!r}) called with no entries; "
+            "callers must filter out fields without any bound prior before invoking."
+        )
     expected_size = expected_prior_size(attr, ssm_spec)
     n_total = max(idx for idx, _ in entries) + 1
     if expected_size is not None:
@@ -254,12 +259,26 @@ def build_array_prior_payload(
     )
     include_rate = "rate" in current or any("rate" in normalized for _, normalized in entries)
 
+    if include_lower and "lower" not in current:
+        raise ValueError(
+            f"build_array_prior_payload({attr!r}): some entries specify 'lower' but no "
+            "baseline was provided in the SSMPriors default — refusing to silently fill "
+            "with ±1e6. Provide a default 'lower' in current, or ensure every entry "
+            "specifies one."
+        )
+    if include_upper and "upper" not in current:
+        raise ValueError(
+            f"build_array_prior_payload({attr!r}): some entries specify 'upper' but no "
+            "baseline was provided in the SSMPriors default — refusing to silently fill "
+            "with ±1e6."
+        )
+
     mu_arr = [float(current.get("mu", 0.0))] * n_total if include_mu else None
     sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
     loc_arr = [float(current.get("loc", 0.0))] * n_total if include_loc else None
     family_arr = [int(current.get("family", 0))] * n_total if include_family else None
-    lower_arr = [float(current.get("lower", -1e6))] * n_total if include_lower else None
-    upper_arr = [float(current.get("upper", 1e6))] * n_total if include_upper else None
+    lower_arr = [float(current["lower"])] * n_total if include_lower else None
+    upper_arr = [float(current["upper"])] * n_total if include_upper else None
     concentration_arr = (
         [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
     )
