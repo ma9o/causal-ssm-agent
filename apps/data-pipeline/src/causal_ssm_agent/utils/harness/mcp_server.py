@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import logging
 import socket
+import traceback
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
@@ -81,7 +82,13 @@ def build_mcp_server(tools: list[Tool], *, name: str = "pipeline-tools") -> Serv
         try:
             result = await tool.execute(**(arguments or {}))
         except Exception as exc:  # noqa: BLE001 — surface to harness as tool error
-            return [mcp_types.TextContent(type="text", text=f"Tool execution failed: {exc}")]
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            return [
+                mcp_types.TextContent(
+                    type="text",
+                    text=f"Tool execution failed: {type(exc).__name__}: {exc}\n{tb}",
+                )
+            ]
         return [mcp_types.TextContent(type="text", text=str(result))]
 
     return server

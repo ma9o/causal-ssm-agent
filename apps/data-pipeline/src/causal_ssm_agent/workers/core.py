@@ -17,7 +17,6 @@ from causal_ssm_agent.utils.causal_spec import (
 )
 from causal_ssm_agent.utils.llm import (
     make_validation_tool,
-    parse_json_response,
     scoped_log,
 )
 from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
@@ -164,14 +163,11 @@ async def run_worker_extraction(
 
     data = capture.get("output")
     if data is None:
-        active_logger.warning(
-            scoped_log(
-                call_label,
-                "Validation tool did not capture structured output; "
-                "falling back to completion parsing",
-            ),
+        raise RuntimeError(
+            f"Worker extraction did not capture structured output via the "
+            f"validate_extractions tool. terminal_tool={turn_result.terminal_tool_name!r}, "
+            f"tool_calls_fired={turn_result.tool_calls_fired}, completion_len={len(completion)}"
         )
-        data = parse_json_response(completion)
     output = WorkerOutput.model_validate(data)
     dataframe = output.to_dataframe()
     active_logger.info(

@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.utils.llm import (
     make_validation_tool,
-    parse_json_response,
 )
 from causal_ssm_agent.workers.prompts.prior_research import (
     SYSTEM as PRIOR_RESEARCH_SYSTEM,
@@ -152,9 +151,20 @@ async def run_gmm_elicitation(
     tasks = [
         _elicit_single_paraphrase(i, prompt, session_factory) for i, prompt in enumerate(prompts)
     ]
-    results = await asyncio.gather(*tasks)
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    samples = [r for r in results if r is not None]
+    samples: list[RawPriorSample] = []
+    for idx, res in enumerate(raw_results):
+        if isinstance(res, BaseException):
+            logger.warning(
+                "Paraphrase %d crashed during elicitation: %s: %s",
+                idx,
+                type(res).__name__,
+                res,
+            )
+            continue
+        if res is not None:
+            samples.append(res)
     if not samples:
         return (
             f"GMM elicitation failed for {parameter_name}: "
@@ -196,24 +206,22 @@ async def _elicit_single_paraphrase(
             log_label=f"paraphrase-{paraphrase_id}",
         ) as session:
             turn_result = await session.turn(prompt)
-        completion = turn_result.completion
 
         prior_data = capture.get("prior")
         if prior_data is None:
-            prior_data = parse_json_response(completion)
+            raise RuntimeError(
+                f"paraphrase {paraphrase_id} did not capture a validated prior via "
+                f"validate_prior_proposal (terminal_tool={turn_result.terminal_tool_name!r})"
+            )
 
-        # Extract mu/sigma from params
-        params = prior_data.get("params", {})
-        mu = params.get("mu", 0.0)
-        sigma = params.get("sigma", 1.0)
-
+        params = prior_data["params"]
         return RawPriorSample(
             paraphrase_id=paraphrase_id,
-            mu=mu,
-            sigma=sigma,
+            mu=params["mu"],
+            sigma=params["sigma"],
             reasoning=prior_data.get("reasoning", ""),
         )
-    except (ValueError, KeyError, TypeError) as exc:
+    except (ValueError, KeyError, TypeError, RuntimeError) as exc:
         logger.warning(
             "Failed to parse prior elicitation response for paraphrase %d: %s",
             paraphrase_id,
