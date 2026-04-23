@@ -100,7 +100,7 @@ class EmbeddedSession:
                 continue
             break
 
-        tool_calls_fired = [str(msg.get("name") or "") for msg in tail_tool_messages]
+        tool_calls_fired = [str(msg["name"]) for msg in tail_tool_messages]
         terminal: tuple[str, str] | None = None
         if tail_tool_messages:
             terminal = _terminal_tool_success(tail_tool_messages, self._tools)
@@ -143,6 +143,9 @@ async def open_embedded_session(
     max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
 ) -> AsyncIterator[EmbeddedSession]:
     """Open an embedded ``AgentSession`` scoped to an ``async with`` block."""
+    from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+    ensure_harness_prereqs("none")
     session = EmbeddedSession(
         model_name=model_name,
         system_prompt=system_prompt,

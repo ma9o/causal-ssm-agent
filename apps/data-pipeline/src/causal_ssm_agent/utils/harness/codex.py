@@ -298,6 +298,9 @@ async def open_codex_harness_session(
     auth survives), then yields a :class:`CodexHarnessSession`. The
     scratch directory and MCP server are cleaned up on exit.
     """
+    from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+    ensure_harness_prereqs("codex")
     async with serve_tools_http(tools, name=MCP_SERVER_NAME) as mcp_url:
         mcp_toml = build_codex_mcp_toml(mcp_url)
         with tempfile.TemporaryDirectory(prefix="codex-home-") as tmpdir:

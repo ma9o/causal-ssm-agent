@@ -353,6 +353,9 @@ async def open_claude_harness_session(
     :class:`ClaudeHarnessSession`. On exit, the MCP server shuts down
     and the temp MCP config file is deleted.
     """
+    from causal_ssm_agent.utils.config import ensure_harness_prereqs
+
+    ensure_harness_prereqs("claude-code")
     async with serve_tools_http(tools, name=MCP_SERVER_NAME) as mcp_url:
         mcp_config_payload = build_mcp_config_json(mcp_url)
         with tempfile.TemporaryDirectory(prefix="claude-harness-") as tmpdir:
