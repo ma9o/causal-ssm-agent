@@ -202,16 +202,24 @@ async def agentic_ingest(
             max_tool_turns=config.stage0_ingestion.max_tool_turns,
         )
 
-        with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-            if storage.is_remote():
-                local_raw = Path(tmpdir) / "download" / raw_name
-                local_raw.parent.mkdir(parents=True, exist_ok=True)
-                storage.get_fs().get(raw_storage_path, str(local_raw))
-            else:
-                local_raw = Path(raw_storage_path)
+        try:
+            with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
+                if storage.is_remote():
+                    local_raw = Path(tmpdir) / "download" / raw_name
+                    local_raw.parent.mkdir(parents=True, exist_ok=True)
+                    storage.get_fs().get(raw_storage_path, str(local_raw))
+                else:
+                    local_raw = Path(raw_storage_path)
 
-            extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
-            result = await run_agentic_ingestion(extract_dir, factory)
+                extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
+                result = await run_agentic_ingestion(extract_dir, factory)
+        except BaseException:
+            if factory.accumulated_trace.messages:
+                logger.error(
+                    "Stage 0 ingestion failed; preserving partial LLM trace (%d messages)",
+                    len(factory.accumulated_trace.messages),
+                )
+            raise
 
         if factory.accumulated_trace.messages:
             result.llm_trace = factory.accumulated_trace.model_dump(mode="json")

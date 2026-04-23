@@ -329,11 +329,13 @@ def _collect_batch_results(
                 _emit_stage2_snapshot(root_run_id, tracker.mark_terminal(worker_id, "completed"))
 
     ordered_rows = [row for worker_id in batch_indices for row in rows_by_worker.get(worker_id, [])]
-    ordered_statuses = [
-        statuses_by_worker[worker_id]
-        for worker_id in batch_indices
-        if worker_id in statuses_by_worker
-    ]
+    missing = [wid for wid in batch_indices if wid not in statuses_by_worker]
+    if missing:
+        raise RuntimeError(
+            f"Stage 2 missing status for worker(s) {missing}; "
+            f"as_completed returned {len(statuses_by_worker)}/{len(batch_indices)} futures"
+        )
+    ordered_statuses = [statuses_by_worker[worker_id] for worker_id in batch_indices]
     return ordered_rows, ordered_statuses, n_total, sampled_trace
 
 
