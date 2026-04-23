@@ -637,9 +637,7 @@ def build_auxiliary_kalman_bundle(
         "latent_context_fn": latent_context_fn,
         "observation_log_prob_fn": observation_log_prob_fn,
         "observation_log_prob_from_context_fn": observation_log_prob_from_context_fn,
-        "observation_log_prob_per_t_from_context_fn": (
-            observation_log_prob_per_t_from_context_fn
-        ),
+        "observation_log_prob_per_t_from_context_fn": (observation_log_prob_per_t_from_context_fn),
         "observation_increment_log_prob_from_context_fn": (
             observation_increment_log_prob_from_context_fn
         ),
@@ -836,15 +834,9 @@ def build_auxiliary_kalman_latent_kernel(
             prior_per_t_curr = _trajectory_prior_log_prob_per_t_from_terms(
                 x_curr, context.Ad, context.cd, prior_terms
             )
-            obs_per_t_prop = bundle["observation_log_prob_per_t_from_context_fn"](
-                context, x_prop
-            )
-            obs_per_t_curr = bundle["observation_log_prob_per_t_from_context_fn"](
-                context, x_curr
-            )
-            traj_per_t = (prior_per_t_prop + obs_per_t_prop) - (
-                prior_per_t_curr + obs_per_t_curr
-            )
+            obs_per_t_prop = bundle["observation_log_prob_per_t_from_context_fn"](context, x_prop)
+            obs_per_t_curr = bundle["observation_log_prob_per_t_from_context_fn"](context, x_curr)
+            traj_per_t = (prior_per_t_prop + obs_per_t_prop) - (prior_per_t_curr + obs_per_t_curr)
             fwd_prop_per_t = _gaussian_log_prob_isotropic_per_t(
                 u, x_prop + half_delta_bcast * grad_prop, half_delta_variance
             )
@@ -862,9 +854,9 @@ def build_auxiliary_kalman_latent_kernel(
             )
             extras["log_alpha_per_t"] = log_alpha_per_t.astype(traj_dtype)
             extras["log_alpha_obs_per_t"] = (obs_per_t_prop - obs_per_t_curr).astype(traj_dtype)
-            extras["log_alpha_fwd_minus_rev_per_t"] = (
-                fwd_prop_per_t - fwd_curr_per_t
-            ).astype(traj_dtype)
+            extras["log_alpha_fwd_minus_rev_per_t"] = (fwd_prop_per_t - fwd_curr_per_t).astype(
+                traj_dtype
+            )
             extras["log_alpha_q_per_t"] = (q_rev_per_t - q_fwd_per_t).astype(traj_dtype)
 
         accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
