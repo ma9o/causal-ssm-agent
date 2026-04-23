@@ -128,6 +128,34 @@ def build_linear_summary_augmented_system(
     return Ad_aug, Qd_aug, cd_aug, init_mean_aug, init_cov_aug, H_rows, d_rows
 
 
+def row_observation_log_probs(
+    latent_trajectory: jnp.ndarray,
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    H_rows: jnp.ndarray,
+    d_rows: jnp.ndarray,
+    R: jnp.ndarray,
+    obs_kernel,
+) -> jnp.ndarray:
+    """Per-row ``(T,)`` point-observation log-prob for per-row operators.
+
+    Sum over the leading axis equals :func:`row_observation_log_prob`.
+    Used by the per-t MH-ratio diagnostic.
+    """
+    clean_obs = jnp.nan_to_num(observations, nan=0.0)
+    obs_mask_float = obs_mask.astype(latent_trajectory.dtype)
+    return jax.vmap(
+        lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.emission_fn(
+            y_t,
+            z_t,
+            H_t,
+            d_t,
+            R,
+            mask_t,
+        )
+    )(clean_obs, latent_trajectory, obs_mask_float, H_rows, d_rows)
+
+
 def row_observation_log_prob(
     latent_trajectory: jnp.ndarray,
     observations: jnp.ndarray,
@@ -138,19 +166,10 @@ def row_observation_log_prob(
     obs_kernel,
 ) -> jnp.ndarray:
     """Return the point-observation log-probability for per-row observation operators."""
-    clean_obs = jnp.nan_to_num(observations, nan=0.0)
-    obs_mask_float = obs_mask.astype(latent_trajectory.dtype)
     return jnp.sum(
-        jax.vmap(
-            lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.emission_fn(
-                y_t,
-                z_t,
-                H_t,
-                d_t,
-                R,
-                mask_t,
-            )
-        )(clean_obs, latent_trajectory, obs_mask_float, H_rows, d_rows)
+        row_observation_log_probs(
+            latent_trajectory, observations, obs_mask, H_rows, d_rows, R, obs_kernel
+        )
     )
 
 

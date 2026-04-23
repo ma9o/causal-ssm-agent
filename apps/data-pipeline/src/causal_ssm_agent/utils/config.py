@@ -119,6 +119,7 @@ class AuxGibbsLatentKernelConfig:
     """Latent-kernel settings for auxiliary Gibbs inference."""
 
     kernel: str = "kalman"
+    proposal_family: str = "eq8"
     delta: float = 0.2
     target_accept: float = 0.5
 
@@ -191,6 +192,7 @@ class InferenceConfig:
             config.update(
                 {
                     "latent_kernel": self.aux_gibbs.latent_kernel.kernel,
+                    "latent_proposal_family": self.aux_gibbs.latent_kernel.proposal_family,
                     "latent_delta": self.aux_gibbs.latent_kernel.delta,
                     "latent_target_accept": self.aux_gibbs.latent_kernel.target_accept,
                     "parameter_kernel": self.aux_gibbs.parameter_kernel.kernel,

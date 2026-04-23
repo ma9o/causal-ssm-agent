@@ -97,6 +97,20 @@ def _hostify_chain_array(values: jnp.ndarray) -> list[float] | list[list[float]]
     return [[float(item) for item in row] for row in host]
 
 
+def _clip_scale(
+    scale: jnp.ndarray,
+    *,
+    min_scale: float | None,
+    max_scale: float | None,
+) -> jnp.ndarray:
+    clipped = scale
+    if min_scale is not None:
+        clipped = jnp.maximum(clipped, jnp.asarray(min_scale, dtype=clipped.dtype))
+    if max_scale is not None:
+        clipped = jnp.minimum(clipped, jnp.asarray(max_scale, dtype=clipped.dtype))
+    return clipped
+
+
 def _normalize_dual_averaging_state_shape(
     da_state: DualAveragingAdaptationState,
     reference_scale: jnp.ndarray,
@@ -124,6 +138,39 @@ def _normalize_dual_averaging_state_shape(
     )
 
 
+def _clip_dual_averaging_state(
+    da_state: DualAveragingAdaptationState,
+    *,
+    min_scale: float | None,
+    max_scale: float | None,
+) -> DualAveragingAdaptationState:
+    if min_scale is None and max_scale is None:
+        return da_state
+
+    log_min = (
+        None if min_scale is None else jnp.log(jnp.asarray(min_scale, dtype=da_state.mu.dtype))
+    )
+    log_max = (
+        None if max_scale is None else jnp.log(jnp.asarray(max_scale, dtype=da_state.mu.dtype))
+    )
+
+    def _clip_log_value(value: jnp.ndarray) -> jnp.ndarray:
+        clipped = value
+        if log_min is not None:
+            clipped = jnp.maximum(clipped, log_min)
+        if log_max is not None:
+            clipped = jnp.minimum(clipped, log_max)
+        return clipped
+
+    return DualAveragingAdaptationState(
+        log_step_size=_clip_log_value(da_state.log_step_size),
+        log_step_size_avg=_clip_log_value(da_state.log_step_size_avg),
+        step=da_state.step,
+        avg_error=da_state.avg_error,
+        mu=_clip_log_value(da_state.mu),
+    )
+
+
 def run_aux_gibbs(
     bundle: dict[str, Any],
     *,
@@ -138,6 +185,7 @@ def run_aux_gibbs(
     retain_latent_paths: bool,
     adaptation_scheme: str = "dual_averaging",
     init_positions: jnp.ndarray | None = None,
+    emit_per_t_log_alpha: bool = False,
 ) -> dict[str, Any]:
     """Blocked Gibbs: eq-8 aux-Kalman latent step + MALA parameter step.
 
@@ -176,6 +224,17 @@ def run_aux_gibbs(
     initial_param_scale = float(parameter_kernel["initial_scale"])
     use_dual_averaging = adaptation_scheme == "dual_averaging"
     latent_scale_init_from_latent = latent_kernel.get("initial_scale_from_latent_fn")
+    latent_min_scale = latent_kernel.get("min_scale")
+    latent_max_scale = latent_kernel.get("max_scale")
+    if (
+        latent_min_scale is not None
+        and latent_max_scale is not None
+        and float(latent_min_scale) > float(latent_max_scale)
+    ):
+        raise ValueError(
+            "latent_kernel min_scale must be <= max_scale; got "
+            f"{latent_min_scale} > {latent_max_scale}."
+        )
 
     # BlackJAX dual-averaging primitives (Hoffman & Gelman 2014).
     da_latent_init, da_latent_update, _ = dual_averaging_adaptation(
@@ -203,6 +262,11 @@ def run_aux_gibbs(
                 latent_scale_init_from_latent(init_latent, scale_dtype),
                 dtype=scale_dtype,
             )
+        init_latent_delta = _clip_scale(
+            init_latent_delta,
+            min_scale=latent_min_scale,
+            max_scale=latent_max_scale,
+        )
         init_state = AuxGibbsState(
             position=init_position,
             latent_context=init_context,
@@ -236,12 +300,16 @@ def run_aux_gibbs(
             is_final_warmup = iter_idx == (num_warmup - 1)
 
             if use_dual_averaging:
-                updated_latent_da = _normalize_dual_averaging_state_shape(
-                    da_latent_update(
-                        state_after_param.latent_da,
-                        latent_info["accepted"],
+                updated_latent_da = _clip_dual_averaging_state(
+                    _normalize_dual_averaging_state_shape(
+                        da_latent_update(
+                            state_after_param.latent_da,
+                            latent_info["accepted"],
+                        ),
+                        state_after_param.latent_delta,
                     ),
-                    state_after_param.latent_delta,
+                    min_scale=latent_min_scale,
+                    max_scale=latent_max_scale,
                 )
                 updated_param_da = da_param_update(
                     state_after_param.param_da, param_info["accepted"]
@@ -255,6 +323,16 @@ def run_aux_gibbs(
                 latent_frozen = jnp.exp(updated_latent_da.log_step_size_avg).astype(scale_dtype)
                 param_live = jnp.exp(updated_param_da.log_step_size).astype(scale_dtype)
                 param_frozen = jnp.exp(updated_param_da.log_step_size_avg).astype(scale_dtype)
+                latent_live = _clip_scale(
+                    latent_live,
+                    min_scale=latent_min_scale,
+                    max_scale=latent_max_scale,
+                )
+                latent_frozen = _clip_scale(
+                    latent_frozen,
+                    min_scale=latent_min_scale,
+                    max_scale=latent_max_scale,
+                )
                 next_latent_delta = jnp.where(
                     warmup,
                     jnp.where(is_final_warmup, latent_frozen, latent_live),
@@ -283,6 +361,8 @@ def run_aux_gibbs(
                         accepted=latent_info["accepted"],
                         target_accept=latent_target_accept,
                         adaptation_rate=adaptation_rate,
+                        min_scale=1e-6 if latent_min_scale is None else float(latent_min_scale),
+                        max_scale=1e3 if latent_max_scale is None else float(latent_max_scale),
                     ),
                     lambda _: state_after_param.latent_delta,
                     operand=None,
@@ -318,9 +398,19 @@ def run_aux_gibbs(
                 param_info["accepted"],
                 next_state.latent_delta,
                 next_state.param_step_size,
+                next_state.complete_log_posterior,
             )
             if retain_latent_paths:
                 history_entry = (*history_entry, next_latent_public)
+            if emit_per_t_log_alpha:
+                history_entry = (
+                    *history_entry,
+                    latent_info["log_alpha_per_t"],
+                    latent_info["log_alpha_obs_per_t"],
+                    latent_info["log_alpha_fwd_minus_rev_per_t"],
+                    latent_info["log_alpha_q_per_t"],
+                    latent_info["log_alpha"],
+                )
             return (
                 next_state,
                 next_latent_sum,
@@ -334,15 +424,46 @@ def run_aux_gibbs(
             (step_idx, step_keys),
         )
         final_state, latent_sum, latent_sumsq, post_count = final_carry
-        if retain_latent_paths:
+        per_t_names = (
+            "log_alpha_per_t",
+            "log_alpha_obs_per_t",
+            "log_alpha_fwd_minus_rev_per_t",
+            "log_alpha_q_per_t",
+            "log_alpha",
+        )
+        if retain_latent_paths and emit_per_t_log_alpha:
             (
                 positions,
                 latent_accept,
                 param_accept,
                 latent_delta_hist,
                 param_step_hist,
+                complete_lp_hist,
+                latent_hist,
+                *per_t_fields,
+            ) = history
+        elif retain_latent_paths:
+            (
+                positions,
+                latent_accept,
+                param_accept,
+                latent_delta_hist,
+                param_step_hist,
+                complete_lp_hist,
                 latent_hist,
             ) = history
+            per_t_fields = []
+        elif emit_per_t_log_alpha:
+            (
+                positions,
+                latent_accept,
+                param_accept,
+                latent_delta_hist,
+                param_step_hist,
+                complete_lp_hist,
+                *per_t_fields,
+            ) = history
+            latent_hist = None
         else:
             (
                 positions,
@@ -350,13 +471,16 @@ def run_aux_gibbs(
                 param_accept,
                 latent_delta_hist,
                 param_step_hist,
+                complete_lp_hist,
             ) = history
             latent_hist = None
+            per_t_fields = []
+        per_t_history = dict(zip(per_t_names, per_t_fields, strict=True)) if per_t_fields else {}
 
         denom = jnp.maximum(post_count, 1).astype(init_latent.dtype)
         chain_mean = latent_sum / denom
         chain_var = jnp.maximum(latent_sumsq / denom - chain_mean * chain_mean, 0.0)
-        return {
+        chain_result = {
             "positions": positions[num_warmup:],
             "latent_accept": latent_accept[num_warmup:],
             "param_accept": param_accept[num_warmup:],
@@ -367,7 +491,14 @@ def run_aux_gibbs(
             "latent_mean": chain_mean,
             "latent_std": jnp.sqrt(chain_var),
             "latent_paths": None if latent_hist is None else latent_hist[num_warmup:],
+            "complete_log_posterior_history": complete_lp_hist,
+            "final_complete_log_posterior": final_state.complete_log_posterior,
+            "post_warmup_complete_log_posterior_mean": jnp.mean(complete_lp_hist[num_warmup:]),
         }
+        if per_t_history:
+            for name, arr in per_t_history.items():
+                chain_result[name] = arr[num_warmup:]
+        return chain_result
 
     base_key = random.PRNGKey(seed)
     init_key, chain_key = random.split(base_key)
@@ -399,6 +530,15 @@ def run_aux_gibbs(
         "latent_accept_prob": chain_results["latent_accept"],
         "parameter_accept_prob": chain_results["param_accept"],
     }
+    for per_t_name in (
+        "log_alpha_per_t",
+        "log_alpha_obs_per_t",
+        "log_alpha_fwd_minus_rev_per_t",
+        "log_alpha_q_per_t",
+        "log_alpha",
+    ):
+        if per_t_name in chain_results:
+            chain_extra_fields[per_t_name] = chain_results[per_t_name]
     latent_summary = _latent_summary_from_chain_moments(
         chain_results["latent_mean"],
         chain_results["latent_std"],
@@ -414,4 +554,9 @@ def run_aux_gibbs(
         "final_param_step_size": _hostify_chain_array(chain_results["final_param_step_size"]),
         "latent_posterior_summary": latent_summary,
         "latent_paths": latent_paths,
+        "complete_log_posterior_history": chain_results["complete_log_posterior_history"],
+        "final_complete_log_posterior": chain_results["final_complete_log_posterior"],
+        "post_warmup_complete_log_posterior_mean": chain_results[
+            "post_warmup_complete_log_posterior_mean"
+        ],
     }

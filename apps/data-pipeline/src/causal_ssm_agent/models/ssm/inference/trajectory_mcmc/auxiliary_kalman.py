@@ -1,13 +1,21 @@
-"""Auxiliary-Kalman latent MH (reparametrised, eq 8) and MALA parameter kernel.
+"""Auxiliary-Kalman latent MH proposal families and MALA parameter kernel.
 
-Implements Corenflos & Sarkka (2025, Sec 2.2, eq 8) with the reparametrised
-augmentation ``u ~ N(x + (delta/2) grad_x f(x; theta), (delta/2) I)``. Under
-this augmentation the LGSSM proposal for x is independent of the current
-trajectory, which collapses the forward and reverse smoothing filters into a
-single pass. The parameter block stays as a MALA update on the complete
-log-posterior at fixed x. Both kernels report their own accept signal so the
-scale adaptation in ``run_aux_gibbs`` can tune each scale against its own
-target.
+Implements two latent auxiliary-Kalman proposals from Corenflos & Sarkka
+(2025, Sec 2.1-2.2):
+
+* ``eq8``: the reparametrised augmentation
+  ``u ~ N(x + (delta/2) grad_x f(x; theta), (delta/2) I)``. Under this
+  augmentation the LGSSM proposal for ``x`` is independent of the current
+  trajectory, so the forward and reverse smoothing densities share one filter.
+* ``eq10_11``: the standard non-reparametrised auxiliary proposal
+  ``u ~ N(x, (delta/2) I)`` with Kalman pseudo-observations
+  ``u + (delta/2) grad_x f(x; theta)``. This matches the paper's main SSM
+  construction and requires separate forward and reverse proposal filters
+  because each direction is linearised at a different trajectory.
+
+The parameter block stays as a MALA update on the complete log-posterior at
+fixed ``x``. Both kernels report their own accept signal so the scale
+adaptation in ``run_aux_gibbs`` can tune each scale against its own target.
 """
 
 from __future__ import annotations
@@ -23,8 +31,12 @@ from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.artifacts import LinkFunction
 from causal_ssm_agent.models.ssm.constants import MIN_DT
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
+from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.inference.parallel_kalman import (
+    aux_filter_lgssm,
+    sample_lgssm_trajectory,
+)
 from causal_ssm_agent.models.ssm.inference.shared import _trace_public_sites
 from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
 from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
@@ -38,14 +50,12 @@ from causal_ssm_agent.models.ssm.inference.targets.laplace.shared import (
 from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system,
     row_observation_log_prob,
-)
-from causal_ssm_agent.models.ssm.inference.targets.rao_blackwell import (
-    _kalman_predict,
-    _kalman_update_gaussian,
+    row_observation_log_probs,
 )
 from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
     get_support_kind_codes,
     trajectory_observation_log_prob,
+    trajectory_observation_log_probs,
 )
 from causal_ssm_agent.models.ssm.inference.utils import (
     _assemble_likelihood_inputs,
@@ -79,9 +89,117 @@ def _gaussian_log_prob_isotropic(
     mean: jnp.ndarray,
     variance: jnp.ndarray,
 ) -> jnp.ndarray:
-    diff = jnp.reshape(value - mean, (-1,))
-    dim = diff.shape[0]
-    return -0.5 * (dim * jnp.log(2.0 * jnp.pi * variance) + jnp.sum(diff * diff) / variance)
+    """Log-density of ``N(value; mean, variance * I)``, summed over all elements.
+
+    ``variance`` may be a scalar (same variance across every ``(t, d)`` slot),
+    or a ``(T,)`` per-time-step vector (same variance within a time slot but
+    different across slots — the per-time δ_t case). Both forms reduce to
+    the same total log-probability when ``variance`` is constant.
+    """
+    if value.ndim == 0:
+        raise ValueError("_gaussian_log_prob_isotropic requires at least 1-D value.")
+    diff = value - mean
+    variance_arr = jnp.asarray(variance, dtype=diff.dtype)
+    if variance_arr.ndim == 0:
+        flat = jnp.reshape(diff, (-1,))
+        dim = flat.shape[0]
+        return -0.5 * (
+            dim * jnp.log(2.0 * jnp.pi * variance_arr) + jnp.sum(flat * flat) / variance_arr
+        )
+    # Per-time variance: ``value``/``mean`` are (T, D), variance is (T,).
+    if diff.ndim < 2:
+        raise ValueError(
+            "Per-time-step variance requires value with shape (T, D) or larger; "
+            f"got value.ndim={diff.ndim}."
+        )
+    if variance_arr.shape[0] != diff.shape[0]:
+        raise ValueError(
+            f"Per-time variance shape {variance_arr.shape} incompatible with "
+            f"value leading dim {diff.shape[0]}."
+        )
+    # ``diff.shape[1:]`` is a Python tuple of static ints (JAX tracing always
+    # keeps shapes concrete) — use plain Python arithmetic to avoid tracing.
+    import math as _math
+
+    per_time_dim = _math.prod(diff.shape[1:])
+    ss_per_t = jnp.sum(jnp.reshape(diff, (diff.shape[0], -1)) ** 2, axis=-1)
+    logvar_per_t = jnp.log(2.0 * jnp.pi * variance_arr)
+    return -0.5 * jnp.sum(per_time_dim * logvar_per_t + ss_per_t / variance_arr)
+
+
+def _trajectory_prior_log_prob_per_t_from_terms(
+    latent_trajectory: jnp.ndarray,
+    Ad: jnp.ndarray,
+    cd: jnp.ndarray,
+    prior_terms,
+) -> jnp.ndarray:
+    """Per-timestep ``(T,)`` Gaussian trajectory-prior log-prob.
+
+    Slot ``t=0`` contains the initial log-density ``log p(z_0)`` and slot
+    ``t>0`` contains the transition log-density ``log p(z_t | z_{t-1})``.
+    Summing equals :func:`_trajectory_prior_log_prob_from_terms`. Used by
+    the per-t MH-ratio diagnostic only.
+    """
+    from causal_ssm_agent.models.ssm.inference.targets.laplace.shared import (
+        _coerce_transition_intercepts,
+        _gaussian_log_prob_from_cholesky,
+    )
+
+    T = latent_trajectory.shape[0]
+    cd = _coerce_transition_intercepts(
+        cd,
+        state_dim=int(Ad.shape[1]),
+        dtype=jnp.result_type(latent_trajectory, Ad, cd),
+    )
+    init_ll = _gaussian_log_prob_from_cholesky(
+        latent_trajectory[0],
+        prior_terms.init_mean,
+        prior_terms.init_chol,
+        prior_terms.init_logdet,
+    )
+    if T == 1:
+        return jnp.reshape(init_ll, (1,))
+    transition_means = jax.vmap(lambda Ad_t, z_tm1, cd_t: Ad_t @ z_tm1 + cd_t)(
+        Ad[1:], latent_trajectory[:-1], cd[1:]
+    )
+    transition_ll = jax.vmap(_gaussian_log_prob_from_cholesky)(
+        latent_trajectory[1:],
+        transition_means,
+        prior_terms.transition_chol,
+        prior_terms.transition_logdet,
+    )
+    return jnp.concatenate([jnp.reshape(init_ll, (1,)), transition_ll])
+
+
+def _gaussian_log_prob_isotropic_per_t(
+    value: jnp.ndarray,
+    mean: jnp.ndarray,
+    variance: jnp.ndarray,
+) -> jnp.ndarray:
+    """Per-timestep ``(T,)`` log-density of ``N(value; mean, variance * I)``.
+
+    Like :func:`_gaussian_log_prob_isotropic` but returns the per-t vector
+    whose sum equals the scalar output. Used only by the per-t MH-ratio
+    diagnostic; zero cost when the diagnostic flag is off.
+    """
+    if value.ndim < 2:
+        raise ValueError("per-t isotropic density requires value of shape (T, D) or larger.")
+    diff = value - mean
+    import math as _math
+
+    per_time_dim = _math.prod(diff.shape[1:])
+    ss_per_t = jnp.sum(jnp.reshape(diff, (diff.shape[0], -1)) ** 2, axis=-1)
+    variance_arr = jnp.asarray(variance, dtype=diff.dtype)
+    if variance_arr.ndim == 0:
+        logvar_per_t = jnp.log(2.0 * jnp.pi * variance_arr)
+        return -0.5 * (per_time_dim * logvar_per_t + ss_per_t / variance_arr)
+    if variance_arr.shape[0] != diff.shape[0]:
+        raise ValueError(
+            f"Per-time variance shape {variance_arr.shape} incompatible with "
+            f"value leading dim {diff.shape[0]}."
+        )
+    logvar_per_t = jnp.log(2.0 * jnp.pi * variance_arr)
+    return -0.5 * (per_time_dim * logvar_per_t + ss_per_t / variance_arr)
 
 
 def _select_tree(accepted: jnp.ndarray, proposal_tree, current_tree):
@@ -105,232 +223,41 @@ def _initial_latent_moments(context: _LatentContext) -> tuple[jnp.ndarray, jnp.n
     return init_pred_mean, init_pred_cov
 
 
-def _parallel_filtering_op(elem1, elem2):
-    return _parallel_filtering_op_one(*elem1, *elem2)
-
-
-def _parallel_filtering_op_one(A1, b1, C1, eta1, J1, A2, b2, C2, eta2, J2):
-    state_dim = b1.shape[0]
-    eye = jnp.eye(state_dim, dtype=b1.dtype)
-    ip_cj = eye + C1 @ J2
-    ip_jc = eye + J2 @ C1
-    a_ip_cj_inv = jnp.linalg.solve(ip_cj.T, A2.T).T
-    a_ip_jc_inv = jnp.linalg.solve(ip_jc.T, A1).T
-
-    A = a_ip_cj_inv @ A1
-    b = a_ip_cj_inv @ (b1 + C1 @ eta2) + b2
-    C = a_ip_cj_inv @ C1 @ A2.T + C2
-    eta = a_ip_jc_inv @ (eta2 - J2 @ b1) + eta1
-    J = a_ip_jc_inv @ J2 @ A1 + J1
-    return A, b, symmetrize(C), eta, symmetrize(J)
-
-
-def _parallel_filtering_init_one(
-    F: jnp.ndarray,
-    Q: jnp.ndarray,
-    b: jnp.ndarray,
-    y: jnp.ndarray,
-    m: jnp.ndarray,
-    P: jnp.ndarray,
-    R: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    m_pred = F @ m + b
-    P_pred = symmetrize_with_jitter(F @ P @ F.T + Q, jitter=_AUX_JITTER)
-    S = symmetrize_with_jitter(P_pred + R, jitter=_AUX_JITTER)
-    chol_S = jnp.linalg.cholesky(S)
-    gain = jla.cho_solve((chol_S, True), P_pred).T
-    A = F - gain @ F
-    b_std = m_pred + gain @ (y - m_pred)
-    C = P_pred - gain @ S @ gain.T
-    temp = jla.cho_solve((chol_S, True), F).T
-    eta = temp @ (y - b)
-    J = temp @ F
-    return A, b_std, symmetrize(C), eta, symmetrize(J)
-
-
-def _parallel_filtering_init(
-    Fs: jnp.ndarray,
-    Qs: jnp.ndarray,
-    bs: jnp.ndarray,
-    ys: jnp.ndarray,
-    m0: jnp.ndarray,
-    P0: jnp.ndarray,
-    R: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    n_steps = int(bs.shape[0])
-    if n_steps == 0:
-        zeros_m = jnp.zeros((0, *m0.shape), dtype=m0.dtype)
-        zeros_P = jnp.zeros((0, *P0.shape), dtype=P0.dtype)
-        return zeros_P, zeros_m, zeros_P, zeros_m, zeros_P
-
-    ms = jnp.concatenate(
-        [
-            m0[None, ...],
-            jnp.zeros((n_steps - 1, *m0.shape), dtype=m0.dtype),
-        ],
-        axis=0,
-    )
-    Ps = jnp.concatenate(
-        [
-            P0[None, ...],
-            jnp.zeros((n_steps - 1, *P0.shape), dtype=P0.dtype),
-        ],
-        axis=0,
-    )
-    return jax.vmap(
-        _parallel_filtering_init_one,
-        in_axes=(0, 0, 0, 0, 0, 0, None),
-    )(Fs, Qs, bs, ys, ms, Ps, R)
-
-
-def _auxiliary_loglik_one(
-    pred_mean: jnp.ndarray,
-    pred_cov: jnp.ndarray,
-    observation: jnp.ndarray,
-    R_aux: jnp.ndarray,
-) -> jnp.ndarray:
-    S = symmetrize_with_jitter(pred_cov + R_aux, jitter=_AUX_JITTER)
-    chol_S = jnp.linalg.cholesky(S)
-    diff = observation - pred_mean
-    whitened = jla.solve_triangular(chol_S, diff, lower=True)
-    logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol_S)))
-    dim = diff.shape[-1]
-    return -0.5 * (dim * jnp.log(2.0 * jnp.pi) + logdet + whitened @ whitened)
-
-
-def _parallel_sampling_op(elem1, elem2):
-    return _parallel_sampling_op_one(*elem1, *elem2)
-
-
-def _parallel_sampling_op_one(
-    gain1: jnp.ndarray,
-    increment1: jnp.ndarray,
-    gain2: jnp.ndarray,
-    increment2: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    return gain2 @ gain1, gain2 @ increment1 + increment2
-
-
-def _parallel_sampling_init_one(
-    F: jnp.ndarray,
-    Q: jnp.ndarray,
-    b: jnp.ndarray,
-    mean: jnp.ndarray,
-    cov: jnp.ndarray,
-    epsilon: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    S = symmetrize_with_jitter(F @ cov @ F.T + Q, jitter=_AUX_JITTER)
-    chol_S = jnp.linalg.cholesky(S)
-    gain = jla.cho_solve((chol_S, True), F @ cov.T).T
-    increment_cov = symmetrize_with_jitter(cov - gain @ S @ gain.T, jitter=_AUX_JITTER)
-    chol = jnp.linalg.cholesky(increment_cov)
-    increment_mean = mean - gain @ (F @ mean + b)
-    increment = increment_mean + chol @ epsilon
-    return gain, increment
-
-
-def _parallel_sample_last_step(
-    mean: jnp.ndarray,
-    cov: jnp.ndarray,
-    epsilon: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    chol = jnp.linalg.cholesky(symmetrize_with_jitter(cov, jitter=_AUX_JITTER))
-    last_sample = mean + chol @ epsilon
-    gain = jnp.zeros_like(cov)
-    return gain, last_sample
-
-
-def _parallel_sampling_init(
-    key: jnp.ndarray,
-    means: jnp.ndarray,
-    covs: jnp.ndarray,
-    Fs: jnp.ndarray,
-    Qs: jnp.ndarray,
-    bs: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    epsilons = random.normal(key, means.shape, dtype=means.dtype)
-    if means.shape[0] == 1:
-        last_gain, last_increment = _parallel_sample_last_step(means[0], covs[0], epsilons[0])
-        return last_gain[None, ...], last_increment[None, ...]
-
-    gains, increments = jax.vmap(_parallel_sampling_init_one)(
-        Fs,
-        Qs,
-        bs,
-        means[:-1],
-        covs[:-1],
-        epsilons[:-1],
-    )
-    last_gain, last_increment = _parallel_sample_last_step(means[-1], covs[-1], epsilons[-1])
-    return (
-        jnp.concatenate([gains, last_gain[None, ...]], axis=0),
-        jnp.concatenate([increments, last_increment[None, ...]], axis=0),
-    )
-
-
 def _filter_auxiliary_lgssm(
     context: _LatentContext,
     pseudo_observations: jnp.ndarray,
     delta: jnp.ndarray,
+    *,
+    parallel: bool = True,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    state_dim = int(context.Ad.shape[-1])
-    eye = jnp.eye(state_dim, dtype=context.Ad.dtype)
-    R_aux = 0.5 * delta * eye
-    zero = jnp.zeros((state_dim,), dtype=context.Ad.dtype)
-    obs_mask = jnp.ones((state_dim,), dtype=bool)
-    init_mean, init_cov = _initial_latent_moments(context)
+    """Auxiliary-LGSSM Kalman filter backed by :mod:`parallel_kalman`.
 
-    filt_mean_0, filt_cov_0, loglik_0 = _kalman_update_gaussian(
-        init_mean,
-        init_cov,
-        eye,
-        R_aux,
-        zero,
-        pseudo_observations[0],
-        obs_mask,
+    Works for every aux_gibbs path (point-in-time, linear-summary augmented
+    block-tridiagonal Ad/Qd, and any other LGSSM whose ``context.Ad`` is
+    block-decomposable): the observation matrix is always ``H = I`` because
+    the auxiliary proposal observes the full (possibly augmented) state
+    with isotropic noise ``(delta/2) I``. ``parallel`` toggles the
+    Corenflos/Särkkä O(log T) associative scan against a plain O(T)
+    sequential ``lax.scan`` filter.
+    """
+    state = aux_filter_lgssm(
+        init_mean=context.init_mean,
+        init_cov=context.init_cov,
+        Fs=context.Ad,
+        Qs=context.Qd,
+        bs=context.cd,
+        pseudo_observations=pseudo_observations,
+        aux_variance=0.5 * delta,
+        jitter=_AUX_JITTER,
+        parallel=parallel,
     )
-
-    if pseudo_observations.shape[0] == 1:
-        return (
-            init_mean[None, ...],
-            init_cov[None, ...],
-            filt_mean_0[None, ...],
-            filt_cov_0[None, ...],
-            loglik_0[None, ...],
-        )
-
-    init_elems = _parallel_filtering_init(
-        context.Ad[1:],
-        context.Qd[1:],
-        context.cd[1:],
-        pseudo_observations[1:],
-        filt_mean_0,
-        filt_cov_0,
-        R_aux,
+    return (
+        state.pred_mean,
+        state.pred_cov,
+        state.filt_mean,
+        state.filt_cov,
+        state.loglik,
     )
-    _ops, filt_tail, filt_cov_tail, _eta, _J = jax.lax.associative_scan(
-        jax.vmap(_parallel_filtering_op),
-        init_elems,
-    )
-    filt_means = jnp.concatenate([filt_mean_0[None, ...], filt_tail], axis=0)
-    filt_covs = jnp.concatenate([filt_cov_0[None, ...], filt_cov_tail], axis=0)
-    pred_mean_tail, pred_cov_tail = jax.vmap(_kalman_predict)(
-        filt_means[:-1],
-        filt_covs[:-1],
-        context.Ad[1:],
-        context.Qd[1:],
-        context.cd[1:],
-    )
-    pred_means = jnp.concatenate([init_mean[None, ...], pred_mean_tail], axis=0)
-    pred_covs = jnp.concatenate([init_cov[None, ...], pred_cov_tail], axis=0)
-    loglik_tail = jax.vmap(_auxiliary_loglik_one, in_axes=(0, 0, 0, None))(
-        pred_means[1:],
-        pred_covs[1:],
-        pseudo_observations[1:],
-        R_aux,
-    )
-    loglik = jnp.concatenate([loglik_0[None, ...], loglik_tail], axis=0)
-    return pred_means, pred_covs, filt_means, filt_covs, loglik
 
 
 def _sample_auxiliary_trajectory(
@@ -339,21 +266,18 @@ def _sample_auxiliary_trajectory(
     *,
     filt_means: jnp.ndarray,
     filt_covs: jnp.ndarray,
+    parallel: bool = True,
 ) -> jnp.ndarray:
-    gains, increments = _parallel_sampling_init(
+    return sample_lgssm_trajectory(
         key,
         filt_means,
         filt_covs,
-        context.Ad[1:],
-        context.Qd[1:],
-        context.cd[1:],
+        Fs=context.Ad[1:],
+        Qs=context.Qd[1:],
+        bs=context.cd[1:],
+        jitter=_AUX_JITTER,
+        parallel=parallel,
     )
-    _gains, samples = jax.lax.associative_scan(
-        jax.vmap(_parallel_sampling_op),
-        (gains, increments),
-        reverse=True,
-    )
-    return samples
 
 
 def _auxiliary_posterior_log_prob(
@@ -377,6 +301,15 @@ def _auxiliary_posterior_log_prob(
         0.5 * delta,
     )
     return prior_lp + pseudo_lp - log_evidence
+
+
+def _shifted_auxiliary_pseudo_observations(
+    u: jnp.ndarray,
+    grad: jnp.ndarray,
+    half_delta_bcast: jnp.ndarray,
+) -> jnp.ndarray:
+    """Return the eq-10/11 shifted pseudo-observations ``u + (delta/2) grad``."""
+    return u + half_delta_bcast * grad
 
 
 def build_auxiliary_kalman_bundle(
@@ -594,6 +527,41 @@ def build_auxiliary_kalman_bundle(
         )
         return jnp.asarray(obs_lp, dtype=latent_state.dtype)
 
+    def observation_log_prob_per_t_from_context_fn(
+        context: _LatentContext,
+        latent_trajectory: jnp.ndarray,
+    ) -> jnp.ndarray:
+        """Per-timestep ``(T,)`` observation log-prob. Sum equals the scalar variant.
+
+        Used only by the per-t MH-ratio diagnostic.
+        """
+        measurement_semantics = _measurement_semantics_from_context(context)
+        if use_linear_summary_augmentation:
+            assert context.H_rows is not None
+            assert context.d_rows is not None
+            per_t = row_observation_log_probs(
+                latent_trajectory,
+                observations,
+                obs_mask,
+                context.H_rows,
+                context.d_rows,
+                context.R,
+                measurement_semantics.obs_kernel,
+            )
+        else:
+            per_t = trajectory_observation_log_probs(
+                latent_trajectory,
+                observations,
+                obs_mask,
+                context.H,
+                context.d_meas,
+                context.R,
+                measurement_semantics.obs_kernel,
+                measurement_semantics.mean_log_prob_fn,
+                observation_support,
+            )
+        return jnp.asarray(per_t, dtype=latent_trajectory.dtype)
+
     def observation_log_prob_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
         context = latent_context_fn(z)
         return observation_log_prob_from_context_fn(context, latent_trajectory)
@@ -669,6 +637,9 @@ def build_auxiliary_kalman_bundle(
         "latent_context_fn": latent_context_fn,
         "observation_log_prob_fn": observation_log_prob_fn,
         "observation_log_prob_from_context_fn": observation_log_prob_from_context_fn,
+        "observation_log_prob_per_t_from_context_fn": (
+            observation_log_prob_per_t_from_context_fn
+        ),
         "observation_increment_log_prob_from_context_fn": (
             observation_increment_log_prob_from_context_fn
         ),
@@ -695,35 +666,59 @@ def build_auxiliary_kalman_latent_kernel(
     *,
     delta: float,
     target_accept: float,
+    proposal_family: str = "eq8",
+    parallel: bool = True,
+    delta_profile: jnp.ndarray | None = None,
+    emit_per_t_log_alpha: bool = False,
 ) -> dict[str, Any]:
-    """Auxiliary-Kalman latent MH under the eq-8 reparametrised augmentation.
+    """Auxiliary-Kalman latent MH under the selected proposal family.
 
-    One iteration at ``(x, theta)`` with scale ``delta``:
+    ``proposal_family="eq8"`` uses the reparametrised auxiliary variable
+    ``u ~ N(x + (delta/2) grad_x log g(y|x,theta), (delta/2) I)``. Conditional
+    on ``u`` and ``theta``, the proposal LGSSM is independent of the current
+    trajectory, so one filter pass suffices for both forward and reverse
+    proposal densities.
 
-    1. ``grad_x_curr = grad_x log g(y | x, theta)``.
-    2. Draw ``u = x + (delta/2) grad_x_curr + sqrt(delta/2) eps`` — exact
-       conditional of the eq-8 augmented target ``pi(x, theta, u)``, always
-       accepted.
-    3. Filter the LGSSM with pseudo-observations ``u`` (no gradient term) and
-       smoothing-sample ``x*``. Under eq (8) the LGSSM proposal is independent
-       of the current ``x``, so forward and reverse proposals evaluate
-       ``q(x* | u, theta)`` and ``q(x | u, theta)`` under the *same* filter.
-    4. Accept/reject ``x*`` with
-       ``log pi(x*, theta) - log pi(x, theta)``
-       ``+ log N(u; x* + (delta/2) grad_x_star, delta/2)``
-       ``- log N(u; x + (delta/2) grad_x_curr, delta/2)``
-       ``+ log q(x | u, theta) - log q(x* | u, theta)``.
+    ``proposal_family="eq10_11"`` uses the paper's standard auxiliary sampler:
+    ``u ~ N(x, (delta/2) I)``, then the proposal is the smoothing posterior of
+    an LGSSM with pseudo-observations
+    ``u + (delta/2) grad_x log g(y|x,theta)`` and observation variance
+    ``(delta/2) I``. This requires separate forward and reverse proposal
+    filters because the linearisation point changes from ``x`` to ``x*``.
+
+    ``parallel`` selects between the Corenflos/Särkkä O(log T) associative
+    scan and a plain O(T) sequential ``lax.scan`` filter/sampler for the
+    auxiliary LGSSM proposal.
+
+    ``delta_profile`` (optional) is a ``(T,)`` array of per-time-step step
+    sizes δ_t used to stabilise the sampler under heterogeneously informative
+    observations (Corenflos & Särkkä §4.4). When provided, the chain
+    initialises ``state.latent_delta`` to this array and the filter uses a
+    per-time auxiliary-observation noise ``(δ_t/2) I`` instead of a single
+    scalar. The global accept/reject is unchanged, so this does not fix the
+    ``O(1/T^{1/3})`` asymptotic collapse of the Kalman sampler (Remark 3.1) —
+    it redistributes step-size budget across time so a few highly informative
+    slots do not drive the whole trajectory accept probability down.
     """
+    if proposal_family not in {"eq8", "eq10_11"}:
+        raise ValueError(
+            f"Unsupported aux-Kalman proposal family {proposal_family!r}. "
+            "Supported: 'eq8' or 'eq10_11'."
+        )
 
-    def _latent_mh_step(state, key: jnp.ndarray):
-        aux_key, sample_key, accept_key = random.split(key, 3)
+    def _prepare_latent_step(state):
         x_curr = state.latent_trajectory
         context = state.latent_context
         latent_dtype = x_curr.dtype
         traj_dtype = state.trajectory_log_prob.dtype
         complete_dtype = state.complete_log_posterior.dtype
         delta_val = state.latent_delta
-        half_delta = 0.5 * delta_val
+
+        if delta_val.ndim == 0:
+            half_delta_bcast = 0.5 * delta_val
+        else:
+            half_delta_bcast = 0.5 * delta_val[:, None]
+        half_delta_variance = 0.5 * delta_val
 
         prior_terms = bundle["prior_terms_from_context_fn"](context)
         traj_curr = jnp.asarray(
@@ -731,33 +726,63 @@ def build_auxiliary_kalman_latent_kernel(
             dtype=traj_dtype,
         )
         log_prior_z = jnp.asarray(bundle["log_prior_unc_fn"](state.position), dtype=complete_dtype)
-
-        # (1) grad_x log g at current x.
         grad_curr = jnp.asarray(
             bundle["observation_grad_from_context_fn"](context, x_curr),
             dtype=latent_dtype,
         )
-
-        # (2) Sample u from eq-8 conditional.
-        u = (
-            x_curr
-            + half_delta * grad_curr
-            + jnp.sqrt(half_delta) * random.normal(aux_key, x_curr.shape, dtype=latent_dtype)
+        return (
+            x_curr,
+            context,
+            latent_dtype,
+            traj_dtype,
+            complete_dtype,
+            delta_val,
+            half_delta_bcast,
+            half_delta_variance,
+            prior_terms,
+            traj_curr,
+            log_prior_z,
+            grad_curr,
         )
 
-        # (3) Single filter pass at current theta with pseudo-obs = u.
+    def _latent_mh_step_eq8(state, key: jnp.ndarray):
+        aux_key, sample_key, accept_key = random.split(key, 3)
+        (
+            x_curr,
+            context,
+            latent_dtype,
+            traj_dtype,
+            complete_dtype,
+            delta_val,
+            half_delta_bcast,
+            half_delta_variance,
+            prior_terms,
+            traj_curr,
+            log_prior_z,
+            grad_curr,
+        ) = _prepare_latent_step(state)
+
+        u = (
+            x_curr
+            + half_delta_bcast * grad_curr
+            + jnp.sqrt(half_delta_bcast) * random.normal(aux_key, x_curr.shape, dtype=latent_dtype)
+        )
+
         _pm, _pc, filt_means, filt_covs, loglik = _filter_auxiliary_lgssm(
-            context, u, delta_val
+            context, u, delta_val, parallel=parallel
         )
         x_prop = jnp.asarray(
             _sample_auxiliary_trajectory(
-                sample_key, context, filt_means=filt_means, filt_covs=filt_covs
+                sample_key,
+                context,
+                filt_means=filt_means,
+                filt_covs=filt_covs,
+                parallel=parallel,
             ),
             dtype=latent_dtype,
         )
         log_evidence = jnp.sum(loglik)
 
-        # (4) Smoothing densities q(x*|u, theta) and q(x|u, theta) — same LGSSM.
         q_fwd = jnp.asarray(
             _auxiliary_posterior_log_prob(
                 x_prop,
@@ -781,7 +806,6 @@ def build_auxiliary_kalman_latent_kernel(
             dtype=traj_dtype,
         )
 
-        # (5) grad_x log g at proposed x (for the eq-8 aux factor at x*).
         grad_prop = jnp.asarray(
             bundle["observation_grad_from_context_fn"](context, x_prop),
             dtype=latent_dtype,
@@ -791,14 +815,147 @@ def build_auxiliary_kalman_latent_kernel(
             dtype=traj_dtype,
         )
 
-        # (6) MH log acceptance.
         log_alpha = traj_prop - traj_curr
         log_alpha = log_alpha + _gaussian_log_prob_isotropic(
-            u, x_prop + half_delta * grad_prop, half_delta
+            u, x_prop + half_delta_bcast * grad_prop, half_delta_variance
         )
         log_alpha = log_alpha - _gaussian_log_prob_isotropic(
-            u, x_curr + half_delta * grad_curr, half_delta
+            u, x_curr + half_delta_bcast * grad_curr, half_delta_variance
         )
+        log_alpha = log_alpha + q_rev - q_fwd
+
+        extras: dict[str, jnp.ndarray] = {}
+        if emit_per_t_log_alpha:
+            # Per-t decomposition of the eq-8 MH ratio. For an LGSSM target
+            # (prior_target == prior_surrogate), the prior contributions cancel
+            # between (traj_prop - traj_curr) and (q_rev - q_fwd). For
+            # non-Gaussian dynamics they don't; we keep all addends explicit.
+            prior_per_t_prop = _trajectory_prior_log_prob_per_t_from_terms(
+                x_prop, context.Ad, context.cd, prior_terms
+            )
+            prior_per_t_curr = _trajectory_prior_log_prob_per_t_from_terms(
+                x_curr, context.Ad, context.cd, prior_terms
+            )
+            obs_per_t_prop = bundle["observation_log_prob_per_t_from_context_fn"](
+                context, x_prop
+            )
+            obs_per_t_curr = bundle["observation_log_prob_per_t_from_context_fn"](
+                context, x_curr
+            )
+            traj_per_t = (prior_per_t_prop + obs_per_t_prop) - (
+                prior_per_t_curr + obs_per_t_curr
+            )
+            fwd_prop_per_t = _gaussian_log_prob_isotropic_per_t(
+                u, x_prop + half_delta_bcast * grad_prop, half_delta_variance
+            )
+            fwd_curr_per_t = _gaussian_log_prob_isotropic_per_t(
+                u, x_curr + half_delta_bcast * grad_curr, half_delta_variance
+            )
+            q_rev_per_t = _trajectory_prior_log_prob_per_t_from_terms(
+                x_curr, context.Ad, context.cd, prior_terms
+            ) + _gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
+            q_fwd_per_t = _trajectory_prior_log_prob_per_t_from_terms(
+                x_prop, context.Ad, context.cd, prior_terms
+            ) + _gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
+            log_alpha_per_t = (
+                traj_per_t + (fwd_prop_per_t - fwd_curr_per_t) + (q_rev_per_t - q_fwd_per_t)
+            )
+            extras["log_alpha_per_t"] = log_alpha_per_t.astype(traj_dtype)
+            extras["log_alpha_obs_per_t"] = (obs_per_t_prop - obs_per_t_curr).astype(traj_dtype)
+            extras["log_alpha_fwd_minus_rev_per_t"] = (
+                fwd_prop_per_t - fwd_curr_per_t
+            ).astype(traj_dtype)
+            extras["log_alpha_q_per_t"] = (q_rev_per_t - q_fwd_per_t).astype(traj_dtype)
+
+        accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
+        accept = random.bernoulli(accept_key, accept_prob)
+        next_traj = jnp.asarray(jnp.where(accept, x_prop, x_curr), dtype=latent_dtype)
+        next_traj_lp = jnp.asarray(jnp.where(accept, traj_prop, traj_curr), dtype=traj_dtype)
+        next_complete = log_prior_z + next_traj_lp.astype(complete_dtype)
+        next_state = state._replace(
+            latent_trajectory=next_traj,
+            trajectory_log_prob=next_traj_lp,
+            complete_log_posterior=next_complete,
+        )
+        extras["accepted"] = accept.astype(state.position.dtype)
+        extras["log_alpha"] = log_alpha.astype(traj_dtype)
+        return next_state, extras
+
+    def _latent_mh_step_eq10_11(state, key: jnp.ndarray):
+        aux_key, sample_key, accept_key = random.split(key, 3)
+        (
+            x_curr,
+            context,
+            latent_dtype,
+            traj_dtype,
+            complete_dtype,
+            delta_val,
+            half_delta_bcast,
+            half_delta_variance,
+            prior_terms,
+            traj_curr,
+            log_prior_z,
+            grad_curr,
+        ) = _prepare_latent_step(state)
+
+        u = x_curr + jnp.sqrt(half_delta_bcast) * random.normal(
+            aux_key, x_curr.shape, dtype=latent_dtype
+        )
+        pseudo_obs_fwd = _shifted_auxiliary_pseudo_observations(u, grad_curr, half_delta_bcast)
+        _pm, _pc, filt_means_fwd, filt_covs_fwd, loglik_fwd = _filter_auxiliary_lgssm(
+            context, pseudo_obs_fwd, delta_val, parallel=parallel
+        )
+        x_prop = jnp.asarray(
+            _sample_auxiliary_trajectory(
+                sample_key,
+                context,
+                filt_means=filt_means_fwd,
+                filt_covs=filt_covs_fwd,
+                parallel=parallel,
+            ),
+            dtype=latent_dtype,
+        )
+        traj_prop = jnp.asarray(
+            bundle["trajectory_log_prob_from_context_fn"](context, x_prop, prior_terms),
+            dtype=traj_dtype,
+        )
+        log_evidence_fwd = jnp.sum(loglik_fwd)
+        q_fwd = jnp.asarray(
+            _auxiliary_posterior_log_prob(
+                x_prop,
+                context,
+                pseudo_obs_fwd,
+                delta=delta_val,
+                log_evidence=log_evidence_fwd,
+                prior_terms=prior_terms,
+            ),
+            dtype=traj_dtype,
+        )
+
+        grad_prop = jnp.asarray(
+            bundle["observation_grad_from_context_fn"](context, x_prop),
+            dtype=latent_dtype,
+        )
+        pseudo_obs_rev = _shifted_auxiliary_pseudo_observations(u, grad_prop, half_delta_bcast)
+        _pm_rev, _pc_rev, _fm_rev, _fc_rev, loglik_rev = _filter_auxiliary_lgssm(
+            context, pseudo_obs_rev, delta_val, parallel=parallel
+        )
+        log_evidence_rev = jnp.sum(loglik_rev)
+        q_rev = jnp.asarray(
+            _auxiliary_posterior_log_prob(
+                x_curr,
+                context,
+                pseudo_obs_rev,
+                delta=delta_val,
+                log_evidence=log_evidence_rev,
+                prior_terms=prior_terms,
+            ),
+            dtype=traj_dtype,
+        )
+
+        log_alpha = traj_prop - traj_curr
+        log_alpha = log_alpha + _gaussian_log_prob_isotropic(u, x_prop, half_delta_variance)
+        log_alpha = log_alpha - _gaussian_log_prob_isotropic(u, x_curr, half_delta_variance)
         log_alpha = log_alpha + q_rev - q_fwd
 
         accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
@@ -813,13 +970,44 @@ def build_auxiliary_kalman_latent_kernel(
         )
         return next_state, {"accepted": accept.astype(state.position.dtype)}
 
-    return {
+    latent_kernel = {
         "name": "kalman",
+        "proposal_family": proposal_family,
         "scale_field": "latent_delta",
         "initial_scale": delta,
         "target_accept": target_accept,
-        "step_fn": _latent_mh_step,
+        "step_fn": _latent_mh_step_eq8 if proposal_family == "eq8" else _latent_mh_step_eq10_11,
+        "parallel": parallel,
     }
+    if delta_profile is not None:
+        profile_array = jnp.asarray(delta_profile)
+        if profile_array.ndim != 1:
+            raise ValueError(f"delta_profile must be 1-D (T,); got shape {profile_array.shape}.")
+        latent_kernel["initial_scale_from_latent_fn"] = lambda _latent_trajectory, dtype: (
+            profile_array.astype(dtype)
+        )
+    return latent_kernel
+
+
+def _gaussian_log_prob_preconditioned(
+    value: jnp.ndarray,
+    mean: jnp.ndarray,
+    scale: jnp.ndarray,
+    precond_chol: jnp.ndarray,
+) -> jnp.ndarray:
+    """Log-density of ``N(value; mean, scale^2 * M)`` with ``M = L L^T``.
+
+    ``precond_chol`` is the lower-triangular Cholesky factor of the
+    preconditioner ``M``. The covariance of the proposal is ``h^2 M`` so we
+    pass ``scale = h`` and rely on ``precond_chol`` to supply the shape.
+    """
+    diff = jnp.reshape(value - mean, (-1,))
+    dim = diff.shape[0]
+    # Solve L^T z = diff / scale  =>  z = L^{-T} diff / scale  =>  Mahalanobis^2 = z^T z.
+    whitened = jla.solve_triangular(precond_chol, diff, lower=True)
+    logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(precond_chol)))  # log |L L^T|
+    mahal = jnp.sum(whitened * whitened) / (scale * scale)
+    return -0.5 * (dim * jnp.log(2.0 * jnp.pi) + dim * 2.0 * jnp.log(scale) + logdet + mahal)
 
 
 def build_mala_parameter_kernel(
@@ -827,14 +1015,38 @@ def build_mala_parameter_kernel(
     *,
     step_size: float,
     target_accept: float,
+    preconditioner_chol: jnp.ndarray | None = None,
 ) -> dict[str, Any]:
-    """MALA update on the complete log-posterior at fixed latent trajectory."""
+    """MALA update on the complete log-posterior at fixed latent trajectory.
+
+    ``preconditioner_chol`` is an optional lower-triangular Cholesky factor of
+    a positive-definite mass matrix ``M`` with shape ``(dim, dim)``. When
+    provided the MALA drift and diffusion become
+    ``proposal = theta + 0.5 h^2 M grad + h L Z`` (with ``L L^T = M``) — the
+    classical preconditioned MALA of Roberts & Stramer (2002). ``M`` should
+    approximate the posterior covariance so MALA mixes in the whitened space.
+    """
 
     complete_value_and_grad = jax.value_and_grad(
         bundle["complete_log_posterior_with_aux_fn"],
         argnums=0,
         has_aux=True,
     )
+    if preconditioner_chol is not None:
+        precond_chol = jnp.asarray(preconditioner_chol)
+        if precond_chol.ndim != 2 or precond_chol.shape[0] != precond_chol.shape[1]:
+            raise ValueError(
+                f"preconditioner_chol must be square 2-D, got shape {precond_chol.shape}."
+            )
+        if precond_chol.shape[0] != int(bundle["dim"]):
+            raise ValueError(
+                "preconditioner_chol side must equal bundle['dim']; "
+                f"got {precond_chol.shape[0]} vs {bundle['dim']}."
+            )
+        preconditioner_mat = precond_chol @ precond_chol.T
+    else:
+        precond_chol = None
+        preconditioner_mat = None
 
     def _parameter_mala_step(state, key: jnp.ndarray):
         if bundle["dim"] == 0:
@@ -845,17 +1057,32 @@ def build_mala_parameter_kernel(
             state.position, state.latent_trajectory
         )
         h = state.param_step_size
-        mean_fwd = state.position + 0.5 * (h**2) * grad_curr
-        proposal = mean_fwd + h * random.normal(
-            proposal_key, state.position.shape, dtype=state.position.dtype
-        )
+        noise = random.normal(proposal_key, state.position.shape, dtype=state.position.dtype)
+        if precond_chol is None:
+            mean_fwd = state.position + 0.5 * (h**2) * grad_curr
+            proposal = mean_fwd + h * noise
+        else:
+            drift_curr = 0.5 * (h**2) * (preconditioner_mat @ grad_curr)
+            mean_fwd = state.position + drift_curr
+            proposal = mean_fwd + h * (precond_chol @ noise)
         (complete_prop, (traj_prop, context_prop)), grad_prop = complete_value_and_grad(
             proposal, state.latent_trajectory
         )
-        mean_rev = proposal + 0.5 * (h**2) * grad_prop
-        log_alpha = complete_prop - complete_curr
-        log_alpha = log_alpha + _gaussian_log_prob_isotropic(state.position, mean_rev, h**2)
-        log_alpha = log_alpha - _gaussian_log_prob_isotropic(proposal, mean_fwd, h**2)
+        if precond_chol is None:
+            mean_rev = proposal + 0.5 * (h**2) * grad_prop
+            log_alpha = complete_prop - complete_curr
+            log_alpha = log_alpha + _gaussian_log_prob_isotropic(state.position, mean_rev, h**2)
+            log_alpha = log_alpha - _gaussian_log_prob_isotropic(proposal, mean_fwd, h**2)
+        else:
+            drift_prop = 0.5 * (h**2) * (preconditioner_mat @ grad_prop)
+            mean_rev = proposal + drift_prop
+            log_alpha = complete_prop - complete_curr
+            log_alpha = log_alpha + _gaussian_log_prob_preconditioned(
+                state.position, mean_rev, h, precond_chol
+            )
+            log_alpha = log_alpha - _gaussian_log_prob_preconditioned(
+                proposal, mean_fwd, h, precond_chol
+            )
         accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
         accept = random.bernoulli(accept_key, accept_prob)
         next_context = _select_tree(accept, context_prop, state.latent_context)
@@ -873,4 +1100,5 @@ def build_mala_parameter_kernel(
         "initial_scale": step_size,
         "target_accept": target_accept,
         "step_fn": _parameter_mala_step,
+        "preconditioned": precond_chol is not None,
     }
