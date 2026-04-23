@@ -58,12 +58,13 @@ def _drift_parameter_name(
     effect_idx: int,
     cause_idx: int,
 ) -> tuple[str, str, str]:
-    cause_name = (
-        ssm_spec.latent_names[cause_idx] if ssm_spec.latent_names else f"latent_{cause_idx}"
-    )
-    effect_name = (
-        ssm_spec.latent_names[effect_idx] if ssm_spec.latent_names else f"latent_{effect_idx}"
-    )
+    if not ssm_spec.latent_names:
+        raise ValueError(
+            "SSMSpec.latent_names is empty; cross-lag parameter names require explicit "
+            "latent_names on the translated SSMSpec."
+        )
+    cause_name = ssm_spec.latent_names[cause_idx]
+    effect_name = ssm_spec.latent_names[effect_idx]
     return f"beta_{cause_name}_{effect_name}", cause_name, effect_name
 
 
@@ -132,9 +133,12 @@ def _resolve_cross_lag_interval_days(
             )
         return interval_days
 
-    effect_name = (
-        ssm_spec.latent_names[effect_idx] if ssm_spec.latent_names else f"latent_{effect_idx}"
-    )
+    if not ssm_spec.latent_names:
+        raise ValueError(
+            f"Cross-lag prior '{param_name}' cannot resolve effect name: "
+            "SSMSpec.latent_names is empty."
+        )
+    effect_name = ssm_spec.latent_names[effect_idx]
     interval_days = _resolve_model_clock_interval_days(causal_spec)
     if interval_days is not None:
         return interval_days
@@ -501,7 +505,6 @@ def compile_priors(
                     errors.extend(param_errors)
                     continue
 
-                mu_ar = min(max(mu_ar, 0.001), 0.999)
                 sigma_ar = normalized.get("sigma", 0.2)
                 _append_structured_prior(
                     per_element,

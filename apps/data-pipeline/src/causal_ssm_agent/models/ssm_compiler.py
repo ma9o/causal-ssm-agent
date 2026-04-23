@@ -662,15 +662,19 @@ def _resolve_latent_names(
     *,
     expected: int,
 ) -> list[str]:
-    """Resolve latent state names from the compiled spec with safe fallbacks."""
+    """Resolve latent state names from the compiled spec."""
     spec_payload = compiled_ssm.get("spec")
-    latent_names = []
+    latent_names: list[str] = []
     if isinstance(spec_payload, dict):
         latent_names = [str(name) for name in spec_payload.get("latent_names") or [] if name]
 
-    if len(latent_names) >= expected:
-        return latent_names[:expected]
-    return latent_names + [f"latent_{idx}" for idx in range(len(latent_names), expected)]
+    if len(latent_names) < expected:
+        raise ValueError(
+            f"Compiled SSM declares {expected} latent states but spec.latent_names "
+            f"provides only {len(latent_names)} ({latent_names!r}). "
+            "Rebuild the compiled artifact with complete latent_names."
+        )
+    return latent_names[:expected]
 
 
 def _build_compiled_initial_state_priors(
