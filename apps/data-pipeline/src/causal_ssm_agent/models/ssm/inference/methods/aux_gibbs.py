@@ -62,56 +62,38 @@ def _laplace_preconditioner_chol_from_map_result(
     return jnp.asarray(np.linalg.cholesky(covariance))
 
 
-def _pathfinder_init_positions(
+def _pathfinder_preconditioner_chol_from_state(
+    pathfinder_state: Any,
+    *,
+    low_rank_scale: float = 1.0,
+    jitter: float = 1e-6,
+) -> jnp.ndarray:
+    """Build a MALA preconditioner Cholesky from a Pathfinder Gaussian."""
+    alpha = np.asarray(pathfinder_state.alpha, dtype=np.float64)
+    beta = np.asarray(pathfinder_state.beta, dtype=np.float64)
+    gamma = np.asarray(pathfinder_state.gamma, dtype=np.float64)
+    covariance = np.diag(alpha)
+    if beta.size:
+        covariance = covariance + float(low_rank_scale) * (beta @ gamma @ beta.T)
+    covariance = 0.5 * (covariance + covariance.T)
+    covariance = covariance + jitter * np.eye(covariance.shape[0], dtype=covariance.dtype)
+    return jnp.asarray(np.linalg.cholesky(covariance))
+
+
+def _run_pathfinder_approximation(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
     trace_key: jnp.ndarray,
     pathfinder_key: jnp.ndarray,
-    sample_key: jnp.ndarray,
     reparam,
     n_ieks_iters: int,
-    num_chains: int,
     num_elbo_samples: int,
     maxiter: int,
-    dtype,
     n_pathfinder_starts: int = 2,
-    pathfinder_init_scale: float | None = None,
-    aux_bundle: dict[str, Any] | None = None,
-    weakly_identified_sites: tuple[str, ...] = _WEAKLY_IDENTIFIED_SITE_NAMES,
-    prior_release_scale: float = 0.05,
-    release_jitter_key: jnp.ndarray | None = None,
-) -> tuple[jnp.ndarray, dict[str, Any]]:
-    """Run Pathfinder on the IEKS-marginal log-posterior for theta.
-
-    Returns (init_positions_per_chain, diagnostics). The laplace bundle uses
-    the same ``_discover_sites`` + ``ravel_pytree`` layout as
-    ``build_auxiliary_kalman_bundle``, so the flat positions are directly
-    consumable by :func:`run_aux_gibbs`.
-
-    When ``n_pathfinder_starts > 1`` this runs K independent Pathfinder
-    approximations, picks the one with the highest ELBO, and samples the
-    ``num_chains`` initial positions from that top-ELBO approximation.
-
-    ``pathfinder_init_scale``:
-        * ``None`` (default) — sample ``num_chains`` positions from Pathfinder's
-          own Gaussian approximation via :func:`blackjax.pathfinder.sample`.
-        * ``float`` — take Pathfinder's mode ``state.position`` as the common
-          centre and perturb each chain with ``pathfinder_init_scale * randn``.
-          Works around Pathfinder's occasional over-wide Gaussian covariance
-          that scatters chains into distant basins on ill-conditioned
-          posteriors.
-
-    Per-parameter init: when ``aux_bundle`` is provided, flat indices that
-    belong to ``weakly_identified_sites`` are overridden with the prior-median
-    value (``aux_bundle["flat_example"]``) plus ``prior_release_scale * randn``
-    per chain. This is the literature-standard pattern for sites the output
-    sensitivity check flags as having zero Jacobian at prior draws (e.g.
-    Student-t ``obs_df``): Pathfinder's Gaussian approximation can't
-    meaningfully initialise them, so they start at the prior mode and let the
-    parameter-MALA kernel explore from there.
-    """
+) -> tuple[Any, dict[str, Any]]:
+    """Run multi-start Pathfinder and return the highest-ELBO approximation."""
     if n_pathfinder_starts < 1:
         raise ValueError("n_pathfinder_starts must be >= 1.")
     backend = (
@@ -143,10 +125,87 @@ def _pathfinder_init_positions(
     if not states:
         raise RuntimeError(
             "All pathfinder starts produced non-finite ELBO or position; "
-            "cannot seed aux_gibbs chains."
+            "cannot build the aux_gibbs Pathfinder approximation."
         )
     best_idx = int(max(range(len(elbos)), key=lambda i: elbos[i]))
-    best_state = states[best_idx]
+    diagnostics = {
+        "n_pathfinder_starts": n_pathfinder_starts,
+        "n_pathfinder_starts_finite": len(states),
+        "best_pathfinder_elbo": elbos[best_idx],
+        "pathfinder_elbo": elbos[best_idx],  # backwards-compat with single-start key
+        "pathfinder_elbo_min": min(elbos),
+        "pathfinder_elbo_max": max(elbos),
+        "pathfinder_elbo_spread": max(elbos) - min(elbos),
+        "pathfinder_elbos": elbos,
+    }
+    return states[best_idx], diagnostics
+
+
+def _pathfinder_init_positions(
+    model,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    *,
+    trace_key: jnp.ndarray,
+    pathfinder_key: jnp.ndarray,
+    sample_key: jnp.ndarray,
+    reparam,
+    n_ieks_iters: int,
+    num_chains: int,
+    num_elbo_samples: int,
+    maxiter: int,
+    dtype,
+    n_pathfinder_starts: int = 2,
+    pathfinder_init_scale: float | None = None,
+    aux_bundle: dict[str, Any] | None = None,
+    weakly_identified_sites: tuple[str, ...] = _WEAKLY_IDENTIFIED_SITE_NAMES,
+    prior_release_scale: float = 0.05,
+    release_jitter_key: jnp.ndarray | None = None,
+    best_state: Any | None = None,
+    pathfinder_diagnostics: dict[str, Any] | None = None,
+) -> tuple[jnp.ndarray, dict[str, Any], Any]:
+    """Run Pathfinder on the IEKS-marginal log-posterior for theta.
+
+    Returns ``(init_positions_per_chain, diagnostics, best_state)``. The
+    laplace bundle uses the same ``_discover_sites`` + ``ravel_pytree`` layout
+    as ``build_auxiliary_kalman_bundle``, so the flat positions are directly
+    consumable by :func:`run_aux_gibbs`.
+
+    When ``n_pathfinder_starts > 1`` this runs K independent Pathfinder
+    approximations, picks the one with the highest ELBO, and samples the
+    ``num_chains`` initial positions from that top-ELBO approximation.
+
+    ``pathfinder_init_scale``:
+        * ``None`` (default) — sample ``num_chains`` positions from Pathfinder's
+          own Gaussian approximation via :func:`blackjax.pathfinder.sample`.
+        * ``float`` — take Pathfinder's mode ``state.position`` as the common
+          centre and perturb each chain with ``pathfinder_init_scale * randn``.
+          Works around Pathfinder's occasional over-wide Gaussian covariance
+          that scatters chains into distant basins on ill-conditioned
+          posteriors.
+
+    Per-parameter init: when ``aux_bundle`` is provided, flat indices that
+    belong to ``weakly_identified_sites`` are overridden with the prior-median
+    value (``aux_bundle["flat_example"]``) plus ``prior_release_scale * randn``
+    per chain. This is the literature-standard pattern for sites the output
+    sensitivity check flags as having zero Jacobian at prior draws (e.g.
+    Student-t ``obs_df``): Pathfinder's Gaussian approximation can't
+    meaningfully initialise them, so they start at the prior mode and let the
+    parameter-MALA kernel explore from there.
+    """
+    if best_state is None or pathfinder_diagnostics is None:
+        best_state, pathfinder_diagnostics = _run_pathfinder_approximation(
+            model,
+            observations,
+            times,
+            trace_key=trace_key,
+            pathfinder_key=pathfinder_key,
+            reparam=reparam,
+            n_ieks_iters=n_ieks_iters,
+            num_elbo_samples=num_elbo_samples,
+            maxiter=maxiter,
+            n_pathfinder_starts=n_pathfinder_starts,
+        )
     if pathfinder_init_scale is None:
         positions, _log_q = pathfinder.sample(sample_key, best_state, num_samples=num_chains)
         sampling_mode = "pathfinder_gaussian"
@@ -185,19 +244,12 @@ def _pathfinder_init_positions(
         "init_method": "pathfinder",
         "pathfinder_sampling_mode": sampling_mode,
         "pathfinder_init_scale": pathfinder_init_scale,
-        "n_pathfinder_starts": n_pathfinder_starts,
-        "n_pathfinder_starts_finite": len(states),
-        "best_pathfinder_elbo": elbos[best_idx],
-        "pathfinder_elbo": elbos[best_idx],  # backwards-compat with single-start key
-        "pathfinder_elbo_min": min(elbos),
-        "pathfinder_elbo_max": max(elbos),
-        "pathfinder_elbo_spread": max(elbos) - min(elbos),
-        "pathfinder_elbos": elbos,
+        **pathfinder_diagnostics,
         "prior_released_site_names": list(weakly_identified_sites) if prior_site_indices else [],
         "prior_released_site_indices": prior_site_indices,
         "prior_release_scale": float(prior_release_scale) if prior_site_indices else 0.0,
     }
-    return positions, diag
+    return positions, diag, best_state
 
 
 def fit_aux_gibbs(
@@ -226,10 +278,12 @@ def fit_aux_gibbs(
     pathfinder_maxiter: int = 20,
     n_pathfinder_starts: int = 2,
     pathfinder_init_scale: float | None = None,
+    pathfinder_preconditioner_low_rank_scale: float = 1.0,
     parallel_filter: bool = True,
     latent_delta_profile: str = "scalar",
     parameter_preconditioner_chol: jnp.ndarray | None = None,
     auto_preconditioner_maxiter: int = 200,
+    auto_preconditioner_method: str = "map",
     initial_positions_override: jnp.ndarray | None = None,
     emit_per_t_log_alpha: bool = False,
     reparam=None,
@@ -268,10 +322,21 @@ def fit_aux_gibbs(
       Corenflos & Särkkä (2025, eq. 10/11).
 
     Auto-preconditioner: when ``parameter_preconditioner_chol`` is ``None``,
-    an internal MAP+IEKS run is used to build the Cholesky of the Laplace
-    parameter covariance, which is then passed to the parameter-MALA kernel.
-    ``auto_preconditioner_maxiter`` controls the inner optimiser budget.
-    Provide a precomputed Cholesky to skip the MAP step entirely.
+    ``auto_preconditioner_method`` selects how the MALA preconditioner is
+    built:
+
+    * ``"map"`` — run the existing internal MAP+IEKS fit and use the
+      L-BFGS-B inverse-Hessian approximation. ``auto_preconditioner_maxiter``
+      controls the inner optimiser budget.
+    * ``"pathfinder"`` — reuse Pathfinder's fitted Gaussian approximation
+      and pass its covariance Cholesky directly to the parameter-MALA kernel.
+      ``pathfinder_preconditioner_low_rank_scale`` scales Pathfinder's
+      low-rank covariance correction ``beta @ gamma @ beta.T`` before the
+      Cholesky is formed; values in ``[0, 1]`` shrink toward Pathfinder's
+      diagonal approximation.
+
+    Provide a precomputed Cholesky to skip the auto-preconditioner step
+    entirely.
 
     Per-parameter init (default ``init_method="pathfinder"``): Pathfinder's
     Gaussian approximation initialises well-identified flat indices; sites
@@ -303,6 +368,16 @@ def fit_aux_gibbs(
             f"Unsupported latent_delta_profile {latent_delta_profile!r}. "
             "Supported: 'scalar', 'T_minus_one_third', 'informativeness'."
         )
+    if auto_preconditioner_method not in {"map", "pathfinder"}:
+        raise ValueError(
+            f"Unsupported auto_preconditioner_method {auto_preconditioner_method!r}. "
+            "Supported: 'map' or 'pathfinder'."
+        )
+    if not 0.0 <= float(pathfinder_preconditioner_low_rank_scale) <= 1.0:
+        raise ValueError(
+            "pathfinder_preconditioner_low_rank_scale must be in [0, 1]; got "
+            f"{pathfinder_preconditioner_low_rank_scale!r}."
+        )
 
     base_key = random.PRNGKey(seed)
     trace_key, pathfinder_key, pf_sample_key, release_key = random.split(base_key, 4)
@@ -314,28 +389,124 @@ def fit_aux_gibbs(
         reparam=reparam,
     )
 
-    # Auto-build the Laplace preconditioner via an internal MAP+IEKS run when
-    # the caller did not provide one. Matches the literature-standard
-    # "MAP-at-mode, sample with local curvature" pattern and the per-parameter
-    # init's assumption that the MALA chain starts in a well-conditioned basis.
-    preconditioner_diagnostics: dict[str, Any] = {}
-    if parameter_preconditioner_chol is None:
-        map_result = fit_map(
+    init_positions = None
+    init_diagnostics: dict[str, Any] = {"init_method": init_method}
+    shared_pathfinder_state: Any | None = None
+    shared_pathfinder_diagnostics: dict[str, Any] | None = None
+    if initial_positions_override is not None:
+        init_positions = jnp.asarray(initial_positions_override, dtype=bundle["flat_example"].dtype)
+        if init_positions.shape != (num_chains, int(bundle["flat_example"].shape[0])):
+            raise ValueError(
+                "initial_positions_override must have shape (num_chains, dim); got "
+                f"{init_positions.shape}"
+            )
+        init_diagnostics = {"init_method": "user_provided"}
+    elif init_method == "pathfinder":
+        if parameter_preconditioner_chol is None and auto_preconditioner_method == "pathfinder":
+            shared_pathfinder_state, shared_pathfinder_diagnostics = _run_pathfinder_approximation(
+                model,
+                observations,
+                times,
+                trace_key=trace_key,
+                pathfinder_key=pathfinder_key,
+                reparam=reparam,
+                n_ieks_iters=n_ieks_iters,
+                num_elbo_samples=pathfinder_num_elbo_samples,
+                maxiter=pathfinder_maxiter,
+                n_pathfinder_starts=n_pathfinder_starts,
+            )
+        init_positions, init_diagnostics, shared_pathfinder_state = _pathfinder_init_positions(
             model,
             observations,
             times,
-            num_samples=1,
-            seed=seed,
-            n_ieks_iters=n_ieks_iters,
-            maxiter=auto_preconditioner_maxiter,
-            parameter_covariance_method="optimizer_hess_inv",
+            trace_key=trace_key,
+            pathfinder_key=pathfinder_key,
+            sample_key=pf_sample_key,
             reparam=reparam,
+            n_ieks_iters=n_ieks_iters,
+            num_chains=num_chains,
+            num_elbo_samples=pathfinder_num_elbo_samples,
+            maxiter=pathfinder_maxiter,
+            dtype=bundle["flat_example"].dtype,
+            n_pathfinder_starts=n_pathfinder_starts,
+            pathfinder_init_scale=pathfinder_init_scale,
+            aux_bundle=bundle,
+            release_jitter_key=release_key,
+            best_state=shared_pathfinder_state,
+            pathfinder_diagnostics=shared_pathfinder_diagnostics,
         )
-        parameter_preconditioner_chol = _laplace_preconditioner_chol_from_map_result(map_result)
-        preconditioner_diagnostics = {
-            "auto_preconditioner": True,
-            "auto_preconditioner_maxiter": int(auto_preconditioner_maxiter),
-        }
+
+    # Auto-build the Laplace preconditioner when the caller did not provide
+    # one. The MAP path remains the default; the Pathfinder path reuses the
+    # same best-state Gaussian approximation used for initialisation.
+    preconditioner_diagnostics: dict[str, Any] = {}
+    if parameter_preconditioner_chol is None:
+        if auto_preconditioner_method == "pathfinder":
+            if shared_pathfinder_state is None or shared_pathfinder_diagnostics is None:
+                shared_pathfinder_state, shared_pathfinder_diagnostics = _run_pathfinder_approximation(
+                    model,
+                    observations,
+                    times,
+                    trace_key=trace_key,
+                    pathfinder_key=pathfinder_key,
+                    reparam=reparam,
+                    n_ieks_iters=n_ieks_iters,
+                    num_elbo_samples=pathfinder_num_elbo_samples,
+                    maxiter=pathfinder_maxiter,
+                    n_pathfinder_starts=n_pathfinder_starts,
+                )
+            parameter_preconditioner_chol = _pathfinder_preconditioner_chol_from_state(
+                shared_pathfinder_state,
+                low_rank_scale=pathfinder_preconditioner_low_rank_scale,
+            )
+            parameter_preconditioner_chol = jax.device_put(parameter_preconditioner_chol)
+            preconditioner_diagnostics = {
+                "auto_preconditioner": True,
+                "auto_preconditioner_method": "pathfinder",
+                "auto_preconditioner_device": jax.default_backend(),
+                "pathfinder_preconditioner_low_rank_scale": float(
+                    pathfinder_preconditioner_low_rank_scale
+                ),
+                "auto_preconditioner_n_pathfinder_starts": int(
+                    shared_pathfinder_diagnostics["n_pathfinder_starts"]
+                ),
+                "auto_preconditioner_n_pathfinder_starts_finite": int(
+                    shared_pathfinder_diagnostics["n_pathfinder_starts_finite"]
+                ),
+                "auto_preconditioner_best_pathfinder_elbo": float(
+                    shared_pathfinder_diagnostics["best_pathfinder_elbo"]
+                ),
+                "auto_preconditioner_pathfinder_elbo_spread": float(
+                    shared_pathfinder_diagnostics["pathfinder_elbo_spread"]
+                ),
+            }
+        else:
+            cpu_device = jax.devices("cpu")[0]
+            with jax.default_device(cpu_device):
+                map_result = fit_map(
+                    model,
+                    jax.device_put(observations, cpu_device),
+                    jax.device_put(times, cpu_device),
+                    num_samples=1,
+                    seed=seed,
+                    n_ieks_iters=n_ieks_iters,
+                    maxiter=auto_preconditioner_maxiter,
+                    parameter_covariance_method="optimizer_hess_inv",
+                    reparam=reparam,
+                )
+            parameter_preconditioner_chol = _laplace_preconditioner_chol_from_map_result(
+                map_result
+            )
+            # Place the Cholesky on the default (GPU, when present) device so the
+            # MALA kernel's preconditioner·grad and preconditioner·noise multiplies
+            # stay accelerator-local in the hot loop.
+            parameter_preconditioner_chol = jax.device_put(parameter_preconditioner_chol)
+            preconditioner_diagnostics = {
+                "auto_preconditioner": True,
+                "auto_preconditioner_method": "map",
+                "auto_preconditioner_maxiter": int(auto_preconditioner_maxiter),
+                "auto_preconditioner_device": "cpu",
+            }
     else:
         preconditioner_diagnostics = {"auto_preconditioner": False}
 
@@ -368,35 +539,6 @@ def fit_aux_gibbs(
         target_accept=param_target_accept,
         preconditioner_chol=parameter_preconditioner_chol,
     )
-    init_positions = None
-    init_diagnostics: dict[str, Any] = {"init_method": init_method}
-    if initial_positions_override is not None:
-        init_positions = jnp.asarray(initial_positions_override, dtype=bundle["flat_example"].dtype)
-        if init_positions.shape != (num_chains, int(bundle["flat_example"].shape[0])):
-            raise ValueError(
-                "initial_positions_override must have shape (num_chains, dim); got "
-                f"{init_positions.shape}"
-            )
-        init_diagnostics = {"init_method": "user_provided"}
-    elif init_method == "pathfinder":
-        init_positions, init_diagnostics = _pathfinder_init_positions(
-            model,
-            observations,
-            times,
-            trace_key=trace_key,
-            pathfinder_key=pathfinder_key,
-            sample_key=pf_sample_key,
-            reparam=reparam,
-            n_ieks_iters=n_ieks_iters,
-            num_chains=num_chains,
-            num_elbo_samples=pathfinder_num_elbo_samples,
-            maxiter=pathfinder_maxiter,
-            dtype=bundle["flat_example"].dtype,
-            n_pathfinder_starts=n_pathfinder_starts,
-            pathfinder_init_scale=pathfinder_init_scale,
-            aux_bundle=bundle,
-            release_jitter_key=release_key,
-        )
     run_result = run_aux_gibbs(
         bundle,
         latent_kernel=latent_kernel_spec,
