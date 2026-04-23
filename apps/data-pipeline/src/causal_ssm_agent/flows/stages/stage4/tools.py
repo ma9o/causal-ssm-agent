@@ -236,9 +236,8 @@ def make_submit_prior_block_tool(state: Any) -> Any:
 
 def make_elicit_prior_gmm_tool(
     question: str,
-    model_name: str,
+    paraphrase_session_factory: Any,
     n_paraphrases: int = 10,
-    max_tool_turns: int = 40,
 ) -> Any:
     """Create an ``elicit_prior_gmm`` tool for the agentic Stage 4 flow."""
     from causal_ssm_agent.utils.openrouter_client import Tool
@@ -258,9 +257,8 @@ def make_elicit_prior_gmm_tool(
             parameter_constraint=parameter_constraint,
             context=context,
             question=question,
-            model_name=model_name,
+            session_factory=paraphrase_session_factory,
             n_paraphrases=n_paraphrases,
-            max_tool_turns=max_tool_turns,
         )
 
     return Tool(

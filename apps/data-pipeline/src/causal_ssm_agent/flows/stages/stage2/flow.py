@@ -665,37 +665,33 @@ async def extract_window_chunk_task(
         Dict with 'dataframe' (as list of dicts for serialization),
         'n_extractions', and 'status'.
     """
+    from dataclasses import replace
+
+    from causal_ssm_agent.utils.agent_session import StageSessionFactory
     from causal_ssm_agent.utils.causal_spec import get_indicators
     from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.llm import LLMStageContext, get_generate_config
-    from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
+    from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
     from causal_ssm_agent.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
-    generate_config = get_generate_config()
-    # Use shorter timeout for extraction workers (prevents hung LLM calls)
-    worker_timeout = getattr(
-        config.stage2_workers, "worker_timeout", getattr(generate_config, "timeout", None)
-    )
-    generate_config = GenerateConfig(
-        max_tokens=generate_config.max_tokens,
-        timeout=worker_timeout,
-        reasoning_effort=generate_config.reasoning_effort,
-        max_tool_output=generate_config.max_tool_output,
+    # Stage 2 workers override only the per-call timeout (prevents hung calls).
+    # Everything else inherits the embedded LLM defaults.
+    stage2_llm = replace(
+        config.stage2_workers.llm,
+        timeout=config.stage2_workers.worker_timeout,
     )
     indicator_count = len(get_indicators(causal_spec))
     n_events = window_text.count("\n")
     chunk_label = _chunk_log_label(chunk_idx, len(window_starts), n_events)
 
     run_logger.info(
-        "[%s] Starting extraction with %d windows, %d indicators using model %s (max_tokens=%d, reasoning_effort=%s)",
+        "[%s] Starting extraction with %d windows, %d indicators using model %s (timeout=%ds)",
         chunk_label,
         len(window_starts),
         indicator_count,
-        config.stage2_workers.llm.model,
-        generate_config.max_tokens,
-        generate_config.reasoning_effort,
+        stage2_llm.model,
+        stage2_llm.timeout,
     )
     if root_run_id:
         emit_stage2_worker_event(
@@ -709,39 +705,41 @@ async def extract_window_chunk_task(
             _emit_stage2_snapshot(root_run_id, tracker.mark_running(chunk_idx))
 
     with use_openrouter_api_key(openrouter_api_key):
-        async with LLMStageContext(f"stage-2/chunk-{chunk_idx}") as ctx:
-            generate = ctx.make_generate(
-                config.stage2_workers.llm.model,
-                config=generate_config,
-                max_tool_turns=config.stage2_workers.max_tool_turns,
-            )
+        factory = StageSessionFactory(
+            stage2_llm,
+            config.llm,
+            stage_id=f"stage-2/chunk-{chunk_idx}",
+            max_tool_turns=config.stage2_workers.max_tool_turns,
+        )
 
-            started_at = perf_counter()
-            result = await run_worker_extraction(
-                window_text=window_text,
-                window_starts=window_starts,
-                question=question,
-                causal_spec=causal_spec,
-                generate=generate,
-                logger=run_logger,
-                call_label=chunk_label,
-            )
+        started_at = perf_counter()
+        result = await run_worker_extraction(
+            window_text=window_text,
+            window_starts=window_starts,
+            question=question,
+            causal_spec=causal_spec,
+            session_factory=factory,
+            logger=run_logger,
+            call_label=chunk_label,
+        )
 
-            elapsed = perf_counter() - started_at
-            run_logger.info(
-                "[%s] Finished in %.1fs with %d extractions and %d output rows",
-                chunk_label,
-                elapsed,
-                len(result.output.extractions),
-                result.dataframe.height,
-            )
+        elapsed = perf_counter() - started_at
+        run_logger.info(
+            "[%s] Finished in %.1fs with %d extractions and %d output rows",
+            chunk_label,
+            elapsed,
+            len(result.output.extractions),
+            result.dataframe.height,
+        )
 
-            result_dict: dict = {
-                "dataframe": result.dataframe.to_dicts(),
-                "n_extractions": len(result.output.extractions),
-                "status": "completed",
-            }
-            return ctx.finalize(result_dict)
+        result_dict: dict = {
+            "dataframe": result.dataframe.to_dicts(),
+            "n_extractions": len(result.output.extractions),
+            "status": "completed",
+        }
+        if factory.accumulated_trace.messages:
+            result_dict["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+        return result_dict
 
 
 @flow(

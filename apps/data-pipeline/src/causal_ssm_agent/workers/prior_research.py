@@ -20,9 +20,9 @@ from causal_ssm_agent.utils.openrouter_client import acquire_limiter
 
 if TYPE_CHECKING:
     from causal_ssm_agent.artifacts.model_spec import ParameterSpec
+    from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.distributions import PriorDistributionFamily
 from causal_ssm_agent.utils.llm import (
-    GenerateFn,
     make_validation_tool,
     parse_json_response,
 )
@@ -127,20 +127,18 @@ async def run_gmm_elicitation(
     parameter_constraint: str,
     context: str,
     question: str,
-    model_name: str,
+    session_factory: StageSessionFactory,
     n_paraphrases: int = 10,
-    max_tool_turns: int = 40,
 ) -> str:
     """Run paraphrased prior elicitation and return GMM-aggregated result.
 
     Used as the implementation behind the ``elicit_prior_gmm`` tool in the
-    agentic Stage 4 flow.
+    agentic Stage 4 flow. Each paraphrase opens its own session so the
+    parallel tasks don't share a conversation.
 
     Returns:
         Formatted string with the aggregated prior for the LLM to use.
     """
-    from causal_ssm_agent.utils.llm import make_generate_fn
-
     prompts = generate_paraphrased_prompts(
         parameter_name=parameter_name,
         parameter_role=parameter_role,
@@ -151,8 +149,9 @@ async def run_gmm_elicitation(
         n_paraphrases=n_paraphrases,
     )
 
-    generate = make_generate_fn(model_name, max_tool_turns=max_tool_turns)
-    tasks = [_elicit_single_paraphrase(i, prompt, generate) for i, prompt in enumerate(prompts)]
+    tasks = [
+        _elicit_single_paraphrase(i, prompt, session_factory) for i, prompt in enumerate(prompts)
+    ]
     results = await asyncio.gather(*tasks)
 
     samples = [r for r in results if r is not None]
@@ -186,26 +185,18 @@ async def run_gmm_elicitation(
 async def _elicit_single_paraphrase(
     paraphrase_id: int,
     prompt: str,
-    generate: GenerateFn,
+    session_factory: StageSessionFactory,
 ) -> RawPriorSample | None:
-    """Elicit a prior from a single paraphrased prompt.
-
-    Args:
-        paraphrase_id: Index of the paraphrase template
-        prompt: The formatted prompt to use
-        generate: Async generate function
-
-    Returns:
-        RawPriorSample or None if parsing fails
-    """
-    messages = [
-        {"role": "system", "content": PRIOR_RESEARCH_SYSTEM},
-        {"role": "user", "content": prompt},
-    ]
-
+    """Elicit a prior from a single paraphrased prompt via its own session."""
     try:
         tool, capture = _make_prior_tool()
-        completion = await generate(messages, [tool])
+        async with session_factory.open(
+            system_prompt=PRIOR_RESEARCH_SYSTEM,
+            tools=[tool],
+            log_label=f"paraphrase-{paraphrase_id}",
+        ) as session:
+            turn_result = await session.turn(prompt)
+        completion = turn_result.completion
 
         prior_data = capture.get("prior")
         if prior_data is None:
