@@ -825,6 +825,7 @@ def format_validation_feedback(
         return f"PRIOR PREDICTIVE FEEDBACK:\n{details}"
 
     from causal_ssm_agent.models.prior_predictive import format_parameter_feedback
+    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     params = changed_params or list(authored_priors.keys())
     parts = []
@@ -838,6 +839,33 @@ def format_validation_feedback(
         )
         if fb:
             parts.append(fb)
+
+    # Fallback: if the submission touched parameters that the validator is
+    # happy with, the loop above produces nothing — but the validator may
+    # still be flagging other parameters. Surface feedback for whatever the
+    # validator actually failed on so the LLM can react, rather than the
+    # unactionable generic "PRIOR PREDICTIVE CHECK FAILED" string.
+    if not parts:
+        seen: set[str] = set()
+        failing_param_names: list[str] = []
+        for result in validation.prior_predictive_diagnostics:
+            if result.is_valid or result.parameter in GLOBAL_FAILURE_SITES:
+                continue
+            if result.parameter in seen:
+                continue
+            seen.add(result.parameter)
+            failing_param_names.append(result.parameter)
+        for param_name in failing_param_names:
+            fb = format_parameter_feedback(
+                parameter_name=param_name,
+                results=validation.prior_predictive_diagnostics,
+                prior=authored_priors.get(param_name),
+                data_stats=data_stats,
+                model_spec=validation.normalized_model_spec,
+            )
+            if fb:
+                parts.append(fb)
+
     details = "\n\n".join(parts) if parts else "PRIOR PREDICTIVE CHECK FAILED"
     if warning_feedback:
         details = f"{details}\n\n{warning_feedback}"

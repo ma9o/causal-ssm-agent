@@ -3458,6 +3458,57 @@ class TestPriorPredictiveValidation:
         assert resolved["cor_stress_sleep"]["params"]["lower"] == pytest.approx(-1.0)
         assert resolved["cor_stress_sleep"]["params"]["upper"] == pytest.approx(1.0)
 
+    def test_resolve_prior_proposals_uses_family_over_canonical_bounds(self):
+        """Canonical low/high leaves must not force Normal sites to look truncated."""
+        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+
+        compiled_ssm = {
+            "compiled_prior_semantics": {
+                "schema_version": 4,
+                "site_registry": [
+                    {
+                        "name": "drift_diag_free",
+                        "shape": [1],
+                        "support": "real",
+                        "assembly_group": "drift",
+                        "site_kind": "drift_diag",
+                        "transform_kind": "identity",
+                        "deterministic_name": "drift",
+                        "fixed_spec_field": "drift",
+                        "priors_field": "drift_diag",
+                        "runtime_prior_key": "drift_diag_free",
+                        "is_runtime_prior_controlled": True,
+                    }
+                ],
+                "prior_state": {
+                    "drift_diag_free": {
+                        "family": [0],
+                        "loc": [0.15],
+                        "scale": [0.4],
+                        "low": [-1000000.0],
+                        "high": [1000000.0],
+                    }
+                },
+            },
+            "parameter_bindings": [
+                {"parameter": "rho_sleep", "site_name": "drift_diag_free", "flat_index": 0}
+            ],
+        }
+
+        resolved = resolve_prior_proposals(compiled_ssm, authored_priors={})
+
+        assert resolved == [
+            {
+                "parameter": "rho_sleep",
+                "distribution": "Normal",
+                "params": {"mu": 0.15, "sigma": 0.4},
+                "sources": [],
+                "reasoning": "Compiler-resolved prior for rho_sleep.",
+                "reference_interval_days": None,
+                "density_points": None,
+            }
+        ]
+
     def test_resolve_prior_proposals_roundtrips_correlation_support_sites(self):
         """Compiled correlation-support sites should reconstruct bounded real priors."""
         from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
@@ -8827,6 +8878,52 @@ class TestStage4Mechanics:
 
         with pytest.raises(Stage4FatalSubmissionError, match="fatal reducer failure"):
             asyncio.run(execute_tools(assistant_message, [tool]))
+
+    def test_stage4_session_runs_model_lock_callback_after_submit(self, monkeypatch):
+        causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()
+        session = _make_stage4_session(
+            question="test",
+            plan=plan,
+            runtime=runtime,
+            skeleton=skeleton,
+            causal_spec=causal_spec,
+            data_for_model=data_for_model,
+            indicator_audits={},
+            stage4_grounding_fn=lambda *_args, **_kwargs: pytest.fail(
+                "grounding should not run when the reducer path is patched"
+            ),
+        )
+        persisted: list[tuple[dict[str, Any], ...]] = []
+        locked_model_specs: list[dict[str, Any]] = []
+        session.persist_runtime = lambda _runtime, transitions: persisted.append(transitions)
+        session.on_model_spec_locked = lambda rt: locked_model_specs.append(
+            deepcopy(rt.domain.accepted.model_spec)
+        )
+
+        def _lock_after_submit(payload, *, plan, runtime, deps):
+            del payload, plan, deps
+            runtime.domain.accepted.model_spec = {
+                "parameters": [{"name": "rho_sleep"}],
+                "likelihoods": [],
+            }
+            runtime.domain.model_lock_pending = False
+            return None, "LOCKED", ({"block_id": "indicator:steps", "status": "accepted"},)
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
+            _lock_after_submit,
+        )
+
+        feedback = session.submit_indicator_choice(
+            variable="steps",
+            distribution="poisson",
+            link="log",
+            reasoning="Count data.",
+        )
+
+        assert feedback == "LOCKED"
+        assert persisted == [({"block_id": "indicator:steps", "status": "accepted"},)]
+        assert locked_model_specs == [{"parameters": [{"name": "rho_sleep"}], "likelihoods": []}]
 
     def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
         from causal_ssm_agent.flows.stages.stage4.tools import (

@@ -543,22 +543,25 @@ def _compiled_distribution_for_site(
     if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
         family = int(_extract_serialized_prior_value(params, "family", flat_index))
         prior_family = get_real_runtime_kind_from_index(family)
-        if prior_family == PriorDistributionFamily.UNIFORM:
-            return "Uniform", {
-                "lower": _extract_serialized_prior_value(params, "low", flat_index),
-                "upper": _extract_serialized_prior_value(params, "high", flat_index),
-            }
-        if "low" in params and "high" in params:
-            return "TruncatedNormal", {
-                "mu": _extract_serialized_prior_value(params, "loc", flat_index),
-                "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
-                "lower": _extract_serialized_prior_value(params, "low", flat_index),
-                "upper": _extract_serialized_prior_value(params, "high", flat_index),
-            }
-        return "Normal", {
+        base_params = {
             "mu": _extract_serialized_prior_value(params, "loc", flat_index),
             "sigma": _extract_serialized_prior_value(params, "scale", flat_index),
         }
+        bounded_params = {
+            **base_params,
+            "lower": _extract_serialized_prior_value(params, "low", flat_index),
+            "upper": _extract_serialized_prior_value(params, "high", flat_index),
+        }
+        if prior_family == PriorDistributionFamily.NORMAL:
+            return "Normal", base_params
+        if prior_family == PriorDistributionFamily.UNIFORM:
+            return "Uniform", {
+                "lower": bounded_params["lower"],
+                "upper": bounded_params["upper"],
+            }
+        if prior_family == PriorDistributionFamily.TRUNCATED_NORMAL:
+            return "TruncatedNormal", bounded_params
+        raise ValueError(f"Unsupported compiled real-support prior family index {family}")
 
     family = int(_extract_serialized_prior_value(params, "family", flat_index))
     prior_family = get_positive_runtime_kind_from_index(family)
