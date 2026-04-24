@@ -16,6 +16,8 @@ from causal_ssm_agent.utils.harness.stream_json import (
     apply_codex_event,
     finalize_codex_trace,
     finalize_trace,
+    format_claude_event_for_log,
+    format_codex_event_for_log,
     parse_claude_stream,
     parse_codex_stream,
 )
@@ -186,6 +188,43 @@ class TestClaudeParser:
         assert state.session_id == "sess-1"
         assert state.final_text == "Hi back!"
 
+    def test_log_formatter_keeps_full_message_text(self):
+        long_text = "A" * 300 + "\n" + "B" * 300
+        event = {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "text", "text": long_text}],
+            },
+        }
+
+        formatted = format_claude_event_for_log(event)
+
+        assert formatted == f"claude message: {long_text}"
+        assert "…" not in formatted
+
+    def test_log_formatter_keeps_full_tool_result_text(self):
+        long_text = "result-" * 80
+        event = {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_abc",
+                        "content": long_text,
+                        "is_error": False,
+                    }
+                ],
+            },
+        }
+
+        formatted = format_claude_event_for_log(event)
+
+        assert formatted == f"claude tool result -> {long_text}"
+        assert "…" not in formatted
+
 
 def _codex_events_simple() -> list[dict]:
     return [
@@ -267,3 +306,29 @@ class TestCodexParser:
         for event in _codex_events_simple():
             apply_codex_event(state, event)
         assert state.thread_id == "0199a213-81c0-7800-8aa1-bbab2a035a53"
+
+    def test_log_formatter_keeps_full_message_text(self):
+        long_text = "A" * 300 + "\n" + "B" * 300
+        event = {
+            "type": "agent_message",
+            "message": {"role": "assistant", "content": long_text},
+        }
+
+        formatted = format_codex_event_for_log(event)
+
+        assert formatted == f"codex message: {long_text}"
+        assert "…" not in formatted
+
+    def test_log_formatter_keeps_full_tool_result_text(self):
+        long_text = "payload-" * 80
+        event = {
+            "type": "tool_result",
+            "name": "submit_model",
+            "output": long_text,
+            "is_error": False,
+        }
+
+        formatted = format_codex_event_for_log(event)
+
+        assert formatted == f"codex tool result: submit_model -> {long_text}"
+        assert "…" not in formatted

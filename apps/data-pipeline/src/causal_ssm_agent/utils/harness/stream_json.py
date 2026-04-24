@@ -199,14 +199,11 @@ def apply_claude_event(state: ClaudeStreamState, event: dict[str, Any]) -> None:
         return
 
 
-def _preview(text: Any, limit: int = 240) -> str:
-    """Condense a streamed value into one compact line for live logging."""
-    if not isinstance(text, str):
-        text = "" if text is None else str(text)
-    collapsed = " ".join(text.split())
-    if len(collapsed) <= limit:
-        return collapsed
-    return collapsed[: limit - 1] + "…"
+def _log_text(text: Any) -> str:
+    """Render a streamed value for live logging without truncation."""
+    if isinstance(text, str):
+        return text
+    return "" if text is None else str(text)
 
 
 def _format_usage(usage: Any) -> str:
@@ -234,6 +231,18 @@ def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
     if etype == "thread.started":
         tid = event.get("thread_id") or "?"
         return f"codex thread started ({tid})"
+    if etype == "item.started":
+        item = event.get("item") or {}
+        item_type = item.get("type") or item.get("item_type") or "item"
+        # Surface shell command starts so live logs show *what* is being run
+        # before the (often long) execution completes. Other item starts
+        # (reasoning, messages) are too noisy to log at info level.
+        if item_type == "command_execution":
+            command = item.get("command") or item.get("cmd") or ""
+            if isinstance(command, list):
+                command = " ".join(str(part) for part in command)
+            return f"codex shell start: {_log_text(command)}"
+        return None
     if etype == "item.completed":
         item = event.get("item") or {}
         item_type = item.get("type") or item.get("item_type") or "item"
@@ -241,13 +250,13 @@ def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
             summary = item.get("summary") or item.get("text") or item.get("content")
             if isinstance(summary, list):
                 summary = " ".join(str(part) for part in summary if part)
-            preview = _preview(summary)
+            preview = _log_text(summary)
             return f"codex reasoning: {preview}" if preview else "codex reasoning (empty)"
         if item_type in {"agent_message", "message"}:
             text = item.get("text")
             if not isinstance(text, str):
                 text = _coerce_content_text(item.get("content"))
-            return f"codex message: {_preview(text)}"
+            return f"codex message: {_log_text(text)}"
         if item_type in {"tool_call", "mcp_tool_call"}:
             name = item.get("name") or item.get("tool") or "?"
             args = item.get("arguments") or item.get("input") or {}
@@ -264,19 +273,58 @@ def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
             if error:
                 error_str = json.dumps(error, default=str) if not isinstance(error, str) else error
                 return (
-                    f"codex tool call: {name}{status_str}({_preview(args_preview)}) "
-                    f"→ error: {_preview(error_str)}"
+                    f"codex tool call: {name}{status_str}({_log_text(args_preview)}) "
+                    f"→ error: {_log_text(error_str)}"
                 )
-            output_str = f" → {_preview(output)}" if output else ""
-            return f"codex tool call: {name}{status_str}({_preview(args_preview)}){output_str}"
+            output_str = f" → {_log_text(output)}" if output else ""
+            return f"codex tool call: {name}{status_str}({_log_text(args_preview)}){output_str}"
         if item_type in {"tool_result", "mcp_tool_result"}:
             name = item.get("name") or item.get("tool") or "?"
             output = item.get("output") or item.get("result") or item.get("text") or ""
             if not isinstance(output, str):
                 output = json.dumps(output, default=str)
             err = " [error]" if item.get("is_error") else ""
-            return f"codex tool result: {name}{err} -> {_preview(output)}"
-        return f"codex {item_type}"
+            return f"codex tool result: {name}{err} -> {_log_text(output)}"
+        if item_type == "command_execution":
+            command = item.get("command") or item.get("cmd") or ""
+            if isinstance(command, list):
+                command = " ".join(str(part) for part in command)
+            status = item.get("status") or ""
+            exit_code = item.get("exit_code")
+            output = (
+                item.get("aggregated_output")
+                or item.get("output")
+                or item.get("formatted_output")
+                or item.get("stdout")
+                or ""
+            )
+            stderr = item.get("stderr") or ""
+            if not isinstance(output, str):
+                output = json.dumps(output, default=str)
+            if not isinstance(stderr, str):
+                stderr = json.dumps(stderr, default=str)
+            header = f"codex shell: {_log_text(command)}"
+            suffix: list[str] = []
+            if status:
+                suffix.append(f"status={status}")
+            if exit_code is not None:
+                suffix.append(f"exit={exit_code}")
+            suffix_str = f" [{' '.join(suffix)}]" if suffix else ""
+            tail: list[str] = []
+            if output:
+                tail.append(f"out: {_log_text(output)}")
+            if stderr:
+                tail.append(f"err: {_log_text(stderr)}")
+            tail_str = f" → {' | '.join(tail)}" if tail else ""
+            return f"{header}{suffix_str}{tail_str}"
+        # Unknown item type: dump the item as JSON so we can see its shape
+        # the next time the formatter falls through here instead of silently
+        # emitting a detail-free "codex {item_type}" line.
+        try:
+            payload = json.dumps(item, default=str)
+        except (TypeError, ValueError):
+            payload = str(item)
+        return f"codex {item_type}: {_log_text(payload)}"
     if etype in {"tool_call", "mcp_tool_call"}:
         name = event.get("name") or event.get("tool") or "?"
         args = event.get("arguments") or event.get("input") or {}
@@ -284,20 +332,20 @@ def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
             args_preview = json.dumps(args, default=str)
         else:
             args_preview = str(args)
-        return f"codex tool call: {name}({_preview(args_preview)})"
+        return f"codex tool call: {name}({_log_text(args_preview)})"
     if etype in {"tool_result", "mcp_tool_result"}:
         name = event.get("name") or event.get("tool") or "?"
         output = event.get("output") or event.get("result") or event.get("text") or ""
         if not isinstance(output, str):
             output = json.dumps(output, default=str)
         err = " [error]" if event.get("is_error") else ""
-        return f"codex tool result: {name}{err} -> {_preview(output)}"
+        return f"codex tool result: {name}{err} -> {_log_text(output)}"
     if etype in {"agent_message", "message"}:
         message = event.get("message") or event
         text = message.get("text")
         if not isinstance(text, str):
             text = _coerce_content_text(message.get("content"))
-        return f"codex message: {_preview(text)}"
+        return f"codex message: {_log_text(text)}"
     if etype in {"thread.completed", "turn.completed", "done", "result"}:
         usage_str = _format_usage(event.get("usage"))
         duration_ms = event.get("duration_ms")
@@ -314,7 +362,7 @@ def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
         err = event.get("error") or event.get("message") or ""
         if isinstance(err, dict):
             err = json.dumps(err, default=str)
-        return f"codex error: {_preview(err)}"
+        return f"codex error: {_log_text(err)}"
     return None
 
 
@@ -337,17 +385,17 @@ def format_claude_event_for_log(event: dict[str, Any]) -> str | None:
                 if btype == "text":
                     text = block.get("text") or ""
                     if isinstance(text, str) and text.strip():
-                        lines.append(f"message: {_preview(text)}")
+                        lines.append(f"message: {_log_text(text)}")
                 elif btype == "tool_use":
                     name = block.get("name") or "?"
                     args = block.get("input") or {}
                     args_preview = (
                         json.dumps(args, default=str) if isinstance(args, dict) else str(args)
                     )
-                    lines.append(f"tool call: {name}({_preview(args_preview)})")
+                    lines.append(f"tool call: {name}({_log_text(args_preview)})")
                 elif btype == "thinking":
                     thinking = block.get("thinking") or block.get("text") or ""
-                    lines.append(f"reasoning: {_preview(thinking)}")
+                    lines.append(f"reasoning: {_log_text(thinking)}")
         usage_str = _format_usage(message.get("usage"))
         if usage_str:
             lines.append(f"[{usage_str}]")
@@ -365,7 +413,7 @@ def format_claude_event_for_log(event: dict[str, Any]) -> str | None:
                     if isinstance(output, list):
                         output = _coerce_content_text(output)
                     err = " [error]" if block.get("is_error") else ""
-                    previews.append(f"tool result{err} -> {_preview(output)}")
+                    previews.append(f"tool result{err} -> {_log_text(output)}")
         if not previews:
             return None
         return "claude " + " | ".join(previews)
