@@ -160,6 +160,16 @@ class Stage4Config:
     max_tool_turns: int = 40
     literature_search: LiteratureSearchConfig = field(default_factory=LiteratureSearchConfig)
     paraphrasing: ParaphrasingConfig = field(default_factory=ParaphrasingConfig)
+    state_machine_enabled: bool = True
+    """When ``True`` (default), Stage 4 runs the frontier-reduced state machine,
+    prompting the LLM one block at a time. When ``False``, Stage 4 runs a single
+    "megaprompt" agent session that exposes the same submit tools all at once
+    and lets the model submit decisions and priors in any order; the same
+    validation checks (schema, compile, prior-predictive, sensitivity) apply."""
+    megaprompt_max_outer_turns: int = 8
+    """Maximum outer agent turns allowed when running in megaprompt mode. Each
+    outer turn gives the model one opportunity to call tools; the loop stops
+    earlier once the accepted state passes full validation."""
 
 
 @dataclass(frozen=True)
@@ -451,6 +461,8 @@ def load_config() -> PipelineConfig:
         paraphrasing=ParaphrasingConfig(**paraphrasing_raw)
         if paraphrasing_raw
         else ParaphrasingConfig(),
+        state_machine_enabled=stage4_raw.get("state_machine_enabled", True),
+        megaprompt_max_outer_turns=stage4_raw.get("megaprompt_max_outer_turns", 8),
     )
 
     stage6_raw = raw.get("stage6_commentary", {}) or {}
@@ -571,8 +583,9 @@ def validate_config(config: PipelineConfig) -> list[str]:
                 errors.append(f"{path}.fallback_model: only valid for harness=claude-code")
             if llm.max_tokens is not None:
                 errors.append(f"{path}.max_tokens: not configurable for harness=codex")
-            if llm.timeout is not None:
-                errors.append(f"{path}.timeout: not configurable for harness=codex")
+            # ``timeout`` is honoured as a per-turn ceiling when opening the
+            # codex session (see :func:`open_codex_harness_session`), so the
+            # field is meaningful for this harness and must not be rejected.
             if (
                 llm.reasoning_effort is not None
                 and llm.reasoning_effort not in HARNESS_EFFORT_VALUES
@@ -634,8 +647,7 @@ def _check_claude_code_prereqs(config: PipelineConfig) -> list[str]:
     else:
         if status.returncode != 0:
             errors.append(
-                "claude is not logged in — run `claude auth login` "
-                f"(exit={status.returncode})"
+                f"claude is not logged in — run `claude auth login` (exit={status.returncode})"
             )
     return errors
 
@@ -644,13 +656,10 @@ def _check_codex_prereqs(config: PipelineConfig) -> list[str]:
     errors: list[str] = []
     bin_name = config.llm.codex.bin
     if shutil.which(bin_name) is None:
-        errors.append(
-            f"codex binary {bin_name!r} not found on PATH (required for harness=codex)"
-        )
+        errors.append(f"codex binary {bin_name!r} not found on PATH (required for harness=codex)")
     if not Path("~/.codex/auth.json").expanduser().exists():
         errors.append(
-            "codex is not logged in — run `codex login` "
-            "(expected ~/.codex/auth.json to exist)"
+            "codex is not logged in — run `codex login` (expected ~/.codex/auth.json to exist)"
         )
     return errors
 
@@ -701,8 +710,7 @@ def ensure_harness_prereqs(harness: str) -> None:
         raise ValueError(f"Unknown harness: {harness!r}")
     if errors:
         raise RuntimeError(
-            f"Harness {harness!r} prereqs not satisfied:\n"
-            + "\n".join(f"  - {e}" for e in errors)
+            f"Harness {harness!r} prereqs not satisfied:\n" + "\n".join(f"  - {e}" for e in errors)
         )
     _verified_harnesses.add(harness)
 

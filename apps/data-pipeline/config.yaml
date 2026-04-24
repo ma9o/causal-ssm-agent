@@ -61,7 +61,9 @@ stage2_workers:
 
 # Stage 4: Model Specification & Prior Elicitation
 stage4_prior_elicitation:
-  max_tool_turns: 100
+  max_tool_turns: 200
+  state_machine_enabled: false
+  megaprompt_max_outer_turns: 12
   literature_search:
     enabled: true
   paraphrasing:
@@ -69,8 +71,10 @@ stage4_prior_elicitation:
     n_paraphrases: 10
     gmm_model: null          # optional; null = inherit stage's llm.model
   llm:
-    harness: none
-    model: openrouter/xiaomi/mimo-v2-pro
+    harness: codex
+    model: gpt-5.4
+    reasoning_effort: xhigh
+    timeout: 3600           # 60-min per-turn ceiling for xhigh reasoning on the megaprompt
 
 # Stages 5a/5b: Inference — no LLM (NumPyro SSM)
 

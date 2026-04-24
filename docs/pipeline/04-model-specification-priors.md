@@ -63,6 +63,10 @@ When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to 
 
 If validation fails, a deterministic classifier reopens the smallest responsible block.
 
+### Megaprompt Mode
+
+Setting `stage4_prior_elicitation.state_machine_enabled: false` in `config.yaml` disables the frontier reducer and runs Stage 4 as a single agent session where every submit tool (`submit_model_configuration`, `submit_indicator_choice`, `submit_prior_block`, plus the optional `search_literature` and `elicit_prior_gmm`) is exposed to the LLM at once. The model decides the order. The action space and the per-submission validation checks — Pydantic schema, model compilation, prior-predictive simulation, output-Jacobian sensitivity — are identical to the state-machine mode; the only difference is that tool calls are dispatched by payload rather than by an active block. This mode is intended for A/B comparisons with the structured flow and should only be enabled when the increased prompt context and the loss of deterministic repair routing are acceptable.
+
 ### Example
 
 For a study of classroom engagement and academic performance where Stage 1b posited constructs `Teacher Feedback Frequency`, `Student Engagement`, and `Test Scores` with model clock `1w`, Stage 4 might: resolve `Test Scores` deterministically to `gaussian`/`identity` in the skeleton; present one model-decision block for `Teacher Feedback Frequency` where the LLM chooses `poisson`/`log`; then process prior blocks in order — the dynamics block for `Student Engagement` yields `rho_engagement ~ Beta(5, 2)` reflecting moderate weekly persistence, and the causal-effect block for the feedback→engagement edge yields `beta_teacher_feedback_engagement ~ Normal(0.2, 0.15)` anchored by an educational psychology meta-analysis.
