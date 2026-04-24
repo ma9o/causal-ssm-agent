@@ -199,6 +199,191 @@ def apply_claude_event(state: ClaudeStreamState, event: dict[str, Any]) -> None:
         return
 
 
+def _preview(text: Any, limit: int = 240) -> str:
+    """Condense a streamed value into one compact line for live logging."""
+    if not isinstance(text, str):
+        text = "" if text is None else str(text)
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: limit - 1] + "…"
+
+
+def _format_usage(usage: Any) -> str:
+    """Render the ``usage`` dict as ``in=.. out=.. reasoning=..`` for log lines."""
+    parsed = _extract_usage(usage)
+    parts: list[str] = []
+    if parsed.input_tokens:
+        parts.append(f"in={parsed.input_tokens}")
+    if parsed.output_tokens:
+        parts.append(f"out={parsed.output_tokens}")
+    if parsed.reasoning_tokens:
+        parts.append(f"reasoning={parsed.reasoning_tokens}")
+    return " ".join(parts)
+
+
+def format_codex_event_for_log(event: dict[str, Any]) -> str | None:
+    """Return a single human-readable line for one codex ``--json`` event.
+
+    Returns ``None`` for events that are not useful to surface live —
+    mostly low-level deltas and bookkeeping. The string is meant to be
+    emitted at ``INFO`` so it shows up in Prefect's flow-run logs next to
+    the surrounding stage messages.
+    """
+    etype = event.get("type")
+    if etype == "thread.started":
+        tid = event.get("thread_id") or "?"
+        return f"codex thread started ({tid})"
+    if etype == "item.completed":
+        item = event.get("item") or {}
+        item_type = item.get("type") or item.get("item_type") or "item"
+        if item_type == "reasoning":
+            summary = item.get("summary") or item.get("text") or item.get("content")
+            if isinstance(summary, list):
+                summary = " ".join(str(part) for part in summary if part)
+            preview = _preview(summary)
+            return f"codex reasoning: {preview}" if preview else "codex reasoning (empty)"
+        if item_type in {"agent_message", "message"}:
+            text = item.get("text")
+            if not isinstance(text, str):
+                text = _coerce_content_text(item.get("content"))
+            return f"codex message: {_preview(text)}"
+        if item_type in {"tool_call", "mcp_tool_call"}:
+            name = item.get("name") or item.get("tool") or "?"
+            args = item.get("arguments") or item.get("input") or {}
+            if isinstance(args, dict):
+                args_preview = json.dumps(args, default=str)
+            else:
+                args_preview = str(args)
+            status = item.get("status") or ""
+            output = item.get("output") or item.get("result") or item.get("text") or ""
+            error = item.get("error") or (item.get("is_error") and output) or ""
+            status_str = f" [{status}]" if status else ""
+            if output and not isinstance(output, str):
+                output = json.dumps(output, default=str)
+            if error:
+                error_str = json.dumps(error, default=str) if not isinstance(error, str) else error
+                return (
+                    f"codex tool call: {name}{status_str}({_preview(args_preview)}) "
+                    f"→ error: {_preview(error_str)}"
+                )
+            output_str = f" → {_preview(output)}" if output else ""
+            return f"codex tool call: {name}{status_str}({_preview(args_preview)}){output_str}"
+        if item_type in {"tool_result", "mcp_tool_result"}:
+            name = item.get("name") or item.get("tool") or "?"
+            output = item.get("output") or item.get("result") or item.get("text") or ""
+            if not isinstance(output, str):
+                output = json.dumps(output, default=str)
+            err = " [error]" if item.get("is_error") else ""
+            return f"codex tool result: {name}{err} -> {_preview(output)}"
+        return f"codex {item_type}"
+    if etype in {"tool_call", "mcp_tool_call"}:
+        name = event.get("name") or event.get("tool") or "?"
+        args = event.get("arguments") or event.get("input") or {}
+        if isinstance(args, dict):
+            args_preview = json.dumps(args, default=str)
+        else:
+            args_preview = str(args)
+        return f"codex tool call: {name}({_preview(args_preview)})"
+    if etype in {"tool_result", "mcp_tool_result"}:
+        name = event.get("name") or event.get("tool") or "?"
+        output = event.get("output") or event.get("result") or event.get("text") or ""
+        if not isinstance(output, str):
+            output = json.dumps(output, default=str)
+        err = " [error]" if event.get("is_error") else ""
+        return f"codex tool result: {name}{err} -> {_preview(output)}"
+    if etype in {"agent_message", "message"}:
+        message = event.get("message") or event
+        text = message.get("text")
+        if not isinstance(text, str):
+            text = _coerce_content_text(message.get("content"))
+        return f"codex message: {_preview(text)}"
+    if etype in {"thread.completed", "turn.completed", "done", "result"}:
+        usage_str = _format_usage(event.get("usage"))
+        duration_ms = event.get("duration_ms")
+        duration = (
+            f" in {float(duration_ms) / 1000.0:.1f}s"
+            if isinstance(duration_ms, (int, float))
+            else ""
+        )
+        reason = event.get("stop_reason") or event.get("subtype") or ""
+        reason_str = f" ({reason})" if reason else ""
+        usage_str = f" [{usage_str}]" if usage_str else ""
+        return f"codex turn completed{reason_str}{duration}{usage_str}"
+    if etype in {"turn.failed", "error"}:
+        err = event.get("error") or event.get("message") or ""
+        if isinstance(err, dict):
+            err = json.dumps(err, default=str)
+        return f"codex error: {_preview(err)}"
+    return None
+
+
+def format_claude_event_for_log(event: dict[str, Any]) -> str | None:
+    """Return a single human-readable line for one claude-code event."""
+    etype = event.get("type")
+    if etype == "system" and event.get("subtype") == "init":
+        model = event.get("model") or "?"
+        session = event.get("session_id") or "?"
+        return f"claude session started ({model}, {session})"
+    if etype == "assistant":
+        message = event.get("message") or {}
+        content = message.get("content") or []
+        lines: list[str] = []
+        if isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "text":
+                    text = block.get("text") or ""
+                    if isinstance(text, str) and text.strip():
+                        lines.append(f"message: {_preview(text)}")
+                elif btype == "tool_use":
+                    name = block.get("name") or "?"
+                    args = block.get("input") or {}
+                    args_preview = (
+                        json.dumps(args, default=str) if isinstance(args, dict) else str(args)
+                    )
+                    lines.append(f"tool call: {name}({_preview(args_preview)})")
+                elif btype == "thinking":
+                    thinking = block.get("thinking") or block.get("text") or ""
+                    lines.append(f"reasoning: {_preview(thinking)}")
+        usage_str = _format_usage(message.get("usage"))
+        if usage_str:
+            lines.append(f"[{usage_str}]")
+        if not lines:
+            return None
+        return "claude " + " | ".join(lines)
+    if etype == "user":
+        message = event.get("message") or {}
+        content = message.get("content") or []
+        previews: list[str] = []
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    output = block.get("content") or ""
+                    if isinstance(output, list):
+                        output = _coerce_content_text(output)
+                    err = " [error]" if block.get("is_error") else ""
+                    previews.append(f"tool result{err} -> {_preview(output)}")
+        if not previews:
+            return None
+        return "claude " + " | ".join(previews)
+    if etype == "result":
+        usage_str = _format_usage(event.get("usage"))
+        duration_ms = event.get("duration_ms")
+        duration = (
+            f" in {float(duration_ms) / 1000.0:.1f}s"
+            if isinstance(duration_ms, (int, float))
+            else ""
+        )
+        subtype = event.get("subtype") or ""
+        subtype_str = f" ({subtype})" if subtype else ""
+        usage_str = f" [{usage_str}]" if usage_str else ""
+        return f"claude turn completed{subtype_str}{duration}{usage_str}"
+    return None
+
+
 def finalize_trace(state: ClaudeStreamState) -> LLMTrace:
     """Materialize an :class:`LLMTrace` from an accumulator."""
     return LLMTrace(
@@ -212,20 +397,21 @@ def finalize_trace(state: ClaudeStreamState) -> LLMTrace:
 def parse_claude_stream(lines: list[str]) -> ClaudeStreamState:
     """Parse a list of Claude stream-json lines into a populated state.
 
-    Non-JSON lines are silently skipped (harness CLIs occasionally print
-    stderr-style notices between events).
+    Raises ``ValueError`` on any line that is not a JSON object; claude's
+    ``--output-format stream-json`` emits one JSON object per line on stdout,
+    so anything else signals a corrupt stream we refuse to silently drop.
     """
     state = ClaudeStreamState()
-    for raw in lines:
+    for idx, raw in enumerate(lines):
         line = raw.strip()
         if not line:
             continue
         try:
             event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"claude stream line {idx} is not valid JSON: {line[:200]!r}") from exc
         if not isinstance(event, dict):
-            continue
+            raise ValueError(f"claude stream line {idx} is JSON but not an object: {line[:200]!r}")
         apply_claude_event(state, event)
     return state
 
@@ -365,17 +551,22 @@ def finalize_codex_trace(state: CodexStreamState) -> LLMTrace:
 
 
 def parse_codex_stream(lines: list[str]) -> CodexStreamState:
-    """Parse a list of ``codex exec --json`` lines into an accumulator."""
+    """Parse a list of ``codex exec --json`` lines into an accumulator.
+
+    Raises ``ValueError`` on any line that is not a JSON object — the codex
+    CLI's ``--json`` stdout stream is one JSON object per line, so anything
+    else is a corrupt frame we refuse to silently drop.
+    """
     state = CodexStreamState()
-    for raw in lines:
+    for idx, raw in enumerate(lines):
         line = raw.strip()
         if not line:
             continue
         try:
             event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"codex stream line {idx} is not valid JSON: {line[:200]!r}") from exc
         if not isinstance(event, dict):
-            continue
+            raise ValueError(f"codex stream line {idx} is JSON but not an object: {line[:200]!r}")
         apply_codex_event(state, event)
     return state

@@ -9,6 +9,8 @@ failing the primary trace reconstruction.
 
 import json
 
+import pytest
+
 from causal_ssm_agent.utils.harness.stream_json import (
     apply_claude_event,
     apply_codex_event,
@@ -158,14 +160,17 @@ class TestClaudeParser:
         assert trace.usage.input_tokens == 12
         assert trace.usage.output_tokens == 5
 
-    def test_invalid_json_lines_are_skipped(self):
+    def test_invalid_json_lines_raise(self):
         lines = [
             "not json",
             json.dumps({"type": "system", "subtype": "init", "session_id": "s3", "model": "x"}),
-            "",
         ]
-        state = parse_claude_stream(lines)
-        assert state.session_id == "s3"
+        with pytest.raises(ValueError, match="not valid JSON"):
+            parse_claude_stream(lines)
+
+    def test_non_object_json_raises(self):
+        with pytest.raises(ValueError, match="not an object"):
+            parse_claude_stream(["[1, 2, 3]"])
 
     def test_unknown_event_type_is_recorded_not_erroring(self):
         state = parse_claude_stream([json.dumps({"type": "nonsense_event", "payload": 1})])
