@@ -10,36 +10,21 @@ in causal_ssm_agent.distributions.PriorDistributionFamily
 
 from typing import Any
 
-from causal_ssm_agent.distributions import (
-    PRIOR_PARAMETER_GUIDANCE_ROWS,
-    render_dynamic_prior_scale_guidance,
-    render_lagged_beta_authored_interval_guidance,
-    render_observation_distribution_guidance_bullets,
-    render_observation_link_guidance_bullets,
-    render_prior_distribution_guidance_bullets,
-)
+from causal_ssm_agent.distributions import PRIOR_PARAMETER_GUIDANCE_ROWS
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4ScopeSnapshot,
     render_stage4_validation_feedback,
 )
 
-OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS = render_observation_distribution_guidance_bullets()
-OBSERVATION_LINK_GUIDANCE_BULLETS = render_observation_link_guidance_bullets()
-PRIOR_DISTRIBUTION_GUIDANCE_BULLETS = render_prior_distribution_guidance_bullets()
-DYNAMIC_PRIOR_SCALE_GUIDANCE = render_dynamic_prior_scale_guidance()
-LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE = render_lagged_beta_authored_interval_guidance()
-PRIOR_SOURCE_GUIDANCE = """If you include non-empty `sources`, each entry must be an object with this shape:
-```json
-{{
-  "title": "Source title",
-  "snippet": "Relevant excerpt supporting the prior",
-  "url": "https://example.org/paper",
-  "effect_size": "β=0.21",
-  "study_interval_days": 7.0
-}}
-```
-
-Only `title` and `snippet` are required. Do not use raw strings or ad hoc keys such as `citation`, `finding`, `study_type`, or `notes`. If you are unsure, use `"sources": []`. `study_interval_days` belongs inside each source entry; `reference_interval_days` belongs on the prior itself."""
+from .shared_fragments import (
+    CONTINUOUS_TIME_DYNAMICS_SECTION,
+    INITIAL_STATE_SCALE_DISCIPLINE_SECTION,
+    LAGGED_EFFECT_INTERVAL_GUIDANCE_SECTION,
+    LINK_FUNCTION_RULES_SECTION,
+    OBSERVATION_DISTRIBUTION_GUIDANCE_SECTION,
+    PRIOR_DISTRIBUTION_TYPES_SECTION,
+    PRIOR_SOURCE_GUIDANCE,
+)
 
 
 def format_loading_params(loading_params: list[dict]) -> str:
@@ -823,17 +808,11 @@ def _render_stage4_guidance_section(
 ) -> str:
     """Render one named system-prompt guidance section."""
     if section_key == "observation_distribution_guidance":
-        return (
-            "## Observation Distribution Guidance\n\n" + OBSERVATION_DISTRIBUTION_GUIDANCE_BULLETS
-        )
+        return OBSERVATION_DISTRIBUTION_GUIDANCE_SECTION
     if section_key == "link_function_rules":
-        return (
-            "## Link Function Rules\n\n"
-            "Most distributions have exactly one valid link (auto-determined). "
-            "You only choose when multiple are valid:\n" + OBSERVATION_LINK_GUIDANCE_BULLETS
-        )
+        return LINK_FUNCTION_RULES_SECTION
     if section_key == "prior_distribution_types":
-        return "## Prior Distribution Types\n\n" + PRIOR_DISTRIBUTION_GUIDANCE_BULLETS
+        return PRIOR_DISTRIBUTION_TYPES_SECTION
     if section_key == "parameter_guidance":
         parameter_guidance = _render_scope_parameter_guidance(parameter_guidance_prefixes)
         return (
@@ -850,14 +829,9 @@ def _render_stage4_guidance_section(
             "- For `obs_*` observation hyperparameters, calibrate tails, dispersion, concentration, or thresholds to the locked likelihood family only."
         )
     if section_key == "continuous_time_dynamics":
-        return "## Continuous-Time Dynamics\n\n" + DYNAMIC_PRIOR_SCALE_GUIDANCE
+        return CONTINUOUS_TIME_DYNAMICS_SECTION
     if section_key == "latent_initial_state_guidance":
-        return (
-            "## Initial-State Scale Discipline\n\n"
-            "- `t0_mean_*` and `t0_sd_*` live on the latent state scale.\n"
-            "- Do not set `t0_mean_*` to the raw reference-indicator mean or `log(mean(indicator))` just because the indicator uses an identity or log link.\n"
-            "- Default to weakly informative latent-scale priors such as `Normal(0, 1)` and `HalfNormal(1)` unless the construct is explicitly identified on an observed scale."
-        )
+        return INITIAL_STATE_SCALE_DISCIPLINE_SECTION
     if section_key == "dynamics_budget_discipline":
         return (
             "## Dynamics Budget Discipline\n\n"
@@ -890,7 +864,7 @@ def _render_stage4_guidance_section(
             "shrinking effect means and/or scales."
         )
     if section_key == "lagged_effect_interval_guidance":
-        return "## Lagged Effect Interval Guidance\n\n" + LAGGED_BETA_AUTHORED_INTERVAL_GUIDANCE
+        return LAGGED_EFFECT_INTERVAL_GUIDANCE_SECTION
     raise ValueError(f"Unknown Stage 4 guidance section {section_key!r}")
 
 
