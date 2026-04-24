@@ -19,6 +19,8 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     import polars as pl
 
     from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
@@ -577,34 +579,99 @@ def _collect_validation_warning_messages(validation: AssemblyValidation) -> list
     return [message for message in messages if isinstance(message, str)]
 
 
+# Shared headers and remediations for warning codes that repeat across edges.
+# When multiple warnings share a code, the renderer emits the header and
+# suggested-adjustment text once and lists per-edge facts as bullets, which
+# saves ~100 tokens per extra warning on dt_ct_approximation_warning alone.
+_WARNING_GROUP_TEMPLATES: dict[str, tuple[str, str]] = {
+    "dt_ct_approximation_warning": (
+        "Cross-lag priors compile via the linearization "
+        "`drift_offdiag = beta_dt / dt` (first-order term of `logm(A_dt)/dt`), "
+        "which loses accuracy when latent modes are strongly coupled. "
+        "At these ratios the compiled CT off-diagonal may deviate noticeably "
+        "from the true matrix log:",
+        "Shorten the reference interval (brings A_dt closer to I, where the "
+        "linearization is tight) or elicit the prior directly on the CT rate.",
+    ),
+    "lagged_response_weak": (
+        "Across prior draws, the full-system one-lag response is near-zero "
+        "on the declared lag for some edges:",
+        "Confirm that a near-zero one-lag effect is substantively intended. "
+        "If not, strengthen the daily-scale prior or author it on the source "
+        "study interval with `reference_interval_days`.",
+    ),
+    "interval_reference_missing": (
+        "`reference_interval_days` is omitted, so the prior is being interpreted "
+        "on the default model interval even though the cited evidence is on a "
+        "different study interval:",
+        "If the authored effect is meant to be on the source study interval, "
+        "set `reference_interval_days` to that interval. Otherwise explain why "
+        "a daily-scale prior is appropriate.",
+    ),
+    "interval_reference_mismatch": (
+        "The authored `reference_interval_days` disagrees materially with the "
+        "cited study interval:",
+        "Confirm that the prior was intentionally rescaled to the authored "
+        "interval, or align `reference_interval_days` with the evidence interval.",
+    ),
+    "interval_sources_mixed": (
+        "Cited sources mix materially different study intervals, so the "
+        "authored interval provenance is weak:",
+        "Use sources measured on a comparable interval when possible, or "
+        "explain which interval the prior is expressed on with "
+        "`reference_interval_days`.",
+    ),
+}
+
+
 def _format_validation_warnings(validation: AssemblyValidation) -> str:
-    """Render non-fatal validation diagnostics."""
-    from causal_ssm_agent.models.prior_predictive import format_parameter_warnings
+    """Render non-fatal validation diagnostics.
+
+    Warnings sharing a ``code`` are collapsed into one block: the shared
+    explanation and remediation are emitted once, and each edge contributes
+    one fact-only bullet underneath. Warnings without a registered template
+    fall back to the per-warning rendering.
+    """
+    grouped_warnings: list[Any] = list(validation.compile_diagnostics)
+    grouped_warnings.extend(
+        result
+        for result in validation.prior_predictive_diagnostics
+        if result.severity == "warning"
+    )
+
+    by_code: dict[str, list[Any]] = {}
+    ordered_codes: list[str] = []
+    for warning in grouped_warnings:
+        code = warning.code or ""
+        if code not in by_code:
+            by_code[code] = []
+            ordered_codes.append(code)
+        by_code[code].append(warning)
 
     parts: list[str] = []
-    for warning in validation.compile_diagnostics:
-        issue = warning.issue
-        suggested = warning.suggested_adjustment
-        if issue:
-            lines = [f"- {issue}"]
+    for code in ordered_codes:
+        group = by_code[code]
+        template = _WARNING_GROUP_TEMPLATES.get(code)
+        if template is not None:
+            header, suggested = template
+            block_lines = [header]
+            for warning in group:
+                if warning.issue:
+                    block_lines.append(f"- {warning.issue}")
+            if len(block_lines) == 1:
+                continue
             if suggested:
-                lines.append(f"  Suggested: {suggested}")
-            parts.append("\n".join(lines))
+                block_lines.append(f"  Suggested: {suggested}")
+            parts.append("\n".join(block_lines))
+            continue
 
-    warning_params = sorted(
-        {
-            result.parameter
-            for result in validation.prior_predictive_diagnostics
-            if result.severity == "warning"
-        }
-    )
-    for parameter in warning_params:
-        warning_block = format_parameter_warnings(
-            parameter,
-            validation.prior_predictive_diagnostics,
-        )
-        if warning_block:
-            parts.append(warning_block)
+        for warning in group:
+            if not warning.issue:
+                continue
+            lines = [f"- {warning.issue}"]
+            if warning.suggested_adjustment:
+                lines.append(f"  Suggested: {warning.suggested_adjustment}")
+            parts.append("\n".join(lines))
 
     for warning in validation.sensitivity_warnings:
         if warning:
@@ -788,14 +855,20 @@ def materialize_stage4_result(
 def format_validation_feedback(
     validation: AssemblyValidation,
     authored_priors: dict,
-    changed_params: list[str] | None = None,
+    *,
+    focus_parameters: Iterable[str] | None = None,
     data_stats: dict | None = None,
 ) -> str:
     """Format assembly validation result as feedback string.
 
-    Used by ``stage4_grounding()`` to produce a single feedback string
-    for the LLM.  The orchestrated flow formats per-parameter feedback
-    separately for targeted re-elicitation.
+    ``focus_parameters`` narrows which failing parameters get rendered as
+    detailed feedback — intended for state-machine callers that want to
+    show the LLM only what belongs to its active block. When ``None`` the
+    full set of failing (non-global) parameters is rendered, which is the
+    right behavior for scope-free callers such as the megaprompt path and
+    the grounding pipeline itself. Global failures (log-link overflow,
+    stability, etc.) are always surfaced regardless of the focus set so
+    the LLM can never be silently driven into an unfixable corner.
     """
     if not validation.compile_ok:
         return f"COMPILE ERROR:\n{validation.compile_error}"
@@ -810,9 +883,12 @@ def format_validation_feedback(
     if not validation.pp_checked or validation.pp_valid:
         return warning_feedback or "VALID"
 
+    from causal_ssm_agent.models.prior_predictive import format_parameter_feedback
     from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
-    # Global failures → single concise summary, not one block per parameter
+    # Global failures → single concise summary, not one block per parameter.
+    # Always shown regardless of ``focus_parameters`` — they affect the whole
+    # system.
     global_results = [
         r
         for r in validation.prior_predictive_diagnostics
@@ -824,11 +900,26 @@ def format_validation_feedback(
             details = f"{details}\n\n{warning_feedback}"
         return f"PRIOR PREDICTIVE FEEDBACK:\n{details}"
 
-    from causal_ssm_agent.models.prior_predictive import format_parameter_feedback
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    # Decide which per-parameter failures to render. Callers that want a
+    # scoped view (state-machine reducer for an active block or repair
+    # campaign) pass ``focus_parameters`` explicitly. Scope-free callers
+    # leave it as ``None`` and get every failing parameter the validator
+    # flagged.
+    if focus_parameters is None:
+        seen: set[str] = set()
+        failing_param_names: list[str] = []
+        for result in validation.prior_predictive_diagnostics:
+            if result.is_valid or result.parameter in GLOBAL_FAILURE_SITES:
+                continue
+            if result.parameter in seen:
+                continue
+            seen.add(result.parameter)
+            failing_param_names.append(result.parameter)
+        params: list[str] = failing_param_names
+    else:
+        params = list(focus_parameters)
 
-    params = changed_params or list(authored_priors.keys())
-    parts = []
+    parts: list[str] = []
     for param_name in params:
         fb = format_parameter_feedback(
             parameter_name=param_name,
@@ -839,32 +930,6 @@ def format_validation_feedback(
         )
         if fb:
             parts.append(fb)
-
-    # Fallback: if the submission touched parameters that the validator is
-    # happy with, the loop above produces nothing — but the validator may
-    # still be flagging other parameters. Surface feedback for whatever the
-    # validator actually failed on so the LLM can react, rather than the
-    # unactionable generic "PRIOR PREDICTIVE CHECK FAILED" string.
-    if not parts:
-        seen: set[str] = set()
-        failing_param_names: list[str] = []
-        for result in validation.prior_predictive_diagnostics:
-            if result.is_valid or result.parameter in GLOBAL_FAILURE_SITES:
-                continue
-            if result.parameter in seen:
-                continue
-            seen.add(result.parameter)
-            failing_param_names.append(result.parameter)
-        for param_name in failing_param_names:
-            fb = format_parameter_feedback(
-                parameter_name=param_name,
-                results=validation.prior_predictive_diagnostics,
-                prior=authored_priors.get(param_name),
-                data_stats=data_stats,
-                model_spec=validation.normalized_model_spec,
-            )
-            if fb:
-                parts.append(fb)
 
     details = "\n\n".join(parts) if parts else "PRIOR PREDICTIVE CHECK FAILED"
     if warning_feedback:
