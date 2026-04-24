@@ -385,6 +385,58 @@ def test_is_done_requires_full_required_prior_coverage() -> None:
     )
 
 
+def test_checkpoint_serde_roundtrip() -> None:
+    """``serialize_*`` + ``deserialize_*`` must be a round-trip for the fields
+    that actually matter for resume: draft_model, accepted.model_spec,
+    authored_priors, search_cache/queries, last_feedback, tool_call_count.
+    Ephemeral validation fields (compiled_ssm, pp_raw_samples) are
+    intentionally dropped.
+    """
+    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_megaprompt import (
+        deserialize_stage4_megaprompt_state,
+        serialize_stage4_megaprompt_state,
+    )
+
+    state = Stage4MegapromptState()
+    state.draft_model.initialization_policy = "stationary"
+    state.draft_model.observation_intercept_policy = "free"
+    state.draft_model.equilibrium_forcing = False
+    state.draft_model.distribution_choices["sleep_quality"] = {
+        "variable": "sleep_quality",
+        "distribution": "ordered_logit",
+        "link": "logit",
+        "reasoning": "ordinal",
+    }
+    state.accepted.model_spec = {"parameters": [{"name": "rho_x"}]}
+    state.accepted.authored_priors = {
+        "rho_x": {
+            "parameter": "rho_x",
+            "distribution": "Beta",
+            "params": {"alpha": 5, "beta": 5},
+            "sources": [],
+            "reasoning": "checkpoint test",
+        }
+    }
+    state.search_cache = {"q1": "r1"}
+    state.search_queries = {"rho_x": "q1"}
+    state.last_feedback = "VALID"
+    state.tool_call_count = 17
+
+    payload = serialize_stage4_megaprompt_state(state)
+    restored = deserialize_stage4_megaprompt_state(payload)
+
+    assert restored.draft_model.initialization_policy == "stationary"
+    assert restored.draft_model.observation_intercept_policy == "free"
+    assert restored.draft_model.equilibrium_forcing is False
+    assert restored.draft_model.distribution_choices == state.draft_model.distribution_choices
+    assert restored.accepted.model_spec == state.accepted.model_spec
+    assert restored.accepted.authored_priors == state.accepted.authored_priors
+    assert restored.search_cache == state.search_cache
+    assert restored.search_queries == state.search_queries
+    assert restored.last_feedback == "VALID"
+    assert restored.tool_call_count == 17
+
+
 def test_parameter_inventory_matches_skeleton_names() -> None:
     spec = _make_megaprompt_spec()
     skeleton = derive_deterministic_spec(spec)

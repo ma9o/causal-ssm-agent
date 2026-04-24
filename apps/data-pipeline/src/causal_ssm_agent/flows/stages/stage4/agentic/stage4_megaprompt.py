@@ -18,15 +18,10 @@ on their payload, not on a current active block.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
-
-from pydantic import ValidationError
-
-from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
-    ModelConfigurationChoice,
-)
 
 from .stage4_cards import (
     build_construct_scale_cards,
@@ -34,11 +29,18 @@ from .stage4_cards import (
     build_model_topology,
     build_prior_cards,
 )
+from .stage4_core import (
+    apply_prior_subset,
+    lock_model_spec,
+    validate_and_store_indicator_choice,
+    validate_and_store_model_configuration,
+)
 from .stage4_orchestrator import build_stage4_plan
 from .stage4_skeleton import derive_deterministic_spec
 from .stage4_state import Stage4AcceptedArtifacts, Stage4DraftModel
-from .stage4_submission import _normalize_indicator_submission
 from .stage4_types import Stage4Deps, Stage4Result
+
+MEGAPROMPT_CHECKPOINT_VERSION = 1
 
 logger = logging.getLogger(__name__)
 # Per-turn diagnostics are at INFO level; bypass the root logger's default
@@ -46,6 +48,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     import polars as pl
 
     from causal_ssm_agent.utils.agent_session import StageSessionFactory
@@ -87,6 +92,73 @@ class Stage4MegapromptState:
             return False
         required = _required_prior_names_from_spec(self.accepted.model_spec)
         return all(name in self.accepted.authored_priors for name in required)
+
+
+def serialize_stage4_megaprompt_state(state: Stage4MegapromptState) -> dict[str, Any]:
+    """Render the megaprompt state as a JSON-safe dict for checkpointing.
+
+    Persists only the *inputs* of the stage (decisions, model_spec,
+    authored priors, search caches). ``validation`` is a derived
+    artifact and is deliberately excluded — on resume it is recomputed
+    from the retained inputs via :func:`validate_assembly`. Keeping it
+    out of the checkpoint avoids the trap where a validator rule change
+    (e.g. scale_mismatch was blocking, now warns) leaves a stale verdict
+    on disk that contradicts the current rules.
+    """
+    return {
+        "version": MEGAPROMPT_CHECKPOINT_VERSION,
+        "draft_model": {
+            "distribution_choices": dict(state.draft_model.distribution_choices),
+            "initialization_policy": state.draft_model.initialization_policy,
+            "observation_intercept_policy": state.draft_model.observation_intercept_policy,
+            "equilibrium_forcing": state.draft_model.equilibrium_forcing,
+        },
+        "accepted": {
+            "model_spec": state.accepted.model_spec,
+            "authored_priors": dict(state.accepted.authored_priors),
+            "resolved_priors": state.accepted.resolved_priors,
+        },
+        "search_cache": dict(state.search_cache),
+        "search_queries": dict(state.search_queries),
+        "last_feedback": state.last_feedback,
+        "tool_call_count": state.tool_call_count,
+    }
+
+
+def deserialize_stage4_megaprompt_state(payload: dict[str, Any]) -> Stage4MegapromptState:
+    """Reconstruct :class:`Stage4MegapromptState` from a checkpoint payload.
+
+    ``accepted.validation`` is left as ``None`` by design — the caller
+    recomputes it from the retained inputs on resume. An unknown
+    ``version`` raises ``ValueError`` so callers can fall back to a
+    fresh state rather than silently importing a schema from the future.
+    """
+    version = payload.get("version")
+    if version != MEGAPROMPT_CHECKPOINT_VERSION:
+        raise ValueError(
+            f"Unsupported Stage 4 megaprompt checkpoint version {version!r}; "
+            f"expected {MEGAPROMPT_CHECKPOINT_VERSION}"
+        )
+    draft = payload.get("draft_model") or {}
+    accepted_payload = payload.get("accepted") or {}
+    return Stage4MegapromptState(
+        draft_model=Stage4DraftModel(
+            distribution_choices=dict(draft.get("distribution_choices") or {}),
+            initialization_policy=draft.get("initialization_policy"),
+            observation_intercept_policy=draft.get("observation_intercept_policy"),
+            equilibrium_forcing=draft.get("equilibrium_forcing"),
+        ),
+        accepted=Stage4AcceptedArtifacts(
+            model_spec=accepted_payload.get("model_spec"),
+            authored_priors=dict(accepted_payload.get("authored_priors") or {}),
+            resolved_priors=accepted_payload.get("resolved_priors"),
+            validation=None,
+        ),
+        search_cache=dict(payload.get("search_cache") or {}),
+        search_queries=dict(payload.get("search_queries") or {}),
+        last_feedback=str(payload.get("last_feedback") or ""),
+        tool_call_count=int(payload.get("tool_call_count") or 0),
+    )
 
 
 def _required_prior_names_from_spec(model_spec: dict[str, Any] | None) -> tuple[str, ...]:
@@ -153,56 +225,19 @@ def _lock_model_spec_if_ready(
     deps: Stage4Deps,
     ambiguous_variables: tuple[str, ...],
 ) -> str | None:
-    """Build and ground the model spec when every model decision is present.
+    """Eagerly lock the model spec via the shared core, once all decisions are in.
 
-    Returns a compact lock-status line for inclusion in tool feedback, or
-    ``None`` when the lock is still pending.
+    Returns a compact lock-status line for inclusion in tool feedback,
+    or ``None`` when the lock is still pending. Thin wrapper around
+    :func:`stage4_core.lock_model_spec` so the megaprompt keeps its
+    "lock eagerly after every decision" semantics while the state
+    machine continues to lock lazily from its settle loop.
     """
-    from .stage4_reducer import build_model_spec_from_decisions
-
     if not _model_decisions_complete(state, ambiguous_variables):
         return None
-    model_spec, errors = build_model_spec_from_decisions(state.draft_model, deps.skeleton)
-    if model_spec is None:
+    result, errors = lock_model_spec(state.draft_model, state.accepted, deps)
+    if result is None:
         return "MODEL SPEC LOCK ERROR:\n" + "\n".join(f"- {error}" for error in errors)
-
-    current = state.accepted.as_current()
-    existing_priors = current.get("authored_priors")
-    active_parameter_names = {
-        str(parameter["name"])
-        for parameter in model_spec.get("parameters") or []
-        if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
-    }
-    if isinstance(existing_priors, dict):
-        filtered = {
-            name: prior for name, prior in existing_priors.items() if name in active_parameter_names
-        }
-        if filtered:
-            current["authored_priors"] = filtered
-        else:
-            current.pop("authored_priors", None)
-    current.pop("resolved_priors", None)
-
-    result = deps.grounding_fn(
-        {"model_spec": model_spec},
-        deps.causal_spec,
-        current=current,
-        data_for_model=deps.data_for_model,
-        indicator_audits=deps.indicator_audits,
-    )
-    state.accepted.apply_stage_output(result.stage_output)
-    # grounding only emits ``authored_priors`` in the output when priors are
-    # submitted in the same call, so a model-spec-only re-lock does not
-    # propagate the inventory filter back to accepted state. Reconcile it
-    # explicitly — the state machine covers this via
-    # ``reconcile_locked_prior_surface``.
-    if state.accepted.authored_priors:
-        state.accepted.authored_priors = {
-            name: prior
-            for name, prior in state.accepted.authored_priors.items()
-            if name in active_parameter_names
-        }
-    state.accepted.resolved_priors = None
     validation = None if result.stage_output is None else result.stage_output.get("validation")
     if validation is not None and not validation.compile_ok:
         compile_error = (validation.compile_error or "(no detail)").strip()
@@ -226,7 +261,7 @@ def _apply_indicator_choice(
     link: str,
     reasoning: str,
 ) -> str:
-    """Validate and apply one indicator-likelihood choice."""
+    """Dispatch an indicator-choice submission to the scope-free core."""
     state.tool_call_count += 1
     block = plan_block_by_variable.get(variable)
     if block is None:
@@ -235,20 +270,17 @@ def _apply_indicator_choice(
             "Allowed variables: "
             + (", ".join(f"`{name}`" for name in ambiguous_variables) or "(none)")
         )
-    normalized, error = _normalize_indicator_submission(
+    error = validate_and_store_indicator_choice(
+        state.draft_model,
         block,
-        {
-            "variable": variable,
-            "distribution": distribution,
-            "link": link,
-            "reasoning": reasoning,
-        },
+        variable=variable,
+        distribution=distribution,
+        link=link,
+        reasoning=reasoning,
     )
     if error is not None:
         return error
-    assert normalized is not None
-    choice = normalized["distribution_choice"]
-    state.draft_model.distribution_choices[choice["variable"]] = choice
+    choice = state.draft_model.distribution_choices[variable]
     status_line = _lock_model_spec_if_ready(
         state,
         deps=deps,
@@ -270,22 +302,17 @@ def _apply_model_configuration(
     equilibrium_forcing: bool,
     reasoning: str,
 ) -> str:
-    """Validate and apply the global model configuration."""
+    """Dispatch a model-configuration submission to the scope-free core."""
     state.tool_call_count += 1
-    try:
-        config = ModelConfigurationChoice.model_validate(
-            {
-                "initialization_policy": initialization_policy,
-                "observation_intercept_policy": observation_intercept_policy,
-                "equilibrium_forcing": equilibrium_forcing,
-                "reasoning": reasoning,
-            }
-        ).model_dump(mode="json")
-    except ValidationError as exc:
-        return f"VALIDATION ERRORS:\n- {exc}"
-    state.draft_model.initialization_policy = str(config["initialization_policy"])
-    state.draft_model.observation_intercept_policy = str(config["observation_intercept_policy"])
-    state.draft_model.equilibrium_forcing = bool(config["equilibrium_forcing"])
+    error = validate_and_store_model_configuration(
+        state.draft_model,
+        initialization_policy=initialization_policy,
+        observation_intercept_policy=observation_intercept_policy,
+        equilibrium_forcing=equilibrium_forcing,
+        reasoning=reasoning,
+    )
+    if error is not None:
+        return error
     status_line = _lock_model_spec_if_ready(
         state,
         deps=deps,
@@ -293,9 +320,9 @@ def _apply_model_configuration(
     )
     accepted_line = (
         "ACCEPTED model configuration: "
-        f"init=`{config['initialization_policy']}`, "
-        f"obs_intercepts=`{config['observation_intercept_policy']}`, "
-        f"equilibrium_forcing=`{str(bool(config['equilibrium_forcing'])).lower()}`"
+        f"init=`{state.draft_model.initialization_policy}`, "
+        f"obs_intercepts=`{state.draft_model.observation_intercept_policy}`, "
+        f"equilibrium_forcing=`{str(bool(state.draft_model.equilibrium_forcing)).lower()}`"
     )
     return accepted_line if status_line is None else f"{accepted_line}\n\n{status_line}"
 
@@ -307,35 +334,140 @@ def _apply_prior_block(
     parameter_inventory: tuple[str, ...],
     priors: dict[str, dict[str, Any]],
 ) -> str:
-    """Validate and apply one prior-block submission."""
-    state.tool_call_count += 1
-    if not isinstance(priors, dict) or not priors:
-        return "VALIDATION ERRORS:\n- `priors` must be a non-empty object"
+    """Dispatch a prior-subset submission to the scope-free core.
 
-    inventory = set(parameter_inventory)
+    In megaprompt mode we pass ``allowed_parameter_names=None`` — the core
+    grounds against the full accepted ``model_spec`` inventory rather than
+    restricting to any active block.
+    """
+    state.tool_call_count += 1
+    # Locked-inventory resolution: prefer the model_spec's inventory when
+    # available, fall back to the skeleton's if the spec hasn't locked yet.
     if state.accepted.model_spec is not None:
         locked_inventory = {
             str(parameter.get("name"))
             for parameter in state.accepted.model_spec.get("parameters") or []
             if isinstance(parameter, dict) and isinstance(parameter.get("name"), str)
         }
-        inventory = locked_inventory or inventory
-    invalid = sorted(name for name in priors if name not in inventory)
-    if invalid:
-        preview = ", ".join(f"`{name}`" for name in invalid[:20])
-        if len(invalid) > 20:
-            preview += f", … ({len(invalid) - 20} more)"
-        return "VALIDATION ERRORS:\n- priors outside the parameter inventory: " + preview
-
-    result = deps.grounding_fn(
-        {"priors": priors},
-        deps.causal_spec,
-        current=state.accepted.as_current(),
-        data_for_model=deps.data_for_model,
-        indicator_audits=deps.indicator_audits,
+        allowed = (
+            frozenset(locked_inventory) if locked_inventory else frozenset(parameter_inventory)
+        )
+    else:
+        allowed = frozenset(parameter_inventory)
+    outcome = apply_prior_subset(
+        state.accepted,
+        deps,
+        priors=priors,
+        allowed_parameter_names=allowed,
     )
-    state.accepted.apply_stage_output(result.stage_output)
-    return result.feedback
+    if isinstance(outcome, str):
+        return outcome
+    return outcome.feedback
+
+
+class Stage4MegapromptSessionAdapter:
+    """Tool-surface adapter that makes :class:`Stage4MegapromptState` look
+    like a :class:`Stage4Session` to the shared tool factories.
+
+    The adapter exposes the same ``submit_*`` method signatures the
+    state-machine session offers, so the single shared ``make_submit_*_tool``
+    factories in ``stage4/tools.py`` can build megaprompt tools too. It
+    also proxies ``search_cache`` / ``search_queries`` for the literature
+    tool. Everything scope-free: no active-block cursor, no coverage
+    enforcement, no reducer events — just direct dispatch to the
+    scope-free apply helpers above.
+    """
+
+    def __init__(
+        self,
+        state: Stage4MegapromptState,
+        *,
+        deps: Stage4Deps,
+        plan_block_by_variable: dict[str, Any],
+        ambiguous_variables: tuple[str, ...],
+        parameter_inventory: tuple[str, ...],
+        save_checkpoint: Callable[[Stage4MegapromptState], None] | None = None,
+    ) -> None:
+        self._state = state
+        self._deps = deps
+        self._plan_block_by_variable = plan_block_by_variable
+        self._ambiguous_variables = ambiguous_variables
+        self._parameter_inventory = parameter_inventory
+        self._save_checkpoint = save_checkpoint
+
+    @property
+    def search_cache(self) -> dict[str, str]:
+        return self._state.search_cache
+
+    @property
+    def search_queries(self) -> dict[str, str]:
+        return self._state.search_queries
+
+    def _persist(self) -> None:
+        if self._save_checkpoint is None:
+            return
+        try:
+            self._save_checkpoint(self._state)
+        except Exception as exc:  # noqa: BLE001 — checkpoint failures must not crash the run
+            logger.warning(
+                "stage-4:megaprompt checkpoint save failed (%s: %s) — continuing without persist",
+                type(exc).__name__,
+                exc,
+            )
+
+    def submit_model_configuration(
+        self,
+        *,
+        initialization_policy: str,
+        observation_intercept_policy: str,
+        equilibrium_forcing: bool,
+        reasoning: str,
+    ) -> str:
+        feedback = _apply_model_configuration(
+            self._state,
+            deps=self._deps,
+            ambiguous_variables=self._ambiguous_variables,
+            initialization_policy=initialization_policy,
+            observation_intercept_policy=observation_intercept_policy,
+            equilibrium_forcing=equilibrium_forcing,
+            reasoning=reasoning,
+        )
+        self._state.last_feedback = feedback
+        self._persist()
+        return feedback
+
+    def submit_indicator_choice(
+        self,
+        *,
+        variable: str,
+        distribution: str,
+        link: str,
+        reasoning: str,
+    ) -> str:
+        feedback = _apply_indicator_choice(
+            self._state,
+            deps=self._deps,
+            plan_block_by_variable=self._plan_block_by_variable,
+            ambiguous_variables=self._ambiguous_variables,
+            variable=variable,
+            distribution=distribution,
+            link=link,
+            reasoning=reasoning,
+        )
+        self._state.last_feedback = feedback
+        self._persist()
+        return feedback
+
+    def submit_prior_block(self, *, priors: dict[str, dict[str, Any]]) -> str:
+        feedback = _apply_prior_block(
+            self._state,
+            deps=self._deps,
+            parameter_inventory=self._parameter_inventory,
+            priors=priors,
+        )
+        self._state.last_feedback = feedback
+        self._persist()
+        return feedback
 
 
 def _make_megaprompt_tools(
@@ -350,188 +482,41 @@ def _make_megaprompt_tools(
     question: str,
     paraphrase_session_factory: StageSessionFactory,
     n_paraphrases: int,
+    save_checkpoint: Callable[[Stage4MegapromptState], None] | None = None,
 ) -> list[Any]:
-    """Build the megaprompt tool list without state-machine gating."""
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    """Build the megaprompt tool list by reusing the shared tool factories.
 
-    async def _submit_model_configuration(
-        *,
-        initialization_policy: str,
-        observation_intercept_policy: str,
-        equilibrium_forcing: bool,
-        reasoning: str,
-    ) -> str:
-        feedback = _apply_model_configuration(
-            state,
-            deps=deps,
-            ambiguous_variables=ambiguous_variables,
-            initialization_policy=initialization_policy,
-            observation_intercept_policy=observation_intercept_policy,
-            equilibrium_forcing=equilibrium_forcing,
-            reasoning=reasoning,
-        )
-        state.last_feedback = feedback
-        return feedback
+    We wrap the megaprompt state in an adapter that matches the
+    state-machine session's submit_* method shape, then build tools with
+    ``stop_on_success=False`` so the long-running single session doesn't
+    terminate after each accepted submission. ``save_checkpoint`` is
+    plumbed into the adapter so every successful submit call overwrites
+    the on-disk checkpoint with the latest accepted state.
+    """
+    from causal_ssm_agent.flows.stages.stage4.tools import (
+        make_elicit_prior_gmm_tool,
+        make_search_tool,
+        make_submit_indicator_choice_tool,
+        make_submit_model_configuration_tool,
+        make_submit_prior_block_tool,
+    )
 
-    async def _submit_indicator_choice(
-        *, variable: str, distribution: str, link: str, reasoning: str
-    ) -> str:
-        feedback = _apply_indicator_choice(
-            state,
-            deps=deps,
-            plan_block_by_variable=plan_block_by_variable,
-            ambiguous_variables=ambiguous_variables,
-            variable=variable,
-            distribution=distribution,
-            link=link,
-            reasoning=reasoning,
-        )
-        state.last_feedback = feedback
-        return feedback
-
-    async def _submit_prior_block(*, priors: dict[str, dict[str, Any]]) -> str:
-        feedback = _apply_prior_block(
-            state,
-            deps=deps,
-            parameter_inventory=parameter_inventory,
-            priors=priors,
-        )
-        state.last_feedback = feedback
-        return feedback
-
+    adapter = Stage4MegapromptSessionAdapter(
+        state,
+        deps=deps,
+        plan_block_by_variable=plan_block_by_variable,
+        ambiguous_variables=ambiguous_variables,
+        parameter_inventory=parameter_inventory,
+        save_checkpoint=save_checkpoint,
+    )
     tools: list[Any] = [
-        Tool(
-            name="submit_model_configuration",
-            description=(
-                "Submit the global initialization, observation-intercept, and "
-                "equilibrium-forcing decision."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "initialization_policy": {
-                        "type": "string",
-                        "enum": ["stationary", "free"],
-                        "description": "Global initial-state policy for retained dynamic states.",
-                    },
-                    "observation_intercept_policy": {
-                        "type": "string",
-                        "enum": ["fixed", "free"],
-                        "description": (
-                            "Whether eligible manifest intercepts remain free or are fixed."
-                        ),
-                    },
-                    "equilibrium_forcing": {
-                        "type": "boolean",
-                        "description": (
-                            "Whether eligible dynamic states may have a continuous-time intercept."
-                        ),
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Short justification for the global model configuration.",
-                    },
-                },
-                "required": [
-                    "initialization_policy",
-                    "observation_intercept_policy",
-                    "equilibrium_forcing",
-                    "reasoning",
-                ],
-                "additionalProperties": False,
-            },
-            execute=_submit_model_configuration,
-        ),
-        Tool(
-            name="submit_indicator_choice",
-            description=("Submit one distribution/link choice for an ambiguous indicator."),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "variable": {
-                        "type": "string",
-                        "description": "Ambiguous indicator variable name.",
-                    },
-                    "distribution": {
-                        "type": "string",
-                        "description": "Chosen distribution for the indicator.",
-                    },
-                    "link": {
-                        "type": "string",
-                        "description": "Chosen link function for the indicator.",
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Short justification for the indicator choice.",
-                    },
-                },
-                "required": ["variable", "distribution", "link", "reasoning"],
-                "additionalProperties": False,
-            },
-            execute=_submit_indicator_choice,
-        ),
-        Tool(
-            name="submit_prior_block",
-            description=(
-                "Submit prior proposals keyed by parameter name for any subset of the "
-                "parameter inventory; call multiple times to cover all required parameters."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "priors": {
-                        "type": "object",
-                        "description": "Prior proposals keyed by parameter name.",
-                    }
-                },
-                "required": ["priors"],
-                "additionalProperties": False,
-            },
-            execute=_submit_prior_block,
-        ),
+        make_submit_model_configuration_tool(adapter, stop_on_success=False),
+        make_submit_indicator_choice_tool(adapter, stop_on_success=False),
+        make_submit_prior_block_tool(adapter, stop_on_success=False),
     ]
     if enable_literature:
-        from causal_ssm_agent.flows.stages.stage4.tools import search_literature
-
-        async def _search_literature(*, query: str, parameter_name: str) -> str:
-            state.search_queries[parameter_name] = query
-            cached = state.search_cache.get(query)
-            if cached is not None:
-                return cached
-            result = await search_literature(query)
-            state.search_cache[query] = result
-            return result
-
-        tools.append(
-            Tool(
-                name="search_literature",
-                description=(
-                    "Search for empirical literature about effect sizes for model parameters."
-                ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Search query for empirical literature about effect sizes.",
-                        },
-                        "parameter_name": {
-                            "type": "string",
-                            "description": (
-                                "Name of the parameter this search is for "
-                                "(e.g. 'beta_stress_sleep')."
-                            ),
-                        },
-                    },
-                    "required": ["query", "parameter_name"],
-                    "additionalProperties": False,
-                },
-                execute=_search_literature,
-            )
-        )
+        tools.append(make_search_tool(adapter))
     if enable_paraphrasing:
-        from causal_ssm_agent.flows.stages.stage4.tools import make_elicit_prior_gmm_tool
-
         tools.append(
             make_elicit_prior_gmm_tool(
                 question=question,
@@ -555,6 +540,7 @@ async def run_stage4_megaprompt(
     n_paraphrases: int = 10,
     max_tool_turns: int = 40,
     max_outer_turns: int = 8,
+    checkpoint_path: Path | None = None,
 ) -> Stage4Result:
     """Run the Stage 4 flow with a single megaprompt agent session.
 
@@ -563,6 +549,12 @@ async def run_stage4_megaprompt(
     and lets the model choose the order. The loop stops as soon as the
     accumulated state satisfies the same "valid model_spec + priors"
     predicate the state-machine mode uses.
+
+    ``checkpoint_path`` is an optional JSON file the adapter overwrites
+    after every accepted submit-tool call. A run interrupted mid-session
+    resumes by reading the same file on next invocation; an unreadable
+    or incompatible file is ignored with a warning and the run starts
+    fresh.
     """
     del max_tool_turns  # inherited from StageSessionFactory initialization
     from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
@@ -609,6 +601,82 @@ async def run_stage4_megaprompt(
         grounding_fn=stage4_grounding,
     )
     state = Stage4MegapromptState()
+    if checkpoint_path is not None and checkpoint_path.exists():
+        try:
+            state = deserialize_stage4_megaprompt_state(json.loads(checkpoint_path.read_text()))
+            logger.info(
+                "stage-4:megaprompt resumed from %s (tool_call_count=%d, authored_priors=%d)",
+                checkpoint_path,
+                state.tool_call_count,
+                len(state.accepted.authored_priors),
+            )
+        except Exception as exc:  # noqa: BLE001 — corrupt/stale checkpoint must not block the run
+            logger.warning(
+                "stage-4:megaprompt checkpoint at %s is unreadable (%s: %s) — starting fresh",
+                checkpoint_path,
+                type(exc).__name__,
+                exc,
+            )
+
+    def _write_checkpoint(snapshot: Stage4MegapromptState) -> None:
+        if checkpoint_path is None:
+            return
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_path.write_text(
+            json.dumps(serialize_stage4_megaprompt_state(snapshot), indent=2, default=str)
+        )
+
+    # Recompute validation from the retained inputs on resume. The
+    # checkpoint persists only inputs (model_spec + priors + decisions);
+    # ``validation`` is a derived artifact. Computing it here from scratch
+    # guarantees it reflects the current validator rules rather than
+    # whatever was true when the checkpoint was written.
+    if (
+        state.accepted.model_spec is not None
+        and state.accepted.authored_priors
+    ):
+        required_prior_names_local = _required_prior_names_from_spec(state.accepted.model_spec)
+        if all(name in state.accepted.authored_priors for name in required_prior_names_local):
+            from causal_ssm_agent.flows.stages.stage4.assembly import (
+                format_validation_feedback,
+                validate_assembly,
+            )
+
+            logger.info(
+                "stage-4:megaprompt recomputing validation on resume from retained inputs"
+            )
+            state.accepted.validation = validate_assembly(
+                state.accepted.model_spec,
+                state.accepted.authored_priors,
+                data_for_model,
+                indicator_audits,
+                causal_spec,
+            )
+            # Overwrite last_feedback with a fresh rendering of the
+            # recomputed validation. The checkpointed last_feedback may
+            # be an old ``ACCEPTED …`` message from the submit-tool call
+            # that wrote the checkpoint, which would mislead the agent
+            # into thinking the stage is complete when the recompute
+            # actually found a problem.
+            state.last_feedback = format_validation_feedback(
+                state.accepted.validation,
+                state.accepted.authored_priors,
+            )
+            _write_checkpoint(state)
+            if state.is_done():
+                logger.info(
+                    "stage-4:megaprompt resume is already valid — skipping agent session"
+                )
+                return Stage4Result(
+                    model_spec=state.accepted.model_spec,
+                    authored_priors=state.accepted.authored_priors,
+                    search_queries=dict(state.search_queries),
+                    validation=state.accepted.validation,
+                )
+            logger.info(
+                "stage-4:megaprompt resume validation is not valid — handing to agent session"
+            )
+
     system_prompt = build_stage4_megaprompt_system_prompt(
         enable_literature=enable_literature,
         enable_paraphrasing=enable_paraphrasing,
@@ -624,6 +692,7 @@ async def run_stage4_megaprompt(
         question=question,
         paraphrase_session_factory=paraphrase_session_factory or session_factory,
         n_paraphrases=n_paraphrases,
+        save_checkpoint=_write_checkpoint if checkpoint_path is not None else None,
     )
 
     async with session_factory.open(
