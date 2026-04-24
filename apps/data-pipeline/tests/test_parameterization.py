@@ -819,6 +819,20 @@ class TestCanonicalRuntimePriors:
         assert prior_dist.batch_shape == (2,)
         assert jnp.allclose(prior_dist.scale, jnp.array([1.0, 2.0], dtype=jnp.float32))
 
+    def test_real_support_sites_keep_fixed_bounds_keys(self, simple_spec):
+        """Real-support prior state keeps the same low/high leaves across prior edits."""
+        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec))
+
+        drift_params = runtime.prior_state["drift_diag_free"]
+        assert set(drift_params) == {"family", "loc", "scale", "low", "high"}
+        assert jnp.allclose(drift_params["low"], jnp.full((2,), -1e6))
+        assert jnp.allclose(drift_params["high"], jnp.full((2,), 1e6))
+
+        correlation_params = runtime.prior_state["t0_var_lower_free"]
+        assert set(correlation_params) == {"family", "loc", "scale", "low", "high"}
+        assert jnp.allclose(correlation_params["low"], jnp.full((1,), -1.0))
+        assert jnp.allclose(correlation_params["high"], jnp.full((1,), 1.0))
+
 
 # ---------------------------------------------------------------------------
 # Compiled artifact integration (hard cutover)

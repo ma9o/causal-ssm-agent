@@ -1170,6 +1170,9 @@ _LIKELIHOOD_EXTRA_DEFAULTS: dict[str, dict] = {
     "proc_df": {"family": 1, "concentration": 5.0, "rate": 1.0},
 }
 
+_DEFAULT_REAL_LOW = -1e6
+_DEFAULT_REAL_HIGH = 1e6
+
 
 def _make_positive_params(
     shape: tuple[int, ...],
@@ -1202,15 +1205,15 @@ def _make_real_params(
 ) -> dict[str, jnp.ndarray]:
     """Build canonical param dict for a REAL-support site."""
     s = shape or ()
-    params = {
+    low_value = _DEFAULT_REAL_LOW if low is None else low
+    high_value = _DEFAULT_REAL_HIGH if high is None else high
+    return {
         "family": jnp.array(family, dtype=jnp.int64),
         "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float64), s),
         "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
+        "low": jnp.broadcast_to(jnp.asarray(low_value, dtype=jnp.float64), s),
+        "high": jnp.broadcast_to(jnp.asarray(high_value, dtype=jnp.float64), s),
     }
-    if low is not None and high is not None:
-        params["low"] = jnp.broadcast_to(jnp.asarray(low, dtype=jnp.float64), s)
-        params["high"] = jnp.broadcast_to(jnp.asarray(high, dtype=jnp.float64), s)
-    return params
 
 
 def build_prior_runtime_state(

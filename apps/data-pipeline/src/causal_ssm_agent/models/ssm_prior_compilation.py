@@ -317,7 +317,9 @@ def collect_compile_diagnostics(
         raw_priors=raw_priors,
     )
     if ssm_priors is not None:
-        diagnostics.extend(collect_first_order_approximation_warnings(ssm_priors))
+        diagnostics.extend(
+            collect_first_order_approximation_warnings(ssm_priors, ssm_spec=ssm_spec)
+        )
     return diagnostics
 
 
@@ -328,6 +330,8 @@ def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
 
 def collect_first_order_approximation_warnings(
     ssm_priors: SSMPriors,
+    *,
+    ssm_spec: SSMSpec | None = None,
 ) -> list[CompileDiagnostic]:
     """Return typed warnings when the first-order DT->CT approximation looks weak."""
     diag_prior = ssm_priors.drift_diag
@@ -347,9 +351,30 @@ def collect_first_order_approximation_warnings(
     if not diag_mu or not offdiag_mu:
         return []
 
-    min_diag = min(abs(float(value)) for value in diag_mu)
+    diag_abs = [abs(float(value)) for value in diag_mu]
+    min_diag = min(diag_abs)
     if min_diag < NUMERICAL_EPSILON:
         return []
+    min_diag_idx = diag_abs.index(min_diag)
+
+    offdiag_positions: list[tuple[int, int]] = []
+    latent_names: list[str] = []
+    if ssm_spec is not None and ssm_spec.latent_names:
+        offdiag_positions = _iter_offdiag_positions(ssm_spec)
+        latent_names = list(ssm_spec.latent_names)
+
+    def _offdiag_label(idx: int) -> str:
+        if idx < len(offdiag_positions) and latent_names:
+            effect_idx, cause_idx = offdiag_positions[idx]
+            cause = latent_names[cause_idx]
+            effect = latent_names[effect_idx]
+            return f"beta_{cause}_{effect} ({cause} -> {effect})"
+        return f"drift_offdiag[{idx}]"
+
+    def _diag_label(idx: int) -> str:
+        if latent_names and idx < len(latent_names):
+            return f"drift_diag[{latent_names[idx]}]"
+        return f"drift_diag[{idx}]"
 
     warnings: list[CompileDiagnostic] = []
     for idx, offdiag_value in enumerate(offdiag_mu):
@@ -361,12 +386,18 @@ def collect_first_order_approximation_warnings(
                 code="dt_ct_approximation_warning",
                 parameter="drift_offdiag",
                 issue=(
-                    "First-order DT->CT approximation may be inaccurate: "
-                    f"off-diagonal drift[{idx}] magnitude ({abs(float(offdiag_value)):.3f}) is "
-                    f"{ratio * 100:.0f}% of minimum diagonal magnitude ({min_diag:.3f})."
+                    "Cross-lag priors compile via the linearization "
+                    "drift_offdiag = beta_dt / dt (first-order term of logm(A_dt)/dt), "
+                    "which loses accuracy when latent modes are strongly coupled. "
+                    f"{_offdiag_label(idx)} magnitude "
+                    f"({abs(float(offdiag_value)):.3f} 1/day) is {ratio * 100:.0f}% of "
+                    f"the smallest diagonal rate {_diag_label(min_diag_idx)} "
+                    f"({min_diag:.3f} 1/day); at this ratio the compiled CT off-diagonal "
+                    "may deviate noticeably from the true matrix log."
                 ),
                 suggested_adjustment=(
-                    "Consider a shorter reference interval or elicit priors directly on CT rates."
+                    "Shorten the reference interval (brings A_dt closer to I, where the "
+                    "linearization is tight) or elicit the prior directly on the CT rate."
                 ),
                 compiled_site_name="drift_offdiag_free",
                 compiled_flat_index=idx,

@@ -259,14 +259,18 @@ def build_array_prior_payload(
     )
     include_rate = "rate" in current or any("rate" in normalized for _, normalized in entries)
 
-    if include_lower and "lower" not in current:
+    lower_indices = {idx for idx, normalized in entries if "lower" in normalized}
+    upper_indices = {idx for idx, normalized in entries if "upper" in normalized}
+    all_indices = set(range(n_total))
+
+    if include_lower and "lower" not in current and lower_indices != all_indices:
         raise ValueError(
             f"build_array_prior_payload({attr!r}): some entries specify 'lower' but no "
             "baseline was provided in the SSMPriors default — refusing to silently fill "
             "with ±1e6. Provide a default 'lower' in current, or ensure every entry "
             "specifies one."
         )
-    if include_upper and "upper" not in current:
+    if include_upper and "upper" not in current and upper_indices != all_indices:
         raise ValueError(
             f"build_array_prior_payload({attr!r}): some entries specify 'upper' but no "
             "baseline was provided in the SSMPriors default — refusing to silently fill "
@@ -277,8 +281,26 @@ def build_array_prior_payload(
     sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
     loc_arr = [float(current.get("loc", 0.0))] * n_total if include_loc else None
     family_arr = [int(current.get("family", 0))] * n_total if include_family else None
-    lower_arr = [float(current["lower"])] * n_total if include_lower else None
-    upper_arr = [float(current["upper"])] * n_total if include_upper else None
+    lower_default = None
+    if include_lower:
+        lower_default = (
+            float(current["lower"])
+            if "lower" in current
+            else float(
+                next(normalized["lower"] for _, normalized in entries if "lower" in normalized)
+            )
+        )
+    upper_default = None
+    if include_upper:
+        upper_default = (
+            float(current["upper"])
+            if "upper" in current
+            else float(
+                next(normalized["upper"] for _, normalized in entries if "upper" in normalized)
+            )
+        )
+    lower_arr = [lower_default] * n_total if include_lower else None
+    upper_arr = [upper_default] * n_total if include_upper else None
     concentration_arr = (
         [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
     )
