@@ -16,11 +16,15 @@ from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.llm_stage_runtime import (
+    LLMStageRuntimeConfig,
+    attach_trace,
+    open_llm_stage,
+)
 from causal_ssm_agent.utils import storage
 from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.utils.config import get_config
 from causal_ssm_agent.utils.data import input_dir
-from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
 
 from .tools import ModalCodeSandbox, make_ingestion_tools
 
@@ -194,36 +198,29 @@ async def agentic_ingest(
     logger.info("Ingesting %s for workspace %s", raw_name, workspace_id)
 
     config = get_config()
-    with use_openrouter_api_key(openrouter_api_key):
-        factory = StageSessionFactory(
-            config.stage0_ingestion.llm,
-            config.llm,
-            stage_id="stage-0",
-            max_tool_turns=config.stage0_ingestion.max_tool_turns,
-        )
+    runtime_config = LLMStageRuntimeConfig(
+        stage_id="stage-0",
+        stage_llm=config.stage0_ingestion.llm,
+        llm_defaults=config.llm,
+        max_tool_turns=config.stage0_ingestion.max_tool_turns,
+    )
+    async with open_llm_stage(
+        config=runtime_config,
+        openrouter_api_key=openrouter_api_key,
+        logger=logger,
+    ) as factory:
+        with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
+            if storage.is_remote():
+                local_raw = Path(tmpdir) / "download" / raw_name
+                local_raw.parent.mkdir(parents=True, exist_ok=True)
+                storage.get_fs().get(raw_storage_path, str(local_raw))
+            else:
+                local_raw = Path(raw_storage_path)
 
-        try:
-            with tempfile.TemporaryDirectory(prefix="ingest_") as tmpdir:
-                if storage.is_remote():
-                    local_raw = Path(tmpdir) / "download" / raw_name
-                    local_raw.parent.mkdir(parents=True, exist_ok=True)
-                    storage.get_fs().get(raw_storage_path, str(local_raw))
-                else:
-                    local_raw = Path(raw_storage_path)
+            extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
+            result = await run_agentic_ingestion(extract_dir, factory)
 
-                extract_dir = _prepare_raw_input(local_raw, Path(tmpdir))
-                result = await run_agentic_ingestion(extract_dir, factory)
-        except BaseException:
-            if factory.accumulated_trace.messages:
-                logger.error(
-                    "Stage 0 ingestion failed; preserving partial LLM trace (%d messages)",
-                    len(factory.accumulated_trace.messages),
-                )
-            raise
-
-        if factory.accumulated_trace.messages:
-            result.llm_trace = factory.accumulated_trace.model_dump(mode="json")
-
+        attach_trace(result.__dict__, factory.accumulated_trace)
         logger.info(
             "Ingested %d rows x %d columns",
             result.dataframe.shape[0],

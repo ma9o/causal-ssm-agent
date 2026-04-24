@@ -6,6 +6,11 @@ import json
 from inspect import isawaitable
 from typing import Any
 
+from causal_ssm_agent.flows.llm_stage_runtime import (
+    LLMStageRuntimeConfig,
+    attach_trace,
+    open_llm_stage,
+)
 from causal_ssm_agent.flows.run_store import load_pickle, unwrap_task_result
 
 from .interventions import run_interventions
@@ -161,19 +166,23 @@ async def run_stage6(
         f"{json.dumps(commentary_input, indent=2, sort_keys=True)}"
     )
 
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
-
     cfg = get_config()
-    factory = StageSessionFactory(
-        cfg.stage6_commentary.llm,
-        cfg.llm,
+    runtime_config = LLMStageRuntimeConfig(
         stage_id="stage-6",
+        stage_llm=cfg.stage6_commentary.llm,
+        llm_defaults=cfg.llm,
     )
-
-    async with factory.open(
-        system_prompt=system_prompt,
-        log_label="comment-results",
-    ) as session:
+    async with (
+        open_llm_stage(
+            config=runtime_config,
+            openrouter_api_key=None,
+            logger=logger,
+        ) as factory,
+        factory.open(
+            system_prompt=system_prompt,
+            log_label="comment-results",
+        ) as session,
+    ):
         await session.turn(user_prompt)
 
     result: dict[str, Any] = {
@@ -183,6 +192,5 @@ async def run_stage6(
     final_summary = _first_assistant_summary(factory.accumulated_trace)
     if final_summary:
         result["final_summary"] = final_summary
-    if factory.accumulated_trace.messages:
-        result["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+    attach_trace(result, factory.accumulated_trace)
     return result

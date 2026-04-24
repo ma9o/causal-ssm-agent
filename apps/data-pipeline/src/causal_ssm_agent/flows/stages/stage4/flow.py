@@ -5,21 +5,31 @@ This module manages config, Prefect lifecycle, and materialization.
 """
 
 from dataclasses import replace
+from pathlib import Path
 
 import polars as pl
 from prefect import flow
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.llm_stage_runtime import (
+    LLMStageRuntimeConfig,
+    attach_trace,
+    build_stage_session_factory,
+    open_llm_stage,
+)
 from causal_ssm_agent.flows.runtime_events import (
     emit_nested_stage_running_event,
     emit_stage4_block_transition_event,
     emit_stage4_graph_event,
     emit_stage4_snapshot_event,
 )
-from causal_ssm_agent.utils.agent_session import StageSessionFactory
+from causal_ssm_agent.utils.agent_session import (
+    StageSessionFactory,  # noqa: TC001 — runtime-annotated local
+)
 from causal_ssm_agent.utils.config import get_config, get_secret
+from causal_ssm_agent.utils.data import runs_dir
 from causal_ssm_agent.utils.llm import get_generate_config
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
+from causal_ssm_agent.utils.openrouter_client import GenerateConfig
 
 logger = get_prefect_logger(__name__)
 
@@ -89,24 +99,29 @@ async def stage4_agentic_flow(
     # ceiling for hung provider calls should set it in config.
     stage4_llm = s4.llm
 
-    with use_openrouter_api_key(openrouter_api_key):
-        factory = StageSessionFactory(
-            stage4_llm,
-            config.llm,
-            stage_id="stage-4",
-            max_tool_turns=s4.max_tool_turns,
-        )
-
+    runtime_config = LLMStageRuntimeConfig(
+        stage_id="stage-4",
+        stage_llm=stage4_llm,
+        llm_defaults=config.llm,
+        max_tool_turns=s4.max_tool_turns,
+    )
+    async with open_llm_stage(
+        config=runtime_config,
+        openrouter_api_key=openrouter_api_key,
+        logger=logger,
+    ) as factory:
         paraphrase_factory: StageSessionFactory | None = None
         if s4.paraphrasing.enabled:
             paraphrase_llm = stage4_llm
             if s4.paraphrasing.gmm_model:
                 paraphrase_llm = replace(stage4_llm, model=s4.paraphrasing.gmm_model)
-            paraphrase_factory = StageSessionFactory(
-                paraphrase_llm,
-                config.llm,
-                stage_id="stage-4/paraphrase",
-                max_tool_turns=s4.max_tool_turns,
+            paraphrase_factory = build_stage_session_factory(
+                LLMStageRuntimeConfig(
+                    stage_id="stage-4/paraphrase",
+                    stage_llm=paraphrase_llm,
+                    llm_defaults=config.llm,
+                    max_tool_turns=s4.max_tool_turns,
+                )
             )
 
         def _on_state_change(plan, runtime, transitions):
@@ -161,6 +176,11 @@ async def stage4_agentic_flow(
             )
         else:
             logger.info("Stage 4 state machine disabled via config; running megaprompt mode.")
+            checkpoint_path = (
+                None
+                if workspace_id is None
+                else Path(runs_dir(workspace_id)) / "stage-4-megaprompt.json"
+            )
             result = await run_stage4_megaprompt(
                 causal_spec=causal_spec,
                 question=question,
@@ -173,6 +193,7 @@ async def stage4_agentic_flow(
                 n_paraphrases=s4.paraphrasing.n_paraphrases,
                 max_tool_turns=s4.max_tool_turns,
                 max_outer_turns=s4.megaprompt_max_outer_turns,
+                checkpoint_path=checkpoint_path,
             )
 
         materialized = materialize_stage4_result(
@@ -184,8 +205,7 @@ async def stage4_agentic_flow(
             validation=result.validation,
             search_queries=result.search_queries,
         )
-        if factory.accumulated_trace.messages:
-            materialized["llm_trace"] = factory.accumulated_trace.model_dump(mode="json")
+        attach_trace(materialized, factory.accumulated_trace)
         return materialized
 
 
