@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING, Any
 
 from prefect import task
 from prefect.cache_policies import INPUTS
 
 from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
+
+from .llm_stage_runtime import LLMStageRuntimeConfig, attach_trace, open_llm_stage
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -56,31 +55,23 @@ def make_llm_stage_task(
     @task(**options)
     async def _run(*args: Any, **kwargs: Any) -> dict[str, Any]:
         openrouter_api_key = kwargs.pop("openrouter_api_key", None)
-        with use_openrouter_api_key(openrouter_api_key):
-            started_at = time.monotonic()
-            logger.info("[%s] starting", stage_id)
-            stage_llm = stage_llm_getter()
-            llm_defaults = _llm_defaults_getter()
-            max_turns = max_tool_turns_getter() if max_tool_turns_getter else None
-            factory = StageSessionFactory(
-                stage_llm,
-                llm_defaults,
-                stage_id=stage_id,
-                max_tool_turns=max_turns,
-            )
+        stage_llm = stage_llm_getter()
+        llm_defaults = _llm_defaults_getter()
+        max_turns = max_tool_turns_getter() if max_tool_turns_getter else None
+        runtime_config = LLMStageRuntimeConfig(
+            stage_id=stage_id,
+            stage_llm=stage_llm,
+            llm_defaults=llm_defaults,
+            max_tool_turns=max_turns,
+        )
+        async with open_llm_stage(
+            config=runtime_config,
+            openrouter_api_key=openrouter_api_key,
+            logger=logger,
+        ) as factory:
             result = await orchestrator_fn(*args, session_factory=factory, **kwargs)
             payload = payload_builder(result)
-            trace = factory.accumulated_trace
-            if trace.messages or trace.usage.input_tokens or trace.usage.output_tokens:
-                payload["llm_trace"] = trace.model_dump(mode="json")
-            elapsed = time.monotonic() - started_at
-            logger.info(
-                "[%s] completed in %.1fs (harness=%s, model=%s)",
-                stage_id,
-                elapsed,
-                stage_llm.harness,
-                stage_llm.model,
-            )
+            attach_trace(payload, factory.accumulated_trace)
             return payload
 
     return _run
