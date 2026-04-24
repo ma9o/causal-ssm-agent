@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from causal_ssm_agent.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 def _find_free_port(host: str = "127.0.0.1") -> int:
@@ -76,20 +77,25 @@ def build_mcp_server(tools: list[Tool], *, name: str = "pipeline-tools") -> Serv
 
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict | None) -> list[mcp_types.TextContent]:
+        logger.info("MCP call_tool name=%s args_keys=%s", name, list((arguments or {}).keys()))
         tool = tool_map.get(name)
         if tool is None:
+            logger.warning("MCP call_tool unknown tool name=%s", name)
             return [mcp_types.TextContent(type="text", text=f"Unknown tool: {name}")]
         try:
             result = await tool.execute(**(arguments or {}))
         except Exception as exc:  # noqa: BLE001 — surface to harness as tool error
             tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+            logger.warning("MCP call_tool %s raised %s: %s", name, type(exc).__name__, exc)
             return [
                 mcp_types.TextContent(
                     type="text",
                     text=f"Tool execution failed: {type(exc).__name__}: {exc}\n{tb}",
                 )
             ]
-        return [mcp_types.TextContent(type="text", text=str(result))]
+        text = str(result)
+        logger.info("MCP call_tool %s -> %d chars", name, len(text))
+        return [mcp_types.TextContent(type="text", text=text)]
 
     return server
 

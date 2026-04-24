@@ -35,6 +35,7 @@ from causal_ssm_agent.utils.harness.stream_json import (
     ClaudeStreamState,
     apply_claude_event,
     finalize_trace,
+    format_claude_event_for_log,
 )
 
 if TYPE_CHECKING:
@@ -43,6 +44,10 @@ if TYPE_CHECKING:
     from causal_ssm_agent.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
+# Stream events from the claude subprocess are at INFO level; make sure they
+# clear the root logger's default WARNING threshold so they propagate up to
+# the Prefect APILogHandler attached to ``causal_ssm_agent``.
+logger.setLevel(logging.INFO)
 
 MCP_SERVER_NAME = "pipeline-tools"
 # Tool allowlist glob pattern for --allowedTools. Claude prefixes MCP
@@ -199,6 +204,10 @@ class ClaudeHarnessSession:
 
         proc = await asyncio.create_subprocess_exec(
             *argv,
+            # The user message is passed via argv (-p); don't inherit the
+            # parent's stdin or ``claude -p`` may block reading additional
+            # input when the parent (e.g. a Prefect worker) has stdin open.
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -228,17 +237,43 @@ class ClaudeHarnessSession:
     async def _drain_stdout(self, proc: asyncio.subprocess.Process) -> None:
         if proc.stdout is None:
             return
-        async for raw in proc.stdout:
-            line = raw.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                logger.debug("[%s] non-JSON claude line: %r", self._log_label, line[:200])
-                continue
-            if isinstance(event, dict):
-                apply_claude_event(self._state, event)
+        # Accept arbitrarily long lines; claude's stream-json frames can
+        # exceed asyncio's default 64 KiB readline limit (large assistant
+        # messages, aggregated tool_use blocks, thinking summaries).
+        buffer = bytearray()
+        while True:
+            chunk = await proc.stdout.read(65536)
+            if not chunk:
+                break
+            buffer.extend(chunk)
+            while True:
+                newline_index = buffer.find(b"\n")
+                if newline_index < 0:
+                    break
+                raw = bytes(buffer[:newline_index])
+                del buffer[: newline_index + 1]
+                self._handle_claude_line(raw)
+        if buffer:
+            self._handle_claude_line(bytes(buffer))
+
+    def _handle_claude_line(self, raw: bytes) -> None:
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line:
+            return
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"[{self._log_label}] claude emitted non-JSON on stdout: {line[:200]!r}"
+            ) from exc
+        if not isinstance(event, dict):
+            raise RuntimeError(
+                f"[{self._log_label}] claude emitted non-object JSON on stdout: {line[:200]!r}"
+            )
+        log_line = format_claude_event_for_log(event)
+        if log_line is not None:
+            logger.info("[%s] %s", self._log_label, log_line)
+        apply_claude_event(self._state, event)
 
     def _build_turn_result(self, turn_events: list[dict]) -> TurnResult:
         tool_calls_fired: list[str] = []

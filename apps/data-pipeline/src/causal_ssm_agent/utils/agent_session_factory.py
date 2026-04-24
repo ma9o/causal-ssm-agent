@@ -15,7 +15,7 @@ load time, so dispatch here can trust the shape.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from causal_ssm_agent.utils.agent_session_embedded import open_embedded_session
 from causal_ssm_agent.utils.harness.claude import open_claude_harness_session
@@ -94,13 +94,18 @@ async def open_session(
 
     if harness == "codex":
         defaults = llm_defaults.codex
-        async with open_codex_harness_session(
-            tools=tools,
-            model=stage_llm.model,
-            bin=_first_not_none(stage_llm.bin, defaults.bin),
-            reasoning_effort=_first_not_none(stage_llm.reasoning_effort, defaults.reasoning_effort),
-            log_label=label,
-        ) as session:
+        codex_kwargs: dict[str, Any] = {
+            "tools": tools,
+            "model": stage_llm.model,
+            "bin": _first_not_none(stage_llm.bin, defaults.bin),
+            "reasoning_effort": _first_not_none(
+                stage_llm.reasoning_effort, defaults.reasoning_effort
+            ),
+            "log_label": label,
+        }
+        if stage_llm.timeout is not None:
+            codex_kwargs["timeout_seconds"] = float(stage_llm.timeout)
+        async with open_codex_harness_session(**codex_kwargs) as session:
             yield session
         return
 
