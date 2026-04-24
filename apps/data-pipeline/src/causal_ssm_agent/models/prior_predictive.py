@@ -880,12 +880,14 @@ def _check_scale_plausibility(
 
         ratio = float(median_implied[j]) / data_std
         if ratio > ratio_threshold or ratio < 1.0 / ratio_threshold:
-            # TODO: If this heuristic proves too noisy, downgrade it to warn-only
-            # via is_valid=True and severity="warning" instead of blocking validation.
+            # Warn-only: the model still fits, the prior is just poorly calibrated
+            # to the observed scale. Kept as a diagnostic the agent will see as
+            # guidance, but not a hard validation failure.
             results.append(
                 _pp_result(
                     parameter=f"scale_{name}",
-                    is_valid=False,
+                    is_valid=True,
+                    severity="warning",
                     code="scale_mismatch",
                     issue=(
                         f"Scale mismatch for {name}: implied std "
@@ -1014,10 +1016,9 @@ def _check_lagged_response_plausibility(
                 code="lagged_response_weak",
                 severity="warning",
                 issue=(
-                    f"Across prior draws, the full-system one-lag response for {cause}->{effect} "
-                    f"at {lag_days:.1f}d is usually very small "
-                    f"(median |response|={median_abs:.3f}; {weak_fraction:.0%} of draws "
-                    f"are below {weak_response_cutoff:.2f})."
+                    f"one-lag response for {cause}->{effect} at {lag_days:.1f}d: "
+                    f"median |response|={median_abs:.3f}; "
+                    f"{weak_fraction:.0%} of draws below {weak_response_cutoff:.2f}."
                 ),
                 suggested_adjustment=(
                     "Confirm that a near-zero one-lag effect is substantively intended. "
@@ -1357,34 +1358,6 @@ def format_parameter_feedback(
     lines.append("")
     lines.append("Please revise your prior to address the issues above.")
 
-    return "\n".join(lines)
-
-
-def format_parameter_warnings(
-    parameter_name: str,
-    results: list[PriorValidationResult],
-) -> str:
-    """Format non-fatal warnings relevant to one parameter."""
-    param_lower = parameter_name.lower()
-    relevant = [
-        r
-        for r in results
-        if r.severity == "warning"
-        and (
-            r.parameter == parameter_name
-            or param_lower in r.parameter.lower()
-            or r.parameter.lower() in param_lower
-        )
-    ]
-    if not relevant:
-        return ""
-
-    lines: list[str] = []
-    for result in relevant:
-        if result.issue:
-            lines.append(f"- {result.issue}")
-        if result.suggested_adjustment:
-            lines.append(f"  Suggested: {result.suggested_adjustment}")
     return "\n".join(lines)
 
 
