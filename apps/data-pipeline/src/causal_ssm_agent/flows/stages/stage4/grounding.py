@@ -200,7 +200,6 @@ def stage4_grounding(
         feedback = format_validation_feedback(
             validation,
             authored_priors or {},
-            changed_params=list(new_priors) if new_priors else list(authored_priors or {}),
         )
         return make_stage4_grounding_result(
             stage_output=output,
@@ -212,10 +211,12 @@ def stage4_grounding(
             capture_stage_output=True,
         )
 
+    # Grounding returns a scope-free feedback view — the state-machine reducer
+    # post-filters to an active-block subset via ``focus_parameters`` if it
+    # wants a narrower LLM-facing rendering.
     feedback = format_validation_feedback(
         validation,
         authored_priors or {},
-        changed_params=list(new_priors) if new_priors else list(authored_priors or {}),
     )
     failure_status = (
         "sensitivity_failure" if validation.has_sensitivity_failure else "prior_predictive_failure"

@@ -24,11 +24,13 @@ from .stage4_feedback import (
     Stage4ValidationPacket,
     build_validation_packet_for_block,
     render_stage4_validation_feedback,
+    scope_stage4_validation_packet,
     should_store_stage4_validation_packet,
 )
 from .stage4_navigation import (
     _set_block_cursor,
     _set_done_cursor,
+    active_block_parameter_names,
     apply_stage4_barrier_validation_success,
     apply_stage4_block_acceptance,
     apply_stage4_repair_plan,
@@ -475,6 +477,7 @@ def _build_prior_campaign_context(
 def _ground_prior_submission(
     *,
     runtime: Stage4Runtime,
+    active_block: Stage4FrontierBlock,
     normalized: dict[str, Any],
     deps: Stage4Deps,
     campaign_context: _Stage4PriorCampaignContext,
@@ -490,11 +493,61 @@ def _ground_prior_submission(
     )
     stage_output = grounding_result.stage_output
     validation = stage_output.get("validation") if stage_output else None
-    return _Stage4PriorSubmissionState(
+    validation_packet = _scope_prior_grounding_packet(
+        runtime=runtime,
+        active_block=active_block,
         stage_output=stage_output,
         validation=validation,
         validation_packet=grounding_result.validation_packet,
+    )
+    return _Stage4PriorSubmissionState(
+        stage_output=stage_output,
+        validation=validation,
+        validation_packet=validation_packet,
         changed_parameters=tuple(normalized["priors"]),
+    )
+
+
+def _scope_prior_grounding_packet(
+    *,
+    runtime: Stage4Runtime,
+    active_block: Stage4FrontierBlock,
+    stage_output: dict[str, Any] | None,
+    validation: AssemblyValidation | None,
+    validation_packet: Stage4ValidationPacket,
+) -> Stage4ValidationPacket:
+    """Narrow one grounding packet to the reducer's active prior block.
+
+    Grounding itself stays scope-free so the megaprompt path can consume the
+    full feedback. The reducer rewrites only the packet it stores for the next
+    prompt, narrowing both the human-facing feedback string and the typed
+    failure metadata to the active block's parameter surface.
+    """
+    focus_parameters = active_block_parameter_names(active_block, runtime)
+    scoped_packet = scope_stage4_validation_packet(
+        validation_packet,
+        active_scope_id=active_block.id,
+        focus_parameters=focus_parameters,
+    )
+    if validation is None or scoped_packet.status not in {
+        "compile_error",
+        "prior_predictive_failure",
+        "sensitivity_failure",
+    }:
+        return scoped_packet
+
+    from causal_ssm_agent.flows.stages.stage4.assembly import format_validation_feedback
+
+    authored_priors = runtime.domain.accepted.authored_priors
+    if stage_output is not None and isinstance(stage_output.get("authored_priors"), dict):
+        authored_priors = stage_output["authored_priors"]
+    return replace(
+        scoped_packet,
+        model_feedback=format_validation_feedback(
+            validation,
+            authored_priors,
+            focus_parameters=focus_parameters,
+        ),
     )
 
 
@@ -817,6 +870,7 @@ def _apply_prior_submission(
     campaign_context = _build_prior_campaign_context(runtime, active_block)
     state = _ground_prior_submission(
         runtime=runtime,
+        active_block=active_block,
         normalized=normalized,
         deps=deps,
         campaign_context=campaign_context,
@@ -1333,10 +1387,12 @@ def _finalize_repair_campaign_if_complete(
     changed_params = _parameter_names_for_blocks(
         tuple(campaign.prompt_blocks_by_id[block_id] for block_id in campaign.scope_block_ids)
     )
+    # Campaign-barrier feedback narrows to the parameters the campaign was
+    # working on — that's the state-machine-specific post-filter.
     feedback = format_validation_feedback(
         validation,
         runtime.domain.accepted.authored_priors,
-        changed_params=changed_params,
+        focus_parameters=changed_params,
     )
     validation_route = classify_validation_outcome(
         plan,
