@@ -18,9 +18,21 @@ from causal_ssm_agent.flows.runtime_events import (
 )
 from causal_ssm_agent.utils.agent_session import StageSessionFactory
 from causal_ssm_agent.utils.config import get_config, get_secret
-from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
+from causal_ssm_agent.utils.llm import get_generate_config
+from causal_ssm_agent.utils.openrouter_client import GenerateConfig, use_openrouter_api_key
 
 logger = get_prefect_logger(__name__)
+
+
+def _stage4_generate_config() -> GenerateConfig:
+    """Return the bounded generation config historically used by Stage 4 tests."""
+    config = get_generate_config()
+    return GenerateConfig(
+        max_tokens=None,
+        timeout=min(int(config.timeout or 180), 180),
+        reasoning_effort=config.reasoning_effort,
+        max_tool_output=None,
+    )
 
 
 @flow(name="stage4-agentic", log_prints=True, persist_result=True, result_serializer="json")
@@ -50,6 +62,9 @@ async def stage4_agentic_flow(
         dispatch_stage4_model_compile_warmup,
     )
     from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
+    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_megaprompt import (
+        run_stage4_megaprompt,
+    )
     from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
         project_stage4_graph,
         project_stage4_snapshot,
@@ -68,9 +83,11 @@ async def stage4_agentic_flow(
             "search_literature disabled: EXA_API_KEY is not set; tool will not be exposed to Stage 4."
         )
 
-    # Stage 4 enforces a bounded per-request timeout so hung provider calls
-    # do not stall the whole stage indefinitely. Other fields inherit.
-    stage4_llm = replace(s4.llm, timeout=180)
+    # Per-turn / per-request timeout is configured in ``config.yaml``
+    # (``stage4_prior_elicitation.llm.timeout``) and honoured by each
+    # backend. It is not clamped here — callers that need a tighter
+    # ceiling for hung provider calls should set it in config.
+    stage4_llm = s4.llm
 
     with use_openrouter_api_key(openrouter_api_key):
         factory = StageSessionFactory(
@@ -114,33 +131,49 @@ async def stage4_agentic_flow(
             except Exception:
                 logger.exception("Stage 4 compile-cache warmup dispatch failed")
 
-        result = await run_stage4(
-            causal_spec=causal_spec,
-            question=question,
-            data_for_model=data_for_model,
-            indicator_audits=indicator_audits,
-            session_factory=factory,
-            paraphrase_session_factory=paraphrase_factory,
-            enable_literature=literature_enabled,
-            enable_paraphrasing=s4.paraphrasing.enabled,
-            n_paraphrases=s4.paraphrasing.n_paraphrases,
-            max_tool_turns=s4.max_tool_turns,
-            load_checkpoint=(
-                None
-                if workspace_id is None
-                else lambda: _load_stage4_checkpoint_if_present(workspace_id)
-            ),
-            save_checkpoint=(
-                None
-                if workspace_id is None
-                else lambda runtime: save_stage4_checkpoint(runtime, workspace_id)
-            ),
-            clear_checkpoint=(
-                None if workspace_id is None else lambda: clear_stage4_checkpoint(workspace_id)
-            ),
-            on_model_spec_locked=_on_model_spec_locked,
-            on_state_change=_on_state_change if root_run_id else None,
-        )
+        if s4.state_machine_enabled:
+            result = await run_stage4(
+                causal_spec=causal_spec,
+                question=question,
+                data_for_model=data_for_model,
+                indicator_audits=indicator_audits,
+                session_factory=factory,
+                paraphrase_session_factory=paraphrase_factory,
+                enable_literature=literature_enabled,
+                enable_paraphrasing=s4.paraphrasing.enabled,
+                n_paraphrases=s4.paraphrasing.n_paraphrases,
+                max_tool_turns=s4.max_tool_turns,
+                load_checkpoint=(
+                    None
+                    if workspace_id is None
+                    else lambda: _load_stage4_checkpoint_if_present(workspace_id)
+                ),
+                save_checkpoint=(
+                    None
+                    if workspace_id is None
+                    else lambda runtime: save_stage4_checkpoint(runtime, workspace_id)
+                ),
+                clear_checkpoint=(
+                    None if workspace_id is None else lambda: clear_stage4_checkpoint(workspace_id)
+                ),
+                on_model_spec_locked=_on_model_spec_locked,
+                on_state_change=_on_state_change if root_run_id else None,
+            )
+        else:
+            logger.info("Stage 4 state machine disabled via config; running megaprompt mode.")
+            result = await run_stage4_megaprompt(
+                causal_spec=causal_spec,
+                question=question,
+                data_for_model=data_for_model,
+                indicator_audits=indicator_audits,
+                session_factory=factory,
+                paraphrase_session_factory=paraphrase_factory,
+                enable_literature=literature_enabled,
+                enable_paraphrasing=s4.paraphrasing.enabled,
+                n_paraphrases=s4.paraphrasing.n_paraphrases,
+                max_tool_turns=s4.max_tool_turns,
+                max_outer_turns=s4.megaprompt_max_outer_turns,
+            )
 
         materialized = materialize_stage4_result(
             model_spec=result.model_spec,
