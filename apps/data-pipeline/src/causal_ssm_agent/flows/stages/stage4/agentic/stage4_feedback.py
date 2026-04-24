@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
     from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
 
@@ -199,6 +201,49 @@ def build_validation_packet_for_block(
         state_retained=state_retained,
         retain_for_next_prompt=retain_for_next_prompt,
         capture_stage_output=capture_stage_output,
+    )
+
+
+def scope_stage4_validation_packet(
+    packet: Stage4ValidationPacket,
+    *,
+    active_scope_id: str | None,
+    focus_parameters: Iterable[str],
+) -> Stage4ValidationPacket:
+    """Return a prompt-local view of one validation packet.
+
+    Reducer callers use this to narrow the packet stored for the next prompt
+    without changing the underlying validation object or the scope-free
+    grounding path. Failing parameters inside ``focus_parameters`` remain
+    primary failures; failing parameters outside the active scope are demoted
+    into coupling context for the next prompt.
+    """
+    focus = {name for name in focus_parameters if isinstance(name, str)}
+    if not focus:
+        return replace(packet, active_scope_id=active_scope_id)
+
+    scoped_failing = tuple(name for name in packet.failing_parameters if name in focus)
+    scoped_coupled = tuple(
+        name
+        for name in dict.fromkeys(
+            (
+                *packet.coupled_parameters,
+                *(name for name in packet.failing_parameters if name not in focus),
+            )
+        )
+        if name not in focus
+    )
+    return replace(
+        packet,
+        summary=_validation_summary(
+            packet.status,
+            failing_parameters=scoped_failing,
+            coupled_parameters=scoped_coupled,
+            global_failure_sites=packet.global_failure_sites,
+        ),
+        active_scope_id=active_scope_id,
+        failing_parameters=scoped_failing,
+        coupled_parameters=scoped_coupled,
     )
 
 
