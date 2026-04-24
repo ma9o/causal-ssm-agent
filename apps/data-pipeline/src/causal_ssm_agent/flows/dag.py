@@ -131,7 +131,8 @@ async def stage2(
 
     from causal_ssm_agent.utils.config import get_config
 
-    from .stages.stage2.flow import materialize_stage2_outputs, stage2_extraction_flow
+    from .stages.stage2.flow import stage2_extraction_flow
+    from .stages.stage2.materialization import materialize_stage2_outputs
 
     config = get_config()
     causal_spec = stage1b.causal_spec.model_dump()

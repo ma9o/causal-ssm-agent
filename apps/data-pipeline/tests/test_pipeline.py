@@ -341,6 +341,7 @@ def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
 
 
 def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
+    from causal_ssm_agent.flows.stages.stage2.definition import _bind_stage2
     from causal_ssm_agent.utils.config import get_config
 
     MAX_FREE_WINDOWS = get_config().stage2_workers.max_free_windows
@@ -381,9 +382,9 @@ def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
         openrouter_access_mode="local",
     )
 
-    user_inputs = stage_registry._bind_stage2(user_ctx, states)
-    anonymous_inputs = stage_registry._bind_stage2(anonymous_ctx, states)
-    local_inputs = stage_registry._bind_stage2(local_ctx, states)
+    user_inputs = _bind_stage2(user_ctx, states)
+    anonymous_inputs = _bind_stage2(anonymous_ctx, states)
+    local_inputs = _bind_stage2(local_ctx, states)
 
     assert user_inputs["max_windows"] is None
     assert anonymous_inputs["max_windows"] == MAX_FREE_WINDOWS
@@ -428,6 +429,10 @@ def test_run_stage_flow_rejects_override_without_materialization_policy():
 
 
 def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypatch):
+    from causal_ssm_agent.flows.stages.stage4.definition import (
+        _emit_stage4_initial_replay_state,
+    )
+
     events: list[tuple[str, object] | tuple[str, object, object]] = []
 
     monkeypatch.setattr(
@@ -451,12 +456,6 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
         "causal_ssm_agent.flows.runtime_events.emit_stage4_snapshot_event",
         lambda root_run_id, *, snapshot: events.append(("snapshot", root_run_id, snapshot)),
     )
-    monkeypatch.setattr(
-        stage_registry,
-        "finalize_stage",
-        lambda _stage_id, contract, _workspace_id: contract,
-    )
-
     _runner_result = Stage4Contract.model_validate(
         {
             "model_spec": {"parameters": [], "likelihoods": []},
@@ -487,6 +486,7 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
             "root_run_id": "root-run-123",
         },
         runner=_runner,
+        before_run=_emit_stage4_initial_replay_state,
     )
     ctx = stage_registry.PipelineContext(
         workspace_id="workspace",
@@ -499,7 +499,14 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
         openrouter_access_mode=None,
     )
 
-    stage_state = asyncio.run(stage_registry.run_stage_flow(defn, ctx, {}))
+    stage_state = asyncio.run(
+        stage_registry.run_stage_flow(
+            defn,
+            ctx,
+            {},
+            finalize=lambda _stage_id, contract, _workspace_id: contract,
+        )
+    )
 
     assert stage_state is _runner_result
     assert events == [
@@ -1003,8 +1010,8 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
             yield _FakeAgentSession()
 
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.agent_session.StageSessionFactory",
-        _FakeStageSessionFactory,
+        "causal_ssm_agent.flows.llm_stage_runtime.build_stage_session_factory",
+        lambda _config: _FakeStageSessionFactory(),
     )
 
     def fake_compute_interventions(**kwargs):
