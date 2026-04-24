@@ -233,6 +233,7 @@ class AuxGibbsConfig:
     adaptation_rate: float = 0.05
     init_scale: float = 0.05
     retain_latent_paths: bool = False
+    compute_latent_posterior_summary: bool = True
     latent_kernel: AuxGibbsLatentKernelConfig = field(default_factory=AuxGibbsLatentKernelConfig)
     parameter_kernel: AuxGibbsParameterKernelConfig = field(
         default_factory=AuxGibbsParameterKernelConfig
@@ -286,6 +287,9 @@ class InferenceConfig:
                     "adaptation_rate": self.aux_gibbs.adaptation_rate,
                     "init_scale": self.aux_gibbs.init_scale,
                     "retain_latent_paths": self.aux_gibbs.retain_latent_paths,
+                    "compute_latent_posterior_summary": (
+                        self.aux_gibbs.compute_latent_posterior_summary
+                    ),
                 }
             )
         elif method == "map":

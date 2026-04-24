@@ -48,6 +48,14 @@ class ParallelFilterState(NamedTuple):
     loglik: jnp.ndarray
 
 
+class AuxiliaryFilterState(NamedTuple):
+    """Filtered moments for the identity-observation auxiliary LGSSM."""
+
+    filt_mean: jnp.ndarray
+    filt_cov: jnp.ndarray
+    loglik: jnp.ndarray
+
+
 def _filter_op(elem1, elem2):
     return _filter_op_one(*elem1, *elem2)
 
@@ -126,6 +134,33 @@ def _filter_init_identity_obs(
     return A, b_std, symmetrize(C), eta, symmetrize(J)
 
 
+def _filter_init_identity_obs_isotropic(
+    F: jnp.ndarray,
+    Q: jnp.ndarray,
+    b: jnp.ndarray,
+    y: jnp.ndarray,
+    m: jnp.ndarray,
+    P: jnp.ndarray,
+    variance: jnp.ndarray,
+    *,
+    jitter: float,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Associative-filter init specialised to ``H = I`` and ``R = variance * I``."""
+    m_pred = F @ m + b
+    P_pred = symmetrize_with_jitter(F @ P @ F.T + Q, jitter=jitter)
+    eye = jnp.eye(P_pred.shape[0], dtype=P_pred.dtype)
+    S = symmetrize_with_jitter(P_pred + variance * eye, jitter=jitter)
+    chol_S = jnp.linalg.cholesky(S)
+    gain = jla.cho_solve((chol_S, True), P_pred).T
+    A = F - gain @ F
+    b_std = m_pred + gain @ (y - m_pred)
+    C = P_pred - gain @ S @ gain.T
+    temp = jla.cho_solve((chol_S, True), F).T
+    eta = temp @ (y - b)
+    J = temp @ F
+    return A, b_std, symmetrize(C), eta, symmetrize(J)
+
+
 def _kalman_predict(
     m: jnp.ndarray, P: jnp.ndarray, F: jnp.ndarray, Q: jnp.ndarray, c: jnp.ndarray
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -174,6 +209,45 @@ def _kalman_update_identity_obs(
     dim = innov.shape[-1]
     loglik = -0.5 * (dim * jnp.log(2.0 * jnp.pi) + logdet + whitened @ whitened)
     return m_upd, P_upd, loglik
+
+
+def _kalman_update_identity_obs_isotropic(
+    m_pred: jnp.ndarray,
+    P_pred: jnp.ndarray,
+    variance: jnp.ndarray,
+    y: jnp.ndarray,
+    *,
+    jitter: float,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Kalman update for ``H = I`` and ``R = variance * I``."""
+    innov = y - m_pred
+    eye = jnp.eye(P_pred.shape[0], dtype=P_pred.dtype)
+    S = symmetrize_with_jitter(P_pred + variance * eye, jitter=jitter)
+    chol_S = jnp.linalg.cholesky(S)
+    gain = jla.cho_solve((chol_S, True), P_pred).T
+    m_upd = m_pred + gain @ innov
+    P_upd = symmetrize(P_pred - gain @ S @ gain.T)
+    whitened = jla.solve_triangular(chol_S, innov, lower=True)
+    logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol_S)))
+    dim = innov.shape[-1]
+    loglik = -0.5 * (dim * jnp.log(2.0 * jnp.pi) + logdet + whitened @ whitened)
+    return m_upd, P_upd, loglik
+
+
+def _coerce_aux_variance_per_t(
+    aux_variance: jnp.ndarray,
+    *,
+    T: int,
+    dtype,
+) -> jnp.ndarray:
+    aux_variance_arr = jnp.asarray(aux_variance, dtype=dtype)
+    if aux_variance_arr.ndim == 0:
+        return jnp.broadcast_to(aux_variance_arr, (T,))
+    if aux_variance_arr.shape != (T,):
+        raise ValueError(
+            f"aux_variance must be scalar or shape (T,); got {aux_variance_arr.shape} with T={T}."
+        )
+    return aux_variance_arr
 
 
 def _sequential_filter_lgssm(
@@ -237,33 +311,42 @@ def _sequential_aux_filter_lgssm(
     Qs: jnp.ndarray,
     bs: jnp.ndarray,
     pseudo_observations: jnp.ndarray,
-    R_aux_per_t: jnp.ndarray,
+    aux_variance_per_t: jnp.ndarray,
     *,
     jitter: float,
 ) -> ParallelFilterState:
     """O(T) sequential Kalman filter for the identity-observation auxiliary LGSSM.
 
-    ``R_aux_per_t`` has shape ``(T, D, D)`` so callers can specify per-time-step
-    auxiliary observation noise (e.g. for the δ_t stabilisation strategies).
+    ``aux_variance_per_t`` has shape ``(T,)`` and encodes ``R_t = variance_t * I``.
     """
     init_pred_mean = Fs[0] @ init_mean + bs[0]
     init_pred_cov = symmetrize_with_jitter(Fs[0] @ init_cov @ Fs[0].T + Qs[0], jitter=jitter)
-    filt_mean_0, filt_cov_0, loglik_0 = _kalman_update_identity_obs(
-        init_pred_mean, init_pred_cov, R_aux_per_t[0], pseudo_observations[0], jitter=jitter
+    filt_mean_0, filt_cov_0, loglik_0 = _kalman_update_identity_obs_isotropic(
+        init_pred_mean,
+        init_pred_cov,
+        aux_variance_per_t[0],
+        pseudo_observations[0],
+        jitter=jitter,
     )
 
     def _step(carry, inputs):
         mean_prev, cov_prev = carry
-        F_t, Q_t, b_t, y_t, R_t = inputs
+        F_t, Q_t, b_t, y_t, variance_t = inputs
         m_pred, P_pred = _kalman_predict(mean_prev, cov_prev, F_t, Q_t, b_t)
         P_pred = symmetrize_with_jitter(P_pred, jitter=jitter)
-        m_upd, P_upd, ll = _kalman_update_identity_obs(m_pred, P_pred, R_t, y_t, jitter=jitter)
+        m_upd, P_upd, ll = _kalman_update_identity_obs_isotropic(
+            m_pred,
+            P_pred,
+            variance_t,
+            y_t,
+            jitter=jitter,
+        )
         return (m_upd, P_upd), (m_pred, P_pred, m_upd, P_upd, ll)
 
     (_fm, _fc), history = jax.lax.scan(
         _step,
         (filt_mean_0, filt_cov_0),
-        (Fs[1:], Qs[1:], bs[1:], pseudo_observations[1:], R_aux_per_t[1:]),
+        (Fs[1:], Qs[1:], bs[1:], pseudo_observations[1:], aux_variance_per_t[1:]),
     )
     pred_mean_tail, pred_cov_tail, filt_mean_tail, filt_cov_tail, loglik_tail = history
     pred_means = jnp.concatenate([init_pred_mean[None, ...], pred_mean_tail], axis=0)
@@ -277,6 +360,55 @@ def _sequential_aux_filter_lgssm(
         filt_mean=filt_means,
         filt_cov=filt_covs,
         loglik=loglik,
+    )
+
+
+def _sequential_aux_filter_lgssm_lightweight(
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    Fs: jnp.ndarray,
+    Qs: jnp.ndarray,
+    bs: jnp.ndarray,
+    pseudo_observations: jnp.ndarray,
+    aux_variance_per_t: jnp.ndarray,
+    *,
+    jitter: float,
+) -> AuxiliaryFilterState:
+    """Sequential aux filter that returns only filtered moments and log-likelihood."""
+    init_pred_mean = Fs[0] @ init_mean + bs[0]
+    init_pred_cov = symmetrize_with_jitter(Fs[0] @ init_cov @ Fs[0].T + Qs[0], jitter=jitter)
+    filt_mean_0, filt_cov_0, loglik_0 = _kalman_update_identity_obs_isotropic(
+        init_pred_mean,
+        init_pred_cov,
+        aux_variance_per_t[0],
+        pseudo_observations[0],
+        jitter=jitter,
+    )
+
+    def _step(carry, inputs):
+        mean_prev, cov_prev = carry
+        F_t, Q_t, b_t, y_t, variance_t = inputs
+        m_pred, P_pred = _kalman_predict(mean_prev, cov_prev, F_t, Q_t, b_t)
+        P_pred = symmetrize_with_jitter(P_pred, jitter=jitter)
+        m_upd, P_upd, ll = _kalman_update_identity_obs_isotropic(
+            m_pred,
+            P_pred,
+            variance_t,
+            y_t,
+            jitter=jitter,
+        )
+        return (m_upd, P_upd), (m_upd, P_upd, ll)
+
+    (_fm, _fc), history = jax.lax.scan(
+        _step,
+        (filt_mean_0, filt_cov_0),
+        (Fs[1:], Qs[1:], bs[1:], pseudo_observations[1:], aux_variance_per_t[1:]),
+    )
+    filt_mean_tail, filt_cov_tail, loglik_tail = history
+    return AuxiliaryFilterState(
+        filt_mean=jnp.concatenate([filt_mean_0[None, ...], filt_mean_tail], axis=0),
+        filt_cov=jnp.concatenate([filt_cov_0[None, ...], filt_cov_tail], axis=0),
+        loglik=jnp.concatenate([loglik_0[None, ...], loglik_tail], axis=0),
     )
 
 
@@ -466,20 +598,10 @@ def aux_filter_lgssm(
     Kalman filter. Both paths share identical predict/update primitives so
     the filtering means/covariances agree to numerical precision.
     """
-    state_dim = init_mean.shape[0]
     dtype = init_mean.dtype
-    eye = jnp.eye(state_dim, dtype=dtype)
     T = pseudo_observations.shape[0]
-    aux_variance_arr = jnp.asarray(aux_variance, dtype=dtype)
-    if aux_variance_arr.ndim == 0:
-        aux_variance_per_t = jnp.broadcast_to(aux_variance_arr, (T,))
-    else:
-        if aux_variance_arr.shape != (T,):
-            raise ValueError(
-                f"aux_variance must be scalar or shape (T,); got {aux_variance_arr.shape} with T={T}."
-            )
-        aux_variance_per_t = aux_variance_arr
-    R_aux_per_t = aux_variance_per_t[:, None, None] * eye[None, :, :]
+    state_dim = init_mean.shape[0]
+    aux_variance_per_t = _coerce_aux_variance_per_t(aux_variance, T=T, dtype=dtype)
     if not parallel:
         return _sequential_aux_filter_lgssm(
             init_mean,
@@ -488,17 +610,17 @@ def aux_filter_lgssm(
             Qs,
             bs,
             pseudo_observations,
-            R_aux_per_t,
+            aux_variance_per_t,
             jitter=jitter,
         )
 
     init_pred_mean = Fs[0] @ init_mean + bs[0]
     init_pred_cov = symmetrize_with_jitter(Fs[0] @ init_cov @ Fs[0].T + Qs[0], jitter=jitter)
 
-    filt_mean_0, filt_cov_0, loglik_0 = _kalman_update_identity_obs(
+    filt_mean_0, filt_cov_0, loglik_0 = _kalman_update_identity_obs_isotropic(
         init_pred_mean,
         init_pred_cov,
-        R_aux_per_t[0],
+        aux_variance_per_t[0],
         pseudo_observations[0],
         jitter=jitter,
     )
@@ -523,8 +645,17 @@ def aux_filter_lgssm(
         axis=0,
     )
     init_elems = jax.vmap(
-        lambda F, Q, b, y, m, P, R: _filter_init_identity_obs(F, Q, b, y, m, P, R, jitter=jitter)
-    )(Fs[1:], Qs[1:], bs[1:], pseudo_observations[1:], ms, Ps, R_aux_per_t[1:])
+        lambda F, Q, b, y, m, P, variance: _filter_init_identity_obs_isotropic(
+            F,
+            Q,
+            b,
+            y,
+            m,
+            P,
+            variance,
+            jitter=jitter,
+        )
+    )(Fs[1:], Qs[1:], bs[1:], pseudo_observations[1:], ms, Ps, aux_variance_per_t[1:])
     _ops, filt_tail, filt_cov_tail, _eta, _J = jax.lax.associative_scan(
         jax.vmap(_filter_op), init_elems
     )
@@ -536,11 +667,17 @@ def aux_filter_lgssm(
     pred_means = jnp.concatenate([init_pred_mean[None, ...], pred_mean_tail], axis=0)
     pred_covs = jnp.concatenate([init_pred_cov[None, ...], pred_cov_tail], axis=0)
 
-    def _tail_loglik(m_pred, P_pred, y, R):
-        return _kalman_update_identity_obs(m_pred, P_pred, R, y, jitter=jitter)[2]
+    def _tail_loglik(m_pred, P_pred, y, variance):
+        return _kalman_update_identity_obs_isotropic(
+            m_pred,
+            P_pred,
+            variance,
+            y,
+            jitter=jitter,
+        )[2]
 
     loglik_tail = jax.vmap(_tail_loglik)(
-        pred_means[1:], pred_covs[1:], pseudo_observations[1:], R_aux_per_t[1:]
+        pred_means[1:], pred_covs[1:], pseudo_observations[1:], aux_variance_per_t[1:]
     )
     loglik = jnp.concatenate([loglik_0[None, ...], loglik_tail], axis=0)
     return ParallelFilterState(
@@ -549,6 +686,108 @@ def aux_filter_lgssm(
         filt_mean=filt_means,
         filt_cov=filt_covs,
         loglik=loglik,
+    )
+
+
+def aux_filter_lgssm_lightweight(
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    Fs: jnp.ndarray,
+    Qs: jnp.ndarray,
+    bs: jnp.ndarray,
+    pseudo_observations: jnp.ndarray,
+    aux_variance: jnp.ndarray,
+    *,
+    jitter: float = _DEFAULT_JITTER,
+    parallel: bool = True,
+) -> AuxiliaryFilterState:
+    """Auxiliary filter returning only filtered moments and log-likelihood."""
+    dtype = init_mean.dtype
+    T = pseudo_observations.shape[0]
+    state_dim = init_mean.shape[0]
+    aux_variance_per_t = _coerce_aux_variance_per_t(aux_variance, T=T, dtype=dtype)
+    if not parallel:
+        return _sequential_aux_filter_lgssm_lightweight(
+            init_mean,
+            init_cov,
+            Fs,
+            Qs,
+            bs,
+            pseudo_observations,
+            aux_variance_per_t,
+            jitter=jitter,
+        )
+
+    init_pred_mean = Fs[0] @ init_mean + bs[0]
+    init_pred_cov = symmetrize_with_jitter(Fs[0] @ init_cov @ Fs[0].T + Qs[0], jitter=jitter)
+    filt_mean_0, filt_cov_0, loglik_0 = _kalman_update_identity_obs_isotropic(
+        init_pred_mean,
+        init_pred_cov,
+        aux_variance_per_t[0],
+        pseudo_observations[0],
+        jitter=jitter,
+    )
+
+    if T == 1:
+        return AuxiliaryFilterState(
+            filt_mean=filt_mean_0[None, ...],
+            filt_cov=filt_cov_0[None, ...],
+            loglik=loglik_0[None, ...],
+        )
+
+    ms = jnp.concatenate(
+        [filt_mean_0[None, ...], jnp.zeros((T - 2, state_dim), dtype=dtype)],
+        axis=0,
+    )
+    Ps = jnp.concatenate(
+        [
+            filt_cov_0[None, ...],
+            jnp.zeros((T - 2, state_dim, state_dim), dtype=dtype),
+        ],
+        axis=0,
+    )
+    init_elems = jax.vmap(
+        lambda F, Q, b, y, m, P, variance: _filter_init_identity_obs_isotropic(
+            F,
+            Q,
+            b,
+            y,
+            m,
+            P,
+            variance,
+            jitter=jitter,
+        )
+    )(Fs[1:], Qs[1:], bs[1:], pseudo_observations[1:], ms, Ps, aux_variance_per_t[1:])
+    _ops, filt_tail, filt_cov_tail, _eta, _J = jax.lax.associative_scan(
+        jax.vmap(_filter_op), init_elems
+    )
+    filt_means = jnp.concatenate([filt_mean_0[None, ...], filt_tail], axis=0)
+    filt_covs = jnp.concatenate([filt_cov_0[None, ...], filt_cov_tail], axis=0)
+
+    def _tail_loglik(mean_prev, cov_prev, F, Q, b, y, variance):
+        m_pred, P_pred = _kalman_predict(mean_prev, cov_prev, F, Q, b)
+        P_pred = symmetrize_with_jitter(P_pred, jitter=jitter)
+        return _kalman_update_identity_obs_isotropic(
+            m_pred,
+            P_pred,
+            variance,
+            y,
+            jitter=jitter,
+        )[2]
+
+    loglik_tail = jax.vmap(_tail_loglik)(
+        filt_means[:-1],
+        filt_covs[:-1],
+        Fs[1:],
+        Qs[1:],
+        bs[1:],
+        pseudo_observations[1:],
+        aux_variance_per_t[1:],
+    )
+    return AuxiliaryFilterState(
+        filt_mean=filt_means,
+        filt_cov=filt_covs,
+        loglik=jnp.concatenate([loglik_0[None, ...], loglik_tail], axis=0),
     )
 
 
@@ -656,6 +895,7 @@ aux_sample_lgssm_trajectory = sample_lgssm_trajectory
 
 
 __all__ = [
+    "AuxiliaryFilterState",
     "ParallelFilterState",
     "filter_lgssm",
     "aux_filter_lgssm",

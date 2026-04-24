@@ -67,13 +67,22 @@ def _pathfinder_init_positions(
     laplace_bundle = _build_laplace_em_bundle(
         model, observations, times, trace_key, backend, reparam
     )
+
+    def _log_posterior_for_dataset(z):
+        return laplace_bundle["log_posterior_fn"](
+            z,
+            observations,
+            times,
+            latent_mode_init=None,
+        )
+
     start_keys = random.split(pathfinder_key, n_pathfinder_starts)
     states: list[Any] = []
     elbos: list[float] = []
     for start_key in start_keys:
         state_k, _ = pathfinder.approximate(
             start_key,
-            laplace_bundle["log_posterior_fn"],
+            _log_posterior_for_dataset,
             laplace_bundle["flat_example"],
             num_samples=num_elbo_samples,
             maxiter=maxiter,
@@ -146,6 +155,7 @@ def _fit_particle_latent_mcmc(
     adaptation_rate: float,
     init_scale: float,
     retain_latent_paths: bool,
+    compute_latent_posterior_summary: bool,
     adaptation_scheme: str,
     init_method: str,
     n_ieks_iters: int,
@@ -252,6 +262,7 @@ def _fit_particle_latent_mcmc(
         retain_latent_paths=retain_latent_paths,
         adaptation_scheme=adaptation_scheme,
         init_positions=init_positions,
+        compute_latent_posterior_summary=compute_latent_posterior_summary,
     )
 
     flat_particles = run_result["grouped_positions"].reshape((-1, bundle["dim"]))
@@ -343,6 +354,7 @@ def fit_aux_csmc(
     adaptation_rate: float = 0.05,
     init_scale: float = 0.05,
     retain_latent_paths: bool = False,
+    compute_latent_posterior_summary: bool = True,
     adaptation_scheme: str = "simple",
     init_method: str = "random",
     n_ieks_iters: int = 6,
@@ -392,6 +404,7 @@ def fit_aux_csmc(
         adaptation_rate=adaptation_rate,
         init_scale=init_scale,
         retain_latent_paths=retain_latent_paths,
+        compute_latent_posterior_summary=compute_latent_posterior_summary,
         adaptation_scheme=adaptation_scheme,
         init_method=init_method,
         n_ieks_iters=n_ieks_iters,
@@ -427,6 +440,7 @@ def fit_particle_mgrad(
     adaptation_rate: float = 0.05,
     init_scale: float = 0.05,
     retain_latent_paths: bool = False,
+    compute_latent_posterior_summary: bool = True,
     adaptation_scheme: str = "simple",
     init_method: str = "random",
     n_ieks_iters: int = 6,
@@ -464,6 +478,7 @@ def fit_particle_mgrad(
         adaptation_rate=adaptation_rate,
         init_scale=init_scale,
         retain_latent_paths=retain_latent_paths,
+        compute_latent_posterior_summary=compute_latent_posterior_summary,
         adaptation_scheme=adaptation_scheme,
         init_method=init_method,
         n_ieks_iters=n_ieks_iters,

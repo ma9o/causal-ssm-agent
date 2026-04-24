@@ -31,7 +31,10 @@ from causal_ssm_agent.artifacts import LinkFunction
 from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm import AutoReparam, InferenceResult, SSMModel, fit
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.inference.methods.map import fit_map
+from causal_ssm_agent.models.ssm.inference.methods.map import (
+    _build_laplace_em_bundle,
+    fit_map,
+)
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
@@ -2852,6 +2855,59 @@ def test_aux_gibbs_eq10_11_smoke_on_small_kalman_model():
     assert latent_paths.shape == (1, 10, 3, 1)
 
 
+def test_aux_gibbs_can_skip_latent_posterior_summary():
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="aux_gibbs",
+        num_warmup=4,
+        num_samples=6,
+        num_chains=1,
+        seed=7,
+        latent_delta=0.2,
+        param_step_size=0.03,
+        init_scale=0.01,
+        compute_latent_posterior_summary=False,
+    )
+
+    assert result.get_latent_posterior_summary() is None
+    history = result.diagnostics["chain_complete_log_posterior_history"]
+    assert history.shape == (1, 6)
+    assert bool(jnp.isfinite(history).all())
+
+
+def test_aux_gibbs_dual_averaging_smoke_on_small_kalman_model():
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="aux_gibbs",
+        num_warmup=4,
+        num_samples=5,
+        num_chains=2,
+        seed=9,
+        latent_delta=0.2,
+        param_step_size=0.03,
+        init_scale=0.01,
+        adaptation_scheme="dual_averaging",
+    )
+
+    diag = result.diagnostics["aux_gibbs"]
+    assert diag["adaptation_scheme"] == "dual_averaging"
+    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
+
+
 def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypatch):
     from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import build_auxiliary_kalman_bundle
 
@@ -2869,44 +2925,30 @@ def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypa
     flat_example = aux_bundle["flat_example"]
     dim = int(aux_bundle["dim"])
     fake_state = SimpleNamespace(
-        position=flat_example,
-        alpha=jnp.full((dim,), 0.25, dtype=flat_example.dtype),
-        beta=jnp.zeros((dim, 0), dtype=flat_example.dtype),
-        gamma=jnp.zeros((0, 0), dtype=flat_example.dtype),
-        elbo=jnp.array(3.0, dtype=flat_example.dtype),
+        mean=flat_example,
+        chol=jnp.eye(dim, dtype=flat_example.dtype) * 0.25,
+        best_elbo=3.0,
     )
     pathfinder_runs = {"count": 0}
 
-    def _fake_run_pathfinder_approximation(*_args, **_kwargs):
+    def _fake_run_pathfinder_approximations(*_args, **_kwargs):
         pathfinder_runs["count"] += 1
         return fake_state, {
             "n_pathfinder_starts": 2,
-            "n_pathfinder_starts_finite": 2,
+            "n_pathfinder_starts_finite": 1,
             "best_pathfinder_elbo": 3.0,
             "pathfinder_elbo": 3.0,
-            "pathfinder_elbo_min": 2.5,
+            "pathfinder_elbo_min": 3.0,
             "pathfinder_elbo_max": 3.0,
-            "pathfinder_elbo_spread": 0.5,
-            "pathfinder_elbos": [2.5, 3.0],
+            "pathfinder_elbo_spread": 0.0,
         }
 
-    def _fake_pathfinder_sample(_key, state, *, num_samples):
-        base = jnp.broadcast_to(state.position, (num_samples, state.position.shape[0]))
-        offsets = jnp.arange(num_samples, dtype=base.dtype)[:, None] * 0.01
-        return base + offsets, jnp.zeros((num_samples,), dtype=base.dtype)
-
     def _unexpected_fit_map(*_args, **_kwargs):
-        raise AssertionError(
-            "fit_map should not run when auto_preconditioner_method='pathfinder'."
-        )
+        raise AssertionError("fit_map should not run when auto_preconditioner_method='pathfinder'.")
 
     monkeypatch.setattr(
         "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs._run_pathfinder_approximation",
-        _fake_run_pathfinder_approximation,
-    )
-    monkeypatch.setattr(
-        "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs.pathfinder.sample",
-        _fake_pathfinder_sample,
+        _fake_run_pathfinder_approximations,
     )
     monkeypatch.setattr(
         "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs.fit_map",
@@ -2932,13 +2974,87 @@ def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypa
     aux_diag = result.diagnostics["aux_gibbs"]
     assert pathfinder_runs["count"] == 1
     assert aux_diag["init_method"] == "pathfinder"
+    assert aux_diag["pathfinder_sampling_mode"] == "pathfinder_gaussian"
+    assert aux_diag["pathfinder_init_scale"] is None
     assert aux_diag["auto_preconditioner"] is True
     assert aux_diag["auto_preconditioner_method"] == "pathfinder"
-    assert aux_diag["pathfinder_preconditioner_low_rank_scale"] == pytest.approx(0.5)
     assert aux_diag["auto_preconditioner_n_pathfinder_starts"] == 2
-    assert aux_diag["auto_preconditioner_n_pathfinder_starts_finite"] == 2
+    assert aux_diag["auto_preconditioner_n_pathfinder_starts_finite"] == 1
     assert aux_diag["auto_preconditioner_best_pathfinder_elbo"] == pytest.approx(3.0)
-    assert aux_diag["auto_preconditioner_pathfinder_elbo_spread"] == pytest.approx(0.5)
+
+
+def test_aux_gibbs_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
+    from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import build_auxiliary_kalman_bundle
+
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+    aux_bundle = build_auxiliary_kalman_bundle(
+        model,
+        observations,
+        times,
+        trace_key=random.PRNGKey(0),
+        reparam=None,
+    )
+    flat_example = aux_bundle["flat_example"]
+    dim = int(aux_bundle["dim"])
+    fake_state = SimpleNamespace(
+        mean=flat_example + jnp.full((dim,), 1.5, dtype=flat_example.dtype),
+        chol=jnp.eye(dim, dtype=flat_example.dtype) * 0.4,
+        best_elbo=3.0,
+    )
+    pathfinder_runs = {"count": 0}
+
+    def _fake_run_pathfinder_approximations(*_args, **_kwargs):
+        pathfinder_runs["count"] += 1
+        return fake_state, {
+            "n_pathfinder_starts": 3,
+            "n_pathfinder_starts_finite": 3,
+            "best_pathfinder_elbo": 3.0,
+            "pathfinder_elbo": 3.0,
+            "pathfinder_elbo_min": 2.8,
+            "pathfinder_elbo_max": 3.0,
+            "pathfinder_elbo_spread": 0.2,
+        }
+
+    def _unexpected_fit_map(*_args, **_kwargs):
+        raise AssertionError("fit_map should not run when auto_preconditioner_method='pathfinder'.")
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs._run_pathfinder_approximation",
+        _fake_run_pathfinder_approximations,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.inference.methods.aux_gibbs.fit_map",
+        _unexpected_fit_map,
+    )
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="aux_gibbs",
+        num_warmup=4,
+        num_samples=5,
+        num_chains=4,
+        seed=17,
+        latent_delta=0.2,
+        param_step_size=0.03,
+        init_scale=0.01,
+        auto_preconditioner_method="pathfinder",
+        pathfinder_init_scale=0.15,
+        n_pathfinder_starts=3,
+    )
+
+    aux_diag = result.diagnostics["aux_gibbs"]
+    assert pathfinder_runs["count"] == 1
+    assert aux_diag["pathfinder_sampling_mode"] == "mode_plus_scaled_normal"
+    assert aux_diag["pathfinder_init_scale"] == pytest.approx(0.15)
+    assert aux_diag["auto_preconditioner_n_pathfinder_starts"] == 3
+    assert aux_diag["auto_preconditioner_n_pathfinder_starts_finite"] == 3
+    assert aux_diag["auto_preconditioner_best_pathfinder_elbo"] == pytest.approx(3.0)
+    assert aux_diag["auto_preconditioner_pathfinder_elbo_spread"] == pytest.approx(0.2)
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
@@ -3538,23 +3654,39 @@ def test_laplace_em_support_aware_uses_exact_gradient_outer_optimizer(monkeypatc
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z):
+        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            del runtime_observations, runtime_times, latent_mode_init
             return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
 
         def log_prior_unc_fn(z):
             return -0.1 * jnp.sum(z**2)
 
-        def log_posterior_fn(z):
-            return log_lik_fn(z) + log_prior_unc_fn(z)
+        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return log_lik_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            ) + log_prior_unc_fn(z)
 
-        def neg_log_posterior_fn(z):
-            return -log_posterior_fn(z)
+        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return -log_posterior_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
 
-        def neg_log_posterior_with_aux_fn(z, latent_mode_init=None):
+        def neg_log_posterior_with_aux_fn(
+            z,
+            runtime_observations,
+            runtime_times,
+            latent_mode_init=None,
+        ):
             del latent_mode_init
-            return neg_log_posterior_fn(z), {
-                "log_posterior": log_posterior_fn(z),
-                "log_likelihood": log_lik_fn(z),
+            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
+                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
+                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
                 "log_prior": log_prior_unc_fn(z),
                 "inner": {
                     "solver_kind": jnp.asarray(1, dtype=jnp.int32),
@@ -3610,7 +3742,14 @@ def test_laplace_em_support_aware_uses_exact_gradient_outer_optimizer(monkeypatc
         )
 
     def fake_sample_posterior(
-        _rng_key, z_mode, _neg_log_posterior_fn, *, num_samples, hessian_jitter
+        _rng_key,
+        z_mode,
+        _neg_log_posterior_fn,
+        _observations,
+        _times,
+        *,
+        num_samples,
+        hessian_jitter,
     ):
         del hessian_jitter
         unc_samples = jnp.broadcast_to(z_mode, (num_samples, z_mode.shape[0]))
@@ -3682,23 +3821,39 @@ def test_laplace_em_generic_path_uses_multistart_lbfgsb(monkeypatch):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z):
+        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            del runtime_observations, runtime_times, latent_mode_init
             return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
 
         def log_prior_unc_fn(z):
             return -0.1 * jnp.sum(z**2)
 
-        def log_posterior_fn(z):
-            return log_lik_fn(z) + log_prior_unc_fn(z)
+        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return log_lik_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            ) + log_prior_unc_fn(z)
 
-        def neg_log_posterior_fn(z):
-            return -log_posterior_fn(z)
+        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return -log_posterior_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
 
-        def neg_log_posterior_with_aux_fn(z, latent_mode_init=None):
+        def neg_log_posterior_with_aux_fn(
+            z,
+            runtime_observations,
+            runtime_times,
+            latent_mode_init=None,
+        ):
             del latent_mode_init
-            return neg_log_posterior_fn(z), {
-                "log_posterior": log_posterior_fn(z),
-                "log_likelihood": log_lik_fn(z),
+            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
+                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
+                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
                 "log_prior": log_prior_unc_fn(z),
                 "inner": {
                     "solver_kind": jnp.asarray(1, dtype=jnp.int32),
@@ -3762,7 +3917,14 @@ def test_laplace_em_generic_path_uses_multistart_lbfgsb(monkeypatch):
         )
 
     def fake_sample_posterior(
-        _rng_key, z_mode, _neg_log_posterior_fn, *, num_samples, hessian_jitter
+        _rng_key,
+        z_mode,
+        _neg_log_posterior_fn,
+        _observations,
+        _times,
+        *,
+        num_samples,
+        hessian_jitter,
     ):
         del hessian_jitter
         unc_samples = jnp.broadcast_to(z_mode, (num_samples, z_mode.shape[0]))
@@ -3833,23 +3995,39 @@ def test_laplace_em_emits_prefect_progress_logs(monkeypatch, caplog):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z):
+        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            del runtime_observations, runtime_times, latent_mode_init
             return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
 
         def log_prior_unc_fn(z):
             return -0.1 * jnp.sum(z**2)
 
-        def log_posterior_fn(z):
-            return log_lik_fn(z) + log_prior_unc_fn(z)
+        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return log_lik_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            ) + log_prior_unc_fn(z)
 
-        def neg_log_posterior_fn(z):
-            return -log_posterior_fn(z)
+        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return -log_posterior_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
 
-        def neg_log_posterior_with_aux_fn(z, latent_mode_init=None):
+        def neg_log_posterior_with_aux_fn(
+            z,
+            runtime_observations,
+            runtime_times,
+            latent_mode_init=None,
+        ):
             del latent_mode_init
-            return neg_log_posterior_fn(z), {
-                "log_posterior": log_posterior_fn(z),
-                "log_likelihood": log_lik_fn(z),
+            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
+                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
+                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
                 "log_prior": log_prior_unc_fn(z),
                 "inner": {
                     "solver_kind": jnp.asarray(1, dtype=jnp.int32),
@@ -3908,7 +4086,14 @@ def test_laplace_em_emits_prefect_progress_logs(monkeypatch, caplog):
         )
 
     def fake_sample_posterior(
-        _rng_key, z_mode, _neg_log_posterior_fn, *, num_samples, hessian_jitter
+        _rng_key,
+        z_mode,
+        _neg_log_posterior_fn,
+        _observations,
+        _times,
+        *,
+        num_samples,
+        hessian_jitter,
     ):
         del hessian_jitter
         unc_samples = jnp.broadcast_to(z_mode, (num_samples, z_mode.shape[0]))
@@ -3977,23 +4162,39 @@ def test_laplace_em_can_skip_parameter_hessian(monkeypatch):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z):
+        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            del runtime_observations, runtime_times, latent_mode_init
             return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
 
         def log_prior_unc_fn(z):
             return -0.1 * jnp.sum(z**2)
 
-        def log_posterior_fn(z):
-            return log_lik_fn(z) + log_prior_unc_fn(z)
+        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return log_lik_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            ) + log_prior_unc_fn(z)
 
-        def neg_log_posterior_fn(z):
-            return -log_posterior_fn(z)
+        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return -log_posterior_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
 
-        def neg_log_posterior_with_aux_fn(z, latent_mode_init=None):
+        def neg_log_posterior_with_aux_fn(
+            z,
+            runtime_observations,
+            runtime_times,
+            latent_mode_init=None,
+        ):
             del latent_mode_init
-            return neg_log_posterior_fn(z), {
-                "log_posterior": log_posterior_fn(z),
-                "log_likelihood": log_lik_fn(z),
+            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
+                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
+                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
                 "log_prior": log_prior_unc_fn(z),
                 "inner": {
                     "solver_kind": jnp.asarray(1, dtype=jnp.int32),
@@ -4109,23 +4310,39 @@ def test_laplace_em_can_use_optimizer_hess_inv_covariance(monkeypatch):
             return SimpleNamespace()
 
     def fake_build_bundle(_model, _observations, _times, _trace_key, _backend, _reparam):
-        def log_lik_fn(z):
+        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            del runtime_observations, runtime_times, latent_mode_init
             return -jnp.sum((z - jnp.array([1.0, -2.0], dtype=z.dtype)) ** 2)
 
         def log_prior_unc_fn(z):
             return -0.1 * jnp.sum(z**2)
 
-        def log_posterior_fn(z):
-            return log_lik_fn(z) + log_prior_unc_fn(z)
+        def log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return log_lik_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            ) + log_prior_unc_fn(z)
 
-        def neg_log_posterior_fn(z):
-            return -log_posterior_fn(z)
+        def neg_log_posterior_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            return -log_posterior_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
 
-        def neg_log_posterior_with_aux_fn(z, latent_mode_init=None):
+        def neg_log_posterior_with_aux_fn(
+            z,
+            runtime_observations,
+            runtime_times,
+            latent_mode_init=None,
+        ):
             del latent_mode_init
-            return neg_log_posterior_fn(z), {
-                "log_posterior": log_posterior_fn(z),
-                "log_likelihood": log_lik_fn(z),
+            return neg_log_posterior_fn(z, runtime_observations, runtime_times), {
+                "log_posterior": log_posterior_fn(z, runtime_observations, runtime_times),
+                "log_likelihood": log_lik_fn(z, runtime_observations, runtime_times),
                 "log_prior": log_prior_unc_fn(z),
                 "inner": {
                     "solver_kind": jnp.asarray(1, dtype=jnp.int32),
@@ -4229,6 +4446,126 @@ def test_laplace_em_can_use_optimizer_hess_inv_covariance(monkeypatch):
         atol=1e-5,
     )
     assert result.get_samples()["theta"].shape == (4, 2)
+
+
+def test_laplace_em_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeypatch):
+    observations_a = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
+    observations_b = jnp.array([[2.0], [3.0]], dtype=jnp.float32)
+    times_a = jnp.array([0.0, 1.0], dtype=jnp.float32)
+    times_b = jnp.array([0.0, 2.0], dtype=jnp.float32)
+    counters = {"discover": 0, "build_eval_fns": 0}
+
+    class _IdentityTransform:
+        def inv(self, value):
+            return value
+
+    class _FakeModel:
+        def __init__(self):
+            self._artifact_cache: dict[tuple[object, ...], object] = {}
+
+        def get_cached_artifact(self, cache_key, factory):
+            if cache_key not in self._artifact_cache:
+                self._artifact_cache[cache_key] = factory()
+            return self._artifact_cache[cache_key]
+
+    def fake_discover_sites(
+        _model,
+        _observations,
+        _times,
+        _trace_key,
+        _likelihood_backend,
+        reparam=None,
+    ):
+        del reparam
+        counters["discover"] += 1
+        return {
+            "theta": {
+                "transform": _IdentityTransform(),
+                "value": jnp.array([0.5, -0.25], dtype=jnp.float32),
+                "distribution": object(),
+            }
+        }
+
+    def fake_build_eval_fns(
+        _model,
+        _observations,
+        _times,
+        _site_info,
+        _unravel_fn,
+        likelihood_backend,
+        reparam=None,
+        *,
+        include_likelihood_aux,
+        runtime_observations_times,
+    ):
+        del likelihood_backend, reparam
+        counters["build_eval_fns"] += 1
+        assert include_likelihood_aux is True
+        assert runtime_observations_times is True
+
+        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            del latent_mode_init
+            return jnp.sum(z) + jnp.sum(runtime_observations) + jnp.sum(runtime_times)
+
+        def log_prior_unc_fn(z):
+            return -0.5 * jnp.sum(z**2)
+
+        def log_lik_with_aux_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
+            del latent_mode_init
+            return log_lik_fn(z, runtime_observations, runtime_times), {
+                "solver_kind": jnp.asarray(0, dtype=jnp.int32),
+                "n_iterations": jnp.asarray(0, dtype=jnp.int32),
+                "n_accepted_steps": jnp.asarray(0, dtype=jnp.int32),
+                "init_log_joint": jnp.asarray(0.0, dtype=jnp.float32),
+                "final_log_joint": jnp.asarray(0.0, dtype=jnp.float32),
+                "final_rel_change": jnp.asarray(0.0, dtype=jnp.float32),
+                "final_damping": jnp.asarray(0.0, dtype=jnp.float32),
+                "final_step_alpha": jnp.asarray(0.0, dtype=jnp.float32),
+                "final_step_norm": jnp.asarray(0.0, dtype=jnp.float32),
+                "laplace_logdet": jnp.asarray(0.0, dtype=jnp.float32),
+                "min_chol_diag": jnp.asarray(0.0, dtype=jnp.float32),
+            }
+
+        return log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn
+
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.inference.methods.map._discover_sites",
+        fake_discover_sites,
+    )
+    monkeypatch.setattr(
+        "causal_ssm_agent.models.ssm.inference.methods.map._build_eval_fns",
+        fake_build_eval_fns,
+    )
+
+    model = _FakeModel()
+    backend = SimpleNamespace()
+    bundle_a = _build_laplace_em_bundle(
+        model,
+        observations_a,
+        times_a,
+        random.PRNGKey(0),
+        backend,
+        None,
+    )
+    bundle_b = _build_laplace_em_bundle(
+        model,
+        observations_b,
+        times_b,
+        random.PRNGKey(1),
+        backend,
+        None,
+    )
+
+    assert counters["discover"] == 2
+    assert counters["build_eval_fns"] == 1
+    assert bundle_a["log_posterior_fn"] is bundle_b["log_posterior_fn"]
+    assert bundle_a["neg_log_posterior_fn"] is bundle_b["neg_log_posterior_fn"]
+
+    z = jnp.array([0.2, -0.1], dtype=jnp.float32)
+    log_post_a = bundle_a["log_posterior_fn"](z, observations_a, times_a)
+    log_post_b = bundle_b["log_posterior_fn"](z, observations_b, times_b)
+    assert float(log_post_a) == pytest.approx(2.075)
+    assert float(log_post_b) == pytest.approx(7.075)
 
 
 # =============================================================================

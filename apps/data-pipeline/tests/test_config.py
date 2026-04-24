@@ -93,6 +93,7 @@ class TestToSamplerConfig:
                 adaptation_rate=0.07,
                 init_scale=0.02,
                 retain_latent_paths=True,
+                compute_latent_posterior_summary=False,
                 latent_kernel=AuxGibbsLatentKernelConfig(
                     kernel="kalman",
                     proposal_family="eq10_11",
@@ -118,6 +119,7 @@ class TestToSamplerConfig:
         assert result["adaptation_rate"] == 0.07
         assert result["init_scale"] == 0.02
         assert result["retain_latent_paths"] is True
+        assert result["compute_latent_posterior_summary"] is False
 
     def test_unknown_method_returns_base_keys_only(self):
         cfg = InferenceConfig(method="hmc")

@@ -268,8 +268,17 @@ def _fit_numpyro_nuts(
             backend,
             reparam,
         )
+
+        def _log_posterior_for_dataset(z):
+            return bundle["log_posterior_fn"](
+                z,
+                observations,
+                times,
+                latent_mode_init=None,
+            )
+
         pathfinder_state, init_diagnostics = _run_pathfinder_approximation(
-            bundle["log_posterior_fn"],
+            _log_posterior_for_dataset,
             bundle["flat_example"],
             pathfinder_key=pathfinder_key,
             pathfinder_num_elbo_samples=pathfinder_num_elbo_samples,
@@ -366,6 +375,15 @@ def _fit_blackjax_chees_hmc(
         backend,
         reparam,
     )
+
+    def _log_posterior_for_dataset(z):
+        return bundle["log_posterior_fn"](
+            z,
+            observations,
+            times,
+            latent_mode_init=None,
+        )
+
     _block_until_ready_tree(bundle["flat_example"])
     timings["bundle_build_seconds"] = time.perf_counter() - bundle_start
     _emit_progress(progress_bar, f"bundle ready in {timings['bundle_build_seconds']:.1f}s")
@@ -377,7 +395,7 @@ def _fit_blackjax_chees_hmc(
         ),
     )
     pathfinder_state, init_diagnostics = _run_pathfinder_approximation(
-        bundle["log_posterior_fn"],
+        _log_posterior_for_dataset,
         bundle["flat_example"],
         pathfinder_key=pathfinder_key,
         pathfinder_num_elbo_samples=pathfinder_num_elbo_samples,
@@ -411,7 +429,7 @@ def _fit_blackjax_chees_hmc(
         f"initial chain positions ready in {timings['pathfinder_chain_init_seconds']:.1f}s",
     )
     grouped_particles, grouped_extra, sampler_diagnostics = _run_blackjax_chees_hmc(
-        bundle["log_posterior_fn"],
+        _log_posterior_for_dataset,
         init_positions=init_positions,
         rng_key=mcmc_key,
         num_warmup=num_warmup,

@@ -164,6 +164,42 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "Posterior summaries ready in" in caplog.text
 
 
+def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
+    fake_result = _FakeResult()
+    fake_builder = _FakeBuilder(fake_result)
+    runtime = _make_runtime(fake_builder)
+    restore_calls: list[tuple[str | None, dict | None, bool]] = []
+
+    monkeypatch.setattr(
+        stage5_inference,
+        "restore_stage4_compile_cache",
+        lambda workspace_id, compiled_ssm, *, wait_for_pending: (
+            restore_calls.append((workspace_id, compiled_ssm, wait_for_pending)) or True
+        ),
+    )
+    monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
+
+    data_for_model = pl.DataFrame(
+        {
+            "indicator": ["sleep_avg"],
+            "value": [0.2],
+            "anchor_time": ["2024-01-01T00:00:00"],
+        }
+    )
+    compiled_ssm = {"spec": {"n_latent": 1}}
+
+    result = stage5_inference.fit_model.fn(
+        compiled_ssm,
+        data_for_model,
+        sampler_config={"method": "auto"},
+        workspace_id="workspace-123",
+        wait_for_compile_cache=True,
+    )
+
+    assert restore_calls == [("workspace-123", compiled_ssm, True)]
+    assert result["fitted"] is True
+
+
 def test_run_power_scaling_logs_completion_summary(monkeypatch, caplog):
     fake_result = _FakeResult()
     fake_builder = _FakeBuilder(fake_result)

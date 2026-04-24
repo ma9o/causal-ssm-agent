@@ -328,13 +328,8 @@ def build_auxiliary_csmc_latent_kernel(
         "name": "csmc",
         "scale_field": "latent_delta",
         "initial_scale": delta,
-        "initial_scale_from_latent_fn": (
-            lambda latent_trajectory, dtype: jnp.full(
-                (latent_trajectory.shape[0],),
-                jnp.asarray(delta, dtype=dtype),
-                dtype=dtype,
-            )
-        ),
+        "initial_scale_value": delta,
+        "initial_scale_mode": "per_time_constant",
         "min_scale": min_scale,
         "max_scale": max_scale,
         "target_accept": target_accept,
@@ -604,13 +599,8 @@ def build_particle_mgrad_latent_kernel(
         "name": "particle_mgrad",
         "scale_field": "latent_delta",
         "initial_scale": delta,
-        "initial_scale_from_latent_fn": (
-            lambda latent_trajectory, dtype: jnp.full(
-                (latent_trajectory.shape[0],),
-                jnp.asarray(delta, dtype=dtype),
-                dtype=dtype,
-            )
-        ),
+        "initial_scale_value": delta,
+        "initial_scale_mode": "per_time_constant",
         "min_scale": min_scale,
         "max_scale": max_scale,
         "target_accept": target_accept,

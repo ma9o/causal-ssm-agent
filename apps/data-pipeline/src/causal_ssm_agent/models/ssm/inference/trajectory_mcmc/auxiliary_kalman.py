@@ -34,7 +34,7 @@ from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
 from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
 from causal_ssm_agent.models.ssm.inference.parallel_kalman import (
-    aux_filter_lgssm,
+    aux_filter_lgssm_lightweight,
     sample_lgssm_trajectory,
 )
 from causal_ssm_agent.models.ssm.inference.shared import _trace_public_sites
@@ -82,6 +82,10 @@ class _LatentContext(NamedTuple):
     extra_params: dict[str, jnp.ndarray] | None
     H_rows: jnp.ndarray | None
     d_rows: jnp.ndarray | None
+
+
+def _shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
+    return tuple(array.shape), str(jnp.dtype(array.dtype))
 
 
 def _gaussian_log_prob_isotropic(
@@ -223,24 +227,15 @@ def _initial_latent_moments(context: _LatentContext) -> tuple[jnp.ndarray, jnp.n
     return init_pred_mean, init_pred_cov
 
 
-def _filter_auxiliary_lgssm(
+def _filter_auxiliary_lgssm_lightweight(
     context: _LatentContext,
     pseudo_observations: jnp.ndarray,
     delta: jnp.ndarray,
     *,
     parallel: bool = True,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Auxiliary-LGSSM Kalman filter backed by :mod:`parallel_kalman`.
-
-    Works for every aux_gibbs path (point-in-time, linear-summary augmented
-    block-tridiagonal Ad/Qd, and any other LGSSM whose ``context.Ad`` is
-    block-decomposable): the observation matrix is always ``H = I`` because
-    the auxiliary proposal observes the full (possibly augmented) state
-    with isotropic noise ``(delta/2) I``. ``parallel`` toggles the
-    Corenflos/Särkkä O(log T) associative scan against a plain O(T)
-    sequential ``lax.scan`` filter.
-    """
-    state = aux_filter_lgssm(
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Auxiliary-LGSSM filter for the latent MH hot path."""
+    state = aux_filter_lgssm_lightweight(
         init_mean=context.init_mean,
         init_cov=context.init_cov,
         Fs=context.Ad,
@@ -252,8 +247,6 @@ def _filter_auxiliary_lgssm(
         parallel=parallel,
     )
     return (
-        state.pred_mean,
-        state.pred_cov,
         state.filt_mean,
         state.filt_cov,
         state.loglik,
@@ -325,258 +318,484 @@ def build_auxiliary_kalman_bundle(
         raise ValueError(
             "aux_gibbs with latent_kernel='kalman' currently requires Gaussian latent diffusion for every state."
         )
-
-    site_info = _discover_sites(
-        model,
-        observations,
-        times,
-        trace_key,
-        _DummyLikelihoodBackend(),
-        reparam=reparam,
-    )
-    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
-    flat_example, unravel_fn = ravel_pytree(example_unc)
-
-    transforms = {name: info["transform"] for name, info in site_info.items()}
-    distributions = {name: info["distribution"] for name, info in site_info.items()}
-    sample_resolver = _build_original_sample_resolver(
-        site_info,
-        model=model,
-        observations=observations,
-        times=times,
-        reparam=reparam,
-    )
-    if sample_resolver is None:
-        raise ValueError(
-            "aux_gibbs with latent_kernel='kalman' only supports no reparameterization or AutoReparam with fixed centering."
-        )
-
-    runtime_registry = build_site_registry(model.spec, model.structure_runtime)
-    obs_mask = ~jnp.isnan(observations)
-    time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
     observation_support = getattr(model, "observation_support", None)
-    manifest_links = model.spec.manifest_links or [
-        LinkFunction.IDENTITY for _ in range(model.spec.n_manifest)
-    ]
-    support_kind_codes = (
-        get_support_kind_codes(observation_support)
-        if observation_support is not None
-        else jnp.zeros((model.spec.n_manifest,), dtype=jnp.int64)
+    cache_key = (
+        "aux_kalman_runtime_bundle",
+        id(reparam),
+        id(observation_support),
+        _shape_dtype_signature(observations),
+        _shape_dtype_signature(times),
     )
-    linear_summary_plan = _build_linear_summary_accumulator_plan(
-        observation_support,
-        model.spec.manifest_dists,
-        manifest_links,
-    )
-    use_linear_summary_augmentation = (
-        observation_support is not None and observation_support.requires_interval_summary_handling
-    )
-    if use_linear_summary_augmentation and linear_summary_plan is None:
-        raise ValueError(
-            "aux_gibbs with latent_kernel='kalman' only supports linear interval summaries "
-            "(mean/sum with supported Gaussian or Student-t identity-link measurements)."
+
+    def _build_runtime_bundle() -> dict[str, Any]:
+        site_info = _discover_sites(
+            model,
+            observations,
+            times,
+            trace_key,
+            _DummyLikelihoodBackend(),
+            reparam=reparam,
         )
-    public_sites = _trace_public_sites(
-        functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend()),
-        observations,
-        times,
-    )
+        example_unc = {
+            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
+        }
+        flat_example, unravel_fn = ravel_pytree(example_unc)
 
-    def _constrain(z: jnp.ndarray) -> tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]]:
-        unconstrained = unravel_fn(z)
-        constrained = {name: transforms[name](unconstrained[name]) for name in unconstrained}
-        return constrained, unconstrained
-
-    def log_prior_unc_fn(z: jnp.ndarray) -> jnp.ndarray:
-        constrained, unconstrained = _constrain(z)
-        log_prior = jnp.array(0.0, dtype=observations.dtype)
-        log_jacobian = jnp.array(0.0, dtype=observations.dtype)
-        for name in unconstrained:
-            log_prior = log_prior + jnp.sum(distributions[name].log_prob(constrained[name]))
-            log_jacobian = log_jacobian + jnp.sum(
-                transforms[name].log_abs_det_jacobian(unconstrained[name], constrained[name])
+        transforms = {name: info["transform"] for name, info in site_info.items()}
+        distributions = {name: info["distribution"] for name, info in site_info.items()}
+        sample_resolver = _build_original_sample_resolver(
+            site_info,
+            model=model,
+            observations=observations,
+            times=times,
+            reparam=reparam,
+        )
+        if sample_resolver is None:
+            raise ValueError(
+                "aux_gibbs with latent_kernel='kalman' only supports no reparameterization or "
+                "AutoReparam with fixed centering."
             )
-        return log_prior + log_jacobian
+
+        runtime_registry = build_site_registry(model.spec, model.structure_runtime)
+        manifest_links = model.spec.manifest_links or [
+            LinkFunction.IDENTITY for _ in range(model.spec.n_manifest)
+        ]
+        support_kind_codes = (
+            get_support_kind_codes(observation_support)
+            if observation_support is not None
+            else jnp.zeros((model.spec.n_manifest,), dtype=jnp.int64)
+        )
+        linear_summary_plan = _build_linear_summary_accumulator_plan(
+            observation_support,
+            model.spec.manifest_dists,
+            manifest_links,
+        )
+        use_linear_summary_augmentation = (
+            observation_support is not None
+            and observation_support.requires_interval_summary_handling
+        )
+        if use_linear_summary_augmentation and linear_summary_plan is None:
+            raise ValueError(
+                "aux_gibbs with latent_kernel='kalman' only supports linear interval summaries "
+                "(mean/sum with supported Gaussian or Student-t identity-link measurements)."
+            )
+        public_sites = _trace_public_sites(
+            functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend()),
+            observations,
+            times,
+        )
+
+        def _constrain(z: jnp.ndarray) -> tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]]:
+            unconstrained = unravel_fn(z)
+            constrained = {name: transforms[name](unconstrained[name]) for name in unconstrained}
+            return constrained, unconstrained
+
+        def log_prior_unc_fn(z: jnp.ndarray) -> jnp.ndarray:
+            constrained, unconstrained = _constrain(z)
+            log_prior = jnp.array(0.0, dtype=flat_example.dtype)
+            log_jacobian = jnp.array(0.0, dtype=flat_example.dtype)
+            for name in unconstrained:
+                log_prior = log_prior + jnp.sum(distributions[name].log_prob(constrained[name]))
+                log_jacobian = log_jacobian + jnp.sum(
+                    transforms[name].log_abs_det_jacobian(unconstrained[name], constrained[name])
+                )
+            return log_prior + log_jacobian
+
+        def latent_context_runtime_fn(z: jnp.ndarray, runtime_times: jnp.ndarray) -> _LatentContext:
+            constrained, _ = _constrain(z)
+            original_samples = sample_resolver(constrained)
+            ct_params, measurement_params, initial_state, extra_params = (
+                _assemble_likelihood_inputs(
+                    original_samples,
+                    model.spec,
+                    registry=runtime_registry,
+                    structure_runtime=model.structure_runtime,
+                )
+            )
+            time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
+            Ad, Qd, cd = discretize_system_batched(
+                ct_params.drift,
+                ct_params.diffusion_cov,
+                ct_params.cint,
+                time_intervals,
+            )
+            cd_scan = (
+                jnp.zeros((Ad.shape[0], Ad.shape[1]), dtype=Ad.dtype)
+                if cd is None
+                else jnp.asarray(cd)
+            )
+            H_rows = None
+            d_rows = None
+            init_mean = initial_state.mean
+            init_cov = initial_state.cov
+            H = measurement_params.lambda_mat
+            d_meas = measurement_params.manifest_means
+            if use_linear_summary_augmentation:
+                (
+                    Ad,
+                    Qd,
+                    cd_scan,
+                    init_mean,
+                    init_cov,
+                    H_rows,
+                    d_rows,
+                ) = build_linear_summary_augmented_system(
+                    plan=linear_summary_plan,
+                    time_intervals=time_intervals,
+                    drift=ct_params.drift,
+                    diffusion_cov=ct_params.diffusion_cov,
+                    cint=ct_params.cint
+                    if ct_params.cint is not None
+                    else jnp.zeros((ct_params.drift.shape[0],), dtype=ct_params.drift.dtype),
+                    H=measurement_params.lambda_mat,
+                    d=measurement_params.manifest_means,
+                    init_mean=initial_state.mean,
+                    init_cov=initial_state.cov,
+                    support_kind_codes=support_kind_codes,
+                )
+            return _LatentContext(
+                Ad=Ad,
+                Qd=Qd,
+                cd=cd_scan,
+                init_mean=init_mean,
+                init_cov=init_cov,
+                H=H,
+                d_meas=d_meas,
+                R=measurement_params.manifest_cov,
+                extra_params=extra_params,
+                H_rows=H_rows,
+                d_rows=d_rows,
+            )
+
+        def _measurement_semantics_from_context(context: _LatentContext):
+            return compile_measurement_semantics(
+                model.spec.manifest_dists,
+                manifest_cov=context.R,
+                extra_params=context.extra_params,
+                manifest_links=manifest_links,
+                observation_support=None
+                if use_linear_summary_augmentation
+                else observation_support,
+            )
+
+        def observation_log_prob_from_context_runtime_fn(
+            context: _LatentContext,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            obs_mask = ~jnp.isnan(runtime_observations)
+            measurement_semantics = _measurement_semantics_from_context(context)
+            if use_linear_summary_augmentation:
+                assert context.H_rows is not None
+                assert context.d_rows is not None
+                obs_lp = row_observation_log_prob(
+                    latent_trajectory,
+                    runtime_observations,
+                    obs_mask,
+                    context.H_rows,
+                    context.d_rows,
+                    context.R,
+                    measurement_semantics.obs_kernel,
+                )
+            else:
+                obs_lp = trajectory_observation_log_prob(
+                    latent_trajectory,
+                    runtime_observations,
+                    obs_mask,
+                    context.H,
+                    context.d_meas,
+                    context.R,
+                    measurement_semantics.obs_kernel,
+                    measurement_semantics.mean_log_prob_fn,
+                    observation_support,
+                )
+            return jnp.asarray(obs_lp, dtype=latent_trajectory.dtype)
+
+        def observation_increment_log_prob_from_context_runtime_fn(
+            context: _LatentContext,
+            latent_state: jnp.ndarray,
+            time_idx: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            measurement_semantics = _measurement_semantics_from_context(context)
+            clean_observations = jnp.nan_to_num(runtime_observations, nan=0.0)
+            obs_mask = ~jnp.isnan(runtime_observations)
+            y_t = clean_observations[time_idx].astype(latent_state.dtype)
+            mask_t = obs_mask[time_idx].astype(latent_state.dtype)
+            if use_linear_summary_augmentation:
+                assert context.H_rows is not None
+                assert context.d_rows is not None
+                H_t = context.H_rows[time_idx]
+                d_t = context.d_rows[time_idx]
+            else:
+                H_t = context.H
+                d_t = context.d_meas
+            obs_lp = measurement_semantics.obs_kernel.emission_fn(
+                y_t,
+                latent_state,
+                H_t,
+                d_t,
+                context.R,
+                mask_t,
+            )
+            return jnp.asarray(obs_lp, dtype=latent_state.dtype)
+
+        def observation_log_prob_per_t_from_context_runtime_fn(
+            context: _LatentContext,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            obs_mask = ~jnp.isnan(runtime_observations)
+            measurement_semantics = _measurement_semantics_from_context(context)
+            if use_linear_summary_augmentation:
+                assert context.H_rows is not None
+                assert context.d_rows is not None
+                per_t = row_observation_log_probs(
+                    latent_trajectory,
+                    runtime_observations,
+                    obs_mask,
+                    context.H_rows,
+                    context.d_rows,
+                    context.R,
+                    measurement_semantics.obs_kernel,
+                )
+            else:
+                per_t = trajectory_observation_log_probs(
+                    latent_trajectory,
+                    runtime_observations,
+                    obs_mask,
+                    context.H,
+                    context.d_meas,
+                    context.R,
+                    measurement_semantics.obs_kernel,
+                    measurement_semantics.mean_log_prob_fn,
+                    observation_support,
+                )
+            return jnp.asarray(per_t, dtype=latent_trajectory.dtype)
+
+        def observation_log_prob_runtime_fn(
+            z: jnp.ndarray,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+        ) -> jnp.ndarray:
+            context = latent_context_runtime_fn(z, runtime_times)
+            return observation_log_prob_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
+
+        observation_grad_runtime_fn = jax.grad(observation_log_prob_runtime_fn, argnums=1)
+        observation_grad_from_context_runtime_fn = jax.grad(
+            observation_log_prob_from_context_runtime_fn,
+            argnums=1,
+        )
+        observation_log_prob_and_grad_from_context_runtime_fn = jax.value_and_grad(
+            observation_log_prob_from_context_runtime_fn,
+            argnums=1,
+        )
+
+        def prior_terms_from_context_fn(context: _LatentContext) -> GaussianTrajectoryPriorTerms:
+            return _build_gaussian_trajectory_prior_terms(
+                context.Ad,
+                context.Qd,
+                context.cd,
+                context.init_mean,
+                context.init_cov,
+                jitter=_AUX_JITTER,
+            )
+
+        def trajectory_log_prob_from_context_runtime_fn(
+            context: _LatentContext,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            prior_terms: GaussianTrajectoryPriorTerms | None = None,
+        ) -> jnp.ndarray:
+            if prior_terms is None:
+                prior_terms = prior_terms_from_context_fn(context)
+            prior_lp = _trajectory_prior_log_prob_from_terms(
+                latent_trajectory,
+                context.Ad,
+                context.cd,
+                prior_terms,
+            )
+            total = prior_lp + observation_log_prob_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
+            return jnp.asarray(total, dtype=latent_trajectory.dtype)
+
+        def trajectory_log_prob_runtime_fn(
+            z: jnp.ndarray,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+        ) -> jnp.ndarray:
+            context = latent_context_runtime_fn(z, runtime_times)
+            return trajectory_log_prob_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
+
+        def complete_log_posterior_from_context_runtime_fn(
+            z: jnp.ndarray,
+            context: _LatentContext,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+        ) -> tuple[jnp.ndarray, jnp.ndarray]:
+            trajectory_lp = trajectory_log_prob_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
+            complete_lp = log_prior_unc_fn(z) + trajectory_lp
+            return complete_lp, trajectory_lp
+
+        def complete_log_posterior_runtime_fn(
+            z: jnp.ndarray,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+        ) -> jnp.ndarray:
+            context = latent_context_runtime_fn(z, runtime_times)
+            complete_lp, _ = complete_log_posterior_from_context_runtime_fn(
+                z,
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
+            return complete_lp
+
+        def complete_log_posterior_with_aux_runtime_fn(
+            z: jnp.ndarray,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+        ) -> tuple[jnp.ndarray, tuple[jnp.ndarray, _LatentContext]]:
+            context = latent_context_runtime_fn(z, runtime_times)
+            complete_lp, trajectory_lp = complete_log_posterior_from_context_runtime_fn(
+                z,
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
+            return complete_lp, (trajectory_lp, context)
+
+        def initial_latent_from_context_fn(context: _LatentContext) -> jnp.ndarray:
+            return _predictive_latent_init(context.Ad, context.cd, context.init_mean)
+
+        def initial_latent_runtime_fn(
+            z: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+        ) -> jnp.ndarray:
+            context = latent_context_runtime_fn(z, runtime_times)
+            return initial_latent_from_context_fn(context)
+
+        return {
+            "dim": int(flat_example.shape[0]),
+            "flat_example": flat_example,
+            "site_info": site_info,
+            "unravel_fn": unravel_fn,
+            "public_sites": public_sites,
+            "log_prior_unc_fn": log_prior_unc_fn,
+            "latent_context_runtime_fn": latent_context_runtime_fn,
+            "observation_log_prob_runtime_fn": observation_log_prob_runtime_fn,
+            "observation_log_prob_from_context_runtime_fn": (
+                observation_log_prob_from_context_runtime_fn
+            ),
+            "observation_log_prob_and_grad_from_context_runtime_fn": (
+                observation_log_prob_and_grad_from_context_runtime_fn
+            ),
+            "observation_log_prob_per_t_from_context_runtime_fn": (
+                observation_log_prob_per_t_from_context_runtime_fn
+            ),
+            "observation_increment_log_prob_from_context_runtime_fn": (
+                observation_increment_log_prob_from_context_runtime_fn
+            ),
+            "observation_grad_runtime_fn": observation_grad_runtime_fn,
+            "observation_grad_from_context_runtime_fn": observation_grad_from_context_runtime_fn,
+            "trajectory_log_prob_runtime_fn": trajectory_log_prob_runtime_fn,
+            "trajectory_log_prob_from_context_runtime_fn": (
+                trajectory_log_prob_from_context_runtime_fn
+            ),
+            "prior_terms_from_context_fn": prior_terms_from_context_fn,
+            "complete_log_posterior_from_context_runtime_fn": (
+                complete_log_posterior_from_context_runtime_fn
+            ),
+            "complete_log_posterior_runtime_fn": complete_log_posterior_runtime_fn,
+            "complete_log_posterior_with_aux_runtime_fn": (
+                complete_log_posterior_with_aux_runtime_fn
+            ),
+            "initial_latent_runtime_fn": initial_latent_runtime_fn,
+            "initial_latent_from_context_fn": initial_latent_from_context_fn,
+            "initial_latent_moments_from_context_fn": _initial_latent_moments,
+            "project_latent_trajectory_fn": (
+                (lambda latent_trajectory: latent_trajectory[:, : model.spec.n_latent])
+                if use_linear_summary_augmentation
+                else (lambda latent_trajectory: latent_trajectory)
+            ),
+        }
+
+    if hasattr(model, "get_cached_artifact"):
+        runtime_bundle = model.get_cached_artifact(cache_key, _build_runtime_bundle)
+    else:
+        runtime_bundle = _build_runtime_bundle()
+
+    runtime_observations = jnp.asarray(observations)
+    runtime_times = jnp.asarray(times)
 
     def latent_context_fn(z: jnp.ndarray) -> _LatentContext:
-        constrained, _ = _constrain(z)
-        original_samples = sample_resolver(constrained)
-        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
-            original_samples,
-            model.spec,
-            registry=runtime_registry,
-            structure_runtime=model.structure_runtime,
-        )
-        Ad, Qd, cd = discretize_system_batched(
-            ct_params.drift,
-            ct_params.diffusion_cov,
-            ct_params.cint,
-            time_intervals,
-        )
-        cd_scan = (
-            jnp.zeros((Ad.shape[0], Ad.shape[1]), dtype=Ad.dtype) if cd is None else jnp.asarray(cd)
-        )
-        H_rows = None
-        d_rows = None
-        init_mean = initial_state.mean
-        init_cov = initial_state.cov
-        H = measurement_params.lambda_mat
-        d_meas = measurement_params.manifest_means
-        if use_linear_summary_augmentation:
-            (
-                Ad,
-                Qd,
-                cd_scan,
-                init_mean,
-                init_cov,
-                H_rows,
-                d_rows,
-            ) = build_linear_summary_augmented_system(
-                plan=linear_summary_plan,
-                time_intervals=time_intervals,
-                drift=ct_params.drift,
-                diffusion_cov=ct_params.diffusion_cov,
-                cint=ct_params.cint
-                if ct_params.cint is not None
-                else jnp.zeros((ct_params.drift.shape[0],), dtype=ct_params.drift.dtype),
-                H=measurement_params.lambda_mat,
-                d=measurement_params.manifest_means,
-                init_mean=initial_state.mean,
-                init_cov=initial_state.cov,
-                support_kind_codes=support_kind_codes,
-            )
-        return _LatentContext(
-            Ad=Ad,
-            Qd=Qd,
-            cd=cd_scan,
-            init_mean=init_mean,
-            init_cov=init_cov,
-            H=H,
-            d_meas=d_meas,
-            R=measurement_params.manifest_cov,
-            extra_params=extra_params,
-            H_rows=H_rows,
-            d_rows=d_rows,
-        )
-
-    def _measurement_semantics_from_context(context: _LatentContext):
-        return compile_measurement_semantics(
-            model.spec.manifest_dists,
-            manifest_cov=context.R,
-            extra_params=context.extra_params,
-            manifest_links=manifest_links,
-            observation_support=None if use_linear_summary_augmentation else observation_support,
-        )
+        return runtime_bundle["latent_context_runtime_fn"](z, runtime_times)
 
     def observation_log_prob_from_context_fn(
         context: _LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> jnp.ndarray:
-        measurement_semantics = _measurement_semantics_from_context(context)
-        if use_linear_summary_augmentation:
-            assert context.H_rows is not None
-            assert context.d_rows is not None
-            obs_lp = row_observation_log_prob(
-                latent_trajectory,
-                observations,
-                obs_mask,
-                context.H_rows,
-                context.d_rows,
-                context.R,
-                measurement_semantics.obs_kernel,
-            )
-        else:
-            obs_lp = trajectory_observation_log_prob(
-                latent_trajectory,
-                observations,
-                obs_mask,
-                context.H,
-                context.d_meas,
-                context.R,
-                measurement_semantics.obs_kernel,
-                measurement_semantics.mean_log_prob_fn,
-                observation_support,
-            )
-        return jnp.asarray(obs_lp, dtype=latent_trajectory.dtype)
-
-    clean_observations = jnp.nan_to_num(observations, nan=0.0)
+        return runtime_bundle["observation_log_prob_from_context_runtime_fn"](
+            context,
+            latent_trajectory,
+            runtime_observations,
+        )
 
     def observation_increment_log_prob_from_context_fn(
         context: _LatentContext,
         latent_state: jnp.ndarray,
         time_idx: jnp.ndarray,
     ) -> jnp.ndarray:
-        measurement_semantics = _measurement_semantics_from_context(context)
-        y_t = clean_observations[time_idx].astype(latent_state.dtype)
-        mask_t = obs_mask[time_idx].astype(latent_state.dtype)
-        if use_linear_summary_augmentation:
-            assert context.H_rows is not None
-            assert context.d_rows is not None
-            H_t = context.H_rows[time_idx]
-            d_t = context.d_rows[time_idx]
-        else:
-            H_t = context.H
-            d_t = context.d_meas
-        obs_lp = measurement_semantics.obs_kernel.emission_fn(
-            y_t,
+        return runtime_bundle["observation_increment_log_prob_from_context_runtime_fn"](
+            context,
             latent_state,
-            H_t,
-            d_t,
-            context.R,
-            mask_t,
+            time_idx,
+            runtime_observations,
         )
-        return jnp.asarray(obs_lp, dtype=latent_state.dtype)
 
     def observation_log_prob_per_t_from_context_fn(
         context: _LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> jnp.ndarray:
-        """Per-timestep ``(T,)`` observation log-prob. Sum equals the scalar variant.
-
-        Used only by the per-t MH-ratio diagnostic.
-        """
-        measurement_semantics = _measurement_semantics_from_context(context)
-        if use_linear_summary_augmentation:
-            assert context.H_rows is not None
-            assert context.d_rows is not None
-            per_t = row_observation_log_probs(
-                latent_trajectory,
-                observations,
-                obs_mask,
-                context.H_rows,
-                context.d_rows,
-                context.R,
-                measurement_semantics.obs_kernel,
-            )
-        else:
-            per_t = trajectory_observation_log_probs(
-                latent_trajectory,
-                observations,
-                obs_mask,
-                context.H,
-                context.d_meas,
-                context.R,
-                measurement_semantics.obs_kernel,
-                measurement_semantics.mean_log_prob_fn,
-                observation_support,
-            )
-        return jnp.asarray(per_t, dtype=latent_trajectory.dtype)
+        return runtime_bundle["observation_log_prob_per_t_from_context_runtime_fn"](
+            context,
+            latent_trajectory,
+            runtime_observations,
+        )
 
     def observation_log_prob_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
-        context = latent_context_fn(z)
-        return observation_log_prob_from_context_fn(context, latent_trajectory)
+        return runtime_bundle["observation_log_prob_runtime_fn"](
+            z,
+            latent_trajectory,
+            runtime_observations,
+            runtime_times,
+        )
 
-    observation_grad_fn = jax.grad(observation_log_prob_fn, argnums=1)
-    observation_grad_from_context_fn = jax.grad(observation_log_prob_from_context_fn, argnums=1)
-
-    def _prior_terms_from_context(context: _LatentContext) -> GaussianTrajectoryPriorTerms:
-        return _build_gaussian_trajectory_prior_terms(
-            context.Ad,
-            context.Qd,
-            context.cd,
-            context.init_mean,
-            context.init_cov,
-            jitter=_AUX_JITTER,
+    def observation_grad_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
+        return runtime_bundle["observation_grad_runtime_fn"](
+            z,
+            latent_trajectory,
+            runtime_observations,
+            runtime_times,
         )
 
     def trajectory_log_prob_from_context_fn(
@@ -584,79 +803,554 @@ def build_auxiliary_kalman_bundle(
         latent_trajectory: jnp.ndarray,
         prior_terms: GaussianTrajectoryPriorTerms | None = None,
     ) -> jnp.ndarray:
-        if prior_terms is None:
-            prior_terms = _prior_terms_from_context(context)
-        prior_lp = _trajectory_prior_log_prob_from_terms(
+        return runtime_bundle["trajectory_log_prob_from_context_runtime_fn"](
+            context,
             latent_trajectory,
-            context.Ad,
-            context.cd,
-            prior_terms,
+            runtime_observations,
+            prior_terms=prior_terms,
         )
-        total = prior_lp + observation_log_prob_from_context_fn(context, latent_trajectory)
-        return jnp.asarray(total, dtype=latent_trajectory.dtype)
 
     def trajectory_log_prob_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
-        context = latent_context_fn(z)
-        return trajectory_log_prob_from_context_fn(context, latent_trajectory)
+        return runtime_bundle["trajectory_log_prob_runtime_fn"](
+            z,
+            latent_trajectory,
+            runtime_observations,
+            runtime_times,
+        )
 
     def complete_log_posterior_from_context_fn(
         z: jnp.ndarray,
         context: _LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        trajectory_lp = trajectory_log_prob_from_context_fn(context, latent_trajectory)
-        complete_lp = log_prior_unc_fn(z) + trajectory_lp
-        return complete_lp, trajectory_lp
+        return runtime_bundle["complete_log_posterior_from_context_runtime_fn"](
+            z,
+            context,
+            latent_trajectory,
+            runtime_observations,
+        )
+
+    def complete_log_posterior_fn(
+        z: jnp.ndarray,
+        latent_trajectory: jnp.ndarray,
+    ) -> jnp.ndarray:
+        return runtime_bundle["complete_log_posterior_runtime_fn"](
+            z,
+            latent_trajectory,
+            runtime_observations,
+            runtime_times,
+        )
 
     def complete_log_posterior_with_aux_fn(
         z: jnp.ndarray,
         latent_trajectory: jnp.ndarray,
     ) -> tuple[jnp.ndarray, tuple[jnp.ndarray, _LatentContext]]:
-        context = latent_context_fn(z)
-        complete_lp, trajectory_lp = complete_log_posterior_from_context_fn(
+        return runtime_bundle["complete_log_posterior_with_aux_runtime_fn"](
             z,
-            context,
             latent_trajectory,
+            runtime_observations,
+            runtime_times,
         )
-        return complete_lp, (trajectory_lp, context)
-
-    def initial_latent_from_context_fn(context: _LatentContext) -> jnp.ndarray:
-        return _predictive_latent_init(context.Ad, context.cd, context.init_mean)
 
     def initial_latent_fn(z: jnp.ndarray) -> jnp.ndarray:
-        context = latent_context_fn(z)
-        return initial_latent_from_context_fn(context)
+        return runtime_bundle["initial_latent_runtime_fn"](z, runtime_times)
 
     return {
-        "dim": int(flat_example.shape[0]),
-        "flat_example": flat_example,
-        "site_info": site_info,
-        "unravel_fn": unravel_fn,
-        "public_sites": public_sites,
-        "log_prior_unc_fn": log_prior_unc_fn,
+        **runtime_bundle,
+        "observations": runtime_observations,
+        "times": runtime_times,
         "latent_context_fn": latent_context_fn,
         "observation_log_prob_fn": observation_log_prob_fn,
         "observation_log_prob_from_context_fn": observation_log_prob_from_context_fn,
-        "observation_log_prob_per_t_from_context_fn": (observation_log_prob_per_t_from_context_fn),
-        "observation_increment_log_prob_from_context_fn": (
-            observation_increment_log_prob_from_context_fn
+        "observation_log_prob_and_grad_from_context_fn": (
+            lambda context, latent_trajectory: runtime_bundle[
+                "observation_log_prob_and_grad_from_context_runtime_fn"
+            ](
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
         ),
+        "observation_log_prob_per_t_from_context_fn": observation_log_prob_per_t_from_context_fn,
+        "observation_increment_log_prob_from_context_fn": observation_increment_log_prob_from_context_fn,
         "observation_grad_fn": observation_grad_fn,
-        "observation_grad_from_context_fn": observation_grad_from_context_fn,
+        "observation_grad_from_context_fn": (
+            lambda context, latent_trajectory: runtime_bundle[
+                "observation_grad_from_context_runtime_fn"
+            ](
+                context,
+                latent_trajectory,
+                runtime_observations,
+            )
+        ),
         "trajectory_log_prob_fn": trajectory_log_prob_fn,
         "trajectory_log_prob_from_context_fn": trajectory_log_prob_from_context_fn,
-        "prior_terms_from_context_fn": _prior_terms_from_context,
         "complete_log_posterior_from_context_fn": complete_log_posterior_from_context_fn,
+        "complete_log_posterior_fn": complete_log_posterior_fn,
         "complete_log_posterior_with_aux_fn": complete_log_posterior_with_aux_fn,
         "initial_latent_fn": initial_latent_fn,
-        "initial_latent_from_context_fn": initial_latent_from_context_fn,
-        "initial_latent_moments_from_context_fn": _initial_latent_moments,
-        "project_latent_trajectory_fn": (
-            (lambda latent_trajectory: latent_trajectory[:, : model.spec.n_latent])
-            if use_linear_summary_augmentation
-            else (lambda latent_trajectory: latent_trajectory)
-        ),
     }
+
+
+@functools.partial(jax.jit, static_argnames=("runtime_complete_log_posterior_fn",))
+def _complete_log_posterior_grad_runtime(
+    z: jnp.ndarray,
+    latent_trajectory: jnp.ndarray,
+    runtime_observations: jnp.ndarray,
+    runtime_times: jnp.ndarray,
+    *,
+    runtime_complete_log_posterior_fn,
+) -> jnp.ndarray:
+    return jax.grad(runtime_complete_log_posterior_fn, argnums=0)(
+        z,
+        latent_trajectory,
+        runtime_observations,
+        runtime_times,
+    )
+
+
+@functools.partial(jax.jit, static_argnames=("runtime_complete_log_posterior_fn",))
+def _complete_log_posterior_value_and_grad_runtime(
+    z: jnp.ndarray,
+    latent_trajectory: jnp.ndarray,
+    runtime_observations: jnp.ndarray,
+    runtime_times: jnp.ndarray,
+    *,
+    runtime_complete_log_posterior_fn,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    return jax.value_and_grad(runtime_complete_log_posterior_fn, argnums=0)(
+        z,
+        latent_trajectory,
+        runtime_observations,
+        runtime_times,
+    )
+
+
+def _prepare_latent_step_runtime(
+    state,
+    runtime_observations: jnp.ndarray,
+    *,
+    prior_terms_from_context_fn,
+    log_prior_unc_fn,
+    observation_grad_from_context_runtime_fn,
+):
+    x_curr = state.latent_trajectory
+    context = state.latent_context
+    latent_dtype = x_curr.dtype
+    traj_dtype = state.trajectory_log_prob.dtype
+    complete_dtype = state.complete_log_posterior.dtype
+    delta_val = state.latent_delta
+
+    if delta_val.ndim == 0:
+        half_delta_bcast = 0.5 * delta_val
+    else:
+        half_delta_bcast = 0.5 * delta_val[:, None]
+    half_delta_variance = 0.5 * delta_val
+
+    prior_terms = prior_terms_from_context_fn(context)
+    traj_curr = jnp.asarray(state.trajectory_log_prob, dtype=traj_dtype)
+    log_prior_z = jnp.asarray(log_prior_unc_fn(state.position), dtype=complete_dtype)
+    grad_curr = jnp.asarray(
+        observation_grad_from_context_runtime_fn(context, x_curr, runtime_observations),
+        dtype=latent_dtype,
+    )
+    return (
+        x_curr,
+        context,
+        latent_dtype,
+        traj_dtype,
+        complete_dtype,
+        delta_val,
+        half_delta_bcast,
+        half_delta_variance,
+        prior_terms,
+        traj_curr,
+        log_prior_z,
+        grad_curr,
+    )
+
+
+def _latent_mh_step_eq8_runtime(
+    state,
+    key: jnp.ndarray,
+    runtime_observations: jnp.ndarray,
+    *,
+    prior_terms_from_context_fn,
+    log_prior_unc_fn,
+    observation_grad_from_context_runtime_fn,
+    observation_log_prob_and_grad_from_context_runtime_fn,
+    observation_log_prob_per_t_from_context_runtime_fn,
+    parallel: bool,
+    emit_per_t_log_alpha: bool,
+):
+    aux_key, sample_key, accept_key = random.split(key, 3)
+    (
+        x_curr,
+        context,
+        latent_dtype,
+        traj_dtype,
+        complete_dtype,
+        delta_val,
+        half_delta_bcast,
+        half_delta_variance,
+        prior_terms,
+        traj_curr,
+        log_prior_z,
+        grad_curr,
+    ) = _prepare_latent_step_runtime(
+        state,
+        runtime_observations,
+        prior_terms_from_context_fn=prior_terms_from_context_fn,
+        log_prior_unc_fn=log_prior_unc_fn,
+        observation_grad_from_context_runtime_fn=observation_grad_from_context_runtime_fn,
+    )
+
+    u = (
+        x_curr
+        + half_delta_bcast * grad_curr
+        + jnp.sqrt(half_delta_bcast) * random.normal(aux_key, x_curr.shape, dtype=latent_dtype)
+    )
+
+    filt_means, filt_covs, loglik = _filter_auxiliary_lgssm_lightweight(
+        context,
+        u,
+        delta_val,
+        parallel=parallel,
+    )
+    x_prop = jnp.asarray(
+        _sample_auxiliary_trajectory(
+            sample_key,
+            context,
+            filt_means=filt_means,
+            filt_covs=filt_covs,
+            parallel=parallel,
+        ),
+        dtype=latent_dtype,
+    )
+    log_evidence = jnp.sum(loglik)
+
+    q_fwd = jnp.asarray(
+        _auxiliary_posterior_log_prob(
+            x_prop,
+            context,
+            u,
+            delta=delta_val,
+            log_evidence=log_evidence,
+            prior_terms=prior_terms,
+        ),
+        dtype=traj_dtype,
+    )
+    q_rev = jnp.asarray(
+        _auxiliary_posterior_log_prob(
+            x_curr,
+            context,
+            u,
+            delta=delta_val,
+            log_evidence=log_evidence,
+            prior_terms=prior_terms,
+        ),
+        dtype=traj_dtype,
+    )
+
+    obs_prop, grad_prop = observation_log_prob_and_grad_from_context_runtime_fn(
+        context,
+        x_prop,
+        runtime_observations,
+    )
+    grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
+    prior_prop = _trajectory_prior_log_prob_from_terms(
+        x_prop,
+        context.Ad,
+        context.cd,
+        prior_terms,
+    )
+    traj_prop = jnp.asarray(prior_prop + obs_prop, dtype=traj_dtype)
+
+    log_alpha = traj_prop - traj_curr
+    log_alpha = log_alpha + _gaussian_log_prob_isotropic(
+        u,
+        x_prop + half_delta_bcast * grad_prop,
+        half_delta_variance,
+    )
+    log_alpha = log_alpha - _gaussian_log_prob_isotropic(
+        u,
+        x_curr + half_delta_bcast * grad_curr,
+        half_delta_variance,
+    )
+    log_alpha = log_alpha + q_rev - q_fwd
+
+    extras: dict[str, jnp.ndarray] = {}
+    if emit_per_t_log_alpha:
+        prior_per_t_prop = _trajectory_prior_log_prob_per_t_from_terms(
+            x_prop,
+            context.Ad,
+            context.cd,
+            prior_terms,
+        )
+        prior_per_t_curr = _trajectory_prior_log_prob_per_t_from_terms(
+            x_curr,
+            context.Ad,
+            context.cd,
+            prior_terms,
+        )
+        obs_per_t_prop = observation_log_prob_per_t_from_context_runtime_fn(
+            context,
+            x_prop,
+            runtime_observations,
+        )
+        obs_per_t_curr = observation_log_prob_per_t_from_context_runtime_fn(
+            context,
+            x_curr,
+            runtime_observations,
+        )
+        traj_per_t = (prior_per_t_prop + obs_per_t_prop) - (prior_per_t_curr + obs_per_t_curr)
+        fwd_prop_per_t = _gaussian_log_prob_isotropic_per_t(
+            u,
+            x_prop + half_delta_bcast * grad_prop,
+            half_delta_variance,
+        )
+        fwd_curr_per_t = _gaussian_log_prob_isotropic_per_t(
+            u,
+            x_curr + half_delta_bcast * grad_curr,
+            half_delta_variance,
+        )
+        q_rev_per_t = _trajectory_prior_log_prob_per_t_from_terms(
+            x_curr,
+            context.Ad,
+            context.cd,
+            prior_terms,
+        ) + _gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
+        q_fwd_per_t = _trajectory_prior_log_prob_per_t_from_terms(
+            x_prop,
+            context.Ad,
+            context.cd,
+            prior_terms,
+        ) + _gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
+        log_alpha_per_t = (
+            traj_per_t + (fwd_prop_per_t - fwd_curr_per_t) + (q_rev_per_t - q_fwd_per_t)
+        )
+        extras["log_alpha_per_t"] = log_alpha_per_t.astype(traj_dtype)
+        extras["log_alpha_obs_per_t"] = (obs_per_t_prop - obs_per_t_curr).astype(traj_dtype)
+        extras["log_alpha_fwd_minus_rev_per_t"] = (fwd_prop_per_t - fwd_curr_per_t).astype(
+            traj_dtype
+        )
+        extras["log_alpha_q_per_t"] = (q_rev_per_t - q_fwd_per_t).astype(traj_dtype)
+
+    accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
+    accept = random.bernoulli(accept_key, accept_prob)
+    next_traj = jnp.asarray(jnp.where(accept, x_prop, x_curr), dtype=latent_dtype)
+    next_traj_lp = jnp.asarray(jnp.where(accept, traj_prop, traj_curr), dtype=traj_dtype)
+    next_complete = log_prior_z + next_traj_lp.astype(complete_dtype)
+    next_state = state._replace(
+        latent_trajectory=next_traj,
+        trajectory_log_prob=next_traj_lp,
+        complete_log_posterior=next_complete,
+    )
+    extras["accepted"] = accept.astype(state.position.dtype)
+    extras["log_alpha"] = log_alpha.astype(traj_dtype)
+    return next_state, extras
+
+
+def _latent_mh_step_eq10_11_runtime(
+    state,
+    key: jnp.ndarray,
+    runtime_observations: jnp.ndarray,
+    *,
+    prior_terms_from_context_fn,
+    log_prior_unc_fn,
+    observation_grad_from_context_runtime_fn,
+    observation_log_prob_and_grad_from_context_runtime_fn,
+    parallel: bool,
+):
+    aux_key, sample_key, accept_key = random.split(key, 3)
+    (
+        x_curr,
+        context,
+        latent_dtype,
+        traj_dtype,
+        complete_dtype,
+        delta_val,
+        half_delta_bcast,
+        half_delta_variance,
+        prior_terms,
+        traj_curr,
+        log_prior_z,
+        grad_curr,
+    ) = _prepare_latent_step_runtime(
+        state,
+        runtime_observations,
+        prior_terms_from_context_fn=prior_terms_from_context_fn,
+        log_prior_unc_fn=log_prior_unc_fn,
+        observation_grad_from_context_runtime_fn=observation_grad_from_context_runtime_fn,
+    )
+
+    u = x_curr + jnp.sqrt(half_delta_bcast) * random.normal(
+        aux_key,
+        x_curr.shape,
+        dtype=latent_dtype,
+    )
+    pseudo_obs_fwd = _shifted_auxiliary_pseudo_observations(u, grad_curr, half_delta_bcast)
+    filt_means_fwd, filt_covs_fwd, loglik_fwd = _filter_auxiliary_lgssm_lightweight(
+        context,
+        pseudo_obs_fwd,
+        delta_val,
+        parallel=parallel,
+    )
+    x_prop = jnp.asarray(
+        _sample_auxiliary_trajectory(
+            sample_key,
+            context,
+            filt_means=filt_means_fwd,
+            filt_covs=filt_covs_fwd,
+            parallel=parallel,
+        ),
+        dtype=latent_dtype,
+    )
+    obs_prop, grad_prop = observation_log_prob_and_grad_from_context_runtime_fn(
+        context,
+        x_prop,
+        runtime_observations,
+    )
+    prior_prop = _trajectory_prior_log_prob_from_terms(
+        x_prop,
+        context.Ad,
+        context.cd,
+        prior_terms,
+    )
+    traj_prop = jnp.asarray(prior_prop + obs_prop, dtype=traj_dtype)
+    log_evidence_fwd = jnp.sum(loglik_fwd)
+    q_fwd = jnp.asarray(
+        _auxiliary_posterior_log_prob(
+            x_prop,
+            context,
+            pseudo_obs_fwd,
+            delta=delta_val,
+            log_evidence=log_evidence_fwd,
+            prior_terms=prior_terms,
+        ),
+        dtype=traj_dtype,
+    )
+
+    grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
+    pseudo_obs_rev = _shifted_auxiliary_pseudo_observations(u, grad_prop, half_delta_bcast)
+    _fm_rev, _fc_rev, loglik_rev = _filter_auxiliary_lgssm_lightweight(
+        context,
+        pseudo_obs_rev,
+        delta_val,
+        parallel=parallel,
+    )
+    log_evidence_rev = jnp.sum(loglik_rev)
+    q_rev = jnp.asarray(
+        _auxiliary_posterior_log_prob(
+            x_curr,
+            context,
+            pseudo_obs_rev,
+            delta=delta_val,
+            log_evidence=log_evidence_rev,
+            prior_terms=prior_terms,
+        ),
+        dtype=traj_dtype,
+    )
+
+    log_alpha = traj_prop - traj_curr
+    log_alpha = log_alpha + _gaussian_log_prob_isotropic(u, x_prop, half_delta_variance)
+    log_alpha = log_alpha - _gaussian_log_prob_isotropic(u, x_curr, half_delta_variance)
+    log_alpha = log_alpha + q_rev - q_fwd
+
+    accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
+    accept = random.bernoulli(accept_key, accept_prob)
+    next_traj = jnp.asarray(jnp.where(accept, x_prop, x_curr), dtype=latent_dtype)
+    next_traj_lp = jnp.asarray(jnp.where(accept, traj_prop, traj_curr), dtype=traj_dtype)
+    next_complete = log_prior_z + next_traj_lp.astype(complete_dtype)
+    next_state = state._replace(
+        latent_trajectory=next_traj,
+        trajectory_log_prob=next_traj_lp,
+        complete_log_posterior=next_complete,
+    )
+    return next_state, {"accepted": accept.astype(state.position.dtype)}
+
+
+def _parameter_mala_step_runtime(
+    state,
+    key: jnp.ndarray,
+    runtime_observations: jnp.ndarray,
+    runtime_times: jnp.ndarray,
+    *,
+    dim: int,
+    runtime_complete_log_posterior_fn,
+    runtime_latent_context_fn,
+    log_prior_unc_fn,
+    precond_chol: jnp.ndarray | None,
+    preconditioner_mat: jnp.ndarray | None,
+):
+    if dim == 0:
+        return state, {"accepted": jnp.asarray(1.0, dtype=state.latent_trajectory.dtype)}
+
+    proposal_key, accept_key = random.split(key)
+    complete_curr = state.complete_log_posterior
+    grad_curr = _complete_log_posterior_grad_runtime(
+        state.position,
+        state.latent_trajectory,
+        runtime_observations,
+        runtime_times,
+        runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
+    )
+    h = state.param_step_size
+    noise = random.normal(proposal_key, state.position.shape, dtype=state.position.dtype)
+    if precond_chol is None or preconditioner_mat is None:
+        mean_fwd = state.position + 0.5 * (h**2) * grad_curr
+        proposal = mean_fwd + h * noise
+    else:
+        drift_curr = 0.5 * (h**2) * (preconditioner_mat @ grad_curr)
+        mean_fwd = state.position + drift_curr
+        proposal = mean_fwd + h * (precond_chol @ noise)
+    complete_prop, grad_prop = _complete_log_posterior_value_and_grad_runtime(
+        proposal,
+        state.latent_trajectory,
+        runtime_observations,
+        runtime_times,
+        runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
+    )
+    if precond_chol is None or preconditioner_mat is None:
+        mean_rev = proposal + 0.5 * (h**2) * grad_prop
+        log_alpha = complete_prop - complete_curr
+        log_alpha = log_alpha + _gaussian_log_prob_isotropic(state.position, mean_rev, h**2)
+        log_alpha = log_alpha - _gaussian_log_prob_isotropic(proposal, mean_fwd, h**2)
+    else:
+        drift_prop = 0.5 * (h**2) * (preconditioner_mat @ grad_prop)
+        mean_rev = proposal + drift_prop
+        log_alpha = complete_prop - complete_curr
+        log_alpha = log_alpha + _gaussian_log_prob_preconditioned(
+            state.position,
+            mean_rev,
+            h,
+            precond_chol,
+        )
+        log_alpha = log_alpha - _gaussian_log_prob_preconditioned(
+            proposal,
+            mean_fwd,
+            h,
+            precond_chol,
+        )
+    accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
+    accept = random.bernoulli(accept_key, accept_prob)
+
+    def _accept_branch(_):
+        context_prop = runtime_latent_context_fn(proposal, runtime_times)
+        log_prior_prop = log_prior_unc_fn(proposal)
+        traj_prop = jnp.asarray(
+            complete_prop - log_prior_prop,
+            dtype=state.trajectory_log_prob.dtype,
+        )
+        return state._replace(
+            position=proposal,
+            latent_context=context_prop,
+            trajectory_log_prob=traj_prop,
+            complete_log_posterior=complete_prop,
+        )
+
+    next_state = jax.lax.cond(accept, _accept_branch, lambda _: state, operand=None)
+    return next_state, {"accepted": accept.astype(state.position.dtype)}
 
 
 def build_auxiliary_kalman_latent_kernel(
@@ -719,10 +1413,7 @@ def build_auxiliary_kalman_latent_kernel(
         half_delta_variance = 0.5 * delta_val
 
         prior_terms = bundle["prior_terms_from_context_fn"](context)
-        traj_curr = jnp.asarray(
-            bundle["trajectory_log_prob_from_context_fn"](context, x_curr, prior_terms),
-            dtype=traj_dtype,
-        )
+        traj_curr = jnp.asarray(state.trajectory_log_prob, dtype=traj_dtype)
         log_prior_z = jnp.asarray(bundle["log_prior_unc_fn"](state.position), dtype=complete_dtype)
         grad_curr = jnp.asarray(
             bundle["observation_grad_from_context_fn"](context, x_curr),
@@ -766,7 +1457,7 @@ def build_auxiliary_kalman_latent_kernel(
             + jnp.sqrt(half_delta_bcast) * random.normal(aux_key, x_curr.shape, dtype=latent_dtype)
         )
 
-        _pm, _pc, filt_means, filt_covs, loglik = _filter_auxiliary_lgssm(
+        filt_means, filt_covs, loglik = _filter_auxiliary_lgssm_lightweight(
             context, u, delta_val, parallel=parallel
         )
         x_prop = jnp.asarray(
@@ -804,12 +1495,19 @@ def build_auxiliary_kalman_latent_kernel(
             dtype=traj_dtype,
         )
 
-        grad_prop = jnp.asarray(
-            bundle["observation_grad_from_context_fn"](context, x_prop),
-            dtype=latent_dtype,
+        obs_prop, grad_prop = bundle["observation_log_prob_and_grad_from_context_fn"](
+            context,
+            x_prop,
+        )
+        grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
+        prior_prop = _trajectory_prior_log_prob_from_terms(
+            x_prop,
+            context.Ad,
+            context.cd,
+            prior_terms,
         )
         traj_prop = jnp.asarray(
-            bundle["trajectory_log_prob_from_context_fn"](context, x_prop, prior_terms),
+            prior_prop + obs_prop,
             dtype=traj_dtype,
         )
 
@@ -894,7 +1592,7 @@ def build_auxiliary_kalman_latent_kernel(
             aux_key, x_curr.shape, dtype=latent_dtype
         )
         pseudo_obs_fwd = _shifted_auxiliary_pseudo_observations(u, grad_curr, half_delta_bcast)
-        _pm, _pc, filt_means_fwd, filt_covs_fwd, loglik_fwd = _filter_auxiliary_lgssm(
+        filt_means_fwd, filt_covs_fwd, loglik_fwd = _filter_auxiliary_lgssm_lightweight(
             context, pseudo_obs_fwd, delta_val, parallel=parallel
         )
         x_prop = jnp.asarray(
@@ -907,8 +1605,18 @@ def build_auxiliary_kalman_latent_kernel(
             ),
             dtype=latent_dtype,
         )
+        obs_prop, grad_prop = bundle["observation_log_prob_and_grad_from_context_fn"](
+            context,
+            x_prop,
+        )
+        prior_prop = _trajectory_prior_log_prob_from_terms(
+            x_prop,
+            context.Ad,
+            context.cd,
+            prior_terms,
+        )
         traj_prop = jnp.asarray(
-            bundle["trajectory_log_prob_from_context_fn"](context, x_prop, prior_terms),
+            prior_prop + obs_prop,
             dtype=traj_dtype,
         )
         log_evidence_fwd = jnp.sum(loglik_fwd)
@@ -924,12 +1632,9 @@ def build_auxiliary_kalman_latent_kernel(
             dtype=traj_dtype,
         )
 
-        grad_prop = jnp.asarray(
-            bundle["observation_grad_from_context_fn"](context, x_prop),
-            dtype=latent_dtype,
-        )
+        grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
         pseudo_obs_rev = _shifted_auxiliary_pseudo_observations(u, grad_prop, half_delta_bcast)
-        _pm_rev, _pc_rev, _fm_rev, _fc_rev, loglik_rev = _filter_auxiliary_lgssm(
+        _fm_rev, _fc_rev, loglik_rev = _filter_auxiliary_lgssm_lightweight(
             context, pseudo_obs_rev, delta_val, parallel=parallel
         )
         log_evidence_rev = jnp.sum(loglik_rev)
@@ -967,6 +1672,8 @@ def build_auxiliary_kalman_latent_kernel(
         "proposal_family": proposal_family,
         "scale_field": "latent_delta",
         "initial_scale": delta,
+        "initial_scale_value": delta,
+        "initial_scale_mode": "direct",
         "target_accept": target_accept,
         "step_fn": _latent_mh_step_eq8 if proposal_family == "eq8" else _latent_mh_step_eq10_11,
         "parallel": parallel,
@@ -975,9 +1682,7 @@ def build_auxiliary_kalman_latent_kernel(
         profile_array = jnp.asarray(delta_profile)
         if profile_array.ndim != 1:
             raise ValueError(f"delta_profile must be 1-D (T,); got shape {profile_array.shape}.")
-        latent_kernel["initial_scale_from_latent_fn"] = lambda _latent_trajectory, dtype: (
-            profile_array.astype(dtype)
-        )
+        latent_kernel["initial_scale_value"] = profile_array
     return latent_kernel
 
 
@@ -1019,11 +1724,6 @@ def build_mala_parameter_kernel(
     approximate the posterior covariance so MALA mixes in the whitened space.
     """
 
-    complete_value_and_grad = jax.value_and_grad(
-        bundle["complete_log_posterior_with_aux_fn"],
-        argnums=0,
-        has_aux=True,
-    )
     if preconditioner_chol is not None:
         precond_chol = jnp.asarray(preconditioner_chol)
         if precond_chol.ndim != 2 or precond_chol.shape[0] != precond_chol.shape[1]:
@@ -1040,51 +1740,33 @@ def build_mala_parameter_kernel(
         precond_chol = None
         preconditioner_mat = None
 
-    def _parameter_mala_step(state, key: jnp.ndarray):
-        if bundle["dim"] == 0:
-            return state, {"accepted": jnp.asarray(1.0, dtype=state.latent_trajectory.dtype)}
+    runtime_complete_log_posterior_fn = bundle.get(
+        "complete_log_posterior_runtime_fn",
+        lambda z, latent_trajectory, _runtime_observations, _runtime_times: bundle[
+            "complete_log_posterior_fn"
+        ](z, latent_trajectory),
+    )
+    runtime_latent_context_fn = bundle.get(
+        "latent_context_runtime_fn",
+        lambda z, _runtime_times: bundle["latent_context_fn"](z),
+    )
+    runtime_observations = bundle["observations"]
+    runtime_times = bundle["times"]
 
-        proposal_key, accept_key = random.split(key)
-        (complete_curr, (traj_curr, _curr_context)), grad_curr = complete_value_and_grad(
-            state.position, state.latent_trajectory
+    def _parameter_mala_step(state, key: jnp.ndarray):
+        next_state, info = _parameter_mala_step_runtime(
+            state,
+            key,
+            runtime_observations,
+            runtime_times,
+            dim=int(bundle["dim"]),
+            runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
+            runtime_latent_context_fn=runtime_latent_context_fn,
+            log_prior_unc_fn=bundle["log_prior_unc_fn"],
+            precond_chol=precond_chol,
+            preconditioner_mat=preconditioner_mat,
         )
-        h = state.param_step_size
-        noise = random.normal(proposal_key, state.position.shape, dtype=state.position.dtype)
-        if precond_chol is None:
-            mean_fwd = state.position + 0.5 * (h**2) * grad_curr
-            proposal = mean_fwd + h * noise
-        else:
-            drift_curr = 0.5 * (h**2) * (preconditioner_mat @ grad_curr)
-            mean_fwd = state.position + drift_curr
-            proposal = mean_fwd + h * (precond_chol @ noise)
-        (complete_prop, (traj_prop, context_prop)), grad_prop = complete_value_and_grad(
-            proposal, state.latent_trajectory
-        )
-        if precond_chol is None:
-            mean_rev = proposal + 0.5 * (h**2) * grad_prop
-            log_alpha = complete_prop - complete_curr
-            log_alpha = log_alpha + _gaussian_log_prob_isotropic(state.position, mean_rev, h**2)
-            log_alpha = log_alpha - _gaussian_log_prob_isotropic(proposal, mean_fwd, h**2)
-        else:
-            drift_prop = 0.5 * (h**2) * (preconditioner_mat @ grad_prop)
-            mean_rev = proposal + drift_prop
-            log_alpha = complete_prop - complete_curr
-            log_alpha = log_alpha + _gaussian_log_prob_preconditioned(
-                state.position, mean_rev, h, precond_chol
-            )
-            log_alpha = log_alpha - _gaussian_log_prob_preconditioned(
-                proposal, mean_fwd, h, precond_chol
-            )
-        accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
-        accept = random.bernoulli(accept_key, accept_prob)
-        next_context = _select_tree(accept, context_prop, state.latent_context)
-        next_state = state._replace(
-            position=jnp.where(accept, proposal, state.position),
-            latent_context=next_context,
-            trajectory_log_prob=jnp.where(accept, traj_prop, traj_curr),
-            complete_log_posterior=jnp.where(accept, complete_prop, complete_curr),
-        )
-        return next_state, {"accepted": accept.astype(state.position.dtype)}
+        return next_state, info
 
     return {
         "name": "mala",
@@ -1093,4 +1775,6 @@ def build_mala_parameter_kernel(
         "target_accept": target_accept,
         "step_fn": _parameter_mala_step,
         "preconditioned": precond_chol is not None,
+        "preconditioner_chol": precond_chol,
+        "preconditioner_mat": preconditioner_mat,
     }

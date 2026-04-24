@@ -9,6 +9,7 @@ Implements the outer optimization loop for MAP inference:
 
 from __future__ import annotations
 
+import functools
 import time
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -50,6 +51,56 @@ _SOLVER_KIND_LABELS = {
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS: "support_ieks",
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT: "dense_support",
 }
+
+
+def _shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
+    return tuple(array.shape), str(jnp.dtype(array.dtype))
+
+
+@functools.partial(jax.jit, static_argnames=("runtime_log_posterior_fn",))
+def _batch_log_posterior_runtime(
+    candidates: jnp.ndarray,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    *,
+    runtime_log_posterior_fn,
+) -> jnp.ndarray:
+    return jax.vmap(
+        lambda z: runtime_log_posterior_fn(z, observations, times, latent_mode_init=None)
+    )(candidates)
+
+
+@functools.partial(jax.jit, static_argnames=("runtime_neg_log_posterior_with_aux_fn",))
+def _laplace_value_and_grad_runtime(
+    z: jnp.ndarray,
+    latent_mode_init,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    *,
+    runtime_neg_log_posterior_with_aux_fn,
+):
+    def _objective(z_arg, latent_mode_init_arg):
+        return runtime_neg_log_posterior_with_aux_fn(
+            z_arg,
+            observations,
+            times,
+            latent_mode_init=latent_mode_init_arg,
+        )
+
+    return jax.value_and_grad(_objective, argnums=0, has_aux=True)(z, latent_mode_init)
+
+
+@functools.partial(jax.jit, static_argnames=("runtime_neg_log_posterior_fn",))
+def _laplace_parameter_hessian_runtime(
+    z_mode: jnp.ndarray,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
+    *,
+    runtime_neg_log_posterior_fn,
+) -> jnp.ndarray:
+    return jax.hessian(
+        lambda z: runtime_neg_log_posterior_fn(z, observations, times, latent_mode_init=None)
+    )(z_mode)
 
 
 def _elapsed_seconds(start: float) -> float:
@@ -200,58 +251,105 @@ def _build_laplace_em_bundle(
     example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
     flat_example, unravel_fn = ravel_pytree(example_unc)
 
-    log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn = _build_eval_fns(
-        model,
-        observations,
-        times,
-        site_info,
-        unravel_fn,
-        likelihood_backend=likelihood_backend,
-        reparam=reparam,
-        include_likelihood_aux=True,
+    cache_key = (
+        "laplace_em_runtime_bundle",
+        id(likelihood_backend),
+        id(reparam),
+        _shape_dtype_signature(observations),
+        _shape_dtype_signature(times),
     )
 
-    safe_floor = jnp.asarray(-1e30, dtype=observations.dtype)
-    safe_ceiling = jnp.asarray(1e30, dtype=observations.dtype)
+    def _build_runtime_bundle() -> dict[str, Any]:
+        log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn = _build_eval_fns(
+            model,
+            observations,
+            times,
+            site_info,
+            unravel_fn,
+            likelihood_backend=likelihood_backend,
+            reparam=reparam,
+            include_likelihood_aux=True,
+            runtime_observations_times=True,
+        )
 
-    def _log_posterior_fn(z: jnp.ndarray, latent_mode_init=None) -> jnp.ndarray:
-        total = log_prior_unc_fn(z) + log_lik_fn(z, latent_mode_init=latent_mode_init)
-        return jnp.where(jnp.isfinite(total), total, safe_floor)
+        safe_floor = jnp.asarray(-1e30, dtype=observations.dtype)
+        safe_ceiling = jnp.asarray(1e30, dtype=observations.dtype)
 
-    def _neg_log_posterior_fn(z: jnp.ndarray, latent_mode_init=None) -> jnp.ndarray:
-        value = -_log_posterior_fn(z, latent_mode_init=latent_mode_init)
-        return jnp.where(jnp.isfinite(value), value, safe_ceiling)
+        def _log_posterior_fn(
+            z: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+            latent_mode_init=None,
+        ) -> jnp.ndarray:
+            total = log_prior_unc_fn(z) + log_lik_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
+            return jnp.where(jnp.isfinite(total), total, safe_floor)
 
-    def _neg_log_posterior_with_aux_fn(
-        z: jnp.ndarray,
-        latent_mode_init=None,
-    ) -> tuple[jnp.ndarray, dict[str, Any]]:
-        log_lik, inner_eval_aux = log_lik_with_aux_fn(z, latent_mode_init=latent_mode_init)
-        log_prior = log_prior_unc_fn(z)
-        log_posterior = log_prior + log_lik
-        neg_log_posterior = -log_posterior
-        safe_value = jnp.where(jnp.isfinite(neg_log_posterior), neg_log_posterior, safe_ceiling)
-        outer_aux = {
-            "log_posterior": log_posterior,
-            "log_likelihood": log_lik,
-            "log_prior": log_prior,
-            "inner": {key: value for key, value in inner_eval_aux.items() if key != "latent_mode"},
+        def _neg_log_posterior_fn(
+            z: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+            latent_mode_init=None,
+        ) -> jnp.ndarray:
+            value = -_log_posterior_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
+            return jnp.where(jnp.isfinite(value), value, safe_ceiling)
+
+        def _neg_log_posterior_with_aux_fn(
+            z: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+            latent_mode_init=None,
+        ) -> tuple[jnp.ndarray, dict[str, Any]]:
+            log_lik, inner_eval_aux = log_lik_with_aux_fn(
+                z,
+                runtime_observations,
+                runtime_times,
+                latent_mode_init=latent_mode_init,
+            )
+            log_prior = log_prior_unc_fn(z)
+            log_posterior = log_prior + log_lik
+            neg_log_posterior = -log_posterior
+            safe_value = jnp.where(jnp.isfinite(neg_log_posterior), neg_log_posterior, safe_ceiling)
+            outer_aux = {
+                "log_posterior": log_posterior,
+                "log_likelihood": log_lik,
+                "log_prior": log_prior,
+                "inner": {
+                    key: value for key, value in inner_eval_aux.items() if key != "latent_mode"
+                },
+            }
+            if "latent_mode" in inner_eval_aux:
+                outer_aux["latent_mode"] = inner_eval_aux["latent_mode"]
+            return safe_value, outer_aux
+
+        return {
+            "log_lik_fn": log_lik_fn,
+            "log_prior_unc_fn": log_prior_unc_fn,
+            "log_posterior_fn": _log_posterior_fn,
+            "neg_log_posterior_fn": _neg_log_posterior_fn,
+            "neg_log_posterior_with_aux_fn": _neg_log_posterior_with_aux_fn,
         }
-        if "latent_mode" in inner_eval_aux:
-            outer_aux["latent_mode"] = inner_eval_aux["latent_mode"]
-        return safe_value, outer_aux
+
+    if hasattr(model, "get_cached_artifact"):
+        runtime_bundle = model.get_cached_artifact(cache_key, _build_runtime_bundle)
+    else:
+        runtime_bundle = _build_runtime_bundle()
 
     return {
         "dim": int(flat_example.shape[0]),
         "flat_example": flat_example,
         "site_info": site_info,
         "unravel_fn": unravel_fn,
-        "log_lik_fn": log_lik_fn,
-        "log_prior_unc_fn": log_prior_unc_fn,
-        "log_posterior_fn": _log_posterior_fn,
-        "neg_log_posterior_fn": _neg_log_posterior_fn,
-        "neg_log_posterior_with_aux_fn": _neg_log_posterior_with_aux_fn,
-        "batch_log_posterior_jit": jax.jit(jax.vmap(_log_posterior_fn)),
+        **runtime_bundle,
     }
 
 
@@ -306,10 +404,10 @@ def _optimize_laplace_parameter_mode(
     dim: int,
     flat_example: jnp.ndarray,
     site_info: dict[str, Any],
-    log_posterior_fn,
-    neg_log_posterior_with_aux_fn,
-    batch_log_posterior_jit,
+    runtime_log_posterior_fn,
+    runtime_neg_log_posterior_with_aux_fn,
     observations: jnp.ndarray,
+    times: jnp.ndarray,
     n_init_samples: int,
     maxiter: int,
     tol: float,
@@ -317,8 +415,11 @@ def _optimize_laplace_parameter_mode(
     """Find the parameter mode using the route appropriate for the model class."""
     if dim == 0:
         z_mode = flat_example
-        objective_at_mode, final_eval_aux = neg_log_posterior_with_aux_fn(
-            z_mode, latent_mode_init=None
+        objective_at_mode, final_eval_aux = runtime_neg_log_posterior_with_aux_fn(
+            z_mode,
+            observations,
+            times,
+            latent_mode_init=None,
         )
         return LaplaceModeOptimizationResult(
             z_mode=z_mode,
@@ -329,7 +430,14 @@ def _optimize_laplace_parameter_mode(
             success=True,
             optimizer="L-BFGS-B",
             init_log_posterior_best=float(
-                jax.device_get(log_posterior_fn(z_mode, latent_mode_init=None))
+                jax.device_get(
+                    runtime_log_posterior_fn(
+                        z_mode,
+                        observations,
+                        times,
+                        latent_mode_init=None,
+                    )
+                )
             ),
             optimizer_hess_inv=None,
             final_grad_norm=0.0,
@@ -350,7 +458,12 @@ def _optimize_laplace_parameter_mode(
             dtype=observations.dtype,
         )
         del init_key
-        init_scores = batch_log_posterior_jit(candidates)
+        init_scores = _batch_log_posterior_runtime(
+            candidates,
+            observations,
+            times,
+            runtime_log_posterior_fn=runtime_log_posterior_fn,
+        )
         init_idx = int(jnp.argmax(init_scores))
         z_init = candidates[init_idx]
         init_log_posterior_best = float(jax.device_get(init_scores[init_idx]))
@@ -360,16 +473,6 @@ def _optimize_laplace_parameter_mode(
             init_log_posterior_best,
         )
 
-    value_and_grad_fn = jax.jit(
-        jax.value_and_grad(
-            lambda z, latent_mode_init: neg_log_posterior_with_aux_fn(
-                z,
-                latent_mode_init=latent_mode_init,
-            ),
-            argnums=0,
-            has_aux=True,
-        )
-    )
     cached_x: np.ndarray | None = None
     cached_fun: float | None = None
     cached_grad: np.ndarray | None = None
@@ -378,7 +481,12 @@ def _optimize_laplace_parameter_mode(
     optimize_started_at = time.monotonic()
     latent_mode_init: np.ndarray | None = None
     if support_aware_outer:
-        _seed_objective, seed_aux = neg_log_posterior_with_aux_fn(z_init, latent_mode_init=None)
+        _seed_objective, seed_aux = runtime_neg_log_posterior_with_aux_fn(
+            z_init,
+            observations,
+            times,
+            latent_mode_init=None,
+        )
         del _seed_objective
         if "latent_mode" in seed_aux:
             latent_mode_init = np.asarray(jax.device_get(seed_aux["latent_mode"])).copy()
@@ -399,7 +507,13 @@ def _optimize_laplace_parameter_mode(
             if latent_mode_init is None
             else jnp.asarray(latent_mode_init, dtype=observations.dtype)
         )
-        (fun, aux), grad = value_and_grad_fn(z, latent_mode_arg)
+        (fun, aux), grad = _laplace_value_and_grad_runtime(
+            z,
+            latent_mode_arg,
+            observations,
+            times,
+            runtime_neg_log_posterior_with_aux_fn=runtime_neg_log_posterior_with_aux_fn,
+        )
         eval_count += 1
         cached_x = z_host.copy()
         cached_fun = float(jax.device_get(fun))
@@ -494,7 +608,9 @@ def _optimize_laplace_parameter_mode(
 def _sample_laplace_parameter_posterior(
     rng_key: jnp.ndarray,
     z_mode: jnp.ndarray,
-    neg_log_posterior_fn,
+    runtime_neg_log_posterior_fn,
+    observations: jnp.ndarray,
+    times: jnp.ndarray,
     *,
     num_samples: int,
     hessian_jitter: float,
@@ -512,7 +628,12 @@ def _sample_laplace_parameter_posterior(
         )
 
     with jax.named_scope("laplace_em/parameter_hessian"):
-        hessian = jax.hessian(neg_log_posterior_fn)(z_mode)
+        hessian = _laplace_parameter_hessian_runtime(
+            z_mode,
+            observations,
+            times,
+            runtime_neg_log_posterior_fn=runtime_neg_log_posterior_fn,
+        )
         hessian = symmetrize_with_jitter(hessian, jitter=hessian_jitter)
         covariance = jla.solve(hessian, jnp.eye(dim, dtype=hessian.dtype), assume_a="pos")
         covariance = symmetrize_with_jitter(covariance, jitter=hessian_jitter)
@@ -675,7 +796,6 @@ def fit_map(
     log_posterior_fn = bundle["log_posterior_fn"]
     neg_log_posterior_fn = bundle["neg_log_posterior_fn"]
     neg_log_posterior_with_aux_fn = bundle["neg_log_posterior_with_aux_fn"]
-    batch_log_posterior_jit = bundle["batch_log_posterior_jit"]
     logger.info("Laplace-EM bundle ready: parameter_dim=%d public_sites=%d", dim, len(site_info))
 
     logger.info(
@@ -692,10 +812,10 @@ def fit_map(
             dim=dim,
             flat_example=flat_example,
             site_info=site_info,
-            log_posterior_fn=log_posterior_fn,
-            neg_log_posterior_with_aux_fn=neg_log_posterior_with_aux_fn,
-            batch_log_posterior_jit=batch_log_posterior_jit,
+            runtime_log_posterior_fn=log_posterior_fn,
+            runtime_neg_log_posterior_with_aux_fn=neg_log_posterior_with_aux_fn,
             observations=observations,
+            times=times,
             n_init_samples=n_init_samples,
             maxiter=maxiter,
             tol=tol,
@@ -755,6 +875,8 @@ def fit_map(
                     sample_key,
                     z_mode,
                     neg_log_posterior_fn,
+                    observations,
+                    times,
                     num_samples=num_samples,
                     hessian_jitter=hessian_jitter,
                 )
