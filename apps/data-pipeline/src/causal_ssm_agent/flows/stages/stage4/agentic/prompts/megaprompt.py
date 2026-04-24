@@ -12,23 +12,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.distributions import (
-    PRIOR_PARAMETER_GUIDANCE_ROWS,
-    render_dynamic_prior_scale_guidance,
-    render_lagged_beta_authored_interval_guidance,
-    render_observation_distribution_guidance_bullets,
-    render_observation_link_guidance_bullets,
-    render_prior_distribution_guidance_bullets,
-)
+from causal_ssm_agent.distributions import PRIOR_PARAMETER_GUIDANCE_ROWS
 
 from .model_proposal import (
-    PRIOR_SOURCE_GUIDANCE,
     _join_sections,
     format_construct_scale_cards,
     format_distribution_cards,
     format_loading_params,
     format_model_topology,
     format_prior_cards,
+)
+from .shared_fragments import (
+    CONTINUOUS_TIME_DYNAMICS_SECTION,
+    INITIAL_STATE_SCALE_DISCIPLINE_SECTION,
+    LAGGED_EFFECT_INTERVAL_GUIDANCE_SECTION,
+    LINK_FUNCTION_RULES_SECTION,
+    OBSERVATION_DISTRIBUTION_GUIDANCE_SECTION,
+    PRIOR_DISTRIBUTION_TYPES_SECTION,
+    PRIOR_SOURCE_GUIDANCE,
 )
 
 
@@ -132,6 +133,11 @@ def build_stage4_megaprompt_system_prompt(
             "- `submit_prior_block` accepts any subset of the parameter inventory. Each "
             "call is schema-checked per parameter, then merged into the accepted "
             "authored-priors state. You may resubmit a parameter to overwrite its prior.\n"
+            "- Prior `distribution` is a **case-sensitive enum**. Only these exact "
+            "spellings validate: `Normal`, `HalfNormal`, `Beta`, `TruncatedNormal`, "
+            "`Gamma`, `LogNormal`, `Exponential`, `Uniform`. Lowercase aliases like "
+            "`normal` or `beta` are rejected with a schema error — do not rely on "
+            "Python-library conventions here.\n"
             "- After every submit call you will receive compact validator feedback. If "
             "feedback starts with `VALIDATION ERRORS` or `COMPILE ERROR`, correct only "
             "the fields it names and resubmit — previously accepted state is preserved.\n"
@@ -139,27 +145,13 @@ def build_stage4_megaprompt_system_prompt(
             "the combined validation passes, the validator returns `VALID` and the stage "
             "is done. Stop immediately after you see `VALID`."
         ),
-        "## Observation Distribution Guidance\n\n"
-        + render_observation_distribution_guidance_bullets(),
-        (
-            "## Link Function Rules\n\n"
-            "Most distributions have exactly one valid link (auto-determined). "
-            "You only choose when multiple are valid:\n"
-            + render_observation_link_guidance_bullets()
-        ),
-        "## Prior Distribution Types\n\n" + render_prior_distribution_guidance_bullets(),
+        OBSERVATION_DISTRIBUTION_GUIDANCE_SECTION,
+        LINK_FUNCTION_RULES_SECTION,
+        PRIOR_DISTRIBUTION_TYPES_SECTION,
         "## Parameter Guidance\n\n" + _render_parameter_guidance_table(),
-        "## Continuous-Time Dynamics\n\n" + render_dynamic_prior_scale_guidance(),
-        "## Lagged Effect Interval Guidance\n\n" + render_lagged_beta_authored_interval_guidance(),
-        (
-            "## Initial-State Scale Discipline\n\n"
-            "- `t0_mean_*` and `t0_sd_*` live on the latent state scale.\n"
-            "- Do not set `t0_mean_*` to the raw reference-indicator mean or "
-            "`log(mean(indicator))` just because the indicator uses an identity or log link.\n"
-            "- Default to weakly informative latent-scale priors such as `Normal(0, 1)` "
-            "and `HalfNormal(1)` unless the construct is explicitly identified on an "
-            "observed scale."
-        ),
+        CONTINUOUS_TIME_DYNAMICS_SECTION,
+        LAGGED_EFFECT_INTERVAL_GUIDANCE_SECTION,
+        INITIAL_STATE_SCALE_DISCIPLINE_SECTION,
         (
             "## Dynamics / Effect Budget Discipline\n\n"
             "- AR coefficients and residual SDs determine how much damping is available "
@@ -255,6 +247,112 @@ def _render_model_decision_status(
             *indicator_lines,
         ]
     )
+
+
+def _render_locked_model_spec(
+    model_spec: dict[str, Any],
+    *,
+    centerable_construct_names: tuple[str, ...],
+    baseline_factor_names: tuple[str, ...],
+) -> str:
+    """Render the locked ``model_spec`` artifact as a prompt section.
+
+    Shown on every turn once the model spec is locked so the agent keeps
+    the authoritative view of indicator likelihoods, the parameter
+    inventory, and the global configuration in context — without having
+    to infer any of it from the pre-lock decision cards.
+    """
+    init_text = f"`{model_spec.get('initialization_policy') or 'unset'}`"
+    obs_text = f"`{model_spec.get('observation_intercept_policy') or 'unset'}`"
+    equilibrium = model_spec.get("equilibrium_forcing")
+    forcing_text = (
+        "(unset)" if equilibrium is None else f"`{str(bool(equilibrium)).lower()}`"
+    )
+    centerable = ", ".join(f"`{name}`" for name in centerable_construct_names) or "(none)"
+    baseline = ", ".join(f"`{name}`" for name in baseline_factor_names) or "(none)"
+
+    lines: list[str] = [
+        "### Global Configuration",
+        "",
+        f"- `initialization_policy`: {init_text}",
+        f"- `observation_intercept_policy`: {obs_text}",
+        f"- `equilibrium_forcing`: {forcing_text}",
+        f"- centered-indicator constructs identifying latent baselines: {centerable}",
+        f"- compiled baseline-factor scales from marginalized confounders: {baseline}",
+    ]
+
+    likelihoods = [
+        item
+        for item in (model_spec.get("likelihoods") or [])
+        if isinstance(item, dict)
+    ]
+    if likelihoods:
+        lines.extend(["", "### Indicator Likelihoods", ""])
+        for item in likelihoods:
+            variable = item.get("indicator") or item.get("variable") or "?"
+            distribution = item.get("distribution") or "?"
+            link = item.get("link") or "?"
+            lines.append(f"- `{variable}`: `{distribution}` / `{link}`")
+
+    parameters = [
+        param
+        for param in (model_spec.get("parameters") or [])
+        if isinstance(param, dict) and isinstance(param.get("name"), str)
+    ]
+    if parameters:
+        lines.extend(["", "### Parameters (by role)", ""])
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for param in parameters:
+            role = str(param.get("role") or "other")
+            grouped.setdefault(role, []).append(param)
+        for role in sorted(grouped):
+            lines.append(f"**{role}**")
+            for param in grouped[role]:
+                name = param["name"]
+                constraint = param.get("constraint")
+                description = param.get("description") or ""
+                constraint_text = f" [constraint=`{constraint}`]" if constraint else ""
+                description_text = f" — {description}" if description else ""
+                lines.append(f"- `{name}`{constraint_text}{description_text}")
+            lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _render_authored_priors(authored_priors: dict[str, dict[str, Any]]) -> str:
+    """Render the full values of every authored prior.
+
+    Empty dict renders as an empty string (caller skips the section).
+    On seed there's nothing to render; on resume — or after any priors
+    have been authored in-session — the agent sees exactly what it has
+    submitted so it can target revisions without re-deriving current
+    values from memory.
+    """
+    if not authored_priors:
+        return ""
+    import json as _json
+
+    lines: list[str] = []
+    for name in sorted(authored_priors):
+        prior = authored_priors[name]
+        if not isinstance(prior, dict):
+            continue
+        distribution = prior.get("distribution") or "?"
+        params = prior.get("params") or {}
+        params_text = _json.dumps(params, default=str) if isinstance(params, dict) else str(params)
+        reasoning = (prior.get("reasoning") or "").strip()
+        sources = prior.get("sources") or []
+        header = f"- `{name}`: `{distribution}`({params_text})"
+        lines.append(header)
+        if reasoning:
+            lines.append(f"  - reasoning: {reasoning}")
+        if isinstance(sources, list) and sources:
+            src_text = "; ".join(
+                (s.get("citation") or s.get("url") or str(s)) if isinstance(s, dict) else str(s)
+                for s in sources[:3]
+            )
+            more = f" (+{len(sources) - 3} more)" if len(sources) > 3 else ""
+            lines.append(f"  - sources: {src_text}{more}")
+    return "\n".join(lines)
 
 
 def _render_prior_status(
