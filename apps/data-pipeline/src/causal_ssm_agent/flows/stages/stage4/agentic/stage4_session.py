@@ -53,6 +53,7 @@ class Stage4Session:
     deps: Stage4Deps
     runtime: Stage4Runtime = field(default_factory=Stage4Runtime)
     persist_runtime: Callable[[Stage4Runtime, tuple[dict[str, Any], ...]], None] | None = None
+    on_model_spec_locked: Callable[[Stage4Runtime], None] | None = None
     _turn_tracker: _Stage4TurnTracker | None = field(default=None, init=False, repr=False)
 
     @property
@@ -122,6 +123,10 @@ class Stage4Session:
     def _submit(self, payload: dict[str, Any]) -> str:
         """Apply one block-local submission and return reducer feedback."""
         runtime_snapshot = deepcopy(self.runtime)
+        before_model_locked = (
+            runtime_snapshot.domain.accepted.model_spec is not None
+            and not runtime_snapshot.domain.model_lock_pending
+        )
         try:
             _stage_output, feedback, transitions = compute_stage4_validate_step_with_transitions(
                 payload,
@@ -139,6 +144,20 @@ class Stage4Session:
             raise Stage4FatalSubmissionError(
                 "Stage 4 reducer failed while applying a submit tool"
             ) from exc
+        after_model_locked = (
+            self.runtime.domain.accepted.model_spec is not None
+            and not self.runtime.domain.model_lock_pending
+        )
+        if (
+            self.on_model_spec_locked is not None
+            and after_model_locked
+            and (
+                not before_model_locked
+                or runtime_snapshot.domain.accepted.model_spec
+                != self.runtime.domain.accepted.model_spec
+            )
+        ):
+            self.on_model_spec_locked(self.runtime)
         if self._turn_tracker is not None:
             next_block = self.current_block()
             self._turn_tracker.submit_count += 1

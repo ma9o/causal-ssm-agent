@@ -8,6 +8,7 @@ import polars as pl
 from prefect import task
 
 from causal_ssm_agent.flows import get_prefect_logger
+from causal_ssm_agent.flows.stage4_compile_cache import restore_stage4_compile_cache
 from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, prepare_model_runtime
 
 logger = get_prefect_logger(__name__)
@@ -57,6 +58,8 @@ def fit_model(
     data_for_model: pl.DataFrame,
     sampler_config: dict | None = None,
     builder: Any = None,
+    workspace_id: str | None = None,
+    wait_for_compile_cache: bool = False,
 ) -> Any:
     """Fit the SSM model to data.
 
@@ -79,6 +82,18 @@ def fit_model(
         builder is not None,
     )
     t0 = time.monotonic()
+
+    cache_restored = restore_stage4_compile_cache(
+        workspace_id,
+        compiled_ssm,
+        wait_for_pending=wait_for_compile_cache,
+    )
+    logger.info(
+        "Compile cache restore: restored=%s wait_for_pending=%s workspace_id=%s",
+        cache_restored,
+        wait_for_compile_cache,
+        workspace_id or "none",
+    )
 
     try:
         prep_t0 = time.monotonic()

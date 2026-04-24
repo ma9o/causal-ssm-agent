@@ -286,6 +286,7 @@ async def run_stage4(
     load_checkpoint: Callable[[], Stage4Runtime | None] | None = None,
     save_checkpoint: Callable[[Stage4Runtime], None] | None = None,
     clear_checkpoint: Callable[[], None] | None = None,
+    on_model_spec_locked: Callable[[Stage4Runtime], None] | None = None,
     on_state_change: Callable[[Stage4Plan, Stage4Runtime, tuple[dict[str, Any], ...]], None]
     | None = None,
 ) -> Stage4Result:
@@ -355,7 +356,14 @@ async def run_stage4(
         deps=deps,
         runtime=runtime,
         persist_runtime=persist_runtime,
+        on_model_spec_locked=on_model_spec_locked,
     )
+    if (
+        on_model_spec_locked is not None
+        and runtime.domain.accepted.model_spec is not None
+        and not runtime.domain.model_lock_pending
+    ):
+        on_model_spec_locked(runtime)
     tool_map = _build_stage4_tool_map(
         session,
         question=question,

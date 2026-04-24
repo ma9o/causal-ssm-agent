@@ -46,6 +46,9 @@ async def stage4_agentic_flow(
         Full grounded Stage 4 result (same shape as before).
     """
     from causal_ssm_agent.flows.run_store import clear_stage4_checkpoint, save_stage4_checkpoint
+    from causal_ssm_agent.flows.stage4_compile_cache import (
+        dispatch_stage4_model_compile_warmup,
+    )
     from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
     from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
         project_stage4_graph,
@@ -98,6 +101,19 @@ async def stage4_agentic_flow(
                 snapshot = project_stage4_snapshot(plan, runtime)
                 emit_stage4_snapshot_event(root_run_id, snapshot=snapshot)
 
+        def _on_model_spec_locked(runtime):
+            accepted_model_spec = runtime.domain.accepted.model_spec
+            if workspace_id is None or accepted_model_spec is None:
+                return
+            try:
+                dispatch_stage4_model_compile_warmup(
+                    workspace_id,
+                    accepted_model_spec,
+                    causal_spec,
+                )
+            except Exception:
+                logger.exception("Stage 4 compile-cache warmup dispatch failed")
+
         result = await run_stage4(
             causal_spec=causal_spec,
             question=question,
@@ -112,7 +128,7 @@ async def stage4_agentic_flow(
             load_checkpoint=(
                 None
                 if workspace_id is None
-                else lambda: _load_stage4_checkpoint_or_none(workspace_id)
+                else lambda: _load_stage4_checkpoint_if_present(workspace_id)
             ),
             save_checkpoint=(
                 None
@@ -122,6 +138,7 @@ async def stage4_agentic_flow(
             clear_checkpoint=(
                 None if workspace_id is None else lambda: clear_stage4_checkpoint(workspace_id)
             ),
+            on_model_spec_locked=_on_model_spec_locked,
             on_state_change=_on_state_change if root_run_id else None,
         )
 
@@ -139,11 +156,17 @@ async def stage4_agentic_flow(
         return materialized
 
 
-def _load_stage4_checkpoint_or_none(workspace_id: str):
-    """Load a Stage 4 checkpoint when present, otherwise return ``None``."""
-    from causal_ssm_agent.flows.run_store import load_stage4_checkpoint
+def _load_stage4_checkpoint_if_present(workspace_id: str):
+    """Load a Stage 4 checkpoint when the cursor exists; otherwise return ``None``.
 
-    try:
-        return load_stage4_checkpoint(workspace_id)
-    except FileNotFoundError:
+    Unlike a try/except around :func:`load_stage4_checkpoint`, this only skips
+    the load when the cursor is absent — any other I/O or parse error surfaces.
+    """
+    from causal_ssm_agent.flows.run_store import (
+        load_stage4_checkpoint,
+        stage4_checkpoint_exists,
+    )
+
+    if not stage4_checkpoint_exists(workspace_id):
         return None
+    return load_stage4_checkpoint(workspace_id)

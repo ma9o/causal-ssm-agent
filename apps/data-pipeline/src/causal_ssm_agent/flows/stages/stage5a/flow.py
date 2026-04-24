@@ -52,6 +52,7 @@ def build_stage5a_svi_attempts() -> list[dict[str, Any]]:
 def run_stage5a_preflight(
     stage4: dict,
     stage2: dict,
+    workspace_id: str,
 ) -> dict:
     """Run Stage 5a SVI preflight with a bounded attempt ladder."""
     from causal_ssm_agent.flows.stages.stage5b.fit import fit_model
@@ -72,7 +73,13 @@ def run_stage5a_preflight(
             svi_config.get("num_steps"),
             svi_config.get("num_samples"),
         )
-        fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=svi_config)
+        fitted = fit_model(
+            stage4.get("_compiled_ssm"),
+            data_for_model,
+            sampler_config=svi_config,
+            workspace_id=workspace_id,
+            wait_for_compile_cache=False,
+        )
         fitted_result = unwrap_task_result(fitted)
         total_duration += float(fitted_result.get("duration_seconds", 0.0))
         if fitted_result.get("fitted", False):

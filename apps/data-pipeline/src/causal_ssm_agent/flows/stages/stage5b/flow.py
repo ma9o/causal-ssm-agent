@@ -105,6 +105,7 @@ def run_stage5b(
     stage4: dict,
     stage2: dict,
     inference_method: str | None,
+    workspace_id: str,
 ) -> dict[str, Any]:
     """Fit the model, run diagnostics, and shape the Stage 5b payload."""
     from causal_ssm_agent.utils.config import get_config
@@ -115,7 +116,13 @@ def run_stage5b(
     data_for_model = load_parquet(stage2["_data_for_model_path"])
     sampler_config = config.inference.to_sampler_config(method_override=inference_method)
 
-    fitted = fit_model(stage4.get("_compiled_ssm"), data_for_model, sampler_config=sampler_config)
+    fitted = fit_model(
+        stage4.get("_compiled_ssm"),
+        data_for_model,
+        sampler_config=sampler_config,
+        workspace_id=workspace_id,
+        wait_for_compile_cache=True,
+    )
     fitted_result = unwrap_task_result(fitted)
     inf_method = fitted_result.get("inference_type") or sampler_config.get("method", "unknown")
 
