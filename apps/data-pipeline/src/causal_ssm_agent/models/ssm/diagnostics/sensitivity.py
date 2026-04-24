@@ -14,6 +14,10 @@ from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from causal_ssm_agent.models.ssm.parameterization import sample_prior_unconstrained
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from causal_ssm_agent.models.ssm_compilation_common import (
+    axis_names_with_fallback,
+    resolve_scalar_parameter_name,
+)
 
 from .context import ParametricIdContext, get_stage4b_sweep_context
 from .results import OutputSensitivityResult, OutputSensitivityUnsupportedError
@@ -97,7 +101,7 @@ def _validate_output_sensitivity_supported(model: SSMModel) -> None:
     if observation_support is None or not observation_support.requires_interval_summary_handling:
         return
 
-    manifest_names = _axis_names(
+    manifest_names = axis_names_with_fallback(
         model.spec.manifest_names,
         expected=model.spec.n_manifest,
         prefix="manifest",
@@ -129,19 +133,6 @@ def _split_scalar_parameter_name(parameter: str) -> tuple[str, int]:
     return match.group("site"), int(match.group("index"))
 
 
-def _axis_names(
-    names: list[str] | None,
-    *,
-    expected: int,
-    prefix: str,
-) -> list[str]:
-    """Return axis names with deterministic fallbacks when metadata is incomplete."""
-    resolved = [str(name) for name in (names or []) if name]
-    if len(resolved) >= expected:
-        return resolved[:expected]
-    return resolved + [f"{prefix}_{idx}" for idx in range(len(resolved), expected)]
-
-
 def _binding_index_for_model(model: SSMModel) -> dict[tuple[str, int], str]:
     """Index compiler parameter bindings by sample site and flat index."""
     binding_index: dict[tuple[str, int], str] = {}
@@ -159,50 +150,17 @@ def _binding_index_for_model(model: SSMModel) -> dict[tuple[str, int], str]:
     return binding_index
 
 
-def _fallback_interpretable_parameter_name(
+def _scalar_parameter_display_name(
     spec: SSMSpec,
     site_name: str,
     flat_index: int,
     *,
     structure_runtime: SSMStructureRuntime,
 ) -> str:
-    """Resolve a best-effort semantic alias for one scalar sample-site element."""
-    latent_names = _axis_names(spec.latent_names, expected=spec.n_latent, prefix="latent")
-    manifest_names = _axis_names(spec.manifest_names, expected=spec.n_manifest, prefix="manifest")
-
-    if site_name == "drift_diag_free" and flat_index < structure_runtime.n_drift_diag:
-        latent_idx = structure_runtime.drift_diag_positions[flat_index]
-        return f"rho_{latent_names[latent_idx]}"
-    if site_name == "drift_offdiag_free" and flat_index < structure_runtime.n_drift_offdiag:
-        effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
-        return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
-    if site_name == "diffusion_diag_free" and flat_index < structure_runtime.n_diffusion_diag:
-        latent_idx = structure_runtime.diffusion_diag_positions[flat_index]
-        return f"sigma_{latent_names[latent_idx]}"
-    if site_name == "diffusion_lower_free" and flat_index < structure_runtime.n_diffusion_lower:
-        row, col = structure_runtime.diffusion_lower_positions[flat_index]
-        return f"cor_{latent_names[col]}_{latent_names[row]}"
-    if site_name == "cint_free" and flat_index < structure_runtime.n_cint:
-        latent_idx = structure_runtime.cint_free_positions[flat_index]
-        return f"cint_{latent_names[latent_idx]}"
-    if site_name == "lambda_free" and flat_index < structure_runtime.n_lambda_free:
-        manifest_idx, latent_idx = structure_runtime.lambda_free_positions[flat_index]
-        return f"lambda_{manifest_names[manifest_idx]}_{latent_names[latent_idx]}"
-    if site_name == "manifest_means_free" and flat_index < structure_runtime.n_manifest_means:
-        manifest_idx = structure_runtime.manifest_means_free_positions[flat_index]
-        return f"manifest_mean_{manifest_names[manifest_idx]}"
-    if site_name == "manifest_var_diag_free" and flat_index < structure_runtime.n_manifest_var_diag:
-        manifest_idx = structure_runtime.manifest_var_free_positions[flat_index]
-        return f"obs_sd_{manifest_names[manifest_idx]}"
-    if site_name == "t0_means_free" and flat_index < structure_runtime.n_t0_means:
-        latent_idx = structure_runtime.t0_means_free_positions[flat_index]
-        return f"t0_mean_{latent_names[latent_idx]}"
-    if site_name == "t0_var_diag_free" and flat_index < structure_runtime.n_t0_diag:
-        latent_idx = structure_runtime.t0_diag_free_positions[flat_index]
-        return f"t0_sd_{latent_names[latent_idx]}"
-    if site_name == "t0_var_lower_free" and flat_index < structure_runtime.n_t0_correlation:
-        row, col = structure_runtime.t0_correlation_positions[flat_index]
-        return f"cor0_{latent_names[col]}_{latent_names[row]}"
+    """Return a display name for one scalar sample-site element, with fallback."""
+    resolved = resolve_scalar_parameter_name(spec, structure_runtime, site_name, flat_index)
+    if resolved is not None:
+        return resolved
     return site_name if flat_index == 0 else f"{site_name}[{flat_index}]"
 
 
@@ -221,7 +179,7 @@ def _interpretable_parameter_name_map(
         site_name, flat_index = _split_scalar_parameter_name(scalar_name)
         interpretable = binding_index.get((site_name, flat_index))
         if interpretable is None:
-            interpretable = _fallback_interpretable_parameter_name(
+            interpretable = _scalar_parameter_display_name(
                 model.spec,
                 site_name,
                 flat_index,
