@@ -390,3 +390,31 @@ def test_aux_filter_matches_sequential_with_auxiliary_variance():
     np.testing.assert_allclose(state.pred_mean, seq_pm, atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(state.pred_cov, seq_pc, atol=1e-5, rtol=1e-5)
     np.testing.assert_allclose(state.loglik, seq_ll, atol=1e-5, rtol=1e-5)
+
+
+def test_aux_filter_matches_sequential_with_per_time_auxiliary_variance():
+    T, D = 18, 4
+    init_mean, init_cov, Fs, Qs, bs, *_ = _make_random_lgssm(random.PRNGKey(31), T, D, D)
+    aux_variance = jnp.linspace(0.05, 0.35, T, dtype=jnp.float64)
+    u = 0.25 * random.normal(random.PRNGKey(41), (T, D), dtype=jnp.float64)
+
+    state = aux_filter_lgssm(
+        init_mean=init_mean,
+        init_cov=init_cov,
+        Fs=Fs,
+        Qs=Qs,
+        bs=bs,
+        pseudo_observations=u,
+        aux_variance=aux_variance,
+    )
+    Hs = jnp.broadcast_to(jnp.eye(D, dtype=jnp.float64), (T, D, D))
+    Rs = aux_variance[:, None, None] * jnp.eye(D, dtype=jnp.float64)[None, :, :]
+    cs = jnp.zeros((T, D), dtype=jnp.float64)
+    seq_pm, seq_pc, seq_fm, seq_fc, seq_ll = _sequential_filter(
+        init_mean, init_cov, Fs, Qs, bs, Hs, Rs, cs, u
+    )
+    np.testing.assert_allclose(state.filt_mean, seq_fm, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(state.filt_cov, seq_fc, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(state.pred_mean, seq_pm, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(state.pred_cov, seq_pc, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(state.loglik, seq_ll, atol=1e-5, rtol=1e-5)
