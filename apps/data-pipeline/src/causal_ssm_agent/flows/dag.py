@@ -364,6 +364,7 @@ def stage5a(
     result = run_stage5a_preflight(
         {"_compiled_ssm": compiled_ssm},
         {"_data_for_model_path": data_for_model_path},
+        workspace_id,
     )
 
     return Stage5aContract.model_validate(_filter_to_contract(Stage5aContract, result))
@@ -385,6 +386,7 @@ def stage5b(
         {"_compiled_ssm": compiled_ssm},
         {"_data_for_model_path": data_for_model_path},
         inference_method,
+        workspace_id,
     )
 
     # Save fitted artifact

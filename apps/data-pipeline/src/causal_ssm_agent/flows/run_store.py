@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet", "stage2-raw-input.parquet")
 STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
 STAGE4_COMPILED_SSM_FILENAMES = ("stage4-compiled-ssm.json",)
+STAGE4_JAX_CACHE_FILENAMES = ("stage4-jax-cache.tar.gz",)
+STAGE4_JAX_CACHE_METADATA_FILENAMES = ("stage4-jax-cache-metadata.json",)
 STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 STAGE4_CHECKPOINT_DIRNAME = "stage-4-checkpoints"
 STAGE4_CHECKPOINT_CURSOR_FILENAME = "cursor.json"
@@ -197,6 +199,12 @@ def save_stage4_checkpoint(runtime: Any, workspace_id: str) -> str:
     cursor_path = _stage4_checkpoint_cursor_path(workspace_id, create=True)
     storage.write_text(cursor_path, json.dumps(_stage4_checkpoint_cursor_payload(runtime)))
     return checkpoint_path
+
+
+def stage4_checkpoint_exists(workspace_id: str) -> bool:
+    """Return ``True`` if a Stage 4 resume cursor is persisted for ``workspace_id``."""
+    cursor_path = _stage4_checkpoint_cursor_path(workspace_id, create=False)
+    return storage.exists(cursor_path)
 
 
 def load_stage4_checkpoint(workspace_id: str) -> Any:

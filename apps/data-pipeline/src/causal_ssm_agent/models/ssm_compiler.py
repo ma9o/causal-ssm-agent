@@ -452,6 +452,32 @@ def _compile_validated_ssm_artifact(
     }
 
 
+def compile_ssm_artifact_with_default_priors(
+    model_spec: ModelSpec | dict,
+    causal_spec: dict | None = None,
+) -> CompiledSSMArtifact:
+    """Compile a ModelSpec using compiler-owned default priors for warmup paths."""
+    from causal_ssm_agent.workers.prior_research import get_default_prior
+
+    validated_model_spec, errors = validate_model_spec_for_compilation(
+        model_spec,
+        causal_spec=causal_spec,
+    )
+    if errors:
+        raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
+
+    assert validated_model_spec is not None
+    default_priors = {
+        parameter.name: get_default_prior(parameter).model_dump()
+        for parameter in validated_model_spec.parameters
+    }
+    return _compile_validated_ssm_artifact(
+        validated_model_spec,
+        default_priors,
+        causal_spec=causal_spec,
+    )
+
+
 def trial_compile_model_spec(
     model_spec: ModelSpec | dict,
     causal_spec: dict | None = None,
@@ -460,26 +486,8 @@ def trial_compile_model_spec(
 
     Returns None on success, or an error message string on failure.
     """
-    from causal_ssm_agent.workers.prior_research import get_default_prior
-
-    validated_model_spec, errors = validate_model_spec_for_compilation(
-        model_spec,
-        causal_spec=causal_spec,
-    )
-    if errors:
-        return "ModelSpec failed compiler validation:\n" + "\n".join(errors)
-
-    default_priors: dict[str, dict] = {}
-    assert validated_model_spec is not None
-    for parameter in validated_model_spec.parameters:
-        default_priors[parameter.name] = get_default_prior(parameter).model_dump()
-
     try:
-        _compile_validated_ssm_artifact(
-            validated_model_spec,
-            default_priors,
-            causal_spec=causal_spec,
-        )
+        compile_ssm_artifact_with_default_priors(model_spec, causal_spec=causal_spec)
     except (ValueError, KeyError, TypeError, RuntimeError) as e:
         return str(e)
     return None
