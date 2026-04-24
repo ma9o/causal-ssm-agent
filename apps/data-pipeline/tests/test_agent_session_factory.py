@@ -60,6 +60,7 @@ class TestEmbeddedDispatch:
         assert cfg.max_tokens == 12345
         assert cfg.timeout == 60
         assert cfg.reasoning_effort == "low"
+        assert cfg.max_tool_output is None
 
     def test_per_stage_override_takes_precedence(self):
         stage = StageLLMConfig(
