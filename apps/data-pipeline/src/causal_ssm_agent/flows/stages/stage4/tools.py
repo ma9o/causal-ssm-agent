@@ -51,8 +51,14 @@ def make_search_tool(state: Any) -> Any:
     )
 
 
-def make_submit_indicator_choice_tool(state: Any) -> Any:
-    """Create the indicator-decision submit tool for the active Stage 4 block."""
+def make_submit_indicator_choice_tool(state: Any, *, stop_on_success: bool = True) -> Any:
+    """Submit one distribution/link choice for an ambiguous Stage 4 indicator.
+
+    ``stop_on_success`` defaults to ``True`` for the state-machine path so
+    the inner agent-session loop terminates after the reducer accepts the
+    active block's submission. Megaprompt callers pass ``stop_on_success=False``
+    because they run the whole stage inside a single long session.
+    """
     from causal_ssm_agent.utils.openrouter_client import Tool
 
     async def _execute(
@@ -71,38 +77,38 @@ def make_submit_indicator_choice_tool(state: Any) -> Any:
 
     return Tool(
         name="submit_indicator_choice",
-        description="Submit one distribution/link choice for the active Stage 4 indicator block.",
+        description="Submit one distribution/link choice for an ambiguous Stage 4 indicator.",
         parameters={
             "type": "object",
             "properties": {
                 "variable": {
                     "type": "string",
-                    "description": "Active indicator variable name.",
+                    "description": "Ambiguous indicator variable name.",
                 },
                 "distribution": {
                     "type": "string",
-                    "description": "Chosen distribution for the active indicator.",
+                    "description": "Chosen distribution for the indicator.",
                 },
                 "link": {
                     "type": "string",
-                    "description": "Chosen link function for the active indicator.",
+                    "description": "Chosen link function for the indicator.",
                 },
                 "reasoning": {
                     "type": "string",
-                    "description": "Short justification for the active indicator choice.",
+                    "description": "Short justification for the indicator choice.",
                 },
             },
             "required": ["variable", "distribution", "link", "reasoning"],
             "additionalProperties": False,
         },
         execute=_execute,
-        stop_on_success=True,
+        stop_on_success=stop_on_success,
         success_output=None,
     )
 
 
-def make_submit_model_configuration_tool(state: Any) -> Any:
-    """Create the model-configuration submit tool for the active Stage 4 block."""
+def make_submit_model_configuration_tool(state: Any, *, stop_on_success: bool = True) -> Any:
+    """Submit the global initialization / observation-intercept / equilibrium-forcing decision."""
     from causal_ssm_agent.utils.openrouter_client import Tool
 
     async def _execute(
@@ -156,13 +162,13 @@ def make_submit_model_configuration_tool(state: Any) -> Any:
             "additionalProperties": False,
         },
         execute=_execute,
-        stop_on_success=True,
+        stop_on_success=stop_on_success,
         success_output=None,
     )
 
 
-def make_submit_model_review_tool(state: Any) -> Any:
-    """Create the model-review submit tool for the active Stage 4 review block."""
+def make_submit_model_review_tool(state: Any, *, stop_on_success: bool = True) -> Any:
+    """Submit a model-review decision (state-machine only: approve or reopen blocks)."""
     from causal_ssm_agent.utils.openrouter_client import Tool
 
     async def _execute(
@@ -179,7 +185,7 @@ def make_submit_model_review_tool(state: Any) -> Any:
 
     return Tool(
         name="submit_model_review",
-        description="Submit the active Stage 4 model-review decision.",
+        description="Submit a Stage 4 model-review decision (approve or reopen named blocks).",
         parameters={
             "type": "object",
             "properties": {
@@ -202,13 +208,20 @@ def make_submit_model_review_tool(state: Any) -> Any:
             "additionalProperties": False,
         },
         execute=_execute,
-        stop_on_success=True,
+        stop_on_success=stop_on_success,
         success_output=None,
     )
 
 
-def make_submit_prior_block_tool(state: Any) -> Any:
-    """Create the prior-authoring submit tool for the active Stage 4 block."""
+def make_submit_prior_block_tool(state: Any, *, stop_on_success: bool = True) -> Any:
+    """Submit prior proposals keyed by parameter name.
+
+    In state-machine mode the reducer rejects priors outside the active
+    block's parameter set; in megaprompt mode any subset of the full
+    parameter inventory is accepted. The schema and core execute are
+    shared — the scope check lives in the caller's ``submit_prior_block``
+    method.
+    """
     from causal_ssm_agent.utils.openrouter_client import Tool
 
     async def _execute(*, priors: dict[str, dict[str, Any]]) -> str:
@@ -216,20 +229,20 @@ def make_submit_prior_block_tool(state: Any) -> Any:
 
     return Tool(
         name="submit_prior_block",
-        description="Submit prior proposals for the active Stage 4 prior block only.",
+        description="Submit prior proposals for one or more Stage 4 parameters.",
         parameters={
             "type": "object",
             "properties": {
                 "priors": {
                     "type": "object",
-                    "description": "Prior proposals keyed by active-scope parameter name.",
+                    "description": "Prior proposals keyed by parameter name.",
                 }
             },
             "required": ["priors"],
             "additionalProperties": False,
         },
         execute=_execute,
-        stop_on_success=True,
+        stop_on_success=stop_on_success,
         success_output=None,
     )
 
