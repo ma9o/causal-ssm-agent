@@ -330,7 +330,7 @@ class CodexHarnessSession:
                 for line in chunk.split(b"\n"):
                     text = line.decode("utf-8", errors="replace").strip()
                     if text:
-                        logger.info("[%s] codex stderr: %s", self._log_label, text[:400])
+                        logger.info("[%s] codex stderr: %s", self._log_label, text)
 
         try:
             await asyncio.wait_for(
@@ -346,7 +346,7 @@ class CodexHarnessSession:
 
         if proc.returncode != 0:
             stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-            raise RuntimeError(f"codex exited with status {proc.returncode}: {stderr_text[:500]}")
+            raise RuntimeError(f"codex exited with status {proc.returncode}: {stderr_text}")
 
         turn_events = self._state.raw_events[pre_event_count:]
         return self._build_turn_result(turn_events)

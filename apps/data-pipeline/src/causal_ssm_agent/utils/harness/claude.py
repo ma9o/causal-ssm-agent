@@ -229,7 +229,7 @@ class ClaudeHarnessSession:
             if proc.stderr is not None:
                 stderr_bytes = await proc.stderr.read()
                 stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-            raise RuntimeError(f"claude exited with status {proc.returncode}: {stderr_text[:500]}")
+            raise RuntimeError(f"claude exited with status {proc.returncode}: {stderr_text}")
 
         turn_events = self._state.raw_events[pre_event_count:]
         return self._build_turn_result(turn_events)
