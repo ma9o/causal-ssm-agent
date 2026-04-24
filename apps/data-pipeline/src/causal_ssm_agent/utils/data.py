@@ -131,13 +131,13 @@ def annotate_observation_rows(
     for ind in causal_spec.get("measurement", {}).get("indicators", []):
         if not ind.get("name"):
             continue
-        support_kind, summary_operator, anchor_policy = get_observation_semantics(ind)
+        semantics = get_observation_semantics(ind)
         indicator_rows.append(
             {
                 "indicator": ind["name"],
-                "support_kind_meta": support_kind,
-                "summary_operator_meta": summary_operator,
-                "anchor_policy_meta": anchor_policy,
+                "support_kind_meta": semantics.support_kind.value,
+                "summary_operator_meta": semantics.summary_operator.value,
+                "anchor_policy_meta": semantics.anchor_policy.value,
                 "observation_window_meta": get_effective_observation_window(ind, model_clock),
             }
         )

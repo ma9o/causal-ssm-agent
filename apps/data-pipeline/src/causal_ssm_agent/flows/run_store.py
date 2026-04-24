@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 # Filename constants for run artifacts
 # ---------------------------------------------------------------------------
 
-STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet", "stage2-raw-input.parquet")
+STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet",)
 STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
 STAGE4_COMPILED_SSM_FILENAMES = ("stage4-compiled-ssm.json",)
 STAGE4_JAX_CACHE_FILENAMES = ("stage4-jax-cache.tar.gz",)
