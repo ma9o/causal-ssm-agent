@@ -846,8 +846,8 @@ class TestOutputSensitivity:
 
     def test_manifest_var_alias_uses_sparse_free_positions(self):
         """Sparse manifest-noise sites should resolve to the correct manifest channel."""
-        from causal_ssm_agent.models.ssm.diagnostics.sensitivity import (
-            _fallback_interpretable_parameter_name,
+        from causal_ssm_agent.models.ssm_compilation_common import (
+            resolve_scalar_parameter_name,
         )
 
         spec = make_ssm_spec(
@@ -861,11 +861,11 @@ class TestOutputSensitivity:
         )
         model = SSMModel(spec, SSMPriors(), likelihood="kalman")
 
-        alias = _fallback_interpretable_parameter_name(
+        alias = resolve_scalar_parameter_name(
             spec,
+            model.structure_runtime,
             "manifest_var_diag_free",
             0,
-            structure_runtime=model.structure_runtime,
         )
 
         assert alias == "obs_sd_sleep_quality"

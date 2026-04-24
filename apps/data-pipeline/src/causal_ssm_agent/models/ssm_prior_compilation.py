@@ -18,6 +18,7 @@ from causal_ssm_agent.models.ssm_compilation_common import (
     build_array_prior_payload,
     empty_prior_index_maps,
     normalize_prior_params,
+    resolve_scalar_parameter_name,
 )
 from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
 from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
@@ -57,15 +58,26 @@ def _drift_parameter_name(
     ssm_spec: SSMSpec,
     effect_idx: int,
     cause_idx: int,
+    *,
+    structure_runtime: SSMStructureRuntime | None = None,
 ) -> tuple[str, str, str]:
     if not ssm_spec.latent_names:
         raise ValueError(
             "SSMSpec.latent_names is empty; cross-lag parameter names require explicit "
             "latent_names on the translated SSMSpec."
         )
+    runtime = structure_runtime or SSMStructureRuntime(ssm_spec)
+    flat_idx = runtime.offdiag_index.get((effect_idx, cause_idx))
+    if flat_idx is None:
+        raise ValueError(f"No drift_offdiag entry at latent pair ({effect_idx}, {cause_idx}).")
+    name = resolve_scalar_parameter_name(ssm_spec, runtime, "drift_offdiag_free", flat_idx)
+    if name is None:
+        raise ValueError(
+            f"resolve_scalar_parameter_name failed for drift_offdiag_free[{flat_idx}]."
+        )
     cause_name = ssm_spec.latent_names[cause_idx]
     effect_name = ssm_spec.latent_names[effect_idx]
-    return f"beta_{cause_name}_{effect_name}", cause_name, effect_name
+    return name, cause_name, effect_name
 
 
 def _resolve_model_clock_interval_days(causal_spec: dict | None) -> float | None:
@@ -355,45 +367,44 @@ def collect_first_order_approximation_warnings(
     min_diag = min(diag_abs)
     if min_diag < NUMERICAL_EPSILON:
         return []
-    min_diag_idx = diag_abs.index(min_diag)
+    min_diag_flat_idx = diag_abs.index(min_diag)
 
-    offdiag_positions: list[tuple[int, int]] = []
-    latent_names: list[str] = []
-    if ssm_spec is not None and ssm_spec.latent_names:
-        offdiag_positions = _iter_offdiag_positions(ssm_spec)
-        latent_names = list(ssm_spec.latent_names)
+    structure_runtime = SSMStructureRuntime(ssm_spec) if ssm_spec is not None else None
 
-    def _offdiag_label(idx: int) -> str:
-        if idx < len(offdiag_positions) and latent_names:
-            effect_idx, cause_idx = offdiag_positions[idx]
-            cause = latent_names[cause_idx]
-            effect = latent_names[effect_idx]
-            return f"beta_{cause}_{effect} ({cause} -> {effect})"
-        return f"drift_offdiag[{idx}]"
-
-    def _diag_label(idx: int) -> str:
-        if latent_names and idx < len(latent_names):
-            return f"drift_diag[{latent_names[idx]}]"
-        return f"drift_diag[{idx}]"
+    min_diag_name = (
+        resolve_scalar_parameter_name(
+            ssm_spec, structure_runtime, "drift_diag_free", min_diag_flat_idx
+        )
+        if ssm_spec is not None and structure_runtime is not None
+        else None
+    )
+    min_diag_label = f"{min_diag_name}" if min_diag_name else f"drift_diag[{min_diag_flat_idx}]"
 
     warnings: list[CompileDiagnostic] = []
     for idx, offdiag_value in enumerate(offdiag_mu):
         ratio = abs(float(offdiag_value)) / min_diag
         if ratio <= 0.2:
             continue
+        beta_name = (
+            resolve_scalar_parameter_name(ssm_spec, structure_runtime, "drift_offdiag_free", idx)
+            if ssm_spec is not None and structure_runtime is not None
+            else None
+        )
+        if beta_name is not None:
+            effect_idx, cause_idx = structure_runtime.offdiag_positions[idx]
+            cause_name = ssm_spec.latent_names[cause_idx]
+            effect_name = ssm_spec.latent_names[effect_idx]
+            offdiag_label = f"{beta_name} ({cause_name} -> {effect_name})"
+        else:
+            offdiag_label = f"drift_offdiag[{idx}]"
         warnings.append(
             _compile_warning(
                 code="dt_ct_approximation_warning",
                 parameter="drift_offdiag",
                 issue=(
-                    "Cross-lag priors compile via the linearization "
-                    "drift_offdiag = beta_dt / dt (first-order term of logm(A_dt)/dt), "
-                    "which loses accuracy when latent modes are strongly coupled. "
-                    f"{_offdiag_label(idx)} magnitude "
-                    f"({abs(float(offdiag_value)):.3f} 1/day) is {ratio * 100:.0f}% of "
-                    f"the smallest diagonal rate {_diag_label(min_diag_idx)} "
-                    f"({min_diag:.3f} 1/day); at this ratio the compiled CT off-diagonal "
-                    "may deviate noticeably from the true matrix log."
+                    f"{offdiag_label}: CT magnitude {abs(float(offdiag_value)):.3f} 1/day, "
+                    f"which is {ratio * 100:.0f}% of the smallest CT diagonal rate "
+                    f"({min_diag:.3f} 1/day, {min_diag_label})."
                 ),
                 suggested_adjustment=(
                     "Shorten the reference interval (brings A_dt closer to I, where the "
