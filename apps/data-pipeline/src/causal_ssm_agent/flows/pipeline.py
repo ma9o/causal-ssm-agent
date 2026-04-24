@@ -307,7 +307,7 @@ async def causal_inference_pipeline(
             # Restore from prior run (stages before the execution window)
             if defn.skip_restore:
                 continue
-            restored = load_stage_state(workspace_id, stage_id, prior_states=stage_states)
+            restored = load_stage_state(workspace_id, stage_id)
             stage_states[stage_id] = restored
             emit_stage_progress_event(prefect_run_id, stage_id, "completed")
             fail_reason = _stage_fail_reason(restored)
