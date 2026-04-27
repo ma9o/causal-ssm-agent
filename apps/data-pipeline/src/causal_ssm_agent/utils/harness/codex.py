@@ -19,10 +19,15 @@ directory so subscription credentials survive the override. The
 validator (``validate_runtime_prereqs``) refuses to start any Codex
 stage when ``~/.codex/auth.json`` is missing.
 
-Pipeline-fixed flags: ``--sandbox read-only`` (our only side-effect
-channel is the MCP tools we expose; no approvals are needed under a
-read-only sandbox), ``--json`` for event streaming, and
-``--skip-git-repo-check`` so the pipeline can run outside a repo.
+Pipeline-fixed flags: ``--json`` for event streaming,
+``--skip-git-repo-check`` so the pipeline can run outside a repo, and
+``--dangerously-bypass-approvals-and-sandbox``. We still wrap the child
+process in an OS-level sandbox (see ``build_codex_sandbox_profile``)
+because codex-cli 0.123.0 still cancels localhost MCP HTTP tool calls in
+non-interactive mode under stricter documented configs like
+``sandbox_mode = "workspace-write"``,
+``approval_policy = "never"``, and
+``sandbox_workspace_write.network_access = true``.
 
 Integration status: the ``codex`` CLI's MCP config key names for HTTP
 transport are not fully documented; the TOML we write matches
@@ -72,25 +77,28 @@ def build_codex_mcp_toml(
     url: str,
     server_name: str = MCP_SERVER_NAME,
     *,
-    tool_names: tuple[str, ...] = (),
+    developer_instructions: str | None = None,
     trusted_project_paths: tuple[Path, ...] = (),
 ) -> str:
     """Render a ``config.toml`` snippet pointing Codex at our HTTP MCP server.
 
-    - Marks each registered tool ``approval_mode = "auto"`` so the
-      pipeline doesn't get a per-tool approval dialog.
-    - Marks the agent's working directory ``trust_level = "trusted"`` so
-      codex's project-trust machinery treats our scratch cwd as trusted,
-      which bypasses the per-call MCP approval prompt (neither ``-a never``
-      nor per-tool ``approval_mode`` alone is enough in codex 0.123).
-      The sandbox still applies — codex cannot write outside the scratch
-      cwd.
+    - Uses the documented ``enabled_tools`` allowlist so Codex only sees
+      the MCP tools the stage intentionally exposes.
+    - Optionally marks the scratch working directory ``trust_level =
+      "trusted"`` for Codex's project-trust machinery. This does not clear
+      non-interactive localhost MCP approval failures in codex-cli 0.123.0,
+      but it also does not broaden filesystem access beyond the external
+      sandbox.
+    - When provided, ``developer_instructions`` are added via Codex's
+      config-level developer message so backend callers can preserve their
+      stage-owned system prompt without replacing Codex's bundled base
+      instructions.
     """
-    lines = [f"[mcp_servers.{server_name}]", f'url = "{url}"']
-    for name in tool_names:
+    lines: list[str] = []
+    if developer_instructions is not None:
+        lines.append(f"developer_instructions = {json.dumps(developer_instructions)}")
         lines.append("")
-        lines.append(f"[mcp_servers.{server_name}.tools.{name}]")
-        lines.append('approval_mode = "auto"')
+    lines.extend([f"[mcp_servers.{server_name}]", f'url = "{url}"'])
     for path in trusted_project_paths:
         lines.append("")
         # Path must be absolute for codex's project-key lookup.
@@ -120,17 +128,20 @@ def build_codex_argv(
     argv.extend(
         [
             "--json",
-            # codex 0.123 does not expose a narrow flag to auto-approve
-            # MCP tool calls in non-interactive ``exec`` mode: neither
-            # ``-a never``, ``--full-auto``, per-tool
-            # ``approval_mode = "auto"``, nor per-project
-            # ``trust_level = "trusted"`` clears the ``user cancelled
-            # MCP tool call`` error. The only flag that actually lets
-            # MCP calls through is
+            # codex exec 0.123.0 still cancels localhost MCP HTTP tool
+            # calls in non-interactive mode under the documented stricter
+            # configs we tried, including:
+            # - ``approval_policy="never"``
+            # - ``--sandbox workspace-write``
+            # - ``sandbox_workspace_write.network_access=true``
+            # - ``features.shell_tool=false``
+            # Project trust also did not clear the failure, and the
+            # undocumented ``mcp_servers.<id>.tools.<tool>.approval_mode``
+            # stanza is not surfaced by ``codex mcp get``. The only
+            # configuration that actually lets the MCP calls through is
             # ``--dangerously-bypass-approvals-and-sandbox``. We pair it
-            # with an OS-level sandbox-exec wrapper (see
-            # ``_codex_sandbox_exec_argv``) so codex still cannot write
-            # outside its scratch CODEX_HOME.
+            # with an OS-level sandbox-exec wrapper so codex still cannot
+            # read or write outside its scratch CODEX_HOME.
             "--dangerously-bypass-approvals-and-sandbox",
             "--skip-git-repo-check",
             "-m",
@@ -475,6 +486,7 @@ def _link_codex_auth(codex_home: Path) -> None:
 async def open_codex_harness_session(
     *,
     tools: list[Tool],
+    system_prompt: str | None = None,
     model: str,
     bin: str = "codex",
     reasoning_effort: str | None = None,
@@ -498,7 +510,7 @@ async def open_codex_harness_session(
             codex_home = Path(tmpdir)
             mcp_toml = build_codex_mcp_toml(
                 mcp_url,
-                tool_names=tuple(t.name for t in tools),
+                developer_instructions=system_prompt,
                 trusted_project_paths=(codex_home,),
             )
             (codex_home / "config.toml").write_text(mcp_toml)
