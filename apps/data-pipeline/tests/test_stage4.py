@@ -776,6 +776,73 @@ def test_sensitivity_failure_routes_from_weak_normalized_direction():
     assert "effects:sleep" in decision.repair_plan.block_ids
 
 
+def test_tau_dominated_sensitivity_fail_demotes_to_warning():
+    from causal_ssm_agent.flows.stages.stage4.assembly import (
+        _collect_sensitivity_warning_messages,
+        blocking_sensitivity_fails,
+    )
+
+    tau_direction = {
+        "index": 1,
+        "normalized_singular_value": 0.3,
+        "status": "fail",
+        "top_loadings": [
+            {
+                "parameter": "static_state_sd_free[0]",
+                "interpretable_parameter": "tau_0",
+                "loading": 0.95,
+                "abs_loading": 0.95,
+            },
+            {
+                "parameter": "static_state_sd_free[1]",
+                "interpretable_parameter": "tau_1",
+                "loading": 0.30,
+                "abs_loading": 0.30,
+            },
+        ],
+    }
+    payload = {
+        "deficiency_count": 1,
+        "weak_directions": [tau_direction],
+        "per_parameter": [],
+    }
+
+    assert blocking_sensitivity_fails(payload) == []
+    warnings = _collect_sensitivity_warning_messages(payload)
+    assert any("tau-dominated" in msg for msg in warnings)
+
+
+def test_mixed_tau_drift_sensitivity_fail_still_blocks():
+    from causal_ssm_agent.flows.stages.stage4.assembly import blocking_sensitivity_fails
+
+    mixed_direction = {
+        "index": 1,
+        "normalized_singular_value": 0.4,
+        "status": "fail",
+        "top_loadings": [
+            {
+                "parameter": "static_state_sd_free[0]",
+                "interpretable_parameter": "tau_0",
+                "loading": 0.6,
+                "abs_loading": 0.6,
+            },
+            {
+                "parameter": "drift_offdiag_free[0]",
+                "interpretable_parameter": "beta_activity_sleep",
+                "loading": 0.8,
+                "abs_loading": 0.8,
+            },
+        ],
+    }
+    payload = {
+        "deficiency_count": 1,
+        "weak_directions": [mixed_direction],
+        "per_parameter": [],
+    }
+
+    assert blocking_sensitivity_fails(payload) == [mixed_direction]
+
+
 # --- Prompt assembly tests ---
 
 
