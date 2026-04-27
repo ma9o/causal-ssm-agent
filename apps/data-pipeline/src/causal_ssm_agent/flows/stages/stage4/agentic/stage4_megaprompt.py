@@ -601,9 +601,11 @@ async def run_stage4_megaprompt(
         grounding_fn=stage4_grounding,
     )
     state = Stage4MegapromptState()
+    resumed_from_checkpoint = False
     if checkpoint_path is not None and checkpoint_path.exists():
         try:
             state = deserialize_stage4_megaprompt_state(json.loads(checkpoint_path.read_text()))
+            resumed_from_checkpoint = True
             logger.info(
                 "stage-4:megaprompt resumed from %s (tool_call_count=%d, authored_priors=%d)",
                 checkpoint_path,
@@ -674,7 +676,9 @@ async def run_stage4_megaprompt(
                     validation=state.accepted.validation,
                 )
             logger.info(
-                "stage-4:megaprompt resume validation is not valid — handing to agent session"
+                "stage-4:megaprompt resume validation is not valid — handing to "
+                "agent session\nrecomputed feedback:\n%s",
+                state.last_feedback,
             )
 
     system_prompt = build_stage4_megaprompt_system_prompt(
@@ -724,8 +728,11 @@ async def run_stage4_megaprompt(
                 required_prior_names=required_prior_names,
                 optional_prior_names=optional_prior_names,
                 authored_priors=state.accepted.authored_priors,
+                accepted_model_spec=state.accepted.model_spec,
                 model_spec_locked=state.accepted.model_spec is not None,
                 latest_feedback=state.last_feedback,
+                resumed_from_checkpoint=resumed_from_checkpoint,
+                include_accepted_state_sections=_outer_turn == 0,
                 include_prior_source_guidance=enable_literature,
             )
             calls_before = state.tool_call_count

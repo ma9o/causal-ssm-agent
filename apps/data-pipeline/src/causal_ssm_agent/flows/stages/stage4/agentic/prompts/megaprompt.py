@@ -14,6 +14,7 @@ from typing import Any
 
 from causal_ssm_agent.distributions import PRIOR_PARAMETER_GUIDANCE_ROWS
 
+from .accepted_state import build_accepted_state_sections
 from .model_proposal import (
     _join_sections,
     format_construct_scale_cards,
@@ -249,112 +250,6 @@ def _render_model_decision_status(
     )
 
 
-def _render_locked_model_spec(
-    model_spec: dict[str, Any],
-    *,
-    centerable_construct_names: tuple[str, ...],
-    baseline_factor_names: tuple[str, ...],
-) -> str:
-    """Render the locked ``model_spec`` artifact as a prompt section.
-
-    Shown on every turn once the model spec is locked so the agent keeps
-    the authoritative view of indicator likelihoods, the parameter
-    inventory, and the global configuration in context — without having
-    to infer any of it from the pre-lock decision cards.
-    """
-    init_text = f"`{model_spec.get('initialization_policy') or 'unset'}`"
-    obs_text = f"`{model_spec.get('observation_intercept_policy') or 'unset'}`"
-    equilibrium = model_spec.get("equilibrium_forcing")
-    forcing_text = (
-        "(unset)" if equilibrium is None else f"`{str(bool(equilibrium)).lower()}`"
-    )
-    centerable = ", ".join(f"`{name}`" for name in centerable_construct_names) or "(none)"
-    baseline = ", ".join(f"`{name}`" for name in baseline_factor_names) or "(none)"
-
-    lines: list[str] = [
-        "### Global Configuration",
-        "",
-        f"- `initialization_policy`: {init_text}",
-        f"- `observation_intercept_policy`: {obs_text}",
-        f"- `equilibrium_forcing`: {forcing_text}",
-        f"- centered-indicator constructs identifying latent baselines: {centerable}",
-        f"- compiled baseline-factor scales from marginalized confounders: {baseline}",
-    ]
-
-    likelihoods = [
-        item
-        for item in (model_spec.get("likelihoods") or [])
-        if isinstance(item, dict)
-    ]
-    if likelihoods:
-        lines.extend(["", "### Indicator Likelihoods", ""])
-        for item in likelihoods:
-            variable = item.get("indicator") or item.get("variable") or "?"
-            distribution = item.get("distribution") or "?"
-            link = item.get("link") or "?"
-            lines.append(f"- `{variable}`: `{distribution}` / `{link}`")
-
-    parameters = [
-        param
-        for param in (model_spec.get("parameters") or [])
-        if isinstance(param, dict) and isinstance(param.get("name"), str)
-    ]
-    if parameters:
-        lines.extend(["", "### Parameters (by role)", ""])
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for param in parameters:
-            role = str(param.get("role") or "other")
-            grouped.setdefault(role, []).append(param)
-        for role in sorted(grouped):
-            lines.append(f"**{role}**")
-            for param in grouped[role]:
-                name = param["name"]
-                constraint = param.get("constraint")
-                description = param.get("description") or ""
-                constraint_text = f" [constraint=`{constraint}`]" if constraint else ""
-                description_text = f" — {description}" if description else ""
-                lines.append(f"- `{name}`{constraint_text}{description_text}")
-            lines.append("")
-    return "\n".join(lines).rstrip()
-
-
-def _render_authored_priors(authored_priors: dict[str, dict[str, Any]]) -> str:
-    """Render the full values of every authored prior.
-
-    Empty dict renders as an empty string (caller skips the section).
-    On seed there's nothing to render; on resume — or after any priors
-    have been authored in-session — the agent sees exactly what it has
-    submitted so it can target revisions without re-deriving current
-    values from memory.
-    """
-    if not authored_priors:
-        return ""
-    import json as _json
-
-    lines: list[str] = []
-    for name in sorted(authored_priors):
-        prior = authored_priors[name]
-        if not isinstance(prior, dict):
-            continue
-        distribution = prior.get("distribution") or "?"
-        params = prior.get("params") or {}
-        params_text = _json.dumps(params, default=str) if isinstance(params, dict) else str(params)
-        reasoning = (prior.get("reasoning") or "").strip()
-        sources = prior.get("sources") or []
-        header = f"- `{name}`: `{distribution}`({params_text})"
-        lines.append(header)
-        if reasoning:
-            lines.append(f"  - reasoning: {reasoning}")
-        if isinstance(sources, list) and sources:
-            src_text = "; ".join(
-                (s.get("citation") or s.get("url") or str(s)) if isinstance(s, dict) else str(s)
-                for s in sources[:3]
-            )
-            more = f" (+{len(sources) - 3} more)" if len(sources) > 3 else ""
-            lines.append(f"  - sources: {src_text}{more}")
-    return "\n".join(lines)
-
-
 def _render_prior_status(
     *,
     required_prior_names: tuple[str, ...],
@@ -407,11 +302,20 @@ def build_stage4_megaprompt_user_prompt(
     required_prior_names: tuple[str, ...],
     optional_prior_names: tuple[str, ...],
     authored_priors: dict[str, dict[str, Any]],
+    accepted_model_spec: dict[str, Any] | None,
     model_spec_locked: bool,
     latest_feedback: str,
+    resumed_from_checkpoint: bool,
+    include_accepted_state_sections: bool,
     include_prior_source_guidance: bool,
 ) -> str:
-    """Build the Stage 4 megaprompt user message for one outer agent turn."""
+    """Build the Stage 4 megaprompt user message for one outer agent turn.
+
+    ``include_accepted_state_sections`` should be true only on the first prompt
+    of a freshly opened provider session. Later outer turns in the same session
+    already have the accepted-state replay in-thread, so repeating the full
+    locked spec and authored-prior catalog only burns context.
+    """
     decision_status = _render_model_decision_status(
         ambiguous_indicators=ambiguous_indicators,
         distribution_choices=distribution_choices,
@@ -436,8 +340,18 @@ def build_stage4_megaprompt_user_prompt(
         "## Research Question\n\n" + question,
         "## Model Topology\n\n" + format_model_topology(model_topology),
         (f"## Overall Status\n\n- model spec: {model_spec_text}\n{prior_status}"),
-        "## Open Model Decisions\n\n" + decision_status,
     ]
+
+    if include_accepted_state_sections:
+        sections.extend(
+            build_accepted_state_sections(
+                accepted_model_spec=accepted_model_spec,
+                authored_priors=authored_priors,
+                centerable_construct_names=centerable_construct_names,
+                baseline_factor_names=baseline_factor_names,
+            )
+        )
+    sections.append("## Open Model Decisions\n\n" + decision_status)
 
     if distribution_cards:
         sections.append(
@@ -507,9 +421,13 @@ def build_stage4_megaprompt_user_prompt(
         submission_lines.append(PRIOR_SOURCE_GUIDANCE.replace("{{", "{").replace("}}", "}"))
     sections.append("\n".join(submission_lines))
 
-    sections.append(
-        "## Latest Validator Feedback\n\n" + (latest_feedback or "(no submissions yet)")
-    )
+    feedback_lines = []
+    if resumed_from_checkpoint:
+        feedback_lines.append(
+            "_This feedback was recomputed from checkpointed Stage 4 state after an interrupted run._"
+        )
+    feedback_lines.append(latest_feedback or "(no submissions yet)")
+    sections.append("## Latest Validator Feedback\n\n" + "\n\n".join(feedback_lines))
 
     if model_spec_locked and not {
         name for name in required_prior_names if name not in authored_priors

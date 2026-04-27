@@ -321,6 +321,24 @@ class Stage4Messages:
         include_prior_source_guidance: bool,
     ) -> Stage4ScopeSnapshot:
         """Build the typed LLM-visible snapshot for one active Stage 4 block."""
+        configuration_block = next(
+            (
+                candidate
+                for candidate in plan.model_blocks
+                if candidate.kind == "model_configuration"
+            ),
+            None,
+        )
+        if configuration_block is not None:
+            centerable_construct_names = tuple(
+                configuration_block.payload.get("centerable_construct_names") or ()
+            )
+            baseline_factor_names = tuple(
+                configuration_block.payload.get("baseline_factor_names") or ()
+            )
+        else:
+            centerable_construct_names = ()
+            baseline_factor_names = ()
         distribution_cards = self._distribution_cards_for_runtime(runtime)
         loading_params = deepcopy(self.loading_params)
         construct_scale_cards = self._construct_scale_cards_for_runtime(runtime)
@@ -400,6 +418,10 @@ class Stage4Messages:
             construct_scale_cards=visible_construct_scale_cards,
             prior_cards=visible_prior_cards,
             coupled_prior_cards=coupled_prior_cards,
+            accepted_model_spec=deepcopy(runtime.domain.accepted.model_spec),
+            accepted_authored_priors=deepcopy(runtime.domain.accepted.authored_priors),
+            centerable_construct_names=centerable_construct_names,
+            baseline_factor_names=baseline_factor_names,
             submission_example=handler.render_submission_example(
                 block,
                 prior_cards=visible_prior_cards,
