@@ -76,6 +76,10 @@ class Stage4ScopeSnapshot:
     construct_scale_cards: list[dict[str, Any]]
     prior_cards: list[dict[str, Any]]
     coupled_prior_cards: list[dict[str, Any]]
+    accepted_model_spec: dict[str, Any] | None
+    accepted_authored_priors: dict[str, dict[str, Any]]
+    centerable_construct_names: tuple[str, ...]
+    baseline_factor_names: tuple[str, ...]
     submission_example: str
     include_prior_source_guidance: bool
     latest_validation: Stage4ValidationPacket

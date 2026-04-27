@@ -16,6 +16,7 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
     render_stage4_validation_feedback,
 )
 
+from .accepted_state import build_accepted_state_sections
 from .shared_fragments import (
     CONTINUOUS_TIME_DYNAMICS_SECTION,
     INITIAL_STATE_SCALE_DISCIPLINE_SECTION,
@@ -980,16 +981,28 @@ def build_stage4_user_prompt(
         "## Research Question\n\n" + question,
         "## Fixed Model Context\n\n## Model Topology\n\n"
         + format_model_topology(snapshot.model_topology),
-        "## Frontier Status\n\n" + snapshot.frontier_status,
-        (
-            "## Active Block\n\n"
-            f"- `id`: `{snapshot.block_id}`\n"
-            f"- `kind`: `{snapshot.block_kind}`\n"
-            f"- `label`: {snapshot.block_label}\n\n"
-            f"{snapshot.block_instructions}"
-        ),
-        _format_stage4_scope_snapshot(snapshot),
     ]
+    sections.extend(
+        build_accepted_state_sections(
+            accepted_model_spec=snapshot.accepted_model_spec,
+            authored_priors=snapshot.accepted_authored_priors,
+            centerable_construct_names=snapshot.centerable_construct_names,
+            baseline_factor_names=snapshot.baseline_factor_names,
+        )
+    )
+    sections.extend(
+        [
+            "## Frontier Status\n\n" + snapshot.frontier_status,
+            (
+                "## Active Block\n\n"
+                f"- `id`: `{snapshot.block_id}`\n"
+                f"- `kind`: `{snapshot.block_kind}`\n"
+                f"- `label`: {snapshot.block_label}\n\n"
+                f"{snapshot.block_instructions}"
+            ),
+            _format_stage4_scope_snapshot(snapshot),
+        ]
+    )
     if snapshot.block_kind == "effect_prior":
         sections.append(_format_effect_prior_budget_discipline())
 
