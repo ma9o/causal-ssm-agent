@@ -96,6 +96,7 @@ async def open_session(
         defaults = llm_defaults.codex
         codex_kwargs: dict[str, Any] = {
             "tools": tools,
+            "system_prompt": system_prompt,
             "model": stage_llm.model,
             "bin": _first_not_none(stage_llm.bin, defaults.bin),
             "reasoning_effort": _first_not_none(
