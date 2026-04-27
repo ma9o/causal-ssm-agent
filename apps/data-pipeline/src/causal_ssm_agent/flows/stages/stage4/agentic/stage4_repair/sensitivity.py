@@ -29,12 +29,10 @@ _SENSITIVITY_DRIFT_BLOCK_KINDS = frozenset({"dynamics_prior", "effect_prior"})
 
 def _failing_sensitivity_directions(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Return weak normalized directions that should block Stage 4 completion."""
+    from causal_ssm_agent.flows.stages.stage4.assembly import blocking_sensitivity_fails
+
     return sorted(
-        [
-            direction
-            for direction in payload.get("weak_directions", [])
-            if isinstance(direction, dict) and direction.get("status") == "fail"
-        ],
+        blocking_sensitivity_fails(payload),
         key=lambda item: (
             float(item.get("normalized_singular_value", float("inf"))),
             int(item.get("index", 0)),

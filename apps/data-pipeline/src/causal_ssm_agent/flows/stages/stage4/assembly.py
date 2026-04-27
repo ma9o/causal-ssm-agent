@@ -266,11 +266,7 @@ def run_output_sensitivity_validation(
             "n_parameters": sa_result.n_parameters,
         }
         warnings = _collect_sensitivity_warning_messages(payload)
-        valid = payload.get("deficiency_count", 0) == 0 and not any(
-            direction.get("status") == "fail"
-            for direction in payload.get("weak_directions", [])
-            if isinstance(direction, dict)
-        )
+        valid = not blocking_sensitivity_fails(payload)
         return True, True, valid, payload, warnings
     except OutputSensitivityUnsupportedError as exc:
         logger.info("Stage 4 Jacobian sensitivity unavailable for this model: %s", exc)
@@ -682,6 +678,78 @@ def _format_validation_warnings(validation: AssemblyValidation) -> str:
     return "MODELING WARNINGS:\n" + "\n\n".join(parts)
 
 
+_TAU_SITE_NAMES = frozenset({"static_state_sd", "static_state_sd_free"})
+_TAU_DOMINANCE_THRESHOLD = 0.9
+
+
+def _loading_is_tau_family(loading: dict[str, Any]) -> bool:
+    """Return True when a sensitivity loading targets a static-state SD (tau)."""
+    parameter = loading.get("parameter")
+    if isinstance(parameter, str):
+        site = parameter.split("[", 1)[0]
+        if site in _TAU_SITE_NAMES:
+            return True
+    interpretable = loading.get("interpretable_parameter")
+    return isinstance(interpretable, str) and interpretable.startswith("tau_")
+
+
+def _direction_is_tau_dominated(direction: dict[str, Any]) -> bool:
+    """Return True when a fail direction's squared loadings concentrate on tau.
+
+    Static-state SDs are structurally weakly identified in N-of-1 settings —
+    the prior carries them and the agent cannot repair them by re-eliciting.
+    Fail directions dominated by taus surface as warnings rather than blocking
+    acceptance.
+    """
+    loadings = [entry for entry in direction.get("top_loadings", []) if isinstance(entry, dict)]
+    if not loadings:
+        return False
+    total_sq = 0.0
+    tau_sq = 0.0
+    for loading in loadings:
+        try:
+            value = float(loading.get("loading", 0.0))
+        except (TypeError, ValueError):
+            continue
+        sq = value * value
+        total_sq += sq
+        if _loading_is_tau_family(loading):
+            tau_sq += sq
+    if total_sq <= 0.0:
+        return False
+    return tau_sq / total_sq >= _TAU_DOMINANCE_THRESHOLD
+
+
+def blocking_sensitivity_fails(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return fail directions that should block Stage 4 acceptance.
+
+    Tau-dominated fail directions are demoted to warnings; only mixed or
+    structural-parameter fails block.
+    """
+    if not payload:
+        return []
+    return [
+        direction
+        for direction in payload.get("weak_directions", [])
+        if isinstance(direction, dict)
+        and direction.get("status") == "fail"
+        and not _direction_is_tau_dominated(direction)
+    ]
+
+
+def _demoted_sensitivity_fails(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return fail directions demoted to warnings because they are tau-dominated."""
+    if not payload:
+        return []
+    return [
+        direction
+        for direction in payload.get("weak_directions", [])
+        if isinstance(direction, dict)
+        and direction.get("status") == "fail"
+        and _direction_is_tau_dominated(direction)
+    ]
+
+
 def _collect_sensitivity_warning_messages(
     payload: dict[str, Any] | None,
 ) -> list[str]:
@@ -697,6 +765,12 @@ def _collect_sensitivity_warning_messages(
     ]
     for direction in weak_directions[:2]:
         warnings.append(_format_sensitivity_direction_message(direction, prefix="Warning"))
+    for direction in _demoted_sensitivity_fails(payload)[:2]:
+        warnings.append(
+            _format_sensitivity_direction_message(
+                direction, prefix="Warning (tau-dominated, unidentifiable by design)"
+            )
+        )
     return warnings
 
 
@@ -705,52 +779,79 @@ def _format_sensitivity_direction_message(
     *,
     prefix: str,
 ) -> str:
-    """Render one weak normalized sensitivity direction into compact text."""
+    """Render one weak normalized sensitivity direction into compact text.
+
+    Includes signed loadings so the agent sees both the relative
+    contribution of each parameter (magnitude) and the sign pattern
+    (which combination is locally unidentified — e.g. ``+a, +b`` vs
+    ``+a, -b``). Loadings are listed in descending absolute magnitude
+    and truncated when the running absolute coverage exceeds 0.95 or
+    after 8 terms, whichever comes first.
+    """
     index = direction.get("index")
     normalized_sv = direction.get("normalized_singular_value")
     try:
         normalized_sv_text = f"{float(normalized_sv):.3g}"
     except (TypeError, ValueError):
         normalized_sv_text = "unknown"
-    parameter_names = [
-        str(loading.get("interpretable_parameter") or loading.get("parameter"))
-        for loading in direction.get("top_loadings", [])
-        if isinstance(loading, dict)
-        and (loading.get("interpretable_parameter") or loading.get("parameter"))
-    ][:4]
-    dominant_text = (
-        ", ".join(parameter_names) if parameter_names else "the active parameter surface"
-    )
+    loadings = [loading for loading in direction.get("top_loadings", []) if isinstance(loading, dict)]
+    loadings.sort(key=lambda item: float(item.get("abs_loading") or 0.0), reverse=True)
+    rendered: list[str] = []
+    cumulative_sq = 0.0
+    for loading in loadings:
+        name = str(loading.get("interpretable_parameter") or loading.get("parameter") or "")
+        if not name:
+            continue
+        try:
+            signed = float(loading.get("loading") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        rendered.append(f"{name}={signed:+.2f}")
+        cumulative_sq += signed * signed
+        if len(rendered) >= 8 or cumulative_sq >= 0.95:
+            break
+    loadings_text = ", ".join(rendered) if rendered else "the active parameter surface"
     return (
         f"{prefix}: Jacobian sensitivity found weak normalized direction "
-        f"{index} (normalized singular value={normalized_sv_text}) dominated by {dominant_text}."
+        f"{index} (normalized singular value={normalized_sv_text}); "
+        f"top signed loadings: {loadings_text}."
     )
 
 
 def _format_sensitivity_failure_feedback(validation: AssemblyValidation) -> str:
-    """Format the failing Jacobian-sensitivity direction for Stage 4 feedback."""
+    """Format every failing Jacobian-sensitivity direction for Stage 4 feedback.
+
+    The agent needs to see all fail directions (not just the worst one)
+    because two unrelated unidentified combinations can exist in the same
+    model and fixing only the top direction leaves the second failing on
+    the next round. Each direction is rendered with its signed loadings
+    so the agent can reason about the specific coupled combination.
+    """
     payload = validation.sensitivity_payload or {}
-    fail_directions = [
-        direction
-        for direction in payload.get("weak_directions", [])
-        if isinstance(direction, dict) and direction.get("status") == "fail"
-    ]
+    fail_directions = blocking_sensitivity_fails(payload)
     if not fail_directions:
         return "JACOBIAN SENSITIVITY FEEDBACK:\n- the current accepted model remains locally weak"
 
-    direction = min(
-        fail_directions,
+    fail_directions.sort(
         key=lambda item: (
             float(item.get("normalized_singular_value", float("inf"))),
             int(item.get("index", 0)),
         ),
     )
-    message = _format_sensitivity_direction_message(direction, prefix="Failure")
-    return (
-        "JACOBIAN SENSITIVITY FEEDBACK:\n"
-        f"- {message.removeprefix('Failure: ')}\n"
-        "- the accepted parameterization is still locally weak along this coupled direction"
+    lines = ["JACOBIAN SENSITIVITY FEEDBACK:"]
+    for direction in fail_directions:
+        message = _format_sensitivity_direction_message(direction, prefix="Failure")
+        lines.append(f"- {message.removeprefix('Failure: ')}")
+    lines.append(
+        "- the accepted parameterization is still locally weak along "
+        f"{'this coupled direction' if len(fail_directions) == 1 else 'these coupled directions'}"
     )
+    lines.append(
+        "- loadings are the normalized right-singular vector entries; sign "
+        "indicates the combination (co-increase vs anti-correlate) that data "
+        "cannot distinguish at the current priors"
+    )
+    return "\n".join(lines)
 
 
 def compile_model_artifact(
