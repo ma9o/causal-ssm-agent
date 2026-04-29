@@ -41,7 +41,7 @@ __PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 - No evidence: Use weakly informative defaults
 
 ### Respect Constraints
-- AR coefficients (rho): Must be in [0, 1] for stationarity
+- AR coefficients (rho): Must be in [0, 1] as baseline persistence absent incoming feedback
 - Standard deviations: Must be positive
 - Correlations: Must be in [-1, 1]
 - Factor loadings: Must respect the fixed Stage 1b polarity (`positive` or `negative`)

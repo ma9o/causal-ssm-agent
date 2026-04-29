@@ -290,7 +290,7 @@ STAGE4_TOOL_SPECS: tuple[Stage4ToolSpec, ...] = (
 
 def build_stage4_public_tool_contracts() -> list[ToolContract]:
     """Materialize Stage 4 public tool contracts from the shared registry."""
-    from causal_ssm_agent.flows.stage_contracts import ToolContract
+    from causal_ssm_agent.flows.contracts_base import ToolContract
 
     return [
         ToolContract(

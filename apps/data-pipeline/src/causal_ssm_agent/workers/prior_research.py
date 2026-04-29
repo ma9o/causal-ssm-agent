@@ -347,7 +347,7 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     """
     from causal_ssm_agent.artifacts.model_spec import ParameterConstraint, ParameterRole
 
-    # AR priors live on the DT persistence scale in (0, 1).
+    # AR priors live on the baseline DT persistence scale in (0, 1).
     if parameter.role == ParameterRole.AR_COEFFICIENT:
         distribution = PriorDistributionFamily.BETA
         params = {"alpha": 2.0, "beta": 2.0}

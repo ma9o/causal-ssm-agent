@@ -75,7 +75,6 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
     Stage4AcceptedArtifacts,
     Stage4DomainState,
-    Stage4DraftModel,
     Stage4RepairCampaignState,
     Stage4Runtime,
 )
@@ -750,7 +749,7 @@ def test_sensitivity_failure_routes_from_weak_normalized_direction():
                             "abs_loading": 0.81,
                         },
                         {
-                            "parameter": "drift_diag_free[1]",
+                            "parameter": "drift_base_decay_free[1]",
                             "interpretable_parameter": "rho_sleep",
                             "loading": 0.44,
                             "abs_loading": 0.44,
@@ -1456,7 +1455,7 @@ class TestStage4Messages:
 
         assert "clear damping headroom for later incoming effects" in user_content
         assert "## Dynamics Budget Discipline" in system_content
-        assert "conservative decay" in system_content
+        assert "baseline persistence absent incoming feedback" in system_content
 
     def test_messages_for_dynamics_scope_include_structural_coupled_effect_priors_pre_failure(self):
         block = Stage4FrontierBlock(
@@ -2739,6 +2738,23 @@ def _activity_measurement_prior_bundle(
     }
 
 
+def _activity_loading_prior_bundle(
+    *,
+    lambda_sigma: float,
+    lambda_reasoning: str,
+) -> dict[str, dict[str, Any]]:
+    """Return only the activity loading prior for local repair prompts."""
+    return {
+        "lambda_activity_vas_activity": {
+            "parameter": "lambda_activity_vas_activity",
+            "distribution": "HalfNormal",
+            "params": {"sigma": lambda_sigma},
+            "sources": [],
+            "reasoning": lambda_reasoning,
+        },
+    }
+
+
 def _merge_current_authored_priors(
     current: dict[str, Any] | None,
     priors: dict[str, Any],
@@ -2766,6 +2782,94 @@ def _require_trace(trace_capture: dict[str, object]) -> LLMTrace:
     trace = trace_capture["trace"]
     assert isinstance(trace, LLMTrace)
     return trace
+
+
+class _ScriptedStage4AgentSession:
+    """Test adapter that drives the current StageSessionFactory API."""
+
+    def __init__(self, generate, *, system_prompt: str | None, tools: list[Tool], log_label: str):
+        self._generate = generate
+        self._messages: list[dict[str, str]] = []
+        if system_prompt is not None:
+            self._messages.append({"role": "system", "content": system_prompt})
+        self._tools = tools
+        self._log_label = log_label
+        self._completion = ""
+        self._trace = LLMTrace()
+
+    async def turn(self, user_message: str):
+        self._messages.append({"role": "user", "content": user_message})
+        self._completion = await self._generate(
+            self._messages,
+            self._tools,
+            label=self._log_label,
+        )
+        return SimpleNamespace(
+            completion=self._completion,
+            terminal_tool_name=None,
+            terminal_tool_output=None,
+            tool_calls_fired=[],
+        )
+
+    @property
+    def result(self):
+        return SimpleNamespace(
+            completion=self._completion,
+            trace=self._trace,
+            terminal_tool_name=None,
+            terminal_tool_output=None,
+        )
+
+
+class _ScriptedStage4OpenContext:
+    def __init__(self, session: _ScriptedStage4AgentSession):
+        self._session = session
+
+    async def __aenter__(self):
+        return self._session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class _ScriptedStage4SessionFactory:
+    def __init__(self, generate):
+        self._generate = generate
+        self.accumulated_trace = LLMTrace()
+
+    def open(
+        self,
+        *,
+        system_prompt: str | None = None,
+        tools: list[Tool] | None = None,
+        log_label: str | None = None,
+    ):
+        return _ScriptedStage4OpenContext(
+            _ScriptedStage4AgentSession(
+                self._generate,
+                system_prompt=system_prompt,
+                tools=tools or [],
+                log_label=log_label or "stage-4",
+            )
+        )
+
+
+def _make_stage4_session_factory(generate) -> _ScriptedStage4SessionFactory:
+    return _ScriptedStage4SessionFactory(generate)
+
+
+def _stub_stage4_repair_barrier_success(_plan, runtime, _deps) -> tuple[dict[str, str], ...]:
+    runtime.domain.accepted.validation = AssemblyValidation(
+        normalized_model_spec=runtime.domain.accepted.model_spec,
+        compile_ok=True,
+        pp_checked=True,
+        pp_valid=True,
+        diagnostics=[],
+    )
+    runtime.domain.repair_campaign = None
+    runtime.domain.active_block_id = None
+    runtime.domain.done = True
+    return ({"block_id": "repair:barrier", "status": "accepted"},)
 
 
 def _stage4_submit_tool_name(block_kind: str) -> str:
@@ -3009,7 +3113,7 @@ class TestPriorPredictiveValidation:
 
         with patch(
             "causal_ssm_agent.models.ssm_builder.SSMModelBuilder.sample_prior_predictive",
-            return_value={"drift_diag_free": np.ones((2, 1))},
+            return_value={"drift_base_decay_free": np.ones((2, 1))},
         ):
             is_valid, results, _samples = validate_prior_predictive(
                 model_spec, priors, None, n_samples=2
@@ -3261,7 +3365,7 @@ class TestPriorPredictiveValidation:
         class _DummyBuilder:
             def sample_prior_predictive(self, samples: int = 500):
                 return {
-                    "drift_diag_free": np.ones((samples, 1)),
+                    "drift_base_decay_free": np.ones((samples, 1)),
                     "observations": np.random.default_rng(0).normal(
                         loc=5.0,
                         scale=1.5,
@@ -3342,7 +3446,7 @@ class TestPriorPredictiveValidation:
         compiled_ssm = {
             "spec": {"latent_names": ["stress", "sleep"]},
             "compiled_prior_semantics": {
-                "schema_version": 4,
+                "schema_version": 5,
                 "site_registry": [
                     {
                         "name": "t0_means_free",
@@ -3458,7 +3562,7 @@ class TestPriorPredictiveValidation:
 
         compiled_ssm = {
             "compiled_prior_semantics": {
-                "schema_version": 4,
+                "schema_version": 5,
                 "site_registry": [
                     {
                         "name": "diffusion_diag_free",
@@ -3531,24 +3635,24 @@ class TestPriorPredictiveValidation:
 
         compiled_ssm = {
             "compiled_prior_semantics": {
-                "schema_version": 4,
+                "schema_version": 5,
                 "site_registry": [
                     {
-                        "name": "drift_diag_free",
+                        "name": "drift_offdiag_free",
                         "shape": [1],
                         "support": "real",
                         "assembly_group": "drift",
-                        "site_kind": "drift_diag",
+                        "site_kind": "drift_offdiag",
                         "transform_kind": "identity",
                         "deterministic_name": "drift",
                         "fixed_spec_field": "drift",
-                        "priors_field": "drift_diag",
-                        "runtime_prior_key": "drift_diag_free",
+                        "priors_field": "drift_offdiag",
+                        "runtime_prior_key": "drift_offdiag_free",
                         "is_runtime_prior_controlled": True,
                     }
                 ],
                 "prior_state": {
-                    "drift_diag_free": {
+                    "drift_offdiag_free": {
                         "family": [0],
                         "loc": [0.15],
                         "scale": [0.4],
@@ -3558,7 +3662,7 @@ class TestPriorPredictiveValidation:
                 },
             },
             "parameter_bindings": [
-                {"parameter": "rho_sleep", "site_name": "drift_diag_free", "flat_index": 0}
+                {"parameter": "beta_sleep_mood", "site_name": "drift_offdiag_free", "flat_index": 0}
             ],
         }
 
@@ -3566,11 +3670,11 @@ class TestPriorPredictiveValidation:
 
         assert resolved == [
             {
-                "parameter": "rho_sleep",
+                "parameter": "beta_sleep_mood",
                 "distribution": "Normal",
                 "params": {"mu": 0.15, "sigma": 0.4},
                 "sources": [],
-                "reasoning": "Compiler-resolved prior for rho_sleep.",
+                "reasoning": "Compiler-resolved prior for beta_sleep_mood.",
                 "reference_interval_days": None,
                 "density_points": None,
             }
@@ -3582,7 +3686,7 @@ class TestPriorPredictiveValidation:
 
         compiled_ssm = {
             "compiled_prior_semantics": {
-                "schema_version": 4,
+                "schema_version": 5,
                 "site_registry": [
                     {
                         "name": "t0_var_lower_free",
@@ -3692,14 +3796,14 @@ class TestSSMPriorConversion:
             ssm_spec=ssm_spec,
         )
 
-        # Beta(2,2): E[X] = 0.5 → drift mu = -ln(0.5)/1.0 ≈ 0.693
-        # Per-element with 1 entry: mu is a list [0.693]
+        # Beta(2,2): E[X] = 0.5 → base decay mean = -ln(0.5)/1.0 ≈ 0.693.
+        # The compiler stores the positive base-decay prior as a Gamma moment match.
         expected_mu = -math.log(0.5) / 1.0
-        mu = ssm_priors.drift_diag["mu"]
-        mu_val = mu[0] if isinstance(mu, list) else mu
+        concentration = np.asarray(ssm_priors.drift_base_decay["concentration"], dtype=float)
+        rate = np.asarray(ssm_priors.drift_base_decay["rate"], dtype=float)
+        mu_val = float((concentration / rate).reshape(-1)[0])
         assert abs(mu_val - expected_mu) < 0.01
-        sigma = ssm_priors.drift_diag["sigma"]
-        sigma_val = sigma[0] if isinstance(sigma, list) else sigma
+        sigma_val = float((np.sqrt(concentration) / rate).reshape(-1)[0])
         assert sigma_val > 0.4  # delta method sigma
 
     def test_structured_prior_requires_structural_binding_for_residual_sd(self, simple_model_spec):
@@ -3917,8 +4021,8 @@ class TestSSMPriorConversion:
         assert "rho_affect" in message
         assert "beta_mood_stress" in message
 
-    def test_multiple_ar_params_produce_per_element_drift_diag(self):
-        """Multiple AR params map to separate drift_diag array entries."""
+    def test_multiple_ar_params_produce_per_element_base_decay(self):
+        """Multiple AR params map to separate base-decay array entries."""
         import math
 
         model_spec = {
@@ -3962,17 +4066,19 @@ class TestSSMPriorConversion:
             ssm_spec=ssm_spec,
         )
 
-        # Both should produce per-element arrays (lists), not scalars
-        assert isinstance(ssm_priors.drift_diag["mu"], list)
-        assert len(ssm_priors.drift_diag["mu"]) == 2
+        # Both should produce per-element arrays, not scalars.
+        concentration = np.asarray(ssm_priors.drift_base_decay["concentration"], dtype=float)
+        rate = np.asarray(ssm_priors.drift_base_decay["rate"], dtype=float)
+        base_decay_mean = concentration / rate
+        assert base_decay_mean.shape == (2,)
 
         # Beta(5,2) → E=5/7≈0.714, Beta(2,5) → E=2/7≈0.286
         mu_ar_mood = 5.0 / 7.0
         mu_ar_stress = 2.0 / 7.0
         expected_mood = -math.log(mu_ar_mood) / 1.0
         expected_stress = -math.log(mu_ar_stress) / 1.0
-        assert abs(ssm_priors.drift_diag["mu"][0] - expected_mood) < 0.01
-        assert abs(ssm_priors.drift_diag["mu"][1] - expected_stress) < 0.01
+        assert abs(base_decay_mean[0] - expected_mood) < 0.01
+        assert abs(base_decay_mean[1] - expected_stress) < 0.01
 
     def test_ar_transform_respects_granularity(self):
         """Hourly construct → dt=1/24, producing larger drift magnitude."""
@@ -4017,11 +4123,12 @@ class TestSSMPriorConversion:
         )
 
         # Beta(2,2) → E=0.5; hourly dt = 1/24
-        # drift mu = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
+        # base-decay mean = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
         dt_hourly = 1.0 / 24.0
         expected_mu = -math.log(0.5) / dt_hourly
-        mu = ssm_priors.drift_diag["mu"]
-        mu_val = mu[0] if isinstance(mu, list) else mu
+        concentration = np.asarray(ssm_priors.drift_base_decay["concentration"], dtype=float)
+        rate = np.asarray(ssm_priors.drift_base_decay["rate"], dtype=float)
+        mu_val = float((concentration / rate).reshape(-1)[0])
         assert abs(mu_val - expected_mu) < 0.1
 
     def test_beta_prior_dt_to_ct_transform(self):
@@ -4152,10 +4259,10 @@ class TestSSMPriorConversion:
             if diagnostic.code == "dt_ct_approximation_warning"
         )
         assert "matrix-log mismatch; exact CT coupling" in _require_text(warning.issue)
-        assert "0.600 1/day" in _require_text(warning.issue)
+        assert "0.730 1/day" in _require_text(warning.issue)
         assert "beta/dt value 0.300 1/day" in _require_text(warning.issue)
         assert warning.pathology_certificate is not None
-        assert warning.pathology_certificate.primary_score == pytest.approx(0.5)
+        assert warning.pathology_certificate.primary_score == pytest.approx(0.589, abs=0.001)
 
     def test_lagged_beta_diagnostics_explain_default_authored_interval(self):
         """Lagged-edge diagnostics should mention the default authored interval semantics."""
@@ -4822,11 +4929,12 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.make_stage4_runtime",
         lambda _plan: Stage4Runtime(
             domain=Stage4DomainState(
-                draft_model=Stage4DraftModel(
-                    initialization_policy="stationary",
-                    observation_intercept_policy="free",
-                    equilibrium_forcing=False,
-                )
+                done=True,
+                accepted=Stage4AcceptedArtifacts(
+                    model_spec=capture["model_spec"],
+                    authored_priors=capture["authored_priors"],
+                    validation=validation,
+                ),
             )
         ),
     )
@@ -4849,7 +4957,7 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
             question="How can I be more productive?",
             data_for_model=pl.DataFrame(),
             indicator_audits={},
-            generate=fake_generate,
+            session_factory=_make_stage4_session_factory(fake_generate),
             enable_literature=False,
         )
     )
@@ -4858,10 +4966,8 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
 
 
 def test_materialize_override_stage4_marks_missing_compiled_ssm_as_failure(monkeypatch):
-    from causal_ssm_agent.flows.stage_registry import (
-        PipelineContext,
-        _materialize_override_stage4,
-    )
+    from causal_ssm_agent.flows.stage_runtime import PipelineContext
+    from causal_ssm_agent.flows.stages.stage4.definition import build_stage4_definition
 
     monkeypatch.setattr(
         "causal_ssm_agent.flows.run_store.find_run_artifact",
@@ -4900,7 +5006,9 @@ def test_materialize_override_stage4_marks_missing_compiled_ssm_as_failure(monke
         "stage-3": SimpleNamespace(indicators={}),
     }
 
-    contract = _materialize_override_stage4(
+    adapter = build_stage4_definition().override_adapter
+    assert adapter is not None
+    contract = adapter.materialize(
         {"model_spec": {"likelihoods": [], "parameters": []}, "authored_priors": {}},
         ctx,
         states,
@@ -5672,7 +5780,8 @@ class TestStage4Mechanics:
         )
 
         assert stage_output is not None
-        assert feedback == "PRIOR PREDICTIVE CHECKS FAILED"
+        assert feedback.startswith("PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED")
+        assert "Observation support check failed" in feedback
         assert _require_active_plan_block(plan, runtime).id == "indicator:steps"
         assert runtime.domain.block_status["indicator:steps"] == "reopened"
         assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
@@ -5765,7 +5874,10 @@ class TestStage4Mechanics:
                             code="dynamics_stability",
                             origin="prior_predictive",
                             issue="Unstable dynamics: 32/50 prior draws have unstable drift",
-                            suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                            suggested_adjustment=(
+                                "Increase base damping by tightening rho priors toward lower "
+                                "baseline persistence"
+                            ),
                             repair_scope=PriorRepairScope(
                                 kind="dynamics_scc",
                                 construct_names=["sleep"],
@@ -5787,7 +5899,8 @@ class TestStage4Mechanics:
         )
 
         assert stage_output is not None
-        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert feedback.startswith("PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED")
+        assert "Unstable dynamics" in feedback
         assert runtime.domain.block_status["correlation:tau_U"] == "accepted"
         assert runtime.domain.block_status["dynamics:sleep"] == "reopened"
         assert runtime.domain.block_status["effects:sleep"] == "pending"
@@ -5885,7 +5998,10 @@ class TestStage4Mechanics:
                             code="dynamics_stability",
                             origin="prior_predictive",
                             issue="Unstable dynamics: 32/50 prior draws have unstable drift",
-                            suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                            suggested_adjustment=(
+                                "Increase base damping by tightening rho priors toward lower "
+                                "baseline persistence"
+                            ),
                             repair_scope=PriorRepairScope(
                                 kind="dynamics_scc",
                                 construct_names=["sleep"],
@@ -5909,7 +6025,8 @@ class TestStage4Mechanics:
         )
 
         assert stage_output is not None
-        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert feedback.startswith("PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED")
+        assert "Unstable dynamics" in feedback
         assert transitions[0] == {
             "block_id": "correlation:tau_U",
             "status": "accepted",
@@ -5931,7 +6048,7 @@ class TestStage4Mechanics:
         assert (
             transitions[1]["reason"]
             == "Unstable dynamics: 32/50 prior draws have unstable drift Suggested "
-            "fix: Tighten drift_diag prior toward more negative values"
+            "fix: Increase base damping by tightening rho priors toward lower baseline persistence"
         )
 
     def test_compute_stage4_validate_step_emits_accepted_transition_for_barrier_campaign_repair(
@@ -6756,6 +6873,7 @@ class TestStage4Mechanics:
             offdiag_sigma=np.array([0.3]),
             offdiag_present=np.array([True]),
             offdiag_parameter_by_index={0: "beta_activity_sleep"},
+            stability_margin=0.05,
         )
 
         monkeypatch.setattr(
@@ -6796,6 +6914,7 @@ class TestStage4Mechanics:
             offdiag_sigma=np.array([0.3]),
             offdiag_present=np.array([True]),
             offdiag_parameter_by_index={0: "beta_activity_sleep"},
+            stability_margin=0.05,
         )
 
         monkeypatch.setattr(
@@ -6930,7 +7049,8 @@ class TestStage4Mechanics:
         )
 
         assert stage_output is not None
-        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert feedback.startswith("PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED")
+        assert "NaN/Inf detected" in feedback
         assert runtime.domain.block_status["effects:sleep"] == "accepted"
         assert runtime.domain.block_status["review:prior_system"] == "reopened"
         assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
@@ -7041,7 +7161,8 @@ class TestStage4Mechanics:
         )
 
         assert stage_output is not None
-        assert feedback == "PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED"
+        assert feedback.startswith("PRIOR PREDICTIVE FEEDBACK:\nValidation FAILED")
+        assert "Predictive log-link mean overflow" in feedback
         assert runtime.domain.block_status["effects:sleep"] == "accepted"
         assert runtime.domain.block_status["review:prior_system"] == "reopened"
         assert _require_active_plan_block(plan, runtime).id == "review:prior_system"
@@ -7361,7 +7482,7 @@ class TestStage4Mechanics:
         assert feedback == "VALIDATION ERRORS:\n- no active Stage 4 frontier block remains"
         assert runtime.interaction.last_validation_packet is None
 
-    def test_compute_stage4_validate_step_tracks_frontier_path_without_llm(self):
+    def test_compute_stage4_validate_step_tracks_frontier_path_without_llm(self, monkeypatch):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
             accept_default_configuration=True
         )
@@ -7430,13 +7551,20 @@ class TestStage4Mechanics:
                 "block_kind": "dynamics_prior",
                 "proposal": {
                     "priors": {
+                        "rho_activity": {
+                            "parameter": "rho_activity",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "stable activity baseline persistence",
+                        },
                         "sigma_activity": {
                             "parameter": "sigma_activity",
                             "distribution": "HalfNormal",
                             "params": {"sigma": 0.5},
                             "sources": [],
                             "reasoning": "stable activity residual scale",
-                        }
+                        },
                     }
                 },
             },
@@ -7503,10 +7631,32 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
-                    "priors": _activity_measurement_prior_bundle(
+                    "priors": _activity_loading_prior_bundle(
                         lambda_sigma=0.25,
                         lambda_reasoning="corrected measurement prior",
                     )
+                },
+            },
+            {
+                "block_id": "dynamics:activity",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_activity": {
+                            "parameter": "rho_activity",
+                            "distribution": "Beta",
+                            "params": {"alpha": 4.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "corrected activity baseline persistence",
+                        },
+                        "sigma_activity": {
+                            "parameter": "sigma_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "corrected activity residual scale",
+                        },
+                    }
                 },
             },
         ]
@@ -7522,6 +7672,7 @@ class TestStage4Mechanics:
             "dynamics:sleep",
             "effects:sleep",
             "measurement:activity",
+            "dynamics:activity",
         ]
         expected_reopen_ids = [
             None,
@@ -7533,11 +7684,12 @@ class TestStage4Mechanics:
             "dynamics:sleep",
             None,
             "measurement:activity",
+            "dynamics:activity",
             None,
         ]
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
-            current = current or {}
+            current = _current_stage4_state(current)
             if "model_spec" in data:
                 model_spec = data["model_spec"]
                 return {
@@ -7551,13 +7703,14 @@ class TestStage4Mechanics:
             priors = data["priors"]
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(priors)
-            model_spec = current.get("model_spec")
+            model_spec = current.get("model_spec") or runtime.domain.accepted.model_spec
 
             if (
                 priors.get("lambda_activity_vas_activity", {}).get("reasoning")
                 == "initial measurement prior"
             ):
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -7567,6 +7720,7 @@ class TestStage4Mechanics:
 
             if "manifest_mean_steps" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -7576,6 +7730,7 @@ class TestStage4Mechanics:
 
             if "obs_ordered_base" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -7585,6 +7740,7 @@ class TestStage4Mechanics:
 
             if "sigma_activity" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -7594,6 +7750,7 @@ class TestStage4Mechanics:
 
             if priors.get("rho_sleep", {}).get("reasoning") == "bad sleep dynamics prior":
                 return {
+                    "model_spec": model_spec,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
                         compile_ok=False,
@@ -7603,6 +7760,7 @@ class TestStage4Mechanics:
 
             if "rho_sleep" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -7612,6 +7770,7 @@ class TestStage4Mechanics:
 
             if "beta_activity_sleep" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -7636,6 +7795,7 @@ class TestStage4Mechanics:
                 == "corrected measurement prior"
             ):
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -7646,6 +7806,24 @@ class TestStage4Mechanics:
                 }, "VALID"
 
             raise AssertionError(f"Unexpected Stage 4 grounding payload: {data}")
+
+        def stub_validate_assembly(model_spec, authored_priors, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                pp_checked=True,
+                pp_valid=True,
+                diagnostics=[],
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            _stub_stage4_repair_barrier_success,
+        )
 
         visited_blocks: list[str] = []
         reopen_ids: list[str | None] = []
@@ -7686,6 +7864,7 @@ class TestStage4Mechanics:
             "obs_ordered_base",
             "obs_sd_activity_vas",
             "obs_sd_steps",
+            "rho_activity",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",
@@ -7743,13 +7922,20 @@ class TestStage4Mechanics:
                 "block_kind": "dynamics_prior",
                 "proposal": {
                     "priors": {
+                        "rho_activity": {
+                            "parameter": "rho_activity",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "activity baseline persistence",
+                        },
                         "sigma_activity": {
                             "parameter": "sigma_activity",
                             "distribution": "HalfNormal",
                             "params": {"sigma": 0.5},
                             "sources": [],
                             "reasoning": "activity residual scale",
-                        }
+                        },
                     }
                 },
             },
@@ -7795,7 +7981,7 @@ class TestStage4Mechanics:
         visible_tools: list[list[str]] = []
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
-            current = current or {}
+            current = _current_stage4_state(current)
             if "model_spec" in data:
                 model_spec = data["model_spec"]
                 return _make_stub_grounding_result(
@@ -7828,6 +8014,10 @@ class TestStage4Mechanics:
             "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            _stub_stage4_repair_barrier_success,
+        )
 
         result = asyncio.run(
             run_stage4(
@@ -7835,10 +8025,12 @@ class TestStage4Mechanics:
                 question="Does activity improve sleep?",
                 data_for_model=pl.DataFrame(),
                 indicator_audits={},
-                generate=_make_scripted_stage4_generate(
-                    submissions,
-                    visited_blocks=visited_blocks,
-                    visible_tools=visible_tools,
+                session_factory=_make_stage4_session_factory(
+                    _make_scripted_stage4_generate(
+                        submissions,
+                        visited_blocks=visited_blocks,
+                        visible_tools=visible_tools,
+                    )
                 ),
                 enable_literature=False,
                 enable_paraphrasing=False,
@@ -7874,6 +8066,7 @@ class TestStage4Mechanics:
             "obs_ordered_base",
             "obs_sd_activity_vas",
             "obs_sd_steps",
+            "rho_activity",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",
@@ -7931,6 +8124,13 @@ class TestStage4Mechanics:
                 "block_kind": "dynamics_prior",
                 "proposal": {
                     "priors": {
+                        "rho_activity": {
+                            "parameter": "rho_activity",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "activity baseline persistence",
+                        },
                         "sigma_activity": {
                             "parameter": "sigma_activity",
                             "distribution": "HalfNormal",
@@ -8020,7 +8220,7 @@ class TestStage4Mechanics:
         visible_tools: list[list[str]] = []
 
         def stub_stage4_grounding(data, _causal_spec, current=None, **_kwargs):
-            current = current or {}
+            current = _current_stage4_state(current)
             if "model_spec" in data:
                 model_spec = data["model_spec"]
                 return _make_stub_grounding_result(
@@ -8074,10 +8274,12 @@ class TestStage4Mechanics:
                 question="Does activity affect sleep and mood?",
                 data_for_model=pl.DataFrame(),
                 indicator_audits={},
-                generate=_make_scripted_stage4_generate_by_block(
-                    submissions_by_block,
-                    visited_blocks=visited_blocks,
-                    visible_tools=visible_tools,
+                session_factory=_make_stage4_session_factory(
+                    _make_scripted_stage4_generate_by_block(
+                        submissions_by_block,
+                        visited_blocks=visited_blocks,
+                        visible_tools=visible_tools,
+                    )
                 ),
                 enable_literature=False,
                 enable_paraphrasing=False,
@@ -8114,6 +8316,7 @@ class TestStage4Mechanics:
             "obs_ordered_base",
             "obs_sd_activity_vas",
             "obs_sd_steps",
+            "rho_activity",
             "rho_mood",
             "rho_sleep",
             "sigma_activity",
@@ -8211,6 +8414,10 @@ class TestStage4Mechanics:
             "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            _stub_stage4_repair_barrier_success,
+        )
 
         result = asyncio.run(
             run_stage4(
@@ -8218,10 +8425,12 @@ class TestStage4Mechanics:
                 question="How persistent is sleep quality?",
                 data_for_model=pl.DataFrame(),
                 indicator_audits={},
-                generate=_make_scripted_stage4_generate(
-                    submissions,
-                    visited_blocks=visited_blocks,
-                    visible_tools=visible_tools,
+                session_factory=_make_stage4_session_factory(
+                    _make_scripted_stage4_generate(
+                        submissions,
+                        visited_blocks=visited_blocks,
+                        visible_tools=visible_tools,
+                    )
                 ),
                 enable_literature=False,
                 enable_paraphrasing=False,
@@ -8301,13 +8510,6 @@ class TestStage4Mechanics:
                             "sources": [],
                             "reasoning": "sleep dynamics prior",
                         },
-                        "sigma_sleep": {
-                            "parameter": "sigma_sleep",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.35},
-                            "sources": [],
-                            "reasoning": "sleep residual scale",
-                        },
                     }
                 },
             },
@@ -8322,13 +8524,6 @@ class TestStage4Mechanics:
                             "params": {"alpha": 3.0, "beta": 2.0},
                             "sources": [],
                             "reasoning": "sleep dynamics prior",
-                        },
-                        "sigma_sleep": {
-                            "parameter": "sigma_sleep",
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.35},
-                            "sources": [],
-                            "reasoning": "sleep residual scale",
                         },
                     }
                 },
@@ -8409,6 +8604,10 @@ class TestStage4Mechanics:
             "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            _stub_stage4_repair_barrier_success,
+        )
 
         result = asyncio.run(
             run_stage4(
@@ -8416,10 +8615,12 @@ class TestStage4Mechanics:
                 question="How persistent is sleep quality?",
                 data_for_model=pl.DataFrame(),
                 indicator_audits={},
-                generate=_make_scripted_stage4_generate(
-                    submissions,
-                    visited_blocks=visited_blocks,
-                    visible_tools=visible_tools,
+                session_factory=_make_stage4_session_factory(
+                    _make_scripted_stage4_generate(
+                        submissions,
+                        visited_blocks=visited_blocks,
+                        visible_tools=visible_tools,
+                    )
                 ),
                 enable_literature=False,
                 enable_paraphrasing=False,
@@ -8441,7 +8642,7 @@ class TestStage4Mechanics:
             ["submit_prior_block"],
             ["submit_prior_block"],
         ]
-        assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep", "sigma_sleep"]
+        assert sorted(result.authored_priors) == ["obs_ordered_base", "rho_sleep"]
 
     def test_run_stage4_resumes_from_runtime_checkpoint(self, monkeypatch):
         causal_spec = _make_stage4_no_model_block_spec()
@@ -8578,7 +8779,7 @@ class TestStage4Mechanics:
                     question="How persistent is sleep quality?",
                     data_for_model=pl.DataFrame(),
                     indicator_audits={},
-                    generate=fail_after_review,
+                    session_factory=_make_stage4_session_factory(fail_after_review),
                     enable_literature=False,
                     enable_paraphrasing=False,
                     save_checkpoint=save_checkpoint,
@@ -8621,7 +8822,7 @@ class TestStage4Mechanics:
                 question="How persistent is sleep quality?",
                 data_for_model=pl.DataFrame(),
                 indicator_audits={},
-                generate=resume_from_dynamics,
+                session_factory=_make_stage4_session_factory(resume_from_dynamics),
                 enable_literature=False,
                 enable_paraphrasing=False,
                 load_checkpoint=lambda: saved_runtime,
@@ -8740,7 +8941,7 @@ class TestStage4Mechanics:
                     question="How should the prior system repair proceed?",
                     data_for_model=pl.DataFrame(),
                     indicator_audits={},
-                    generate=fatal_generate,
+                    session_factory=_make_stage4_session_factory(fatal_generate),
                     enable_literature=False,
                     enable_paraphrasing=False,
                     load_checkpoint=lambda: loaded_runtime,
@@ -8846,10 +9047,12 @@ class TestStage4Mechanics:
                 question="How persistent is sleep quality?",
                 data_for_model=pl.DataFrame(),
                 indicator_audits={},
-                generate=_make_scripted_stage4_generate_by_block(
-                    submissions_by_block,
-                    visited_blocks=visited_blocks,
-                    visible_tools=[],
+                session_factory=_make_stage4_session_factory(
+                    _make_scripted_stage4_generate_by_block(
+                        submissions_by_block,
+                        visited_blocks=visited_blocks,
+                        visible_tools=[],
+                    )
                 ),
                 enable_literature=False,
                 enable_paraphrasing=False,
@@ -9157,13 +9360,20 @@ class TestStage4Mechanics:
                 "block_kind": "dynamics_prior",
                 "proposal": {
                     "priors": {
+                        "rho_activity": {
+                            "parameter": "rho_activity",
+                            "distribution": "Beta",
+                            "params": {"alpha": 3.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "stable activity baseline persistence",
+                        },
                         "sigma_activity": {
                             "parameter": "sigma_activity",
                             "distribution": "HalfNormal",
                             "params": {"sigma": 0.5},
                             "sources": [],
                             "reasoning": "stable activity residual scale",
-                        }
+                        },
                     }
                 },
             },
@@ -9230,10 +9440,32 @@ class TestStage4Mechanics:
                 "block_id": "measurement:activity",
                 "block_kind": "measurement_prior",
                 "proposal": {
-                    "priors": _activity_measurement_prior_bundle(
+                    "priors": _activity_loading_prior_bundle(
                         lambda_sigma=0.25,
                         lambda_reasoning="corrected measurement prior",
                     )
+                },
+            },
+            {
+                "block_id": "dynamics:activity",
+                "block_kind": "dynamics_prior",
+                "proposal": {
+                    "priors": {
+                        "rho_activity": {
+                            "parameter": "rho_activity",
+                            "distribution": "Beta",
+                            "params": {"alpha": 4.0, "beta": 2.0},
+                            "sources": [],
+                            "reasoning": "corrected activity baseline persistence",
+                        },
+                        "sigma_activity": {
+                            "parameter": "sigma_activity",
+                            "distribution": "HalfNormal",
+                            "params": {"sigma": 0.35},
+                            "sources": [],
+                            "reasoning": "corrected activity residual scale",
+                        },
+                    }
                 },
             },
         ]
@@ -9248,6 +9480,7 @@ class TestStage4Mechanics:
             "dynamics:sleep",
             "effects:sleep",
             "measurement:activity",
+            "dynamics:activity",
         ]
         seen_block_ids: list[str] = []
         seen_feedbacks: list[str] = []
@@ -9282,13 +9515,14 @@ class TestStage4Mechanics:
             priors = data["priors"]
             authored_priors = dict(current.get("authored_priors") or {})
             authored_priors.update(priors)
-            model_spec = current.get("model_spec")
+            model_spec = current.get("model_spec") or runtime.domain.accepted.model_spec
 
             if (
                 priors.get("lambda_activity_vas_activity", {}).get("reasoning")
                 == "initial measurement prior"
             ):
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -9298,6 +9532,7 @@ class TestStage4Mechanics:
 
             if "manifest_mean_steps" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -9307,6 +9542,7 @@ class TestStage4Mechanics:
 
             if "obs_ordered_base" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -9316,6 +9552,7 @@ class TestStage4Mechanics:
 
             if "sigma_activity" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -9325,6 +9562,7 @@ class TestStage4Mechanics:
 
             if priors.get("rho_sleep", {}).get("reasoning") == "bad sleep dynamics prior":
                 return {
+                    "model_spec": model_spec,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
                         compile_ok=False,
@@ -9334,6 +9572,7 @@ class TestStage4Mechanics:
 
             if "rho_sleep" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -9343,6 +9582,7 @@ class TestStage4Mechanics:
 
             if "beta_activity_sleep" in priors:
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -9367,6 +9607,7 @@ class TestStage4Mechanics:
                 == "corrected measurement prior"
             ):
                 return {
+                    "model_spec": model_spec,
                     "authored_priors": authored_priors,
                     "validation": AssemblyValidation(
                         normalized_model_spec=model_spec,
@@ -9377,6 +9618,24 @@ class TestStage4Mechanics:
                 }, "VALID"
 
             raise AssertionError(f"Unexpected Stage 4 grounding payload: {data}")
+
+        def stub_validate_assembly(model_spec, authored_priors, *_args, **_kwargs):
+            return AssemblyValidation(
+                normalized_model_spec=model_spec,
+                compile_ok=True,
+                pp_checked=True,
+                pp_valid=True,
+                diagnostics=[],
+            )
+
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            stub_validate_assembly,
+        )
+        monkeypatch.setattr(
+            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            _stub_stage4_repair_barrier_success,
+        )
 
         session = _make_stage4_session(
             question="Does activity improve sleep?",
@@ -9469,8 +9728,9 @@ class TestStage4Mechanics:
             ["submit_prior_block"],
             ["submit_prior_block"],
             ["submit_prior_block"],
+            ["submit_prior_block"],
         ]
-        assert seen_feedbacks == [
+        assert seen_feedbacks[:9] == [
             "No validator feedback yet. Submit the active block only.",
             "MODEL STATE SAVED:\n- missing priors",
             "BLOCK ACCEPTED:\n- saved `review:model_spec`\n- next block: `measurement:activity` (measurement_prior)",
@@ -9480,8 +9740,11 @@ class TestStage4Mechanics:
             "MODEL STATE SAVED:\n- missing priors",
             "COMPILE ERROR:\nrho_sleep interval instability",
             "MODEL STATE SAVED:\n- missing priors",
-            "PRIOR PREDICTIVE CHECKS FAILED",
         ]
+        assert seen_feedbacks[9].startswith("REPAIR CAMPAIGN ACTIVE:")
+        assert "next repair block: `measurement:activity`" in seen_feedbacks[9]
+        assert seen_feedbacks[10].startswith("REPAIR CAMPAIGN PROGRESS:")
+        assert "next repair block: `dynamics:activity`" in seen_feedbacks[10]
 
         trace = _require_trace(trace_capture)
         assert len(trace.messages) == 4 * len(submissions)
@@ -9494,7 +9757,9 @@ class TestStage4Mechanics:
             for message in trace.messages
         )
         assert any(
-            message.tool_result == "PRIOR PREDICTIVE CHECKS FAILED" for message in trace.messages
+            isinstance(message.tool_result, str)
+            and message.tool_result.startswith("REPAIR CAMPAIGN ACTIVE:")
+            for message in trace.messages
         )
         assert runtime.domain.accepted.model_spec is not None
         assert sorted(runtime.domain.accepted.authored_priors) == [
@@ -9504,6 +9769,7 @@ class TestStage4Mechanics:
             "obs_ordered_base",
             "obs_sd_activity_vas",
             "obs_sd_steps",
+            "rho_activity",
             "rho_sleep",
             "sigma_activity",
             "sigma_sleep",

@@ -55,7 +55,7 @@ class PriorProposal(BaseModel):
             "Observation interval (in days) that the DT prior is expressed in. "
             "Sourced from the study's measurement schedule (e.g., 7 for a weekly study). "
             "Used for DT→CT conversion of dynamic priors "
-            "(e.g. beta/dt for cross-lags, -log(rho)/dt for persistence)."
+            "(e.g. beta/dt for cross-lags, -log(rho)/dt for baseline persistence)."
         ),
     )
     density_points: list[dict[str, float]] | None = Field(

@@ -629,9 +629,7 @@ def _format_validation_warnings(validation: AssemblyValidation) -> str:
     """
     grouped_warnings: list[Any] = list(validation.compile_diagnostics)
     grouped_warnings.extend(
-        result
-        for result in validation.prior_predictive_diagnostics
-        if result.severity == "warning"
+        result for result in validation.prior_predictive_diagnostics if result.severity == "warning"
     )
 
     by_code: dict[str, list[Any]] = {}
@@ -793,7 +791,9 @@ def _format_sensitivity_direction_message(
         normalized_sv_text = f"{float(normalized_sv):.3g}"
     except (TypeError, ValueError):
         normalized_sv_text = "unknown"
-    loadings = [loading for loading in direction.get("top_loadings", []) if isinstance(loading, dict)]
+    loadings = [
+        loading for loading in direction.get("top_loadings", []) if isinstance(loading, dict)
+    ]
     loadings.sort(key=lambda item: float(item.get("abs_loading") or 0.0), reverse=True)
     rendered: list[str] = []
     cumulative_sq = 0.0

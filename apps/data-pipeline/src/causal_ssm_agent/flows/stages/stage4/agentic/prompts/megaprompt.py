@@ -155,9 +155,11 @@ def build_stage4_megaprompt_system_prompt(
         INITIAL_STATE_SCALE_DISCIPLINE_SECTION,
         (
             "## Dynamics / Effect Budget Discipline\n\n"
-            "- AR coefficients and residual SDs determine how much damping is available "
-            "for downstream incoming lagged effects. Avoid near-unit-root persistence "
-            "and overly wide uncertainty unless you have strong evidence.\n"
+            "- AR coefficients are baseline persistence absent incoming feedback. Avoid "
+            "near-unit-root persistence and overly wide uncertainty unless you have strong "
+            "evidence.\n"
+            "- The compiler adds incoming effect mass and a stability margin to produce "
+            "realised diagonal damping.\n"
             "- In dense SCC rows and feedback-coupled edges, start incoming effects from "
             "tightly zero-centered priors with modest uncertainty (often `Normal(0, "
             "0.1-0.2)`) unless longitudinal evidence clearly justifies more.\n"

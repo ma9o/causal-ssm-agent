@@ -263,7 +263,9 @@ def test_moved_verbatim_fragments_preserve_existing_text() -> None:
         "and `HalfNormal(1)` unless the construct is explicitly identified on an "
         "observed scale."
     )
-    assert PRIOR_SOURCE_GUIDANCE == """If you include non-empty `sources`, each entry must be an object with this shape:
+    assert (
+        PRIOR_SOURCE_GUIDANCE
+        == """If you include non-empty `sources`, each entry must be an object with this shape:
 ```json
 {{
   "title": "Source title",
@@ -275,3 +277,4 @@ def test_moved_verbatim_fragments_preserve_existing_text() -> None:
 ```
 
 Only `title` and `snippet` are required. Do not use raw strings or ad hoc keys such as `citation`, `finding`, `study_type`, or `notes`. If you are unsure, use `"sources": []`. `study_interval_days` belongs inside each source entry; `reference_interval_days` belongs on the prior itself."""
+    )
