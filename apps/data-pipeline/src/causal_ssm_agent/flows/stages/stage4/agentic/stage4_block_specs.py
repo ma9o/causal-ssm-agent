@@ -236,14 +236,14 @@ _STAGE4_BLOCK_KIND_SPECS: dict[Stage4BlockKind, Stage4BlockKindSpec] = {
         "effect_prior",
         system_task=(
             "Author priors only for the active target construct's incoming lagged-effect row. "
-            "Use the row-level stability budget reported in the user message as advisory "
+            "Use the row-level matrix-log stability budget reported in the user message as advisory "
             "headroom guidance, not as a mechanical acceptance rule. In dense feedback-coupled "
             "rows, default to tightly zero-centered priors with modest uncertainty unless strong "
             "longitudinal evidence supports larger effects."
         ),
         user_task=(
             "This block owns one target construct's full incoming lagged-effect row. Use the "
-            "stability budget in Frontier Status as advisory headroom guidance for this row: "
+            "matrix-log stability budget in Frontier Status as advisory headroom guidance for this row: "
             "prefer tightly zero-centered, small-scale priors for SCC-internal or "
             "`Feedback Loop = yes` edges, leave slack for uncertainty, and only grow effects "
             "when strong longitudinal evidence justifies it. Submit priors only for this block's "
