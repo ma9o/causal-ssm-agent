@@ -50,7 +50,7 @@ flowchart LR
 
 Model-decision blocks are validated locally against the active frontier and accepted into reducer state one block at a time. Once all model-decision blocks are accepted, the stage materializes the full `ModelSpec` and runs a [compilation check](../reference/compilation.md) with PPCs disabled; compile failures reopen the smallest responsible model-decision block. Before prior elicitation, a compact global-review checkpoint can reopen the relevant model-decision blocks when those choices need to move together. Loading orientations remain visible at that checkpoint but are already fixed from Stage 1b indicator polarity rather than authored blockwise in Stage 4.
 
-**Prior Elicitation Block:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. All priors are specified on the discrete-time scale at the model clock interval; [compilation](../reference/compilation.md) converts them to continuous-time rates where needed.
+**Prior Elicitation Block:** Once the `ModelSpec` is locked, the LLM proposes a full prior specification for each block in dependency order: distribution family, hyperparameters, and reasoning. Dynamic priors are specified on the discrete-time scale at the model clock interval; `rho_*` means baseline persistence absent incoming feedback, while [compilation](../reference/compilation.md) converts `rho_*` and `beta_*` to continuous-time rates where needed.
 
 When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to inform prior calibration, justifying narrower priors only when the estimand, population, and timescale align[^gelman2020] [^gelman2013]. Optionally, multiple paraphrased calls for one parameter can be aggregated via a Gaussian mixture model[^capstick2024] to reduce prompt-wording bias.
 
@@ -58,7 +58,7 @@ When enabled, the LLM can query [Exa](https://exa.ai/) for empirical studies to 
 
 - *Numerical health*: no NaN/Inf or extreme values (|value| > 10⁶)
 - *Constraint satisfaction*: positive-constrained parameters must not violate their support
-- *Dynamics stability*: the drift matrix must have strictly negative real eigenvalues under a majority of prior draws[^sarkka2019]
+- *Dynamics stability*: the compiled hard-sparsity drift construction enforces strictly negative real eigenvalues by row diagonal dominance; prior predictive checks still surface the realised damping and any structural inconsistencies[^sarkka2019]
 - *Scale plausibility*: the implied observation SD from the stationary covariance[^sarkka2019] must be within a reasonable ratio of the [Stage 3](03-extraction-validation.md) empirical SD[^gelman2020] [^riegler2025]
 
 If validation fails, a deterministic classifier reopens the smallest responsible block.
@@ -69,7 +69,7 @@ Setting `stage4_prior_elicitation.state_machine_enabled: false` in `config.yaml`
 
 ### Example
 
-For a study of classroom engagement and academic performance where Stage 1b posited constructs `Teacher Feedback Frequency`, `Student Engagement`, and `Test Scores` with model clock `1w`, Stage 4 might: resolve `Test Scores` deterministically to `gaussian`/`identity` in the skeleton; present one model-decision block for `Teacher Feedback Frequency` where the LLM chooses `poisson`/`log`; then process prior blocks in order — the dynamics block for `Student Engagement` yields `rho_engagement ~ Beta(5, 2)` reflecting moderate weekly persistence, and the causal-effect block for the feedback→engagement edge yields `beta_teacher_feedback_engagement ~ Normal(0.2, 0.15)` anchored by an educational psychology meta-analysis.
+For a study of classroom engagement and academic performance where Stage 1b posited constructs `Teacher Feedback Frequency`, `Student Engagement`, and `Test Scores` with model clock `1w`, Stage 4 might: resolve `Test Scores` deterministically to `gaussian`/`identity` in the skeleton; present one model-decision block for `Teacher Feedback Frequency` where the LLM chooses `poisson`/`log`; then process prior blocks in order — the dynamics block for `Student Engagement` yields `rho_engagement ~ Beta(5, 2)` reflecting moderate weekly baseline persistence absent feedback, and the causal-effect block for the feedback→engagement edge yields `beta_teacher_feedback_engagement ~ Normal(0.2, 0.15)` anchored by an educational psychology meta-analysis.
 
 ## Outputs
 

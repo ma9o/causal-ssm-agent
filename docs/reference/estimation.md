@@ -17,7 +17,7 @@ d eta(t) = (A * eta(t) + c) dt + G dW(t)
 
 where:
 
-- `A` is the `n_latent x n_latent` **drift matrix** controlling auto- and cross-regressive dynamics. Diagonal entries (auto-effects) are constrained negative for stability; off-diagonal entries (cross-effects) are unconstrained.
+- `A` is the `n_latent x n_latent` **drift matrix** controlling auto- and cross-regressive dynamics. Off-diagonal entries (cross-effects) are sampled on allowed edges, and diagonal entries are derived from baseline decay plus incoming row mass so each dynamic row is strictly damped.
 - `c` is the `n_latent x 1` **continuous intercept** (CINT), shifting the asymptotic mean away from zero.
 - `G` is the `n_latent x n_latent` **diffusion Cholesky factor**, so `G G'` is the process noise covariance.
 - `W(t)` is a standard Wiener process.
