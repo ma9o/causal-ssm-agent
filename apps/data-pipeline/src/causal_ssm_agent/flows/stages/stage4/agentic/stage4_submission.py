@@ -259,7 +259,7 @@ def _effect_prior_frontier_status_lines(
         return ()
 
     return (
-        "- stability budget source: `compiled CT drift row` (advisory headroom guidance)",
+        "- stability budget source: `matrix-log CT drift row` (advisory headroom guidance)",
         (
             f"- target row budget guidance: `{budget.diagonal_magnitude:.3f}` "
             f"(conservative lower bound `{budget.diagonal_lower_bound:.3f}`)"

@@ -581,13 +581,12 @@ def _collect_validation_warning_messages(validation: AssemblyValidation) -> list
 # saves ~100 tokens per extra warning on dt_ct_approximation_warning alone.
 _WARNING_GROUP_TEMPLATES: dict[str, tuple[str, str]] = {
     "dt_ct_approximation_warning": (
-        "Cross-lag priors compile via the linearization "
-        "`drift_offdiag = beta_dt / dt` (first-order term of `logm(A_dt)/dt`), "
-        "which loses accuracy when latent modes are strongly coupled. "
-        "At these ratios the compiled CT off-diagonal may deviate noticeably "
-        "from the true matrix log:",
-        "Shorten the reference interval (brings A_dt closer to I, where the "
-        "linearization is tight) or elicit the prior directly on the CT rate.",
+        "Cross-lag diagnostics evaluate the full matrix logarithm "
+        "`logm(A_dt) / dt`. The elementwise `beta_dt / dt` CT coupling differs "
+        "materially from that full-system matrix-log scale for these edges:",
+        "Use the exact matrix-log CT scale when revising these edges: shorten the "
+        "reference interval, shrink the DT beta prior, or elicit the prior directly "
+        "on the CT rate.",
     ),
     "lagged_response_weak": (
         "Across prior draws, the full-system one-lag response is near-zero "

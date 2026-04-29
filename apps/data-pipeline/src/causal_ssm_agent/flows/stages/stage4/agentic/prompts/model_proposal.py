@@ -840,7 +840,7 @@ def _render_stage4_guidance_section(
             "- Avoid near-unit-root persistence or overly wide uncertainty unless strong evidence "
             "supports it.\n"
             "- Leave enough conservative decay that plausible incoming effects can still fit "
-            "inside the compiled drift budget.\n"
+            "inside the matrix-log drift budget.\n"
             "- Treat the reported headroom as advisory stability guidance rather than a formal "
             "acceptance rule.\n"
             "- If the validator reports a partial drift failure at this stage, tighten the active "
@@ -849,7 +849,7 @@ def _render_stage4_guidance_section(
     if section_key == "effect_row_budget_discipline":
         return (
             "## Effect Row Budget Discipline\n\n"
-            "- The user prompt reports a compiled continuous-time drift budget for the active "
+            "- The user prompt reports a matrix-log continuous-time drift budget for the active "
             "target row.\n"
             "- Treat the conservative row budget and remaining headroom as advisory stability "
             "guidance, not as a mechanical acceptance rule.\n"
@@ -873,7 +873,7 @@ def _format_effect_prior_budget_discipline() -> str:
     """Render the dynamic budget discipline section for effect-prior blocks."""
     return (
         "## Effect-Block Stability Discipline\n\n"
-        "- The frontier status above reports the compiled continuous-time drift budget for this "
+        "- The frontier status above reports the matrix-log continuous-time drift budget for this "
         "target row.\n"
         "- Treat the remaining headroom as advisory stability telemetry for the full row in this "
         "block.\n"
