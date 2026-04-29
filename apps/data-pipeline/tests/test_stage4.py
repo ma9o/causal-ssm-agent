@@ -4088,6 +4088,75 @@ class TestSSMPriorConversion:
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - 0.3) < 0.01
 
+    def test_dt_ct_warning_uses_full_matrix_logm(self):
+        """Cross-lag diagnostics should use logm(Phi)/dt, not beta/dt."""
+
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "stress_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "rho_stress",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "beta_stress_mood",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.15}},
+        }
+        ssm_spec = make_ssm_spec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["mood", "stress"],
+            drift_mask=np.array([[True, True], [False, True]]),
+        )
+
+        _ssm_priors, _idx, diagnostics = compile_ssm_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+            edge_lag_days={(0, 1): 1.0},
+        )
+
+        warning = next(
+            diagnostic
+            for diagnostic in diagnostics
+            if diagnostic.code == "dt_ct_approximation_warning"
+        )
+        assert "matrix-log mismatch; exact CT coupling" in _require_text(warning.issue)
+        assert "0.600 1/day" in _require_text(warning.issue)
+        assert "beta/dt value 0.300 1/day" in _require_text(warning.issue)
+        assert warning.pathology_certificate is not None
+        assert warning.pathology_certificate.primary_score == pytest.approx(0.5)
+
     def test_lagged_beta_diagnostics_explain_default_authored_interval(self):
         """Lagged-edge diagnostics should mention the default authored interval semantics."""
 
@@ -4142,11 +4211,14 @@ class TestSSMPriorConversion:
             edge_lag_days={(1, 0): 1.0},
         )
 
-        warnings = diagnostics
-        assert len(warnings) == 1
-        assert "`reference_interval_days` is omitted" in _require_text(warnings[0].issue)
-        assert "default model interval (1.0d)" in _require_text(warnings[0].issue)
-        assert "`reference_interval_days`" in _require_text(warnings[0].suggested_adjustment)
+        warning = next(
+            diagnostic
+            for diagnostic in diagnostics
+            if diagnostic.code == "interval_reference_missing"
+        )
+        assert "`reference_interval_days` is omitted" in _require_text(warning.issue)
+        assert "default model interval (1.0d)" in _require_text(warning.issue)
+        assert "`reference_interval_days`" in _require_text(warning.suggested_adjustment)
 
     def test_lagged_beta_diagnostics_preserve_reference_interval_language(self):
         """Lagged-edge diagnostics should talk about the authored reference interval."""
@@ -4203,10 +4275,13 @@ class TestSSMPriorConversion:
             edge_lag_days={(1, 0): 1.0},
         )
 
-        warnings = diagnostics
-        assert len(warnings) == 1
-        assert "`reference_interval_days`" in _require_text(warnings[0].issue)
-        assert "7.0d" in _require_text(warnings[0].issue)
+        warning = next(
+            diagnostic
+            for diagnostic in diagnostics
+            if diagnostic.code == "interval_reference_mismatch"
+        )
+        assert "`reference_interval_days`" in _require_text(warning.issue)
+        assert "7.0d" in _require_text(warning.issue)
 
     def test_beta_prior_dt_to_ct_respects_granularity(self):
         """FIXED_EFFECT beta transform uses effect construct's granularity."""
@@ -4256,10 +4331,12 @@ class TestSSMPriorConversion:
                     "constructs": [
                         {
                             "name": "heart_rate",
+                            "role": "endogenous",
                             "temporal_status": "time_varying",
                         },
                         {
                             "name": "activity",
+                            "role": "endogenous",
                             "temporal_status": "time_varying",
                         },
                     ],
@@ -4309,6 +4386,18 @@ class TestSSMPriorConversion:
             ],
             "parameters": [
                 {
+                    "name": "rho_heart_rate",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "rho_activity",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
                     "name": "beta_activity_heart_rate",
                     "role": "fixed_effect",
                     "constraint": "none",
@@ -4332,6 +4421,8 @@ class TestSSMPriorConversion:
             "equilibrium_forcing": False,
         }
         priors = {
+            "rho_heart_rate": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "rho_activity": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
             "beta_activity_heart_rate": {
                 "distribution": "Normal",
                 "params": {"mu": 0.3, "sigma": 0.15},
@@ -4345,10 +4436,12 @@ class TestSSMPriorConversion:
                     "constructs": [
                         {
                             "name": "heart_rate",
+                            "role": "endogenous",
                             "temporal_status": "time_varying",
                         },
                         {
                             "name": "activity",
+                            "role": "endogenous",
                             "temporal_status": "time_varying",
                         },
                     ],
