@@ -2421,7 +2421,7 @@ class TestInferenceCaching:
             _ExplodingBackend(),
         )
 
-        assert "drift_diag_free" in site_info
+        assert "drift_base_decay_free" in site_info
         assert "manifest_var_diag_free" in site_info
 
     def test_particle_fit_nuts_uses_blackjax_chees_hmc_path(self, monkeypatch):
@@ -2503,7 +2503,7 @@ class TestInferenceCaching:
         assert result.diagnostics["mcmc"].backend == "blackjax_chees_hmc"
 
         sample_names = set(result.get_samples())
-        assert "drift_diag_free" in sample_names
+        assert "drift_base_decay_free" in sample_names
         assert "diffusion_diag_free" in sample_names
         assert all("_decentered" not in name for name in sample_names)
 
@@ -2663,7 +2663,7 @@ class TestAutoMethodConfigRouting:
 
         def fake_fit_map(_model, _observations, _times, **kwargs):
             return InferenceResult(
-                _samples={"drift_diag_free": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"drift_base_decay_free": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method="map",
                 diagnostics={"kwargs": kwargs},
             )

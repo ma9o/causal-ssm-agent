@@ -71,7 +71,7 @@ class TransformKind(Enum):
 class SiteKind(Enum):
     """Semantic role for each sample site."""
 
-    DRIFT_DIAG = "drift_diag"
+    DRIFT_BASE_DECAY = "drift_base_decay"
     DRIFT_OFFDIAG = "drift_offdiag"
     DIFFUSION_DIAG = "diffusion_diag"
     DIFFUSION_LOWER = "diffusion_lower"
@@ -104,7 +104,7 @@ class SiteDescriptor:
     """Metadata for a single sample site, derived from SSMSpec.
 
     Attributes:
-        name: NumPyro sample site name (e.g. ``"drift_diag_free"``).
+        name: NumPyro sample site name (e.g. ``"drift_base_decay_free"``).
         shape: Array shape of the sampled value.
         support: Support class determining transform and valid families.
         assembly_group: Which matrix group this site contributes to
@@ -179,7 +179,7 @@ class SiteRuntimeBundle:
 
     @property
     def scalar_names(self) -> list[str]:
-        """Flat list of per-element names (e.g. ``drift_diag_free[0]``)."""
+        """Flat list of per-element names (e.g. ``drift_base_decay_free[0]``)."""
         names: list[str] = []
         for site in self.registry:
             size = _site_size(site.shape)
@@ -293,14 +293,14 @@ def build_site_registry(
     # -- Core parameter sites (mirroring SSMModel._sample_* methods) --------
     core_site_specs = (
         (
-            "drift_diag_free",
-            "n_drift_diag",
-            SupportClass.REAL,
+            "drift_base_decay_free",
+            "n_drift_base_decay",
+            SupportClass.POSITIVE,
             "drift",
-            SiteKind.DRIFT_DIAG,
+            SiteKind.DRIFT_BASE_DECAY,
             "drift",
             "drift",
-            "drift_diag",
+            "drift_base_decay",
         ),
         (
             "drift_offdiag_free",
@@ -772,11 +772,11 @@ def assemble_deterministics_from_registry(
     det: dict[str, jnp.ndarray] = {}
     n_l, n_m = spec.n_latent, spec.n_manifest
 
-    drift_diag_site = by_kind.get(SiteKind.DRIFT_DIAG)
+    drift_base_decay_site = by_kind.get(SiteKind.DRIFT_BASE_DECAY)
     drift_offdiag_site = by_kind.get(SiteKind.DRIFT_OFFDIAG)
-    drift_diag_samples = (
-        samples[drift_diag_site.name]
-        if drift_diag_site is not None and drift_diag_site.name in samples
+    drift_base_decay_samples = (
+        samples[drift_base_decay_site.name]
+        if drift_base_decay_site is not None and drift_base_decay_site.name in samples
         else None
     )
     drift_offdiag_samples = (
@@ -784,14 +784,14 @@ def assemble_deterministics_from_registry(
         if drift_offdiag_site is not None and drift_offdiag_site.name in samples
         else None
     )
-    if drift_diag_samples is not None or drift_offdiag_samples is not None:
-        if drift_diag_samples is not None and drift_offdiag_samples is not None:
+    if drift_base_decay_samples is not None or drift_offdiag_samples is not None:
+        if drift_base_decay_samples is not None and drift_offdiag_samples is not None:
             det["drift"] = jax.vmap(structure_runtime.assemble_drift)(
-                drift_diag_samples,
+                drift_base_decay_samples,
                 drift_offdiag_samples,
             )
-        elif drift_diag_samples is not None:
-            det["drift"] = jax.vmap(structure_runtime.assemble_drift)(drift_diag_samples)
+        elif drift_base_decay_samples is not None:
+            det["drift"] = jax.vmap(structure_runtime.assemble_drift)(drift_base_decay_samples)
         else:
             det["drift"] = jax.vmap(
                 lambda offdiag: structure_runtime.assemble_drift(None, offdiag)
@@ -983,7 +983,12 @@ def _real_log_prob(x, family_idx, loc, scale, low, high):
     )
 
 
-def _positive_log_prob(x, family_idx, loc, scale, concentration, rate):
+def _delta_log_prob_terms(x, value):
+    """Element-wise Delta(value) log mass."""
+    return jnp.where(jnp.isclose(x, value, rtol=1e-9, atol=1e-12), 0.0, -jnp.inf)
+
+
+def _positive_log_prob(x, family_idx, loc, scale, concentration, rate, value):
     """Log density for a POSITIVE-support site with family dispatch.
 
     Families:
@@ -991,17 +996,20 @@ def _positive_log_prob(x, family_idx, loc, scale, concentration, rate):
         1 — Gamma(concentration, rate)
         2 — LogNormal(loc, scale)
         3 — Exponential(rate)
+        4 — Delta(value)
     """
     families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int64), jnp.shape(x))
     half_normal_terms = _half_normal_log_prob_terms(x, scale)
     gamma_terms = _gamma_log_prob_terms(x, concentration, rate)
     log_normal_terms = _log_normal_log_prob_terms(x, loc, scale)
     exponential_terms = _exponential_log_prob_terms(x, rate)
+    delta_terms = _delta_log_prob_terms(x, value)
     return jnp.sum(
         jnp.where(families == 0, half_normal_terms, 0.0)
         + jnp.where(families == 1, gamma_terms, 0.0)
         + jnp.where(families == 2, log_normal_terms, 0.0)
         + jnp.where(families == 3, exponential_terms, 0.0)
+        + jnp.where(families == 4, delta_terms, 0.0)
     )
 
 
@@ -1081,6 +1089,7 @@ def log_prior_unconstrained(
                 params["scale"],
                 params["concentration"],
                 params["rate"],
+                params["value"],
             )
             # log|det J| = sum(z) for exp transform
             lp = lp + jnp.sum(z_site)
@@ -1182,6 +1191,7 @@ def _make_positive_params(
     scale: float = 1.0,
     concentration: float = 1.0,
     rate: float = 1.0,
+    value: float = 1.0,
 ) -> dict[str, jnp.ndarray]:
     """Build canonical param dict for a POSITIVE-support site."""
     s = shape or ()
@@ -1191,6 +1201,7 @@ def _make_positive_params(
         "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
         "concentration": jnp.broadcast_to(jnp.asarray(concentration, dtype=jnp.float64), s),
         "rate": jnp.broadcast_to(jnp.asarray(rate, dtype=jnp.float64), s),
+        "value": jnp.broadcast_to(jnp.asarray(value, dtype=jnp.float64), s),
     }
 
 
@@ -1296,6 +1307,7 @@ def _params_from_prior_dict(
             scale=prior_dict.get("sigma", 1.0),
             concentration=prior_dict.get("concentration", 1.0),
             rate=prior_dict.get("rate", 1.0),
+            value=prior_dict.get("value", 1.0),
         )
     raise ValueError(f"Unknown support class: {site.support}")
 
@@ -1432,7 +1444,7 @@ def compile_prior_semantics(
     """
     bundle = build_prior_runtime_bundle(spec, priors)
     return {
-        "schema_version": 4,
+        "schema_version": 5,
         "site_registry": serialize_site_registry(bundle.registry),
         "prior_state": serialize_prior_runtime_state(bundle.prior_state),
     }
@@ -1456,9 +1468,9 @@ def load_prior_runtime_bundle(
 ) -> PriorRuntimeBundle:
     """Restore reusable runtime components from ``compiled_prior_semantics``."""
     schema_version = compiled_prior_semantics.get("schema_version")
-    if schema_version != 4:
+    if schema_version != 5:
         raise ValueError(
-            f"Unsupported compiled_prior_semantics schema_version {schema_version!r}; expected 4."
+            f"Unsupported compiled_prior_semantics schema_version {schema_version!r}; expected 5."
         )
 
     registry = deserialize_site_registry(compiled_prior_semantics["site_registry"])
@@ -1527,6 +1539,8 @@ def build_site_prior_distribution(
             )
         if runtime_kind == PriorDistributionFamily.EXPONENTIAL:
             return dist.Exponential(rate=params["rate"])
+        if runtime_kind == PriorDistributionFamily.DELTA:
+            return dist.Delta(params["value"])
         raise ValueError(
             f"Unsupported canonical positive prior runtime kind {runtime_kind!r} "
             f"for site {site.name!r}"

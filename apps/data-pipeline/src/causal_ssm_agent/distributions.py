@@ -77,6 +77,7 @@ class PriorDistributionFamily(StrEnum):
     GAMMA = "Gamma"
     LOG_NORMAL = "LogNormal"
     EXPONENTIAL = "Exponential"
+    DELTA = "Delta"
 
 
 @dataclass(frozen=True)
@@ -117,11 +118,13 @@ LAGGED_BETA_AUTHORED_INTERVAL_SCALE: Final[str] = (
 def render_dynamic_prior_scale_guidance() -> str:
     """Render the shared authored-scale contract for dynamic priors."""
     return (
-        "AR coefficients (`rho_*`) should be authored as discrete-time persistence "
-        "per observation interval. `beta_*` priors should be authored on the "
-        "interval they mean. For lagged `beta_*`, set `reference_interval_days` "
-        "when the evidence is on a different interval; otherwise the model interval "
-        "is assumed. The compiler handles interval normalization and CT conversion. "
+        "AR coefficients (`rho_*`) should be authored as baseline discrete-time "
+        "persistence per observation interval, absent feedback from incoming causes. "
+        "`beta_*` priors should be authored on the interval they mean. For lagged "
+        "`beta_*`, set `reference_interval_days` when the evidence is on a different "
+        "interval; otherwise the model interval is assumed. The compiler handles "
+        "interval normalization, CT conversion, and the realised diagonal damping "
+        "needed to keep the drift stable. "
         "`t0_mean_*` and `t0_sd_*` live on the latent state scale: do not set them "
         "to raw reference-indicator means or `log(mean(indicator))` unless the "
         "construct is explicitly identified on that observed scale."
@@ -185,8 +188,8 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         count="One per endogenous time-varying construct",
         constraint="unit_interval",
         ssm_location="Drift diagonal",
-        note="Stage 4 elicits discrete-time persistence magnitude; "
-        "[compilation](../compilation.md) converts to continuous-time drift",
+        note="Stage 4 elicits baseline discrete-time persistence absent feedback; "
+        "[compilation](../compilation.md) converts to continuous-time base decay",
     ),
     ParameterRoleSpec(
         role="fixed_effect",
@@ -387,6 +390,12 @@ PRIOR_FAMILY_SPECS: Final[tuple[PriorFamilySpec, ...]] = (
         summary="Positive-only parameters with mass near zero and a single decay rate.",
         support="positive",
     ),
+    PriorFamilySpec(
+        family=PriorDistributionFamily.DELTA,
+        signature="Delta(value)",
+        summary="Fixed positive value inserted by compiler-owned deterministic repairs.",
+        support="positive",
+    ),
 )
 
 
@@ -447,7 +456,7 @@ PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
         "rho (AR coefficient)",
         "Beta(2, 2) or Uniform(0, 1)",
         "[0, 1]",
-        "Discrete-time persistence",
+        "Baseline discrete-time persistence absent feedback",
     ),
     PriorParameterGuidanceRow("sigma (residual SD)", "HalfNormal(1)", "[0, 5]", "Data scale"),
     PriorParameterGuidanceRow(
@@ -548,6 +557,7 @@ POSITIVE_RUNTIME_FAMILY_INDEX: Final[dict[PriorDistributionFamily, int]] = {
     PriorDistributionFamily.GAMMA: 1,
     PriorDistributionFamily.LOG_NORMAL: 2,
     PriorDistributionFamily.EXPONENTIAL: 3,
+    PriorDistributionFamily.DELTA: 4,
 }
 
 PRIMARY_POSITIVE_RUNTIME_KIND_BY_INDEX: Final[dict[int, PriorDistributionFamily]] = {
@@ -592,23 +602,47 @@ def get_positive_runtime_kind_from_index(index: int) -> PriorDistributionFamily:
         raise ValueError(f"Unsupported serialized positive prior family index {index}") from exc
 
 
-def format_prior_distribution_choice_list(separator: str = "|") -> str:
+def _prompt_prior_family_specs(
+    *,
+    include_delta: bool,
+) -> tuple[PriorFamilySpec, ...]:
+    if include_delta:
+        return PRIOR_FAMILY_SPECS
+    return tuple(
+        spec for spec in PRIOR_FAMILY_SPECS if spec.family != PriorDistributionFamily.DELTA
+    )
+
+
+def format_prior_distribution_choice_list(
+    separator: str = "|",
+    *,
+    include_delta: bool = False,
+) -> str:
     """Render the enum values in catalog order for machine-readable prompts."""
-    return separator.join(spec.family.value for spec in PRIOR_FAMILY_SPECS)
+    return separator.join(
+        spec.family.value for spec in _prompt_prior_family_specs(include_delta=include_delta)
+    )
 
 
 def format_prior_distribution_name_list(
     *,
     quote: str = "",
     separator: str = ", ",
+    include_delta: bool = False,
 ) -> str:
     """Render the prior family names in catalog order for prose or schema text."""
-    return separator.join(f"{quote}{spec.family.value}{quote}" for spec in PRIOR_FAMILY_SPECS)
+    return separator.join(
+        f"{quote}{spec.family.value}{quote}"
+        for spec in _prompt_prior_family_specs(include_delta=include_delta)
+    )
 
 
-def render_prior_distribution_guidance_bullets() -> str:
+def render_prior_distribution_guidance_bullets(*, include_delta: bool = False) -> str:
     """Render the authoritative prompt bullet list for prior family guidance."""
-    return "\n".join(f"- **{spec.signature}**: {spec.summary}" for spec in PRIOR_FAMILY_SPECS)
+    return "\n".join(
+        f"- **{spec.signature}**: {spec.summary}"
+        for spec in _prompt_prior_family_specs(include_delta=include_delta)
+    )
 
 
 def render_observation_distribution_guidance_bullets() -> str:

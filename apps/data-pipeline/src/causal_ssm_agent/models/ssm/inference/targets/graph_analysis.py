@@ -219,11 +219,11 @@ def kalman_block_profile_indices(
     indices: list[int] = []
     offset = 0
 
-    # --- drift_diag_free: shape (n,), index k → latent k ---
-    for dense_idx, latent_idx in enumerate(structure_runtime.drift_diag_positions):
+    # --- drift_base_decay_free: shape (n,), index k → latent k ---
+    for dense_idx, latent_idx in enumerate(structure_runtime.drift_base_decay_positions):
         if latent_idx in kalman_set:
             indices.append(offset + dense_idx)
-    offset += structure_runtime.n_drift_diag
+    offset += structure_runtime.n_drift_base_decay
 
     for idx, (i, j) in enumerate(structure_runtime.offdiag_positions):
         if i in kalman_set and j in kalman_set:

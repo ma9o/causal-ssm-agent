@@ -834,7 +834,10 @@ def _check_scale_plausibility(
                         f"Unstable dynamics: {n_unstable}/{n_draws} prior draws have "
                         f"unstable drift (Lyapunov solver failed)"
                     ),
-                    suggested_adjustment="Tighten drift_diag prior toward more negative values",
+                    suggested_adjustment=(
+                        "Increase base damping by tightening rho priors toward lower "
+                        "baseline persistence"
+                    ),
                     related_parameters=related_parameters,
                     supporting_codes=supporting_codes,
                     repair_scope=repair_scope,
@@ -1370,7 +1373,7 @@ def get_failed_parameters(
     """Extract parameter names that contributed to validation failure.
 
     Maps validation result parameter names (which may be SSM site names like
-    'drift_diag_free' or 'scale_mood') back to ModelSpec parameter names.
+    'drift_base_decay_free' or 'scale_mood') back to ModelSpec parameter names.
 
     When ``causal_spec`` is provided, scale mismatch failures are targeted
     to the construct whose indicator triggered the mismatch rather than

@@ -11,7 +11,11 @@ import pytest
 from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
-from causal_ssm_agent.distributions import DistributionFamily
+from causal_ssm_agent.distributions import (
+    DistributionFamily,
+    PriorDistributionFamily,
+    get_positive_runtime_family_index,
+)
 from causal_ssm_agent.models.ssm.inference.utils import _discover_sites
 from causal_ssm_agent.models.ssm.model import (
     SSMModel,
@@ -161,7 +165,7 @@ class TestSiteRegistry:
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
-        assert "drift_diag_free" not in names
+        assert "drift_base_decay_free" not in names
         assert "drift_offdiag_free" not in names
 
     def test_diag_diffusion_excludes_lower(self):
@@ -209,8 +213,8 @@ class TestSiteRegistry:
         """Check that support classes are correctly assigned."""
         registry = build_site_registry(simple_spec)
         support_map = {s.name: s.support for s in registry}
-        # REAL support sites (Normal priors)
-        assert support_map["drift_diag_free"] == SupportClass.REAL
+        # POSITIVE support sites
+        assert support_map["drift_base_decay_free"] == SupportClass.POSITIVE
         # POSITIVE support sites (HalfNormal priors)
         assert support_map["diffusion_diag_free"] == SupportClass.POSITIVE
         assert support_map["manifest_var_diag_free"] == SupportClass.POSITIVE
@@ -336,7 +340,7 @@ class TestDeterministicAssembly:
         assert "drift" in grouped
         assert "diffusion" in grouped
         assert {site.name for site in grouped["drift"]} == {
-            "drift_diag_free",
+            "drift_base_decay_free",
             "drift_offdiag_free",
         }
 
@@ -344,7 +348,7 @@ class TestDeterministicAssembly:
         """Registry-driven assembly builds the expected matrices."""
         registry = build_site_registry(simple_spec)
         samples = {
-            "drift_diag_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_base_decay_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "drift_offdiag_free": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
@@ -356,7 +360,7 @@ class TestDeterministicAssembly:
 
         det = assemble_deterministics_from_registry(samples, simple_spec, registry)
         assert det["drift"].shape == (1, 2, 2)
-        assert jnp.allclose(jnp.diag(det["drift"][0]), jnp.array([-0.5, -0.3]))
+        assert jnp.allclose(jnp.diag(det["drift"][0]), jnp.array([-0.65, -0.55]))
         assert jnp.allclose(det["diffusion"][0], jnp.array([[0.4, 0.0], [0.25, 0.6]]))
         assert det["lambda"].shape == (1, 2, 2)
         assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.49, 0.64])))
@@ -399,7 +403,7 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "drift_diag_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_base_decay_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "drift_offdiag_free": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
@@ -425,7 +429,7 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "drift_diag_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "drift_base_decay_free": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "drift_offdiag_free": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
@@ -458,7 +462,7 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "drift_diag_free": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
+            "drift_base_decay_free": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
             "drift_offdiag_free": jnp.array([[0.1] * 6], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
@@ -506,11 +510,20 @@ class TestPriorRuntimeState:
 
     def test_custom_priors_reflected(self, simple_spec):
         """Custom SSMPriors values appear in the state."""
-        priors = SSMPriors(drift_diag={"mu": -2.0, "sigma": 0.5})
+        priors = SSMPriors(
+            drift_base_decay={
+                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
+                "concentration": 4.0,
+                "rate": 2.0,
+            }
+        )
         registry = build_site_registry(simple_spec)
         state = build_prior_runtime_state(registry, priors)
-        assert jnp.allclose(state["drift_diag_free"]["loc"], jnp.full(2, -2.0))
-        assert jnp.allclose(state["drift_diag_free"]["scale"], jnp.full(2, 0.5))
+        assert jnp.allclose(
+            state["drift_base_decay_free"]["concentration"],
+            jnp.full(2, 4.0),
+        )
+        assert jnp.allclose(state["drift_base_decay_free"]["rate"], jnp.full(2, 2.0))
 
     def test_state_is_valid_pytree(self, simple_spec):
         """Prior state can be flattened/unflattened as a JAX pytree."""
@@ -626,10 +639,24 @@ class TestCompileStability:
         D, unravel_fn = build_unravel_fn(registry)
 
         state1 = build_prior_runtime_state(
-            registry, SSMPriors(drift_diag={"mu": -0.5, "sigma": 1.0})
+            registry,
+            SSMPriors(
+                drift_base_decay={
+                    "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
+                    "concentration": 2.0,
+                    "rate": 4.0,
+                }
+            ),
         )
         state2 = build_prior_runtime_state(
-            registry, SSMPriors(drift_diag={"mu": -2.0, "sigma": 0.3})
+            registry,
+            SSMPriors(
+                drift_base_decay={
+                    "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
+                    "concentration": 4.0,
+                    "rate": 2.0,
+                }
+            ),
         )
 
         trace_count = 0
@@ -766,7 +793,11 @@ class TestSerialization:
     def test_prior_state_roundtrip_custom_priors(self, simple_spec):
         """Custom priors survive the roundtrip."""
         priors = SSMPriors(
-            drift_diag={"mu": -2.0, "sigma": 0.3},
+            drift_base_decay={
+                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
+                "concentration": 4.0,
+                "rate": 2.0,
+            },
             diffusion_diag={"sigma": 0.5},
         )
         registry = build_site_registry(simple_spec)
@@ -774,10 +805,11 @@ class TestSerialization:
         payload = serialize_prior_runtime_state(state)
         restored = deserialize_prior_runtime_state(payload, registry)
         assert jnp.allclose(
-            restored["drift_diag_free"]["loc"],
-            jnp.full(2, -2.0),
+            restored["drift_base_decay_free"]["concentration"],
+            jnp.full(2, 4.0),
             atol=1e-6,
         )
+        assert jnp.allclose(restored["drift_base_decay_free"]["rate"], jnp.full(2, 2.0))
         assert jnp.allclose(
             restored["diffusion_diag_free"]["scale"],
             jnp.full(2, 0.5),
@@ -786,13 +818,23 @@ class TestSerialization:
 
     def test_compile_prior_semantics_roundtrip(self, simple_spec):
         """compile_prior_semantics → deserialize produces valid state."""
-        priors = SSMPriors(drift_diag={"mu": -1.0, "sigma": 0.8})
+        priors = SSMPriors(
+            drift_base_decay={
+                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
+                "concentration": 4.0,
+                "rate": 2.0,
+            }
+        )
         semantics = compile_prior_semantics(simple_spec, priors)
-        assert semantics["schema_version"] == 4
+        assert semantics["schema_version"] == 5
         registry = deserialize_site_registry(semantics["site_registry"])
         state = deserialize_prior_runtime_state(semantics["prior_state"], registry)
-        assert "drift_diag_free" in state
-        assert jnp.allclose(state["drift_diag_free"]["loc"], jnp.full(2, -1.0), atol=1e-6)
+        assert "drift_base_decay_free" in state
+        assert jnp.allclose(
+            state["drift_base_decay_free"]["concentration"],
+            jnp.full(2, 4.0),
+            atol=1e-6,
+        )
 
 
 class TestCanonicalRuntimePriors:
@@ -800,13 +842,17 @@ class TestCanonicalRuntimePriors:
         """Compiled prior semantics preserve vector-valued site parameters exactly."""
         spec = _make_spec(n_latent=3, n_manifest=3)
         priors = SSMPriors(
-            drift_diag={"mu": [-0.5, -0.3, -0.7], "sigma": [1.0, 0.5, 0.8]},
+            drift_base_decay={
+                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
+                "concentration": [2.0, 3.0, 4.0],
+                "rate": [4.0, 5.0, 6.0],
+            },
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(spec, priors))
-        assert runtime.prior_state["drift_diag_free"]["loc"].shape == (3,)
+        assert runtime.prior_state["drift_base_decay_free"]["concentration"].shape == (3,)
         assert jnp.allclose(
-            runtime.prior_state["drift_diag_free"]["loc"],
-            jnp.array([-0.5, -0.3, -0.7], dtype=jnp.float32),
+            runtime.prior_state["drift_base_decay_free"]["concentration"],
+            jnp.array([2.0, 3.0, 4.0], dtype=jnp.float32),
         )
 
     def test_site_distribution_handles_vector_positive_priors(self, simple_spec):
@@ -819,14 +865,52 @@ class TestCanonicalRuntimePriors:
         assert prior_dist.batch_shape == (2,)
         assert jnp.allclose(prior_dist.scale, jnp.array([1.0, 2.0], dtype=jnp.float32))
 
-    def test_real_support_sites_keep_fixed_bounds_keys(self, simple_spec):
-        """Real-support prior state keeps the same low/high leaves across prior edits."""
+    def test_positive_delta_distribution_samples_fixed_vector(self, simple_spec):
+        """Positive Delta priors build NumPyro Delta distributions and preserve shape."""
+        priors = SSMPriors(
+            drift_base_decay={
+                "family": get_positive_runtime_family_index(PriorDistributionFamily.DELTA),
+                "value": [0.25, 0.5],
+            }
+        )
+        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
+        site = next(site for site in runtime.registry if site.name == "drift_base_decay_free")
+        prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
+
+        assert isinstance(prior_dist, dist.Delta)
+        assert prior_dist.batch_shape == (2,)
+        assert jnp.allclose(prior_dist.v, jnp.array([0.25, 0.5], dtype=jnp.float32))
+
+    def test_positive_delta_roundtrips_through_serialized_semantics(self, simple_spec):
+        """Positive Delta value survives v5 compiled-prior serialization."""
+        priors = SSMPriors(
+            drift_base_decay={
+                "family": get_positive_runtime_family_index(PriorDistributionFamily.DELTA),
+                "value": [0.25, 0.5],
+            }
+        )
+        runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
+
+        assert jnp.allclose(
+            runtime.prior_state["drift_base_decay_free"]["value"],
+            jnp.array([0.25, 0.5], dtype=jnp.float32),
+        )
+
+    def test_base_decay_positive_site_keeps_fixed_parameter_keys(self, simple_spec):
+        """Base-decay prior state keeps the same positive-family leaves across prior edits."""
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec))
 
-        drift_params = runtime.prior_state["drift_diag_free"]
-        assert set(drift_params) == {"family", "loc", "scale", "low", "high"}
-        assert jnp.allclose(drift_params["low"], jnp.full((2,), -1e6))
-        assert jnp.allclose(drift_params["high"], jnp.full((2,), 1e6))
+        drift_params = runtime.prior_state["drift_base_decay_free"]
+        assert set(drift_params) == {
+            "family",
+            "loc",
+            "scale",
+            "concentration",
+            "rate",
+            "value",
+        }
+        assert jnp.allclose(drift_params["concentration"], jnp.full((2,), 2.0))
+        assert jnp.allclose(drift_params["rate"], jnp.full((2,), 4.0))
 
         correlation_params = runtime.prior_state["t0_var_lower_free"]
         assert set(correlation_params) == {"family", "loc", "scale", "low", "high"}
@@ -898,7 +982,7 @@ class TestCompiledArtifactIntegration:
         assert "edge_lag_days" in artifact
         assert artifact["edge_lag_days"] == []
         sem = artifact["compiled_prior_semantics"]
-        assert sem["schema_version"] == 4
+        assert sem["schema_version"] == 5
         assert "site_registry" in sem
         assert "prior_state" in sem
 

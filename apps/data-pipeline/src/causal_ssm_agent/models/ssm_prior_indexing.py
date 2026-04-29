@@ -63,7 +63,7 @@ def build_prior_index_maps(
     strict_structure = causal_spec is not None
     errors: list[str] = []
     structure_runtime = SSMStructureRuntime(ssm_spec)
-    drift_diag_lookup = structure_runtime.drift_diag_index
+    drift_base_decay_lookup = structure_runtime.drift_base_decay_index
     diffusion_diag_lookup = structure_runtime.diffusion_diag_index
     cint_lookup = structure_runtime.cint_free_index
     t0_mean_lookup = structure_runtime.t0_means_free_index
@@ -74,12 +74,12 @@ def build_prior_index_maps(
             continue
         construct = parameter.name.removeprefix("rho_").removeprefix("ar_")
         if construct in latent_idx_map:
-            flat_idx = drift_diag_lookup.get(latent_idx_map[construct])
+            flat_idx = drift_base_decay_lookup.get(latent_idx_map[construct])
             if flat_idx is not None:
-                diag_index[parameter.name] = ("drift_diag", flat_idx)
+                diag_index[parameter.name] = ("drift_base_decay", flat_idx)
             elif strict_structure:
                 errors.append(
-                    "AR parameter does not correspond to a free drift diagonal term in "
+                    "AR parameter does not correspond to a free drift base-decay term in "
                     f"causal_spec: {parameter.name!r}"
                 )
         elif strict_structure:
@@ -442,7 +442,7 @@ def check_backward_closure(
     sr = SSMStructureRuntime(ssm_spec)
 
     families = [
-        ("drift_diag", sr.n_drift_diag, len(diag_index)),
+        ("drift_base_decay", sr.n_drift_base_decay, len(diag_index)),
         ("drift_offdiag", sr.n_drift_offdiag, len(offdiag_index)),
         ("diffusion_diag", sr.n_diffusion_diag, len(diffusion_diag_index)),
         ("diffusion_lower", sr.n_diffusion_lower, len(diffusion_offdiag_index)),

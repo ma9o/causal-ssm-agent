@@ -591,6 +591,10 @@ def _compiled_distribution_for_site(
         return "Exponential", {
             "rate": _extract_serialized_prior_value(params, "rate", flat_index),
         }
+    if prior_family == PriorDistributionFamily.DELTA:
+        return "Delta", {
+            "value": _extract_serialized_prior_value(params, "value", flat_index),
+        }
 
     raise ValueError(f"Unsupported compiled positive-support prior family index {family}")
 

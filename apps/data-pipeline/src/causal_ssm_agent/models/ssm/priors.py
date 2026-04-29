@@ -15,7 +15,13 @@ from causal_ssm_agent.models.ssm.parameter_names import INITIAL_STATE_CORRELATIO
 class SSMPriors:
     """Prior specifications for state-space model parameters."""
 
-    drift_diag: dict = field(default_factory=lambda: {"mu": -0.5, "sigma": 1.0})
+    drift_base_decay: dict = field(
+        default_factory=lambda: {
+            "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
+            "concentration": 2.0,
+            "rate": 4.0,
+        }
+    )
     drift_offdiag: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 0.5})
 
     diffusion_diag: dict = field(default_factory=lambda: {"sigma": 1.0})

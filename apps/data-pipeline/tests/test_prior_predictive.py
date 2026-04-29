@@ -52,14 +52,14 @@ def _require_text(value: str | None) -> str:
 
 class TestCheckNanInf:
     def test_clean_samples_no_issue(self):
-        samples = {"drift_diag_free": jnp.array([1.0, 2.0, 3.0])}
+        samples = {"drift_base_decay_free": jnp.array([1.0, 2.0, 3.0])}
         assert _check_nan_inf(samples) is None
 
     def test_nan_detected(self):
-        samples = {"drift_diag_free": jnp.array([1.0, float("nan"), 3.0])}
+        samples = {"drift_base_decay_free": jnp.array([1.0, float("nan"), 3.0])}
         result = _require_result(_check_nan_inf(samples))
         assert not result.is_valid
-        assert "drift_diag_free" in _require_text(result.issue)
+        assert "drift_base_decay_free" in _require_text(result.issue)
 
     def test_inf_detected(self):
         samples = {"x": jnp.array([float("inf")])}
@@ -81,7 +81,7 @@ class TestCheckNanInf:
         samples = {
             "ll_per_timestep": jnp.array([float("-inf")]),
             "log_likelihood": jnp.array([float("nan")]),
-            "drift_diag_free": jnp.array([0.1, 0.2]),
+            "drift_base_decay_free": jnp.array([0.1, 0.2]),
         }
         assert _check_nan_inf(samples) is None
 
@@ -159,7 +159,7 @@ class TestCheckConstraintViolations:
         assert results == []
 
     def test_non_positive_site_ignored(self):
-        samples = {"drift_diag_free": jnp.array([-1.0, -2.0])}
+        samples = {"drift_offdiag_free": jnp.array([-1.0, -2.0])}
         results = _check_constraint_violations(samples)
         assert results == []
 
@@ -181,13 +181,13 @@ class TestCheckConstraintViolations:
 
 class TestCheckExtremeValues:
     def test_normal_values_no_issue(self):
-        samples = {"drift_diag_free": jnp.array([0.5, -0.3, 1.0])}
+        samples = {"drift_base_decay_free": jnp.array([0.5, 0.3, 1.0])}
         results = _check_extreme_values(samples)
         assert results == []
 
     def test_extreme_values_detected(self):
         # All extreme
-        samples = {"drift_diag_free": jnp.array([1e7, 1e8, 1e9])}
+        samples = {"drift_base_decay_free": jnp.array([1e7, 1e8, 1e9])}
         results = _check_extreme_values(samples)
         assert len(results) == 1
         assert "extreme" in _require_text(results[0].issue).lower()
@@ -195,7 +195,7 @@ class TestCheckExtremeValues:
     def test_below_threshold_no_issue(self):
         # Only 1 out of 100 extreme → 1% < 10% threshold
         values = jnp.concatenate([jnp.array([1e7]), jnp.ones(99)])
-        samples = {"drift_diag_free": values}
+        samples = {"drift_base_decay_free": values}
         results = _check_extreme_values(samples)
         assert results == []
 
@@ -220,7 +220,7 @@ class TestFormatValidationReport:
     def test_failed_report_includes_each_issue_and_parameter(self):
         results = [
             PriorValidationResult(
-                parameter="drift_diag_free",
+                parameter="drift_base_decay_free",
                 is_valid=False,
                 issue="Too extreme",
                 suggested_adjustment="Fix it",
@@ -234,7 +234,7 @@ class TestFormatValidationReport:
         ]
         report = format_validation_report(False, results)
         assert "FAILED" in report
-        assert "drift_diag_free" in report
+        assert "drift_base_decay_free" in report
         assert "Too extreme" in report
         assert "diffusion_diag_free" in report
         assert "Negative values" in report
@@ -730,11 +730,15 @@ class TestScalePlausibilityDiagnostics:
 
     def test_keyword_matching(self):
         results = [
-            PriorValidationResult(parameter="drift_diag_free", is_valid=False, issue="constraint")
+            PriorValidationResult(
+                parameter="drift_base_decay_free",
+                is_valid=False,
+                issue="constraint",
+            )
         ]
         params = ["rho_X", "beta_X_Y", "sigma_X"]
         failed = get_failed_parameters(results, params)
-        # drift_diag → keywords ["rho", "ar"]
+        # drift_base_decay → keywords ["rho", "ar"]
         assert "rho_X" in failed
         assert "beta_X_Y" not in failed
 
