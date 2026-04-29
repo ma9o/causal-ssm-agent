@@ -10,6 +10,10 @@ import scipy.linalg
 
 from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
 from causal_ssm_agent.artifacts.model_spec import ModelSpec, ParameterRole
+from causal_ssm_agent.distributions import (
+    PriorDistributionFamily,
+    get_positive_runtime_family_index,
+)
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
 from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
@@ -360,21 +364,21 @@ def collect_first_order_approximation_warnings(
     offdiag_interval_days: dict[int, float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
-    diag_prior = ssm_priors.drift_diag
+    base_decay_prior = ssm_priors.drift_base_decay
     offdiag_prior = ssm_priors.drift_offdiag
-    if ssm_spec is None or diag_prior is None or offdiag_prior is None:
+    if ssm_spec is None or base_decay_prior is None or offdiag_prior is None:
         return []
 
     structure_runtime = SSMStructureRuntime(ssm_spec)
-    diag_mu = _prior_values_1d(diag_prior.get("mu"))
+    base_decay_mu = _positive_prior_mean_values(base_decay_prior)
     offdiag_mu = _prior_values_1d(offdiag_prior.get("mu"))
-    if diag_mu.size == 0 or offdiag_mu.size == 0:
+    if base_decay_mu.size == 0 or offdiag_mu.size == 0:
         return []
 
     taylor_drift = _assemble_mean_drift_from_prior_values(
         ssm_spec,
         structure_runtime,
-        diag_mu=diag_mu,
+        base_decay_mu=base_decay_mu,
         offdiag_mu=offdiag_mu,
     )
     diag_abs = np.abs(np.diag(taylor_drift))
@@ -385,11 +389,11 @@ def collect_first_order_approximation_warnings(
     if min_diag < NUMERICAL_EPSILON:
         return []
     min_diag_latent_idx = int(np.where(diag_abs == min_diag)[0][0])
-    min_diag_flat_idx = structure_runtime.drift_diag_index.get(min_diag_latent_idx)
+    min_diag_flat_idx = structure_runtime.drift_base_decay_index.get(min_diag_latent_idx)
 
     min_diag_name = (
         resolve_scalar_parameter_name(
-            ssm_spec, structure_runtime, "drift_diag_free", min_diag_flat_idx
+            ssm_spec, structure_runtime, "drift_base_decay_free", min_diag_flat_idx
         )
         if min_diag_flat_idx is not None
         else None
@@ -469,7 +473,7 @@ def collect_first_order_approximation_warnings(
                     f"{_format_interval_days(interval_days)} is {abs(exact_value):.3f} 1/day "
                     f"versus the elementwise beta/dt value {abs(float(offdiag_value)):.3f} "
                     f"1/day; logm deviation is {deviation * 100:.0f}% and the exact coupling "
-                    f"is {ratio * 100:.0f}% of the smallest CT diagonal rate "
+                    f"is {ratio * 100:.0f}% of the smallest realised CT diagonal damping "
                     f"({min_diag:.3f} 1/day, {min_diag_label})."
                 ),
                 suggested_adjustment=(
@@ -497,20 +501,85 @@ def _prior_values_1d(value: Any) -> np.ndarray:
     return array.reshape(-1)
 
 
+def _prior_param_values(prior: dict[str, Any], key: str, *, n: int, default: float) -> np.ndarray:
+    values = _prior_values_1d(prior.get(key))
+    if values.size == 0:
+        return np.full(n, default, dtype=float)
+    if values.size == 1:
+        return np.full(n, float(values[0]), dtype=float)
+    if values.size != n:
+        raise ValueError(f"Prior field {key!r} has {values.size} values; expected {n}.")
+    return values.astype(float)
+
+
+def _positive_prior_mean_values(prior: dict[str, Any]) -> np.ndarray:
+    sizes = [
+        _prior_values_1d(prior.get(key)).size
+        for key in ("family", "sigma", "loc", "concentration", "rate", "value")
+    ]
+    n = max(sizes, default=0)
+    if n == 0:
+        return np.asarray([], dtype=float)
+
+    family = _prior_param_values(prior, "family", n=n, default=0).astype(int)
+    scale = _prior_param_values(prior, "sigma", n=n, default=1.0)
+    loc = _prior_param_values(prior, "loc", n=n, default=0.0)
+    concentration = _prior_param_values(prior, "concentration", n=n, default=1.0)
+    rate = _prior_param_values(prior, "rate", n=n, default=1.0)
+    value = _prior_param_values(prior, "value", n=n, default=1.0)
+
+    half_normal_idx = get_positive_runtime_family_index(PriorDistributionFamily.HALF_NORMAL)
+    gamma_idx = get_positive_runtime_family_index(PriorDistributionFamily.GAMMA)
+    log_normal_idx = get_positive_runtime_family_index(PriorDistributionFamily.LOG_NORMAL)
+    exponential_idx = get_positive_runtime_family_index(PriorDistributionFamily.EXPONENTIAL)
+    delta_idx = get_positive_runtime_family_index(PriorDistributionFamily.DELTA)
+
+    means = np.empty(n, dtype=float)
+    for idx, family_idx in enumerate(family):
+        if family_idx == half_normal_idx:
+            means[idx] = scale[idx] * math.sqrt(2.0 / math.pi)
+        elif family_idx == gamma_idx:
+            means[idx] = concentration[idx] / rate[idx]
+        elif family_idx == log_normal_idx:
+            means[idx] = math.exp(loc[idx] + 0.5 * scale[idx] ** 2)
+        elif family_idx == exponential_idx:
+            means[idx] = 1.0 / rate[idx]
+        elif family_idx == delta_idx:
+            means[idx] = value[idx]
+        else:
+            raise ValueError(f"Unsupported positive prior family index {family_idx}.")
+    return means
+
+
 def _assemble_mean_drift_from_prior_values(
     ssm_spec: SSMSpec,
     structure_runtime: SSMStructureRuntime,
     *,
-    diag_mu: np.ndarray,
+    base_decay_mu: np.ndarray,
     offdiag_mu: np.ndarray,
 ) -> np.ndarray:
     drift = np.asarray(ssm_spec.drift, dtype=float).copy()
-    for flat_idx, latent_idx in enumerate(structure_runtime.drift_diag_positions):
-        if flat_idx < diag_mu.size:
-            drift[latent_idx, latent_idx] = -abs(float(diag_mu[flat_idx]))
     for flat_idx, (effect_idx, cause_idx) in enumerate(structure_runtime.offdiag_positions):
         if flat_idx < offdiag_mu.size:
             drift[effect_idx, cause_idx] = float(offdiag_mu[flat_idx])
+    offdiag = drift.copy()
+    np.fill_diagonal(offdiag, 0.0)
+    row_abs = np.sum(np.abs(offdiag), axis=1)
+    for flat_idx, latent_idx in enumerate(structure_runtime.drift_base_decay_positions):
+        if flat_idx < base_decay_mu.size:
+            drift[latent_idx, latent_idx] = -(
+                float(base_decay_mu[flat_idx])
+                + float(row_abs[latent_idx])
+                + float(ssm_spec.stability_margin)
+            )
+    if ssm_spec.time_invariant_mask is not None:
+        ti_mask = np.asarray(ssm_spec.time_invariant_mask, dtype=bool)
+        if ti_mask.size == drift.shape[0]:
+            drift[np.diag_indices(drift.shape[0])] = np.where(
+                ti_mask,
+                -1e-6,
+                np.diag(drift),
+            )
     return drift
 
 
@@ -585,23 +654,19 @@ def logm_diagnostic_mean_drift(
 ) -> np.ndarray | None:
     """Return the exact matrix-log mean drift for Stage 4 dynamics diagnostics."""
     structure_runtime = SSMStructureRuntime(ssm_spec)
-    diag_mu = _prior_values_1d(ssm_priors.drift_diag.get("mu"))
+    base_decay_mu = _positive_prior_mean_values(ssm_priors.drift_base_decay)
     offdiag_mu = _prior_values_1d(ssm_priors.drift_offdiag.get("mu"))
-    if diag_mu.size == 0 and offdiag_mu.size == 0:
+    if base_decay_mu.size == 0 and offdiag_mu.size == 0:
         return None
 
     drift = _assemble_mean_drift_from_prior_values(
         ssm_spec,
         structure_runtime,
-        diag_mu=diag_mu,
+        base_decay_mu=base_decay_mu,
         offdiag_mu=offdiag_mu,
     )
     intervals = sorted(
-        {
-            float(interval)
-            for interval in (edge_lag_days or {}).values()
-            if float(interval) > 0
-        }
+        {float(interval) for interval in (edge_lag_days or {}).values() if float(interval) > 0}
     )
     if not intervals:
         if np.any(np.abs(offdiag_mu) >= NUMERICAL_EPSILON):
@@ -716,9 +781,16 @@ def compile_priors(
                 attr, idx = diag_param_index[param_name]
                 construct_name = param_name.removeprefix("rho_").removeprefix("ar_")
                 ref_days = prior_spec.get("reference_interval_days")
+                resolved_ref_days = float(ref_days) if ref_days is not None else None
+                if resolved_ref_days is not None and resolved_ref_days <= 0:
+                    errors.append(
+                        f"AR prior '{param_name}' reference_interval_days must be positive, "
+                        f"got {resolved_ref_days:.3g}"
+                    )
+                    continue
                 dt = (
-                    float(ref_days)
-                    if ref_days is not None and ref_days > 0
+                    resolved_ref_days
+                    if resolved_ref_days is not None
                     else get_construct_dt_days(causal_spec, construct_name)
                 )
                 param_errors: list[str] = []
@@ -735,7 +807,11 @@ def compile_priors(
                         f"but upper bound is {float(upper):.3g}"
                     )
 
-                mu_ar = float(normalized.get("mu", 0.5))
+                rho_value = normalized.get("value")
+                fixed_by_family = rho_value is not None
+                if rho_value is None:
+                    rho_value = normalized.get("mu", 0.5)
+                mu_ar = float(rho_value)
                 if not 0.0 < mu_ar < 1.0:
                     param_errors.append(
                         f"AR prior '{param_name}' must have DT persistence mean in (0, 1), got {mu_ar:.3g}"
@@ -744,13 +820,45 @@ def compile_priors(
                     errors.extend(param_errors)
                     continue
 
-                sigma_ar = normalized.get("sigma", 0.2)
-                _append_structured_prior(
-                    per_element,
-                    attr,
-                    idx,
-                    {"mu": -math.log(mu_ar) / dt, "sigma": sigma_ar / (mu_ar * dt)},
+                sigma_ar = float(normalized.get("sigma", 0.2))
+                fixed_by_width = sigma_ar <= 0.0 or (
+                    lower is not None
+                    and upper is not None
+                    and math.isclose(float(lower), float(upper), rel_tol=0.0, abs_tol=0.0)
                 )
+                base_decay = -math.log(mu_ar) / dt
+                if fixed_by_family or fixed_by_width:
+                    _append_structured_prior(
+                        per_element,
+                        attr,
+                        idx,
+                        {
+                            "family": get_positive_runtime_family_index(
+                                PriorDistributionFamily.DELTA
+                            ),
+                            "value": base_decay,
+                        },
+                    )
+                else:
+                    sd = sigma_ar / (mu_ar * dt)
+                    if sd <= 0.0:
+                        errors.append(
+                            f"AR prior '{param_name}' compiles to non-positive base-decay SD "
+                            f"{sd:.3g}."
+                        )
+                        continue
+                    _append_structured_prior(
+                        per_element,
+                        attr,
+                        idx,
+                        {
+                            "family": get_positive_runtime_family_index(
+                                PriorDistributionFamily.GAMMA
+                            ),
+                            "concentration": (base_decay / sd) ** 2,
+                            "rate": base_decay / (sd**2),
+                        },
+                    )
                 continue
 
             if param_name in offdiag_param_index:

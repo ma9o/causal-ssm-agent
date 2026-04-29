@@ -368,9 +368,9 @@ class TestBuilderMasks:
             latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
         )
 
-        # Drift mask: endogenous diagonals + X→Y + Y→Z
+        # Drift mask: baseline persistence diagonals + X→Y + Y→Z
         assert drift_mask is not None
-        assert not drift_mask[0, 0]  # X is exogenous
+        assert drift_mask[0, 0]  # X baseline persistence
         assert drift_mask[1, 1]  # Y self
         assert drift_mask[2, 2]  # Z self
         assert drift_mask[1, 0]  # X→Y (effect=Y row, cause=X col)
@@ -961,6 +961,12 @@ class TestBuilderMasks:
             likelihoods=[_lik("x1"), _lik("x2"), _lik("y1"), _lik("z1")],
             parameters=[
                 ParameterSpec(
+                    name="rho_X",
+                    role=ParameterRole.AR_COEFFICIENT,
+                    constraint=ParameterConstraint.UNIT_INTERVAL,
+                    description="AR for X",
+                ),
+                ParameterSpec(
                     name="rho_Y",
                     role=ParameterRole.AR_COEFFICIENT,
                     constraint=ParameterConstraint.UNIT_INTERVAL,
@@ -1047,7 +1053,7 @@ class TestBuilderMasks:
 
         # Verify masks were built
         drift_mask = combined_drift_mask(spec)
-        assert not drift_mask[0, 0]
+        assert drift_mask[0, 0]
         assert drift_mask[1, 1]
         assert drift_mask[2, 2]
         assert spec.lambda_mask is not None
@@ -1086,7 +1092,7 @@ class TestSiteRegistryMasks:
 
         # Should have 2 off-diagonal, not 6
         assert registry["drift_offdiag_free"].shape == (2,)
-        assert registry["drift_diag_free"].shape == (3,)
+        assert registry["drift_base_decay_free"].shape == (3,)
 
     def test_site_registry_with_lambda_mask(self):
         """Site registry should size masked loading entries correctly."""
@@ -1143,8 +1149,8 @@ class TestTraceVerification:
             likelihood_backend=model.make_likelihood_backend(),
         )
 
-        # Drift: 3 diagonal + 2 off-diagonal
-        assert trace["drift_diag_free"]["value"].shape == (3,)
+        # Drift: 3 base-decay + 2 off-diagonal
+        assert trace["drift_base_decay_free"]["value"].shape == (3,)
         assert trace["drift_offdiag_free"]["value"].shape == (2,)
 
         # Lambda: 1 free loading

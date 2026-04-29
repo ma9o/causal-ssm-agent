@@ -208,9 +208,11 @@ class SSMSpec:
     static_factor_names: list[str] | None = None
     initialization_policy: str = "stationary"
     observation_intercept_policy: str = "free"
+    stability_margin: float = 0.05
 
-    # drift_diag_mask: (n_latent,) bool — True where the diagonal self-dynamics
-    # remain free to sample.
+    # drift_diag_mask: (n_latent,) bool — True where the baseline self-decay
+    # remains free to sample. The realised drift diagonal is derived from this
+    # base decay, off-diagonal row mass, and stability_margin.
 
     # drift_offdiag_mask: (n_latent, n_latent) bool — True on off-diagonal
     # structural couplings that remain free to sample.
@@ -534,6 +536,8 @@ def _make_prior_dist(prior: dict) -> dist.Distribution:
             )
         if runtime_kind == PriorDistributionFamily.EXPONENTIAL:
             return dist.Exponential(rate=jnp.asarray(prior.get("rate", 1.0)))
+        if runtime_kind == PriorDistributionFamily.DELTA:
+            return dist.Delta(jnp.asarray(prior["value"]))
         raise ValueError(f"Unsupported serialized positive prior runtime kind {runtime_kind!r}")
     if {"concentration", "rate"} <= set(prior):
         return dist.Gamma(
@@ -643,24 +647,22 @@ class SSMModel:
             raise ValueError(f"Prior runtime bundle has no site named {site_name!r}")
         return build_site_prior_distribution(site, runtime.prior_state[site_name])
 
-    def _sample_drift(self, spec: SSMSpec) -> jnp.ndarray:
-        """Sample drift matrix with stability constraints."""
-        n = spec.n_latent
-
+    def _sample_drift(self) -> jnp.ndarray:
+        """Sample drift matrix with hard-sparsity stability by construction."""
         structure_runtime = self._structure_runtime
-        n_diag = structure_runtime.n_drift_diag
+        n_base_decay = structure_runtime.n_drift_base_decay
         n_offdiag = structure_runtime.n_drift_offdiag
 
-        if n_diag == 0 and n_offdiag == 0:
+        if n_base_decay == 0 and n_offdiag == 0:
             return structure_runtime.drift_template
 
-        if n_diag > 0:
-            drift_diag_free = _sample_prior_array(
-                "drift_diag_free",
-                self._prior_distribution("drift_diag_free"),
+        if n_base_decay > 0:
+            drift_base_decay_free = _sample_prior_array(
+                "drift_base_decay_free",
+                self._prior_distribution("drift_base_decay_free"),
             )
         else:
-            drift_diag_free = None
+            drift_base_decay_free = None
 
         if n_offdiag > 0:
             drift_offdiag_free = _sample_prior_array(
@@ -670,21 +672,7 @@ class SSMModel:
         else:
             drift_offdiag_free = None
 
-        drift = structure_runtime.assemble_drift(drift_diag_free, drift_offdiag_free)
-
-        # Stability guard: penalise drift matrices whose max real eigenvalue
-        # approaches zero (i.e. the system is near-unstable).  Only needed
-        # for multi-latent models with off-diagonal coupling.
-        if n > 1 and n_offdiag > 0:
-            eigvals_real = jnp.real(jnp.linalg.eigvals(drift))
-            max_eig = jnp.max(eigvals_real)
-            margin = 1e-2
-            penalty = jnp.where(
-                max_eig > -margin,
-                -1e4 * jnp.maximum(max_eig + margin, 0.0),
-                0.0,
-            )
-            numpyro.factor("drift_stability", penalty)
+        drift = structure_runtime.assemble_drift(drift_base_decay_free, drift_offdiag_free)
 
         numpyro.deterministic("drift", drift)
         return drift
@@ -973,7 +961,7 @@ class SSMModel:
 
         spec = self.spec
 
-        drift = self._sample_drift(spec)
+        drift = self._sample_drift()
         diffusion_chol = self._sample_diffusion(spec)
         cint = self._sample_cint(spec)
         lambda_mat = self._sample_lambda(spec)

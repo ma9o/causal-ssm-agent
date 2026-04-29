@@ -56,13 +56,15 @@ class SSMStructureRuntime:
     def __init__(self, spec: SSMSpec) -> None:
         self.n_latent = spec.n_latent
         self.n_manifest = spec.n_manifest
+        self.stability_margin = float(spec.stability_margin)
 
         self.drift_template = jnp.array(spec.drift)
-        self.drift_diag_positions: list[int] = [
+        self.drift_base_decay_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.drift_diag_mask[idx])
         ]
-        self.drift_diag_index = {
-            latent_idx: flat_idx for flat_idx, latent_idx in enumerate(self.drift_diag_positions)
+        self.drift_base_decay_index = {
+            latent_idx: flat_idx
+            for flat_idx, latent_idx in enumerate(self.drift_base_decay_positions)
         }
 
         # Drift: pre-compute off-diagonal positions from mask
@@ -173,7 +175,7 @@ class SSMStructureRuntime:
         self.t0_correlation_index = {
             position: flat_idx for flat_idx, position in enumerate(self.t0_correlation_positions)
         }
-        self.n_drift_diag = len(self.drift_diag_positions)
+        self.n_drift_base_decay = len(self.drift_base_decay_positions)
         self.n_drift_offdiag = len(self.offdiag_positions)
         self.n_cint = len(self.cint_free_positions)
         self.n_static_state_sd = len(self.static_state_sd_free_positions)
@@ -202,7 +204,7 @@ class SSMStructureRuntime:
         """Return potential nonzero drift support from fixed template and free entries."""
         fixed_nonzero = jnp.abs(self.drift_template) > 0
         free = jnp.zeros_like(fixed_nonzero, dtype=bool)
-        for latent_idx in self.drift_diag_positions:
+        for latent_idx in self.drift_base_decay_positions:
             free = free.at[latent_idx, latent_idx].set(True)
         for row, col in self.offdiag_positions:
             free = free.at[row, col].set(True)
@@ -218,19 +220,25 @@ class SSMStructureRuntime:
 
     def assemble_drift(
         self,
-        drift_diag_free: jnp.ndarray | None = None,
+        drift_base_decay_free: jnp.ndarray | None = None,
         drift_offdiag_free: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        """Build drift matrix from diagonal and off-diagonal parameter values."""
+        """Build drift matrix from base decay and off-diagonal parameter values."""
         drift = self.drift_template
-        drift_diag_free = _cast_like(drift_diag_free, drift)
+        drift_base_decay_free = _cast_like(drift_base_decay_free, drift)
         drift_offdiag_free = _cast_like(drift_offdiag_free, drift)
-        if drift_diag_free is not None:
-            for idx, latent_idx in enumerate(self.drift_diag_positions):
-                drift = drift.at[latent_idx, latent_idx].set(-jnp.abs(drift_diag_free[idx]))
         if drift_offdiag_free is not None:
             for idx, (i, j) in enumerate(self.offdiag_positions):
                 drift = drift.at[i, j].set(drift_offdiag_free[idx])
+        if drift_base_decay_free is not None:
+            offdiag_drift = drift - jnp.diag(jnp.diag(drift))
+            row_abs = jnp.sum(jnp.abs(offdiag_drift), axis=1)
+            margin = jnp.asarray(self.stability_margin, dtype=drift.dtype)
+            for idx, latent_idx in enumerate(self.drift_base_decay_positions):
+                base_decay = drift_base_decay_free[idx]
+                drift = drift.at[latent_idx, latent_idx].set(
+                    -(base_decay + row_abs[latent_idx] + margin)
+                )
         if self.ti_mask is not None:
             diag_vals = jnp.diag(drift)
             new_diag = jnp.where(self.ti_mask, jnp.asarray(-1e-6, dtype=drift.dtype), diag_vals)

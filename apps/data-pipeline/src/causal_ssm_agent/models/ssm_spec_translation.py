@@ -48,6 +48,9 @@ class SpecTranslationError(AggregatedCompileError):
     header = "Spec translation failed"
 
 
+DEFAULT_STABILITY_MARGIN_PER_DAY = 0.05
+
+
 def get_construct_dt_days(causal_spec: dict | None, _construct_name: str = "") -> float:
     """Get the model clock interval in fractional days."""
     if causal_spec is None:
@@ -186,10 +189,7 @@ def build_masks_from_causal_spec(
     drift_mask = np.zeros((n_latent, n_latent), dtype=bool)
     for latent_name, latent_idx_value in latent_idx.items():
         construct = latent_construct_lookup.get(latent_name) or {}
-        if (
-            construct.get("role") == "endogenous"
-            and construct.get("temporal_status") != "time_invariant"
-        ):
+        if construct.get("temporal_status") != "time_invariant":
             drift_mask[latent_idx_value, latent_idx_value] = True
     edge_lag_days: dict[tuple[int, int], float] = {}
     model_dt_days = get_construct_dt_days(causal_spec)
@@ -720,6 +720,7 @@ def translate_spec(
         static_factor_names=static_factor_names,
         initialization_policy=initialization_policy.value,
         observation_intercept_policy=observation_intercept_policy.value,
+        stability_margin=DEFAULT_STABILITY_MARGIN_PER_DAY,
         lambda_mask=lambda_mask,
         time_invariant_mask=time_invariant_mask,
     )

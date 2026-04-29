@@ -41,7 +41,7 @@ def empty_prior_index_maps() -> PriorIndexMaps:
 
 
 SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
-    "drift_diag": "drift_diag_free",
+    "drift_base_decay": "drift_base_decay_free",
     "drift_offdiag": "drift_offdiag_free",
     "diffusion_diag": "diffusion_diag_free",
     "diffusion_offdiag": "diffusion_lower_free",
@@ -64,8 +64,8 @@ SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
 }
 
 SITE_TO_KEYWORDS: dict[str, list[str]] = {
-    "drift_diag": ["rho", "ar"],
-    "drift_diag_free": ["rho", "ar"],
+    "drift_base_decay": ["rho", "ar"],
+    "drift_base_decay_free": ["rho", "ar"],
     "drift_offdiag": ["beta"],
     "drift_offdiag_free": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
@@ -141,8 +141,8 @@ def resolve_scalar_parameter_name(
         spec.manifest_names, expected=spec.n_manifest, prefix="manifest"
     )
 
-    if site_name == "drift_diag_free" and flat_index < structure_runtime.n_drift_diag:
-        latent_idx = structure_runtime.drift_diag_positions[flat_index]
+    if site_name == "drift_base_decay_free" and flat_index < structure_runtime.n_drift_base_decay:
+        latent_idx = structure_runtime.drift_base_decay_positions[flat_index]
         return f"rho_{latent_names[latent_idx]}"
     if site_name == "drift_offdiag_free" and flat_index < structure_runtime.n_drift_offdiag:
         effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
@@ -244,6 +244,12 @@ def normalize_prior_params(
             "rate": params.get("rate", 1.0),
         }
 
+    if family == PriorDistributionFamily.DELTA:
+        return {
+            "family": get_positive_runtime_family_index(family),
+            "value": params.get("value", 1.0),
+        }
+
     raise ValueError(f"Unsupported prior distribution family: {distribution!r}")
 
 
@@ -262,8 +268,8 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
 
     structure_runtime = SSMStructureRuntime(ssm_spec)
 
-    if attr == "drift_diag":
-        return structure_runtime.n_drift_diag
+    if attr == "drift_base_decay":
+        return structure_runtime.n_drift_base_decay
 
     if attr == "diffusion_diag":
         return structure_runtime.n_diffusion_diag
@@ -325,6 +331,7 @@ def build_array_prior_payload(
         "concentration" in normalized for _, normalized in entries
     )
     include_rate = "rate" in current or any("rate" in normalized for _, normalized in entries)
+    include_value = "value" in current or any("value" in normalized for _, normalized in entries)
 
     lower_indices = {idx for idx, normalized in entries if "lower" in normalized}
     upper_indices = {idx for idx, normalized in entries if "upper" in normalized}
@@ -372,6 +379,7 @@ def build_array_prior_payload(
         [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
     )
     rate_arr = [float(current.get("rate", 1.0))] * n_total if include_rate else None
+    value_arr = [float(current.get("value", 1.0))] * n_total if include_value else None
 
     for idx, normalized in entries:
         if "mu" in normalized and mu_arr is not None:
@@ -390,6 +398,8 @@ def build_array_prior_payload(
             concentration_arr[idx] = float(normalized["concentration"])
         if "rate" in normalized and rate_arr is not None:
             rate_arr[idx] = float(normalized["rate"])
+        if "value" in normalized and value_arr is not None:
+            value_arr[idx] = float(normalized["value"])
 
     result: dict[str, list[float] | list[int]] = {}
     if mu_arr is not None:
@@ -408,5 +418,7 @@ def build_array_prior_payload(
         result["concentration"] = concentration_arr
     if rate_arr is not None:
         result["rate"] = rate_arr
+    if value_arr is not None:
+        result["value"] = value_arr
 
     return result
