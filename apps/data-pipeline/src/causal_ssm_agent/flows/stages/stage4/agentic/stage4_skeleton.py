@@ -117,17 +117,17 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
 
     # --- Autoregressive parameters ---
     for construct in retained_constructs:
-        if (
-            construct.get("temporal_status") == "time_varying"
-            and construct.get("role") == "endogenous"
-        ):
+        if construct.get("temporal_status") == "time_varying":
             construct_name = construct["name"]
             seed_parameters.append(
                 {
                     "name": f"rho_{construct_name}",
                     "role": "ar_coefficient",
                     "constraint": "unit_interval",
-                    "description": f"AR(1) discrete-time persistence for {construct_name}",
+                    "description": (
+                        "Baseline discrete-time persistence absent incoming feedback for "
+                        f"{construct_name}"
+                    ),
                     "construct": construct_name,
                 }
             )

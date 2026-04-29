@@ -633,10 +633,7 @@ async def run_stage4_megaprompt(
     # ``validation`` is a derived artifact. Computing it here from scratch
     # guarantees it reflects the current validator rules rather than
     # whatever was true when the checkpoint was written.
-    if (
-        state.accepted.model_spec is not None
-        and state.accepted.authored_priors
-    ):
+    if state.accepted.model_spec is not None and state.accepted.authored_priors:
         required_prior_names_local = _required_prior_names_from_spec(state.accepted.model_spec)
         if all(name in state.accepted.authored_priors for name in required_prior_names_local):
             from causal_ssm_agent.flows.stages.stage4.assembly import (
@@ -644,9 +641,7 @@ async def run_stage4_megaprompt(
                 validate_assembly,
             )
 
-            logger.info(
-                "stage-4:megaprompt recomputing validation on resume from retained inputs"
-            )
+            logger.info("stage-4:megaprompt recomputing validation on resume from retained inputs")
             state.accepted.validation = validate_assembly(
                 state.accepted.model_spec,
                 state.accepted.authored_priors,
@@ -666,9 +661,7 @@ async def run_stage4_megaprompt(
             )
             _write_checkpoint(state)
             if state.is_done():
-                logger.info(
-                    "stage-4:megaprompt resume is already valid — skipping agent session"
-                )
+                logger.info("stage-4:megaprompt resume is already valid — skipping agent session")
                 return Stage4Result(
                     model_spec=state.accepted.model_spec,
                     authored_priors=state.accepted.authored_priors,

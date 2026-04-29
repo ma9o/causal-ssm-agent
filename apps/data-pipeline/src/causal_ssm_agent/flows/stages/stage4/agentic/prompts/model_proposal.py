@@ -836,11 +836,12 @@ def _render_stage4_guidance_section(
     if section_key == "dynamics_budget_discipline":
         return (
             "## Dynamics Budget Discipline\n\n"
-            "- These priors determine the damping available for later incoming lagged effects.\n"
-            "- Avoid near-unit-root persistence or overly wide uncertainty unless strong evidence "
-            "supports it.\n"
-            "- Leave enough conservative decay that plausible incoming effects can still fit "
-            "inside the matrix-log drift budget.\n"
+            "- `rho_*` is baseline persistence absent incoming feedback; do not include damping "
+            "from incoming causes in it.\n"
+            "- Avoid near-unit-root baseline persistence or overly wide uncertainty unless strong "
+            "evidence supports it.\n"
+            "- The compiler adds incoming effect mass and a stability margin to produce the "
+            "realised diagonal damping.\n"
             "- Treat the reported headroom as advisory stability guidance rather than a formal "
             "acceptance rule.\n"
             "- If the validator reports a partial drift failure at this stage, tighten the active "

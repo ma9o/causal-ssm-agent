@@ -24,7 +24,7 @@ logger = get_prefect_logger(__name__)
 
 _SUBSTANTIVE_PROFILE_PREFIXES = (
     "cint_free[",
-    "drift_diag_free[",
+    "drift_base_decay_free[",
     "drift_offdiag_free[",
     "lambda_free",
 )

@@ -34,9 +34,7 @@ def render_locked_model_spec(
         f"- compiled baseline-factor scales from marginalized confounders: {baseline}",
     ]
 
-    likelihoods = [
-        item for item in (model_spec.get("likelihoods") or []) if isinstance(item, dict)
-    ]
+    likelihoods = [item for item in (model_spec.get("likelihoods") or []) if isinstance(item, dict)]
     if likelihoods:
         lines.extend(["", "### Indicator Likelihoods", ""])
         for item in likelihoods:

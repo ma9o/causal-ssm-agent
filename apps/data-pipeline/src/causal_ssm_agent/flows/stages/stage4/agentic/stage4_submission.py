@@ -450,7 +450,7 @@ def _example_prior_payload(prior_card: dict[str, Any]) -> dict[str, Any]:
         dist, params, reason = (
             "Beta",
             {"alpha": 2.0, "beta": 2.0},
-            "unit-interval persistence prior for the active AR parameter.",
+            "unit-interval baseline persistence prior absent incoming feedback.",
         )
     elif role == "fixed_effect":
         dist, params, reason = (
