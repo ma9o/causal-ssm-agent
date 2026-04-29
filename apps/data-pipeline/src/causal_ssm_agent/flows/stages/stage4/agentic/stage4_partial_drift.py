@@ -7,11 +7,16 @@ from typing import Any
 
 import numpy as np
 
+from causal_ssm_agent.artifacts.model_spec import ParameterRole
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_compilation import translate_spec
 from causal_ssm_agent.models.ssm_compiler import validate_model_spec_for_compilation
-from causal_ssm_agent.models.ssm_prior_compilation import PriorCompilationError, compile_priors
+from causal_ssm_agent.models.ssm_prior_compilation import (
+    PriorCompilationError,
+    compile_priors,
+    logm_diagnostic_mean_drift,
+)
 from causal_ssm_agent.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
@@ -49,12 +54,16 @@ class _PartialDriftState:
     offdiag_sigma: np.ndarray
     offdiag_present: np.ndarray
     offdiag_parameter_by_index: dict[int, str]
+    diagnostic_drift: np.ndarray | None = None
 
     @property
     def latent_index(self) -> dict[str, int]:
         return {name: idx for idx, name in enumerate(self.latent_names)}
 
     def mean_drift(self) -> np.ndarray:
+        if self.diagnostic_drift is not None:
+            return self.diagnostic_drift.copy()
+
         drift = np.zeros((len(self.latent_names), len(self.latent_names)), dtype=float)
         for idx in np.flatnonzero(self.diag_present):
             drift[idx, idx] = -abs(float(self.diag_mu[idx]))
@@ -84,8 +93,18 @@ def _build_partial_drift_state(
         raise ValueError("ModelSpec failed compiler validation:\n" + "\n".join(errors))
 
     ssm_spec, edge_lag_days = translate_spec(resolved_model_spec, causal_spec)
+    drift_parameter_names = {
+        parameter.name
+        for parameter in resolved_model_spec.parameters
+        if parameter.role in {ParameterRole.AR_COEFFICIENT, ParameterRole.FIXED_EFFECT}
+    }
+    drift_priors = {
+        parameter_name: prior_spec
+        for parameter_name, prior_spec in authored_priors.items()
+        if parameter_name in drift_parameter_names
+    }
     ssm_priors, index_maps, _diagnostics = compile_priors(
-        authored_priors,
+        drift_priors,
         resolved_model_spec,
         ssm_spec,
         edge_lag_days=edge_lag_days,
@@ -113,7 +132,7 @@ def _build_partial_drift_state(
     diag_sigma = np.zeros(len(latent_names), dtype=float)
     diag_present = np.zeros(len(latent_names), dtype=bool)
     diag_parameter_by_index: dict[int, str] = {}
-    for parameter_name in authored_priors:
+    for parameter_name in drift_priors:
         if parameter_name not in diag_param_index:
             continue
         _attr, flat_index = diag_param_index[parameter_name]
@@ -131,7 +150,7 @@ def _build_partial_drift_state(
     drift_offdiag_mu = np.asarray(ssm_priors.drift_offdiag.get("mu", []), dtype=float)
     drift_offdiag_sigma = np.asarray(ssm_priors.drift_offdiag.get("sigma", []), dtype=float)
     offdiag_param_index = index_maps[0]
-    for parameter_name in authored_priors:
+    for parameter_name in drift_priors:
         if parameter_name not in offdiag_param_index:
             continue
         _attr, flat_index = offdiag_param_index[parameter_name]
@@ -144,6 +163,18 @@ def _build_partial_drift_state(
             float(drift_offdiag_sigma[flat_index]) if flat_index < drift_offdiag_sigma.size else 0.0
         )
 
+    diagnostic_drift = logm_diagnostic_mean_drift(
+        ssm_priors,
+        ssm_spec,
+        edge_lag_days=edge_lag_days,
+    )
+    if diagnostic_drift is not None:
+        for latent_index in np.flatnonzero(diag_present):
+            diag_mu[latent_index] = abs(float(diagnostic_drift[latent_index, latent_index]))
+        for flat_index in np.flatnonzero(offdiag_present):
+            effect_idx, cause_idx = offdiag_positions[flat_index]
+            offdiag_mu[flat_index] = float(diagnostic_drift[effect_idx, cause_idx])
+
     return _PartialDriftState(
         latent_names=latent_names,
         diag_mu=diag_mu,
@@ -155,6 +186,7 @@ def _build_partial_drift_state(
         offdiag_sigma=offdiag_sigma,
         offdiag_present=offdiag_present,
         offdiag_parameter_by_index=offdiag_parameter_by_index,
+        diagnostic_drift=diagnostic_drift,
     )
 
 
