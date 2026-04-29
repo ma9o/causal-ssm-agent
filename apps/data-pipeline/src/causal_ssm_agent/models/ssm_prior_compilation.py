@@ -5,6 +5,9 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
+import scipy.linalg
+
 from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
 from causal_ssm_agent.artifacts.model_spec import ModelSpec, ParameterRole
 from causal_ssm_agent.flows import get_prefect_logger
@@ -15,6 +18,7 @@ from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_compilation_common import (
     SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
+    axis_names_with_fallback,
     build_array_prior_payload,
     empty_prior_index_maps,
     normalize_prior_params,
@@ -42,6 +46,8 @@ PriorFailureStage = Literal[
     "prior_sampling",
     "unknown",
 ]
+_LOGM_IMAG_TOL = 1e-8
+_LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD = 0.2
 
 
 class PriorCompilationError(AggregatedCompileError):
@@ -321,6 +327,7 @@ def collect_compile_diagnostics(
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, dict] | None = None,
     ssm_priors: SSMPriors | None = None,
+    offdiag_interval_days: dict[int, float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect structured compiler diagnostics for downstream consumers."""
     diagnostics = collect_interval_provenance_warnings(
@@ -330,7 +337,12 @@ def collect_compile_diagnostics(
     )
     if ssm_priors is not None:
         diagnostics.extend(
-            collect_first_order_approximation_warnings(ssm_priors, ssm_spec=ssm_spec)
+            collect_first_order_approximation_warnings(
+                ssm_priors,
+                ssm_spec=ssm_spec,
+                edge_lag_days=edge_lag_days,
+                offdiag_interval_days=offdiag_interval_days,
+            )
         )
     return diagnostics
 
@@ -344,82 +356,266 @@ def collect_first_order_approximation_warnings(
     ssm_priors: SSMPriors,
     *,
     ssm_spec: SSMSpec | None = None,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+    offdiag_interval_days: dict[int, float] | None = None,
 ) -> list[CompileDiagnostic]:
-    """Return typed warnings when the first-order DT->CT approximation looks weak."""
+    """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
     diag_prior = ssm_priors.drift_diag
     offdiag_prior = ssm_priors.drift_offdiag
-    if diag_prior is None or offdiag_prior is None:
+    if ssm_spec is None or diag_prior is None or offdiag_prior is None:
         return []
 
-    diag_mu = diag_prior.get("mu")
-    offdiag_mu = offdiag_prior.get("mu")
-    if diag_mu is None or offdiag_mu is None:
+    structure_runtime = SSMStructureRuntime(ssm_spec)
+    diag_mu = _prior_values_1d(diag_prior.get("mu"))
+    offdiag_mu = _prior_values_1d(offdiag_prior.get("mu"))
+    if diag_mu.size == 0 or offdiag_mu.size == 0:
         return []
 
-    if isinstance(diag_mu, (int, float)):
-        diag_mu = [diag_mu]
-    if isinstance(offdiag_mu, (int, float)):
-        offdiag_mu = [offdiag_mu]
-    if not diag_mu or not offdiag_mu:
+    taylor_drift = _assemble_mean_drift_from_prior_values(
+        ssm_spec,
+        structure_runtime,
+        diag_mu=diag_mu,
+        offdiag_mu=offdiag_mu,
+    )
+    diag_abs = np.abs(np.diag(taylor_drift))
+    positive_diag = diag_abs[diag_abs >= NUMERICAL_EPSILON]
+    if positive_diag.size == 0:
         return []
-
-    diag_abs = [abs(float(value)) for value in diag_mu]
-    min_diag = min(diag_abs)
+    min_diag = float(np.min(positive_diag))
     if min_diag < NUMERICAL_EPSILON:
         return []
-    min_diag_flat_idx = diag_abs.index(min_diag)
-
-    structure_runtime = SSMStructureRuntime(ssm_spec) if ssm_spec is not None else None
+    min_diag_latent_idx = int(np.where(diag_abs == min_diag)[0][0])
+    min_diag_flat_idx = structure_runtime.drift_diag_index.get(min_diag_latent_idx)
 
     min_diag_name = (
         resolve_scalar_parameter_name(
             ssm_spec, structure_runtime, "drift_diag_free", min_diag_flat_idx
         )
-        if ssm_spec is not None and structure_runtime is not None
+        if min_diag_flat_idx is not None
         else None
     )
-    min_diag_label = f"{min_diag_name}" if min_diag_name else f"drift_diag[{min_diag_flat_idx}]"
+    min_diag_label = f"{min_diag_name}" if min_diag_name else f"latent[{min_diag_latent_idx}]"
 
     warnings: list[CompileDiagnostic] = []
     for idx, offdiag_value in enumerate(offdiag_mu):
-        ratio = abs(float(offdiag_value)) / min_diag
-        if ratio <= 0.2:
+        if idx >= len(structure_runtime.offdiag_positions):
             continue
-        beta_name = (
-            resolve_scalar_parameter_name(ssm_spec, structure_runtime, "drift_offdiag_free", idx)
-            if ssm_spec is not None and structure_runtime is not None
-            else None
+        effect_idx, cause_idx = structure_runtime.offdiag_positions[idx]
+        interval_days = _resolve_offdiag_interval_days(
+            idx,
+            effect_idx=effect_idx,
+            cause_idx=cause_idx,
+            edge_lag_days=edge_lag_days,
+            offdiag_interval_days=offdiag_interval_days,
+        )
+        if interval_days is None:
+            continue
+
+        beta_name = resolve_scalar_parameter_name(
+            ssm_spec, structure_runtime, "drift_offdiag_free", idx
         )
         if beta_name is not None:
-            effect_idx, cause_idx = structure_runtime.offdiag_positions[idx]
-            cause_name = ssm_spec.latent_names[cause_idx]
-            effect_name = ssm_spec.latent_names[effect_idx]
+            latent_names = axis_names_with_fallback(
+                ssm_spec.latent_names,
+                expected=ssm_spec.n_latent,
+                prefix="latent",
+            )
+            cause_name = latent_names[cause_idx]
+            effect_name = latent_names[effect_idx]
             offdiag_label = f"{beta_name} ({cause_name} -> {effect_name})"
         else:
             offdiag_label = f"drift_offdiag[{idx}]"
+
+        try:
+            exact_drift = matrix_log_diagnostic_drift(
+                ssm_spec,
+                taylor_drift,
+                interval_days=interval_days,
+            )
+        except ValueError as exc:
+            warnings.append(
+                _compile_warning(
+                    code="dt_ct_approximation_warning",
+                    parameter="drift_offdiag",
+                    issue=f"{offdiag_label}: exact matrix-log CT diagnostic failed: {exc}",
+                    suggested_adjustment=(
+                        "Shrink the DT beta prior or elicit the prior directly on a real, stable "
+                        "CT drift scale."
+                    ),
+                    compiled_site_name="drift_offdiag_free",
+                    compiled_flat_index=idx,
+                    failure_stage="compiled_parameters",
+                    pathology_certificate=PriorPathologyCertificate(
+                        kind="dt_ct_approximation",
+                        primary_score=1.0,
+                    ),
+                )
+            )
+            continue
+
+        exact_value = float(exact_drift[effect_idx, cause_idx])
+        deviation = abs(exact_value - float(offdiag_value)) / max(
+            abs(exact_value), NUMERICAL_EPSILON
+        )
+        ratio = abs(exact_value) / min_diag
+        if deviation <= _LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD and ratio <= 0.2:
+            continue
         warnings.append(
             _compile_warning(
                 code="dt_ct_approximation_warning",
                 parameter="drift_offdiag",
                 issue=(
-                    f"{offdiag_label}: CT magnitude {abs(float(offdiag_value)):.3f} 1/day, "
-                    f"which is {ratio * 100:.0f}% of the smallest CT diagonal rate "
+                    f"{offdiag_label}: matrix-log mismatch; exact CT coupling at "
+                    f"{_format_interval_days(interval_days)} is {abs(exact_value):.3f} 1/day "
+                    f"versus the elementwise beta/dt value {abs(float(offdiag_value)):.3f} "
+                    f"1/day; logm deviation is {deviation * 100:.0f}% and the exact coupling "
+                    f"is {ratio * 100:.0f}% of the smallest CT diagonal rate "
                     f"({min_diag:.3f} 1/day, {min_diag_label})."
                 ),
                 suggested_adjustment=(
-                    "Shorten the reference interval (brings A_dt closer to I, where the "
-                    "linearization is tight) or elicit the prior directly on the CT rate."
+                    "Use the exact matrix-log CT scale when revising this edge: shorten the "
+                    "reference interval, shrink the DT beta prior, or elicit the prior directly "
+                    "on the CT rate."
                 ),
                 compiled_site_name="drift_offdiag_free",
                 compiled_flat_index=idx,
                 failure_stage="compiled_parameters",
                 pathology_certificate=PriorPathologyCertificate(
                     kind="dt_ct_approximation",
-                    primary_score=ratio,
+                    primary_score=deviation,
+                    secondary_score=ratio,
                 ),
             )
         )
     return warnings
+
+
+def _prior_values_1d(value: Any) -> np.ndarray:
+    if value is None:
+        return np.asarray([], dtype=float)
+    array = np.asarray(value if isinstance(value, list | tuple) else [value], dtype=float)
+    return array.reshape(-1)
+
+
+def _assemble_mean_drift_from_prior_values(
+    ssm_spec: SSMSpec,
+    structure_runtime: SSMStructureRuntime,
+    *,
+    diag_mu: np.ndarray,
+    offdiag_mu: np.ndarray,
+) -> np.ndarray:
+    drift = np.asarray(ssm_spec.drift, dtype=float).copy()
+    for flat_idx, latent_idx in enumerate(structure_runtime.drift_diag_positions):
+        if flat_idx < diag_mu.size:
+            drift[latent_idx, latent_idx] = -abs(float(diag_mu[flat_idx]))
+    for flat_idx, (effect_idx, cause_idx) in enumerate(structure_runtime.offdiag_positions):
+        if flat_idx < offdiag_mu.size:
+            drift[effect_idx, cause_idx] = float(offdiag_mu[flat_idx])
+    return drift
+
+
+def _resolve_offdiag_interval_days(
+    flat_idx: int,
+    *,
+    effect_idx: int,
+    cause_idx: int,
+    edge_lag_days: dict[tuple[int, int], float] | None,
+    offdiag_interval_days: dict[int, float] | None,
+) -> float | None:
+    interval = (offdiag_interval_days or {}).get(flat_idx)
+    if interval is None:
+        interval = (edge_lag_days or {}).get((effect_idx, cause_idx))
+    if interval is None:
+        return None
+    interval = float(interval)
+    if interval <= 0:
+        return None
+    return interval
+
+
+def _transition_from_elementwise_dt_terms(
+    drift: np.ndarray,
+    interval_days: float,
+) -> np.ndarray:
+    transition = np.eye(drift.shape[0], dtype=float)
+    for idx in range(drift.shape[0]):
+        transition[idx, idx] = math.exp(float(drift[idx, idx]) * interval_days)
+
+    offdiag_mask = ~np.eye(drift.shape[0], dtype=bool)
+    transition[offdiag_mask] = drift[offdiag_mask] * interval_days
+    return transition
+
+
+def matrix_log_diagnostic_drift(
+    ssm_spec: SSMSpec,
+    drift: np.ndarray,
+    *,
+    interval_days: float,
+) -> np.ndarray:
+    """Compute the full matrix-log CT drift used by dynamics diagnostics."""
+    if interval_days <= 0:
+        raise ValueError("matrix-log CT dynamics diagnostics require a positive interval.")
+
+    transition = _transition_from_elementwise_dt_terms(drift, interval_days)
+    log_transition = scipy.linalg.logm(transition)
+    imaginary_scale = float(np.max(np.abs(np.imag(log_transition))))
+    if imaginary_scale > _LOGM_IMAG_TOL:
+        raise ValueError(
+            "Matrix-log CT dynamics diagnostics require an embeddable real transition matrix; "
+            f"max imaginary logm component is {imaginary_scale:.3g}."
+        )
+    exact_drift = np.real(log_transition) / interval_days
+
+    if ssm_spec.time_invariant_mask is not None:
+        ti_mask = np.asarray(ssm_spec.time_invariant_mask, dtype=bool)
+        if ti_mask.size == exact_drift.shape[0]:
+            exact_drift[np.diag_indices(exact_drift.shape[0])] = np.where(
+                ti_mask,
+                -1e-6,
+                np.diag(exact_drift),
+            )
+    return exact_drift
+
+
+def logm_diagnostic_mean_drift(
+    ssm_priors: SSMPriors,
+    ssm_spec: SSMSpec,
+    *,
+    edge_lag_days: dict[tuple[int, int], float] | None = None,
+) -> np.ndarray | None:
+    """Return the exact matrix-log mean drift for Stage 4 dynamics diagnostics."""
+    structure_runtime = SSMStructureRuntime(ssm_spec)
+    diag_mu = _prior_values_1d(ssm_priors.drift_diag.get("mu"))
+    offdiag_mu = _prior_values_1d(ssm_priors.drift_offdiag.get("mu"))
+    if diag_mu.size == 0 and offdiag_mu.size == 0:
+        return None
+
+    drift = _assemble_mean_drift_from_prior_values(
+        ssm_spec,
+        structure_runtime,
+        diag_mu=diag_mu,
+        offdiag_mu=offdiag_mu,
+    )
+    intervals = sorted(
+        {
+            float(interval)
+            for interval in (edge_lag_days or {}).values()
+            if float(interval) > 0
+        }
+    )
+    if not intervals:
+        if np.any(np.abs(offdiag_mu) >= NUMERICAL_EPSILON):
+            raise ValueError(
+                "Matrix-log CT dynamics diagnostics require edge lag metadata for "
+                "off-diagonal drift priors."
+            )
+        return drift
+    if len(intervals) > 1:
+        raise ValueError(
+            "Matrix-log CT dynamics diagnostics require one structural lag interval; "
+            f"got {intervals}."
+        )
+    return matrix_log_diagnostic_drift(ssm_spec, drift, interval_days=intervals[0])
 
 
 def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, ParameterRole]:
@@ -509,6 +705,7 @@ def compile_priors(
     ) = index_maps
     structure_runtime = SSMStructureRuntime(ssm_spec) if ssm_spec is not None else None
     errors: list[str] = []
+    offdiag_interval_days: dict[int, float] = {}
 
     for param_name, prior_spec in raw_priors.items():
         try:
@@ -571,6 +768,7 @@ def compile_priors(
                     edge_lag_days=edge_lag_days,
                     causal_spec=causal_spec,
                 )
+                offdiag_interval_days[idx] = dt
                 _append_structured_prior(
                     per_element,
                     attr,
@@ -673,6 +871,7 @@ def compile_priors(
             edge_lag_days=edge_lag_days,
             raw_priors=raw_priors,
             ssm_priors=ssm_priors,
+            offdiag_interval_days=offdiag_interval_days,
         )
         _log_compile_diagnostics(diagnostics)
 
