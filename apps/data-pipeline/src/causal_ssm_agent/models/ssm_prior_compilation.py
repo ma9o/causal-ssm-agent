@@ -53,6 +53,115 @@ PriorFailureStage = Literal[
 _LOGM_IMAG_TOL = 1e-8
 _LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD = 0.2
 
+_NONDEGENERATE_TOL = 1e-12
+
+_DEGENERATE_PRIOR_PREAMBLE = (
+    "Stage 4 priors must have strictly positive variance. Zero-width priors assert "
+    "the parameter's value with infinite certainty, which is a structural claim "
+    "rather than a Bayesian belief. Legitimate fixed-value cases (identification "
+    "fixings, baseline policies) belong on the structural surface — the skeleton "
+    "parameter list or model-spec policy toggles — not on the prior surface."
+)
+
+
+def _validate_nondegenerate_prior(
+    parameter: str,
+    distribution: PriorDistributionFamily | str,
+    raw_params: dict[str, Any],
+) -> list[str]:
+    """Reject Stage-4-authored priors with zero variance or explicit point masses.
+
+    The validator runs on the LLM-authored (raw) params dict so error messages
+    reference what was actually authored. Family-specific positivity checks cover
+    every distribution that ``normalize_prior_params`` accepts.
+    """
+    family_str = (
+        distribution.value if isinstance(distribution, PriorDistributionFamily) else str(distribution)
+    )
+    family_lower = family_str.lower().replace("-", "_")
+    issues: list[str] = []
+
+    def _err(detail: str, suggestion: str = "") -> str:
+        message = f"Prior {parameter!r} ({family_str}): {detail}. {_DEGENERATE_PRIOR_PREAMBLE}"
+        if suggestion:
+            message += " " + suggestion
+        return message
+
+    if family_lower in {"delta", "dirac"}:
+        return [
+            _err(
+                "Delta/point-mass priors are not supported on the prior surface",
+                "If a parameter must be fixed, change the structural surface instead.",
+            )
+        ]
+
+    if "value" in raw_params:
+        issues.append(
+            _err(
+                "explicit 'value' fields are not supported on the prior surface",
+                "If you intended to fix the parameter, use the structural surface.",
+            )
+        )
+
+    sigma = raw_params.get("sigma")
+    lower = raw_params.get("lower")
+    upper = raw_params.get("upper")
+    alpha = raw_params.get("alpha")
+    beta = raw_params.get("beta")
+    concentration = raw_params.get("concentration")
+    rate = raw_params.get("rate")
+
+    sigma_families = {
+        "normal",
+        "truncated_normal",
+        "truncatednormal",
+        "half_normal",
+        "halfnormal",
+        "log_normal",
+        "lognormal",
+    }
+    if (
+        family_lower in sigma_families
+        and sigma is not None
+        and float(sigma) <= _NONDEGENERATE_TOL
+    ):
+        issues.append(_err(f"sigma={float(sigma):.3g} must be strictly positive"))
+
+    bound_families = {"uniform", "truncated_normal", "truncatednormal"}
+    if (
+        family_lower in bound_families
+        and lower is not None
+        and upper is not None
+        and float(upper) - float(lower) <= _NONDEGENERATE_TOL
+    ):
+        issues.append(
+            _err(
+                f"support [{float(lower):.4g}, {float(upper):.4g}] has zero width "
+                f"(lower must be strictly less than upper)",
+                f"For tight belief near {float(lower):.4g}, author a Beta or "
+                "Gamma with small but positive sd, or widen the bounds.",
+            )
+        )
+
+    if family_lower == "beta":
+        if alpha is not None and float(alpha) <= 0.0:
+            issues.append(_err(f"alpha={float(alpha):.3g} must be strictly positive"))
+        if beta is not None and float(beta) <= 0.0:
+            issues.append(_err(f"beta={float(beta):.3g} must be strictly positive"))
+
+    if family_lower == "gamma":
+        if concentration is not None and float(concentration) <= 0.0:
+            issues.append(
+                _err(f"concentration={float(concentration):.3g} must be strictly positive")
+            )
+        if rate is not None and float(rate) <= 0.0:
+            issues.append(_err(f"rate={float(rate):.3g} must be strictly positive"))
+
+    if family_lower == "exponential" and rate is not None and float(rate) <= 0.0:
+        issues.append(_err(f"rate={float(rate):.3g} must be strictly positive"))
+
+    return issues
+
 
 class PriorCompilationError(AggregatedCompileError):
     """Aggregate independent prior-compilation failures into one exception."""
@@ -775,7 +884,14 @@ def compile_priors(
     for param_name, prior_spec in raw_priors.items():
         try:
             distribution = prior_spec.get("distribution", "Normal")
-            normalized = normalize_prior_params(distribution, prior_spec.get("params", {}))
+            raw_prior_params = prior_spec.get("params", {})
+            degenerate_issues = _validate_nondegenerate_prior(
+                param_name, distribution, raw_prior_params
+            )
+            if degenerate_issues:
+                errors.extend(degenerate_issues)
+                continue
+            normalized = normalize_prior_params(distribution, raw_prior_params)
 
             if param_name in diag_param_index:
                 attr, idx = diag_param_index[param_name]
@@ -807,11 +923,7 @@ def compile_priors(
                         f"but upper bound is {float(upper):.3g}"
                     )
 
-                rho_value = normalized.get("value")
-                fixed_by_family = rho_value is not None
-                if rho_value is None:
-                    rho_value = normalized.get("mu", 0.5)
-                mu_ar = float(rho_value)
+                mu_ar = float(normalized.get("mu", 0.5))
                 if not 0.0 < mu_ar < 1.0:
                     param_errors.append(
                         f"AR prior '{param_name}' must have DT persistence mean in (0, 1), got {mu_ar:.3g}"
@@ -821,44 +933,27 @@ def compile_priors(
                     continue
 
                 sigma_ar = float(normalized.get("sigma", 0.2))
-                fixed_by_width = sigma_ar <= 0.0 or (
-                    lower is not None
-                    and upper is not None
-                    and math.isclose(float(lower), float(upper), rel_tol=0.0, abs_tol=0.0)
-                )
+                if sigma_ar <= 0.0:
+                    # Should have been caught by _validate_nondegenerate_prior; defensive.
+                    errors.append(
+                        f"AR prior '{param_name}' resolved to non-positive sigma "
+                        f"{sigma_ar:.3g} during compilation."
+                    )
+                    continue
                 base_decay = -math.log(mu_ar) / dt
-                if fixed_by_family or fixed_by_width:
-                    _append_structured_prior(
-                        per_element,
-                        attr,
-                        idx,
-                        {
-                            "family": get_positive_runtime_family_index(
-                                PriorDistributionFamily.DELTA
-                            ),
-                            "value": base_decay,
-                        },
-                    )
-                else:
-                    sd = sigma_ar / (mu_ar * dt)
-                    if sd <= 0.0:
-                        errors.append(
-                            f"AR prior '{param_name}' compiles to non-positive base-decay SD "
-                            f"{sd:.3g}."
-                        )
-                        continue
-                    _append_structured_prior(
-                        per_element,
-                        attr,
-                        idx,
-                        {
-                            "family": get_positive_runtime_family_index(
-                                PriorDistributionFamily.GAMMA
-                            ),
-                            "concentration": (base_decay / sd) ** 2,
-                            "rate": base_decay / (sd**2),
-                        },
-                    )
+                sd = sigma_ar / (mu_ar * dt)
+                _append_structured_prior(
+                    per_element,
+                    attr,
+                    idx,
+                    {
+                        "family": get_positive_runtime_family_index(
+                            PriorDistributionFamily.GAMMA
+                        ),
+                        "concentration": (base_decay / sd) ** 2,
+                        "rate": base_decay / (sd**2),
+                    },
+                )
                 continue
 
             if param_name in offdiag_param_index:
