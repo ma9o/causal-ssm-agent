@@ -79,7 +79,7 @@ Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the flat structural 
 **What it does:**
 
 - Extracts latent construct layout from the DAG (names, order, time-invariant mask)
-- Builds the **drift template** plus split masks: `drift_diag_mask` for autoregressive diagonals and `drift_offdiag_mask` for cross-lag entries (maps to the [CT-SDE drift matrix](estimation.md#1-ct-sde-formulation))
+- Builds the **drift template** plus split masks: `drift_diag_mask` marks free baseline decay entries for autoregressive surfaces and `drift_offdiag_mask` marks cross-lag entries in the [CT-SDE drift matrix](estimation.md#1-ct-sde-formulation)
 - Builds the **loading template** (`lambda_mat`) plus `lambda_mask`: fixed indicator-to-construct loadings and free non-reference loadings
 - Compiles concrete templates plus masks for `cint`, `static_state_sds`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`
 - Converts marginalized time-invariant confounders into compiled low-rank baseline factors of the form `B diag(tau^2) B^T` rather than free pairwise `cor0_*` surfaces on the causal-spec path
@@ -98,7 +98,7 @@ Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_moo
 **What it does:**
 
 - For each parameter in `ModelSpec`, determines its role (AR coefficient, fixed effect, loading, residual SD, state intercept, observation intercept, static baseline-factor SD, correlation, and observation-family auxiliary site)
-- Maps it to the correct SSM field (`drift_diag`, `drift_offdiag`, `lambda_free`, `manifest_means`, `cint`, `static_state_sd`, etc.) and flat index
+- Maps it to the correct SSM field (`drift_base_decay`, `drift_offdiag`, `lambda_free`, `manifest_means`, `cint`, `static_state_sd`, etc.) and flat index
 - Derives the canonical free-entry order from `SSMStructureRuntime(ssm_spec)` so the compiler, runtime assembly, and posterior name resolution all share one structural indexing authority
 - Uses `split_compound_name()` to parse compound names like `"beta_mood_stress"` into (cause, effect)
 
@@ -110,7 +110,7 @@ This is now a strict internal helper: it requires both a translated `SSMSpec` an
 
 1. `offdiag_index` — cross-lag effects (drift off-diagonal)
 2. `lambda_index` — factor loadings
-3. `diag_index` — AR coefficients (drift diagonal)
+3. `diag_index` — AR coefficients (baseline decay for the derived drift diagonal)
 4. `diffusion_diag_index` — residual SDs
 5. `diffusion_offdiag_index` — residual correlations
 6. `t0_offdiag_index` — initial-state correlations
@@ -128,7 +128,8 @@ Translates user-facing prior specifications into `SSMPriors` arrays with the cor
 
 **Critical transformations:**
 
-- **AR coefficients (DT→CT):** User specifies ρ ∈ (−1, 1) in discrete time. The compiler transforms to continuous-time drift diagonal[^sarkka2019] via `μ_ct = −log(|ρ|)/dt`, `σ_ct = σ_ar / (μ_ar · dt)`.
+- **AR coefficients (DT→CT):** User specifies `rho_*` as baseline persistence in `(0, 1)` over the authored interval, absent incoming feedback. The compiler transforms it to positive continuous-time base decay with `base_decay = −log(rho) / dt`; nondegenerate priors are moment-matched to `Gamma(concentration, rate)`, and fixed-width `rho_*` priors compile to positive `Delta(value)`.
+- **Hard-sparsity drift assembly:** Off-diagonal entries are compiled as `A_ij = beta_ij / dt` on allowed edges only. For each dynamic row, the realised diagonal is derived as `A_ii = -(base_decay_i + sum_j |A_ij| + stability_margin)`, preserving structural zeros while guaranteeing strict row diagonal dominance.
 - **Cross-lag effects:** Scaled by an explicitly resolved positive interval in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the causal-spec model clock. If none exists, compilation now raises instead of silently assuming `1.0d`.
 - **Array assembly:** `build_array_prior_payload()` fills SSM-sized arrays from the sparse index maps, using defaults for unmapped slots.
 
@@ -137,7 +138,7 @@ Translates user-facing prior specifications into `SSMPriors` arrays with the cor
 **Post-compilation diagnostics:**
 
 - `collect_interval_provenance_warnings()` — warns when cited source intervals and authored/model intervals materially disagree
-- `collect_first_order_approximation_warnings()` — flags when the first-order DT→CT approximation looks weak
+- `collect_first_order_approximation_warnings()` — uses the full matrix logarithm `logm(A_dt) / dt` to flag cross-lag priors whose elementwise `beta_dt / dt` CT coupling materially differs from the full-system CT scale
 - `collect_compile_diagnostics()` — combines these warnings into the structured diagnostics payload persisted on the artifact
 
 ## Stage 4: Parameter Bindings (`ssm_prior_compilation.py`)
@@ -146,7 +147,7 @@ Creates the mapping from semantic parameter names to NumPyro sample sites — th
 
 **Key function:** `bind_parameters(index_maps) -> list[dict]`
 
-Each binding is: `{parameter: "rho_mood", site_name: "drift_diag_free", flat_index: 0}`
+Each binding is: `{parameter: "rho_mood", site_name: "drift_base_decay_free", flat_index: 0}`
 
 This allows `InferenceResult` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `PriorIndexMaps` from Stage 3 rather than rebuilding them, and only the compile entrypoints decide whether semantic bindings should exist at all.
 
@@ -227,5 +228,3 @@ Leaf modules (`ssm_spec_translation`, `ssm_prior_indexing`, `ssm_observation_met
 
 - `compile_ssm_inputs_from_model_spec()` for the semantic Stage 4 path
 - `compile_ssm_inputs_from_spec()` for already-translated `SSMSpec` callers
-
-[^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](bibliography.md)
