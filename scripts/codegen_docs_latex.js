@@ -18,6 +18,8 @@ const generatedBlockPattern =
   /<!-- docs-latex:start ([A-Za-z0-9_-]+) -->([\s\S]*?)<!-- docs-latex:end -->/g;
 const checkOnly = process.argv.includes("--check");
 const displayExToPx = 12;
+const displayHorizontalPadding = 0.08;
+const displayVerticalPadding = 0.25;
 
 const adaptor = liteAdaptor();
 RegisterHTMLHandler(adaptor);
@@ -110,10 +112,25 @@ function renderSvg(meta) {
   const metadata = `${theme}<title>${title}</title><desc>${description}</desc>`;
 
   const sizedSvg = meta.display
-    ? rawSvg.replace(/\b(width|height)="([0-9.]+)ex"/g, (_, attr, value) => {
-        const pixels = Math.ceil(Number.parseFloat(value) * displayExToPx);
-        return `${attr}="${pixels}"`;
-      })
+    ? rawSvg
+        .replace(/\b(width|height)="([0-9.]+)ex"/g, (_, attr, value) => {
+          const pixels = Math.ceil(Number.parseFloat(value) * displayExToPx);
+          return `${attr}="${pixels}"`;
+        })
+        .replace(/\bviewBox="([^"]+)"/, (_, rawViewBox) => {
+          const [x, y, width, height] = rawViewBox.split(/\s+/).map(Number.parseFloat);
+          const xPadding = width * displayHorizontalPadding;
+          const yPadding = height * displayVerticalPadding;
+          const paddedViewBox = [
+            x - xPadding,
+            y - yPadding,
+            width + 2 * xPadding,
+            height + 2 * yPadding,
+          ]
+            .map((value) => Number(value.toFixed(1)))
+            .join(" ");
+          return `viewBox="${paddedViewBox}"`;
+        })
     : rawSvg;
 
   return `${sizedSvg.replace(/<svg\b([^>]*)>/, `<svg$1>${metadata}`)}\n`;
