@@ -9,14 +9,15 @@
 
 The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, uisng high-leverage digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge - where available - in the form of prior distributions and modeling assumptions. 
 
-In practice, the user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurment model for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the model is translated into a continous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
+In practice, the user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurment model for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the DAG is translated into a continous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
 
 ```mermaid
 flowchart LR
   Q(["Question"])
   DS(["Dataset"])
   L["Causal DAG"]
-  M["Measurement\nmodel"]
+  M["Measurement\nmodel proposal"]
+  DSC["Data extraction &\nvalidation"]
   ID{"Identified?"}
   MS["Model\nspecification"]
   P["Priors &\nlikelihoods"]
@@ -25,8 +26,8 @@ flowchart LR
   R(["Causal effect\nestimate"])
 
   Q --> L 
-  DS --> M
-  L --> M --> ID
+  DS --> M 
+  L --> M --> DSC --> ID
   ID -- yes --> MS
   subgraph Bayesian modeling state machine 
   MS --> P --> EST
@@ -45,18 +46,17 @@ Input: *"How can I be more energized in the mornings?"*
 Data exports: Oura Ring, Doctolib, Google Calendar, ChatGPT 
 
 
-Built for intensive longitudinal data (ILD) and N-of-1 settings: irregular timestamps, mixed indicator types, semantic heterogeneity.
-
 ## Features and Goals
 
-- **Natural language queries** — Users ask informal causal questions; the LLM translates into formal structure with latent constructs, indicators, and explicit confounders
-- **Identification before estimation** — Structural identifiability checked via [y0](https://y0.readthedocs.io/) ([Shpitser & Pearl 2006](https://doi.org/10.1016/j.artint.2008.12.006)) before any numeric claim. No identification, no causal estimate.
-- **Continuous-time state-space models** — Multivariate Ornstein-Uhlenbeck dynamics with exact matrix-exponential discretization for arbitrarily irregular observation intervals
-- **Mixed likelihood families** — Gaussian, ordinal logistic, Poisson, Bernoulli, Beta, categorical — matched to indicator dtype automatically
+- **Methodological rigor without friction** - An user should be simply able to provide a dataset and a question, and the software should provide the most rigorous possible answer without pushing any methodological decision onto the user.
+- **Interpretability and interactivity** - At any stage, users can inspect and intervene on the LLM outputs in the UI, either by interactively challenging the LLM in conversation or directly overriding its decisions.
+- **Support for large datasets, irregular timestamps and semantic heterogeneity** - via multivariate continuous-time Ornstein-Uhlenbeck dynamics with non-Guassian indicator-specific likelihoods (Gaussian, ordinal logistic, Poisson, Bernoulli, Beta, categorical). 
+- **Robust LLM-based numerical modeling and prior elicitation** - by embedding the LLM decision process in a state machine that minimizes the LLM's decision surface at each step, and gates progression on numerical checks (e.g. prior/posterior predictive, scale adequacy, etc.)
+- **Fast and accurate MCMC estimation in `jax`** - Exact inference in minutes using O(log T) associative Kalman filtering on GPU ([Corenflos et al. 2025](https://arxiv.org/abs/2303.00301)). Efficient caching ensures that we never waste time waiting for compilation.
+- **Compatibile with `codex` and `claude-code`** - Leverage your existing subscription for the interactive stages of the pipeline.
+
+
 - **LLM-elicited priors** — Prior distributions proposed by the LLM with optional literature grounding via [Exa](https://docs.exa.ai/) search, validated through prior predictive checks (stability, scale plausibility)
-- **Explicit latent confounders** — Unobserved confounding modeled as explicit nodes in the DAG, never bidirected edges; ADMGs used only internally for the ID algorithm
-- **Dual inference backends** — Kalman filter (exact, via [cuthbert](https://github.com/cuthbert-ai/cuthbert)) for linear-Gaussian models; Rao-Blackwellized particle filter for non-Gaussian observations
-- **Full web interface** — Interactive DAG visualization, stage-by-stage pipeline progress, posterior diagnostics, intervention analysis
 
 ## Modeling
 
