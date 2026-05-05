@@ -175,7 +175,7 @@ function createUnsupportedAssistantMessage(id: string): UIMessage {
     parts: [
       {
         type: "text",
-        text: "This story only supports two canned follow-ups: a rung 2 lipid-burden intervention and a rung 3 medication-adherence counterfactual.",
+        text: "This story only supports two canned follow-ups: a rung 2 \"What happens if we shift lipid burden by +1?\" and a rung 3 \"What would have happened had medication adherence been higher?\"",
       },
     ],
   };
