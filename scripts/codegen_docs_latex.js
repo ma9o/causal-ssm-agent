@@ -133,24 +133,26 @@ function renderSvg(meta) {
         })
     : rawSvg;
 
-  return `${sizedSvg.replace(/<svg\b([^>]*)>/, `<svg$1>${metadata}`)}\n`;
+  const svgText = `${sizedSvg.replace(/<svg\b([^>]*)>/, `<svg$1>${metadata}`)}\n`;
+  const width = Number.parseInt(/\bwidth="([0-9]+)"/.exec(svgText)?.[1] ?? "0", 10);
+  return { svgText, width };
 }
 
 function assetPathFor(meta) {
   const assetPath = resolve(assetRoot, `${meta.display ? "display" : "inline"}-${hashMeta(meta)}.svg`);
-  const svgText = renderSvg(meta);
+  const rendered = renderSvg(meta);
   const existing = renderedAssets.get(assetPath);
 
-  if (existing !== undefined && existing !== svgText) {
+  if (existing !== undefined && existing.svgText !== rendered.svgText) {
     throw new Error(`Hash collision while rendering ${assetPath}`);
   }
 
-  renderedAssets.set(assetPath, svgText);
-  return assetPath;
+  renderedAssets.set(assetPath, rendered);
+  return { assetPath, width: rendered.width };
 }
 
 function embedFor(meta, markdownPath) {
-  const assetPath = assetPathFor(meta);
+  const { assetPath, width } = assetPathFor(meta);
   const link = normalizePath(relative(dirname(markdownPath), assetPath));
   const encoded = encodeMeta(meta);
   const alt = markdownAlt(meta);
@@ -163,7 +165,7 @@ function embedFor(meta, markdownPath) {
   return [
     `<!-- docs-latex:start ${encoded} -->`,
     '<p align="center">',
-    `  <img src="${link}" alt="${xmlEscape(alt)}">`,
+    `  <img src="${link}" alt="${xmlEscape(alt)}" width="${width}">`,
     "</p>",
     "<!-- docs-latex:end -->",
   ].join("\n");
@@ -391,12 +393,12 @@ function syncAssets() {
     mkdirSync(assetRoot, { recursive: true });
   }
 
-  for (const [assetPath, svgText] of renderedAssets.entries()) {
+  for (const [assetPath, rendered] of renderedAssets.entries()) {
     const existing = existsSync(assetPath) ? readFileSync(assetPath, "utf8") : null;
-    if (existing !== svgText) {
+    if (existing !== rendered.svgText) {
       changedAssets.push(normalizePath(relative(repoRoot, assetPath)));
       if (!checkOnly) {
-        writeFileSync(assetPath, svgText);
+        writeFileSync(assetPath, rendered.svgText);
       }
     }
   }
