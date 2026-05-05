@@ -1,4 +1,4 @@
-# TypeScript Codegen from Python Contracts
+# TypeScript Code Generation from Python Contracts
 
 ## How it works
 
@@ -9,7 +9,7 @@
 
 Generated files are committed. [`docs:check`](../../package.json) verifies schema/typegen drift, generated docs drift, generated LaTeX images, and markdown lint.
 
-## Running codegen
+## Running Code Generation
 
 ```bash
 bun run docs:codegen # run every docs/codegen writer

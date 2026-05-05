@@ -32,7 +32,7 @@ flowchart LR
 |---|---|---|---|
 | `missing` | Indicator declared in `CausalSpec` but absent from extracted data | warning | any absence |
 | `no_numeric` | Rows exist but no values survived `Float64` coercion | error | zero numeric values |
-| `timestamps` | Observation-time parseability | error if 100% unparseable; warning if >50% | fraction of `anchor_time` values that fail all nine timestamp formats |
+| `timestamps` | Observation-time parsing | error if 100% invalid; warning if >50% | fraction of `anchor_time` values that fail all nine timestamp formats |
 | `sample_size` | Minimum observation count | warning | < 10 observations |
 | `variance` | Zero-variance detection | error | variance = 0 (constant series) |
 | `dtype_range` | Values conform to declared [`measurement_dtype`](01b-measurement-identifiability.md#indicator) | error for binary/count violations; warning for continuous outliers | see dtype-range details below |

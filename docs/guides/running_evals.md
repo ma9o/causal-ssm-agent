@@ -8,7 +8,7 @@
 | `evals/multi_model/eval3_worker_measurement_adherence.py` | Stage 2 workers | Judge-based worker adherence to measurement instructions |
 | `evals/multi_model/eval_medical_semantics_orchestrator.py` | Stages 1a -> 1b -> 2 | Judge-ranked orchestrator reproduction of the fixed `MEDICAL_SEMANTICS` fixture |
 
-Worker-facing evals load persisted workspace artifacts, not ad hoc preprocessed
+Worker-facing evaluations load persisted workspace artifacts, not ad hoc preprocessed
 text files. The default workspace is `GOLDEN` from `evals/config.yaml`, and you
 can override it with `workspace_id`.
 
@@ -54,12 +54,12 @@ uv run inspect eval evals/multi_model/eval_medical_semantics_orchestrator.py \
 uv run inspect view
 ```
 
-Worker and measurement evals require `-T workspace_id=GOLDEN` (or `SMALLGOLDEN`).
-Multi-model evals (`eval3_*`, `eval_medical_*`) don't take `--model`; they configure models internally.
+Worker and measurement evaluations require `-T workspace_id=GOLDEN` (or `SMALLGOLDEN`).
+Multi-model evaluations (`eval3_*`, `eval_medical_*`) don't take `--model`; they configure models internally.
 
 ## Tracked Fixture Workspaces
 
-Evals and manual prompt-sampling tools read the same persisted workspace artifacts
+Evaluations and manual prompt-sampling tools read the same persisted workspace artifacts
 that the pipeline uses. By default they load `data/GOLDEN/`, but you can point
 them at any workspace with compatible `query.txt` and `run/stage-*.json` outputs.
 For the full workspace directory layout, see [Agentic Integration Testing](agentic_integration_testing.md#workspace-layout).
