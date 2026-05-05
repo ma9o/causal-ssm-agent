@@ -36,39 +36,30 @@ flowchart LR
   ID -- no --> L
 ```
 
-See the [pipeline docs](docs/pipeline.md) for a detailed walkthrough of each stage.
-
-**Example**
-
 <!-- TODO demo video -->
-
-Input: *"How can I be more energized in the mornings?"* 
-Data exports: Oura Ring, Doctolib, Google Calendar, ChatGPT 
-
 
 ## Features and Goals
 
 - **Methodological rigor without friction** - An user should be simply able to provide a dataset and a question, and the software should provide the most rigorous possible answer without pushing any methodological decision onto the user.
 - **Interpretability and interactivity** - At any stage, users can inspect and intervene on the LLM outputs in the UI, either by interactively challenging the LLM in conversation or directly overriding its decisions.
-- **Support for large datasets, irregular timestamps and semantic heterogeneity** - via multivariate continuous-time Ornstein-Uhlenbeck dynamics with non-Guassian indicator-specific likelihoods (Gaussian, ordinal logistic, Poisson, Bernoulli, Beta, categorical). 
-- **Robust LLM-based numerical modeling and prior elicitation** - by embedding the LLM decision process in a state machine that minimizes the LLM's decision surface at each step, and gates progression on numerical checks (e.g. prior/posterior predictive, scale adequacy, etc.)
+- **Support for large datasets, irregular timestamps and semantic heterogeneity** - via multivariate continuous-time Ornstein-Uhlenbeck dynamics with non-Guassian indicator-specific likelihoods (Poisson, Bernoulli, Beta, etc.). 
+- **Robust LLM-based numerical modeling and prior elicitation** - by embedding the LLM decision process in a state machine that minimizes the LLM's decision surface at each step, and gates progression on numerical checks (e.g. prior/posterior predictive, SDE stability, scale adequacy, etc.)
 - **Fast and accurate MCMC estimation in `jax`** - Exact inference in minutes using O(log T) associative Kalman filtering on GPU ([Corenflos et al. 2025](https://arxiv.org/abs/2303.00301)). Efficient caching ensures that we never waste time waiting for compilation.
 - **Compatibile with `codex` and `claude-code`** - Leverage your existing subscription for the interactive stages of the pipeline.
 
-
-- **LLM-elicited priors** — Prior distributions proposed by the LLM with optional literature grounding via [Exa](https://docs.exa.ai/) search, validated through prior predictive checks (stability, scale plausibility)
-
 ## Modeling
 
-A causal question becomes a directed acyclic graph: latent constructs as nodes, directed edges as hypothesized effects, with unobserved confounders as explicit latent nodes. Each target effect is checked for nonparametric identifiability — the DAG is [temporally unrolled](https://arxiv.org/abs/2504.20172), projected to an ADMG, and passed through the [ID algorithm](https://doi.org/10.1016/j.artint.2008.12.006). Effects that aren't identified stop here — no estimate produced.
+Causal identification on the SSM is achieved by temporal unrolling the DAG as per [Jahn et al. (2025)](https://proceedings.mlr.press/v275/jahn25a.html) then running the [ID algorithm](https://doi.org/10.1016/j.artint.2008.12.006) on the unrolled segment for each treatment-outcome pair.
 
-Identified effects are estimated as a continuous-time latent state-space model:
+The latent dynamics are modeled as a multivariate Ornstein-Uhlenbeck process:
 
 $$d\boldsymbol{\eta}(t) = \bigl(\mathbf{A}\,\boldsymbol{\eta}(t) + \mathbf{c}\bigr)\,dt + \mathbf{G}\,d\mathbf{W}(t)$$
 
-Off-diagonal entries of the drift matrix $\mathbf{A}$ are the causal effects of interest. Observations link to latent states through indicator-specific likelihoods (Gaussian, ordinal, Poisson, Bernoulli, Beta, categorical) via a factor loading matrix, and exact matrix-exponential discretization handles irregular time intervals natively.
+with indicator-specific likelihoods (see the supported [distribution families](docs/reference/model-spec/likelihoods.md#distribution-families) and [link functions](docs/reference/model-spec/likelihoods.md#link-functions)):
 
-See [estimation](docs/reference/estimation.md) and [compilation](docs/reference/compilation.md) for the full formulation.
+$$y_i(t) \mid \boldsymbol{\eta}(t) \sim F_i\!\left(g_i^{-1}\left((\boldsymbol{\Lambda}\boldsymbol{\eta}(t)+\boldsymbol{\mu})_i\right); \theta_i\right)$$
+
+See [causal-spec](docs/reference/causal-spec/identifiability.md), [latent-model](docs/reference/latent-model/assumptions.md) and [measurement-model](docs/reference/measurement-model/assumptions.md) for the structural assumptions baked into the modeling framework.
 
 ## Quick Start
 
