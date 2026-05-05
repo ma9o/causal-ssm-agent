@@ -1,0 +1,93 @@
+{
+  "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
+  "version": "0.2",
+  "dictionaries": [
+    "data-science",
+    "en-gb",
+    "latex",
+    "node",
+    "npm",
+    "python",
+    "software-tools",
+    "softwareTerms",
+    "typescript",
+    "project-words"
+  ],
+  "dictionaryDefinitions": [
+    {
+      "name": "project-words",
+      "path": "./cspell-project-words.txt",
+      "addWords": true
+    }
+  ],
+  "patterns": [
+    {
+      "name": "all-caps-acronyms",
+      "pattern": "/\\b[A-Z][A-Z0-9_]{2,}\\b/g"
+    },
+    {
+      "name": "bibliography-entry-authors",
+      "pattern": "/^- \\*\\*[^*]+\\*\\*\\s+[^\\n]+?\\(\\d{4}\\)/gm"
+    },
+    {
+      "name": "footnote-citation-authors",
+      "pattern": "/^\\[\\^[^\\]]+\\]:\\s+[^\\n]+?\\(\\d{4}\\)/gm"
+    },
+    {
+      "name": "footnote-reference",
+      "pattern": "/\\[\\^[^\\]]+\\]/g"
+    },
+    {
+      "name": "inline-author-year-citation",
+      "pattern": "/\\b[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]+(?:\\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]+)?(?:\\s+et\\s+al\\.|(?:,\\s+and\\s+|,\\s+|\\s+and\\s+|\\s+&\\s+)[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]+(?:\\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]+)?)*\\s+\\(\\d{4}\\)/g"
+    },
+    {
+      "name": "hyphenated-eponym",
+      "pattern": "/\\b[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]+-[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'’-]+\\b/g"
+    },
+    {
+      "name": "latex-command",
+      "pattern": "/\\\\[A-Za-z]+/g"
+    },
+    {
+      "name": "readme-generated-cloc",
+      "pattern": "/<!-- cloc:start -->[\\s\\S]*?<!-- cloc:end -->/g"
+    },
+    {
+      "name": "markdown-fenced-code",
+      "pattern": "/^```[\\s\\S]*?^```/gm"
+    },
+    {
+      "name": "markdown-inline-code",
+      "pattern": "/`[^`\\n]+`/g"
+    },
+    {
+      "name": "markdown-link-target",
+      "pattern": "/\\]\\([^\\)\\n]+\\)/g"
+    }
+  ],
+  "ignoreRegExpList": [
+    "all-caps-acronyms",
+    "bibliography-entry-authors",
+    "footnote-citation-authors",
+    "footnote-reference",
+    "hyphenated-eponym",
+    "inline-author-year-citation",
+    "latex-command",
+    "readme-generated-cloc",
+    "markdown-fenced-code",
+    "markdown-inline-code",
+    "markdown-link-target"
+  ],
+  "ignorePaths": [
+    ".git",
+    ".next",
+    ".turbo",
+    "apps/**/.next",
+    "apps/**/node_modules",
+    "bun.lock",
+    "data",
+    "node_modules",
+    "packages/**/node_modules"
+  ]
+}

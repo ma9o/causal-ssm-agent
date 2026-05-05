@@ -9,7 +9,8 @@
     "build": "turbo build",
     "cloc:readme": "bun scripts/update_readme_cloc.js",
     "docs:codegen": "bun run --cwd packages/api-types codegen && bun run cloc:readme && bun scripts/codegen_docs_latex.js",
-    "docs:check": "cd apps/data-pipeline && uv run python scripts/export_distribution_docs.py --check && cd ../.. && bun run --cwd packages/api-types codegen:check && bun scripts/update_readme_cloc.js --check && bun scripts/codegen_docs_latex.js --check && markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\"",
+    "docs:spell": "cspell --config cspell.config.json --no-progress --show-suggestions \"README.md\" \"docs/**/*.md\"",
+    "docs:check": "cd apps/data-pipeline && uv run python scripts/export_distribution_docs.py --check && cd ../.. && bun run --cwd packages/api-types codegen:check && bun scripts/update_readme_cloc.js --check && bun scripts/codegen_docs_latex.js --check && markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\" && bun run docs:spell",
     "integration:start": "bash scripts/start_agentic_integration_stack.sh",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
@@ -20,6 +21,7 @@
     "storybook": "turbo storybook"
   },
   "devDependencies": {
+    "cspell": "^10.0.0",
     "markdownlint-cli2": "^0.22.0",
     "mathjax-full": "3.2.2",
     "turbo": "^2"

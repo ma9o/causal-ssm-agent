@@ -91,7 +91,7 @@ See the [dev setup guide](docs/guides/dev_setup.md) for full details including e
 | **[Index](docs/index.md)** | Full documentation entrypoint with route-by-question |
 | **[Pipeline](docs/pipeline.md)** | Stage-by-stage walkthrough and artifact ownership |
 | **[Reference](docs/reference/)** | Assumptions, compilation, estimation, inference routing |
-| **[Guides](docs/guides/)** | Dev setup, codegen, integration testing, evals |
+| **[Guides](docs/guides/)** | Dev setup, code generation, integration testing, evaluations |
 
 ## Project Structure
 
@@ -125,8 +125,8 @@ causal-ssm-agent/                    # Turborepo monorepo
 | Language | Files | Blank | Comment | Code | p50&nbsp;/&nbsp;p90&nbsp;/&nbsp;max | Top files |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | Python | 345 | 17,389 | 10,499 | 104,849 | 160&nbsp;/&nbsp;698&nbsp;/&nbsp;9,076 | [test_stage4.py](<apps/data-pipeline/tests/test_stage4.py>), [test_inference_strategies.py](<apps/data-pipeline/tests/test_inference_strategies.py>), [test_pipeline.py](<apps/data-pipeline/tests/test_pipeline.py>) |
-| TypeScript | 322 | 3,958 | 1,151 | 35,612 | 71&nbsp;/&nbsp;253&nbsp;/&nbsp;1,076 | [generate-markdown.ts](<apps/web/src/lib/utils/generate-markdown.ts>), [generate-markdown.test.ts](<apps/web/src/lib/utils/generate-markdown.test.ts>), [_shared.test.ts](<apps/web/src/app/api/analysis/_shared.test.ts>) |
-| JSON | 52 | 0 | 0 | 32,418 | 169&nbsp;/&nbsp;1,165&nbsp;/&nbsp;6,320 | [stage-4.json](<data/DOCTOLIB/run/stage-4.json>), [stage-5b.json](<data/DOCTOLIB/run/stage-5b.json>), [contracts.json](<packages/api-types/schemas/contracts.json>) |
+| TypeScript | 323 | 4,012 | 1,152 | 36,051 | 71&nbsp;/&nbsp;258&nbsp;/&nbsp;1,076 | [generate-markdown.ts](<apps/web/src/lib/utils/generate-markdown.ts>), [generate-markdown.test.ts](<apps/web/src/lib/utils/generate-markdown.test.ts>), [_shared.test.ts](<apps/web/src/app/api/analysis/_shared.test.ts>) |
+| JSON | 53 | 0 | 0 | 32,549 | 169&nbsp;/&nbsp;1,165&nbsp;/&nbsp;6,320 | [stage-4.json](<data/DOCTOLIB/run/stage-4.json>), [stage-5b.json](<data/DOCTOLIB/run/stage-5b.json>), [contracts.json](<packages/api-types/schemas/contracts.json>) |
 | Markdown | 36 | 1,404 | 9 | 4,275 | 59&nbsp;/&nbsp;171&nbsp;/&nbsp;1,024 | [report.md](<data/DOCTOLIB/report.md>), [report.md](<data/DEFAULT/report.md>), [llm-driven-specification.md](<docs/reference/model-spec/llm-driven-specification.md>) |
 | Jupyter Notebook | 9 | 0 | 68,025 | 3,452 | 277&nbsp;/&nbsp;901&nbsp;/&nbsp;901 | [stage4_manual_golden_repair.ipynb](<apps/data-pipeline/notebooks/stage4_manual_golden_repair.ipynb>), [pathological_geometries_gallery.ipynb](<apps/data-pipeline/notebooks/pathological_geometries_gallery.ipynb>), [pathfinder_gallery.ipynb](<apps/data-pipeline/notebooks/pathfinder_gallery.ipynb>) |
 | CSV | 2 | 0 | 0 | 642 | 321&nbsp;/&nbsp;321&nbsp;/&nbsp;321 | [expected-stage2-model-data.csv](<data/MEDICAL_SEMANTICS/expected-stage2-model-data.csv>), [expected-stage2-raw-data.csv](<data/MEDICAL_SEMANTICS/expected-stage2-raw-data.csv>) |
@@ -135,9 +135,9 @@ causal-ssm-agent/                    # Turborepo monorepo
 | Bourne Shell | 1 | 37 | 0 | 180 | 180&nbsp;/&nbsp;180&nbsp;/&nbsp;180 | [start_agentic_integration_stack.sh](<scripts/start_agentic_integration_stack.sh>) |
 | TOML | 1 | 10 | 0 | 117 | 117&nbsp;/&nbsp;117&nbsp;/&nbsp;117 | [pyproject.toml](<apps/data-pipeline/pyproject.toml>) |
 | CSS | 1 | 6 | 1 | 100 | 100&nbsp;/&nbsp;100&nbsp;/&nbsp;100 | [globals.css](<apps/web/src/app/globals.css>) |
+| Text | 4 | 0 | 0 | 34 | 1&nbsp;/&nbsp;31&nbsp;/&nbsp;31 | [cspell-project-words.txt](<cspell-project-words.txt>), [query.txt](<data/DEFAULT/query.txt>), [query.txt](<data/DOCTOLIB/query.txt>) |
 | Bourne Again Shell | 2 | 7 | 5 | 22 | 2&nbsp;/&nbsp;20&nbsp;/&nbsp;20 | [sync-private-data](<.githooks/sync-private-data>), [post-merge](<.githooks/post-merge>) |
 | SVG | 7 | 0 | 0 | 7 | 1&nbsp;/&nbsp;1&nbsp;/&nbsp;1 | [file.svg](<apps/web/public/file.svg>), [globe.svg](<apps/web/public/globe.svg>), [next.svg](<apps/web/public/next.svg>) |
-| Text | 3 | 0 | 0 | 3 | 1&nbsp;/&nbsp;1&nbsp;/&nbsp;1 | [query.txt](<data/DEFAULT/query.txt>), [query.txt](<data/DOCTOLIB/query.txt>), [query.txt](<data/MEDICAL_SEMANTICS/query.txt>) |
-| **Total** | **796** | **22,992** | **79,782** | **182,631** | **97&nbsp;/&nbsp;510&nbsp;/&nbsp;9,076** | **[test_stage4.py](<apps/data-pipeline/tests/test_stage4.py>), [stage-4.json](<data/DOCTOLIB/run/stage-4.json>), [stage-5b.json](<data/DOCTOLIB/run/stage-5b.json>)** |
+| **Total** | **799** | **23,046** | **79,783** | **183,232** | **97&nbsp;/&nbsp;510&nbsp;/&nbsp;9,076** | **[test_stage4.py](<apps/data-pipeline/tests/test_stage4.py>), [stage-4.json](<data/DOCTOLIB/run/stage-4.json>), [stage-5b.json](<data/DOCTOLIB/run/stage-5b.json>)** |
 
 <!-- cloc:end -->
