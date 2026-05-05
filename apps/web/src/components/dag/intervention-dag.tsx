@@ -23,6 +23,7 @@ import type {
 import { AutoFitView } from "./auto-fit-view";
 import { buildInterventionDagViewModel } from "./intervention-dag-view-model";
 import { AnimationTimeline } from "./animation-timeline";
+import { DAG_ZOOM_CONTROLS_INSET, DagZoomControls } from "./dag-zoom-controls";
 import { EffectNode } from "./effect-node";
 import { NoiseNode } from "./noise-node";
 import { useMeasuredElement } from "./use-measured-element";
@@ -188,10 +189,10 @@ function InterventionDagCanvas({
   const [timelineOverlayRef, timelineOverlaySize] = useMeasuredElement<HTMLDivElement>();
   const overlayInsets = useMemo(
     () => ({
-      top: 0,
+      top: DAG_ZOOM_CONTROLS_INSET.top,
       right: 0,
       bottom: timelineOverlaySize.height > 0 ? timelineOverlaySize.height + OVERLAY_GAP : 0,
-      left: 0,
+      left: DAG_ZOOM_CONTROLS_INSET.left,
     }),
     [timelineOverlaySize.height],
   );
@@ -324,6 +325,7 @@ function InterventionDagCanvas({
         >
           <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
           <AutoFitView fitViewKey={fitViewKey} insets={overlayInsets} />
+          <DagZoomControls />
         </ReactFlow>
       </div>
     </div>
