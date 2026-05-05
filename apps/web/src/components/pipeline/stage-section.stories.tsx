@@ -1,12 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { StageOutcome } from "@causal-ssm/api-types";
-import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { withContainer } from "@/components/story-decorators";
-import { useEffect, useState } from "react";
 import { StageSection } from "./stage-section";
-import { StageLogView } from "./stage-log-viewer";
-import { createStageStoryLogs, makeStageStoryLog } from "./stage-story-log-fixture";
+import { StoryStageLogView } from "./stage-story-log-stream";
 
 // ---------------------------------------------------------------------------
 // Mock log data
@@ -17,41 +14,13 @@ import { createStageStoryLogs, makeStageStoryLog } from "./stage-story-log-fixtu
 // ---------------------------------------------------------------------------
 
 function StreamingLogView({ intervalMs = 600 }: { intervalMs?: number }) {
-  const [logs, setLogs] = useState<PrefectLogEntry[]>([]);
-  const storyLogs = createStageStoryLogs();
-
-  useEffect(() => {
-    let i = 0;
-    const id = setInterval(() => {
-      if (i >= storyLogs.length) {
-        clearInterval(id);
-        return;
-      }
-      setLogs((prev) => [...prev, makeStageStoryLog(i, storyLogs.length)]);
-      i++;
-    }, intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs, storyLogs.length]);
-
   return (
-    <StageLogView
-      logs={logs}
-      status="running"
-      bootstrapStatus="success"
-      connectionState="streaming"
-    />
+    <StoryStageLogView storyId="stage-section-running" status="running" intervalMs={intervalMs} />
   );
 }
 
 function CompletedLogView() {
-  return (
-    <StageLogView
-      logs={createStageStoryLogs()}
-      status="completed"
-      bootstrapStatus="success"
-      connectionState="idle"
-    />
-  );
+  return <StoryStageLogView storyId="stage-section-completed" status="completed" />;
 }
 
 // ---------------------------------------------------------------------------

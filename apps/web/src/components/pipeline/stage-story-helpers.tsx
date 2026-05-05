@@ -2,8 +2,7 @@ import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { StageMeta } from "@causal-ssm/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
-import { StageLogView } from "./stage-log-viewer";
-import { createStageStoryLogs } from "./stage-story-log-fixture";
+import { StoryStageLogView } from "./stage-story-log-stream";
 import {
   StageStoryLayout,
   StageStoryTemplate,
@@ -20,17 +19,10 @@ export const stageStoryDecorators: NonNullable<Meta<Record<string, never>>["deco
   ),
 ];
 
-function getDefaultStoryLogView(status: StageRunStatus): ReactNode | undefined {
+function getDefaultStoryLogView(stage: StageMeta, status: StageRunStatus): ReactNode | undefined {
   if (status === "pending") return undefined;
 
-  return (
-    <StageLogView
-      logs={createStageStoryLogs()}
-      status={status}
-      bootstrapStatus="success"
-      connectionState={status === "running" ? "streaming" : "idle"}
-    />
-  );
+  return <StoryStageLogView storyId={`${stage.id}-${status}`} status={status} />;
 }
 
 export function createStageStatusStory(
@@ -38,7 +30,7 @@ export function createStageStatusStory(
   status: StageRunStatus,
   shellProps: StoryShellProps = {},
 ): StoryObj {
-  const { logView = getDefaultStoryLogView(status), ...restShellProps } = shellProps;
+  const { logView = getDefaultStoryLogView(stage, status), ...restShellProps } = shellProps;
   return {
     render: () => (
       <StageStoryTemplate stage={stage} status={status} logView={logView} {...restShellProps} />
@@ -62,7 +54,7 @@ export function createCompletedStageStory<TArgs extends object>({
   renderShellProps,
   ...shellProps
 }: CompletedStageStoryConfig<TArgs>): StoryObj<TArgs> {
-  const { logView = getDefaultStoryLogView("completed"), ...restShellProps } = shellProps;
+  const { logView = getDefaultStoryLogView(stage, "completed"), ...restShellProps } = shellProps;
   return {
     ...(name ? { name } : {}),
     args,
