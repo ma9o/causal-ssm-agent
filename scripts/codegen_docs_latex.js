@@ -17,7 +17,7 @@ const assetRoot = resolve(docsRoot, "assets", "generated", "latex");
 const generatedBlockPattern =
   /<!-- docs-latex:start ([A-Za-z0-9_-]+) -->([\s\S]*?)<!-- docs-latex:end -->/g;
 const checkOnly = process.argv.includes("--check");
-const displayExToPx = 20;
+const displayExToPx = 12;
 
 const adaptor = liteAdaptor();
 RegisterHTMLHandler(adaptor);
