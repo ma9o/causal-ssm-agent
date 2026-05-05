@@ -45,10 +45,10 @@ flowchart LR
 - **Fast and accurate MCMC estimation in `jax`** - Exact inference in minutes using O(log T) associative Kalman filtering on GPU ([Corenflos et al. 2025](https://arxiv.org/abs/2303.00301)). Efficient caching ensures that we never waste time waiting for compilation.
 - **Compatible with `codex` and `claude-code`** - Leverage your existing subscription for the interactive stages of the pipeline.
 
-| <img src="docs/assets/stage1b.png" width="800" alt="stage2"><br>Structural causal model specification | <img src="docs/assets/stage2.gif" width="800" alt="stage2"><br>Parallel data extraction |
+| <img src="docs/assets/stage1b.png" width="450" alt="stage2"><br>Structural causal model specification | <img src="docs/assets/stage2.gif" width="450" alt="stage2"><br>Parallel data extraction |
 |:--:|:--:|
-| <img src="docs/assets/stage2.gif" width="800" alt="stage2"><br>**Functional modeling decisions and prior elicitation** | <img src="docs/assets/stage4-done.gif" width="800" alt="stage4"><br>**Functional model specification** |
-| <img src="docs/assets/stage5.gif" width="800" alt="stage5"><br>**Inference diagnostics** | <img src="docs/assets/stage6.gif" width="800" alt="stage2"><br>**Counterfactual simulation** |
+| <img src="docs/assets/stage2.gif" width="450" alt="stage2"><br>**Functional modeling decisions and prior elicitation** | <img src="docs/assets/stage4-done.gif" width="450" alt="stage4"><br>**Functional model specification** |
+| <img src="docs/assets/stage5.gif" width="450" alt="stage5"><br>**Inference diagnostics** | <img src="docs/assets/stage6.gif" width="450" alt="stage2"><br>**Counterfactual simulation** |
 
 ## Modeling
 
