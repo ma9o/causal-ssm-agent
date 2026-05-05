@@ -8,7 +8,9 @@
     "dev": "turbo dev",
     "build": "turbo build",
     "cloc:readme": "bun scripts/update_readme_cloc.js",
-    "docs:check": "markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\"",
+    "docs:latex": "bun scripts/codegen_docs_latex.js",
+    "docs:latex:check": "bun scripts/codegen_docs_latex.js --check",
+    "docs:check": "bun run docs:latex:check && markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\"",
     "integration:start": "bash scripts/start_agentic_integration_stack.sh",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
@@ -20,6 +22,7 @@
   },
   "devDependencies": {
     "markdownlint-cli2": "^0.22.0",
+    "mathjax-full": "3.2.2",
     "turbo": "^2"
   }
 }

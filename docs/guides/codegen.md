@@ -18,6 +18,17 @@ bun run codegen:check                        # verify sync (CI uses this)
 
 Run after any change to `stage_contracts.py` or any Pydantic model it transitively imports.
 
+## Docs LaTeX Images
+
+GitHub math rendering is not reliable for every Markdown context, so docs LaTeX is code-generated into SVG image assets under [`docs/assets/generated/latex`](../assets/generated/latex). The source LaTeX is retained in nearby `docs-latex` metadata comments so the generator can be rerun.
+
+```bash
+bun run docs:latex        # rewrite docs math as generated SVG image embeds
+bun run docs:latex:check  # verify generated docs and SVG assets are in sync
+```
+
+Run [`docs:latex`](../../package.json) after adding `$...$`, `$$...$$`, `\(...\)`, or `\[...\]` math to `README.md` or files under `docs/`. [`docs:check`](../../package.json) includes the LaTeX drift check before markdownlint.
+
 ## Changing the schema
 
 The workflow is always: **edit Python → `bun run codegen` → commit both**.
