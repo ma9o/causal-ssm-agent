@@ -10,7 +10,9 @@ Usage:
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +27,8 @@ from causal_ssm_agent.flows.stage_contracts import (
 )
 from causal_ssm_agent.models.ssm.parameterization import SiteKind
 
-OUTPUT_DIR = Path(__file__).resolve().parents[3] / "packages" / "api-types" / "schemas"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"
 
 
 def _make_defaults_required(schema: dict) -> dict:
@@ -130,9 +133,7 @@ def export_schemas() -> dict:
     }
 
     # Post-process: make non-nullable defaults required
-    combined = _make_defaults_required(combined)
-
-    return combined
+    return _make_defaults_required(combined)
 
 
 def export_tool_result_schemas() -> dict:
@@ -204,34 +205,65 @@ def export_metadata() -> dict:
     }
 
 
-def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def _write_or_check_json(path: Path, payload: dict, *, check: bool, changed_paths: list[Path]) -> None:
+    rendered = json.dumps(payload, indent=2) + "\n"
+    if check:
+        if not path.exists() or path.read_text() != rendered:
+            changed_paths.append(path.relative_to(REPO_ROOT))
+        return
+
+    path.write_text(rendered)
+
+
+def main(*, check: bool = False) -> bool:
+    if not check:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    changed_paths: list[Path] = []
 
     # Export JSON Schema for TypeScript type codegen
     output_path = OUTPUT_DIR / "contracts.json"
     schema = export_schemas()
-    output_path.write_text(json.dumps(schema, indent=2) + "\n")
+    _write_or_check_json(output_path, schema, check=check, changed_paths=changed_paths)
     n_defs = len(schema.get("$defs", {}))
-    print(f"Exported {n_defs} definitions to {output_path}")
+    if not check:
+        print(f"Exported {n_defs} definitions to {output_path}")
 
     # Export tool definitions for TypeScript tool codegen
     tools_path = OUTPUT_DIR / "tools.json"
     tools = export_tool_schemas()
-    tools_path.write_text(json.dumps(tools, indent=2) + "\n")
+    _write_or_check_json(tools_path, tools, check=check, changed_paths=changed_paths)
     n_tools = sum(len(v) for k, v in tools.items() if k != "_interactive")
-    print(f"Exported {n_tools} tool definitions to {tools_path}")
+    if not check:
+        print(f"Exported {n_tools} tool definitions to {tools_path}")
 
     tool_results_path = OUTPUT_DIR / "tool-results.json"
     tool_results = export_tool_result_schemas()
-    tool_results_path.write_text(json.dumps(tool_results, indent=2) + "\n")
+    _write_or_check_json(tool_results_path, tool_results, check=check, changed_paths=changed_paths)
     n_tool_defs = len(tool_results.get("$defs", {}))
-    print(f"Exported {n_tool_defs} tool result definitions to {tool_results_path}")
+    if not check:
+        print(f"Exported {n_tool_defs} tool result definitions to {tool_results_path}")
 
     metadata_path = OUTPUT_DIR / "metadata.json"
     metadata = export_metadata()
-    metadata_path.write_text(json.dumps(metadata, indent=2) + "\n")
-    print(f"Exported metadata to {metadata_path}")
+    _write_or_check_json(metadata_path, metadata, check=check, changed_paths=changed_paths)
+    if not check:
+        print(f"Exported metadata to {metadata_path}")
+
+    if check and changed_paths:
+        print("Schema exports are out of date. Run `bun run docs:codegen`.", file=sys.stderr)
+        for path in changed_paths:
+            print(f"  {path}", file=sys.stderr)
+        return True
+
+    if check:
+        print("Schema exports checked.")
+    return False
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="Verify generated schemas without writing files.")
+    args = parser.parse_args()
+    if main(check=args.check):
+        sys.exit(1)

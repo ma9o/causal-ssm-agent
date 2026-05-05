@@ -442,7 +442,7 @@ function main() {
   const changedAssets = syncAssets();
 
   if (checkOnly && (changedDocs.length > 0 || changedAssets.length > 0)) {
-    console.error("Docs LaTeX image codegen is out of date. Run `bun run docs:latex`.");
+    console.error("Docs LaTeX image codegen is out of date. Run `bun run docs:codegen`.");
     for (const filePath of [...changedDocs, ...changedAssets]) {
       console.error(`  ${filePath}`);
     }

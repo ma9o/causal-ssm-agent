@@ -7,13 +7,13 @@
 1. `export_schemas.py` calls `.model_json_schema(mode="serialization")` → `schemas/contracts.json` + `schemas/tools.json`
 2. `generate.ts` feeds those through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) → `src/generated/models.ts` + `src/generated/tools.ts`
 
-Generated files are committed. CI runs `codegen:check` (codegen + `git diff --exit-code`) to catch drift.
+Generated files are committed. [`docs:check`](../../package.json) verifies schema/typegen drift, generated docs drift, generated LaTeX images, and markdown lint.
 
 ## Running codegen
 
 ```bash
-cd packages/api-types && bun run codegen     # full pipeline
-bun run codegen:check                        # verify sync (CI uses this)
+bun run docs:codegen # run every docs/codegen writer
+bun run docs:check   # verify generated artifacts and markdown
 ```
 
 Run after any change to `stage_contracts.py` or any Pydantic model it transitively imports.
@@ -23,15 +23,15 @@ Run after any change to `stage_contracts.py` or any Pydantic model it transitive
 GitHub math rendering is not reliable for every Markdown context, so docs LaTeX is code-generated into SVG image assets under [`docs/assets/generated/latex`](../assets/generated/latex). The source LaTeX is retained in nearby `docs-latex` metadata comments so the generator can be rerun.
 
 ```bash
-bun run docs:latex        # rewrite docs math as generated SVG image embeds
-bun run docs:latex:check  # verify generated docs and SVG assets are in sync
+bun run docs:codegen # rewrite docs math as generated SVG image embeds
+bun run docs:check   # verify generated docs and SVG assets are in sync
 ```
 
-Run [`docs:latex`](../../package.json) after adding `$...$`, `$$...$$`, `\(...\)`, or `\[...\]` math to `README.md` or files under `docs/`. [`docs:check`](../../package.json) includes the LaTeX drift check before markdownlint.
+Run [`docs:codegen`](../../package.json) after adding `$...$`, `$$...$$`, `\(...\)`, or `\[...\]` math to `README.md` or files under `docs/`. [`docs:check`](../../package.json) includes the LaTeX drift check before markdownlint.
 
 ## Changing the schema
 
-The workflow is always: **edit Python → `bun run codegen` → commit both**.
+The workflow is always: **edit Python → `bun run docs:codegen` → commit both**.
 
 - **New/changed field**: edit the Pydantic model in `stage_contracts.py` (or the domain model it references).
 - **New stage**: add a `Stage<N>Contract` in `stage_contracts.py`, register in `STAGE_CONTRACTS`, add re-export in `index.ts`.
