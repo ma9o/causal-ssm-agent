@@ -60,12 +60,11 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
           <Alert variant="destructive" className="border-2">
             <AlertTriangle className="h-5 w-5 mt-0.5" />
             <AlertTitle className="text-base font-semibold">
-              No Identifiable Treatment Effects Remain
+              Non Identifiable Treatments Detected
             </AlertTitle>
             <AlertDescription className="mt-2 space-y-2">
               <p>
-                Stage 1b completed, but every treatment-to-outcome effect is still
-                non-identifiable, so the pipeline stopped here.
+                {nonIdEntries.length} treatment(s) were found to be non-identifiable. If possible, address the blocking confounders (marked with red badges below) to achieve identifiability.
               </p>
             <div className="space-y-1.5">
               {nonIdEntries.map(([name, status]) => (

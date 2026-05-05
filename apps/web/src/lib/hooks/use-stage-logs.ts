@@ -195,10 +195,8 @@ export function useStageLogs(
   status: StageRunStatus,
   {
     pageSize = getPrefectLogPageSize(),
-    transport = prefectLogTransport,
   }: {
     pageSize?: number;
-    transport?: PrefectLogTransport;
   } = {},
 ): PrefectLogsResult {
   const { runtime, flowRunIds, timeWindow, subscriptionKey } = useStageLogScope(
@@ -216,6 +214,5 @@ export function useStageLogs(
   ] as const;
   return usePrefectLogs(queryKey, flowRunIds, timeWindow, subscriptionKey, status, {
     pageSize,
-    transport,
   });
 }
