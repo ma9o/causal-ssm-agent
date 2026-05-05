@@ -289,7 +289,7 @@ While required priors are still missing, Stage 4 does this:
 
 | Condition | Exact behavior |
 |---|---|
-| Some required priors are still missing | Validate only prior schema plus compileability of the locked `ModelSpec`; return feedback listing the remaining missing priors. |
+| Some required priors are still missing | Validate only prior schema plus compilability of the locked `ModelSpec`; return feedback listing the remaining missing priors. |
 | The active block is `dynamics_prior` or `effect_prior` and compile-only validation passed | Run a block-local partial drift guard even before the full prior set exists. |
 
 So there are two distinct pre-completion modes:

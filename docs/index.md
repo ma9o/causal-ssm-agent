@@ -36,10 +36,10 @@
 
 | Workflow | Open |
 |---|---|
-| Local setup | [guides/dev_setup.md](guides/dev_setup.md) |
-| TypeScript codegen from Python contracts | [guides/codegen.md](guides/codegen.md) |
-| Integration testing | [guides/agentic_integration_testing.md](guides/agentic_integration_testing.md) |
-| Evaluations | [guides/running_evals.md](guides/running_evals.md) |
+| Local setup | [Guide](guides/dev_setup.md) |
+| TypeScript code generation from Python contracts | [Guide](guides/codegen.md) |
+| Integration testing | [Guide](guides/agentic_integration_testing.md) |
+| Evaluations | [Guide](guides/running_evals.md) |
 
 ## Route by Question
 

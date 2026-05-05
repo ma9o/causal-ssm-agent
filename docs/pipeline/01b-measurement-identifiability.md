@@ -35,7 +35,7 @@ flowchart LR
 - *No duplicate indicator definitions* across indicators
 - *Valid construct references:* indicator references point to constructs in the latent model
 - *Dtype–aggregation compatibility:* `measurement_dtype` and `aggregation` are compatible
-- *Computed-rule well-formedness:* computed indicators have valid rule expressions
+- *Computed-rule validity:* computed indicators have valid rule expressions
 
 It then checks [causal identifiability](../reference/causal-spec/identifiability.md) for each treatment-to-outcome pair. If some effects are blocked by an unobserved confounder, the tool reports which confounder is the problem and suggests adding proxy indicators to restore identifiability.
 

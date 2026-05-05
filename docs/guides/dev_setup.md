@@ -8,7 +8,7 @@
 | Bun | 1.2.23 (`package.json` `packageManager`) | `bun --version` |
 | Python | 3.12+ (`apps/data-pipeline/.python-version`) | `python3 --version` |
 | uv | Latest | `uv --version` |
-| cloc | Latest | `cloc --version` |
+| Line counter | Latest | `cloc --version` |
 
 ## Setup
 
@@ -27,7 +27,7 @@ cp .env.example.dev .env
 # Fill in OPENROUTER_API_KEY (required)
 # Optional: EXA_API_KEY, PREFECT_API_URL, TOOL_SERVER_URL
 
-# 4. Codegen (Python Pydantic → TypeScript types and generated docs)
+# 4. Code generation (Python Pydantic → TypeScript types and generated docs)
 bun run docs:codegen
 ```
 
@@ -50,7 +50,7 @@ The Next.js app reads `OPENROUTER_API_KEY`, `APP_SECRET`, `OPENROUTER_CREDITS_AP
 
 ### 4. Generate Types and Docs
 
-Generates committed TypeScript contracts and generated docs from Python sources. See [`codegen.md`](codegen.md) for details.
+Generates committed TypeScript contracts and generated docs from Python sources. See the [code generation guide](codegen.md) for details.
 
 ### 5. Start development servers
 
