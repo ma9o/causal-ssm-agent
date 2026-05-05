@@ -14,6 +14,7 @@ import { useCallback, useMemo, useState } from "react";
 import { AutoFitView } from "./auto-fit-view";
 import type { ConstructStatus } from "./construct-node";
 import { ConstructNode } from "./construct-node";
+import { DAG_ZOOM_CONTROLS_INSET, DagZoomControls } from "./dag-zoom-controls";
 import { useMeasuredElement } from "./use-measured-element";
 
 interface CausalDagProps {
@@ -169,10 +170,13 @@ export function CausalDag({
   const [legendOverlayRef, legendOverlaySize] = useMeasuredElement<HTMLDivElement>();
   const overlayInsets = useMemo(
     () => ({
-      top: showTopLegend && legendOverlaySize.height > 0 ? legendOverlaySize.height + OVERLAY_GAP : 0,
+      top: Math.max(
+        DAG_ZOOM_CONTROLS_INSET.top,
+        showTopLegend && legendOverlaySize.height > 0 ? legendOverlaySize.height + OVERLAY_GAP : 0,
+      ),
       right: 0,
       bottom: 0,
-      left: 0,
+      left: DAG_ZOOM_CONTROLS_INSET.left,
     }),
     [legendOverlaySize.height, showTopLegend],
   );
@@ -244,6 +248,7 @@ export function CausalDag({
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
         <AutoFitView fitViewKey={fitViewKey} insets={overlayInsets} />
+        <DagZoomControls />
       </ReactFlow>
       {showTopLegend ? (
         <div

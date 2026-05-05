@@ -1,6 +1,12 @@
 "use client";
 
 import { TreatmentRankingTable } from "@/components/stages/inference/treatment-ranking-table";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import type { Stage6Data } from "@causal-ssm/api-types";
 import { Bot } from "lucide-react";
@@ -24,7 +30,29 @@ export default function Stage6Content({
 
   return (
     <div className="space-y-4">
-      {narrative ? (
+      {data.intervention_results.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          No treatment effects were estimated. This may happen if no treatments passed
+          identification checks.
+        </div>
+      ) : (
+        <Accordion defaultValue={["baseline-ranking"]} multiple>
+          <AccordionItem value="baseline-ranking">
+            <AccordionTrigger className="text-sm">
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                Baseline interventional ranking
+                <StatTooltip explanation="Total outcome effects ranked under do(treatment = baseline + 1). These are not direct edge coefficients. Peak timing comes from the forward simulation summary, and indicator details are a measurement projection of the outcome effect." />
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <TreatmentRankingTable
+                results={data.intervention_results}
+              />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
+            {narrative ? (
         <div className="rounded-lg border bg-muted/20 p-4">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Bot className="h-3.5 w-3.5" />
@@ -35,22 +63,6 @@ export default function Stage6Content({
           </div>
         </div>
       ) : null}
-      {data.intervention_results.length > 0 ? (
-        <div className="flex items-center gap-1.5">
-          <span className="text-sm font-semibold">Baseline interventional ranking</span>
-          <StatTooltip explanation="Total outcome effects ranked under do(treatment = baseline + 1). These are not direct edge coefficients. Peak timing comes from the forward simulation summary, and indicator details are a measurement projection of the outcome effect." />
-        </div>
-      ) : null}
-      {data.intervention_results.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No treatment effects were estimated. This may happen if no treatments passed
-          identification checks.
-        </div>
-      ) : (
-        <TreatmentRankingTable
-          results={data.intervention_results}
-        />
-      )}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import {
   createStageStatusStory,
   stageStoryDecorators,
 } from "../stage-story-helpers";
+import { StoryStageLogView } from "../stage-story-log-stream";
 import { StageStoryTemplate } from "../stage-story-template";
 import Stage6Showcase from "./stage-6-showcase";
 import { buildStage6DagScene } from "./stage-6-presentation";
@@ -311,6 +312,12 @@ function InteractiveFollowUpDemoView() {
       elapsedMs={6_700}
       trace={storyTrace}
       defaultPanelOpen
+      logView={
+        <StoryStageLogView
+          storyId="stage-6-interactive-follow-up-demo"
+          status="completed"
+        />
+      }
       panelContent={
         <Stage6FollowUpPanel
           refinementMessages={refinementMessages}
