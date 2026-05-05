@@ -145,6 +145,9 @@
           "how_to_measure": "LDL cholesterol in mmol/L from lipid panel",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -153,6 +156,9 @@
           "how_to_measure": "Serum triglycerides in mmol/L",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -161,6 +167,9 @@
           "how_to_measure": "HDL cholesterol in mmol/L from lipid panel (EAL); inversely related to atherogenic burden",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -169,6 +178,9 @@
           "how_to_measure": "High-sensitivity C-reactive protein (hs-CRP) in mg/L; marker of systemic and vascular inflammation",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -177,6 +189,9 @@
           "how_to_measure": "Plasma fibrinogen in g/L; acute-phase reactant reflecting inflammatory and prothrombotic state",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -185,6 +200,9 @@
           "how_to_measure": "Glycated hemoglobin %; lower = better control",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -193,6 +211,9 @@
           "how_to_measure": "Fasting blood glucose in mmol/L",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -201,6 +222,9 @@
           "how_to_measure": "Systolic blood pressure in mmHg",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -209,6 +233,9 @@
           "how_to_measure": "Diastolic blood pressure in mmHg",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -217,6 +244,9 @@
           "how_to_measure": "Resting heart rate in bpm at consultation",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -225,6 +255,9 @@
           "how_to_measure": "Proportion of prescriptions renewed on time via Doctolib (0\u20131, quarterly)",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         },
         {
@@ -233,6 +266,9 @@
           "how_to_measure": "Proportion of kept vs missed Doctolib appointments (0\u20131, quarterly)",
           "measurement_dtype": "continuous",
           "aggregation": "mean",
+          "support_kind": "interval",
+          "summary_operator": "mean",
+          "anchor_policy": "support_end",
           "ordinal_levels": null
         }
       ]
