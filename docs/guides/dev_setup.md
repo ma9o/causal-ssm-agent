@@ -8,6 +8,7 @@
 | Bun | 1.2.23 (`package.json` `packageManager`) | `bun --version` |
 | Python | 3.12+ (`apps/data-pipeline/.python-version`) | `python3 --version` |
 | uv | Latest | `uv --version` |
+| cloc | Latest | `cloc --version` |
 
 ## Setup
 
@@ -26,8 +27,8 @@ cp .env.example.dev .env
 # Fill in OPENROUTER_API_KEY (required)
 # Optional: EXA_API_KEY, PREFECT_API_URL, TOOL_SERVER_URL
 
-# 4. Codegen (Python Pydantic → TypeScript types)
-cd packages/api-types && bun run codegen
+# 4. Codegen (Python Pydantic → TypeScript types and generated docs)
+bun run docs:codegen
 ```
 
 Edit `.env` and fill in at minimum:
@@ -47,9 +48,9 @@ Optional keys:
 
 The Next.js app reads `OPENROUTER_API_KEY`, `APP_SECRET`, `OPENROUTER_CREDITS_API_KEY`, `BYOK_SECRET_STORE_URL`, and `BYOK_SECRET_STORE_AUTH_TOKEN` from the runtime environment first, then falls back to the monorepo root `.env` for local development. `APP_SECRET` is required for session-cookie encryption and BYOK store encryption. Web-launched runs hand off the effective OpenRouter key, plus an explicit access mode, through a single-use encrypted ref in the shared libSQL store. Local dev and CI can use the default file URL directly; deployed environments can point the same code at Turso with one URL plus an auth token.
 
-### 4. Generate TypeScript types
+### 4. Generate Types and Docs
 
-Generates `src/generated/models.ts` from Python Pydantic schemas. See [`codegen.md`](codegen.md) for details.
+Generates committed TypeScript contracts and generated docs from Python sources. See [`codegen.md`](codegen.md) for details.
 
 ### 5. Start development servers
 
@@ -79,5 +80,5 @@ bun run lint:fix      # Auto-fix lint issues
 bun run format        # Format (ruff, biome)
 bun run test          # Tests (pytest -m 'not slow', vitest)
 bun run type-check    # TypeScript type-check
-bun run codegen:check # Codegen drift (CI)
+bun run docs:check    # Generated docs/codegen drift and markdown
 ```

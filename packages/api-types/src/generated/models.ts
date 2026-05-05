@@ -77,6 +77,10 @@ export type ParameterConstraint = "none" | "positive" | "negative" | "unit_inter
  */
 export type InitializationPolicy = "stationary" | "free";
 /**
+ * Global policy for whether eligible manifest intercepts remain free.
+ */
+export type ObservationInterceptPolicy = "fixed" | "free";
+/**
  * Distribution families allowed in Stage 4 prior proposals.
  */
 export type PriorDistributionFamily =
@@ -87,7 +91,8 @@ export type PriorDistributionFamily =
   | "TruncatedNormal"
   | "Gamma"
   | "LogNormal"
-  | "Exponential";
+  | "Exponential"
+  | "Delta";
 
 /**
  * Combined JSON Schema for all stage contracts. Generated from Python Pydantic models.
@@ -106,9 +111,6 @@ export interface CausalSSMContracts {
 }
 export interface Stage0Contract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   column_descriptions: Stage0ColumnDescriptionContract[];
@@ -153,9 +155,6 @@ export interface Stage0ColumnDescriptionContract {
 }
 export interface Stage1AContract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   latent_model: LatentModel;
@@ -215,9 +214,6 @@ export interface CausalEdge {
 }
 export interface Stage1BContract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   causal_spec: CausalSpec;
@@ -398,9 +394,6 @@ export interface InducedDependency {
 }
 export interface Stage2Contract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   workers: WorkerStatusContract[];
@@ -414,9 +407,6 @@ export interface WorkerStatusContract {
 }
 export interface Stage3Contract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   is_valid: boolean;
   indicators: {
@@ -465,9 +455,6 @@ export interface ValidationIssueContract {
 }
 export interface Stage4Contract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   model_spec: ModelSpec;
@@ -496,6 +483,7 @@ export interface ModelSpec {
    */
   parameters: ParameterSpec[];
   initialization_policy: InitializationPolicy;
+  observation_intercept_policy: ObservationInterceptPolicy;
   /**
    * Whether eligible dynamic states may carry a continuous-time intercept term
    */
@@ -580,7 +568,7 @@ export interface PriorProposal {
    */
   reasoning: string;
   /**
-   * Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT→CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for persistence).
+   * Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT→CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for baseline persistence).
    */
   reference_interval_days?: number | null;
   /**
@@ -619,9 +607,6 @@ export interface PriorSource {
 }
 export interface Stage4BContract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   parametric_id: ParametricIdResult;
   inference_structure?: InferenceStructureResult | null;
@@ -792,7 +777,7 @@ export interface ParameterIdentification {
  */
 export interface InferenceStructureResult {
   likelihood_path: "kalman" | "composed" | "particle";
-  auto_method: "nuts" | "laplace_em" | "svi";
+  auto_method: "nuts" | "map" | "svi";
   first_pass_rb: FirstPassRBResult;
 }
 /**
@@ -815,9 +800,6 @@ export interface InferenceStructureVariable {
  */
 export interface Stage5AContract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   inference_metadata: InferenceMetadataContract;
   svi_diagnostics?: SVIDiagnostics | null;
@@ -859,9 +841,6 @@ export interface PosteriorPair {
 }
 export interface Stage5BContract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   power_scaling: PowerScalingResultContract[];
   ppc: PPCResultContract;
@@ -1026,9 +1005,6 @@ export interface LOODiagnostics {
 }
 export interface Stage6Contract {
   outcome: "success" | "warn" | "fail";
-  /**
-   * Machine-readable reason for a terminal semantic stop.
-   */
   fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   intervention_results: TreatmentEffectContract[];

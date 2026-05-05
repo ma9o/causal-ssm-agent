@@ -7,7 +7,7 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { compile } from "json-schema-to-typescript";
 
 // biome-ignore lint/suspicious/noExplicitAny: JSON Schema nodes are inherently untyped
@@ -22,6 +22,31 @@ const OUTPUT_PATH = resolve(ROOT, "src", "generated", "models.ts");
 const TOOLS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tools.ts");
 const TOOL_RESULTS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tool-results.ts");
 const METADATA_OUTPUT_PATH = resolve(ROOT, "src", "generated", "metadata.ts");
+const checkOnly = process.argv.includes("--check");
+const changedPaths: string[] = [];
+
+function readExisting(path: string): string | null {
+  try {
+    return readFileSync(path, "utf-8");
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function writeOrCheck(outputPath: string, content: string): void {
+  if (checkOnly) {
+    if (readExisting(outputPath) !== content) {
+      changedPaths.push(relative(ROOT, outputPath));
+    }
+    return;
+  }
+
+  mkdirSync(dirname(outputPath), { recursive: true });
+  writeFileSync(outputPath, content);
+}
 
 /**
  * Reduce a schema node to just its `$ref` if it has one.
@@ -174,8 +199,10 @@ function generateTools(): void {
   );
   lines.push("");
 
-  writeFileSync(TOOLS_OUTPUT_PATH, lines.join("\n"));
-  console.log(`Generated ${totalTools} tool definitions → ${TOOLS_OUTPUT_PATH}`);
+  writeOrCheck(TOOLS_OUTPUT_PATH, lines.join("\n"));
+  if (!checkOnly) {
+    console.log(`Generated ${totalTools} tool definitions → ${TOOLS_OUTPUT_PATH}`);
+  }
 }
 
 async function generateToolResults(): Promise<void> {
@@ -204,11 +231,12 @@ async function generateToolResults(): Promise<void> {
     },
   });
 
-  mkdirSync(dirname(TOOL_RESULTS_OUTPUT_PATH), { recursive: true });
-  writeFileSync(TOOL_RESULTS_OUTPUT_PATH, ts);
+  writeOrCheck(TOOL_RESULTS_OUTPUT_PATH, ts);
 
   const count = (ts.match(/export (interface|type)/g) || []).length;
-  console.log(`Generated ${count} tool-result types/interfaces → ${TOOL_RESULTS_OUTPUT_PATH}`);
+  if (!checkOnly) {
+    console.log(`Generated ${count} tool-result types/interfaces → ${TOOL_RESULTS_OUTPUT_PATH}`);
+  }
 }
 
 function generateMetadata(): void {
@@ -236,8 +264,10 @@ function generateMetadata(): void {
     "> = _OBS_HYPERS_BY_DIST;",
     "",
   ];
-  writeFileSync(METADATA_OUTPUT_PATH, lines.join("\n"));
-  console.log(`Generated metadata → ${METADATA_OUTPUT_PATH}`);
+  writeOrCheck(METADATA_OUTPUT_PATH, lines.join("\n"));
+  if (!checkOnly) {
+    console.log(`Generated metadata → ${METADATA_OUTPUT_PATH}`);
+  }
 }
 
 async function main() {
@@ -266,17 +296,30 @@ async function main() {
     },
   });
 
-  mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
-  writeFileSync(OUTPUT_PATH, ts);
+  writeOrCheck(OUTPUT_PATH, ts);
 
   // Count interfaces generated
   const count = (ts.match(/export (interface|type)/g) || []).length;
-  console.log(`Generated ${count} types/interfaces → ${OUTPUT_PATH}`);
+  if (!checkOnly) {
+    console.log(`Generated ${count} types/interfaces → ${OUTPUT_PATH}`);
+  }
 
   // Generate tool definitions
   generateTools();
   await generateToolResults();
   generateMetadata();
+
+  if (checkOnly && changedPaths.length > 0) {
+    console.error("TypeScript API type generation is out of date. Run `bun run docs:codegen`.");
+    for (const path of changedPaths) {
+      console.error(`  ${path}`);
+    }
+    process.exit(1);
+  }
+
+  if (checkOnly) {
+    console.log("TypeScript API type generation checked.");
+  }
 }
 
 main().catch((err) => {

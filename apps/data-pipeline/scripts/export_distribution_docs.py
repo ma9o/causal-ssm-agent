@@ -14,7 +14,9 @@ Hand-written prose surrounding these sections is preserved.
 
 from __future__ import annotations
 
+import argparse
 import re
+import sys
 from pathlib import Path
 
 from causal_ssm_agent.distributions import (
@@ -27,7 +29,8 @@ from causal_ssm_agent.distributions import (
     render_prior_parameter_guidance_markdown_table,
 )
 
-_DOCS_DIR = Path(__file__).resolve().parents[3] / "docs" / "reference" / "model-spec"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DOCS_DIR = _REPO_ROOT / "docs" / "reference" / "model-spec"
 _PARAMETERS_PATH = _DOCS_DIR / "parameters.md"
 _LIKELIHOODS_PATH = _DOCS_DIR / "likelihoods.md"
 
@@ -45,7 +48,7 @@ def _replace_section(text: str, heading: str, new_body: str, path: Path) -> str:
     return result
 
 
-def _export_parameters() -> None:
+def _export_parameters(*, check: bool) -> bool:
     """Regenerate the generated sections of parameters.md in-place."""
     original = _PARAMETERS_PATH.read_text()
 
@@ -77,11 +80,18 @@ def _export_parameters() -> None:
     updated = _replace_section(updated, "## Supported Prior Families", families_body, _PARAMETERS_PATH)
     updated = _replace_section(updated, "## Common Defaults", defaults_body, _PARAMETERS_PATH)
 
+    if check:
+        changed = updated != original
+        if changed:
+            print(f"  {_PARAMETERS_PATH.relative_to(_REPO_ROOT)}")
+        return changed
+
     _PARAMETERS_PATH.write_text(updated)
     print(f"  parameters.md  -> {_PARAMETERS_PATH}")
+    return updated != original
 
 
-def _export_likelihoods() -> None:
+def _export_likelihoods(*, check: bool) -> bool:
     """Regenerate the generated sections of likelihoods.md in-place."""
     original = _LIKELIHOODS_PATH.read_text()
 
@@ -101,15 +111,32 @@ def _export_likelihoods() -> None:
     updated = _replace_section(updated, "## Distribution Families", render_distribution_families_prose(), _LIKELIHOODS_PATH)
     updated = _replace_section(updated, "## Link Functions", render_link_functions_prose(), _LIKELIHOODS_PATH)
 
+    if check:
+        changed = updated != original
+        if changed:
+            print(f"  {_LIKELIHOODS_PATH.relative_to(_REPO_ROOT)}")
+        return changed
+
     _LIKELIHOODS_PATH.write_text(updated)
     print(f"  likelihoods.md -> {_LIKELIHOODS_PATH}")
+    return updated != original
 
 
-def export_prior_distribution_docs() -> None:
+def export_prior_distribution_docs(*, check: bool = False) -> bool:
     """Write the authoritative model-spec reference pages."""
-    _export_parameters()
-    _export_likelihoods()
+    parameters_changed = _export_parameters(check=check)
+    likelihoods_changed = _export_likelihoods(check=check)
+    return parameters_changed or likelihoods_changed
 
 
 if __name__ == "__main__":
-    export_prior_distribution_docs()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--check", action="store_true", help="Verify generated docs without writing files.")
+    args = parser.parse_args()
+
+    has_changes = export_prior_distribution_docs(check=args.check)
+    if args.check:
+        if has_changes:
+            print("Distribution docs codegen is out of date. Run `bun run docs:codegen`.", file=sys.stderr)
+            sys.exit(1)
+        print("Distribution docs checked.")

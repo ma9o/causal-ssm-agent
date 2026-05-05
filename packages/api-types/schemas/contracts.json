@@ -1013,7 +1013,7 @@
         "auto_method": {
           "enum": [
             "nuts",
-            "laplace_em",
+            "map",
             "svi"
           ],
           "title": "Auto Method",
@@ -1782,6 +1782,11 @@
           "default": "stationary",
           "description": "Whether dynamic-state initial conditions are stationary-derived or free"
         },
+        "observation_intercept_policy": {
+          "$ref": "#/$defs/ObservationInterceptPolicy",
+          "default": "free",
+          "description": "Whether eligible manifest intercepts remain free or are fixed"
+        },
         "equilibrium_forcing": {
           "default": false,
           "description": "Whether eligible dynamic states may carry a continuous-time intercept term",
@@ -1793,6 +1798,7 @@
         "equilibrium_forcing",
         "initialization_policy",
         "likelihoods",
+        "observation_intercept_policy",
         "parameters"
       ],
       "title": "ModelSpec",
@@ -1828,6 +1834,15 @@
       "required": [
         "confounders"
       ]
+    },
+    "ObservationInterceptPolicy": {
+      "description": "Global policy for whether eligible manifest intercepts remain free.",
+      "enum": [
+        "fixed",
+        "free"
+      ],
+      "title": "ObservationInterceptPolicy",
+      "type": "string"
     },
     "PPCOverlay": {
       "description": "Per-variable quantile bands for PPC ribbon/density overlay plots.\n\nProvides the data for Gabry's ppc_dens_overlay / ppc_ribbon plots:\nobserved time series vs posterior predictive quantile bands.\nOptionally includes individual y_rep draw lines for spaghetti plots.",
@@ -2450,7 +2465,8 @@
         "TruncatedNormal",
         "Gamma",
         "LogNormal",
-        "Exponential"
+        "Exponential",
+        "Delta"
       ],
       "title": "PriorDistributionFamily",
       "type": "string"
@@ -2499,7 +2515,7 @@
             }
           ],
           "default": null,
-          "description": "Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT\u2192CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for persistence).",
+          "description": "Observation interval (in days) that the DT prior is expressed in. Sourced from the study's measurement schedule (e.g., 7 for a weekly study). Used for DT\u2192CT conversion of dynamic priors (e.g. beta/dt for cross-lags, -log(rho)/dt for baseline persistence).",
           "title": "Reference Interval Days"
         },
         "density_points": {
@@ -2979,7 +2995,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "llm_trace": {
@@ -3031,7 +3046,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "llm_trace": {
@@ -3079,7 +3093,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "llm_trace": {
@@ -3127,7 +3140,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "llm_trace": {
@@ -3179,7 +3191,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "is_valid": {
@@ -3233,7 +3244,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "llm_trace": {
@@ -3345,7 +3355,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "parametric_id": {
@@ -3394,7 +3403,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "inference_metadata": {
@@ -3472,7 +3480,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "power_scaling": {
@@ -3595,7 +3602,6 @@
             }
           ],
           "default": null,
-          "description": "Machine-readable reason for a terminal semantic stop.",
           "title": "Fail Reason"
         },
         "llm_trace": {

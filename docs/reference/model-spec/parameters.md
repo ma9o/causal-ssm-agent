@@ -27,7 +27,7 @@ The [Stage 4 skeleton](../../pipeline/04-model-specification-priors.md) creates 
 
 Constraint notes:
 
-- `ar_coefficient`: Stage 4 elicits discrete-time persistence magnitude; [compilation](../compilation.md) converts to continuous-time drift
+- `ar_coefficient`: Stage 4 elicits baseline discrete-time persistence absent feedback; [compilation](../compilation.md) converts to continuous-time base decay
 - `fixed_effect`: Causal effects can be positive or negative; unconstrained
 - `static_state_sd`: Used to build low-rank initial-state covariance contributions of the form `B diag(tau^2) B^T`.
 - `loading`: Stage 1b indicator polarity fixes each loading sign as either `positive` or `negative`; Stage 4 no longer chooses loading orientation
@@ -47,6 +47,7 @@ Constraint notes:
 | `Gamma` | `Gamma(concentration, rate)` | `positive` | Positive-only parameters when right-skewed uncertainty is plausible. |
 | `LogNormal` | `LogNormal(mu, sigma)` | `positive` | Positive-only parameters when uncertainty is multiplicative on the log scale. |
 | `Exponential` | `Exponential(rate)` | `positive` | Positive-only parameters with mass near zero and a single decay rate. |
+| `Delta` | `Delta(value)` | `positive` | Fixed positive value inserted by compiler-owned deterministic repairs. |
 
 The `Family` values are the exact canonical strings accepted by Stage 4 prior schemas; aliases are not supported.
 The `Use When` column is the authoritative short guidance reused by the Stage 4 prompts.
@@ -56,7 +57,7 @@ The `Use When` column is the authoritative short guidance reused by the Stage 4 
 | Type | Typical Distribution | Typical Range | Scale |
 |---|---|---|---|
 | beta (causal effect) | Normal(0, 0.5) | [-2, 2] | Authored interval effect (defaults to model interval; use `reference_interval_days` when evidence is on another interval) |
-| rho (AR coefficient) | Beta(2, 2) or Uniform(0, 1) | [0, 1] | Discrete-time persistence |
+| rho (AR coefficient) | Beta(2, 2) or Uniform(0, 1) | [0, 1] | Baseline discrete-time persistence absent feedback |
 | sigma (residual SD) | HalfNormal(1) | [0, 5] | Data scale |
 | t0_mean (initial-state mean) | Normal(0, 1) | [-3, 3] | Latent state scale; do not copy raw indicator means or log-means unless the construct is explicitly identified on that observed scale |
 | t0_sd (initial-state SD) | HalfNormal(1) | [0, 3] | Latent state scale |

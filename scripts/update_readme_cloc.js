@@ -10,6 +10,7 @@ const readmePath = resolve(repoRoot, "README.md");
 const startMarker = "<!-- cloc:start -->";
 const endMarker = "<!-- cloc:end -->";
 const vcsCommand = "git ls-files --cached --others --exclude-standard";
+const checkOnly = process.argv.includes("--check");
 
 function formatNumber(value) {
   return new Intl.NumberFormat("en-US").format(value);
@@ -197,5 +198,15 @@ try {
 }
 
 const readme = readFileSync(readmePath, "utf8");
+const updatedReadme = replaceGeneratedBlock(readme, buildBlock(report));
 
-writeFileSync(readmePath, replaceGeneratedBlock(readme, buildBlock(report)));
+if (checkOnly) {
+  if (updatedReadme !== readme) {
+    console.error("README cloc block is out of date. Run `bun run docs:codegen`.");
+    process.exit(1);
+  }
+
+  console.log("README cloc block checked.");
+} else {
+  writeFileSync(readmePath, updatedReadme);
+}
