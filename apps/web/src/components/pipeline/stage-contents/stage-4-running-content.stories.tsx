@@ -13,8 +13,7 @@ import { STAGES } from "@causal-ssm/api-types";
 import { Stage4RunningView } from "./stage-4-running-content";
 import { stageStoryDecorators } from "../stage-story-helpers";
 import { StageStoryTemplate } from "../stage-story-template";
-import { StageLogView } from "../stage-log-viewer";
-import { createStageStoryLogs } from "../stage-story-log-fixture";
+import { StoryStageLogView } from "../stage-story-log-stream";
 import { useEffect, useState } from "react";
 
 const stage = STAGES.find((s) => s.id === "stage-4")!;
@@ -564,7 +563,7 @@ function AnimatedStage4() {
           i = 2;
         }
         setState(current);
-            return;
+        return;
       }
 
       const raw = EVENT_TIMELINE[i];
@@ -601,14 +600,7 @@ export const StateMachineReplay: Story = {
       stage={stage}
       status="running"
       runningContent={<AnimatedStage4 />}
-      logView={
-        <StageLogView
-          logs={createStageStoryLogs()}
-          status="running"
-          bootstrapStatus="success"
-          connectionState="streaming"
-        />
-      }
+      logView={<StoryStageLogView storyId="stage-4-running-state-machine" status="running" />}
     />
   ),
   parameters: {

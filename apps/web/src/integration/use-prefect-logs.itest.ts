@@ -40,6 +40,7 @@ function PrefectLogsProbe({
   const { bootstrapStatus, connectionState, logs } = usePrefectLogs(
     queryKey,
     flowRunIds,
+    {},
     buildPrefectSubscriptionKey(flowRunIds),
     status,
   );

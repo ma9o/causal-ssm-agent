@@ -32,37 +32,85 @@ interface PrefectLogSocketMessage {
   log?: PrefectLogEntry;
 }
 
-function usePrefectLogStream(
-  queryKey: readonly unknown[],
-  flowRunIds: string[],
-  timeWindow: PrefectLogTimeWindow,
-  subscriptionKey: string,
-  enabled: boolean,
-) {
-  const queryClient = useQueryClient();
+export interface PrefectLogStreamTransportArgs {
+  enabled: boolean;
+  flowRunIds: string[];
+  timeWindow: PrefectLogTimeWindow;
+  subscriptionKey: string;
+  onLog: (log: PrefectLogEntry) => void;
+  onSubscribed: () => void;
+}
 
+export interface PrefectLogTransport {
+  fetchLogs: typeof fetchIncrementalPrefectLogs;
+  useLogStream: (args: PrefectLogStreamTransportArgs) => PrefectSocketConnectionState;
+}
+
+function usePrefectWebSocketLogStream({
+  enabled,
+  flowRunIds,
+  timeWindow,
+  subscriptionKey,
+  onLog,
+  onSubscribed,
+}: PrefectLogStreamTransportArgs) {
   const handleLogMessage = useCallback(
     (message: PrefectLogSocketMessage) => {
       if (message.type !== "log" || !message.log) {
         return;
       }
 
-      queryClient.setQueryData<PrefectLogEntry[]>(queryKey, (old) =>
-        mergePrefectLogs(old ?? [], [message.log as PrefectLogEntry]),
-      );
+      onLog(message.log);
     },
-    [queryClient, queryKey],
+    [onLog],
   );
 
   return usePrefectSocketSubscription<PrefectLogSocketMessage>({
     enabled,
     subscriptionKey,
     getSocketUrl: () => getPrefectLogsUrl(window.location.origin),
-    buildFilterMessage: () => buildPrefectLogStreamFilterMessage(flowRunIds, new Date(), timeWindow),
-    onSubscribed: () => {
-      queryClient.invalidateQueries({ queryKey });
-    },
+    buildFilterMessage: () =>
+      buildPrefectLogStreamFilterMessage(flowRunIds, new Date(), timeWindow),
+    onSubscribed,
     onMessage: handleLogMessage,
+  });
+}
+
+export const prefectLogTransport: PrefectLogTransport = {
+  fetchLogs: fetchIncrementalPrefectLogs,
+  useLogStream: usePrefectWebSocketLogStream,
+};
+
+function usePrefectLogStream(
+  queryKey: readonly unknown[],
+  flowRunIds: string[],
+  timeWindow: PrefectLogTimeWindow,
+  subscriptionKey: string,
+  enabled: boolean,
+  transport: PrefectLogTransport,
+) {
+  const queryClient = useQueryClient();
+
+  const handleLog = useCallback(
+    (log: PrefectLogEntry) => {
+      queryClient.setQueryData<PrefectLogEntry[]>(queryKey, (old) =>
+        mergePrefectLogs(old ?? [], [log]),
+      );
+    },
+    [queryClient, queryKey],
+  );
+
+  const handleSubscribed = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey });
+  }, [queryClient, queryKey]);
+
+  return transport.useLogStream({
+    enabled,
+    flowRunIds,
+    timeWindow,
+    subscriptionKey,
+    onLog: handleLog,
+    onSubscribed: handleSubscribed,
   });
 }
 
@@ -74,8 +122,10 @@ export function usePrefectLogs(
   status: StageRunStatus,
   {
     pageSize = getPrefectLogPageSize(),
+    transport = prefectLogTransport,
   }: {
     pageSize?: number;
+    transport?: PrefectLogTransport;
   } = {},
 ): PrefectLogsResult {
   const queryClient = useQueryClient();
@@ -87,9 +137,8 @@ export function usePrefectLogs(
     queryKey,
     queryFn: async () => {
       const existing = queryClient.getQueryData<PrefectLogEntry[]>(queryKey) ?? [];
-      const restartBootstrapFromBeginning =
-        previousBootstrapScopeRef.current !== subscriptionKey;
-      const nextLogs = await fetchIncrementalPrefectLogs(flowRunIds, existing, {
+      const restartBootstrapFromBeginning = previousBootstrapScopeRef.current !== subscriptionKey;
+      const nextLogs = await transport.fetchLogs(flowRunIds, existing, {
         limit: pageSize,
         offset: restartBootstrapFromBeginning ? 0 : existing.length,
         timeWindow,
@@ -108,6 +157,7 @@ export function usePrefectLogs(
     timeWindow,
     subscriptionKey,
     status === "running" && flowRunIds.length > 0 && bootstrapStatus === "success",
+    transport,
   );
 
   useEffect(() => {
@@ -145,8 +195,10 @@ export function useStageLogs(
   status: StageRunStatus,
   {
     pageSize = getPrefectLogPageSize(),
+    transport = prefectLogTransport,
   }: {
     pageSize?: number;
+    transport?: PrefectLogTransport;
   } = {},
 ): PrefectLogsResult {
   const { runtime, flowRunIds, timeWindow, subscriptionKey } = useStageLogScope(
@@ -162,5 +214,8 @@ export function useStageLogs(
     stageId,
     getStageLogQueryScopeKey(runtime),
   ] as const;
-  return usePrefectLogs(queryKey, flowRunIds, timeWindow, subscriptionKey, status, { pageSize });
+  return usePrefectLogs(queryKey, flowRunIds, timeWindow, subscriptionKey, status, {
+    pageSize,
+    transport,
+  });
 }
