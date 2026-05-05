@@ -7,6 +7,7 @@
     "prepare": "git config core.hooksPath .githooks",
     "dev": "turbo dev",
     "build": "turbo build",
+    "cloc:readme": "bun scripts/update_readme_cloc.js",
     "docs:check": "markdownlint-cli2 --config .markdownlint-docs.json \"README.md\" \"docs/**/*.md\"",
     "integration:start": "bash scripts/start_agentic_integration_stack.sh",
     "lint": "turbo lint",
