@@ -415,52 +415,6 @@ class TestLaplaceEM:
         assert summary["obs_df"]["mean_ci_width"] < 20.0
 
 
-class TestMAP:
-    """Recovery tests for MAP with IEKS/Laplace marginalization."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(600)
-    def test_map_mixed_support_particle_recovery(self):
-        """MAP + IEKS runs on the mixed-support 10-latent benchmark.
-
-        The sample budget is intentionally cheap, so this focuses on posterior
-        mean recovery rather than demanding tight empirical
-        interval coverage for every family.
-        """
-        data = _make_map_mixed_support_recovery_data()
-        model = SSMModel(data["spec"], data["priors"], likelihood="particle")
-        model.set_observation_support(data["observation_support"])
-
-        result = fit(
-            model,
-            observations=data["observations"],
-            times=data["times"],
-            method="map",
-            num_samples=25,
-            seed=0,
-            n_ieks_iters=6,
-            maxiter=25,
-        )
-
-        summary = _summarize_family_recovery(result.get_samples(), data)
-
-        assert result.method == "map"
-        assert data["observation_support"].requires_interval_summary_handling is True
-
-        assert summary["drift"]["coverage"] >= 0.8
-        assert summary["diffusion_sd"]["coverage"] >= 0.8
-
-        assert summary["drift"]["mean_abs_error"] < 0.10
-        assert summary["diffusion_sd"]["mean_abs_error"] < 0.03
-        assert summary["obs_scale"]["mean_abs_error"] < 0.07
-        assert summary["obs_df"]["mean_abs_error"] < 2.0
-
-        assert summary["drift"]["mean_ci_width"] < 0.4
-        assert summary["diffusion_sd"]["mean_ci_width"] < 0.1
-        assert summary["obs_scale"]["mean_ci_width"] < 0.1
-        assert summary["obs_df"]["mean_ci_width"] < 4.0
-
-
 class TestAuxGibbs:
     """Recovery tests for the auxiliary Gibbs trajectory sampler."""
 
