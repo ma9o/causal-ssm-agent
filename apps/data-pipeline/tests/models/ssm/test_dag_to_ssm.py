@@ -16,6 +16,8 @@ import numpyro.handlers as handlers
 import polars as pl
 import pytest
 
+from causal_ssm_agent.artifacts import LinkFunction
+from causal_ssm_agent.distributions import DistributionFamily
 from causal_ssm_agent.models.ssm.model import (
     SSMModel,
     SSMPriors,
@@ -400,99 +402,67 @@ class TestBuilderMasks:
         np.testing.assert_array_equal(drift_mask, np.array([[True]]))
         np.testing.assert_array_equal(lambda_mask, np.array([[False]]))
 
-    def test_ssm_spec_rejects_explicit_none_masks(self):
-        """Structural masks are required on SSMSpec."""
-        with pytest.raises(ValueError, match="drift_diag_mask must have shape"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                lambda_mat=jnp.eye(4, 3),
-                drift_mask=None,
-                lambda_mask=zero_loading_mask(4, 3),
-                latent_names=["X", "Y", "Z"],
-                manifest_names=["x1", "x2", "y1", "z1"],
-            )
-
-        with pytest.raises(ValueError, match="lambda_mask must have shape"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                lambda_mat=jnp.eye(4, 3),
-                drift_mask=full_drift_mask(3),
-                lambda_mask=None,
-                latent_names=["X", "Y", "Z"],
-                manifest_names=["x1", "x2", "y1", "z1"],
-            )
-
-    def test_ssm_spec_rejects_invalid_mask_shapes(self):
-        """Structural masks must match the latent/manifest dimensions."""
-        with pytest.raises(ValueError, match=r"drift_mask must have shape \(3, 3\)"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                lambda_mat=jnp.eye(4, 3),
-                drift_mask=np.ones((2, 2), dtype=bool),
-                lambda_mask=zero_loading_mask(4, 3),
-                latent_names=["X", "Y", "Z"],
-                manifest_names=["x1", "x2", "y1", "z1"],
-            )
-
-        with pytest.raises(ValueError, match=r"lambda_mask must have shape \(4, 3\)"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                lambda_mat=jnp.eye(4, 3),
-                drift_mask=full_drift_mask(3),
-                lambda_mask=np.ones((4, 4), dtype=bool),
-                latent_names=["X", "Y", "Z"],
-                manifest_names=["x1", "x2", "y1", "z1"],
-            )
-
-    def test_ssm_spec_rejects_mismatched_family_metadata_lengths(self):
-        """Per-variable metadata lists must match the declared dimensions."""
-        from causal_ssm_agent.artifacts import LinkFunction
-        from causal_ssm_agent.distributions import DistributionFamily
-
-        with pytest.raises(ValueError, match="diffusion_dists length must match n_latent"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                drift_mask=full_drift_mask(3),
-                lambda_mask=zero_loading_mask(4, 3),
-                lambda_mat=jnp.eye(4, 3),
-                diffusion_dists=[DistributionFamily.GAUSSIAN] * 2,
-            )
-
-        with pytest.raises(ValueError, match="manifest_dists length must match n_manifest"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                drift_mask=full_drift_mask(3),
-                lambda_mask=zero_loading_mask(4, 3),
-                lambda_mat=jnp.eye(4, 3),
-                manifest_dists=[DistributionFamily.GAUSSIAN] * 3,
-            )
-
-        with pytest.raises(ValueError, match="manifest_links length must match n_manifest"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                drift_mask=full_drift_mask(3),
-                lambda_mask=zero_loading_mask(4, 3),
-                lambda_mat=jnp.eye(4, 3),
-                manifest_dists=[DistributionFamily.GAUSSIAN] * 4,
-                manifest_links=[LinkFunction.IDENTITY] * 3,
-            )
-
-        with pytest.raises(ValueError, match="manifest_level_counts length must match n_manifest"):
-            make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                drift_mask=full_drift_mask(3),
-                lambda_mask=zero_loading_mask(4, 3),
-                lambda_mat=jnp.eye(4, 3),
-                manifest_level_counts=[0, 0, 0],
-            )
+    @pytest.mark.parametrize(
+        ("override", "error_pattern"),
+        [
+            pytest.param(
+                {"drift_mask": None},
+                "drift_diag_mask must have shape",
+                id="drift_mask_none",
+            ),
+            pytest.param(
+                {"lambda_mask": None},
+                "lambda_mask must have shape",
+                id="lambda_mask_none",
+            ),
+            pytest.param(
+                {"drift_mask": np.ones((2, 2), dtype=bool)},
+                r"drift_mask must have shape \(3, 3\)",
+                id="drift_mask_wrong_shape",
+            ),
+            pytest.param(
+                {"lambda_mask": np.ones((4, 4), dtype=bool)},
+                r"lambda_mask must have shape \(4, 3\)",
+                id="lambda_mask_wrong_shape",
+            ),
+            pytest.param(
+                {"diffusion_dists": [DistributionFamily.GAUSSIAN] * 2},
+                "diffusion_dists length must match n_latent",
+                id="diffusion_dists_short",
+            ),
+            pytest.param(
+                {"manifest_dists": [DistributionFamily.GAUSSIAN] * 3},
+                "manifest_dists length must match n_manifest",
+                id="manifest_dists_short",
+            ),
+            pytest.param(
+                {
+                    "manifest_dists": [DistributionFamily.GAUSSIAN] * 4,
+                    "manifest_links": [LinkFunction.IDENTITY] * 3,
+                },
+                "manifest_links length must match n_manifest",
+                id="manifest_links_short",
+            ),
+            pytest.param(
+                {"manifest_level_counts": [0, 0, 0]},
+                "manifest_level_counts length must match n_manifest",
+                id="manifest_level_counts_short",
+            ),
+        ],
+    )
+    def test_ssm_spec_rejects_invalid_structural_metadata(self, override, error_pattern):
+        """SSMSpec rejects invalid mask shapes, missing masks, and mismatched lengths."""
+        base = {
+            "n_latent": 3,
+            "n_manifest": 4,
+            "lambda_mat": jnp.eye(4, 3),
+            "drift_mask": full_drift_mask(3),
+            "lambda_mask": zero_loading_mask(4, 3),
+            "latent_names": ["X", "Y", "Z"],
+            "manifest_names": ["x1", "x2", "y1", "z1"],
+        }
+        with pytest.raises(ValueError, match=error_pattern):
+            make_ssm_spec(**{**base, **override})
 
     def test_ssm_spec_rejects_string_lambda_mat(self):
         """Loading structure must be expressed as template + mask, not a string mode."""
