@@ -93,6 +93,52 @@ def dag_model(dag_spec):
     return SSMModel(dag_spec, likelihood="kalman")
 
 
+@pytest.fixture
+def model_spec_and_priors():
+    return (
+        {
+            "likelihoods": [
+                {
+                    "variable": "mood_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "test",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "AR mood",
+                },
+                {
+                    "name": "sigma_mood",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "description": "SD mood",
+                },
+            ],
+        },
+        {
+            "rho_mood": {
+                "parameter": "rho_mood",
+                "distribution": "Normal",
+                "params": {"mu": 0.5, "sigma": 0.2},
+                "sources": [],
+                "reasoning": "r",
+            },
+            "sigma_mood": {
+                "parameter": "sigma_mood",
+                "distribution": "HalfNormal",
+                "params": {"sigma": 1.0},
+                "sources": [],
+                "reasoning": "r",
+            },
+        },
+    )
+
+
 # ---------------------------------------------------------------------------
 # Site registry tests
 # ---------------------------------------------------------------------------
@@ -925,51 +971,6 @@ class TestCanonicalRuntimePriors:
 
 class TestCompiledArtifactIntegration:
     """Test that compiled_prior_semantics is emitted and correctly consumed."""
-
-    @pytest.fixture
-    def model_spec_and_priors(self):
-        return (
-            {
-                "likelihoods": [
-                    {
-                        "variable": "mood_score",
-                        "distribution": "gaussian",
-                        "link": "identity",
-                        "reasoning": "test",
-                    }
-                ],
-                "parameters": [
-                    {
-                        "name": "rho_mood",
-                        "role": "ar_coefficient",
-                        "constraint": "unit_interval",
-                        "description": "AR mood",
-                    },
-                    {
-                        "name": "sigma_mood",
-                        "role": "residual_sd",
-                        "constraint": "positive",
-                        "description": "SD mood",
-                    },
-                ],
-            },
-            {
-                "rho_mood": {
-                    "parameter": "rho_mood",
-                    "distribution": "Normal",
-                    "params": {"mu": 0.5, "sigma": 0.2},
-                    "sources": [],
-                    "reasoning": "r",
-                },
-                "sigma_mood": {
-                    "parameter": "sigma_mood",
-                    "distribution": "HalfNormal",
-                    "params": {"sigma": 1.0},
-                    "sources": [],
-                    "reasoning": "r",
-                },
-            },
-        )
 
     def test_artifact_contains_compiled_prior_semantics(self, model_spec_and_priors):
         """compile_ssm_artifact emits semantics and omits legacy priors."""
