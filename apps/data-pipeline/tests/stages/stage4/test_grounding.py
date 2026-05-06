@@ -18,12 +18,44 @@ from causal_ssm_agent.flows.stages.stage4.grounding import (
     stage4_grounding,
 )
 from causal_ssm_agent.flows.stages.stage4.tools import make_search_tool
-from tests.stages.stage4._support import (
-    derive_priors_from_model_spec as _make_priors,
-)
-from tests.stages.stage4._support import (
-    make_causal_spec_dict,
-)
+from tests.stages.stage4._support import make_causal_spec_dict
+
+
+def _make_priors(model_spec: dict) -> dict[str, dict]:
+    """Generate weakly-informative priors for each parameter in a model spec.
+
+    Picks the family by parameter name pattern: ``rho_*`` -> Beta(2,2),
+    ``sigma_*`` -> HalfNormal(1), otherwise Normal(0, 0.5).
+    """
+    priors: dict[str, dict] = {}
+    for p in model_spec["parameters"]:
+        name = p["name"]
+        if "rho" in name:
+            priors[name] = {
+                "parameter": name,
+                "distribution": "Beta",
+                "params": {"alpha": 2.0, "beta": 2.0},
+                "sources": [],
+                "reasoning": "Weakly informative AR prior",
+            }
+        elif "sigma" in name:
+            priors[name] = {
+                "parameter": name,
+                "distribution": "HalfNormal",
+                "params": {"sigma": 1.0},
+                "sources": [],
+                "reasoning": "Weakly informative SD prior",
+            }
+        else:
+            priors[name] = {
+                "parameter": name,
+                "distribution": "Normal",
+                "params": {"mu": 0.0, "sigma": 0.5},
+                "sources": [],
+                "reasoning": "Weakly informative effect prior",
+            }
+    return priors
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
