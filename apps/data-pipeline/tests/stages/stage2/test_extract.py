@@ -1,6 +1,5 @@
 """Tests for stage 2 worker extraction flow helpers."""
 
-import asyncio
 import logging
 from types import SimpleNamespace
 from typing import Any
@@ -9,6 +8,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage2 import flow as stage2_extract
+from tests.async_helpers import run_async as _run
 
 
 class _FakeFuture:
@@ -20,10 +20,6 @@ class _FakeFuture:
         if self._error is not None:
             raise self._error
         return self._result
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _require_mapping(value: object) -> dict[str, Any]:

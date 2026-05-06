@@ -24,8 +24,7 @@ from causal_ssm_agent.models.ssm import (
     zero_vector_mask,
 )
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from tests.helpers import assert_recovery_ci
-from tests.ssm_test_utils import make_lgss_data
+from tests.ssm_test_utils import assert_recovery_ci, make_lgss_data
 
 pytestmark = pytest.mark.slow
 

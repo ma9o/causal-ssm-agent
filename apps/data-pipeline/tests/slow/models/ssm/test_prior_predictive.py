@@ -8,14 +8,14 @@ from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
 from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
-from tests.models.ssm.test_prior_predictive import _complex_mixed_runtime_spec
+from tests.models.ssm.prior_predictive_support import complex_mixed_runtime_spec
 
 pytestmark = pytest.mark.slow
 
 
 class TestCompiledPriorPredictiveRuntime:
     def test_mixed_likelihood_samples_are_finite(self):
-        spec = _complex_mixed_runtime_spec()
+        spec = complex_mixed_runtime_spec()
         semantics = compile_prior_semantics(spec, SSMPriors())
         samples = sample_prior_predictive_from_compiled_semantics(
             spec,

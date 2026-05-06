@@ -6,7 +6,6 @@ expected shape and (b) tool calls dispatch to the underlying
 ``Tool.execute`` callable and return its result.
 """
 
-import asyncio
 from contextlib import asynccontextmanager
 
 import pytest
@@ -18,6 +17,7 @@ from causal_ssm_agent.utils.harness.mcp_server import (
     serve_tools_http,
 )
 from causal_ssm_agent.utils.openrouter_client import Tool
+from tests.async_helpers import run_async as _run
 
 
 @asynccontextmanager
@@ -62,10 +62,6 @@ def _make_failing_tool() -> Tool:
         },
         execute=_execute,
     )
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 class TestMCPServer:

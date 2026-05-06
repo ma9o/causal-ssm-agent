@@ -29,8 +29,9 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
     Stage4DomainState,
     Stage4Runtime,
 )
-from causal_ssm_agent.utils import data as data_module
 from causal_ssm_agent.utils import openrouter_client
+from tests.pipeline._support import noop_artifact as _noop_artifact
+from tests.pipeline._support import redirect_storage as _redirect_storage
 
 
 class _FakeModalRunnersModule(ModuleType):
@@ -45,28 +46,10 @@ async def _resolve_maybe_awaitable(value: Any) -> Any:
     return value
 
 
-def _redirect_storage(monkeypatch, tmp_path, workspace_id: str = "test_workspace") -> None:
-    """Point runs_dir and input_dir to tmp_path so tests don't touch real data/."""
-    base = str(tmp_path / "data")
-
-    def _mock_runs_dir(c: str) -> str:
-        return f"{base}/{c}/run"
-
-    monkeypatch.setattr(run_store_module, "runs_dir", _mock_runs_dir)
-    monkeypatch.setattr(data_module, "runs_dir", _mock_runs_dir)
-    monkeypatch.setattr(data_module, "DATA_URI", base)
-    monkeypatch.setattr(pipeline, "runs_dir", _mock_runs_dir)
-    monkeypatch.setattr(pipeline, "DATA_URI", base)
-
-
 def _stub_config() -> SimpleNamespace:
     return SimpleNamespace(
         stage4_prior_elicitation=SimpleNamespace(literature_search=SimpleNamespace(enabled=True)),
     )
-
-
-def _noop_artifact(**_kwargs) -> None:
-    return None
 
 
 def _stage1a_latent_model(treatment: str = "treatment", outcome: str = "outcome") -> dict:

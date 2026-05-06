@@ -11,13 +11,13 @@ from causal_ssm_agent.models.ssm.inference.targets.base import (
     InitialStateParams,
     MeasurementParams,
 )
-from tests.models.ssm.test_block_rb import (
-    _make_mixed_params,
-    _run_block_rbpf,
-    _run_bootstrap_pf,
-    _simulate_data,
-    _simulate_data_exact,
-    _simulate_poisson_data,
+from tests.models.ssm.block_rb_support import (
+    make_mixed_params,
+    run_block_rbpf,
+    run_bootstrap_pf,
+    simulate_data,
+    simulate_data_exact,
+    simulate_poisson_data,
 )
 
 pytestmark = pytest.mark.slow
@@ -25,12 +25,12 @@ pytestmark = pytest.mark.slow
 
 class TestVarianceReduction:
     def test_variance_reduction(self):
-        ct, meas, init = _make_mixed_params(n_g=1, n_s=1, n_manifest=2, cross_coupling=False)
-        obs, dt = _simulate_data(random.PRNGKey(555), ct, meas, init, T=20)
+        ct, meas, init = make_mixed_params(n_g=1, n_s=1, n_manifest=2, cross_coupling=False)
+        obs, dt = simulate_data(random.PRNGKey(555), ct, meas, init, T=20)
 
         block_lls = []
         for i in range(30):
-            ll = _run_block_rbpf(
+            ll = run_block_rbpf(
                 ct,
                 meas,
                 init,
@@ -45,7 +45,7 @@ class TestVarianceReduction:
 
         boot_lls = []
         for i in range(30):
-            ll = _run_bootstrap_pf(
+            ll = run_bootstrap_pf(
                 ct,
                 meas,
                 init,
@@ -81,7 +81,7 @@ class TestParameterRecovery:
             manifest_cov=jnp.eye(n) * 0.1,
         )
         init = InitialStateParams(mean=jnp.zeros(n), cov=jnp.eye(n))
-        obs, dt = _simulate_data(random.PRNGKey(777), ct_true, meas, init, T=30)
+        obs, dt = simulate_data(random.PRNGKey(777), ct_true, meas, init, T=30)
 
         def model(observations, time_intervals):
             drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.5).expand((n,)))
@@ -142,7 +142,7 @@ class TestParameterRecovery:
             manifest_cov=jnp.eye(n) * 0.1,
         )
         init = InitialStateParams(mean=jnp.zeros(n), cov=jnp.eye(n))
-        obs, dt = _simulate_data(random.PRNGKey(777), ct_true, meas, init, T=30)
+        obs, dt = simulate_data(random.PRNGKey(777), ct_true, meas, init, T=30)
 
         def model(observations, time_intervals):
             drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.5).expand((n,)))
@@ -205,7 +205,7 @@ class TestParameterRecovery:
             manifest_cov=jnp.eye(n) * 0.1,
         )
         init = InitialStateParams(mean=jnp.zeros(n), cov=jnp.eye(n))
-        obs, dt = _simulate_data_exact(random.PRNGKey(888), ct_true, meas, init, T=50)
+        obs, dt = simulate_data_exact(random.PRNGKey(888), ct_true, meas, init, T=50)
 
         def model(observations, time_intervals):
             drift_diag = jnp.asarray(
@@ -279,7 +279,7 @@ class TestParameterRecovery:
             manifest_cov=jnp.eye(n) * 0.1,
         )
         init = InitialStateParams(mean=jnp.zeros(n), cov=jnp.eye(n))
-        obs, dt = _simulate_data_exact(random.PRNGKey(1111), ct_true, meas, init, T=50)
+        obs, dt = simulate_data_exact(random.PRNGKey(1111), ct_true, meas, init, T=50)
 
         def model(observations, time_intervals):
             drift_diag = numpyro.sample("drift_diag", dist.Normal(-0.5, 0.3).expand((n,)))
@@ -337,7 +337,7 @@ class TestParameterRecovery:
             manifest_cov=jnp.eye(n) * 0.1,
         )
         init = InitialStateParams(mean=jnp.zeros(n), cov=jnp.eye(n))
-        obs, dt = _simulate_poisson_data(random.PRNGKey(1234), ct_true, meas, init, T=50)
+        obs, dt = simulate_poisson_data(random.PRNGKey(1234), ct_true, meas, init, T=50)
 
         def compute_ll(drift_diag_vals):
             ct = CTParams(
@@ -345,7 +345,7 @@ class TestParameterRecovery:
                 diffusion_cov=diffusion_cov,
                 cint=jnp.zeros(n),
             )
-            return _run_block_rbpf(
+            return run_block_rbpf(
                 ct,
                 meas,
                 init,

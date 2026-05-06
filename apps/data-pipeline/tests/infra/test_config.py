@@ -1,6 +1,5 @@
 """Tests for config.py: dataclass methods and load_config parsing."""
 
-import asyncio
 import textwrap
 
 import pytest
@@ -29,6 +28,7 @@ from causal_ssm_agent.utils.config import (
     load_config,
     validate_config,
 )
+from tests.async_helpers import run_async
 
 # =============================================================================
 # InferenceConfig.to_sampler_config
@@ -462,7 +462,7 @@ class TestGetSecret:
 
     def test_async_reads_env_var(self, monkeypatch):
         monkeypatch.setenv("TEST_SECRET_ABC", "from-env")
-        assert asyncio.run(get_secret_async("TEST_SECRET_ABC")) == "from-env"
+        assert run_async(get_secret_async("TEST_SECRET_ABC")) == "from-env"
 
 
 # =============================================================================
