@@ -23,8 +23,6 @@ from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.ssm_test_utils import make_ssm_spec
 
-pytestmark = pytest.mark.slow
-
 
 def _support_runtime() -> ObservationSupportRuntime:
     return ObservationSupportRuntime(
