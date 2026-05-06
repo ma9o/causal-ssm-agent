@@ -101,7 +101,7 @@ describe("generateMarkdown", () => {
         parametric_id: { checked: true },
         inference_structure: {
           likelihood_path: "composed",
-          auto_method: "laplace_em",
+          auto_method: "aux_gibbs",
           first_pass_rb: {
             status: "active",
             latent_variables: [
@@ -132,7 +132,7 @@ describe("generateMarkdown", () => {
         parametric_id: { checked: true },
         inference_structure: {
           likelihood_path: "particle",
-          auto_method: "laplace_em",
+          auto_method: "aux_gibbs",
           first_pass_rb: {
             status: "inactive",
             latent_variables: [],
@@ -450,7 +450,7 @@ describe("generateMarkdown", () => {
       "stage-5b": {
         outcome: "success",
         inference_metadata: {
-          method: "nuts",
+          method: "map",
           n_samples: 2000,
           duration_seconds: 120,
         },
@@ -500,7 +500,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "map", n_samples: 1000, duration_seconds: 60 },
         mcmc_diagnostics: {
           num_divergences: 0,
           divergence_rate: 0,
@@ -537,7 +537,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "map", n_samples: 1000, duration_seconds: 60 },
         mcmc_diagnostics: {
           num_divergences: 0,
           divergence_rate: 0,
@@ -570,7 +570,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "smc", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "particle_mgrad", n_samples: 1000, duration_seconds: 60 },
         smc_diagnostics: {
           n_particles: 500,
           n_levels: 5,
@@ -582,7 +582,7 @@ describe("generateMarkdown", () => {
         power_scaling: [],
       } as AllStageData["stage-5b"],
     };
-    const result = generateMarkdown(data, "run-5-smc");
+    const result = generateMarkdown(data, "run-5-particle-mgrad");
     expect(result).toContain("SMC Diagnostics");
     expect(result).toContain("500");
     expect(result).toContain("Tempering Schedule");
@@ -597,7 +597,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "map", n_samples: 1000, duration_seconds: 60 },
         ppc: {
           per_variable_warnings: [],
           overlays: [
@@ -648,7 +648,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "map", n_samples: 1000, duration_seconds: 60 },
         loo_diagnostics: {
           elpd_loo: -120.5,
           p_loo: 3.2,
@@ -680,7 +680,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "map", n_samples: 1000, duration_seconds: 60 },
         ppc: { per_variable_warnings: [], overlays: [], test_stats: [] },
         power_scaling: [],
         posterior_pairs: [
@@ -716,7 +716,7 @@ describe("generateMarkdown", () => {
       } as unknown as AllStageData["stage-1b"],
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "map", n_samples: 1000, duration_seconds: 60 },
         ppc: { per_variable_warnings: [], overlays: [], test_stats: [] },
         power_scaling: [
           {
@@ -769,7 +769,7 @@ describe("generateMarkdown", () => {
     const data: AllStageData = {
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 2000, duration_seconds: 120 },
+        inference_metadata: { method: "map", n_samples: 2000, duration_seconds: 120 },
         mcmc_diagnostics: {
           num_divergences: 3,
           divergence_rate: 0.0015,
@@ -941,7 +941,7 @@ describe("generateMarkdown", () => {
       } as AllStageData["stage-5a"],
       "stage-5b": {
         outcome: "success",
-        inference_metadata: { method: "nuts", n_samples: 1000, duration_seconds: 60 },
+        inference_metadata: { method: "map", n_samples: 1000, duration_seconds: 60 },
         ppc: { per_variable_warnings: [], overlays: [], test_stats: [] },
         power_scaling: [],
       } as AllStageData["stage-5b"],

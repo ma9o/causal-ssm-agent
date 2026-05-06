@@ -8,6 +8,7 @@ import shutil
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from dotenv import load_dotenv
@@ -194,26 +195,9 @@ class SVIConfig:
 
 
 @dataclass(frozen=True)
-class NUTSConfig:
-    """NUTS-specific inference settings."""
+class MAPConfig:
+    """MAP/Laplace inference settings."""
 
-    target_accept_prob: float = 0.85
-    max_tree_depth: int = 8
-
-
-@dataclass(frozen=True)
-class SMCConfig:
-    """Tempered SMC / Laplace-SMC / Structured VI / DPF inference settings."""
-
-    n_outer: int = 100
-    n_csmc_particles: int = 20
-    n_mh_steps: int = 10
-    param_step_size: float = 0.1
-    n_warmup: int | None = None
-    n_leapfrog: int = 5
-    adaptive_tempering: bool = True
-    target_ess_ratio: float = 0.5
-    waste_free: bool = False
     n_ieks_iters: int = 5
 
 
@@ -254,14 +238,13 @@ class AuxGibbsConfig:
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
-    method: str = "auto"
+    method: Literal["svi", "map", "aux_gibbs", "particle_mgrad"] = "aux_gibbs"
     num_warmup: int = 1000
     num_samples: int = 1000
     num_chains: int = 4
     seed: int = 0
     svi: SVIConfig = field(default_factory=SVIConfig)
-    nuts: NUTSConfig = field(default_factory=NUTSConfig)
-    smc: SMCConfig = field(default_factory=SMCConfig)
+    map: MAPConfig = field(default_factory=MAPConfig)
     aux_gibbs: AuxGibbsConfig = field(default_factory=AuxGibbsConfig)
 
     def to_sampler_config(self, method_override: str | None = None) -> dict:
@@ -274,16 +257,8 @@ class InferenceConfig:
             "num_chains": self.num_chains,
             "seed": self.seed,
         }
-        smc = dataclasses.asdict(self.smc)
-        smc = {k: v for k, v in smc.items() if v is not None}
-        if method == "auto":
-            config["svi_config"] = dataclasses.asdict(self.svi)
-            config["nuts_config"] = dataclasses.asdict(self.nuts)
-            config["smc_config"] = smc
-        elif method == "svi":
+        if method == "svi":
             config.update(dataclasses.asdict(self.svi))
-        elif method == "nuts":
-            config.update(dataclasses.asdict(self.nuts))
         elif method == "aux_gibbs":
             config.update(
                 {
@@ -303,7 +278,14 @@ class InferenceConfig:
                 }
             )
         elif method == "map":
-            config["n_ieks_iters"] = self.smc.n_ieks_iters
+            config.update(dataclasses.asdict(self.map))
+        elif method == "particle_mgrad":
+            config["n_ieks_iters"] = self.map.n_ieks_iters
+        else:
+            raise ValueError(
+                "Unsupported inference method "
+                f"{method!r}; expected 'svi', 'map', 'aux_gibbs', or 'particle_mgrad'."
+            )
         return config
 
 
@@ -390,16 +372,14 @@ def _parse_inference(raw: dict) -> InferenceConfig:
     """Parse the inference: section into InferenceConfig."""
     inference_raw = dict(raw)
     svi_raw = inference_raw.pop("svi", {}) or {}
-    nuts_raw = inference_raw.pop("nuts", {}) or {}
-    smc_raw = inference_raw.pop("smc", {}) or {}
+    map_raw = inference_raw.pop("map", {}) or {}
     aux_gibbs_raw = dict(inference_raw.pop("aux_gibbs", {}) or {})
     aux_gibbs_latent_raw = aux_gibbs_raw.pop("latent_kernel", {}) or {}
     aux_gibbs_parameter_raw = aux_gibbs_raw.pop("parameter_kernel", {}) or {}
     return InferenceConfig(
         **inference_raw,
         svi=SVIConfig(**svi_raw) if svi_raw else SVIConfig(),
-        nuts=NUTSConfig(**nuts_raw) if nuts_raw else NUTSConfig(),
-        smc=SMCConfig(**smc_raw) if smc_raw else SMCConfig(),
+        map=MAPConfig(**map_raw) if map_raw else MAPConfig(),
         aux_gibbs=AuxGibbsConfig(
             **aux_gibbs_raw,
             latent_kernel=(

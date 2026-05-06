@@ -197,7 +197,7 @@ Runtime reconstruction now has three layers:
 **Why `fit()` lives on the builder, not on `SSMModel`:** the runtime separates three concerns:
 
 - **`SSMModel`** is a pure NumPyro model function. Its [`model(observations, times)`](estimation.md#data-flow) method takes JAX arrays, samples from the runtime prior bundle, assembles matrices through `SSMStructureRuntime`, and injects the log-likelihood via `numpyro.factor()`. It has no knowledge of DataFrames, inference algorithms, or sampler configuration.
-- **`inference.fit()`** handles [algorithm selection](inference-routing.md) (NUTS, SVI, SMC) and execution. It takes an `SSMModel` and raw arrays.
+- **`inference.fit()`** handles [algorithm selection](inference-routing.md) (MAP, SVI, blocked MCMC) and execution. It takes an `SSMModel` and raw arrays.
 - **`SSMModelBuilder`** bridges the gap: it converts Polars DataFrames to JAX arrays (`prepare_fit_inputs`), loads the prior runtime bundle from `compiled_prior_semantics`, routes sampler configuration from `config.yaml` to `inference.fit()`, and caches the `SSMModel` and `InferenceResult` for downstream access (diagnostics, summaries, prior predictive checks).
 - Before array conversion, the builder also applies deterministic centering to manifest columns whose compiled `manifest_centered` flag is `True`, so centered additive-location indicators are zero-centered consistently in both fitting and prior-predictive scale checks.
 

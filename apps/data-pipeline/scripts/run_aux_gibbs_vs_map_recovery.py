@@ -1,6 +1,6 @@
 """Recovery comparison: aux_gibbs (default config) vs MAP+IEKS.
 
-Uses the 10-latent mixed-support benchmark from run_nuts_mixed_support_recovery.
+Uses the 10-latent mixed-support benchmark from run_map_mixed_support_recovery.
 After the cleanup, aux_gibbs defaults are DA+Pathfinder — this script just
 calls ``fit(..., method="aux_gibbs")`` with its defaults so a regression vs
 MAP would immediately show up as width collapse or MAE blow-up.
@@ -21,7 +21,7 @@ import jax
 import jax.numpy as jnp
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from run_nuts_mixed_support_recovery import (
+from run_map_mixed_support_recovery import (
     _make_mixed_support_recovery_data,
     _summarize_family_recovery,
 )
@@ -45,18 +45,18 @@ def _run_one(method: str, label: str, data: dict[str, Any], **fit_kwargs: Any) -
     summary = _summarize_family_recovery(result.get_samples(), data)
     diag: dict[str, Any] = {}
     if method == "aux_gibbs":
-        aux = result.diagnostics.get("aux_gibbs", {})
+        particle = result.diagnostics.get("aux_gibbs", {})
         for k in (
             "adaptation_scheme",
             "init_method",
             "latent_accept_rate",
             "parameter_accept_rate",
         ):
-            if k in aux:
-                diag[k] = aux[k]
+            if k in particle:
+                diag[k] = particle[k]
         for k in ("final_latent_delta", "final_param_step_size"):
-            if k in aux:
-                diag[k + "_mean"] = float(jnp.asarray(aux[k]).mean())
+            if k in particle:
+                diag[k + "_mean"] = float(jnp.asarray(particle[k]).mean())
     print(f"[compare] {label} done in {elapsed:.1f}s  diag={diag}")
     return {"label": label, "elapsed_seconds": elapsed, "summary": summary, "diag": diag}
 

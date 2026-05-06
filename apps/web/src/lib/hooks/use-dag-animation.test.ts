@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Stage1aData } from "@causal-ssm/api-types";
-import stage1aFixture from "../../../../../data/DOCTOLIB/run/stage-1a.json";
+import stage1aFixture from "../../../../../data/DEMO_HEALTH/run/stage-1a.json";
 import {
   counterfactualResult,
   interventionResult,

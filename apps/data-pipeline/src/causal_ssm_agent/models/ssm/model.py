@@ -587,7 +587,7 @@ class SSMModel:
             spec: Model specification
             priors: Prior distributions (uses defaults if None)
             n_particles: Number of particles for bootstrap PF
-            pf_seed: Seed for fixed PF random key (deterministic for NUTS)
+            pf_seed: Seed for fixed PF random key (deterministic for gradient-based fitting)
             likelihood: Likelihood backend - "particle" (universal, any noise family)
                 or "kalman" (exact, linear Gaussian only)
         """
@@ -839,7 +839,7 @@ class SSMModel:
         """Construct the default likelihood backend from model configuration.
 
         Delegates to the standalone ``make_likelihood_backend`` factory.
-        Callers that need a different backend (Laplace, Structured VI, DPF)
+        Callers that need a different backend
         construct it themselves instead of calling this.
         """
         return self.get_cached_artifact(

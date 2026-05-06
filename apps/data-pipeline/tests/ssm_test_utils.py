@@ -5,8 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 import jax.numpy as jnp
+import jax.random as random
+import jax.scipy.linalg as jla
 import numpy as np
 
+from causal_ssm_agent.models.ssm import discretize_system
 from causal_ssm_agent.models.ssm.model import (
     SSMSpec,
     full_cholesky_mask,
@@ -19,6 +22,78 @@ from causal_ssm_agent.models.ssm.model import (
     zero_square_mask,
     zero_vector_mask,
 )
+from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+
+
+def make_lgss_data(
+    *,
+    T: int = 100,
+    dt: float = 1.0,
+    drift_diag: float = -0.3,
+    diff_sd: float = 0.3,
+    obs_sd: float = 0.5,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Build 1D linear-Gaussian SSM data plus a free-parameter SSMSpec.
+
+    Returns a dict with ``observations``, ``times``, ``spec``, the true
+    parameter values (``true_drift_diag``, ``true_diff_diag``, ``true_obs_sd``),
+    and ``n_latent`` for convenience. Used by recovery checks that fit the
+    same canonical 1D model with different inference methods.
+    """
+    n_latent, n_manifest = 1, 1
+
+    true_drift = jnp.array([[drift_diag]])
+    true_diff_cov = jnp.array([[diff_sd**2]])
+    true_obs_var = jnp.array([[obs_sd**2]])
+
+    Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
+    Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
+    R_chol = jla.cholesky(true_obs_var, lower=True)
+
+    key = random.PRNGKey(seed)
+    states = [jnp.zeros(n_latent)]
+    for _ in range(T - 1):
+        key, nk = random.split(key)
+        states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
+    latent = jnp.stack(states)
+
+    key, obs_key = random.split(key)
+    observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
+    times = jnp.arange(T, dtype=float) * dt
+
+    spec = SSMSpec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_diag_mask=full_diagonal_mask(n_latent),
+        drift_offdiag_mask=full_drift_offdiag_mask(n_latent),
+        drift=jnp.zeros((n_latent, n_latent)),
+        cint_mask=zero_vector_mask(n_latent),
+        cint=jnp.zeros(n_latent),
+        lambda_mask=zero_loading_mask(n_manifest, n_latent),
+        lambda_mat=jnp.eye(n_manifest, n_latent),
+        diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+        diffusion_chol=jnp.eye(n_latent),
+        manifest_means_mask=zero_vector_mask(n_manifest),
+        manifest_means=jnp.zeros(n_manifest),
+        manifest_chol_diag_mask=full_diagonal_mask(n_manifest),
+        manifest_chol=jnp.zeros((n_manifest, n_manifest)),
+        t0_means_mask=zero_vector_mask(n_latent),
+        t0_means=jnp.zeros(n_latent),
+        t0_chol_diag_mask=zero_diagonal_mask(n_latent),
+        t0_correlation_mask=zero_square_mask(n_latent),
+        t0_chol=jnp.eye(n_latent),
+    )
+
+    return {
+        "observations": observations,
+        "times": times,
+        "spec": spec,
+        "true_drift_diag": drift_diag,
+        "true_diff_diag": diff_sd,
+        "true_obs_sd": obs_sd,
+        "n_latent": n_latent,
+    }
 
 
 def full_drift_mask(n_latent: int) -> np.ndarray:
@@ -101,6 +176,38 @@ def make_ssm_spec(**kwargs: Any) -> SSMSpec:
         kwargs.setdefault("t0_chol", t0_var)
     kwargs.setdefault("t0_chol", jnp.eye(n_latent))
     return SSMSpec(**kwargs)
+
+
+def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime:
+    """Build ObservationSupportRuntime while accepting 2D interval coefficient inputs."""
+    support_kinds = kwargs["support_kinds"]
+    kwargs.setdefault(
+        "summary_operators",
+        ["mean" if kind == "interval" else "last" for kind in support_kinds],
+    )
+    kwargs.setdefault(
+        "anchor_policies",
+        [
+            "support_start" if operator == "first" else "support_end"
+            for operator in kwargs["summary_operators"]
+        ],
+    )
+    prev = np.asarray(kwargs["interval_prev_coeffs"], dtype=np.float64)
+    curr = np.asarray(kwargs["interval_curr_coeffs"], dtype=np.float64)
+    weights = np.asarray(kwargs["interval_weights"], dtype=np.float64)
+    if prev.ndim == 2:
+        prev = prev[..., None]
+        curr = curr[..., None]
+        weights = weights[..., None]
+    kwargs["interval_prev_coeffs"] = prev
+    kwargs["interval_curr_coeffs"] = curr
+    kwargs["interval_weights"] = weights
+    emission_slots = kwargs.get("emission_slot_indices")
+    if emission_slots is None:
+        support_end = np.asarray(kwargs["support_end_times"])
+        emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
+    kwargs["emission_slot_indices"] = emission_slots
+    return ObservationSupportRuntime(**kwargs)
 
 
 def diagonal_diffusion_kwargs(n_latent: int) -> dict[str, Any]:

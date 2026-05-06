@@ -11,7 +11,7 @@ import jax.random as random
 import numpy as np
 
 from causal_ssm_agent.models.ssm.inference.methods.map import (
-    _build_laplace_em_bundle,
+    _build_map_laplace_bundle,
     fit_map,
 )
 from causal_ssm_agent.models.ssm.inference.methods.scipy_pathfinder import (
@@ -134,7 +134,7 @@ def _run_pathfinder_approximation(
         if model.likelihood == "kalman"
         else model.make_laplace_backend(n_ieks_iters)
     )
-    laplace_bundle = _build_laplace_em_bundle(
+    laplace_bundle = _build_map_laplace_bundle(
         model, observations, times, trace_key, backend, reparam
     )
     runtime_log_post_fn = laplace_bundle["log_posterior_fn"]

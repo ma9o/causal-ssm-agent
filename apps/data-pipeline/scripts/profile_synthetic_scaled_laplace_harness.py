@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Instrumented synthetic Laplace-EM profiling harness.
+"""Instrumented synthetic MAP profiling harness.
 
 This script builds a synthetic 10-latent mixed-support model with strong point
 measurement geometry while matching GOLDEN's support-window scale:
@@ -9,7 +9,7 @@ measurement geometry while matching GOLDEN's support-window scale:
 - max state length 32
 - support bandwidth 31
 
-It then profiles the same support-aware Laplace-EM outer objective used by the
+It then profiles the same support-aware MAP outer objective used by the
 GOLDEN harness at phase-level granularity.
 """
 
@@ -229,7 +229,7 @@ from causal_ssm_agent.models.ssm import (
 )
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.inference.methods.map import (
-    _build_laplace_em_bundle,
+    _build_map_laplace_bundle,
     _hostify_outer_eval_diagnostics,
     _optimize_laplace_parameter_mode,
     _requires_support_aware_outer_optimizer,
@@ -750,7 +750,7 @@ def main() -> int:
             bundle = _phase(
                 "build_laplace_bundle",
                 summary,
-                lambda: _build_laplace_em_bundle(
+                lambda: _build_map_laplace_bundle(
                     model,
                     observations,
                     times,

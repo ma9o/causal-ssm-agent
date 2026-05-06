@@ -155,7 +155,7 @@ async def causal_inference_pipeline(
 
     Args:
         workspace_id: Workspace ID naming the workspace under ``data/{workspace_id}/``.
-        inference_method: Override inference method (e.g. "auto", "svi", "nuts")
+        inference_method: Override inference method (e.g. "map", "svi", "aux_gibbs")
         enable_literature: Override literature search
         query: Raw query text (used by web UI). Materialized to
             ``data/{workspace_id}/query.txt`` so resume runs auto-resolve it.

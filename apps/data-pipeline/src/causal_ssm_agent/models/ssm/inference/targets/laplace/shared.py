@@ -1,4 +1,4 @@
-"""Shared linear algebra and preprocessing helpers for Laplace-EM."""
+"""Shared linear algebra and preprocessing helpers for MAP."""
 
 from __future__ import annotations
 

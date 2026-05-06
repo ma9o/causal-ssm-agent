@@ -14,7 +14,7 @@ log-likelihood stays correct for linear models.
 Use when:
 - Linear dynamics (drift matrix, not nonlinear transition)
 - Gaussian observation and process noise
-- This gives the exact marginal likelihood, ideal for SVI and NUTS
+- This gives the exact marginal likelihood, ideal for SVI and MAP
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ class KalmanLikelihood:
 
         Returns:
             Tuple of `(T,)` cumulative log-normalizing constants and a fixed-shape
-            aux payload for the Laplace-EM host-side progress logger.
+            aux payload for the MAP host-side progress logger.
         """
         from cuthbert.filtering import filter as cuthbert_filter
         from cuthbert.gaussian.moments import build_filter

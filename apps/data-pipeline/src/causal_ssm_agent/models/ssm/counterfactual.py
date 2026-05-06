@@ -555,7 +555,7 @@ def compute_interventions(
 
 
 # ---------------------------------------------------------------------------
-# Kalman smoother helpers (moved from nuts_da.py)
+# Kalman smoother helpers
 # ---------------------------------------------------------------------------
 
 

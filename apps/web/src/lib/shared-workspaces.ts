@@ -1,7 +1,6 @@
 export const SHARED_WORKSPACE_IDS = [
   "DEFAULT",
-  "DOCTOLIB",
-  "MEDICAL_SEMANTICS",
+  "DEMO_HEALTH",
   "GOLDEN",
   "SMALLGOLDEN",
 ] as const;

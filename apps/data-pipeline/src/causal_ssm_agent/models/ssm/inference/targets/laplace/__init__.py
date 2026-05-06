@@ -212,7 +212,7 @@ class LaplaceLikelihood:
             obs_mask = ~jnp.isnan(observations)
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
 
-        with jax.named_scope("laplace_em/compile_measurement_semantics"):
+        with jax.named_scope("map/compile_measurement_semantics"):
             measurement_semantics = compile_measurement_semantics(
                 self.manifest_dists,
                 manifest_cov=measurement_params.manifest_cov,
@@ -223,7 +223,7 @@ class LaplaceLikelihood:
         obs_kernel = measurement_semantics.obs_kernel
 
         def _discretize_base_system() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-            with jax.named_scope("laplace_em/discretize_system"):
+            with jax.named_scope("map/discretize_system"):
                 Ad, Qd, cd = discretize_system_batched(
                     ct_params.drift,
                     ct_params.diffusion_cov,
@@ -287,7 +287,7 @@ class LaplaceLikelihood:
                     == (clean_obs.shape[0], linear_summary_dim)
                 ):
                     linear_summary_mode_init = self._linear_summary_mode_cache
-                with jax.named_scope("laplace_em/linear_summary_augmented_backend"):
+                with jax.named_scope("map/linear_summary_augmented_backend"):
                     z_mode, log_lik, inner_eval_aux = _linear_summary_augmented_ieks_laplace(
                         clean_obs,
                         obs_mask,
@@ -351,7 +351,7 @@ class LaplaceLikelihood:
                 n_time=clean_obs.shape[0],
                 n_latent=self.n_latent,
             ):
-                with jax.named_scope("laplace_em/dense_support_backend"):
+                with jax.named_scope("map/dense_support_backend"):
                     log_lik, inner_eval_aux = _dense_support_laplace_log_lik(
                         clean_obs,
                         obs_mask,
@@ -369,7 +369,7 @@ class LaplaceLikelihood:
                         self.n_ieks_iters,
                     )
                 return log_lik, inner_eval_aux if include_aux else None
-            with jax.named_scope("laplace_em/support_aware_backend"):
+            with jax.named_scope("map/support_aware_backend"):
                 window_derivatives = self._get_support_window_derivatives(
                     measurement_semantics,
                     extra_params,
@@ -445,7 +445,7 @@ class LaplaceLikelihood:
                 observation_support=self.observation_support,
             )
 
-        with jax.named_scope("laplace_em/ieks_backend"):
+        with jax.named_scope("map/ieks_backend"):
             z_mode, log_lik, inner_eval_aux = _ieks_smooth(
                 clean_obs,
                 obs_mask,

@@ -139,7 +139,7 @@ def fit_model(
                 len(runtime.manifest_names) - len(partition.obs_kalman_idx),
             )
 
-        # Fit the model — returns InferenceResult (default: SVI)
+        # Fit the model — returns InferenceResult.
         logger.info("Starting inference kernel...")
         fit_t0 = time.monotonic()
         result = runtime.builder.fit_prepared(runtime.observations, runtime.times)

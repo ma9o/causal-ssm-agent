@@ -84,14 +84,14 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     const [stage0Json, parquetBytes] = await Promise.all([
       readFile(
         new URL(
-          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage-0.json",
+          "../../../../../../../../data/DEMO_HEALTH/run/stage-0.json",
           import.meta.url,
         ),
         "utf-8",
       ),
       readFile(
         new URL(
-          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage0-raw-input.parquet",
+          "../../../../../../../../data/DEMO_HEALTH/run/stage0-raw-input.parquet",
           import.meta.url,
         ),
       ),
@@ -124,15 +124,15 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         outcome: "success",
-        n_records: 95,
-        n_columns: 34,
-        date_range: { start: "2025-03-03", end: "2025-03-31" },
+        n_records: 15,
+        n_columns: 4,
+        date_range: { start: "2021-09-15", end: "2024-12-20" },
         sample: expect.any(Array),
         column_descriptions: expect.arrayContaining([
           expect.objectContaining({
-            name: "timestamp",
-            dtype: "Datetime(time_unit='us', time_zone=None)",
-            description: "UTC datetime of the event/observation",
+            name: "datetime",
+            dtype: "Utf8",
+            description: "Timestamp of the medical event",
           }),
         ]),
       }),
@@ -143,14 +143,14 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     const [stage2Json, parquetBytes] = await Promise.all([
       readFile(
         new URL(
-          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage-2.json",
+          "../../../../../../../../data/DEMO_HEALTH/run/stage-2.json",
           import.meta.url,
         ),
         "utf-8",
       ),
       readFile(
         new URL(
-          "../../../../../../../../data/MEDICAL_SEMANTICS/run/stage2-model-data.parquet",
+          "../../../../../../../../data/DEMO_HEALTH/run/stage2-model-data.parquet",
           import.meta.url,
         ),
       ),
@@ -176,7 +176,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     );
     const expected = await deriveStage2Data(
       {
-        outcome: persisted.outcome,
+        outcome: persisted.outcome ?? "success",
         llm_trace: persisted.llm_trace,
         workers: persisted.workers,
       },
@@ -185,7 +185,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
 
     vi.mocked(readData).mockResolvedValue(
       JSON.stringify({
-        outcome: persisted.outcome,
+        outcome: persisted.outcome ?? "success",
         llm_trace: persisted.llm_trace,
         workers: persisted.workers,
         per_indicator_counts: { poisoned: 999 },
@@ -210,16 +210,16 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
   it("hydrates stage 4 likelihood diagnostics from stage 3 + full stage 2 observations", async () => {
     const [stage4Json, stage3Json, parquetBytes] = await Promise.all([
       readFile(
-        new URL("../../../../../../../../data/GOLDEN/run/stage-4.json", import.meta.url),
+        new URL("../../../../../../../../data/DEMO_HEALTH/run/stage-4.json", import.meta.url),
         "utf-8",
       ),
       readFile(
-        new URL("../../../../../../../../data/GOLDEN/run/stage-3.json", import.meta.url),
+        new URL("../../../../../../../../data/DEMO_HEALTH/run/stage-3.json", import.meta.url),
         "utf-8",
       ),
       readFile(
         new URL(
-          "../../../../../../../../data/GOLDEN/run/stage2-model-data.parquet",
+          "../../../../../../../../data/DEMO_HEALTH/run/stage2-model-data.parquet",
           import.meta.url,
         ),
       ),
@@ -243,11 +243,6 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload).toEqual(expected);
-    expect(payload.likelihood_diagnostics.google_activity_event_count.profile.n_obs).toBeGreaterThan(
-      0,
-    );
-    expect(payload.likelihood_diagnostics.google_activity_event_count.histogram.length).toBeGreaterThan(
-      1,
-    );
+    expect(payload.likelihood_diagnostics.ldl_cholesterol.histogram.length).toBeGreaterThan(1);
   });
 });

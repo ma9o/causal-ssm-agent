@@ -35,9 +35,8 @@ data/
 │   ├── query.txt          # Materialized research question
 │   └── run/               # Persisted stage JSON + artifacts
 ├── DEFAULT/               # Tracked mock fixture workspace
-├── DOCTOLIB/              # Tracked mock fixture workspace
+├── DEMO_HEALTH/              # Tracked mock fixture workspace and stage 0-2 golden fixture
 ├── GOLDEN/                # Default tracked workspace for evals and manual sampling
-├── MEDICAL_SEMANTICS/     # Tracked medical archive fixture for stage 0-2 golden tests
 └── SMALLGOLDEN/           # Smaller tracked workspace for quicker eval iteration
 ```
 

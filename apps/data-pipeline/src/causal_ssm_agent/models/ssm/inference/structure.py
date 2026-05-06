@@ -12,19 +12,14 @@ if TYPE_CHECKING:
 
 StructuralBackend = Literal["kalman", "composed", "particle"]
 RequestedMethod = Literal[
-    "auto",
-    "aux_csmc",
     "particle_mgrad",
     "aux_gibbs",
-    "nuts",
     "map",
     "svi",
 ]
 ResolvedMethod = Literal[
-    "aux_csmc",
     "particle_mgrad",
     "aux_gibbs",
-    "nuts",
     "map",
     "svi",
 ]
@@ -43,8 +38,13 @@ class InferenceStructurePlan:
 def _normalize_method_override(
     method_override: RequestedMethod | None,
 ) -> ResolvedMethod | None:
-    if method_override in {None, "auto"}:
+    if method_override is None:
         return None
+    if method_override not in {"particle_mgrad", "aux_gibbs", "map", "svi"}:
+        raise ValueError(
+            "Unsupported inference method override "
+            f"{method_override!r}; expected 'particle_mgrad', 'aux_gibbs', 'map', or 'svi'."
+        )
     return cast("ResolvedMethod", method_override)
 
 
@@ -77,14 +77,14 @@ def _resolve_structural_backend(
     return "particle", None
 
 
-def _resolve_auto_method(
+def _resolve_default_method(
     *,
     structural_backend: StructuralBackend,
     observation_support: ObservationSupportRuntime | None,
     n_timepoints: int | None,
 ) -> ResolvedMethod:
     del structural_backend, observation_support, n_timepoints
-    return "nuts"
+    return "aux_gibbs"
 
 
 def _payload_partition_for_plan(
@@ -122,14 +122,14 @@ def plan_inference_structure(
     method_override: RequestedMethod | None = None,
     n_timepoints: int | None = None,
 ) -> InferenceStructurePlan:
-    """Resolve the active likelihood path and auto-routing plan once."""
+    """Resolve the active likelihood path and default inference plan once."""
     structural_backend, first_pass_partition = _resolve_structural_backend(
         spec,
         likelihood=likelihood,
         observation_support=observation_support,
     )
     normalized_override = _normalize_method_override(method_override)
-    resolved_method = normalized_override or _resolve_auto_method(
+    resolved_method = normalized_override or _resolve_default_method(
         structural_backend=structural_backend,
         observation_support=observation_support,
         n_timepoints=n_timepoints,
@@ -177,7 +177,7 @@ def build_inference_structure_payload(
             for i in range(spec.n_manifest)
         ]
 
-    auto_method = _resolve_auto_method(
+    auto_method = _resolve_default_method(
         structural_backend=plan.structural_backend,
         observation_support=observation_support,
         n_timepoints=None,

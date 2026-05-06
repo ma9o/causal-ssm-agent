@@ -3,8 +3,7 @@
 This module implements Bayesian state-space models with:
 - Continuous-time dynamics via stochastic differential equations
 - Automatic CT→DT discretization for irregular time intervals
-- Multiple inference backends: SVI (default), NUTS, NUTS-DA, Hess-MC², PGAS,
-  Tempered SMC, Laplace-SMC, Laplace-EM, Structured VI, Differentiable PF
+- Multiple inference backends: SVI, MAP, auxiliary Gibbs, and Particle-mGRAD
 - Automatic reparameterization via AutoReparam
 """
 

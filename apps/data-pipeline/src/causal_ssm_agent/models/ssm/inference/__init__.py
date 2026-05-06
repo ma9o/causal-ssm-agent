@@ -1,17 +1,11 @@
 """Inference backends for SSM models.
 
 Separates inference from model definition. SSMModel defines the probabilistic
-model; this module provides fit() to run inference with different backends.
-
-Auto-routing (method="auto", the default) always selects NUTS. NUTS
-auto-selects the state marginalization backend: exact Kalman filter for
-linear Gaussian models, IEKS/Laplace for non-Gaussian emissions.
+model; this module provides fit() to run inference with the supported backends.
 
 Available methods:
-- Auxiliary cSMC: blocked complete-data updates with auxiliary conditional SMC latent proposals.
 - Particle-mGRAD: blocked complete-data updates with marginal Particle-mGRAD latent proposals.
 - Auxiliary Gibbs: blocked complete-data updates with auxiliary Kalman latent proposals.
-- NUTS: HMC-based sampling with Kalman or Laplace state marginalization.
 - MAP: L-BFGS mode finding + Laplace Gaussian parameter posterior.
 - SVI: Fast approximate posterior via ELBO optimization.
 """
@@ -25,12 +19,8 @@ from numpyro import handlers
 
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.inference.shared import (
-    _apply_reparam as _apply_reparam,
-)
-from causal_ssm_agent.models.ssm.inference.shared import (
     select_default_method as select_default_method,
 )
-from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
 from causal_ssm_agent.models.ssm.inference.types import (
     FittedArtifact as FittedArtifact,
 )
@@ -45,13 +35,6 @@ if TYPE_CHECKING:
 # Sentinel for "use AutoReparam with method-appropriate centering".
 _AUTO_REPARAM = object()
 
-_AUTO_METHOD_CONFIG_KEYS: dict[str, str] = {
-    "svi": "svi_config",
-    "nuts": "nuts_config",
-    "map": "smc_config",
-}
-
-
 def _resolve_reparam(reparam, method: InferenceMethod):
     """Resolve _AUTO_REPARAM sentinel to a concrete AutoReparam config."""
     if reparam is not _AUTO_REPARAM:
@@ -62,45 +45,11 @@ def _resolve_reparam(reparam, method: InferenceMethod):
     return AutoReparam(centered=0.0)  # fully decentered
 
 
-def _resolve_auto_method_kwargs(
-    method: InferenceMethod,
-    kwargs: dict[str, Any],
-) -> dict[str, Any]:
-    """Merge backend-specific config blocks emitted by ``method='auto'``."""
-    nuts_config = kwargs.get("nuts_config") or {}
-    smc_config = kwargs.get("smc_config") or {}
-    resolved = {
-        key: value
-        for key, value in kwargs.items()
-        if key not in {"svi_config", "nuts_config", "smc_config"}
-    }
-    if method == "nuts":
-        # n_ieks_iters controls the Laplace backend for non-Gaussian models.
-        n_ieks_iters = nuts_config.get("n_ieks_iters") or smc_config.get("n_ieks_iters")
-        merged = {**nuts_config, **resolved}
-        if n_ieks_iters is not None:
-            merged.setdefault("n_ieks_iters", n_ieks_iters)
-        return merged
-    if method == "map":
-        n_ieks_iters = smc_config.get("n_ieks_iters")
-        if n_ieks_iters is not None:
-            resolved["n_ieks_iters"] = n_ieks_iters
-        return resolved
-    if method == "svi":
-        svi_config = kwargs.get("svi_config") or {}
-        return {**svi_config, **resolved}
-    config_key = _AUTO_METHOD_CONFIG_KEYS.get(method)
-    if config_key is None:
-        return resolved
-    method_config = kwargs.get(config_key) or {}
-    return {**method_config, **resolved}
-
-
 def fit(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    method: InferenceMethod = "auto",
+    method: InferenceMethod = "aux_gibbs",
     reparam=_AUTO_REPARAM,
     **kwargs: Any,
 ) -> InferenceResult:
@@ -110,11 +59,10 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method - "auto" (always NUTS, default),
-            "aux_csmc", "particle_mgrad", "aux_gibbs", "nuts", "map", or "svi"
+        method: Inference method: "particle_mgrad", "aux_gibbs", "map", or "svi".
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
-              centering (learnable for SVI, fully decentered for MCMC/SMC).
+              centering (learnable for SVI, fully decentered otherwise).
             - A ``Strategy`` instance (e.g., ``AutoReparam(centered=0.0)``)
             - A dict mapping site names to ``Reparam`` instances
             - None: no reparameterization
@@ -123,33 +71,17 @@ def fit(
     Returns:
         InferenceResult with posterior samples and diagnostics
     """
-    if method == "auto":
-        inference_structure = plan_inference_structure(
-            model.spec,
-            likelihood=model.likelihood,
-            observation_support=getattr(model, "observation_support", None),
-            n_timepoints=int(times.shape[0]),
-        )
-        method = inference_structure.resolved_method
-        kwargs = _resolve_auto_method_kwargs(method, kwargs)
-
     reparam = _resolve_reparam(reparam, method)
-    if method == "aux_csmc":
-        from causal_ssm_agent.models.ssm.inference.methods.aux_csmc import fit_aux_csmc
-
-        return fit_aux_csmc(model, observations, times, reparam=reparam, **kwargs)
     if method == "particle_mgrad":
-        from causal_ssm_agent.models.ssm.inference.methods.aux_csmc import fit_particle_mgrad
+        from causal_ssm_agent.models.ssm.inference.methods.particle_mgrad import (
+            fit_particle_mgrad,
+        )
 
         return fit_particle_mgrad(model, observations, times, reparam=reparam, **kwargs)
     if method == "aux_gibbs":
         from causal_ssm_agent.models.ssm.inference.methods.aux_gibbs import fit_aux_gibbs
 
         return fit_aux_gibbs(model, observations, times, reparam=reparam, **kwargs)
-    if method == "nuts":
-        from causal_ssm_agent.models.ssm.inference.methods.nuts import fit_nuts
-
-        return fit_nuts(model, observations, times, reparam=reparam, **kwargs)
     if method == "svi":
         from causal_ssm_agent.models.ssm.inference.methods.svi import fit_svi
 
@@ -160,7 +92,7 @@ def fit(
         return fit_map(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
         "Unknown inference method: "
-        f"{method!r}. Use 'auto', 'aux_csmc', 'particle_mgrad', 'aux_gibbs', 'nuts', 'map', or 'svi'."
+        f"{method!r}. Use 'particle_mgrad', 'aux_gibbs', 'map', or 'svi'."
     )
 
 

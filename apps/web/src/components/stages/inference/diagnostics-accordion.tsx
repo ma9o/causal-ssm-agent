@@ -70,7 +70,7 @@ export function DiagnosticsAccordion({
           <AccordionTrigger className="text-sm">
             <span className="inline-flex items-center gap-1.5 flex-wrap">
               MCMC Diagnostics
-              <StatTooltip explanation="Chain convergence (R-hat, ESS, MCSE), energy diagnostics, trace plots, and rank histograms for NUTS/HMC sampling." />
+              <StatTooltip explanation="Chain convergence (R-hat, ESS, MCSE), energy diagnostics, trace plots, and rank histograms for blocked MCMC sampling." />
               <Badge variant={mcmcDiagnostics.num_divergences === 0 ? "success" : "destructive"}>
                 {mcmcDiagnostics.num_divergences === 0
                   ? "Converged"

@@ -7,7 +7,7 @@ import {
   stageStoryDecorators,
 } from "../stage-story-helpers";
 import Stage5aContent from "./stage-5a-content";
-import fixture from "../../../../../../data/DOCTOLIB/run/stage-5a.json";
+import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-5a.json";
 
 const stage = STAGES.find((s) => s.id === "stage-5a")!;
 const data = fixture as Stage5aData;

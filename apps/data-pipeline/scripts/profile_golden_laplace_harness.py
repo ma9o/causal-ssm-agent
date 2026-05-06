@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
-"""Instrumented GOLDEN Laplace-EM profiling harness.
+"""Instrumented GOLDEN MAP profiling harness.
 
 This script reconstructs the GOLDEN prepared runtime from saved artifacts and
-profiles the support-aware Laplace-EM path at phase-level granularity.
+profiles the support-aware MAP path at phase-level granularity.
 
 It is intentionally wired to the same runtime-preparation code path used by
 stage 5 so the measurements reflect production behavior.
@@ -200,7 +200,7 @@ import polars as pl
 
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
 from causal_ssm_agent.models.ssm.inference.methods.map import (
-    _build_laplace_em_bundle,
+    _build_map_laplace_bundle,
     _hostify_outer_eval_diagnostics,
     _optimize_laplace_parameter_mode,
     _requires_support_aware_outer_optimizer,
@@ -443,7 +443,7 @@ def main() -> int:
                 lambda: prepare_model_runtime(
                     data_for_model=data_for_model,
                     compiled_ssm=compiled_ssm,
-                    sampler_config={"method": "laplace_em"},
+                    sampler_config={"method": "map"},
                 ),
             )
             observations = runtime.observations
@@ -475,7 +475,7 @@ def main() -> int:
             bundle = _phase(
                 "build_laplace_bundle",
                 summary,
-                lambda: _build_laplace_em_bundle(
+                lambda: _build_map_laplace_bundle(
                     model,
                     observations,
                     times,

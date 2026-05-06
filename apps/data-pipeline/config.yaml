@@ -86,7 +86,7 @@ stage6_commentary:
 
 # --- Inference (unchanged) -------------------------------------------------
 inference:
-  method: auto
+  method: aux_gibbs
   num_warmup: 1000
   num_samples: 1000
   num_chains: 4
@@ -95,15 +95,5 @@ inference:
     num_steps: 5000
     learning_rate: 0.01
     guide_type: mvn
-  nuts:
-    target_accept_prob: 0.85
-    max_tree_depth: 8
-  smc:
-    n_outer: 6
-    n_csmc_particles: 8
-    n_mh_steps: 3
-    param_step_size: 0.05
-    n_warmup: 3
-    n_leapfrog: 1
-    adaptive_tempering: false
+  map:
     n_ieks_iters: 3

@@ -20,7 +20,6 @@ estimand
 hessmc
 nondegenerate
 parameterizations
-pgas
 promptable
 recentered
 reopenable

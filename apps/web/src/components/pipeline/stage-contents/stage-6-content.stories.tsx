@@ -20,13 +20,13 @@ import { StoryStageLogView } from "../stage-story-log-stream";
 import { StageStoryTemplate } from "../stage-story-template";
 import Stage6Showcase from "./stage-6-showcase";
 import { buildStage6DagScene } from "./stage-6-presentation";
-import fixture from "../../../../../../data/DOCTOLIB/run/stage-6.json";
-import nutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-6-nutsda.json";
-import stage1aFixture from "../../../../../../data/DOCTOLIB/run/stage-1a.json";
-import stage1bFixture from "../../../../../../data/DOCTOLIB/run/stage-1b.json";
-import stage4Fixture from "../../../../../../data/DOCTOLIB/run/stage-4.json";
-import stage5bFixture from "../../../../../../data/DOCTOLIB/run/stage-5b.json";
-import stage5bNutsdaFixture from "../../../../../../data/DOCTOLIB/run/stage-5b-nutsda.json";
+import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-6.json";
+import auxGibbsFixture from "../../../../../../data/DEMO_HEALTH/run/stage-6-aux-gibbs.json";
+import stage1aFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1a.json";
+import stage1bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1b.json";
+import stage4Fixture from "../../../../../../data/DEMO_HEALTH/run/stage-4.json";
+import stage5bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-5b.json";
+import stage5bAuxGibbsFixture from "../../../../../../data/DEMO_HEALTH/run/stage-5b-aux-gibbs.json";
 import {
   counterfactualResult,
   interventionResult,
@@ -40,9 +40,9 @@ const stage1a = stage1aFixture as unknown as Stage1aData;
 const stage1b = stage1bFixture as unknown as Stage1bData;
 const stage4 = stage4Fixture as unknown as Stage4Data;
 const stage5b = stage5bFixture as unknown as Stage5bData;
-const stage5bNutsda = stage5bNutsdaFixture as unknown as Stage5bData;
+const stage5bAuxGibbs = stage5bAuxGibbsFixture as unknown as Stage5bData;
 const data = { outcome: "success", ...fixture } as Stage6Data;
-const nutsdaData = { outcome: "success", ...nutsdaFixture } as Stage6Data;
+const auxGibbsData = { outcome: "success", ...auxGibbsFixture } as Stage6Data;
 const storyTrace = mockTrace as LLMTrace;
 const finalSummary =
   storyTrace.messages[storyTrace.messages.length - 1]?.content ??
@@ -54,8 +54,8 @@ const dataWithTrace = {
   final_summary: finalSummary,
 } as Stage6Data;
 
-const nutsdaDataWithTrace = {
-  ...nutsdaData,
+const auxGibbsDataWithTrace = {
+  ...auxGibbsData,
   llm_trace: storyTrace,
   final_summary: finalSummary,
 } as Stage6Data;
@@ -68,11 +68,11 @@ const baselineDagScene = buildStage6DagScene({
   refinementMessages: [],
   height: "600px",
 });
-const nutsdaBaselineDagScene = buildStage6DagScene({
+const auxGibbsBaselineDagScene = buildStage6DagScene({
   stage1a,
   stage1b,
   stage4,
-  stage5b: stage5bNutsda,
+  stage5b: stage5bAuxGibbs,
   refinementMessages: [],
   height: "600px",
 });
@@ -350,7 +350,7 @@ export const Pending = createStageStatusStory(stage, "pending");
 export const Running = createStageStatusStory(stage, "running");
 
 export const Completed = createCompletedStageStory({
-  name: "Completed (SVI / Laplace EM)",
+  name: "Completed (MAP)",
   stage,
   args: {
     data: dataWithTrace,
@@ -371,14 +371,14 @@ export const OpenPanel = createCompletedStageStory({
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
 
-export const CompletedNUTS = createCompletedStageStory({
-  name: "Completed (NUTS / DA)",
+export const CompletedAuxGibbs = createCompletedStageStory({
+  name: "Completed (Aux Gibbs)",
   stage,
   args: {
-    data: nutsdaDataWithTrace,
-    dagScene: nutsdaBaselineDagScene,
+    data: auxGibbsDataWithTrace,
+    dagScene: auxGibbsBaselineDagScene,
   },
-  outcome: nutsdaDataWithTrace.outcome,
+  outcome: auxGibbsDataWithTrace.outcome,
   elapsedMs: 8_100,
   trace: storyTrace,
   renderContent: (args) => <Stage6Showcase {...args} />,

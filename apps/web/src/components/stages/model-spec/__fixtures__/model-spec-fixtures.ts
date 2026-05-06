@@ -8,12 +8,12 @@ import type {
 } from "@causal-ssm/api-types";
 import { collectStage4UiPriors } from "@/lib/stage4-data";
 import { buildStage4LikelihoodDiagnostics } from "@/lib/stage4-likelihood-diagnostics";
-import stage1bFixture from "../../../../../../../data/DOCTOLIB/run/stage-1b.json";
-import stage2Fixture from "../../../../../../../data/DOCTOLIB/run/stage-2.json";
-import stage3Fixture from "../../../../../../../data/DOCTOLIB/run/stage-3.json";
-import stage4Fixture from "../../../../../../../data/DOCTOLIB/run/stage-4.json";
+import stage1bFixture from "../../../../../../../data/DEMO_HEALTH/run/stage-1b.json";
+import stage2Fixture from "../../../../../../../data/DEMO_HEALTH/run/stage-2.json";
+import stage3Fixture from "../../../../../../../data/DEMO_HEALTH/run/stage-3.json";
+import stage4Fixture from "../../../../../../../data/DEMO_HEALTH/run/stage-4.json";
 
-type DoctolibStage3Health = {
+type DemoHealthStage3Health = {
   indicator: string;
   variance: number | null;
   time_coverage_ratio: number | null;
@@ -24,15 +24,15 @@ type DoctolibStage3Health = {
   cell_statuses: Record<string, "ok" | "warning" | "error">;
 };
 
-type DoctolibStage3Fixture = {
+type DemoHealthStage3Fixture = {
   validation_report?: {
     issues?: Stage3Data["dataset_issues"];
-    per_indicator_health?: DoctolibStage3Health[];
+    per_indicator_health?: DemoHealthStage3Health[];
   };
 };
 
 const stage2 = stage2Fixture as unknown as Stage2Data;
-const stage3 = stage3Fixture as unknown as Stage3Data & DoctolibStage3Fixture;
+const stage3 = stage3Fixture as unknown as Stage3Data & DemoHealthStage3Fixture;
 const stage1b = stage1bFixture as unknown as Stage1bData;
 const stage4 = stage4Fixture as unknown as Stage4Data;
 

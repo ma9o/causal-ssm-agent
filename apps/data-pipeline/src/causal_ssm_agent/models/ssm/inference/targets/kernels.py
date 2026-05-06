@@ -55,7 +55,7 @@ class ObservationKernel:
 
     Built once from DistributionFamily + LinkFunction + sampled hyperparameters.
     Consumed by all inference backends (RBPF, block RBPF, bootstrap PF,
-    Laplace-EM, structured VI, DPF).
+    MAP, SVI, blocked MCMC).
 
     Attributes:
         emission_fn: Log-probability (y, z, H, d, R, mask) -> scalar.

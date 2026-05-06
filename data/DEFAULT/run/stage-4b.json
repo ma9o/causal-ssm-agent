@@ -221,7 +221,7 @@
   },
   "inference_structure": {
     "likelihood_path": "composed",
-    "auto_method": "laplace_em",
+    "auto_method": "aux_gibbs",
     "first_pass_rb": {
       "status": "active",
       "inactive_reason": null,
