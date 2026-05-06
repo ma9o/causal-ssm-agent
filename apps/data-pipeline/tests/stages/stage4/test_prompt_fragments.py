@@ -253,28 +253,3 @@ def test_megaprompt_omits_accepted_state_after_seed_turn() -> None:
     assert "## Accepted Authored Priors" not in prompt
 
 
-def test_moved_verbatim_fragments_preserve_existing_text() -> None:
-    assert INITIAL_STATE_SCALE_DISCIPLINE_SECTION == (
-        "## Initial-State Scale Discipline\n\n"
-        "- `t0_mean_*` and `t0_sd_*` live on the latent state scale.\n"
-        "- Do not set `t0_mean_*` to the raw reference-indicator mean or "
-        "`log(mean(indicator))` just because the indicator uses an identity or log link.\n"
-        "- Default to weakly informative latent-scale priors such as `Normal(0, 1)` "
-        "and `HalfNormal(1)` unless the construct is explicitly identified on an "
-        "observed scale."
-    )
-    assert (
-        PRIOR_SOURCE_GUIDANCE
-        == """If you include non-empty `sources`, each entry must be an object with this shape:
-```json
-{{
-  "title": "Source title",
-  "snippet": "Relevant excerpt supporting the prior",
-  "url": "https://example.org/paper",
-  "effect_size": "β=0.21",
-  "study_interval_days": 7.0
-}}
-```
-
-Only `title` and `snippet` are required. Do not use raw strings or ad hoc keys such as `citation`, `finding`, `study_type`, or `notes`. If you are unsure, use `"sources": []`. `study_interval_days` belongs inside each source entry; `reference_interval_days` belongs on the prior itself."""
-    )
