@@ -24,6 +24,7 @@ from causal_ssm_agent.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
+from tests.models.ssm.autoreparam_support import simple_normal_model
 from tests.ssm_test_utils import make_ssm_spec
 
 # ---------------------------------------------------------------------------
@@ -62,12 +63,6 @@ def trace_name_type(model_fn, *args, **kwargs):
 # ---------------------------------------------------------------------------
 # Test models
 # ---------------------------------------------------------------------------
-
-
-def simple_normal_model():
-    x = numpyro.sample("x", dist.Normal(0.0, 1.0))
-    y = numpyro.sample("y", dist.Normal(x, 0.5))
-    numpyro.sample("obs", dist.Normal(y, 0.1), obs=jnp.array(1.0))
 
 
 def comprehensive_model():

@@ -4,8 +4,8 @@ This module provides reusable fixtures to reduce duplication across test files:
 - Factory fixtures for creating schema objects (constructs, indicators)
 - Stage 1b fixtures (identifiability / proxy resolution)
 
-For non-fixture helpers (make_mock_generate, assert_recovery_ci),
-see helpers.py. For SSM data builders (e.g. make_lgss_data) see
+For LLM/session fakes, see helpers.py. For SSM data builders and recovery
+assertions (e.g. make_lgss_data, assert_recovery_ci), see
 ssm_test_utils.py.
 """
 
@@ -203,5 +203,4 @@ def stage1b_dummy_chunks():
         "Day 2: Patient took 15mg treatment, outcome score was 7.",
         "Day 3: Patient took 10mg treatment, outcome score was 6.",
     ]
-
 

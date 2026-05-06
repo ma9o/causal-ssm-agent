@@ -6,7 +6,8 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows import stage_registry
-from tests.pipeline.test_pipeline import _noop_artifact, _redirect_storage
+from tests.pipeline._support import noop_artifact as _noop_artifact
+from tests.pipeline._support import redirect_storage as _redirect_storage
 
 pytestmark = pytest.mark.slow
 

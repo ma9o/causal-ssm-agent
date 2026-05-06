@@ -12,7 +12,7 @@ from causal_ssm_agent.utils.agent_session_embedded import open_embedded_session
 from causal_ssm_agent.utils.llm import LLMTrace
 from tests.agent._support import make_worker_tool as _make_worker_tool
 from tests.agent._support import valid_worker_output_json as _valid_worker_output_json
-from tests.helpers import _run
+from tests.async_helpers import run_async as _run
 
 
 def _tool_call_message(call_id: str, tool_name: str, arguments: dict) -> dict:

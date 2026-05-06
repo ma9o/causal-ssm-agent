@@ -469,3 +469,67 @@ def _require_plan_block(plan: Stage4Plan, block_id: str) -> Stage4FrontierBlock:
     block = plan.get_block(block_id)
     assert block is not None
     return block
+
+
+@pytest.fixture
+def simple_model_spec() -> dict:
+    """Minimal Stage 4 model spec used by SSM-validation tests."""
+    return {
+        "likelihoods": [
+            {
+                "variable": "mood_score",
+                "distribution": "gaussian",
+                "link": "identity",
+                "reasoning": "Continuous Likert-type scale",
+            }
+        ],
+        "parameters": [
+            {
+                "name": "rho_mood",
+                "role": "ar_coefficient",
+                "constraint": "unit_interval",
+                "description": "AR(1) coefficient for mood",
+            },
+            {
+                "name": "sigma_mood",
+                "role": "residual_sd",
+                "constraint": "positive",
+                "description": "Residual SD for mood",
+            },
+        ],
+    }
+
+
+@pytest.fixture
+def simple_priors() -> dict:
+    """Priors matching ``simple_model_spec``."""
+    return {
+        "rho_mood": {
+            "parameter": "rho_mood",
+            "distribution": "Beta",
+            "params": {"alpha": 2.0, "beta": 2.0},
+            "sources": [],
+            "reasoning": "Weakly informative for AR coefficient",
+        },
+        "sigma_mood": {
+            "parameter": "sigma_mood",
+            "distribution": "HalfNormal",
+            "params": {"sigma": 1.0},
+            "sources": [],
+            "reasoning": "Weakly informative for residual SD",
+        },
+    }
+
+
+@pytest.fixture
+def simple_data() -> pd.DataFrame:
+    """Tabular fixture aligned with ``simple_model_spec``."""
+    n = 50
+    rng = np.random.default_rng(0)
+    return pd.DataFrame(
+        {
+            "mood_score": rng.normal(5, 1.5, n),
+            "mood_score_lag1": rng.normal(5, 1.5, n),
+            "subject_id": np.repeat(np.arange(5), 10),
+        }
+    )

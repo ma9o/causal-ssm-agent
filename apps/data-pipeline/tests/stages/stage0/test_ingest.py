@@ -1,6 +1,5 @@
 """Tests for Stage 0 agentic ingestion tools and helpers."""
 
-import asyncio
 import csv
 import datetime
 import io
@@ -20,6 +19,7 @@ from causal_ssm_agent.flows.stages.stage0.tools import (
     _safe_resolve,
     make_ingestion_tools,
 )
+from tests.async_helpers import run_async as _run
 
 _MOCK_SANDBOX_EXECUTION_ERRORS = (
     ArithmeticError,
@@ -34,11 +34,6 @@ _MOCK_SANDBOX_EXECUTION_ERRORS = (
     TypeError,
     ValueError,
 )
-
-
-def _run(coro):
-    """Run an async coroutine synchronously (no pytest-asyncio needed)."""
-    return asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------

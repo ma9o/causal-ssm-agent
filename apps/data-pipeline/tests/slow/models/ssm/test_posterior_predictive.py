@@ -5,9 +5,9 @@ import pytest
 
 from causal_ssm_agent.models.posterior_predictive import PPCResult, run_posterior_predictive_checks
 from causal_ssm_agent.models.predictive_simulation import simulate_predictive_observations
-from tests.models.ssm.test_posterior_predictive import (
-    _complex_mixed_family_config,
-    _make_complex_mixed_samples,
+from tests.models.ssm.posterior_predictive_support import (
+    complex_mixed_family_config,
+    make_complex_mixed_samples,
 )
 
 pytestmark = pytest.mark.slow
@@ -16,9 +16,9 @@ pytestmark = pytest.mark.slow
 class TestForwardSimulation:
     def test_forward_simulate_large_mixed_family_model(self):
         manifest_dists, manifest_links, manifest_level_counts, _manifest_names = (
-            _complex_mixed_family_config()
+            complex_mixed_family_config()
         )
-        samples = _make_complex_mixed_samples()
+        samples = make_complex_mixed_samples()
         times = jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32)
 
         y_sim, _ = simulate_predictive_observations(
@@ -47,9 +47,9 @@ class TestForwardSimulation:
 class TestRunPPC:
     def test_basic_run(self):
         manifest_dists, manifest_links, manifest_level_counts, manifest_names = (
-            _complex_mixed_family_config()
+            complex_mixed_family_config()
         )
-        samples = _make_complex_mixed_samples(seed=7)
+        samples = make_complex_mixed_samples(seed=7)
         times = jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32)
         reference_y, _ = simulate_predictive_observations(
             samples=samples,

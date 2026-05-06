@@ -7,9 +7,9 @@
 
 **causal-ssm-agent** is an opinionated LLM harness for end-to-end Bayesian causal inference on N-of-1 time series data.
 
-The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using high-leverage digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge - where available - in the form of prior distributions and modeling assumptions.
+The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using dense digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge - where available - in the form of prior distributions and modeling assumptions.
 
-In practice, the user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurement model for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the DAG is translated into a continuous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
+The user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurement model for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the DAG is translated into a continuous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
 
 ```mermaid
 flowchart LR
@@ -35,6 +35,15 @@ flowchart LR
   EST --> SIM --> R
   ID -- no --> L
 ```
+
+In practice, the framework's binding constraints are dense self-instrumentation and a literature mature enough to anchor priors — which carves out behavioral and metabolic medicine for the quantified-self user as the natural fit zone. It earns its dynamics machinery on recurring decisions where population science gives a plausible prior but heterogeneity dominates the individual answer:
+
+- **Metabolic / cardiometabolic** — CGM, food logs, wearables, periodic labs · "Which meal-timing combos stabilize my glucose?", "Is the statin moving my ApoB independently of last week's diet change?"
+- **Sleep & circadian** — Oura/Whoop/8sleep, light exposure, behavior logs · "Does evening alcohol cost me REM, or am I drinking on already-bad-sleep nights?"
+- **Endurance & strength training** — TrainingPeaks/Strava, HRV, RPE diaries · "Where's my recovery saturation point?", "Is the HRV drop adaptation or accumulating fatigue?"
+- **Idiographic affective ILD** — EMA apps, wearables, medication logs · "Sleep → mood, or mood → sleep?", "Did the SSRI dose actually move my anxiety beyond seasonal effects?"
+- **Episodic conditions** — symptom diaries for migraine, IBS, PMDD, autoimmune flares · "Which idiosyncratic triggers actually predict my flares?"
+- **N-of-1 pharmacology** — ADHD or microdosing logs paired with sleep and productivity tracking · "Did this dose change move the outcome, or did I just want it to?"
 
 ## Features and Goals
 

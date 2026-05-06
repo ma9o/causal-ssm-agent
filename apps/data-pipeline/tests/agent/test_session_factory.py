@@ -23,7 +23,7 @@ from causal_ssm_agent.utils.config import (
     LLMDefaults,
     StageLLMConfig,
 )
-from tests.helpers import _run
+from tests.async_helpers import run_async as _run
 
 
 def _defaults() -> LLMDefaults:
