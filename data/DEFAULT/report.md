@@ -253,7 +253,7 @@ $$
 ### Inference Structure
 
 - **Likelihood path**: composed
-- **Auto method**: laplace_em
+- **Auto method**: aux_gibbs
 - **First-pass RB**: active
 - **Latents (Kalman)**: stress
 - **Latents (Particle)**: procrastination

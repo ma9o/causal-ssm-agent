@@ -1,5 +1,6 @@
 {
   "name": "@causal-ssm/data-pipeline",
+  "license": "Apache-2.0",
   "private": true,
   "scripts": {
     "dev": "uv run uvicorn causal_ssm_agent.tool_server:app --reload --port 8100",

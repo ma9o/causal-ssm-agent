@@ -14,17 +14,17 @@ import type {
 import { normalizeStage3Data } from "@/components/stages/validation/__fixtures__/normalize-stage3";
 import { type AllStageData, generateMarkdown } from "./generate-markdown";
 
-// --- Doctolib fixtures ---
-import doctolibS0 from "../../../../../data/DOCTOLIB/run/stage-0.json";
-import doctolibS1a from "../../../../../data/DOCTOLIB/run/stage-1a.json";
-import doctolibS1b from "../../../../../data/DOCTOLIB/run/stage-1b.json";
-import doctolibS2 from "../../../../../data/DOCTOLIB/run/stage-2.json";
-import doctolibS3 from "../../../../../data/DOCTOLIB/run/stage-3.json";
-import doctolibS4 from "../../../../../data/DOCTOLIB/run/stage-4.json";
-import doctolibS4b from "../../../../../data/DOCTOLIB/run/stage-4b.json";
-import doctolibS5a from "../../../../../data/DOCTOLIB/run/stage-5a.json";
-import doctolibS5b from "../../../../../data/DOCTOLIB/run/stage-5b.json";
-import doctolibS6 from "../../../../../data/DOCTOLIB/run/stage-6.json";
+// --- DemoHealth fixtures ---
+import demoHealthS0 from "../../../../../data/DEMO_HEALTH/run/stage-0.json";
+import demoHealthS1a from "../../../../../data/DEMO_HEALTH/run/stage-1a.json";
+import demoHealthS1b from "../../../../../data/DEMO_HEALTH/run/stage-1b.json";
+import demoHealthS2 from "../../../../../data/DEMO_HEALTH/run/stage-2.json";
+import demoHealthS3 from "../../../../../data/DEMO_HEALTH/run/stage-3.json";
+import demoHealthS4 from "../../../../../data/DEMO_HEALTH/run/stage-4.json";
+import demoHealthS4b from "../../../../../data/DEMO_HEALTH/run/stage-4b.json";
+import demoHealthS5a from "../../../../../data/DEMO_HEALTH/run/stage-5a.json";
+import demoHealthS5b from "../../../../../data/DEMO_HEALTH/run/stage-5b.json";
+import demoHealthS6 from "../../../../../data/DEMO_HEALTH/run/stage-6.json";
 
 // --- Default fixtures ---
 import defaultS0 from "../../../../../data/DEFAULT/run/stage-0.json";
@@ -57,9 +57,9 @@ function buildAllStageData(
 }
 
 const datasets: Record<string, AllStageData> = {
-  doctolib: buildAllStageData(
-    doctolibS0, doctolibS1a, doctolibS1b, doctolibS2, doctolibS3,
-    doctolibS4, doctolibS4b, doctolibS5a, doctolibS5b, doctolibS6,
+  demo_health: buildAllStageData(
+    demoHealthS0, demoHealthS1a, demoHealthS1b, demoHealthS2, demoHealthS3,
+    demoHealthS4, demoHealthS4b, demoHealthS5a, demoHealthS5b, demoHealthS6,
   ),
   default: buildAllStageData(
     defaultS0, defaultS1a, defaultS1b, defaultS2, defaultS3,
@@ -156,8 +156,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Doctolib: Story = {
-  args: { datasetName: "doctolib" },
+export const DemoHealth: Story = {
+  args: { datasetName: "demo_health" },
 };
 
 export const Default: Story = {

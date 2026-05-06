@@ -337,7 +337,7 @@ def _point_ieks_mode(
         )
         diag = diag + damping * jnp.eye(D, dtype=z_curr.dtype)[None, :, :]
 
-        with jax.named_scope("laplace_em/ieks_solve_system"):
+        with jax.named_scope("map/ieks_solve_system"):
             z_newton = jnp.asarray(
                 _solve_block_tridiagonal(lower, diag, upper, rhs),
                 dtype=z_curr.dtype,
@@ -396,7 +396,7 @@ def _point_ieks_mode(
     def _continue(carry):
         return carry[3] & (carry[4] < max_iters)
 
-    with jax.named_scope("laplace_em/ieks_iterations"):
+    with jax.named_scope("map/ieks_iterations"):
         (
             z_est,
             _mode_log_joint,
@@ -1096,7 +1096,7 @@ def _dense_support_laplace_log_lik(
     T, D = observations.shape[0], init_mean.shape[0]
     flat_dim = T * D
 
-    with jax.named_scope("laplace_em/dense_support_init"):
+    with jax.named_scope("map/dense_support_init"):
         z_init = _predictive_latent_init(Ad, cd, init_mean)
         prior_terms = _build_gaussian_trajectory_prior_terms(
             Ad,
@@ -1127,7 +1127,7 @@ def _dense_support_laplace_log_lik(
 
     z_flat = z_init.reshape(-1)
     init_log_joint = _joint_log_prob(z_flat)
-    with jax.named_scope("laplace_em/dense_support_newton"):
+    with jax.named_scope("map/dense_support_newton"):
         best_z = z_flat
         best_neg = _neg_log_prob(z_flat)
         for _ in range(max(n_newton_iters, 1)):
@@ -1153,7 +1153,7 @@ def _dense_support_laplace_log_lik(
             )
         z_flat = best_z
 
-    with jax.named_scope("laplace_em/dense_support_curvature"):
+    with jax.named_scope("map/dense_support_curvature"):
         mode_log_joint = _joint_log_prob(z_flat)
         hess = jax.hessian(_neg_log_prob)(z_flat)
         hess = symmetrize(hess)

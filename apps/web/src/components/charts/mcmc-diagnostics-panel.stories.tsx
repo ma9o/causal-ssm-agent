@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage5bNutsda } from "@/components/__fixtures__/inference-data";
+import { stage5bAuxGibbs } from "@/components/__fixtures__/inference-data";
 import { MCMCDiagnosticsPanel } from "./mcmc-diagnostics-panel";
 
 const meta = {
@@ -13,5 +13,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { diagnostics: stage5bNutsda.mcmc_diagnostics! },
+  args: { diagnostics: stage5bAuxGibbs.mcmc_diagnostics! },
 };

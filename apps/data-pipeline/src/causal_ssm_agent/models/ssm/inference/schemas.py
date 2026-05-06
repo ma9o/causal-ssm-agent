@@ -75,7 +75,7 @@ class EnergyHistogram(BaseModel):
 
 
 class EnergyDiagnostics(BaseModel):
-    """NUTS energy diagnostics (Betancourt 2017)."""
+    """Hamiltonian energy diagnostics."""
 
     energy_hist: EnergyHistogram
     energy_transition_hist: EnergyHistogram
@@ -115,7 +115,7 @@ class SVIDiagnostics(BaseModel):
 
 
 class SMCDiagnostics(BaseModel):
-    """Tempered SMC diagnostics (used by laplace_smc, tempered_smc, etc.)."""
+    """Sequential Monte Carlo diagnostics."""
 
     beta_schedule: list[float]
     ess_history: list[float]
@@ -367,7 +367,7 @@ class InferenceStructureResult(BaseModel):
     """Canonical inference-structure plan shared by pipeline and web."""
 
     likelihood_path: Literal["kalman", "composed", "particle"]
-    auto_method: Literal["nuts", "map", "svi"]
+    auto_method: Literal["aux_gibbs"]
     first_pass_rb: FirstPassRBResult
 
 

@@ -1,5 +1,6 @@
 {
   "name": "@causal-ssm/typescript-config",
+  "license": "Apache-2.0",
   "private": true,
   "files": ["base.json", "nextjs.json"]
 }

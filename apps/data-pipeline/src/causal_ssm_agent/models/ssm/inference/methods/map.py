@@ -173,7 +173,7 @@ def _log_outer_eval(
     outer_diag: dict[str, Any],
 ) -> None:
     logger.info(
-        "Laplace-EM outer %s: elapsed=%.1fs evals=%d objective=%.6f best=%.6f "
+        "MAP outer %s: elapsed=%.1fs evals=%d objective=%.6f best=%.6f "
         "delta=%s grad_norm=%s step_norm=%s logpost=%.6f loglik=%.6f logprior=%.6f",
         label,
         elapsed_seconds,
@@ -189,7 +189,7 @@ def _log_outer_eval(
     )
     inner = outer_diag["inner"]
     logger.info(
-        "Laplace-EM inner %s: solver=%s n_iters=%d accepted=%d rel_change=%s "
+        "MAP inner %s: solver=%s n_iters=%d accepted=%d rel_change=%s "
         "damping=%s alpha=%s latent_gain=%s laplace_logdet=%s min_chol_diag=%s",
         label,
         _solver_label(inner["solver_kind"]),
@@ -211,7 +211,7 @@ def _log_outer_eval(
 
 @dataclass(frozen=True)
 class LaplaceModeOptimizationResult:
-    """Unified outer-optimizer result for Laplace-EM parameter mode finding."""
+    """Unified outer-optimizer result for MAP parameter mode finding."""
 
     z_mode: jnp.ndarray
     objective_at_mode: float
@@ -231,7 +231,7 @@ class LaplaceModeOptimizationResult:
 # ---------------------------------------------------------------------------
 
 
-def _build_laplace_em_bundle(
+def _build_map_laplace_bundle(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
@@ -239,7 +239,7 @@ def _build_laplace_em_bundle(
     likelihood_backend,
     reparam,
 ) -> dict[str, Any]:
-    """Build the traced/JITed artifacts for optimizer-backed Laplace-EM."""
+    """Build the traced/JITed artifacts for optimizer-backed MAP."""
     site_info = _discover_sites(
         model,
         observations,
@@ -252,7 +252,7 @@ def _build_laplace_em_bundle(
     flat_example, unravel_fn = ravel_pytree(example_unc)
 
     cache_key = (
-        "laplace_em_runtime_bundle",
+        "map_laplace_runtime_bundle",
         id(likelihood_backend),
         id(reparam),
         _shape_dtype_signature(observations),
@@ -448,7 +448,7 @@ def _optimize_laplace_parameter_mode(
     if support_aware_outer:
         z_init = flat_example
         init_log_posterior_best: float | None = None
-        logger.info("Laplace-EM init candidates skipped: support-aware outer optimizer")
+        logger.info("MAP init candidates skipped: support-aware outer optimizer")
     else:
         init_key, candidates = _draw_laplace_init_candidates(
             init_key,
@@ -468,7 +468,7 @@ def _optimize_laplace_parameter_mode(
         z_init = candidates[init_idx]
         init_log_posterior_best = float(jax.device_get(init_scores[init_idx]))
         logger.info(
-            "Laplace-EM init candidates: n_candidates=%d best_log_posterior=%.6f",
+            "MAP init candidates: n_candidates=%d best_log_posterior=%.6f",
             int(candidates.shape[0]),
             init_log_posterior_best,
         )
@@ -490,7 +490,7 @@ def _optimize_laplace_parameter_mode(
         del _seed_objective
         if "latent_mode" in seed_aux:
             latent_mode_init = np.asarray(jax.device_get(seed_aux["latent_mode"])).copy()
-            logger.info("Laplace-EM seeded latent warm start before jitted value-and-grad compile")
+            logger.info("MAP seeded latent warm start before jitted value-and-grad compile")
 
     def _value_and_grad(z_np: np.ndarray) -> tuple[float, np.ndarray, dict[str, Any]]:
         nonlocal cached_x, cached_fun, cached_grad, cached_aux, eval_count, latent_mode_init
@@ -617,7 +617,7 @@ def _sample_laplace_parameter_posterior(
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Sample an unconstrained Gaussian approximation around the parameter mode."""
     if num_samples < 1:
-        raise ValueError("laplace_em requires num_samples >= 1")
+        raise ValueError("map requires num_samples >= 1")
 
     dim = int(z_mode.shape[0])
     if dim == 0:
@@ -627,7 +627,7 @@ def _sample_laplace_parameter_posterior(
             jnp.zeros((0,), dtype=z_mode.dtype),
         )
 
-    with jax.named_scope("laplace_em/parameter_hessian"):
+    with jax.named_scope("map/parameter_hessian"):
         hessian = _laplace_parameter_hessian_runtime(
             z_mode,
             observations,
@@ -639,7 +639,7 @@ def _sample_laplace_parameter_posterior(
         covariance = symmetrize_with_jitter(covariance, jitter=hessian_jitter)
         chol_cov = jnp.linalg.cholesky(covariance)
 
-    with jax.named_scope("laplace_em/parameter_sampling"):
+    with jax.named_scope("map/parameter_sampling"):
         eps = random.normal(rng_key, (num_samples, dim), dtype=z_mode.dtype)
         unc_samples = z_mode[None, :] + eps @ chol_cov.T
 
@@ -656,7 +656,7 @@ def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Sample using the inverse-Hessian approximation returned by L-BFGS-B."""
     if num_samples < 1:
-        raise ValueError("laplace_em requires num_samples >= 1")
+        raise ValueError("map requires num_samples >= 1")
 
     dim = int(z_mode.shape[0])
     if dim == 0:
@@ -668,7 +668,7 @@ def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
     if optimizer_hess_inv is None or not hasattr(optimizer_hess_inv, "todense"):
         raise RuntimeError("L-BFGS-B inverse-Hessian approximation is unavailable.")
 
-    with jax.named_scope("laplace_em/optimizer_hess_inv"):
+    with jax.named_scope("map/optimizer_hess_inv"):
         covariance = jnp.asarray(
             np.asarray(optimizer_hess_inv.todense(), dtype=np.float64),
             dtype=z_mode.dtype,
@@ -676,7 +676,7 @@ def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
         covariance = symmetrize_with_jitter(covariance, jitter=hessian_jitter)
         chol_cov = jnp.linalg.cholesky(covariance)
 
-    with jax.named_scope("laplace_em/parameter_sampling"):
+    with jax.named_scope("map/parameter_sampling"):
         eps = random.normal(rng_key, (num_samples, dim), dtype=z_mode.dtype)
         unc_samples = z_mode[None, :] + eps @ chol_cov.T
 
@@ -690,7 +690,7 @@ def _mode_only_parameter_posterior(
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Return a degenerate posterior concentrated at the parameter mode."""
     if num_samples < 1:
-        raise ValueError("laplace_em requires num_samples >= 1")
+        raise ValueError("map requires num_samples >= 1")
 
     dim = int(z_mode.shape[0])
     unc_samples = jnp.broadcast_to(z_mode, (num_samples, dim))
@@ -732,8 +732,6 @@ def fit_map(
     posterior, compute the local curvature there, and sample the resulting
     Gaussian approximation in unconstrained parameter space.
     """
-    for ignored_key in ("svi_config", "nuts_config", "smc_config"):
-        kwargs.pop(ignored_key, None)
     if kwargs:
         unknown = ", ".join(sorted(kwargs))
         raise TypeError(f"fit_map got unexpected keyword arguments: {unknown}")
@@ -747,7 +745,7 @@ def fit_map(
 
     backend_label = "kalman" if model.likelihood == "kalman" else "laplace_ieks"
     logger.info(
-        "Laplace-EM config: backend=%s maxiter=%s tol=%s n_ieks_iters=%s "
+        "MAP config: backend=%s maxiter=%s tol=%s n_ieks_iters=%s "
         "n_init_samples=%s num_samples=%s compute_parameter_hessian=%s "
         "parameter_covariance_method=%s",
         backend_label,
@@ -761,22 +759,22 @@ def fit_map(
     )
 
     phase_started_at = time.monotonic()
-    logger.info("Laplace-EM phase start: phase=build_likelihood_backend")
-    with jax.profiler.TraceAnnotation("laplace_em/build_likelihood_backend"):
+    logger.info("MAP phase start: phase=build_likelihood_backend")
+    with jax.profiler.TraceAnnotation("map/build_likelihood_backend"):
         if model.likelihood == "kalman":
             backend = model.make_likelihood_backend()
         else:
             backend = model.make_laplace_backend(n_ieks_iters)
     logger.info(
-        "Laplace-EM phase complete: phase=build_likelihood_backend elapsed=%.1fs backend=%s",
+        "MAP phase complete: phase=build_likelihood_backend elapsed=%.1fs backend=%s",
         _elapsed_seconds(phase_started_at),
         backend_label,
     )
 
     phase_started_at = time.monotonic()
-    logger.info("Laplace-EM phase start: phase=build_bundle")
-    with jax.profiler.TraceAnnotation("laplace_em/build_bundle"):
-        bundle = _build_laplace_em_bundle(
+    logger.info("MAP phase start: phase=build_bundle")
+    with jax.profiler.TraceAnnotation("map/build_bundle"):
+        bundle = _build_map_laplace_bundle(
             model,
             observations,
             times,
@@ -785,7 +783,7 @@ def fit_map(
             reparam,
         )
     logger.info(
-        "Laplace-EM phase complete: phase=build_bundle elapsed=%.1fs",
+        "MAP phase complete: phase=build_bundle elapsed=%.1fs",
         _elapsed_seconds(phase_started_at),
     )
 
@@ -796,16 +794,16 @@ def fit_map(
     log_posterior_fn = bundle["log_posterior_fn"]
     neg_log_posterior_fn = bundle["neg_log_posterior_fn"]
     neg_log_posterior_with_aux_fn = bundle["neg_log_posterior_with_aux_fn"]
-    logger.info("Laplace-EM bundle ready: parameter_dim=%d public_sites=%d", dim, len(site_info))
+    logger.info("MAP bundle ready: parameter_dim=%d public_sites=%d", dim, len(site_info))
 
     logger.info(
-        "Laplace-EM outer optimizer: method=%s support_aware=%s",
+        "MAP outer optimizer: method=%s support_aware=%s",
         "L-BFGS-B",
         _requires_support_aware_outer_optimizer(model),
     )
     phase_started_at = time.monotonic()
-    logger.info("Laplace-EM phase start: phase=parameter_optimize")
-    with jax.profiler.TraceAnnotation("laplace_em/parameter_optimize"):
+    logger.info("MAP phase start: phase=parameter_optimize")
+    with jax.profiler.TraceAnnotation("map/parameter_optimize"):
         mode_result = _optimize_laplace_parameter_mode(
             model,
             init_key=init_key,
@@ -821,7 +819,7 @@ def fit_map(
             tol=tol,
         )
     logger.info(
-        "Laplace-EM phase complete: phase=parameter_optimize elapsed=%.1fs",
+        "MAP phase complete: phase=parameter_optimize elapsed=%.1fs",
         _elapsed_seconds(phase_started_at),
     )
 
@@ -838,7 +836,7 @@ def fit_map(
     mode_log_prior = mode_eval["log_prior"]
     mode_inner = mode_eval["inner"]
     logger.info(
-        "Laplace-EM mode found: optimizer=%s success=%s nit=%s nfev=%s objective=%.6f",
+        "MAP mode found: optimizer=%s success=%s nit=%s nfev=%s objective=%.6f",
         mode_result.optimizer,
         success,
         nit,
@@ -857,19 +855,19 @@ def fit_map(
         outer_diag=mode_eval,
     )
     if not np.isfinite(mode_log_posterior):
-        raise RuntimeError("Laplace-EM failed to find a finite parameter mode.")
+        raise RuntimeError("MAP failed to find a finite parameter mode.")
 
     parameter_hessian_min_eig = None
     parameter_hessian_max_eig = None
     if compute_parameter_hessian:
         logger.info(
-            "Laplace-EM parameter curvature: dim=%s method=%s sampling local Gaussian posterior",
+            "MAP parameter curvature: dim=%s method=%s sampling local Gaussian posterior",
             dim,
             parameter_covariance_method,
         )
         phase_started_at = time.monotonic()
-        logger.info("Laplace-EM phase start: phase=parameter_curvature")
-        with jax.profiler.TraceAnnotation("laplace_em/sample_parameter_posterior"):
+        logger.info("MAP phase start: phase=parameter_curvature")
+        with jax.profiler.TraceAnnotation("map/sample_parameter_posterior"):
             if parameter_covariance_method == "exact_hessian":
                 unc_samples, covariance, hessian_eigvals = _sample_laplace_parameter_posterior(
                     sample_key,
@@ -891,12 +889,12 @@ def fit_map(
                     )
                 )
         logger.info(
-            "Laplace-EM phase complete: phase=parameter_curvature elapsed=%.1fs",
+            "MAP phase complete: phase=parameter_curvature elapsed=%.1fs",
             _elapsed_seconds(phase_started_at),
         )
         parameter_posterior_strategy = "laplace_gaussian"
     else:
-        logger.info("Laplace-EM parameter Hessian skipped; using deterministic mode samples")
+        logger.info("MAP parameter Hessian skipped; using deterministic mode samples")
         unc_samples, covariance, hessian_eigvals = _mode_only_parameter_posterior(
             z_mode,
             num_samples=num_samples,
@@ -905,8 +903,8 @@ def fit_map(
 
     if site_info:
         phase_started_at = time.monotonic()
-        logger.info("Laplace-EM phase start: phase=extract_samples")
-        with jax.profiler.TraceAnnotation("laplace_em/extract_samples"):
+        logger.info("MAP phase start: phase=extract_samples")
+        with jax.profiler.TraceAnnotation("map/extract_samples"):
             samples = extract_constrained_samples(
                 unc_samples,
                 site_info,
@@ -918,7 +916,7 @@ def fit_map(
                 times=times,
             )
         logger.info(
-            "Laplace-EM phase complete: phase=extract_samples elapsed=%.1fs draws=%d",
+            "MAP phase complete: phase=extract_samples elapsed=%.1fs draws=%d",
             _elapsed_seconds(phase_started_at),
             int(unc_samples.shape[0]),
         )
@@ -942,7 +940,7 @@ def fit_map(
     if compute_parameter_hessian:
         if parameter_covariance_method == "exact_hessian":
             logger.info(
-                "Laplace-EM parameter curvature exact_hessian: min_eig=%s max_eig=%s condition=%s",
+                "MAP parameter curvature exact_hessian: min_eig=%s max_eig=%s condition=%s",
                 _format_float(parameter_hessian_min_eig),
                 _format_float(parameter_hessian_max_eig),
                 _format_float(hessian_condition_number),
@@ -950,7 +948,7 @@ def fit_map(
         else:
             covariance_diag = np.asarray(jax.device_get(jnp.diag(covariance)), dtype=np.float64)
             logger.info(
-                "Laplace-EM parameter curvature optimizer_hess_inv: covariance_diag_min=%s covariance_diag_max=%s",
+                "MAP parameter curvature optimizer_hess_inv: covariance_diag_min=%s covariance_diag_max=%s",
                 _format_float(float(np.min(covariance_diag))),
                 _format_float(float(np.max(covariance_diag))),
             )
@@ -997,7 +995,7 @@ def fit_map(
     }
 
     logger.info(
-        "Laplace-EM complete: success=%s status=%s nit=%s nfev=%s loglik=%.3f logpost=%.3f",
+        "MAP complete: success=%s status=%s nit=%s nfev=%s loglik=%.3f logpost=%.3f",
         success,
         status,
         nit,
@@ -1015,7 +1013,7 @@ def fit_map(
 
 __all__ = [
     "LaplaceModeOptimizationResult",
-    "_build_laplace_em_bundle",
+    "_build_map_laplace_bundle",
     "_draw_laplace_init_candidates",
     "_elapsed_seconds",
     "_format_float",

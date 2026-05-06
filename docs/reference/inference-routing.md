@@ -1,279 +1,88 @@
 # Inference Routing for State-Space Models
 
-The inference methods available for continuous-time state-space models, the design axes that distinguish them, and the structural routing logic that selects a method based on model properties. For likelihood backend details and the CT-SDE formulation, see [estimation.md](estimation.md).
-
-Within the pipeline artifact lineage, this document explains how the fitted runtime chooses or exposes inference behavior after functional specification and compilation. For the cross-cutting pipeline map, see [pipeline-dimensions.md](pipeline-dimensions.md).
+The implemented inference surface is deliberately small: `map`, `svi`, `aux_gibbs`, and `particle_mgrad`. For the CT-SDE formulation and likelihood backends, see [estimation.md](estimation.md).
 
 ## The Marginalization Challenge
 
-Given a state-space model with latent states **x**\_1:T and observations **y**\_1:T, parameter inference requires the marginal likelihood:
+Given a state-space model with latent states **x**_1:T and observations **y**_1:T, parameter inference requires the marginal likelihood:
 
 ```text
 p(y_1:T | theta) = integral p(y_1:T, x_1:T | theta) dx_1:T
 ```
 
-The latent states must be integrated out. For SSMs with T timesteps and n latent dimensions, this integral is over an (n x T)-dimensional space. How to handle this integral -- and then how to explore the resulting parameter posterior -- are the two fundamental choices in SSM inference. These choices are not independent: the state marginalization method determines the gradient quality available for parameter exploration.
-
-## Three Design Axes
-
-Every inference method makes three design choices:
-
-- **Axis A** — how to handle the latent-state integral (marginalize, augment, or Gibbs)
-- **Axis B** — what state-side objective drives parameter inference within the marginalize path (exact likelihood, approximate likelihood, stochastic estimate, or variational surrogate)
-- **Axis C** — how to approximate or explore the parameter posterior (MCMC, VI, SMC, or a local Gaussian approximation)
-
-These axes are conceptually distinct but not independent. In this repo, the main dependency is:
-
-1. **B → C**: Within Marginalize, the state-side objective determines gradient quality and therefore which outer parameter methods are a good fit. This is the binding constraint for the structural routing described below.
-
-Two interpretation notes matter:
-
-1. **These axes are a routing map, not an impossibility theorem.** The implementation only auto-routes within the Marginalize family. `nuts_da` and `pgas` are exposed as explicit user overrides. The broader literature also contains variational and SMC-style approximations over latent-state trajectories; this document is describing the methods implemented here, not the full space of possible SSM algorithms[^archer2015] [^krishnan2017].
-2. **PF-backed targets and MCMC need care.** Exact particle-MCMC and pseudo-marginal constructions exist[^andrieu2010], but they are different algorithm families from naively differentiating through a particle-filter-estimated target with HMC/NUTS. The routing guidance below is about the latter engineering choice.
-
-### Axis A: State-Parameter Coupling
-
-How to deal with the nested integral over latent states.
-
-| Strategy | Mechanism | Methods |
-|----------|-----------|---------|
-| **Marginalize** | Compute or approximate p(y\|theta) via a filter or analytical approximation, then do inference on theta alone | nuts, svi, tempered\_smc, hessmc2, laplace\_smc, laplace\_em, structured\_vi, dpf |
-| **Augment** | Treat x\_{1:T} as parameters. Sample (theta, x\_{1:T}) jointly via NUTS on the augmented space. No filter needed. | nuts\_da |
-| **Gibbs** | Alternate between p(x\|theta,y) via conditional SMC and p(theta\|x,y) via HMC. Each conditional avoids the hard integral. | pgas |
-
-### Axis B: State-Side Objective Within the Marginalize Path
-
-When marginalizing (Axis A = Marginalize), parameter inference is driven by an exact marginal likelihood, an approximation to that likelihood, or a surrogate objective over latent trajectories. This axis does not apply to Augment (the joint target is sampled directly) and only applies indirectly to Gibbs methods such as PGAS, which alternate conditional updates instead of evaluating p(y|theta) as a single black-box objective.
-
-| Objective class | Mechanism | Resulting gradients | Structural requirement | Methods |
-|-----------------|-----------|-------------------|----------------------|---------|
-| **Closed-form marginal likelihood** | Kalman filter | Exact, smooth | All emissions Gaussian + identity link + Gaussian diffusion | nuts, svi, tempered\_smc, hessmc2 |
-| **Deterministic approximate marginal likelihood** | IEKS + Laplace | Smooth, approximate | Twice-differentiable emission log-density + linear dynamics | laplace\_smc, laplace\_em |
-| **Stochastic marginal-likelihood estimate** | Bootstrap / RB particle filter | Noisy, stochastic | Universal (any model) | nuts, svi, tempered\_smc, hessmc2 |
-| **Learned stochastic estimate** | Neural proposal particle filter | Lower variance, still stochastic | Universal (needs training phase) | dpf |
-| **Variational surrogate objective** | Backward-factored variational smoother ELBO | Biased surrogate; optimized by Monte Carlo gradients | Universal | structured\_vi |
-
-Two critical observations:
-
-1. **Our CT-LTI framework guarantees linear dynamics** (drift is always a matrix A). So "linear dynamics" is always satisfied. The IEKS path is blocked only when the emission log-density isn't twice-differentiable.
-
-2. **All [supported emission families](model-spec/likelihoods.md#distribution-families) have twice-differentiable log-densities.** So the IEKS/Laplace family (`laplace_em` and `laplace_smc`) is structurally available for every non-Kalman model we support -- it just might not be *accurate* enough for highly non-Gaussian state posteriors (e.g., very sparse count data).
-
-### Axis C: Parameter Posterior Method
-
-Given the state handling from Axes A+B, how to explore the parameter posterior p(theta|y).
-
-| Family | Exact (in limit)? | Tolerates noisy grad log p(y\|theta)? | Handles multimodality? | Methods |
-|--------|-------------------|--------------------------------------|----------------------|---------|
-| **MCMC** (NUTS/HMC) | Yes | No -- HMC/NUTS leapfrog needs smooth gradients. (Pseudo-marginal MH with PF is valid but slow[^andrieu2010].) | No | nuts, nuts\_da, pgas |
-| **VI** (SVI) | No (variational bound) | Yes -- SGD is designed for noise | No | svi |
-| **SMC** (tempered, HessMC2) | Yes | Yes -- population-based | Yes | tempered\_smc, hessmc2, laplace\_smc, structured\_vi, dpf |
-| **Local Gaussian approximation** | No -- local second-order approximation | Requires a deterministic smooth objective | No | laplace\_em |
-
-### The B → C Routing Constraint
-
-Axis B determines target smoothness and estimator noise, which strongly influences which Axis C methods are a good engineering choice in this codebase:
-
-| State-side objective (B) | Gradient quality | Routing guidance for parameter methods (C) |
-|--------------------------|-----------------|--------------------------------------------|
-| **Closed-form** (Kalman) | Exact, smooth | All are feasible; HMC/NUTS is the structural default |
-| **Deterministic approx** (IEKS/Laplace) | Smooth, approximate | A local Gaussian approximation is the structural default via `laplace_em`; `laplace_smc` remains the population-based alternative when you want broader exploration |
-| **Stochastic** (PF / RBPF) | Noisy, estimator-dependent | The router prefers VI or SMC. PMCMC remains theoretically valid, but it is a different construction from autodiff-HMC on the PF target[^andrieu2010] |
-| **Learned stochastic** (DPF) | Lower variance, still stochastic | Same practical guidance as PF-backed targets |
-| **Variational surrogate** (structured VI) | Surrogate objective, not an exact likelihood | Interpreted here as an inner approximation paired with an outer SMC sampler |
-
-These are routing rules for this implementation, not universal impossibility results. The structural routing reduces to: (1) default to Marginalize, (2) determine the state-side objective from model structure, (3) choose the best supported outer engine given that objective. Augment and Gibbs remain user overrides for specific needs, not structural routing targets.
+For SSMs with T timesteps and n latent dimensions, this integral is over an `(n x T)`-dimensional space. The implemented methods either approximate this marginal likelihood for parameter-only inference or use blocked complete-data MCMC updates over parameters and latent trajectories.
 
 ## Method Taxonomy
 
-The ten methods mapped to all three axes:
-
-| Method | A: Coupling | B: State-side objective | C: Param method | Key advantage |
-|--------|------------|--------------------------|----------------|---------------|
-| `nuts` | Marginalize | Closed-form (Kalman) or stochastic (PF) | MCMC | Gold standard when gradients are smooth |
-| `svi` | Marginalize | Closed-form (Kalman) or stochastic (PF) | VI | Fast, tolerates PF noise |
-| `tempered_smc` | Marginalize | Closed-form (Kalman) or stochastic (PF) | SMC | Multimodal, robust to noise |
-| `hessmc2` | Marginalize | Closed-form (Kalman) or stochastic (PF) | SMC (Hessian) | Curvature-adapted proposals |
-| `laplace_smc` | Marginalize | Deterministic approx (IEKS) | SMC | Avoids PF noise while retaining population-based exploration |
-| `laplace_em` | Marginalize | Deterministic approx (IEKS) | Local Gaussian approximation | Fast approximate posterior around a dominant mode |
-| `structured_vi` | Marginalize | Variational surrogate (backward variational family) | SMC | Trajectory-aware state uncertainty |
-| `dpf` | Marginalize | Learned stochastic estimate (neural PF) | SMC | Lower-variance PF proposals |
-| `nuts_da` | Augment | Joint augmented target (no marginal-likelihood backend) | MCMC | Simple "just run NUTS", no filter tuning |
-| `pgas` | Gibbs | Blocked state/parameter conditionals (CSMC + parameter MCMC) | MCMC | Exact despite PF; gradient-free state updates |
+| Method | Coupling | State-side objective | Parameter update | Primary use |
+|---|---|---|---|---|
+| `map` | Marginalized | Kalman or IEKS/Laplace approximate marginal likelihood | L-BFGS-B mode plus local Gaussian posterior | Deterministic local fit |
+| `svi` | Marginalized | NumPyro ELBO over the model target | Auto-guide optimization | Fast approximate posterior exploration |
+| `aux_gibbs` | Complete-data Gibbs | Auxiliary Kalman latent trajectory proposal | MALA parameter kernel | Default blocked MCMC fit |
+| `particle_mgrad` | Complete-data Gibbs | Marginal Particle-mGRAD latent trajectory proposal | MALA parameter kernel | Particle latent updates for non-Gaussian/support-aware likelihood paths |
 
 ## Structural Routing
 
-The structural routing implemented today operates on a restricted surface: it auto-selects within A = Marginalize, while `nuts_da` and `pgas` are explicit user overrides. The routing follows directly from the state-side objective: determine that objective from model structure, then select the best supported outer engine via the B → C guidance above.
+The default routing now resolves to `aux_gibbs`. Users can override the method with `map`, `svi`, or `particle_mgrad` when they need a different approximation or MCMC behavior.
 
-### User Overrides
+Routing still computes the likelihood path because the runtime and frontend need to know how latent and observed variables are evaluated:
 
-The structural routing picks the best default within A = Marginalize. Users can override to a different coupling strategy (A) or a different parameter method (C):
+- **`kalman`**: all variables are Kalman-eligible, so the entire model uses the closed-form Kalman filter.
+- **`composed`**: a Kalman sub-block is evaluated first, then a particle block handles the remainder.
+- **`particle`**: no executable first-pass Kalman split exists, or interval-summary support forces the support-aware particle path.
 
-| Need | Override to | Axis change | Why |
-|------|-----------|-------------|-----|
-| Exact posterior from non-Gaussian model | `pgas` | A → Gibbs, C = MCMC | Gibbs structure avoids differentiating through PF |
-| Simple setup, moderate T, Gaussian obs | `nuts_da` | A → Augment, C = MCMC | "Everything is parameters", no filter to configure |
-| Fast exploration, any model | `svi` | C → VI | Fastest wall-clock, good for model iteration |
-| Fast deterministic local approximation | `laplace_em` | C → local Gaussian approximation | Optimizer-backed mode finding plus a second-order posterior approximation |
-| Highly anisotropic posterior | `hessmc2` | C → SMC (Hessian) | Full Hessian proposals adapt to curvature |
-| PF with severe particle degeneracy | `dpf` | B → Learned | Learned proposals reduce weight variance |
-| Trajectory-aware state uncertainty | `structured_vi` | B → Variational surrogate | Backward-factored family captures temporal correlations |
+## User Overrides
+
+| Need | Override to | Why |
+|---|---|---|
+| Fast approximate posterior while iterating on a model | `svi` | ELBO optimization is usually cheaper than MCMC. |
+| Blocked MCMC with Gaussian latent diffusion and Kalman-style auxiliary proposals | `aux_gibbs` | Alternates latent trajectory and parameter updates without relying on a marginal likelihood sampler. |
+| Blocked MCMC with particle latent proposals | `particle_mgrad` | Uses the marginal Particle-mGRAD latent kernel, which is the retained particle trajectory MCMC path. |
 
 ## First-Pass Rao-Blackwellization
 
-Before the structural routing selects an inference method, a graph analysis partitions the model's latent and observed variables into a Kalman sub-block and a particle filter sub-block. This is "first-pass" RB — it operates on the model specification (fixed at construction time), not on per-iteration parameter values.
+Before fitting, graph analysis partitions the model's latent and observed variables into a Kalman sub-block and a particle sub-block. This first pass operates on the fixed `SSMSpec`, not on per-iteration parameter values.
 
-The analysis (`graph_analysis.analyze_first_pass_rb`) examines the `SSMSpec` drift sparsity, observation dependencies, and noise families to identify fully-decoupled linear-Gaussian sub-blocks that can be marginalized exactly via the Kalman filter before the particle filter runs.
+The analysis (`graph_analysis.analyze_first_pass_rb`) examines drift sparsity, observation dependencies, and noise families to identify decoupled linear-Gaussian sub-blocks that can be marginalized exactly via the Kalman filter before the particle backend runs.
 
-The resulting `RBPartition` assigns each latent variable and each observation channel to either `kalman` or `particle`. This determines the `likelihood_path`:
-
-- **`kalman`**: all variables are Kalman-eligible — the entire model uses the closed-form Kalman filter
-- **`composed`**: some variables are Kalman-eligible and some are not — the Kalman sub-block runs first, then the particle filter handles the remainder
-- **`particle`**: no Kalman sub-block exists, or first-pass RB is disabled
+The resulting `RBPartition` assigns each latent variable and each observation channel to either `kalman` or `particle`. This determines the `likelihood_path` emitted by [Stage 4b](../pipeline/04b-parametric-identifiability.md) and re-derived by [Stage 5b](../pipeline/05b-inference-diagnostics.md).
 
 First-pass RB is disabled when:
 
-- The spec opts out (`first_pass_rb = False`)
-- Interval-summary observations are present (the current planner does not form first-pass RB splits for support-aware windowed measurements)
-- No executable partition exists (all variables couple to non-Gaussian components)
-
-A "second pass" operates within each particle at runtime, marginalizing conditionally Gaussian blocks that couple to non-Gaussian variables. Both passes compose: first-pass removes unconditionally independent Gaussian blocks, second-pass handles the conditionally Gaussian remainder.
-
-The [Stage 4b](../pipeline/04b-parametric-identifiability.md) diagnostics emit the resolved partition as an [`InferenceStructureResult`](../pipeline/04b-parametric-identifiability.md#inferencestructureresult) for display in the web frontend.
+- The spec opts out with `first_pass_rb = False`.
+- Interval-summary observations are present.
+- No executable partition exists because all variables couple to non-Gaussian components.
 
 ## Method Reference
 
-### NUTS
+### MAP
 
-NumPyro's No-U-Turn Sampler[^hoffman2014] [^betancourt2017]. Uses `init_to_median` initialization, supports dense mass matrix adaptation.
+`map` optimizes the approximate marginal posterior over parameters, then samples a local Gaussian approximation in unconstrained parameter space. The likelihood side uses the Kalman backend for linear-Gaussian paths and the IEKS/Laplace backend otherwise.
 
-**Axis position:** Marginalize + Closed-form (Kalman) + MCMC.
+**When to use:** Deterministic geometry diagnostics and local posterior approximations.
 
-**When to use:** Kalman-eligible models (the structural default). The smooth, deterministic Kalman log-likelihood gives clean gradients. PF-backed use is available, but it is not the default routing path.
-
-**Limitations:** Single mode. Requires a smooth target. Particle-estimated targets can destabilize leapfrog integration unless you switch to a particle-MCMC construction instead[^andrieu2010].
+**Limitations:** Local and unimodal by construction. Posterior skewness and separated modes are not represented.
 
 ### SVI
 
-Stochastic Variational Inference[^blei2017] via ELBO optimization. Fits an auto-guide (multivariate normal, diagonal normal, or delta) to approximate the posterior. SGD naturally tolerates gradient noise from particle filter likelihoods.
+`svi` uses NumPyro stochastic variational inference with an auto-guide. It returns approximate posterior samples from the learned guide.
 
-**Axis position:** Marginalize + any likelihood computation + VI.
+**When to use:** Fast model iteration or preflight posterior summaries.
 
-**When to use:** Fast exploration with any likelihood backend, especially when you want something cheaper than `laplace_smc` and less local than `laplace_em`.
+**Limitations:** The guide family can underestimate posterior variance and does not represent multimodality well.
 
-**Limitations:** Approximate posterior (Gaussian family). May underestimate posterior variance. Does not capture multimodality.
+### Auxiliary Gibbs
 
-### Tempered SMC
+`aux_gibbs` alternates an auxiliary Kalman latent trajectory update with a MALA parameter update.
 
-Adaptive tempering with preconditioned HMC/MALA mutations[^dau2022] [^chopin2020]. Bridges the prior-posterior gap via a tempering ladder beta\_0=0 --> beta\_K=1. Supports ESS-based adaptive tempering, waste-free recycling, and multi-step leapfrog.
+**When to use:** Default complete-data MCMC when the latent diffusion path is Gaussian and the auxiliary Kalman proposal is appropriate.
 
-**Axis position:** Marginalize + any likelihood computation + SMC.
+**Limitations:** Requires Gaussian latent diffusion. Mixing depends on the latent step scale, parameter step size, and posterior coupling between states and parameters.
 
-**When to use:** When the prior-posterior gap is large, the posterior is multimodal, or other methods fail. The universal fallback.
+### Particle-mGRAD
 
-### Hess-MC^2
+`particle_mgrad` alternates the marginal Particle-mGRAD latent trajectory kernel with a MALA parameter update. Compared with `aux_gibbs`, the retained particle method uses particle trajectory proposals and marginal Particle-mGRAD weights rather than the auxiliary Kalman latent kernel.
 
-SMC sampler with gradient-based change-of-variables L-kernels[^murphy2025]. Proposals are always accepted; quality is controlled through importance weight correction, not MH accept/reject. Supports random walk, MALA, and full Hessian proposals. No tempering by design -- gradient- and Hessian-informed proposals provide sufficient exploration.
+**When to use:** Complete-data MCMC when the retained particle latent kernel is needed, especially for particle/support-aware likelihood paths.
 
-**Axis position:** Marginalize + any likelihood computation + SMC (Hessian).
-
-**When to use:** Highly anisotropic posteriors where curvature information accelerates convergence.
-
-### Laplace-SMC
-
-Iterated Extended Kalman Smoother (IEKS) finds a local MAP latent trajectory[^bell1994], then a Laplace approximation provides an approximate marginal likelihood. `laplace_smc` preserves the repo's historical behavior: that deterministic IEKS/Laplace target is passed to the tempered SMC outer loop for parameter inference.
-
-**Axis position:** Marginalize + Deterministic approx (IEKS) + SMC.
-
-**When to use:** Non-Gaussian emissions with linear dynamics when you want broader posterior exploration than `laplace_em`, especially if you expect meaningful non-Gaussianity or mild multimodality in parameter space. O(T D^3) per IEKS iteration, typically 3-8 iterations, plus the outer SMC population cost.
-
-**Limitations:** The state-side Laplace approximation can still degrade for highly non-Gaussian state posteriors (sparse counts, boundary probabilities), and the outer SMC pass is materially more expensive than `laplace_em`.
-
-### Laplace-EM
-
-`laplace_em` uses the same IEKS/Laplace approximate marginal likelihood but follows the canonical KFAS-style pattern: optimize the approximate marginal posterior over parameters, compute the Hessian at that mode, and sample the resulting Gaussian approximation in unconstrained parameter space.
-
-**Axis position:** Marginalize + Deterministic approx (IEKS) + local Gaussian approximation.
-
-**When to use:** Fast approximate posterior inference when a dominant mode is a reasonable summary, or when you want a deterministic mode-and-curvature approximation to warm-start downstream work. This is the structural default for non-Kalman models. It is usually much cheaper than `laplace_smc` because it replaces the outer particle population with one BFGS solve plus Hessian evaluation.
-
-**Limitations:** Local and unimodal by construction. Posterior mass far from the mode, skewness, and multimodality are not represented. It inherits the same IEKS/Laplace approximation error on the latent-state side.
-
-### Why Not Dynamax GGSSM as the Primary Backend?
-
-[Dynamax's generalized Gaussian SSM machinery](https://github.com/probml/dynamax/tree/main/dynamax/generalized_gaussian_ssm) is a plausible future backend for the **point-local** subset of our models: Gaussian latent dynamics, non-Gaussian emissions, and smooth approximate state marginalization via EKF, UKF, or Gauss-Hermite moment matching.
-
-It is not the primary backend for this project because the repo's executable model class is broader than that point-observation setting:
-
-- The latent process is continuous-time and discretized per observation interval, including irregular `dt`, before likelihood evaluation; that part is manageable to adapt, but it is still extra integration work.
-- The harder mismatch is the observation model. Our runtime supports **support-aware interval-summary measurements** such as anchored window averages, sums, counts, and standard deviations. Those semantics depend on a window over the latent trajectory, not only on `y_t | z_t`.
-- The inference stack also expects project-specific runtime contracts such as cumulative log-normalizers that can be differenced into per-timestep innovation terms for diagnostics and LOO. A backend swap must preserve those outputs, not just the final marginal log-likelihood scalar.
-
-So the current design keeps custom backends as the primary path. A Dynamax adapter remains attractive for future work on models with point-local observations and no interval-summary support metadata.
-
-### Structured VI
-
-Variational inference with a structured time-series posterior[^archer2015] [^krishnan2017]. The implementation uses a backward-factored Gaussian family, q(z\_{1:T} | phi) = q(z\_T) prod q(z\_t | z\_{t+1}), to capture temporal correlations that standard mean-field guides cannot. It can be warm-started from the same IEKS/Laplace state approximation used by the Laplace-based methods.
-
-**Axis position:** Marginalize + Variational surrogate + SMC. Unlike DPF, which still uses a particle-filter normalizing-constant estimate, `structured_vi` uses an ELBO-like inner objective as a surrogate for the marginal likelihood.
-
-**When to use:** When SVI's mean-field assumption is too restrictive and you need trajectory-aware uncertainty.
-
-### Differentiable Particle Filter (DPF)
-
-Learns a neural proposal network q\_phi(z\_t | z\_{t-1}, y\_t) in the spirit of differentiable particle filters[^jonschkowski2018], trained with a variational SMC objective[^naesseth2018]. At inference time, the learned proposal replaces the bootstrap prior proposal.
-
-**Axis position:** Marginalize + Learned stochastic estimate (neural PF) + SMC.
-
-**When to use:** When the bootstrap proposal is a poor match for the filtering distribution (high-dimensional latent states, informative observations causing particle degeneracy).
-
-### NUTS Data Augmentation (NUTS-DA)
-
-Data augmentation MCMC[^tanner1987]: augments the parameter space with all latent states eta\_{0:T} and samples the joint posterior p(theta, eta\_{0:T} | y\_{1:T}) using NUTS. Supports centered and non-centered parameterizations with optional SVI + Kalman smoother warmstart.
-
-**Axis position:** Augment + joint augmented target + MCMC.
-
-**When to use:** Moderate T (up to ~500 timesteps), Gaussian observations, and you want the simplicity of "just run NUTS" without choosing a likelihood backend.
-
-**Limitations:** Restricted to Gaussian observations (raises for non-Gaussian). Data augmentation MCMC is valid in principle for any emission family, but non-Gaussian emissions (Poisson near zero, Bernoulli near boundaries) create difficult posterior geometry in the O(n\_latent x T)-dimensional augmented space -- funnels, ridges, and sharp curvature that cause NUTS divergences. The restriction is a practical reliability choice.
-
-### PGAS
-
-Particle Gibbs with Ancestor Sampling[^lindsten2014]. Gibbs-alternates between trajectory sampling (CSMC with gradient-informed proposals) and parameter updates (block HMC/MALA with preconditioned mass matrix).
-
-**Axis position:** Gibbs + blocked state/parameter conditionals + MCMC.
-
-**When to use:** Non-Gaussian observation models where you want exact posterior samples. The Gibbs structure means the parameter conditional p(theta|x,y) is cheap to evaluate (no marginal likelihood needed), sidestepping PF gradient noise entirely.
-
-**Limitations:** Mixing between Gibbs sweeps can be slow. Requires tuning particle count for CSMC.
-
-<!-- ## Design Note: Why Structural Routing, Not a PSIS Cascade
-
-An alternative design would be a linear cascade: try MAP, validate with PSIS k-hat, escalate to Laplace, validate, escalate to SVI, validate, escalate to NUTS. This was the original approach explored in `notebooks/inference_cascade.ipynb`.
-
-This fails for three reasons:
-
-1. **The methods are not linearly ordered.** They sit in a three-dimensional space (coupling x state quality x param method). Tempered SMC and PGAS are not "more expensive NUTS" -- they solve different problems (multimodality, joint state-parameter inference).
-
-2. **PSIS validates an approximation to a fixed target.** It answers "is this proposal close enough to the posterior?" But the choice between SVI vs NUTS vs tempered SMC is not about approximation quality to the same target. It's about which target formulation is tractable given the model structure.
-
-3. **The branching point is structural, not diagnostic.** Whether you can use Kalman vs PF vs IEKS is determined at model construction time by emission families and coupling structure. The `graph_analysis.py` module already computes this. Runtime diagnostics validate a chosen method; they don't select between fundamentally different strategies.
-
-PSIS k-hat does appear in two places, neither of which is method routing:
-- **Within Pathfinder** (future): validates the Gaussian approximation before deciding whether to warm-start NUTS.
-- **Post-hoc LOO-CV** (`InferenceResult.get_loo_diagnostics`): validates the model, not the inference method. -->
-
-[^andrieu2010]: Andrieu, C., Doucet, A., & Holenstein, R. (2010). Particle Markov Chain Monte Carlo Methods. *JRSS-B*, 72(3), 269–342. [Bibliography entry](bibliography.md)
-[^hoffman2014]: Hoffman, M. D., & Gelman, A. (2014). The No-U-Turn Sampler. *JMLR*, 15, 1593–1623. [Bibliography entry](bibliography.md)
-[^betancourt2017]: Betancourt, M. (2017). A Conceptual Introduction to Hamiltonian Monte Carlo. arXiv:1701.02434. [Bibliography entry](bibliography.md)
-[^blei2017]: Blei, D. M., Kucukelbir, A., & McAuliffe, J. D. (2017). Variational Inference: A Review for Statisticians. *JASA*, 112(518), 859–877. [Bibliography entry](bibliography.md)
-[^bell1994]: Bell, B. M. (1994). The Iterated Kalman Smoother as a Gauss-Newton Method. *SIAM Journal on Optimization*, 4(3), 626–636. [Bibliography entry](bibliography.md)
-[^archer2015]: Archer, E., Park, I. M., Buesing, L., Cunningham, J. P., & Paninski, L. (2015). Black Box Variational Inference for State Space Models. arXiv:1511.07367. [Bibliography entry](bibliography.md)
-[^krishnan2017]: Krishnan, R. G., Shalit, U., & Sontag, D. (2017). Structured Inference Networks for Nonlinear State Space Models. *AAAI Conference on Artificial Intelligence*. [Bibliography entry](bibliography.md)
-[^dau2022]: Dau, H.-D., & Chopin, N. (2022). Waste-Free Sequential Monte Carlo. *JRSS-B*, 84(1), 114–148. [Bibliography entry](bibliography.md)
-[^chopin2020]: Chopin, N., & Papaspiliopoulos, O. (2020). *An Introduction to Sequential Monte Carlo*. Springer. [Bibliography entry](bibliography.md)
-[^naesseth2018]: Naesseth, C., Linderman, S., Ranganath, R., & Blei, D. M. (2018). Variational Sequential Monte Carlo. *AISTATS*, 968–977. [Bibliography entry](bibliography.md)
-[^jonschkowski2018]: Jonschkowski, R., Rastogi, D., & Brock, O. (2018). Differentiable Particle Filters: End-to-End Learning with Algorithmic Priors. *Robotics: Science and Systems XIV*. [Bibliography entry](bibliography.md)
-[^murphy2025]: Murphy, J., et al. (2025). Hess-MC²: Sequential Monte Carlo Squared Using Hessian Information and Second Order Proposals. [Bibliography entry](bibliography.md)
-[^lindsten2014]: Lindsten, F., Jordan, M. I., & Schön, T. B. (2014). Particle Gibbs with Ancestor Sampling. *JMLR*, 15, 2145–2184. [Bibliography entry](bibliography.md)
-[^tanner1987]: Tanner, M. A., & Wong, W. H. (1987). The Calculation of Posterior Distributions by Data Augmentation. *JASA*, 82(398), 528–540. [Bibliography entry](bibliography.md)
+**Limitations:** Requires tuning the latent step scale and particle count. It is typically more expensive per iteration than `aux_gibbs`.

@@ -8,7 +8,7 @@ import {
 } from "../stage-story-helpers";
 import Stage4Content from "./stage-4-content";
 import { stage4Data } from "@/components/stages/model-spec/__fixtures__/model-spec-fixtures";
-import stage1bFixture from "../../../../../../data/DOCTOLIB/run/stage-1b.json";
+import stage1bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-4")!;
 const indicators = (stage1bFixture as unknown as Stage1bData).causal_spec.measurement.indicators;

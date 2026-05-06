@@ -155,7 +155,7 @@ def param_marginal(name: str, values: jnp.ndarray, n_bins: int = 50) -> dict[str
 
 
 def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> dict[str, Any]:
-    """Build NUTS energy diagnostics (Betancourt 2017).
+    """Build Hamiltonian energy diagnostics (Betancourt 2017).
 
     Computes marginal energy (E) and energy transition (dE) histograms.
     """

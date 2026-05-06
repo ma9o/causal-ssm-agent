@@ -24,7 +24,7 @@ flowchart LR
     M[Model preparation] --> S[Sensitivity analysis] --> G[MAP geometry] --> P[Profile likelihood] --> R([ParametricIdResult])
 ```
 
-**Model preparation:** The compiled SSM from Stage 4 is built into a runnable model and the observation data are aligned to it. This step also resolves the [inference structure](#inferencestructureresult)—the likelihood path, auto-selected inference method, and first-pass Rao-Blackwellization plan—which is emitted as a co-output alongside the diagnostics.
+**Model preparation:** The compiled SSM from Stage 4 is built into a runnable model and the observation data are aligned to it. This step also resolves the [inference structure](#inferencestructureresult)—the likelihood path, default inference method, and first-pass Rao-Blackwellization plan—which is emitted as a co-output alongside the diagnostics.
 
 **Sensitivity analysis:** A local structural-identifiability check via the Jacobian rank criterion. For each of several prior draws (default 8), the stage computes the sensitivity matrix `S[i,j] = ∂yᵢ/∂θⱼ` where `y` is an emitted-observation moment summary built from the [Kalman prediction equations](../reference/estimation.md#kalman-backend) without data updates: emitted means, same-row covariance entries, and adjacent-row lagged cross-covariance entries on the observed grid. This follows the same general logic as the Jacobian mapping from free parameters to model-implied moments in Hunter et al. (2025)[^hunter2025]: near-zero singular values reveal locally non-identifiable parameter directions.
 
@@ -50,7 +50,7 @@ When [first-pass Rao-Blackwellization](../reference/inference-routing.md#first-p
 
 ### Example
 
-For a model with three latent constructs (Stress, Sleep Quality, Work Performance) and four indicators, where Stress has a Poisson-distributed indicator, the inference structure might route Sleep Quality and Work Performance through the Kalman filter and Stress through the particle filter (`likelihood_path: "composed"`, `auto_method: "laplace_em"`). The sensitivity analysis might flag the diffusion parameter for Stress as structurally unidentifiable (effective SV < 10⁻⁶ of max), while the profile likelihood confirms Sleep Quality's drift parameter as well-identified (profile crosses threshold on both sides) and Stress's diffusion as practically unidentifiable (profile flat on the right side).
+For a model with three latent constructs (Stress, Sleep Quality, Work Performance) and four indicators, where Stress has a Poisson-distributed indicator, the inference structure might route Sleep Quality and Work Performance through the Kalman filter and Stress through the particle filter (`likelihood_path: "composed"`, `auto_method: "aux_gibbs"`). The sensitivity analysis might flag the diffusion parameter for Stress as structurally unidentifiable (effective SV < 10⁻⁶ of max), while the profile likelihood confirms Sleep Quality's drift parameter as well-identified (profile crosses threshold on both sides) and Stress's diffusion as practically unidentifiable (profile flat on the right side).
 
 ## Outputs
 
@@ -154,8 +154,8 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 
 | Field | Type | Description |
 |---|---|---|
-| `likelihood_path` | `str` | Likelihood evaluation strategy per [Axis B](../reference/inference-routing.md#axis-b-marginal-likelihood-computation): `"kalman"`, `"composed"`, or `"particle"` |
-| `auto_method` | `str` | Current auto-selected inference method per the [structural routing](../reference/inference-routing.md#structural-routing) decision tree: `"nuts"` or `"laplace_em"` |
+| `likelihood_path` | `str` | Likelihood evaluation strategy per [structural routing](../reference/inference-routing.md#structural-routing): `"kalman"`, `"composed"`, or `"particle"` |
+| `auto_method` | `str` | Current default inference method per [structural routing](../reference/inference-routing.md#structural-routing): `"aux_gibbs"` |
 | `first_pass_rb` | `FirstPassRBResult` | [First-pass Rao-Blackwellization](../reference/inference-routing.md#first-pass-rao-blackwellization) plan with per-variable Kalman/particle assignments |
 
 [^hunter2025]: Hunter, M. D., Kirkpatrick, R. M., & Neale, M. C. (2025). Show Me Some ID: A Universal Identification Program for Structural Equation Models. *Psychometrika*, 90(2), 418-441. [Bibliography entry](../reference/bibliography.md)

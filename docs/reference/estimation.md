@@ -62,7 +62,7 @@ For a time series with T observations and potentially irregular intervals, the d
 
 ## 3. State-Side Objectives
 
-The default marginalization backends implement a shared `compute_log_likelihood()` protocol and inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. Method-specific routines such as `laplace_smc`, `laplace_em`, `structured_vi`, and `dpf` swap in IEKS/Laplace, variational, or learned-particle inner objectives while keeping the same high-level fit interface. The routing details live in [inference-routing.md](inference-routing.md).
+The marginalization backends implement a shared `compute_log_likelihood()` protocol and inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. The `map` backend can swap in an IEKS/Laplace approximate marginal likelihood, `svi` optimizes a variational guide over the model target, and the blocked MCMC methods update latent trajectories directly. The routing details live in [inference-routing.md](inference-routing.md).
 
 ### Default marginalization backends
 
@@ -90,12 +90,10 @@ When first-pass Rao-Blackwellization finds a decoupled linear-Gaussian sub-block
 
 ### Method-specific inner objectives
 
-Some methods do not use the generic `models/likelihoods` package as their inner objective:
+Some methods do not use only the generic `models/likelihoods` package as their inner objective:
 
-- **`laplace_smc`** uses IEKS plus a Laplace approximation to build a smooth approximate marginal likelihood, then samples parameters with tempered SMC.
-- **`laplace_em`** uses the same IEKS/Laplace approximate marginal likelihood but replaces the outer sampler with KFAS-style mode finding and a parameter-space Laplace posterior approximation.
-- **`structured_vi`** uses a backward-factored variational smoother ELBO as a surrogate objective over latent trajectories.
-- **`dpf`** trains a proposal network, then uses a learned particle-filter likelihood estimate.
+- **`map`** uses the Kalman likelihood when available and otherwise an IEKS/Laplace approximate marginal likelihood before local Gaussian parameter sampling.
+- **`aux_gibbs`** and **`particle_mgrad`** update latent trajectories as part of blocked complete-data MCMC rather than sampling only from a marginalized parameter target.
 
 ### Missing data handling
 
@@ -107,7 +105,7 @@ The estimation pipeline composes three main libraries:
 
 - **JAX**: Foundation layer. Array operations, matrix exponentials for discretization, vmap for batching, automatic differentiation for gradient-based inference, `lax.scan` for sequential filtering, `checkpoint` for memory-efficient backpropagation through long time series.
 
-- **NumPyro**: Probabilistic programming layer. `sample()` for priors, `factor()` for custom log-likelihoods, `deterministic()` for derived quantities, NUTS for HMC, SVI with auto-guides for variational inference.
+- **NumPyro**: Probabilistic programming layer. `sample()` for priors, `factor()` for custom log-likelihoods, `deterministic()` for derived quantities, and SVI with auto-guides for variational inference.
 
 - **cuthbert**: Differentiable filtering library. Non-associative Kalman filter (`gaussian.moments`) and bootstrap/Rao-Blackwell particle filter (`smc.particle_filter`), both invoked through `cuthbert.filtering.filter()`.
 

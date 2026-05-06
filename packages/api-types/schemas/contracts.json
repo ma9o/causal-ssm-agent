@@ -317,7 +317,7 @@
       "type": "string"
     },
     "EnergyDiagnostics": {
-      "description": "NUTS energy diagnostics (Betancourt 2017).",
+      "description": "Hamiltonian energy diagnostics.",
       "properties": {
         "energy_hist": {
           "$ref": "#/$defs/EnergyHistogram"
@@ -1011,11 +1011,7 @@
           "type": "string"
         },
         "auto_method": {
-          "enum": [
-            "nuts",
-            "map",
-            "svi"
-          ],
+          "const": "aux_gibbs",
           "title": "Auto Method",
           "type": "string"
         },
@@ -2672,7 +2668,7 @@
       "type": "string"
     },
     "SMCDiagnostics": {
-      "description": "Tempered SMC diagnostics (used by laplace_smc, tempered_smc, etc.).",
+      "description": "Sequential Monte Carlo diagnostics.",
       "properties": {
         "beta_schedule": {
           "items": {

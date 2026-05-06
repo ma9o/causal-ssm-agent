@@ -59,9 +59,10 @@ const PATH_LABELS = {
 } as const;
 
 const METHOD_LABELS = {
-  nuts: "NUTS",
-  laplace_em: "Laplace-EM",
+  map: "MAP",
   svi: "SVI",
+  aux_gibbs: "Auxiliary Gibbs",
+  particle_mgrad: "Particle-mGRAD",
 } as const;
 
 export function InferenceStructureCard({ inferenceStructure }: InferenceStructureCardProps) {

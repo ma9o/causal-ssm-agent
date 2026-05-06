@@ -22,7 +22,7 @@ describe("isMockMode", () => {
     ["", false],
     ["false", false],
     ["true", true],
-    ["doctolib", true],
+    ["demo_health", true],
   ])("interprets NEXT_PUBLIC_MOCK_DATA=%s as mock mode %s", (value, expected) => {
     if (value === undefined) {
       unsetEnv("NEXT_PUBLIC_MOCK_DATA");
@@ -49,7 +49,7 @@ describe("getMockFixture", () => {
     [undefined, "DEFAULT"],
     ["", "DEFAULT"],
     ["true", "DEFAULT"],
-    ["doctolib", "DOCTOLIB"],
+    ["demo_health", "DEMO_HEALTH"],
   ])("maps NEXT_PUBLIC_MOCK_DATA=%s to fixture %s", (value, expected) => {
     if (value === undefined) {
       unsetEnv("NEXT_PUBLIC_MOCK_DATA");

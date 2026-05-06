@@ -580,7 +580,7 @@ def _support_aware_ieks_mode(
             _last_step_norm,
         ) = carry
         damping_curr = damping
-        with jax.named_scope("laplace_em/support_aware_observation_system"):
+        with jax.named_scope("map/support_aware_observation_system"):
             obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
                 z_curr,
                 observations,
@@ -602,7 +602,7 @@ def _support_aware_ieks_mode(
         system_diag = system_diag.astype(system_dtype)
         system_upper = system_upper.astype(system_dtype)
         system_rhs = system_rhs.astype(system_dtype)
-        with jax.named_scope("laplace_em/support_aware_solve"):
+        with jax.named_scope("map/support_aware_solve"):
             chol_diag, lower = factor_block_cholesky_fn(
                 system_diag,
                 system_upper,
@@ -678,7 +678,7 @@ def _support_aware_ieks_mode(
     )
     max_iters = jnp.asarray(max(n_ieks_iters, 1), dtype=jnp.int32)
 
-    with jax.named_scope("laplace_em/support_aware_newton"):
+    with jax.named_scope("map/support_aware_newton"):
         if iterate_to_convergence:
 
             def _continue(carry):
@@ -886,7 +886,7 @@ def _support_aware_laplace_terms_from_mode(
         window_derivatives,
         bandwidth,
     )
-    with jax.named_scope("laplace_em/support_aware_final_hessian"):
+    with jax.named_scope("map/support_aware_final_hessian"):
         chol_diag, _lower = factor_block_cholesky_fn(
             system_diag,
             system_upper,

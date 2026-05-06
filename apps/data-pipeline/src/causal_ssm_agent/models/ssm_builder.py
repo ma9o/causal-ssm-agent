@@ -351,7 +351,7 @@ class SSMModelBuilder:
             raise ValueError("Model must be built before fitting prepared inputs")
 
         sampler_config = {**self._sampler_config, **kwargs}
-        method = sampler_config.get("method", "auto")
+        method = sampler_config.get("method", "aux_gibbs")
         fit_kwargs = {k: v for k, v in sampler_config.items() if k != "method"}
 
         result = fit(

@@ -777,7 +777,7 @@ export interface ParameterIdentification {
  */
 export interface InferenceStructureResult {
   likelihood_path: "kalman" | "composed" | "particle";
-  auto_method: "nuts" | "map" | "svi";
+  auto_method: "aux_gibbs";
   first_pass_rb: FirstPassRBResult;
 }
 /**
@@ -962,7 +962,7 @@ export interface RankHistogramChain {
   counts: number[];
 }
 /**
- * NUTS energy diagnostics (Betancourt 2017).
+ * Hamiltonian energy diagnostics.
  */
 export interface EnergyDiagnostics {
   energy_hist: EnergyHistogram;
@@ -977,7 +977,7 @@ export interface EnergyHistogram {
   density: number[];
 }
 /**
- * Tempered SMC diagnostics (used by laplace_smc, tempered_smc, etc.).
+ * Sequential Monte Carlo diagnostics.
  */
 export interface SMCDiagnostics {
   beta_schedule: number[];

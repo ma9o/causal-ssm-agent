@@ -4,12 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import type { Stage5bData } from "@causal-ssm/api-types";
 import { useState } from "react";
 
-type InferenceMethod = "laplace_em" | "nuts_da" | "particle_filter";
+type InferenceMethod = "map" | "aux_gibbs" | "particle_mgrad";
 
 const METHODS: { id: InferenceMethod; label: string; disabled: boolean }[] = [
-  { id: "laplace_em", label: "Laplace-EM", disabled: false },
-  { id: "nuts_da", label: "NUTS-DA", disabled: false },
-  { id: "particle_filter", label: "Particle Filter", disabled: true },
+  { id: "map", label: "MAP", disabled: false },
+  { id: "aux_gibbs", label: "Aux Gibbs", disabled: false },
+  { id: "particle_mgrad", label: "Particle-mGRAD", disabled: true },
 ];
 
 interface MockMethodSwitcherProps {
@@ -19,28 +19,28 @@ interface MockMethodSwitcherProps {
 }
 
 export function MockMethodSwitcher({ workspaceId, baseData, onDataChange }: MockMethodSwitcherProps) {
-  const [active, setActive] = useState<InferenceMethod>("laplace_em");
-  const [nutsdaData, setNutsdaData] = useState<Stage5bData | null>(null);
+  const [active, setActive] = useState<InferenceMethod>("map");
+  const [auxGibbsData, setAuxGibbsData] = useState<Stage5bData | null>(null);
 
   const handleSwitch = (method: InferenceMethod) => {
     if (method === active) return;
     setActive(method);
-    if (method === "laplace_em") {
+    if (method === "map") {
       onDataChange(baseData);
-    } else if (method === "nuts_da") {
-      if (nutsdaData) {
-        onDataChange(nutsdaData);
+    } else if (method === "aux_gibbs") {
+      if (auxGibbsData) {
+        onDataChange(auxGibbsData);
       } else {
-        fetch(`/api/results/${workspaceId}/stage-5b-nutsda`)
+        fetch(`/api/results/${workspaceId}/stage-5b-aux-gibbs`)
           .then((r) => {
-            if (!r.ok) throw new Error(`NUTS-DA fetch failed: ${r.status}`);
+            if (!r.ok) throw new Error(`Aux Gibbs fetch failed: ${r.status}`);
             return r.json();
           })
           .then((d) => {
-            setNutsdaData(d);
+            setAuxGibbsData(d);
             onDataChange(d);
           })
-          .catch((e) => console.error("Failed to fetch NUTS-DA data:", e));
+          .catch((e) => console.error("Failed to fetch Aux Gibbs data:", e));
       }
     }
   };

@@ -35,7 +35,7 @@ def select_default_method(
         n_timepoints=n_timepoints,
     )
     logger.info(
-        "Auto routing: resolved_method=%s structural_backend=%s first_pass_partition=%s",
+        "Inference routing: resolved_method=%s structural_backend=%s first_pass_partition=%s",
         inference_structure.resolved_method,
         inference_structure.structural_backend,
         "active" if inference_structure.first_pass_partition is not None else "none",

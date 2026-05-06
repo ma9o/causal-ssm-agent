@@ -12,7 +12,7 @@ Fits the compiled state-space model from [Stage 4](04-model-specification-priors
 |---|---|---|
 | `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
-| `inference_method` | Pipeline config | Optional sampler override (`"nuts"`, `"laplace_smc"`, `"laplace_em"`, `"svi"`, etc.); `null` triggers [auto-routing](../reference/inference-routing.md#structural-routing) |
+| `inference_method` | Pipeline config | Optional sampler override (`"map"`, `"svi"`, `"aux_gibbs"`, or `"particle_mgrad"`); `null` uses the [default route](../reference/inference-routing.md#structural-routing) |
 
 Stage 4 provided the compiled model and priors; Stage 5b is where that model is fitted to data and the posterior is characterized.
 
@@ -26,7 +26,7 @@ flowchart LR
     F -- failure --> X([Pipeline halts])
 ```
 
-**Model fitting:** The stage resolves the inference method—either the user-supplied override or the [auto-routed default](../reference/inference-routing.md#structural-routing)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference).
+**Model fitting:** The stage resolves the inference method—either the user-supplied override or the [default route](../reference/inference-routing.md#structural-routing)—and delegates to the corresponding [backend](../reference/inference-routing.md#method-reference).
 
 **LOO cross-validation:** For MCMC and SMC backends, the stage computes PSIS-LOO via ArviZ using the state-space innovation decomposition[^durbin2012]: each "observation" is one complete timestep (all manifest variables at time *t*), and the per-timestep log-likelihoods log p(y\_t | y\_{1:t−1}, θ) are conditionally independent given θ. Vehtari, Gelman, and Gabry (2017)[^vehtari2017] justify PSIS-LOO once those pointwise log-likelihood terms are available. For dependent time series, this should be read as a one-step-ahead predictive diagnostic rather than a substitute for leave-future-out validation[^burkner2020].
 
@@ -36,7 +36,7 @@ flowchart LR
 
 ### Example
 
-For a longitudinal study of teacher workload and student outcomes with latent constructs `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`, Stage 5b would auto-route to NUTS (all Gaussian emissions), run 4 chains of 2 500 draws each, then produce: MCMC diagnostics showing R-hat < 1.01 and ESS > 400 for all drift and loading parameters; power-scaling results classifying the cross-lag from `Teacher Burnout` to `Instructional Quality` as `well_identified` and a weakly informed diffusion parameter as `prior_dominated`; PPC overlays showing 93% posterior predictive interval coverage for each manifest indicator; and LOO diagnostics with no Pareto-k values exceeding 0.7—all before Stage 6 uses the fitted artifact to simulate interventions.
+For a longitudinal study of teacher workload and student outcomes with latent constructs `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`, Stage 5b would default to `aux_gibbs`, draw blocked MCMC posterior samples, then produce: power-scaling results classifying the cross-lag from `Teacher Burnout` to `Instructional Quality` as `well_identified` and a weakly informed diffusion parameter as `prior_dominated`; PPC overlays showing 93% posterior predictive interval coverage for each manifest indicator; and LOO diagnostics with no Pareto-k values exceeding 0.7—all before Stage 6 uses the fitted artifact to simulate interventions.
 
 ## Outputs
 

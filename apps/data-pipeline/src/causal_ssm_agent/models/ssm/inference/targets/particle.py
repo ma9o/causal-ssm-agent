@@ -6,7 +6,7 @@ uses jnp.searchsorted (integer output, zero gradient), so gradients flow
 through particle weights and propagation only.
 
 With a fixed RNG key the PF likelihood is a deterministic function of θ,
-making it suitable for NUTS sampling via numpyro.factor().
+making it suitable for gradient-based fitting via numpyro.factor().
 
 Use when:
 - Any noise family (Gaussian, Poisson, Student-t, Gamma)
@@ -64,7 +64,7 @@ def _systematic_resampling(key: KeyArray, logits: ArrayLike, n: int) -> Array:  
     """Systematic resampling using pure JAX ops (no pure_callback).
 
     cuthbert's built-in systematic resampling uses jax.pure_callback + numba
-    on CPU, which blocks JVP and therefore jax.grad / NUTS.  This version uses
+    on CPU, which blocks JVP and therefore jax.grad and gradient-based fitting.  This version uses
     jnp.searchsorted directly, producing integer indices with zero gradient so
     that the full PF log-normalizing-constant is differentiable.
 
@@ -200,7 +200,7 @@ class ParticleLikelihood:
 
     Computes log p(y|theta) by running a bootstrap particle filter with a
     fixed RNG key, returning the log normalizing constant. Differentiable
-    via JAX autodiff for use with NUTS.
+    via JAX autodiff for use with gradient-based fitting.
 
     Args:
         n_latent: Number of latent states

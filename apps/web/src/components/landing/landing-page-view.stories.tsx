@@ -18,7 +18,7 @@ const anonymousWorkspaces: AccessibleWorkspaceList = {
     {
       href: "/analysis/DEFAULT",
       question:
-        "How does commute intensity affect stress and sleep in the Doctolib fixture?",
+        "How does commute intensity affect stress and sleep in the DemoHealth fixture?",
       source: "shared",
       workspaceId: "DEFAULT",
     },
@@ -52,7 +52,7 @@ const userWorkspaces: AccessibleWorkspaceList = {
     {
       href: "/analysis/DEFAULT",
       question:
-        "How does commute intensity affect stress and sleep in the Doctolib fixture?",
+        "How does commute intensity affect stress and sleep in the DemoHealth fixture?",
       source: "shared",
       workspaceId: "DEFAULT",
     },

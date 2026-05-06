@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { Stage6Data } from "@causal-ssm/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { TreatmentRankingTable } from "./treatment-ranking-table";
-import fixture from "../../../../../../data/DOCTOLIB/run/stage-6.json";
+import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-6.json";
 
 const data = fixture as unknown as Stage6Data;
 

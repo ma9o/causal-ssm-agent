@@ -5,6 +5,7 @@ For fixtures, see conftest.py.
 """
 
 import asyncio
+from typing import Any
 
 import jax.numpy as jnp
 
@@ -18,6 +19,10 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
 def _run(coro):
     """Run an async function synchronously for testing."""
     return asyncio.run(coro)
+
+
+def invalid_dict_payload(value: object) -> Any:
+    return value
 
 
 def make_mock_session_factory(responses: list[str]):

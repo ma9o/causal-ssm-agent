@@ -30,11 +30,8 @@ logger = get_prefect_logger(__name__)
 
 
 InferenceMethod = Literal[
-    "auto",
-    "aux_csmc",
     "particle_mgrad",
     "aux_gibbs",
-    "nuts",
     "map",
     "svi",
 ]
@@ -105,12 +102,7 @@ class InferenceResult:
 
         import arviz as az
 
-        if getattr(mcmc, "backend", None) in {
-            "blackjax_chees_hmc",
-            "aux_gibbs",
-            "aux_csmc",
-            "particle_mgrad",
-        }:
+        if getattr(mcmc, "backend", None) in {"aux_gibbs", "particle_mgrad"}:
             idata = _arviz_idata_from_posterior(chain_samples)
         else:
             idata = az.from_numpyro(mcmc)
@@ -241,12 +233,7 @@ class InferenceResult:
                 n_chains, n_per_chain, n_timesteps
             )
             if mcmc is not None:
-                if getattr(mcmc, "backend", None) in {
-                    "blackjax_chees_hmc",
-                    "aux_gibbs",
-                    "aux_csmc",
-                    "particle_mgrad",
-                }:
+                if getattr(mcmc, "backend", None) in {"aux_gibbs", "particle_mgrad"}:
                     chain_samples = mcmc.get_samples(group_by_chain=True)
                     if public_sites is not None:
                         chain_samples = _filter_public_samples(chain_samples, set(public_sites))
@@ -273,12 +260,7 @@ class InferenceResult:
                 )
             ll_per_timestep_found = True
         elif mcmc is not None:
-            if getattr(mcmc, "backend", None) in {
-                "blackjax_chees_hmc",
-                "aux_gibbs",
-                "aux_csmc",
-                "particle_mgrad",
-            }:
+            if getattr(mcmc, "backend", None) in {"aux_gibbs", "particle_mgrad"}:
                 chain_samples = mcmc.get_samples(group_by_chain=True)
                 if public_sites is not None:
                     chain_samples = _filter_public_samples(chain_samples, set(public_sites))

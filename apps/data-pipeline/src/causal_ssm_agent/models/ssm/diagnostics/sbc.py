@@ -27,9 +27,10 @@ def sbc_check(
     dt: float = 0.5,
     n_sbc: int = 50,
     method: Literal[
-        "nuts",
         "map",
         "svi",
+        "aux_gibbs",
+        "particle_mgrad",
     ] = "map",
     seed: int = 42,
     **fit_kwargs,

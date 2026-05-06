@@ -1,6 +1,6 @@
-"""Shared utilities for SMC/MCMC inference backends.
+"""Shared utilities for inference backends.
 
-Functions used by hessmc2, pgas, tempered_smc, and parametric_id:
+Functions used by MAP, SVI, blocked MCMC, and parametric-id diagnostics:
 - _discover_sites: trace model to discover sample sites
 - _assemble_deterministics: build SSM matrices from constrained samples
 - _build_eval_fns: build differentiable log-likelihood and log-prior evaluators
@@ -285,7 +285,7 @@ def extract_constrained_samples(
 ) -> dict[str, jnp.ndarray]:
     """Extract constrained samples from unconstrained particles and assemble deterministics.
 
-    Shared by hessmc2, pgas, and tempered_core to avoid code duplication.
+    Shared by parameter-space and blocked-MCMC backends to avoid code duplication.
 
     When ``reparam`` is provided, replays the reparameterized model to recover
     original parameter names and assembled matrices via the model's own
