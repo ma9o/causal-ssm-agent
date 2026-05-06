@@ -2397,6 +2397,7 @@ class TestInferenceCaching:
         assert "drift_base_decay_free" in site_info
         assert "manifest_var_diag_free" in site_info
 
+
 class TestSVIBackend:
     """Tests specific to SVI inference backend."""
 
@@ -3035,7 +3036,26 @@ def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
     assert np.all(final_latent_delta <= latent_delta_max)
 
 
-def test_aux_gibbs_multi_chain_diagnostics():
+@pytest.mark.parametrize(
+    ("method", "num_warmup", "seed", "extra_kwargs"),
+    [
+        ("aux_gibbs", 6, 1, {"latent_delta": 0.2, "param_step_size": 0.03, "init_scale": 0.01}),
+        (
+            "particle_mgrad",
+            4,
+            18,
+            {
+                "latent_delta": 0.2,
+                "latent_target_accept": 0.5,
+                "n_particles": 6,
+                "param_step_size": 0.03,
+                "init_scale": 0.01,
+            },
+        ),
+    ],
+    ids=["aux-gibbs", "particle-mgrad"],
+)
+def test_particle_mcmc_multi_chain_diagnostics(method, num_warmup, seed, extra_kwargs):
     model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
@@ -3044,14 +3064,12 @@ def test_aux_gibbs_multi_chain_diagnostics():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
-        num_warmup=6,
+        method=method,
+        num_warmup=num_warmup,
         num_samples=5,
         num_chains=2,
-        seed=1,
-        latent_delta=0.2,
-        param_step_size=0.03,
-        init_scale=0.01,
+        seed=seed,
+        **extra_kwargs,
     )
 
     samples = result.get_samples()
@@ -3066,40 +3084,25 @@ def test_aux_gibbs_multi_chain_diagnostics():
     assert "rank_histograms" in diag
 
 
-def test_particle_mgrad_multi_chain_diagnostics():
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
-    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="particle_mgrad",
-        num_warmup=4,
-        num_samples=5,
-        num_chains=2,
-        seed=18,
-        latent_delta=0.2,
-        latent_target_accept=0.5,
-        n_particles=6,
-        param_step_size=0.03,
-        init_scale=0.01,
-    )
-
-    samples = result.get_samples()
-    assert samples["diffusion_diag_free"].shape == (10, 1)
-    diag = result.get_mcmc_diagnostics()
-    assert diag is not None
-    assert diag["num_chains"] == 2
-    assert diag["num_samples"] == 5
-    assert "latent_accept_prob_mean" in diag
-    assert "parameter_accept_prob_mean" in diag
-    assert "trace_data" in diag
-    assert "rank_histograms" in diag
-
-
-def test_aux_gibbs_support_aware_interval_summary_smoke():
+@pytest.mark.parametrize(
+    ("method", "seed", "extra_kwargs"),
+    [
+        ("aux_gibbs", 2, {"latent_delta": 0.15, "param_step_size": 0.03, "init_scale": 0.01}),
+        (
+            "particle_mgrad",
+            19,
+            {
+                "latent_delta": 0.15,
+                "latent_target_accept": 0.5,
+                "n_particles": 6,
+                "param_step_size": 0.03,
+                "init_scale": 0.01,
+            },
+        ),
+    ],
+    ids=["aux-gibbs", "particle-mgrad"],
+)
+def test_particle_mcmc_support_aware_interval_summary_smoke(method, seed, extra_kwargs):
     model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="particle")
     support = make_observation_support_runtime(
         anchor_times=np.array([0.0, 1.0]),
@@ -3120,54 +3123,12 @@ def test_aux_gibbs_support_aware_interval_summary_smoke():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method=method,
         num_warmup=4,
         num_samples=6,
         num_chains=1,
-        seed=2,
-        latent_delta=0.15,
-        param_step_size=0.03,
-        init_scale=0.01,
-    )
-
-    summary = result.get_latent_posterior_summary()
-    assert summary is not None
-    assert summary["mean"].shape == (2, 1)
-    assert bool(jnp.isfinite(summary["mean"]).all())
-    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
-
-
-def test_particle_mgrad_support_aware_interval_summary_smoke():
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="particle")
-    support = make_observation_support_runtime(
-        anchor_times=np.array([0.0, 1.0]),
-        manifest_names=["y"],
-        support_kinds=["interval"],
-        observation_windows=["1d"],
-        support_start_times=np.array([[np.nan], [0.0]]),
-        support_end_times=np.array([[np.nan], [1.0]]),
-        interval_prev_coeffs=np.array([[0.0], [0.5]], dtype=np.float32),
-        interval_curr_coeffs=np.array([[0.0], [0.5]], dtype=np.float32),
-        interval_weights=np.array([[0.0], [1.0]], dtype=np.float32),
-    )
-    model.set_observation_support(support)
-    observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0], dtype=jnp.float32)
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="particle_mgrad",
-        num_warmup=4,
-        num_samples=6,
-        num_chains=1,
-        seed=19,
-        latent_delta=0.15,
-        latent_target_accept=0.5,
-        n_particles=6,
-        param_step_size=0.03,
-        init_scale=0.01,
+        seed=seed,
+        **extra_kwargs,
     )
 
     summary = result.get_latent_posterior_summary()
@@ -3245,7 +3206,25 @@ def test_aux_gibbs_heterogeneous_observation_families_smoke():
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
-def test_aux_gibbs_supports_fixed_centering_autoreparam():
+@pytest.mark.parametrize(
+    ("method", "seed", "extra_kwargs"),
+    [
+        ("aux_gibbs", 4, {"latent_delta": 0.2, "param_step_size": 0.03, "init_scale": 0.01}),
+        (
+            "particle_mgrad",
+            10,
+            {
+                "latent_delta": 0.2,
+                "latent_target_accept": 0.5,
+                "n_particles": 6,
+                "param_step_size": 0.03,
+                "init_scale": 0.01,
+            },
+        ),
+    ],
+    ids=["aux-gibbs", "particle-mgrad"],
+)
+def test_particle_mcmc_supports_fixed_centering_autoreparam(method, seed, extra_kwargs):
     model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
@@ -3254,15 +3233,13 @@ def test_aux_gibbs_supports_fixed_centering_autoreparam():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method=method,
         num_warmup=4,
         num_samples=6,
         num_chains=1,
-        seed=4,
-        latent_delta=0.2,
-        param_step_size=0.03,
-        init_scale=0.01,
+        seed=seed,
         reparam=AutoReparam(centered=0.0),
+        **extra_kwargs,
     )
 
     sample_names = set(result.get_samples())
@@ -3292,36 +3269,6 @@ def test_aux_gibbs_rejects_unknown_latent_proposal_family():
         )
 
 
-def test_particle_mgrad_supports_fixed_centering_autoreparam():
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
-    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="particle_mgrad",
-        num_warmup=4,
-        num_samples=6,
-        num_chains=1,
-        seed=10,
-        latent_delta=0.2,
-        latent_target_accept=0.5,
-        n_particles=6,
-        param_step_size=0.03,
-        init_scale=0.01,
-        reparam=AutoReparam(centered=0.0),
-    )
-
-    sample_names = set(result.get_samples())
-    assert all("_decentered" not in name for name in sample_names)
-    diag = result.get_mcmc_diagnostics()
-    assert diag is not None
-    diag_names = {entry["parameter"] for entry in diag["per_parameter"]}
-    assert all("_decentered" not in name for name in diag_names)
-
-
 def test_aux_gibbs_rejects_learnable_centering_autoreparam():
     model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
@@ -3341,7 +3288,12 @@ def test_aux_gibbs_rejects_learnable_centering_autoreparam():
         )
 
 
-def test_aux_gibbs_rejects_student_t_diffusion():
+@pytest.mark.parametrize(
+    ("method", "seed"),
+    [("aux_gibbs", 6), ("particle_mgrad", 11)],
+    ids=["aux-gibbs", "particle-mgrad"],
+)
+def test_particle_mcmc_rejects_student_t_diffusion(method, seed):
     spec = _make_aux_gibbs_smoke_spec(
         diffusion_dists=[DistributionFamily.STUDENT_T],
     )
@@ -3354,32 +3306,11 @@ def test_aux_gibbs_rejects_student_t_diffusion():
             model,
             observations=observations,
             times=times,
-            method="aux_gibbs",
+            method=method,
             num_warmup=2,
             num_samples=2,
             num_chains=1,
-            seed=6,
-        )
-
-
-def test_particle_mgrad_rejects_student_t_diffusion():
-    spec = _make_aux_gibbs_smoke_spec(
-        diffusion_dists=[DistributionFamily.STUDENT_T],
-    )
-    model = SSMModel(spec, likelihood="particle")
-    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
-    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
-
-    with pytest.raises(ValueError, match="Gaussian latent diffusion"):
-        fit(
-            model,
-            observations=observations,
-            times=times,
-            method="particle_mgrad",
-            num_warmup=2,
-            num_samples=2,
-            num_chains=1,
-            seed=11,
+            seed=seed,
         )
 
 
