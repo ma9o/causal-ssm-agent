@@ -19,8 +19,7 @@ flowchart LR
   M["Measurement\nmodel proposal"]
   DSC["Data extraction &\nvalidation"]
   ID{"Identified?"}
-  MS["Model\nspecification"]
-  P["Priors &\nlikelihoods"]
+  MS["Model spec"]
   EST["Estimation"]
   SIM["Simulation"]
   R(["Causal effect\nestimate"])
@@ -30,7 +29,7 @@ flowchart LR
   L --> M --> DSC --> ID
   ID -- yes --> MS
   subgraph Bayesian modeling state machine 
-  MS --> P --> EST
+  MS --> EST
   end
   EST --> SIM --> R
   ID -- no --> L
