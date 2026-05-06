@@ -7,7 +7,7 @@
 
 **causal-ssm-agent** is an opinionated LLM harness for end-to-end Bayesian causal inference on N-of-1 time series data.
 
-The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using dense digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge - where available - in the form of prior distributions and modeling assumptions.
+The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using dense digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge, where available, in the form of prior distributions and modeling assumptions.
 
 The user will pose a question in natural language given a dataset of their choosing. First, the system will lay out the causal DAG implied by the question and a measurement model for the DAG that is compatible with the given dataset. If the causal effect in question is structurally identifiable, the DAG is translated into a continuous-time state-space model and estimated with MCMC. Finally, an LLM will run simulations on the fitted model to estimate the causal effects of interventions and counterfactual scenarios that answer the original question.
 
@@ -36,21 +36,7 @@ flowchart LR
   ID -- no --> L
 ```
 
-In practice, the framework's binding constraints are dense self-instrumentation and a literature mature enough to anchor priors — which carves out behavioral and metabolic medicine for the quantified-self user as the natural fit zone. It earns its dynamics machinery on recurring decisions where population science gives a plausible prior but heterogeneity dominates the individual answer:
-
-- Cardiometabolic 
-
-- Affect & mental health 
-
-- Cognition & attention
-
-- Episodic & inflammatory conditions 
-
-- Performance & adaptation 
-
-- Education & deliberate practice 
-
-- Habit & behavior change
+In practice, the framework is designed for consumer datasets that are easily accessibile via data subject requests, from more domain specific ones like Apple Health, Oura, 23andMe, Strava (cardiometabolic health, chronic conditions, performance & adaptation), Anki, Duolingo, YouTube (education & deliberate practice) to more cross cutting ones like Google Takeout, WhatsApp, ChatGPT/Claude logs (mental health, cognition & attention, habit & behavior change) - and, most interestingly, their intersections!
 
 ## Features and Goals
 
