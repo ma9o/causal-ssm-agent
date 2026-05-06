@@ -1,7 +1,5 @@
 """Stage 4 assembly, prior predictive, and SSM compilation tests."""
 
-import pandas as pd
-import polars as pl
 
 from tests.stages.stage4._support import (
     Any,
@@ -9,6 +7,7 @@ from tests.stages.stage4._support import (
     PredictiveObservationMeanOverflow,
     PriorValidationResult,
     SimpleNamespace,
+    _make_polars_data,
     _stage4_generate_config,
     _with_positive_indicator_polarity,
     compile_ssm_inputs_from_model_spec,
@@ -20,26 +19,6 @@ from tests.stages.stage4._support import (
     pytest,
     validate_prior_predictive,
 )
-
-
-def _make_polars_data() -> pl.DataFrame:
-    """Create polars long-format data for validation tests."""
-    rng = np.random.default_rng(42)
-    n = 30
-    anchor_times = pd.date_range("2024-01-01", periods=n, freq="D").strftime("%Y-%m-%dT00:00:00Z")
-    return pl.DataFrame(
-        {
-            "indicator": ["mood_score"] * n,
-            "value": (rng.standard_normal(n) * 1.5 + 5).tolist(),
-            "anchor_time": anchor_times,
-            "support_start": anchor_times,
-            "support_end": anchor_times,
-            "support_kind": ["point"] * n,
-            "summary_operator": ["last"] * n,
-            "anchor_policy": ["support_end"] * n,
-            "observation_window": [None] * n,
-        }
-    )
 
 
 def _require_text(value: str | None) -> str:

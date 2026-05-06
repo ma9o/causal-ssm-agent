@@ -1206,6 +1206,10 @@ class TestLaplaceSupportAware:
         )
         np.testing.assert_allclose(np.asarray(rhs[:, 0]), expected_rhs[:, 0], rtol=1e-5, atol=1e-5)
 
+
+class TestLaplaceSupportAwareGradients:
+    """Implicit-mode gradient + autodiff equivalence checks for support-aware Laplace."""
+
     def test_support_aware_implicit_mode_gradient_matches_direct_autodiff(self):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
@@ -1566,6 +1570,10 @@ class TestLaplaceSupportAware:
             rtol=7e-2,
             atol=7e-2,
         )
+
+
+class TestLaplaceBackendCaching:
+    """Backend-cache reuse, invalidation, and support-window derivative caching."""
 
     def test_block_profile_logdet_cotangent_matches_direct_autodiff(self):
         row_upper_bandwidths = jnp.array([2, 2, 1, 0], dtype=jnp.int32)

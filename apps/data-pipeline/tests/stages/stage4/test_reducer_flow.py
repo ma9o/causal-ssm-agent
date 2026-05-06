@@ -2123,6 +2123,10 @@ class TestStage4Mechanics:
 
         assert result is None
 
+
+class TestStage4FailureRouting:
+    """Compile-failure routing, repair-scope classification, and global escalation."""
+
     def test_compile_failure_route_prefers_true_indicator_owner_for_exact_match(self):
         from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
             classify_compile_failure_route,
@@ -3041,6 +3045,10 @@ class TestStage4Mechanics:
             "sigma_activity",
             "sigma_sleep",
         ]
+
+
+class TestStage4RunE2E:
+    """End-to-end ``run_stage4`` orchestration and runtime checkpoint resumption."""
 
     def test_run_stage4_can_follow_scripted_submit_tool_path(self, monkeypatch):
         causal_spec = _make_stage4_mechanics_spec()
@@ -4289,6 +4297,10 @@ class TestStage4Mechanics:
             incompatibility
             == "checkpoint marks Stage 4 done without a valid accepted validation result"
         )
+
+
+class TestStage4Session:
+    """Stage4Session-level invariants: rollback, callbacks, tool-loop compaction."""
 
     def test_stage4_session_done_requires_valid_accepted_validation(self):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context()

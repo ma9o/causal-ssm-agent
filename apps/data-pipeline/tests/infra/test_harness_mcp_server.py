@@ -17,7 +17,7 @@ from causal_ssm_agent.utils.harness.mcp_server import (
     serve_tools_http,
 )
 from causal_ssm_agent.utils.openrouter_client import Tool
-from tests.async_helpers import run_async as _run
+from tests.helpers import run_async as _run
 
 
 @asynccontextmanager

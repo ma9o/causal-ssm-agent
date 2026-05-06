@@ -19,7 +19,7 @@ from causal_ssm_agent.utils.harness.claude import (
     build_mcp_config_json,
     open_claude_harness_session,
 )
-from tests.async_helpers import run_async as _run
+from tests.helpers import run_async as _run
 from tests.infra.harness_fakes import FakeProcess as _FakeProcess
 from tests.infra.harness_fakes import jsonl as _jsonl
 from tests.infra.harness_fakes import make_terminal_tool

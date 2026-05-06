@@ -40,6 +40,7 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
+    Stage4RepairTopology,
     build_stage4_plan,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import (
@@ -101,7 +102,53 @@ from causal_ssm_agent.workers.schemas_prior import (
     PriorValidationResult,
 )
 from tests.ssm_test_utils import make_ssm_spec
-from tests.stages.stage4.plan_helpers import make_stage4_plan as _make_plan
+
+
+def _make_plan(
+    *,
+    model_blocks: tuple[Stage4FrontierBlock, ...] = (),
+    review_block: Stage4FrontierBlock | None = None,
+    prior_blocks: tuple[Stage4FrontierBlock, ...] = (),
+    prior_review_block: Stage4FrontierBlock | None = None,
+) -> Stage4Plan:
+    """Build a minimal Stage 4 plan for focused unit tests."""
+    all_blocks = (
+        *model_blocks,
+        *((review_block,) if review_block is not None else ()),
+        *prior_blocks,
+        *((prior_review_block,) if prior_review_block is not None else ()),
+    )
+    blocks_by_id = {block.id: block for block in all_blocks}
+    parameter_to_block_id: dict[str, str] = {}
+    indicator_to_decision_block_id: dict[str, str] = {}
+    indicator_to_measurement_block_id: dict[str, str] = {}
+
+    for block in prior_blocks:
+        for parameter_name in block.parameter_names:
+            parameter_to_block_id.setdefault(parameter_name, block.id)
+        if block.kind == "measurement_prior":
+            for indicator_name in block.variable_names:
+                indicator_to_measurement_block_id[indicator_name] = block.id
+
+    for block in model_blocks:
+        for parameter_name in block.parameter_names:
+            parameter_to_block_id.setdefault(parameter_name, block.id)
+        if block.kind == "indicator_decision":
+            for indicator_name in block.variable_names:
+                indicator_to_decision_block_id[indicator_name] = block.id
+
+    return Stage4Plan(
+        model_blocks=model_blocks,
+        review_block=review_block,
+        prior_blocks=prior_blocks,
+        prior_review_block=prior_review_block,
+        blocks_by_id=blocks_by_id,
+        repair_topology=Stage4RepairTopology(
+            parameter_to_block_id=parameter_to_block_id,
+            indicator_to_decision_block_id=indicator_to_decision_block_id,
+            indicator_to_measurement_block_id=indicator_to_measurement_block_id,
+        ),
+    )
 
 
 def compute_stage4_validate_step(data, *, plan, runtime, deps):
@@ -469,6 +516,28 @@ def _require_plan_block(plan: Stage4Plan, block_id: str) -> Stage4FrontierBlock:
     block = plan.get_block(block_id)
     assert block is not None
     return block
+
+
+def _make_polars_data() -> pl.DataFrame:
+    """Long-format polars data for Stage 4 SSM-validation tests."""
+    import pandas as pd
+
+    rng = np.random.default_rng(42)
+    n = 30
+    anchor_times = pd.date_range("2024-01-01", periods=n, freq="D").strftime("%Y-%m-%dT00:00:00Z")
+    return pl.DataFrame(
+        {
+            "indicator": ["mood_score"] * n,
+            "value": (rng.standard_normal(n) * 1.5 + 5).tolist(),
+            "anchor_time": anchor_times,
+            "support_start": anchor_times,
+            "support_end": anchor_times,
+            "support_kind": ["point"] * n,
+            "summary_operator": ["last"] * n,
+            "anchor_policy": ["support_end"] * n,
+            "observation_window": [None] * n,
+        }
+    )
 
 
 @pytest.fixture

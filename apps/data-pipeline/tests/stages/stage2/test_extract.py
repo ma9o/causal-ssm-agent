@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from causal_ssm_agent.flows.stages.stage2 import flow as stage2_extract
-from tests.async_helpers import run_async as _run
+from tests.helpers import run_async as _run
 
 
 class _FakeFuture:

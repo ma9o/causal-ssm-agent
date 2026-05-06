@@ -8,7 +8,7 @@ from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
 from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
-from tests.models.ssm.prior_predictive_support import complex_mixed_runtime_spec
+from tests.models.ssm._support import complex_mixed_runtime_spec
 
 pytestmark = pytest.mark.slow
 

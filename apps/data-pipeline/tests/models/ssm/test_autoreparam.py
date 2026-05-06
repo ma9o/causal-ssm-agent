@@ -24,7 +24,7 @@ from causal_ssm_agent.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
-from tests.models.ssm.autoreparam_support import simple_normal_model
+from tests.models.ssm._support import simple_normal_model
 from tests.ssm_test_utils import make_ssm_spec
 
 # ---------------------------------------------------------------------------

@@ -26,19 +26,19 @@ from causal_ssm_agent.models.ssm.inference.targets.block_rb import (
     extract_subblocks,
     partition_indices,
 )
-from tests.models.ssm.block_rb_support import (
+from tests.models.ssm._support import (
     make_mixed_params as _make_mixed_params,
 )
-from tests.models.ssm.block_rb_support import (
+from tests.models.ssm._support import (
     run_block_rbpf as _run_block_rbpf,
 )
-from tests.models.ssm.block_rb_support import (
+from tests.models.ssm._support import (
     run_bootstrap_pf as _run_bootstrap_pf,
 )
-from tests.models.ssm.block_rb_support import (
+from tests.models.ssm._support import (
     run_full_rbpf as _run_full_rbpf,
 )
-from tests.models.ssm.block_rb_support import (
+from tests.models.ssm._support import (
     simulate_data as _simulate_data,
 )
 
