@@ -38,8 +38,12 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
     Stage4Runtime,
 )
 from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
-from tests.stages.stage4._support import make_causal_spec_dict as _make_causal_spec
-from tests.stages.stage4.plan_helpers import make_stage4_plan as _make_plan
+from tests.stages.stage4._support import (
+    _make_plan,
+)
+from tests.stages.stage4._support import (
+    make_causal_spec_dict as _make_causal_spec,
+)
 
 
 def _simple_spec():

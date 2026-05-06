@@ -11,7 +11,7 @@ from causal_ssm_agent.models.ssm.inference.targets.base import (
     InitialStateParams,
     MeasurementParams,
 )
-from tests.models.ssm.block_rb_support import (
+from tests.models.ssm._support import (
     make_mixed_params,
     run_block_rbpf,
     run_bootstrap_pf,

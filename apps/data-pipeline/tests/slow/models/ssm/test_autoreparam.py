@@ -8,7 +8,7 @@ from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import Adam
 
 from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
-from tests.models.ssm.autoreparam_support import simple_normal_model
+from tests.models.ssm._support import simple_normal_model
 from tests.ssm_test_utils import make_ssm_spec
 
 pytestmark = pytest.mark.slow

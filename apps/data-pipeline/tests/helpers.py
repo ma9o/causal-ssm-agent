@@ -1,10 +1,12 @@
-"""Shared test helpers for LLM/session fakes.
+"""Shared cross-cutting test helpers (LLM/session fakes, async runners)."""
 
-These are utilities that can be imported directly into test modules.
-For fixtures, see conftest.py.
-"""
-
+import asyncio
 from typing import Any
+
+
+def run_async(coro):
+    """Run an async coroutine synchronously in tests."""
+    return asyncio.run(coro)
 
 
 def invalid_dict_payload(value: object) -> Any:

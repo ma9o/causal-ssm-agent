@@ -19,7 +19,7 @@ from causal_ssm_agent.flows.stages.stage0.tools import (
     _safe_resolve,
     make_ingestion_tools,
 )
-from tests.async_helpers import run_async as _run
+from tests.helpers import run_async as _run
 
 _MOCK_SANDBOX_EXECUTION_ERRORS = (
     ArithmeticError,

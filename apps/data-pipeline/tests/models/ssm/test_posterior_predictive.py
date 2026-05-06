@@ -22,7 +22,7 @@ from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
-from tests.models.ssm.posterior_predictive_support import (
+from tests.models.ssm._support import (
     make_samples as _make_samples,
 )
 

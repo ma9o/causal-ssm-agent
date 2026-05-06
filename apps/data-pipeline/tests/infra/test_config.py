@@ -28,7 +28,7 @@ from causal_ssm_agent.utils.config import (
     load_config,
     validate_config,
 )
-from tests.async_helpers import run_async
+from tests.helpers import run_async
 
 # =============================================================================
 # InferenceConfig.to_sampler_config

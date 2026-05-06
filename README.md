@@ -38,12 +38,19 @@ flowchart LR
 
 In practice, the framework's binding constraints are dense self-instrumentation and a literature mature enough to anchor priors — which carves out behavioral and metabolic medicine for the quantified-self user as the natural fit zone. It earns its dynamics machinery on recurring decisions where population science gives a plausible prior but heterogeneity dominates the individual answer:
 
-- **Metabolic / cardiometabolic** — CGM, food logs, wearables, periodic labs · "Which meal-timing combos stabilize my glucose?", "Is the statin moving my ApoB independently of last week's diet change?"
-- **Sleep & circadian** — Oura/Whoop/8sleep, light exposure, behavior logs · "Does evening alcohol cost me REM, or am I drinking on already-bad-sleep nights?"
-- **Endurance & strength training** — TrainingPeaks/Strava, HRV, RPE diaries · "Where's my recovery saturation point?", "Is the HRV drop adaptation or accumulating fatigue?"
-- **Idiographic affective ILD** — EMA apps, wearables, medication logs · "Sleep → mood, or mood → sleep?", "Did the SSRI dose actually move my anxiety beyond seasonal effects?"
-- **Episodic conditions** — symptom diaries for migraine, IBS, PMDD, autoimmune flares · "Which idiosyncratic triggers actually predict my flares?"
-- **N-of-1 pharmacology** — ADHD or microdosing logs paired with sleep and productivity tracking · "Did this dose change move the outcome, or did I just want it to?"
+- Cardiometabolic 
+
+- Affect & mental health 
+
+- Cognition & attention
+
+- Episodic & inflammatory conditions 
+
+- Performance & adaptation 
+
+- Education & deliberate practice 
+
+- Habit & behavior change
 
 ## Features and Goals
 
