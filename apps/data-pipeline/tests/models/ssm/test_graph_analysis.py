@@ -6,6 +6,7 @@ resolution, and the main analyze_first_pass_rb decomposition logic.
 
 import jax.numpy as jnp
 import numpy as np
+import pytest
 
 from causal_ssm_agent.artifacts import LinkFunction
 from causal_ssm_agent.distributions import DistributionFamily
@@ -750,7 +751,8 @@ class TestPlanInferenceStructure:
         assert plan.method_override is None
         assert plan.first_pass_partition is None
 
-    def test_explicit_method_override_is_preserved_in_plan(self):
+    @pytest.mark.parametrize("method_override", ["map", "aux_gibbs", "particle_mgrad"])
+    def test_method_override_is_preserved_in_plan(self, method_override):
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
@@ -758,97 +760,60 @@ class TestPlanInferenceStructure:
             drift_mask=np.eye(2, dtype=bool),
         )
 
-        plan = plan_inference_structure(spec, method_override="map")
+        plan = plan_inference_structure(spec, method_override=method_override)
 
         assert plan.structural_backend == "kalman"
-        assert plan.resolved_method == "map"
-        assert plan.method_override == "map"
+        assert plan.resolved_method == method_override
+        assert plan.method_override == method_override
         assert plan.first_pass_partition is None
 
-    def test_aux_gibbs_override_is_preserved_in_plan(self):
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            drift_mask=np.eye(2, dtype=bool),
-        )
-
-        plan = plan_inference_structure(spec, method_override="aux_gibbs")
-
-        assert plan.structural_backend == "kalman"
-        assert plan.resolved_method == "aux_gibbs"
-        assert plan.method_override == "aux_gibbs"
-        assert plan.first_pass_partition is None
-
-    def test_particle_mgrad_override_is_preserved_in_plan(self):
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            drift_mask=np.eye(2, dtype=bool),
-        )
-
-        plan = plan_inference_structure(spec, method_override="particle_mgrad")
-
-        assert plan.structural_backend == "kalman"
-        assert plan.resolved_method == "particle_mgrad"
-        assert plan.method_override == "particle_mgrad"
-        assert plan.first_pass_partition is None
-
-    def test_student_t_diffusion_routes_to_aux_gibbs(self):
-        """Student-t diffusion noise → aux_gibbs."""
-        spec = _make_spec(
-            diffusion_dists=[DistributionFamily.STUDENT_T, DistributionFamily.STUDENT_T],
-        )
-        assert select_default_method(spec) == "aux_gibbs"
-
-    def test_mixed_model_routes_to_aux_gibbs(self):
-        """Mixed Gaussian + non-Gaussian with coupling → aux_gibbs."""
-        spec = _make_spec(
-            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-        )
-        assert select_default_method(spec) == "aux_gibbs"
-
-    def test_gaussian_with_log_link_routes_to_aux_gibbs(self):
-        """Gaussian noise but log link → non-Kalman → aux_gibbs."""
-        spec = _make_spec(
-            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
-        )
-        assert select_default_method(spec) == "aux_gibbs"
-
-    def test_bernoulli_routes_to_aux_gibbs(self):
-        """Bernoulli observations → aux_gibbs."""
-        spec = _make_spec(
-            manifest_dists=[DistributionFamily.BERNOULLI, DistributionFamily.BERNOULLI],
-            manifest_links=[LinkFunction.LOGIT, LinkFunction.LOGIT],
-        )
-        assert select_default_method(spec) == "aux_gibbs"
-
-    def test_gamma_routes_to_aux_gibbs(self):
-        """Gamma observations → aux_gibbs."""
-        spec = _make_spec(
-            manifest_dists=[DistributionFamily.GAMMA, DistributionFamily.GAMMA],
-            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
-        )
-        assert select_default_method(spec) == "aux_gibbs"
-
-    def test_negative_binomial_routes_to_aux_gibbs(self):
-        """Negative binomial observations → aux_gibbs."""
-        spec = _make_spec(
-            manifest_dists=[
-                DistributionFamily.NEGATIVE_BINOMIAL,
-                DistributionFamily.NEGATIVE_BINOMIAL,
-            ],
-            manifest_links=[LinkFunction.LOG, LinkFunction.LOG],
-        )
-        assert select_default_method(spec) == "aux_gibbs"
-
-    def test_beta_routes_to_aux_gibbs(self):
-        """Beta observations → aux_gibbs."""
-        spec = _make_spec(
-            manifest_dists=[DistributionFamily.BETA, DistributionFamily.BETA],
-            manifest_links=[LinkFunction.LOGIT, LinkFunction.LOGIT],
-        )
+    @pytest.mark.parametrize(
+        "spec_kwargs",
+        [
+            pytest.param(
+                {"diffusion_dists": [DistributionFamily.STUDENT_T] * 2},
+                id="student_t_diffusion",
+            ),
+            pytest.param(
+                {"diffusion_dists": [DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T]},
+                id="mixed_diffusion",
+            ),
+            pytest.param(
+                {"manifest_links": [LinkFunction.LOG, LinkFunction.LOG]},
+                id="gaussian_log_link",
+            ),
+            pytest.param(
+                {
+                    "manifest_dists": [DistributionFamily.BERNOULLI] * 2,
+                    "manifest_links": [LinkFunction.LOGIT] * 2,
+                },
+                id="bernoulli",
+            ),
+            pytest.param(
+                {
+                    "manifest_dists": [DistributionFamily.GAMMA] * 2,
+                    "manifest_links": [LinkFunction.LOG] * 2,
+                },
+                id="gamma",
+            ),
+            pytest.param(
+                {
+                    "manifest_dists": [DistributionFamily.NEGATIVE_BINOMIAL] * 2,
+                    "manifest_links": [LinkFunction.LOG] * 2,
+                },
+                id="negative_binomial",
+            ),
+            pytest.param(
+                {
+                    "manifest_dists": [DistributionFamily.BETA] * 2,
+                    "manifest_links": [LinkFunction.LOGIT] * 2,
+                },
+                id="beta",
+            ),
+        ],
+    )
+    def test_non_kalman_family_routes_to_aux_gibbs(self, spec_kwargs):
+        spec = _make_spec(**spec_kwargs)
         assert select_default_method(spec) == "aux_gibbs"
 
     def test_per_channel_mixed_routes_to_aux_gibbs(self):
