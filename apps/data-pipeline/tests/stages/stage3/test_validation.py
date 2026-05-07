@@ -236,6 +236,22 @@ class TestValidateExtraction:
         assert error_issues[0]["indicator"] == "stress_score"
         assert error_issues[0]["issue_type"] == "no_variance"
 
+    def test_time_invariant_skips_variance(self):
+        """Time-invariant indicators are constant by definition; no_variance should not fire."""
+        spec = _make_spec(model_clock=None, temporal_status="time_invariant")
+        records = [
+            {
+                "indicator": "stress_score",
+                "value": "1.0",
+                "anchor_time": f"2024-01-{i + 1:02d} 10:00",
+            }
+            for i in range(20)
+        ]
+        result = validate_extraction.fn(spec, _create_worker_dfs(records))
+        no_var = [i for i in _all_issues(result) if i["issue_type"] == "no_variance"]
+        assert len(no_var) == 0
+        assert result["is_valid"] is True
+
     def test_low_sample_size_is_warning(self, simple_causal_spec):
         """Low sample size generates warning."""
         records = [

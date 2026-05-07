@@ -15,6 +15,7 @@ However, our framework uses linear SEMs where IV identification is valid. We det
 structures separately and mark them as identifiable (with linearity assumption).
 """
 
+import re
 from typing import Any
 
 import networkx as nx
@@ -87,7 +88,7 @@ def check_identifiability(
             "identifiable_treatments": identifiable_treatments,
             "non_identifiable_treatments": non_identifiable_treatments,
             "graph_info": {
-                "observed_constructs": list(observed_constructs),
+                "observed_constructs": sorted(observed_constructs),
                 "total_constructs": len(latent_model["constructs"]),
                 "unobserved_confounders": [],
                 "n_directed_edges": 0,
@@ -99,12 +100,7 @@ def check_identifiability(
 
     for treatment in all_treatments:
         # Build timestamped variable names for y0 query
-        treatment_is_time_varying = _is_time_varying(latent_model, treatment)
-
-        if treatment_is_time_varying:
-            treatment_node = _node_name(treatment, "t")
-        else:
-            treatment_node = treatment
+        treatment_node = _get_treatment_query_node(latent_model, treatment, outcome)
 
         if outcome_is_time_varying:
             outcome_node = _node_name(outcome, "t")
@@ -123,7 +119,7 @@ def check_identifiability(
 
             if estimand is not None:
                 # Map estimand back to original names for readability
-                estimand_str = str(estimand)
+                estimand_str = _canonicalize_estimand_string(str(estimand))
                 identifiable_treatments[treatment] = {
                     "method": "do_calculus",
                     "estimand": estimand_str,
@@ -145,9 +141,17 @@ def check_identifiability(
                         "instruments": instruments,
                     }
                 else:
-                    blockers = find_blocking_confounders(
-                        latent_model, observed_constructs, treatment, outcome
-                    )
+                    if treatment_node == _node_name(treatment, "{t-1}"):
+                        blockers = find_blocking_confounders_for_query(
+                            latent_model,
+                            observed_constructs,
+                            treatment_node=treatment_node,
+                            outcome_node=outcome_node,
+                        )
+                    else:
+                        blockers = find_blocking_confounders(
+                            latent_model, observed_constructs, treatment, outcome
+                        )
                     non_identifiable_treatments[treatment] = {
                         "confounders": blockers,
                     }
@@ -162,9 +166,9 @@ def check_identifiability(
         "identifiable_treatments": identifiable_treatments,
         "non_identifiable_treatments": non_identifiable_treatments,
         "graph_info": {
-            "observed_constructs": list(observed_constructs),
+            "observed_constructs": sorted(observed_constructs),
             "total_constructs": len(latent_model["constructs"]),
-            "unobserved_confounders": list(unobserved_confounders),
+            "unobserved_confounders": sorted(unobserved_confounders),
             "n_directed_edges": len(list(admg.directed.edges())),
         },
     }
@@ -192,6 +196,57 @@ def get_observed_constructs(measurement_model: dict) -> set[str]:
 def _node_name(construct: str, timestep: str) -> str:
     """Create timestamped node name like 'X_t' or 'X_{t-1}'."""
     return f"{construct}_{timestep}"
+
+
+def _canonicalize_estimand_string(estimand: str) -> str:
+    """Stabilize y0 estimand text across Python hash seeds."""
+
+    def sort_sum_variables(match: re.Match[str]) -> str:
+        variables = [item.strip() for item in match.group(1).split(",") if item.strip()]
+        return "Sum[" + ", ".join(sorted(variables)) + "]"
+
+    return re.sub(r"Sum\[([^\]]*)\]", sort_sum_variables, estimand)
+
+
+def _uses_lagged_first_step_to_outcome(
+    latent_model: dict,
+    treatment: str,
+    outcome: str,
+) -> bool:
+    """Return whether treatment paths to outcome start with a lagged edge.
+
+    Historical tests and simple static examples use contemporaneous edges by
+    omitting ``lagged``. The Stage 1 latent contract, however, represents
+    directed effects between time-varying endogenous constructs as lagged
+    ``X_{t-1} -> Y_t`` effects. Query the prior timestep exactly when the
+    first treatment edge on an outcome-reaching path is lagged.
+    """
+    graph = build_digraph(latent_model)
+    if treatment not in graph or outcome not in graph:
+        return False
+
+    for edge in latent_model.get("edges", []):
+        if edge.get("cause") != treatment:
+            continue
+        effect = edge.get("effect")
+        if effect not in graph or not nx.has_path(graph, effect, outcome):
+            continue
+        if edge.get("lagged", False):
+            return True
+    return False
+
+
+def _get_treatment_query_node(
+    latent_model: dict,
+    treatment: str,
+    outcome: str,
+) -> str:
+    """Return the unrolled graph node used for the treatment intervention."""
+    if not _is_time_varying(latent_model, treatment):
+        return treatment
+    if _uses_lagged_first_step_to_outcome(latent_model, treatment, outcome):
+        return _node_name(treatment, "{t-1}")
+    return _node_name(treatment, "t")
 
 
 def unroll_temporal_dag(
@@ -227,17 +282,19 @@ def unroll_temporal_dag(
     dag = nx.DiGraph()
 
     # Categorize constructs by temporal status
-    time_varying = set()
-    time_invariant = set()
+    time_varying: list[str] = []
+    time_invariant: list[str] = []
 
     for construct in latent_model["constructs"]:
         name = construct["name"]
         temporal_status = construct.get("temporal_status", "time_varying")
 
         if temporal_status == "time_invariant":
-            time_invariant.add(name)
+            time_invariant.append(name)
         else:
-            time_varying.add(name)
+            time_varying.append(name)
+
+    time_invariant_set = set(time_invariant)
 
     # Add nodes for time-varying constructs (both timesteps)
     for name in time_varying:
@@ -268,8 +325,8 @@ def unroll_temporal_dag(
         effect = edge["effect"]
         lagged = edge.get("lagged", False)
 
-        cause_is_time_invariant = cause in time_invariant
-        effect_is_time_invariant = effect in time_invariant
+        cause_is_time_invariant = cause in time_invariant_set
+        effect_is_time_invariant = effect in time_invariant_set
 
         if cause_is_time_invariant and effect_is_time_invariant:
             # Both time-invariant: single edge
@@ -433,6 +490,52 @@ def find_blocking_confounders(
             blocking.append(u)
 
     return blocking
+
+
+def find_blocking_confounders_for_query(
+    latent_model: dict,
+    observed_constructs: set[str],
+    *,
+    treatment_node: str,
+    outcome_node: str,
+) -> list[str]:
+    """Find unobserved constructs blocking a specific unrolled treatment query."""
+    dag = unroll_temporal_dag(latent_model, observed_constructs)
+
+    dag_sans_treatment = dag.copy()
+    if treatment_node in dag_sans_treatment:
+        dag_sans_treatment.remove_node(treatment_node)
+
+    blocking: set[str] = set()
+    for node, attrs in dag.nodes(data=True):
+        if not attrs.get("hidden", False):
+            continue
+        if node in (treatment_node, outcome_node):
+            continue
+
+        construct = attrs.get("construct", node)
+        if construct in (treatment_node, outcome_node):
+            continue
+
+        has_observed_child = any(
+            not dag.nodes[child].get("hidden", False) for child in dag.successors(node)
+        )
+        if not has_observed_child:
+            continue
+
+        is_ancestor_of_treatment = (
+            treatment_node in dag and nx.has_path(dag, node, treatment_node)
+        )
+        reaches_outcome_via_backdoor = (
+            node in dag_sans_treatment
+            and outcome_node in dag_sans_treatment
+            and nx.has_path(dag_sans_treatment, node, outcome_node)
+        )
+
+        if is_ancestor_of_treatment and reaches_outcome_via_backdoor:
+            blocking.add(str(construct))
+
+    return sorted(blocking)
 
 
 def find_instruments(

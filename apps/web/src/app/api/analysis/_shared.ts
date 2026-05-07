@@ -20,7 +20,7 @@ import {
 } from "@/lib/stage-runtime";
 import { getStageLogScopePolicy } from "@/lib/stage-observability";
 import { prefectFetch } from "@/lib/server/prefect-runs";
-import { isStorageNotFoundError, readData } from "@/lib/storage";
+import { isStorageNotFoundError, prefixExists, readData } from "@/lib/storage";
 import { STAGES, type StageId } from "@causal-ssm/api-types";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
 
@@ -53,12 +53,30 @@ interface RootFlowRunLineageEntry {
   query: string | null;
 }
 
+interface PersistedSession {
+  createdAt?: string;
+  rootFlowRunIds: string[];
+}
+
 function emptyStageRun(): AnalysisStageRun {
   return {
     ownerRootFlowRunId: null,
     stageSubflowRunId: null,
     initialLogFlowRunIds: [],
     execution: null,
+  };
+}
+
+function completedPersistedStageRun(createdAt: string): AnalysisStageRun {
+  return {
+    ownerRootFlowRunId: null,
+    stageSubflowRunId: null,
+    initialLogFlowRunIds: [],
+    execution: {
+      stateType: "COMPLETED",
+      startTime: createdAt,
+      endTime: createdAt,
+    },
   };
 }
 
@@ -187,6 +205,105 @@ async function readWorkspaceQuestion(workspaceId: string): Promise<string | unde
     }
     throw e;
   }
+}
+
+function parsePersistedRootFlowRunIds(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter(
+    (entry): entry is string => typeof entry === "string" && entry.trim().length > 0,
+  );
+}
+
+async function readPersistedSession(workspaceId: string): Promise<PersistedSession | null> {
+  try {
+    const raw = await readData(`${workspaceId}/session.json`);
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const createdAt = typeof parsed.createdAt === "string" ? parsed.createdAt : undefined;
+    return {
+      createdAt,
+      rootFlowRunIds: parsePersistedRootFlowRunIds(parsed.rootFlowRunIds),
+    };
+  } catch (e: unknown) {
+    if (isStorageNotFoundError(e)) {
+      return null;
+    }
+    return null;
+  }
+}
+
+async function listPersistedStageIds(workspaceId: string): Promise<StageId[]> {
+  const checks = await Promise.all(
+    STAGES.map(async (stage) => ({
+      exists: await prefixExists(`${workspaceId}/run/${stage.id}.json`),
+      stageId: stage.id,
+    })),
+  );
+
+  return checks.filter((entry) => entry.exists).map((entry) => entry.stageId);
+}
+
+async function buildPersistedArtifactManifest(
+  workspaceId: string,
+  bootstrapRootFlowRunIds: string[] = [],
+): Promise<AnalysisManifest | null> {
+  const [storedQuestion, session, persistedStageIds] = await Promise.all([
+    readWorkspaceQuestion(workspaceId),
+    readPersistedSession(workspaceId),
+    listPersistedStageIds(workspaceId),
+  ]);
+  if (persistedStageIds.length === 0) return null;
+
+  const completedStageIds = new Set<StageId>(persistedStageIds);
+  const createdAt = session?.createdAt ?? new Date(0).toISOString();
+  const rootFlowRunIds = dedupeRootFlowRunIds([
+    ...(session?.rootFlowRunIds ?? []),
+    ...bootstrapRootFlowRunIds,
+  ]);
+  const latestRootFlowRunId = rootFlowRunIds.at(-1) ?? null;
+  const stages = Object.fromEntries(
+    STAGES.map((stage) => [
+      stage.id,
+      completedStageIds.has(stage.id)
+        ? completedPersistedStageRun(createdAt)
+        : emptyStageRun(),
+    ]),
+  ) as AnalysisStageRuns;
+
+  return {
+    workspaceId,
+    createdAt,
+    question: storedQuestion,
+    rootFlowRunIds,
+    latestRootFlowRunId,
+    stages,
+  };
+}
+
+async function mergePersistedStageRuns(
+  workspaceId: string,
+  stageRuns: AnalysisStageRuns,
+  createdAt: string,
+): Promise<AnalysisStageRuns> {
+  const persistedStageIds = await listPersistedStageIds(workspaceId);
+  if (persistedStageIds.length === 0) {
+    return stageRuns;
+  }
+
+  const completedStageIds = new Set<StageId>(persistedStageIds);
+  return Object.fromEntries(
+    STAGES.map((stage) => {
+      const existing = stageRuns[stage.id];
+      return [
+        stage.id,
+        existing.execution || !completedStageIds.has(stage.id)
+          ? existing
+          : completedPersistedStageRun(createdAt),
+      ];
+    }),
+  ) as AnalysisStageRuns;
 }
 
 async function fetchRootFlowRunLineage(
@@ -340,12 +457,19 @@ export async function buildAnalysisManifest(
   workspaceId: string,
   bootstrapRootFlowRunIds: string[] = [],
 ): Promise<AnalysisManifest | null> {
-  const prefectRootFlowRunIds = await fetchWorkspaceRootFlowRunIds(workspaceId);
+  let prefectRootFlowRunIds: string[];
+  try {
+    prefectRootFlowRunIds = await fetchWorkspaceRootFlowRunIds(workspaceId);
+  } catch {
+    return buildPersistedArtifactManifest(workspaceId, bootstrapRootFlowRunIds);
+  }
   const candidateRootFlowRunIds = dedupeRootFlowRunIds([
     ...prefectRootFlowRunIds,
     ...bootstrapRootFlowRunIds,
   ]);
-  if (candidateRootFlowRunIds.length === 0) return null;
+  if (candidateRootFlowRunIds.length === 0) {
+    return buildPersistedArtifactManifest(workspaceId, bootstrapRootFlowRunIds);
+  }
 
   const [storedQuestion, rawLineage] = await Promise.all([
     readWorkspaceQuestion(workspaceId),
@@ -362,6 +486,11 @@ export async function buildAnalysisManifest(
 
   const createdAt =
     lineage.find((entry) => entry.createdAt)?.createdAt ?? new Date(0).toISOString();
+  const stagesWithPersistedArtifacts = await mergePersistedStageRuns(
+    workspaceId,
+    stagesResolved,
+    createdAt,
+  );
 
   return {
     workspaceId,
@@ -369,6 +498,6 @@ export async function buildAnalysisManifest(
     question: bootstrapQuestion ?? storedQuestion,
     rootFlowRunIds,
     latestRootFlowRunId: rootFlowRunIds.at(-1) ?? null,
-    stages: stagesResolved,
+    stages: stagesWithPersistedArtifacts,
   };
 }

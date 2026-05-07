@@ -25,6 +25,7 @@ data/*/
 !data/SMALLGOLDEN
 !data/DEFAULT/
 !data/DEMO_HEALTH/
+!data/DEMO/
 !data/queries/
 !data/eval/
 data/processed/**
