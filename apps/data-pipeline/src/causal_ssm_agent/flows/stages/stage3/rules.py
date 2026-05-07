@@ -245,6 +245,8 @@ def _rule_variance(entry: IndicatorRuleInput) -> ValidationFindings:
     ctx = entry.ctx
     if ctx is None:
         return ValidationFindings()
+    if ctx.is_time_invariant:
+        return ValidationFindings(metrics={"variance": ctx.variance})
     issues = []
     if ctx.variance is not None and ctx.variance == 0:
         issues.append(

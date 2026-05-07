@@ -1,5 +1,6 @@
 export const SHARED_WORKSPACE_IDS = [
   "DEFAULT",
+  "DEMO",
   "DEMO_HEALTH",
   "GOLDEN",
   "SMALLGOLDEN",

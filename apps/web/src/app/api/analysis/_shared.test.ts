@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/storage", () => ({
+  isStorageNotFoundError: vi.fn((error: unknown) =>
+    error instanceof Error && error.message.startsWith("missing"),
+  ),
+  prefixExists: vi.fn(),
   readData: vi.fn(),
 }));
 
-import { readData } from "@/lib/storage";
+import { prefixExists, readData } from "@/lib/storage";
 import {
   buildAnalysisManifest,
   buildStage2ReplayState,
@@ -181,10 +185,122 @@ afterEach(() => {
   vi.clearAllMocks();
   vi.mocked(readData).mockReset();
   vi.mocked(readData).mockRejectedValue(new Error("missing"));
+  vi.mocked(prefixExists).mockReset();
+  vi.mocked(prefixExists).mockResolvedValue(false);
   globalThis.fetch = originalFetch;
 });
 
 describe("buildAnalysisManifest", () => {
+  it("builds a static manifest from persisted artifacts when no Prefect run exists", async () => {
+    vi.mocked(readData).mockImplementation(async (path: string) => {
+      if (path === "DEMO/query.txt") {
+        return "Did escitalopram help?";
+      }
+      if (path === "DEMO/session.json") {
+        return JSON.stringify({
+          createdAt: "2026-05-07T00:00:00.000Z",
+          rootFlowRunIds: [],
+        });
+      }
+      throw new Error("missing");
+    });
+    vi.mocked(prefixExists).mockImplementation(
+      async (path: string) =>
+        path === "DEMO/run/stage-1a.json" || path === "DEMO/run/stage-1b.json",
+    );
+    globalThis.fetch = vi.fn(async (input, init) => {
+      const url = String(input);
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        const body = parseBody(init);
+        const tags = (
+          (body.flow_runs as Record<string, unknown> | undefined)?.tags as
+            | { all_?: string[] }
+            | undefined
+        )?.all_;
+        if (tags?.[0] === "workspace:DEMO") {
+          return jsonResponse([]);
+        }
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("DEMO");
+
+    expect(manifest).toMatchObject({
+      workspaceId: "DEMO",
+      createdAt: "2026-05-07T00:00:00.000Z",
+      question: "Did escitalopram help?",
+      rootFlowRunIds: [],
+      latestRootFlowRunId: null,
+    });
+    expect(manifest?.stages["stage-1a"].execution).toEqual({
+      stateType: "COMPLETED",
+      startTime: "2026-05-07T00:00:00.000Z",
+      endTime: "2026-05-07T00:00:00.000Z",
+    });
+    expect(manifest?.stages["stage-1b"].execution).toEqual({
+      stateType: "COMPLETED",
+      startTime: "2026-05-07T00:00:00.000Z",
+      endTime: "2026-05-07T00:00:00.000Z",
+    });
+    expect(manifest?.stages["stage-0"].execution).toBeNull();
+  });
+
+  it("supplements Prefect lineage with persisted artifacts for stages without events", async () => {
+    vi.mocked(readData).mockImplementation(async (path: string) => {
+      if (path === "DEMO/query.txt") {
+        return "Did escitalopram help?";
+      }
+      throw new Error("missing");
+    });
+    vi.mocked(prefixExists).mockImplementation(
+      async (path: string) =>
+        path === "DEMO/run/stage-1a.json" || path === "DEMO/run/stage-1b.json",
+    );
+    globalThis.fetch = vi.fn(async (input) => {
+      const url = String(input);
+
+      if (url === "http://localhost:4200/api/flow_runs/filter") {
+        return jsonResponse([{ id: "run-abc" }]);
+      }
+
+      if (url === "http://localhost:4200/api/flow_runs/run-abc") {
+        return jsonResponse({
+          id: "run-abc",
+          created: "2026-05-07T12:58:19.530Z",
+          parameters: {},
+        });
+      }
+
+      if (url === "http://localhost:4200/api/events/filter") {
+        return jsonResponse(
+          eventPage([stageEvent("stage-0", "completed", "2026-05-07T13:00:07.619Z")]),
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }) as typeof fetch;
+
+    const manifest = await buildAnalysisManifest("DEMO");
+
+    expect(manifest?.rootFlowRunIds).toEqual(["run-abc"]);
+    expect(manifest?.stages["stage-0"]).toMatchObject({
+      ownerRootFlowRunId: "run-abc",
+      execution: { stateType: "COMPLETED" },
+    });
+    expect(manifest?.stages["stage-1a"]).toEqual({
+      ownerRootFlowRunId: null,
+      stageSubflowRunId: null,
+      initialLogFlowRunIds: [],
+      execution: {
+        stateType: "COMPLETED",
+        startTime: "2026-05-07T12:58:19.530Z",
+        endTime: "2026-05-07T12:58:19.530Z",
+      },
+    });
+    expect(manifest?.stages["stage-1b"].execution?.stateType).toBe("COMPLETED");
+  });
+
   it("assigns each stage to the latest run that actually executed it", async () => {
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);

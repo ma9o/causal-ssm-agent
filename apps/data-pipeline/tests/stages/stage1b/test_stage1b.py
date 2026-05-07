@@ -170,6 +170,86 @@ class TestStage1bGrounding:
         assert "NOT fully identifiable" in feedback
         assert "proxy" in feedback.lower()
 
+    def test_lagged_time_varying_query_uses_prior_timestep(self):
+        """Lagged X->Y effects are checked as X_{t-1}->Y_t, not X_t->Y_t."""
+        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+
+        latent_model = {
+            "constructs": [
+                {
+                    "name": "Sleep",
+                    "description": "Sleep quality",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "Mood",
+                    "description": "Mood state",
+                    "role": "endogenous",
+                    "is_outcome": True,
+                    "temporal_status": "time_varying",
+                },
+                {
+                    "name": "Chronotype",
+                    "description": "Unobserved stable circadian preference",
+                    "role": "exogenous",
+                    "temporal_status": "time_invariant",
+                },
+            ],
+            "edges": [
+                {
+                    "cause": "Sleep",
+                    "effect": "Mood",
+                    "description": "Better sleep improves later mood",
+                    "lagged": True,
+                },
+                {
+                    "cause": "Chronotype",
+                    "effect": "Sleep",
+                    "description": "Chronotype shifts sleep quality",
+                    "lagged": False,
+                },
+                {
+                    "cause": "Chronotype",
+                    "effect": "Mood",
+                    "description": "Chronotype shifts mood vulnerability",
+                    "lagged": False,
+                },
+            ],
+        }
+        measurement_model = {
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": "sleep_score",
+                    "construct_name": "Sleep",
+                    "construct_polarity": "positive",
+                    "how_to_measure": "Extract the sleep score",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "source_columns": ["sleep_score"],
+                },
+                {
+                    "name": "mood_score",
+                    "construct_name": "Mood",
+                    "construct_polarity": "positive",
+                    "how_to_measure": "Extract the mood score",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "source_columns": ["mood_score"],
+                },
+            ],
+        }
+
+        output, feedback = stage1b_grounding(measurement_model, latent_model)
+
+        assert output is not None
+        assert feedback != "VALID"
+        non_identifiable = output["causal_spec"]["identifiability"][
+            "non_identifiable_treatments"
+        ]
+        assert non_identifiable["Sleep"]["confounders"] == ["Chronotype"]
+
     def test_invalid_schema(self, stage1b_simple_latent):
         """Invalid schema returns None stage_output."""
         from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
