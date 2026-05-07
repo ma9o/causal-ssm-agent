@@ -1,8 +1,7 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { useExportMarkdown } from "@/lib/hooks/use-export-markdown";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@causal-ssm/api-types";
-import { AlertTriangle, Check, Download, Loader2, X } from "lucide-react";
+import { AlertTriangle, Check, Loader2, X } from "lucide-react";
 import Link from "next/link";
 
 function formatWorkspaceIdBadge(workspaceId: string): string {
@@ -19,8 +18,6 @@ export function PipelineProgressBar({
   question?: string;
   workspaceId: string;
 }) {
-  const { exportToMarkdown } = useExportMarkdown(workspaceId);
-
   if (!progress) return null;
 
   const completed = STAGES.filter((s) => progress.stages[s.id] === "completed").length;
@@ -47,19 +44,6 @@ export function PipelineProgressBar({
             <span className="text-sm font-medium text-muted-foreground">
               {completed}/{STAGES.length} stages
             </span>
-            {completed > 0 && (
-              <Tooltip>
-                <TooltipTrigger
-                  onClick={exportToMarkdown}
-                  className="flex items-center justify-center rounded border bg-secondary/50 p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                >
-                  <Download className="h-3.5 w-3.5" />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <span className="text-xs">Export as Markdown</span>
-                </TooltipContent>
-              </Tooltip>
-            )}
           </div>
         </div>
         {question && (
