@@ -491,13 +491,19 @@ def collect_first_order_approximation_warnings(
         offdiag_mu=offdiag_mu,
     )
     diag_abs = np.abs(np.diag(taylor_drift))
-    positive_diag = diag_abs[diag_abs >= NUMERICAL_EPSILON]
-    if positive_diag.size == 0:
+    ti_mask = np.zeros_like(diag_abs, dtype=bool)
+    if ssm_spec.time_invariant_mask is not None:
+        candidate = np.asarray(ssm_spec.time_invariant_mask, dtype=bool)
+        if candidate.size == diag_abs.size:
+            ti_mask = candidate
+    eligible_mask = (diag_abs >= NUMERICAL_EPSILON) & ~ti_mask
+    if not np.any(eligible_mask):
         return []
-    min_diag = float(np.min(positive_diag))
+    eligible_indices = np.where(eligible_mask)[0]
+    min_diag = float(np.min(diag_abs[eligible_indices]))
     if min_diag < NUMERICAL_EPSILON:
         return []
-    min_diag_latent_idx = int(np.where(diag_abs == min_diag)[0][0])
+    min_diag_latent_idx = int(eligible_indices[int(np.argmin(diag_abs[eligible_indices]))])
     min_diag_flat_idx = structure_runtime.drift_base_decay_index.get(min_diag_latent_idx)
 
     min_diag_name = (
