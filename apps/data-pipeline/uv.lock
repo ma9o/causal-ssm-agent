@@ -584,7 +584,7 @@ requires-dist = [
     { name = "arviz", specifier = ">=0.19.0" },
     { name = "blackjax", specifier = ">=1.2.0" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
-    { name = "cuthbert", specifier = ">=0.0.3" },
+    { name = "cuthbert", specifier = ">=0.0.10" },
     { name = "equinox", specifier = ">=0.11.0" },
     { name = "exa-py", specifier = ">=1.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
@@ -962,15 +962,27 @@ wheels = [
 
 [[package]]
 name = "cuthbert"
-version = "0.0.3"
+version = "0.0.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cuthbertlib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/32/73/db7b45df65082173a536770106efbd4aacb4a86374bb2c5881c29b898235/cuthbert-0.0.10.tar.gz", hash = "sha256:60f79fdab8e761fae4389fc10066e87ad17a4bf245bf6bfe46709cd7531351cb", size = 34144, upload-time = "2026-04-22T15:45:12.021Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/40/99/4064a7b4bccdf0cea0fb783e2732b74bcb0c1c95138c5c039ec9f5461973/cuthbert-0.0.10-py3-none-any.whl", hash = "sha256:75fcd458c7fb005ac4deab0ec681b4f6267258801cdddb1b3001070a1e3058ca", size = 55964, upload-time = "2026-04-22T15:45:10.623Z" },
+]
+
+[[package]]
+name = "cuthbertlib"
+version = "0.0.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jax" },
     { name = "numba" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/59/f4a399f408dcd6b7e68962b90e2223123ce06f7f6d01ffa4a259aa905a3a/cuthbert-0.0.3.tar.gz", hash = "sha256:efc5ae581287dbc105bc3749bdb44c0f915f86379a13570491b73f0593071665", size = 52353, upload-time = "2026-02-03T11:37:46.072Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/51/91/31198f3548d3bdb0ba3eb54e8e640035a6ad569150bd9675c5177d40e033/cuthbertlib-0.0.10.tar.gz", hash = "sha256:d2c0fd989a83f6fdd27aa3a35598d47a61dce2d3dff59dedd7598fdd030602cc", size = 31539, upload-time = "2026-04-22T15:44:48.17Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/89/e7/4c9070826c8b7e8128f92ea60b22e2ee5d9d752e2424e0ff177eaae51006/cuthbert-0.0.3-py3-none-any.whl", hash = "sha256:4ec318c48433075798cd6746de0a9c6837ec6c7f8999b2f45a7157aefa033d4a", size = 82402, upload-time = "2026-02-03T11:37:44.54Z" },
+    { url = "https://files.pythonhosted.org/packages/05/98/116894b561da1be19244d2e674f5bc63b61a4417a59fa12c7600538449a2/cuthbertlib-0.0.10-py3-none-any.whl", hash = "sha256:98d88d6da55491a0d5bf1fd36d1eb482437bbe05968df89bda294db808c5e8df", size = 52016, upload-time = "2026-04-22T15:44:46.791Z" },
 ]
 
 [[package]]

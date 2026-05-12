@@ -30,6 +30,7 @@ import pytest
 
 from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
 from causal_ssm_agent.models.ssm.inference.parallel_kalman import (
+    aux_filter_lgssm,
     filter_lgssm,
     sample_lgssm_trajectory,
 )
@@ -150,13 +151,14 @@ def test_filter_matches_sequential_point_in_time():
     np.testing.assert_allclose(parallel.pred_cov, seq_pc, atol=1e-5, rtol=1e-5)
     # loglik accumulates jitter-induced mismatches across T steps; relax slightly.
     np.testing.assert_allclose(parallel.loglik, seq_ll, atol=1e-3, rtol=1e-4)
-    # Sequential fallback shares predict/update primitives with the reference
-    # implementation so it should match essentially bit-for-bit.
-    np.testing.assert_allclose(sequential.filt_mean, seq_fm, atol=1e-10, rtol=1e-10)
-    np.testing.assert_allclose(sequential.filt_cov, seq_fc, atol=1e-10, rtol=1e-10)
-    np.testing.assert_allclose(sequential.pred_mean, seq_pm, atol=1e-10, rtol=1e-10)
-    np.testing.assert_allclose(sequential.pred_cov, seq_pc, atol=1e-10, rtol=1e-10)
-    np.testing.assert_allclose(sequential.loglik, seq_ll, atol=1e-10, rtol=1e-10)
+    # The sequential flag now dispatches cuthbert's square-root scan rather
+    # than the old covariance-form local primitives, so compare numerically
+    # rather than bit-for-bit.
+    np.testing.assert_allclose(sequential.filt_mean, seq_fm, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(sequential.filt_cov, seq_fc, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(sequential.pred_mean, seq_pm, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(sequential.pred_cov, seq_pc, atol=1e-5, rtol=1e-5)
+    np.testing.assert_allclose(sequential.loglik, seq_ll, atol=1e-3, rtol=1e-4)
 
 
 def test_filter_matches_sequential_interval_summary():
@@ -231,14 +233,14 @@ def test_filter_matches_sequential_interval_summary():
     delta = 0.4
     u = 0.3 * random.normal(random.PRNGKey(1), (T, aug_dim), dtype=jnp.float64)
 
-    state = filter_lgssm(
+    state = aux_filter_lgssm(
         init_mean=init_mean_aug,
         init_cov=init_cov_aug,
         Fs=Ad_aug,
         Qs=Qd_aug,
         bs=cd_aug,
         pseudo_observations=u,
-        variance=0.5 * delta,
+        aux_variance=0.5 * delta,
     )
 
     Hs = jnp.broadcast_to(jnp.eye(aug_dim, dtype=jnp.float64), (T, aug_dim, aug_dim))
@@ -369,14 +371,14 @@ def test_filter_matches_sequential_with_auxiliary_variance():
     delta = 0.5
     u = 0.4 * random.normal(random.PRNGKey(21), (T, D), dtype=jnp.float64)
 
-    state = filter_lgssm(
+    state = aux_filter_lgssm(
         init_mean=init_mean,
         init_cov=init_cov,
         Fs=Fs,
         Qs=Qs,
         bs=bs,
         pseudo_observations=u,
-        variance=0.5 * delta,
+        aux_variance=0.5 * delta,
     )
     Hs = jnp.broadcast_to(jnp.eye(D, dtype=jnp.float64), (T, D, D))
     Rs = jnp.broadcast_to(0.5 * delta * jnp.eye(D, dtype=jnp.float64), (T, D, D))
@@ -397,14 +399,14 @@ def test_filter_matches_sequential_with_per_time_auxiliary_variance():
     variance = jnp.linspace(0.05, 0.35, T, dtype=jnp.float64)
     u = 0.25 * random.normal(random.PRNGKey(41), (T, D), dtype=jnp.float64)
 
-    state = filter_lgssm(
+    state = aux_filter_lgssm(
         init_mean=init_mean,
         init_cov=init_cov,
         Fs=Fs,
         Qs=Qs,
         bs=bs,
         pseudo_observations=u,
-        variance=variance,
+        aux_variance=variance,
     )
     Hs = jnp.broadcast_to(jnp.eye(D, dtype=jnp.float64), (T, D, D))
     Rs = variance[:, None, None] * jnp.eye(D, dtype=jnp.float64)[None, :, :]

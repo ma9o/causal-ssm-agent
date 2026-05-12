@@ -42,8 +42,6 @@ if TYPE_CHECKING:
 
     from cuthbert.smc.types import InitSample, LogPotential, PropagateSample
     from cuthbertlib.types import ArrayTree, ArrayTreeLike, KeyArray, ScalarArray
-    from jax import Array
-    from jax.typing import ArrayLike
 
     from causal_ssm_agent.models.ssm.inference.targets.base import (
         CTParams,
@@ -51,39 +49,12 @@ if TYPE_CHECKING:
         MeasurementParams,
     )
 # =============================================================================
-# JAX-native systematic resampling (gradient-safe on all platforms)
+# Systematic resampling via cuthbertlib (gradient-safe via stop_gradient on
+# weights — the resampling indices are integers with zero gradient).
 # =============================================================================
-#
-# cuthbert's built-in systematic resampling uses jax.pure_callback + numba on
-# CPU, which does not support JVP.  We replace it with a pure-JAX version that
-# uses jnp.searchsorted so that jax.grad can trace through the full PF
-# (resampling indices are integers → zero gradient, which is correct).
 
-
-def _systematic_resampling(key: KeyArray, logits: ArrayLike, n: int) -> Array:  # noqa: ARG001
-    """Systematic resampling using pure JAX ops (no pure_callback).
-
-    cuthbert's built-in systematic resampling uses jax.pure_callback + numba
-    on CPU, which blocks JVP and therefore jax.grad and gradient-based fitting.  This version uses
-    jnp.searchsorted directly, producing integer indices with zero gradient so
-    that the full PF log-normalizing-constant is differentiable.
-
-    Args:
-        key: JAX PRNG key.
-        logits: Log-weights, possibly un-normalized.  Shape (N,).
-        n: Number of indices to sample (must equal logits.shape[0]).
-
-    Returns:
-        Integer index array of shape (n,).
-    """
-    logits_ = jnp.asarray(logits)
-    N = logits_.shape[0]  # use static shape, not the traced `n` arg
-    weights = jnp.exp(logits_ - jax.nn.logsumexp(logits_))
-    cumsum = jnp.cumsum(weights)
-    us = (random.uniform(key, ()) + jnp.arange(N)) / N
-    idx = jnp.searchsorted(cumsum, us)
-    return jnp.clip(idx, 0, N - 1).astype(jnp.int64)
-
+from cuthbertlib.resampling.adaptive import ess_decorator
+from cuthbertlib.resampling.systematic import resampling as systematic_resampling
 
 # =============================================================================
 # SSMAdapter -- maps CTParams to PF-compatible functions
@@ -414,14 +385,20 @@ class ParticleLikelihood:
                 mask_float = mask.astype(jnp.float64)
                 return obs_kernel.emission_fn(obs, state, H, d_meas, R, mask_float)
 
-        # Build model_inputs with leading temporal dimension T.
+        # cuthbert >=0.0.5 convention: model_inputs has leading dim T+1, with
+        # model_inputs[0] consumed by init_sample (key-only here) and
+        # model_inputs[1..T] consumed by propagate_sample/log_potential.
+        def _prepend_init(steps: jnp.ndarray) -> jnp.ndarray:
+            head = jnp.zeros((1, *steps.shape[1:]), dtype=steps.dtype)
+            return jnp.concatenate([head, steps], axis=0)
+
         model_inputs = {
-            "observation": clean_obs,
-            "obs_mask": obs_mask.astype(jnp.float64),
-            "Ad": Ad,
-            "cd": cd,
-            "Qd": Qd,
-            "chol_Qd": chol_Qd,
+            "observation": _prepend_init(clean_obs),
+            "obs_mask": _prepend_init(obs_mask.astype(jnp.float64)),
+            "Ad": _prepend_init(Ad),
+            "cd": _prepend_init(cd),
+            "Qd": _prepend_init(Qd),
+            "chol_Qd": _prepend_init(chol_Qd),
         }
 
         # Build and run filter
@@ -430,13 +407,13 @@ class ParticleLikelihood:
             propagate_sample=cast("PropagateSample", propagate_sample),
             log_potential=cast("LogPotential", log_potential),
             n_filter_particles=self.n_particles,
-            resampling_fn=_systematic_resampling,
-            ess_threshold=self.ess_threshold,
+            resampling_fn=ess_decorator(systematic_resampling, threshold=self.ess_threshold),
         )
 
         states = cuthbert_filter(filter_obj, model_inputs, key=self.rng_key)
 
-        return states.log_normalizing_constant
+        # `log_normalizing_constant` has shape (T+1,); drop the init slot.
+        return states.log_normalizing_constant[1:]
 
     def _compute_support_aware_log_likelihood(
         self,
@@ -590,18 +567,29 @@ class ParticleLikelihood:
                 summary,
             )
 
+        # cuthbert >=0.0.5 convention: model_inputs has leading dim T+1.
+        def _prepend_init(steps: jnp.ndarray) -> jnp.ndarray:
+            head = jnp.zeros((1, *steps.shape[1:]), dtype=steps.dtype)
+            return jnp.concatenate([head, steps], axis=0)
+
         model_inputs = {
-            "observation": observations,
-            "obs_mask": obs_mask.astype(jnp.float64),
-            "Ad": Ad,
-            "cd": cd,
-            "Qd": Qd,
-            "chol_Qd": chol_Qd,
-            "support_prev_coeff": jnp.asarray(observation_operator.prev_coeffs, dtype=jnp.float64),
-            "support_curr_coeff": jnp.asarray(observation_operator.curr_coeffs, dtype=jnp.float64),
-            "support_weight": jnp.asarray(observation_operator.interval_weights, dtype=jnp.float64),
-            "support_emission_slot": jnp.asarray(
-                observation_operator.emission_slots, dtype=jnp.int64
+            "observation": _prepend_init(observations),
+            "obs_mask": _prepend_init(obs_mask.astype(jnp.float64)),
+            "Ad": _prepend_init(Ad),
+            "cd": _prepend_init(cd),
+            "Qd": _prepend_init(Qd),
+            "chol_Qd": _prepend_init(chol_Qd),
+            "support_prev_coeff": _prepend_init(
+                jnp.asarray(observation_operator.prev_coeffs, dtype=jnp.float64)
+            ),
+            "support_curr_coeff": _prepend_init(
+                jnp.asarray(observation_operator.curr_coeffs, dtype=jnp.float64)
+            ),
+            "support_weight": _prepend_init(
+                jnp.asarray(observation_operator.interval_weights, dtype=jnp.float64)
+            ),
+            "support_emission_slot": _prepend_init(
+                jnp.asarray(observation_operator.emission_slots, dtype=jnp.int64)
             ),
         }
 
@@ -610,9 +598,8 @@ class ParticleLikelihood:
             propagate_sample=cast("PropagateSample", propagate_sample),
             log_potential=cast("LogPotential", log_potential),
             n_filter_particles=self.n_particles,
-            resampling_fn=_systematic_resampling,
-            ess_threshold=self.ess_threshold,
+            resampling_fn=ess_decorator(systematic_resampling, threshold=self.ess_threshold),
         )
 
         states = cuthbert_filter(filter_obj, model_inputs, key=self.rng_key)
-        return states.log_normalizing_constant
+        return states.log_normalizing_constant[1:]
