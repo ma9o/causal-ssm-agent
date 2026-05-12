@@ -187,6 +187,7 @@ _PER_T_FIELD_NAMES = (
     "log_alpha_obs_per_t",
     "log_alpha_fwd_minus_rev_per_t",
     "log_alpha_q_per_t",
+    "log_alpha_global",
     "log_alpha",
 )
 
@@ -205,6 +206,8 @@ class _AuxGibbsRunnerStatic:
     trajectory_log_prob_from_context_runtime_fn: Any
     complete_log_posterior_runtime_fn: Any
     dim: int
+    latent_kernel_name: str
+    latent_step_fn: Any
     latent_proposal_family: str
     latent_parallel_filter: bool
     parameter_preconditioned: bool
@@ -325,6 +328,9 @@ def _run_batched_aux_gibbs_latent_step(
     *,
     static: _AuxGibbsRunnerStatic,
 ) -> tuple[AuxGibbsState, dict[str, jnp.ndarray]]:
+    if static.latent_kernel_name == "particle_mgrad":
+        return jax.vmap(static.latent_step_fn)(states, step_keys)
+
     if static.latent_proposal_family == "eq8":
 
         def step_fn(state, key):
@@ -362,7 +368,11 @@ def _run_batched_aux_gibbs_latent_step(
                 observation_log_prob_and_grad_from_context_runtime_fn=(
                     static.observation_log_prob_and_grad_from_context_runtime_fn
                 ),
+                observation_log_prob_per_t_from_context_runtime_fn=(
+                    static.observation_log_prob_per_t_from_context_runtime_fn
+                ),
                 parallel=static.latent_parallel_filter,
+                emit_per_t_log_alpha=static.emit_per_t_log_alpha,
             )
 
     return jax.vmap(step_fn)(states, step_keys)
@@ -522,6 +532,14 @@ def run_aux_gibbs(
         "project_latent_trajectory_fn",
         _identity_project_latent_trajectory,
     )
+    latent_kernel_name = latent_kernel.get("name", "kalman")
+    if latent_kernel_name not in {"kalman", "particle_mgrad"}:
+        raise ValueError(
+            f"Unsupported latent kernel name {latent_kernel_name!r}; "
+            "expected 'kalman' or 'particle_mgrad'."
+        )
+    if latent_kernel_name == "particle_mgrad" and latent_kernel.get("step_fn") is None:
+        raise ValueError("particle_mgrad latent kernel requires a 'step_fn'.")
     latent_target_accept = latent_kernel["target_accept"]
     param_target_accept = parameter_kernel["target_accept"]
     initial_latent_scale_value = latent_kernel.get(
@@ -596,6 +614,8 @@ def run_aux_gibbs(
             ](z, latent_trajectory),
         ),
         dim=int(bundle["flat_example"].shape[0]),
+        latent_kernel_name=latent_kernel_name,
+        latent_step_fn=latent_kernel.get("step_fn"),
         latent_proposal_family=latent_kernel.get("proposal_family", "eq8"),
         latent_parallel_filter=bool(latent_kernel.get("parallel", True)),
         parameter_preconditioned=bool(parameter_kernel.get("preconditioned", False)),
