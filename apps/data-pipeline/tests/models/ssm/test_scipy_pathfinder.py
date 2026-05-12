@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import ClassVar
 
 import numpy as np
 
@@ -50,6 +51,75 @@ def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch)
     assert per_start["n_lbfgs_iterations"] == 2
     assert per_start["n_valid_iterates"] == 2
     assert np.isfinite(result.best_elbo)
+
+
+def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
+    class _ImmediateFuture:
+        def __init__(self, value):
+            self._value = value
+
+        def result(self):
+            return self._value
+
+    class _RecordingExecutor:
+        instances: ClassVar[list] = []
+
+        def __init__(self, max_workers):
+            self.max_workers = max_workers
+            self.submissions = []
+            self.instances.append(self)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def submit(self, fn, *args, **kwargs):
+            self.submissions.append((fn, args, kwargs))
+            return _ImmediateFuture(fn(*args, **kwargs))
+
+    def log_post_and_grad_fn(x: np.ndarray) -> tuple[float, np.ndarray]:
+        x_np = np.asarray(x, dtype=np.float64)
+        return float(-0.5 * np.dot(x_np, x_np)), -x_np
+
+    def fake_minimize(fun, x0, jac, method, callback=None, options=None):
+        del jac, options
+        assert method == "L-BFGS-B"
+        assert callback is not None
+        accepted = np.asarray(x0, dtype=np.float64) * 0.5
+        final_fun, _final_grad = fun(accepted)
+        callback(accepted)
+        return SimpleNamespace(
+            x=accepted,
+            fun=float(final_fun),
+            nit=1,
+            status=0,
+            success=True,
+            hess_inv=None,
+        )
+
+    monkeypatch.setattr(scipy_pathfinder_module, "ThreadPoolExecutor", _RecordingExecutor)
+    monkeypatch.setattr(scipy_pathfinder_module.scipy.optimize, "minimize", fake_minimize)
+
+    result = scipy_pathfinder(
+        log_post_and_grad_fn,
+        [
+            np.array([1.0], dtype=np.float64),
+            np.array([2.0], dtype=np.float64),
+            np.array([3.0], dtype=np.float64),
+        ],
+        maxiter=2,
+        elbo_samples=4,
+        parallel_workers=2,
+        seed=0,
+    )
+
+    executor = _RecordingExecutor.instances[0]
+    assert executor.max_workers == 2
+    assert len(executor.submissions) == 3
+    assert result.diagnostics["parallel_workers"] == 2
+    assert [item["start_idx"] for item in result.diagnostics["per_start"]] == [0, 1, 2]
 
 
 def test_scipy_pathfinder_finds_valid_custom_iterates_on_gaussian_target():
