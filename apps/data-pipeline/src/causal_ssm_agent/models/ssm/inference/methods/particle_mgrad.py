@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 import blackjax.vi.pathfinder as pathfinder
 import jax
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 
 from causal_ssm_agent.models.ssm.inference.methods.map import _build_map_laplace_bundle
 from causal_ssm_agent.models.ssm.inference.shared import _filter_public_samples
@@ -20,6 +23,23 @@ from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
 )
 from causal_ssm_agent.models.ssm.inference.types import InferenceResult
 from causal_ssm_agent.models.ssm.inference.utils import extract_constrained_samples
+
+logger = logging.getLogger(__name__)
+
+
+def _phase_elapsed(t0: float) -> float:
+    return time.monotonic() - t0
+
+
+def _scalar_or_summary(value: Any) -> str:
+    try:
+        return f"{float(value):.4g}"
+    except (TypeError, ValueError):
+        try:
+            arr = np.asarray(value, dtype=float)
+            return f"mean={float(arr.mean()):.4g}, shape={tuple(arr.shape)}"
+        except (TypeError, ValueError):
+            return repr(value)[:64]
 
 
 def _pathfinder_init_positions(
@@ -145,7 +165,6 @@ def _fit_particle_latent_mcmc(
     latent_delta_min: float | None,
     latent_delta_max: float | None,
     latent_target_accept: float,
-    backward_sampling: bool,
     parameter_preconditioner_chol: jnp.ndarray | None,
     parameter_kernel: str,
     param_step_size: float,
@@ -174,8 +193,29 @@ def _fit_particle_latent_mcmc(
             "Supported: 'random' or 'pathfinder'."
         )
 
+    overall_t0 = time.monotonic()
+    T_time_log = int(observations.shape[0])
+    n_manifest_log = int(observations.shape[1]) if observations.ndim >= 2 else 0
+    logger.info(
+        "%s entry: chains=%d warmup=%d samples=%d T=%d n_manifest=%d "
+        "init_method=%s n_particles=%d parameter_kernel=%s adaptation_scheme=%s",
+        method_name,
+        num_chains,
+        num_warmup,
+        num_samples,
+        T_time_log,
+        n_manifest_log,
+        init_method,
+        num_particles,
+        parameter_kernel,
+        adaptation_scheme,
+    )
+
     base_key = random.PRNGKey(seed)
     trace_key, pathfinder_key, pf_sample_key = random.split(base_key, 3)
+
+    phase_t0 = time.monotonic()
+    logger.info("phase 1/5: building auxiliary Kalman bundle...")
     bundle = build_auxiliary_kalman_bundle(
         model,
         observations,
@@ -183,12 +223,26 @@ def _fit_particle_latent_mcmc(
         trace_key=trace_key,
         reparam=reparam,
     )
+    logger.info(
+        "phase 1/5: bundle ready in %.1fs (dim=%d, public_sites=%d)",
+        _phase_elapsed(phase_t0),
+        int(bundle["flat_example"].shape[0]),
+        len(bundle.get("public_sites", [])),
+    )
+
+    phase_t0 = time.monotonic()
+    logger.info(
+        "phase 2/5: building PIT dSMC particle-mGRAD latent kernel + MALA "
+        "parameter kernel (num_particles=%d, latent_delta=%.4g, param_step_size=%.4g)...",
+        num_particles,
+        float(latent_delta),
+        float(param_step_size),
+    )
     latent_kernel_spec = build_particle_mgrad_latent_kernel(
         bundle,
         delta=latent_delta,
         target_accept=latent_target_accept,
         num_particles=num_particles,
-        backward_sampling=backward_sampling,
         min_scale=latent_delta_min,
         max_scale=latent_delta_max,
     )
@@ -199,7 +253,9 @@ def _fit_particle_latent_mcmc(
         target_accept=param_target_accept,
         preconditioner_chol=parameter_preconditioner_chol,
     )
+    logger.info("phase 2/5: kernel specs ready in %.1fs", _phase_elapsed(phase_t0))
 
+    phase_t0 = time.monotonic()
     init_positions = None
     init_diagnostics: dict[str, Any] = {"init_method": init_method}
     if initial_positions_override is not None:
@@ -210,7 +266,19 @@ def _fit_particle_latent_mcmc(
                 f"{init_positions.shape}"
             )
         init_diagnostics = {"init_method": "user_provided"}
+        logger.info(
+            "phase 3/5: init positions = user_provided override (%.1fs)",
+            _phase_elapsed(phase_t0),
+        )
     elif init_method == "pathfinder":
+        logger.info(
+            "phase 3/5: blackjax-pathfinder warmup (n_starts=%d, maxiter=%d, "
+            "n_ieks_iters=%d, elbo_samples=%d)...",
+            n_pathfinder_starts,
+            pathfinder_maxiter,
+            n_ieks_iters,
+            pathfinder_num_elbo_samples,
+        )
         init_positions, init_diagnostics = _pathfinder_init_positions(
             model,
             observations,
@@ -228,7 +296,27 @@ def _fit_particle_latent_mcmc(
             pathfinder_init_scale=pathfinder_init_scale,
             method_label=method_name,
         )
+        best_elbo_log = init_diagnostics.get("best_pathfinder_elbo")
+        logger.info(
+            "phase 3/5: pathfinder init complete in %.1fs (best_elbo=%s, "
+            "n_starts_finite=%s, sampling_mode=%s)",
+            _phase_elapsed(phase_t0),
+            f"{best_elbo_log:.2f}" if isinstance(best_elbo_log, (int, float)) else "n/a",
+            init_diagnostics.get("n_pathfinder_starts_finite", "n/a"),
+            init_diagnostics.get("pathfinder_sampling_mode")
+            or init_diagnostics.get("init_method"),
+        )
+    else:
+        logger.info(
+            "phase 3/5: init_method=random — chains start from prior draws (%.1fs)",
+            _phase_elapsed(phase_t0),
+        )
 
+    phase_t0 = time.monotonic()
+    logger.info(
+        "phase 4/5: starting MCMC kernel — first call triggers JAX JIT compile of "
+        "the divide-and-conquer particle smoother (PIT dSMC) + MALA + adaptation.",
+    )
     run_result = run_aux_gibbs(
         bundle,
         latent_kernel=latent_kernel_spec,
@@ -244,7 +332,20 @@ def _fit_particle_latent_mcmc(
         init_positions=init_positions,
         compute_latent_posterior_summary=compute_latent_posterior_summary,
     )
+    latent_acc = float(jnp.mean(run_result["chain_extra_fields"]["latent_accept_prob"]))
+    param_acc = float(jnp.mean(run_result["chain_extra_fields"]["parameter_accept_prob"]))
+    logger.info(
+        "phase 4/5: MCMC kernel complete in %.1fs (latent_update_fraction=%.3f, "
+        "param_acc=%.3f, final_latent_delta=%s, final_param_step_size=%s)",
+        _phase_elapsed(phase_t0),
+        latent_acc,
+        param_acc,
+        _scalar_or_summary(run_result["final_latent_delta"]),
+        _scalar_or_summary(run_result["final_param_step_size"]),
+    )
 
+    phase_t0 = time.monotonic()
+    logger.info("phase 5/5: extracting + filtering public posterior samples...")
     flat_particles = run_result["grouped_positions"].reshape((-1, bundle["dim"]))
     constrained_samples = extract_constrained_samples(
         flat_particles,
@@ -270,9 +371,10 @@ def _fit_particle_latent_mcmc(
     )
     kernel_diagnostics = {
         "latent_kernel": "particle_mgrad",
+        "latent_kernel_algorithm": "pit_dsmc",
+        "parallel_time": True,
         "parameter_kernel": parameter_kernel,
         particle_count_diagnostic_key: num_particles,
-        "backward_sampling": backward_sampling,
         "adaptation_scheme": adaptation_scheme,
         "latent_update_fraction": float(
             jnp.mean(run_result["chain_extra_fields"]["latent_accept_prob"])
@@ -300,6 +402,16 @@ def _fit_particle_latent_mcmc(
     if run_result["latent_paths"] is not None:
         diagnostics["latent_paths"] = run_result["latent_paths"]
 
+    logger.info(
+        "phase 5/5: posterior extraction complete in %.1fs (n_public_sites=%d, "
+        "draws_per_chain=%d). %s total: %.1fs",
+        _phase_elapsed(phase_t0),
+        len(grouped_public_samples),
+        num_samples,
+        method_name,
+        _phase_elapsed(overall_t0),
+    )
+
     return InferenceResult(
         _samples=mcmc.get_samples(),
         method=method_name,
@@ -321,7 +433,6 @@ def fit_particle_mgrad(
     latent_delta_max: float | None = None,
     latent_target_accept: float = 0.5,
     n_particles: int = 25,
-    backward_sampling: bool = True,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
     parameter_kernel: str = "mala",
     param_step_size: float = 0.05,
@@ -358,7 +469,6 @@ def fit_particle_mgrad(
         latent_delta_min=latent_delta_min,
         latent_delta_max=latent_delta_max,
         latent_target_accept=latent_target_accept,
-        backward_sampling=backward_sampling,
         parameter_preconditioner_chol=parameter_preconditioner_chol,
         parameter_kernel=parameter_kernel,
         param_step_size=param_step_size,

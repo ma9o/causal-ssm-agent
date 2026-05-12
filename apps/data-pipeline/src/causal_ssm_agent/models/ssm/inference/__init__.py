@@ -4,7 +4,8 @@ Separates inference from model definition. SSMModel defines the probabilistic
 model; this module provides fit() to run inference with the supported backends.
 
 Available methods:
-- Particle-mGRAD: blocked complete-data updates with marginal Particle-mGRAD latent proposals.
+- Particle-mGRAD: blocked complete-data updates with PIT dSMC Particle-mGRAD
+  latent proposals.
 - Auxiliary Gibbs: blocked complete-data updates with auxiliary Kalman latent proposals.
 - MAP: L-BFGS mode finding + Laplace Gaussian parameter posterior.
 - SVI: Fast approximate posterior via ELBO optimization.

@@ -19,7 +19,7 @@ For SSMs with T timesteps and n latent dimensions, this integral is over an `(n 
 | `map` | Marginalized | Kalman or IEKS/Laplace approximate marginal likelihood | L-BFGS-B mode plus local Gaussian posterior | Deterministic local fit |
 | `svi` | Marginalized | NumPyro ELBO over the model target | Auto-guide optimization | Fast approximate posterior exploration |
 | `aux_gibbs` | Complete-data Gibbs | Auxiliary Kalman latent trajectory proposal | MALA parameter kernel | Default blocked MCMC fit |
-| `particle_mgrad` | Complete-data Gibbs | Marginal Particle-mGRAD latent trajectory proposal | MALA parameter kernel | Particle latent updates for non-Gaussian/support-aware likelihood paths |
+| `particle_mgrad` | Complete-data Gibbs | PIT dSMC Particle-mGRAD latent trajectory proposal | MALA parameter kernel | Particle latent updates for non-Gaussian/support-aware likelihood paths |
 
 ## Structural Routing
 
@@ -37,7 +37,7 @@ Routing still computes the likelihood path because the runtime and frontend need
 |---|---|---|
 | Fast approximate posterior while iterating on a model | `svi` | ELBO optimization is usually cheaper than MCMC. |
 | Blocked MCMC with Gaussian latent diffusion and Kalman-style auxiliary proposals | `aux_gibbs` | Alternates latent trajectory and parameter updates without relying on a marginal likelihood sampler. |
-| Blocked MCMC with particle latent proposals | `particle_mgrad` | Uses the marginal Particle-mGRAD latent kernel, which is the retained particle trajectory MCMC path. |
+| Blocked MCMC with particle latent proposals | `particle_mgrad` | Uses the retained Particle-mGRAD latent kernel with divide-and-conquer conditional particle smoothing. |
 
 ## First-Pass Rao-Blackwellization
 
@@ -81,8 +81,8 @@ First-pass RB is disabled when:
 
 ### Particle-mGRAD
 
-`particle_mgrad` alternates the marginal Particle-mGRAD latent trajectory kernel with a MALA parameter update. Compared with `aux_gibbs`, the retained particle method uses particle trajectory proposals and marginal Particle-mGRAD weights rather than the auxiliary Kalman latent kernel.
+`particle_mgrad` alternates a PIT dSMC Particle-mGRAD latent trajectory kernel with a MALA parameter update. The latent block draws Particle-mGRAD auxiliary pseudo-observations, proposes independent particles at each time point, and stitches partial trajectories with a divide-and-conquer conditional particle smoother instead of the auxiliary Kalman latent kernel.
 
 **When to use:** Complete-data MCMC when the retained particle latent kernel is needed, especially for particle/support-aware likelihood paths.
 
-**Limitations:** Requires tuning the latent step scale and particle count. It is typically more expensive per iteration than `aux_gibbs`.
+**Limitations:** Requires tuning the latent step scale and particle count. The dSMC tree has logarithmic parallel depth in the number of time points, but each stitch performs particle-pair weighting and the wall-clock gain depends on JAX compilation and available parallel hardware.
