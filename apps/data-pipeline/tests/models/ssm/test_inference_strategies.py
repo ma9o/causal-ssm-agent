@@ -2988,6 +2988,49 @@ def test_aux_gibbs_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
+@pytest.mark.parametrize("adaptation_scheme", ["simple", "dual_averaging"])
+def test_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_scheme):
+    """After warmup, per-t δ_t should differ across t in at least one chain.
+
+    This locks in the dispatch through ``latent_kernel['step_fn']``: if
+    particle_mgrad were silently falling back to eq8 aux-Kalman (global
+    scalar accept), the per_time_constant init would still produce a (T,)
+    vector but all elements would stay locked together.
+    """
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="particle_mgrad",
+        num_warmup=40,
+        num_samples=5,
+        num_chains=2,
+        seed=21,
+        latent_delta=0.2,
+        latent_target_accept=0.5,
+        n_particles=8,
+        param_step_size=0.03,
+        init_scale=0.01,
+        adaptation_scheme=adaptation_scheme,
+    )
+
+    final_latent_delta = np.asarray(result.diagnostics["particle_mgrad"]["final_latent_delta"])
+    assert result.diagnostics["particle_mgrad"]["latent_kernel_algorithm"] == "pit_dsmc"
+    assert result.diagnostics["particle_mgrad"]["parallel_time"] is True
+    assert final_latent_delta.shape == (2, 3)
+    assert np.all(np.isfinite(final_latent_delta))
+    per_chain_spread = final_latent_delta.max(axis=1) - final_latent_delta.min(axis=1)
+    assert per_chain_spread.max() > 1e-3, (
+        f"per-t δ_t did not diverge across t under {adaptation_scheme!r} adaptation; "
+        f"final_latent_delta={final_latent_delta!r}"
+    )
+
+
 def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
     spec = _make_aux_gibbs_smoke_spec()
     model = SSMModel(spec, likelihood="kalman")
