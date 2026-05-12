@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 ROOT = Path(__file__).resolve().parents[3]  # -> apps/data-pipeline/
-GPU_A100_80GB = modal.gpu.A100(size="80GB")
+GPU_A100_80GB = "A100-80GB"
 
 cpu_image = (
     modal.Image.debian_slim(python_version="3.12")
