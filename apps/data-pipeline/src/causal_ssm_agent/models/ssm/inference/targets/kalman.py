@@ -121,39 +121,50 @@ class KalmanLikelihood:
             observations, measurement_params.manifest_cov, obs_mask
         )
 
+        # cuthbert is strict about scan-carry dtype consistency. Pin every
+        # model input to the observation dtype so init/dynamics carries match.
+        dtype = jnp.asarray(observations).dtype
+
+        T = len(time_intervals)
+
         # Pre-discretize CT params for all time intervals
         # Ad: (T, n, n), Qd: (T, n, n), cd: (T, n) or None
         Ad, Qd, cd = discretize_system_batched(
             ct_params.drift, ct_params.diffusion_cov, ct_params.cint, time_intervals
         )
         if cd is None:
-            cd = jnp.zeros((len(time_intervals), n))
+            cd = jnp.zeros((T, n), dtype=dtype)
 
         # Cholesky factors for cuthbert (square-root form)
-        jitter = jnp.eye(n) * 1e-6
-        chol_Qd = jla.cholesky(Qd + jitter, lower=True)  # (T, n, n)
+        jitter = jnp.eye(n, dtype=dtype) * 1e-6
+        chol_Qd = jla.cholesky(Qd.astype(dtype) + jitter, lower=True)  # (T, n, n)
 
-        m_jitter = jnp.eye(m) * 1e-6
-        chol_R = jla.cholesky(R_adjusted + m_jitter, lower=True)  # (T, m, m)
+        m_jitter = jnp.eye(m, dtype=dtype) * 1e-6
+        chol_R = jla.cholesky(R_adjusted.astype(dtype) + m_jitter, lower=True)  # (T, m, m)
 
-        chol_P0 = jla.cholesky(initial_state.cov + jitter, lower=True)  # (n, n)
+        chol_P0 = jla.cholesky(initial_state.cov.astype(dtype) + jitter, lower=True)  # (n, n)
 
-        # Build model_inputs with leading temporal dimension T.
-        # cuthbert convention: model_inputs[0] → init_prepare (initial state + first obs)
-        # model_inputs[k] for k≥1 → dynamics from k-1→k + obs k
-        H = measurement_params.lambda_mat  # (m, n)
-        d = measurement_params.manifest_means  # (m,)
+        # cuthbert >=0.0.5 convention: `model_inputs` has leading dim T+1, with
+        # model_inputs[0] consumed by init_prepare (only m0/chol_P0 read) and
+        # model_inputs[1..T] consumed by filter_prepare (one observation each).
+        # Prepend a dummy zero-valued step at index 0 for the init slot.
+        H = measurement_params.lambda_mat.astype(dtype)  # (m, n)
+        d = measurement_params.manifest_means.astype(dtype)  # (m,)
+
+        def _prepend_init(steps: jnp.ndarray, init: jnp.ndarray | None = None) -> jnp.ndarray:
+            head = jnp.zeros((1, *steps.shape[1:]), dtype=dtype) if init is None else init[None]
+            return jnp.concatenate([head, steps], axis=0)
 
         model_inputs = {
-            "m0": jnp.broadcast_to(initial_state.mean, (len(time_intervals), n)),
-            "chol_P0": jnp.broadcast_to(chol_P0, (len(time_intervals), n, n)),
-            "F": Ad,
-            "c": cd,
-            "chol_Q": chol_Qd,
-            "H": jnp.broadcast_to(H, (len(time_intervals), m, n)),
-            "d": jnp.broadcast_to(d, (len(time_intervals), m)),
-            "chol_R": chol_R,
-            "y": clean_obs,
+            "m0": jnp.broadcast_to(initial_state.mean.astype(dtype), (T + 1, n)),
+            "chol_P0": jnp.broadcast_to(chol_P0, (T + 1, n, n)),
+            "F": _prepend_init(Ad.astype(dtype)),
+            "c": _prepend_init(cd.astype(dtype)),
+            "chol_Q": _prepend_init(chol_Qd),
+            "H": _prepend_init(jnp.broadcast_to(H, (T, m, n))),
+            "d": _prepend_init(jnp.broadcast_to(d, (T, m))),
+            "chol_R": _prepend_init(chol_R),
+            "y": _prepend_init(clean_obs.astype(dtype)),
         }
 
         # Moments filter callbacks for linear model.
@@ -204,13 +215,18 @@ class KalmanLikelihood:
 
         states = cuthbert_filter(filter_obj, model_inputs)
 
+        # `states.log_normalizing_constant` has shape (T+1,) under the new
+        # convention: index 0 is the init slot (no observation processed),
+        # indices 1..T are the cumulative log-Z over the T observations.
+        lnc_filter = states.log_normalizing_constant[1:]
+
         # cuthbert still includes the normalization constant from the inflated
         # missing dimensions. Remove that additive term so masked channels
         # contribute zero, matching the particle and RB paths.
-        n_missing = m - jnp.sum(obs_mask.astype(clean_obs.dtype), axis=1)
+        n_missing = m - jnp.sum(obs_mask.astype(dtype), axis=1)
         missing_correction = 0.5 * n_missing * jnp.log(2.0 * jnp.pi * MISSING_DATA_LARGE_VAR)
 
-        lnc = states.log_normalizing_constant + jnp.cumsum(missing_correction)
+        lnc = lnc_filter + jnp.cumsum(missing_correction)
         aux = build_likelihood_eval_aux(
             clean_obs.dtype,
             solver_kind=LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT,

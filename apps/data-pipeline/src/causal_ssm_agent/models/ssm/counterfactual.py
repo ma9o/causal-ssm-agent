@@ -583,29 +583,38 @@ def _kalman_smooth_states(
 
     T, n_m = observations.shape
     n = Ad.shape[1]
-    jitter_n = 1e-6 * jnp.eye(n)
-    jitter_m = 1e-6 * jnp.eye(n_m)
+    dtype = jnp.asarray(observations).dtype
+    jitter_n = 1e-6 * jnp.eye(n, dtype=dtype)
+    jitter_m = 1e-6 * jnp.eye(n_m, dtype=dtype)
 
     # Handle missing data: NaN → 0, inflate R for missing observations
     clean_obs, R_adjusted, _obs_mask = preprocess_missing_data(observations, R, None)
 
     # Cholesky factors for cuthbert (square-root form)
-    chol_Qd = vmap(lambda Q: jnp.linalg.cholesky(Q + jitter_n))(Qd)
-    chol_R = jnp.linalg.cholesky(R_adjusted + jitter_m)  # (T, n_m, n_m)
-    chol_P0 = jnp.linalg.cholesky(init_cov + jitter_n)
+    chol_Qd = vmap(lambda Q: jnp.linalg.cholesky(Q.astype(dtype) + jitter_n))(Qd)
+    chol_R = jnp.linalg.cholesky(R_adjusted.astype(dtype) + jitter_m)  # (T, n_m, n_m)
+    chol_P0 = jnp.linalg.cholesky(init_cov.astype(dtype) + jitter_n)
 
-    # model_inputs with leading dim T (cuthbert convention:
-    # [0] → init_prepare, [k>=1] → dynamics k-1→k + obs k)
+    # cuthbert >=0.0.5 convention: model_inputs has leading dim T+1, with
+    # model_inputs[0] consumed by init_prepare (only m0/chol_P0 read) and
+    # model_inputs[1..T] consumed by filter_prepare (one observation each).
+    H_arr = H.astype(dtype)
+    d_arr = d.astype(dtype)
+
+    def _prepend_init(steps: jnp.ndarray) -> jnp.ndarray:
+        head = jnp.zeros((1, *steps.shape[1:]), dtype=dtype)
+        return jnp.concatenate([head, steps], axis=0)
+
     model_inputs = {
-        "m0": jnp.broadcast_to(init_mean, (T, n)),
-        "chol_P0": jnp.broadcast_to(chol_P0, (T, n, n)),
-        "F": Ad,
-        "c": cd,
-        "chol_Q": chol_Qd,
-        "H": jnp.broadcast_to(H, (T, n_m, n)),
-        "d": jnp.broadcast_to(d, (T, n_m)),
-        "chol_R": chol_R,
-        "y": clean_obs,
+        "m0": jnp.broadcast_to(init_mean.astype(dtype), (T + 1, n)),
+        "chol_P0": jnp.broadcast_to(chol_P0, (T + 1, n, n)),
+        "F": _prepend_init(Ad.astype(dtype)),
+        "c": _prepend_init(cd.astype(dtype)),
+        "chol_Q": _prepend_init(chol_Qd),
+        "H": _prepend_init(jnp.broadcast_to(H_arr, (T, n_m, n))),
+        "d": _prepend_init(jnp.broadcast_to(d_arr, (T, n_m))),
+        "chol_R": _prepend_init(chol_R),
+        "y": _prepend_init(clean_obs.astype(dtype)),
     }
 
     # Callbacks matching KalmanLikelihood pattern
@@ -650,7 +659,8 @@ def _kalman_smooth_states(
     )
     smoothed_states = cuthbert_smoother(smoother_obj, filter_states)
 
-    return smoothed_states.mean
+    # Drop the init slot (index 0) so the returned array has shape (T, n).
+    return smoothed_states.mean[1:]
 
 
 def _try_smoother(
