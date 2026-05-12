@@ -21,6 +21,7 @@ adaptation in ``run_aux_gibbs`` can tune each scale against its own target.
 from __future__ import annotations
 
 import functools
+import os
 from typing import Any, NamedTuple
 
 import jax
@@ -303,6 +304,37 @@ def _shifted_auxiliary_pseudo_observations(
 ) -> jnp.ndarray:
     """Return the eq-10/11 shifted pseudo-observations ``u + (delta/2) grad``."""
     return u + half_delta_bcast * grad
+
+
+_TULAC_H = float(os.environ.get("TULAC_H", "0.1"))
+"""Fixed taming threshold for ``_tame_gradient_tulac``.
+
+Chosen so that "well-behaved" gradients (``|grad| ≪ 10``) are essentially
+untouched while extreme gradients (``|grad| ≫ 10``) saturate at ``1/h = 10``.
+A fixed ``h`` is critical: tying ``h`` to the step size ``δ/2`` would mean
+the bounded pseudo-observation perturbation ``(δ/2) * T(grad)`` stays at ±1
+per coordinate regardless of δ — so adaptation could shrink δ to the floor
+without ever shrinking the proposal magnitude. With fixed ``h = 0.1`` the
+bound is ``5 * δ`` per coord, which actually scales down with adaptation.
+
+The env var ``TULAC_H`` overrides the default for sweep experiments."""
+
+
+def _tame_gradient_tulac(grad: jnp.ndarray) -> jnp.ndarray:
+    """Coordinatewise tamed gradient (TULAc, Brosse et al. 2017): ``g_i / (1 + h * |g_i|)``.
+
+    Recovers ``grad`` when ``h * |grad| ≪ 1`` and saturates each component at
+    ``sign(g_i) / h`` when ``|g_i|`` is huge. With fixed ``h = _TULAC_H``
+    (currently 0.1), the resulting pseudo-observation perturbation
+    ``(δ/2) * T(grad)`` is bounded by ``5 * δ`` per coordinate — proportional
+    to the step size so adaptation can actually shrink it.
+
+    Prevents superlinear blow-up from log-link observations (Poisson / NB /
+    Gamma with ``exp`` link) from poisoning the MH ratio. Applied identically
+    on forward and reverse passes, so the auxiliary-Kalman MH ratio remains
+    correct — the proposal kernel is just a different (still valid) kernel.
+    """
+    return grad / (1.0 + _TULAC_H * jnp.abs(grad))
 
 
 def build_auxiliary_kalman_bundle(
@@ -1005,6 +1037,10 @@ def _latent_mh_step_eq8_runtime(
         observation_grad_from_context_runtime_fn=observation_grad_from_context_runtime_fn,
     )
 
+    # TULAc coordinatewise gradient taming (fixed h, see _TULAC_H). Prevents
+    # log-link observation gradients from poisoning the MH ratio. Applied to
+    # both ``grad_curr`` and (later) ``grad_prop`` with the same threshold.
+    grad_curr = _tame_gradient_tulac(grad_curr)
     u = (
         x_curr
         + half_delta_bcast * grad_curr
@@ -1058,6 +1094,8 @@ def _latent_mh_step_eq8_runtime(
         runtime_observations,
     )
     grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
+    # TULAc taming on the proposal-side gradient (same fixed h as grad_curr).
+    grad_prop = _tame_gradient_tulac(grad_prop)
     prior_prop = _trajectory_prior_log_prob_from_terms(
         x_prop,
         context.Ad,
@@ -1160,7 +1198,9 @@ def _latent_mh_step_eq10_11_runtime(
     log_prior_unc_fn,
     observation_grad_from_context_runtime_fn,
     observation_log_prob_and_grad_from_context_runtime_fn,
+    observation_log_prob_per_t_from_context_runtime_fn=None,
     parallel: bool,
+    emit_per_t_log_alpha: bool = False,
 ):
     aux_key, sample_key, accept_key = random.split(key, 3)
     (
@@ -1189,7 +1229,12 @@ def _latent_mh_step_eq10_11_runtime(
         x_curr.shape,
         dtype=latent_dtype,
     )
-    pseudo_obs_fwd = _shifted_auxiliary_pseudo_observations(u, grad_curr, half_delta_bcast)
+    # TULAc coordinatewise gradient taming (fixed h, see _TULAC_H). Bounds
+    # the pseudo-observation perturbation per coordinate; prevents log-link
+    # observation gradients from poisoning the MH ratio. Applied identically
+    # to both forward and reverse passes, so MH remains valid.
+    grad_curr_tamed = _tame_gradient_tulac(grad_curr)
+    pseudo_obs_fwd = _shifted_auxiliary_pseudo_observations(u, grad_curr_tamed, half_delta_bcast)
     filt_means_fwd, filt_covs_fwd, loglik_fwd = _filter_auxiliary_lgssm_lightweight(
         context,
         pseudo_obs_fwd,
@@ -1232,7 +1277,8 @@ def _latent_mh_step_eq10_11_runtime(
     )
 
     grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
-    pseudo_obs_rev = _shifted_auxiliary_pseudo_observations(u, grad_prop, half_delta_bcast)
+    grad_prop_tamed = _tame_gradient_tulac(grad_prop)
+    pseudo_obs_rev = _shifted_auxiliary_pseudo_observations(u, grad_prop_tamed, half_delta_bcast)
     _fm_rev, _fc_rev, loglik_rev = _filter_auxiliary_lgssm_lightweight(
         context,
         pseudo_obs_rev,
@@ -1257,6 +1303,53 @@ def _latent_mh_step_eq10_11_runtime(
     log_alpha = log_alpha - _gaussian_log_prob_isotropic(u, x_curr, half_delta_variance)
     log_alpha = log_alpha + q_rev - q_fwd
 
+    extras: dict[str, jnp.ndarray] = {}
+    if emit_per_t_log_alpha:
+        # eq10_11 MH ratio after prior cancellation:
+        #   log_alpha = sum_t [obs_prop_t - obs_curr_t]
+        #             + sum_t [iso(u_t|x_prop_t) - iso(u_t|x_curr_t)]
+        #             + sum_t [pseudo_lp_rev_t - pseudo_lp_fwd_t]
+        #             + (log_evidence_fwd - log_evidence_rev)        # global
+        # The first three terms decompose cleanly per-t; the global
+        # log-evidence diff is folded into a single "log_alpha_global"
+        # field so the probe can still reconstruct the total.
+        if observation_log_prob_per_t_from_context_runtime_fn is None:
+            raise ValueError(
+                "emit_per_t_log_alpha=True requires "
+                "observation_log_prob_per_t_from_context_runtime_fn."
+            )
+        obs_per_t_prop = observation_log_prob_per_t_from_context_runtime_fn(
+            context, x_prop, runtime_observations
+        )
+        obs_per_t_curr = observation_log_prob_per_t_from_context_runtime_fn(
+            context, x_curr, runtime_observations
+        )
+        iso_per_t_xprop = _gaussian_log_prob_isotropic_per_t(
+            u, x_prop, half_delta_variance
+        )
+        iso_per_t_xcurr = _gaussian_log_prob_isotropic_per_t(
+            u, x_curr, half_delta_variance
+        )
+        pseudo_lp_rev_per_t = _gaussian_log_prob_isotropic_per_t(
+            pseudo_obs_rev, x_curr, half_delta_variance
+        )
+        pseudo_lp_fwd_per_t = _gaussian_log_prob_isotropic_per_t(
+            pseudo_obs_fwd, x_prop, half_delta_variance
+        )
+        log_alpha_obs_per_t = (obs_per_t_prop - obs_per_t_curr).astype(traj_dtype)
+        log_alpha_fwd_minus_rev_per_t = (iso_per_t_xprop - iso_per_t_xcurr).astype(traj_dtype)
+        log_alpha_q_per_t = (pseudo_lp_rev_per_t - pseudo_lp_fwd_per_t).astype(traj_dtype)
+        log_alpha_per_t = (
+            log_alpha_obs_per_t + log_alpha_fwd_minus_rev_per_t + log_alpha_q_per_t
+        )
+        extras["log_alpha_obs_per_t"] = log_alpha_obs_per_t
+        extras["log_alpha_fwd_minus_rev_per_t"] = log_alpha_fwd_minus_rev_per_t
+        extras["log_alpha_q_per_t"] = log_alpha_q_per_t
+        extras["log_alpha_per_t"] = log_alpha_per_t
+        extras["log_alpha_global"] = jnp.asarray(
+            log_evidence_fwd - log_evidence_rev, dtype=traj_dtype
+        )
+
     accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))
     accept = random.bernoulli(accept_key, accept_prob)
     next_traj = jnp.asarray(jnp.where(accept, x_prop, x_curr), dtype=latent_dtype)
@@ -1267,7 +1360,9 @@ def _latent_mh_step_eq10_11_runtime(
         trajectory_log_prob=next_traj_lp,
         complete_log_posterior=next_complete,
     )
-    return next_state, {"accepted": accept.astype(state.position.dtype)}
+    extras["accepted"] = accept.astype(state.position.dtype)
+    extras["log_alpha"] = log_alpha.astype(traj_dtype)
+    return next_state, extras
 
 
 def _parameter_mala_step_runtime(
@@ -1295,6 +1390,14 @@ def _parameter_mala_step_runtime(
         runtime_times,
         runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
     )
+    # T-MALA / MALTA-style coordinatewise truncated drift (Roberts & Stramer
+    # 2002, Atchadé 2006). Same _tame_gradient_tulac used on the latent side.
+    # Bounds the parameter-side drift so a single superlinear gradient (e.g.
+    # 1/sigma blowing up as sigma -> 0) can't push the proposal into a NaN
+    # region. Applied symmetrically on forward (grad_curr) and reverse
+    # (grad_prop) drifts, so the MH ratio is exact MCMC under the tamed
+    # kernel.
+    grad_curr = _tame_gradient_tulac(grad_curr)
     h = state.param_step_size
     noise = random.normal(proposal_key, state.position.shape, dtype=state.position.dtype)
     if precond_chol is None or preconditioner_mat is None:
@@ -1311,6 +1414,7 @@ def _parameter_mala_step_runtime(
         runtime_times,
         runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
     )
+    grad_prop = _tame_gradient_tulac(grad_prop)
     if precond_chol is None or preconditioner_mat is None:
         mean_rev = proposal + 0.5 * (h**2) * grad_prop
         log_alpha = complete_prop - complete_curr
