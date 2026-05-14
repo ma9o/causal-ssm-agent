@@ -211,8 +211,8 @@
       "description": "Day of year 1\u2013366. Redundant with timestamp but convenient for circular-time encoders."
     },
     {
-      "name": "cyp2c19_status",
-      "description": "CYP2C19 metabolizer phenotype string derived from the patient's 23andMe rs4244285 genotype call. AG \u2192 '*1/*2' \u2192 'intermediate' (this patient); GG \u2192 '*1/*1' \u2192 'normal'; AA \u2192 '*2/*2' \u2192 'poor'; *17 carrier states \u2192 'rapid' or 'ultrarapid'. Time-invariant per patient \u2014 constant string across all rows. Source for the cyp2c19_metabolizer_status ordinal indicator."
+      "name": "cyp2c19_activity_score",
+      "description": "Continuous CYP2C19 enzyme-activity score derived from the patient's 23andMe rs4244285 genotype call: poor=0.0, intermediate=0.5, normal=1.0, rapid=1.5, ultrarapid=2.0. AG \u2192 *1/*2 \u2192 'intermediate' \u2192 score 0.5 (this patient). Time-invariant per patient \u2014 constant value across all rows. Source for the cyp2c19_metabolizer_status continuous indicator."
     },
     {
       "name": "journal_entry_text",
