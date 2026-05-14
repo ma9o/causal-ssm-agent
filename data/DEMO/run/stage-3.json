@@ -37,28 +37,28 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
     },
     "cyp2c19_metabolizer_status": {
       "profile": {
-        "measurement_dtype": "ordinal",
+        "measurement_dtype": "continuous",
         "n_obs": 1588,
-        "mean": 1.0,
+        "mean": 0.5,
         "std": 0.0,
-        "min": 1.0,
-        "max": 1.0,
-        "q25": 1.0,
-        "q50": 1.0,
-        "q75": 1.0,
+        "min": 0.5,
+        "max": 0.5,
+        "q25": 0.5,
+        "q50": 0.5,
+        "q75": 0.5,
         "variance": 0.0,
         "time_coverage_ratio": null,
         "max_gap_ratio": null,
@@ -69,19 +69,19 @@
         "zero_fraction": 0.0,
         "is_nonnegative": true,
         "is_unit_interval": true,
-        "looks_integer_valued": true,
+        "looks_integer_valued": false,
         "variance_to_mean_ratio": 0.0
       },
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -113,13 +113,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -151,13 +151,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -189,13 +189,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -240,13 +240,13 @@
           }
         ],
         "checks": {
-          "n_obs": "warning",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "warning",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -278,20 +278,20 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
     },
     "journal_affect_severity": {
       "profile": {
-        "measurement_dtype": "ordinal",
+        "measurement_dtype": "continuous",
         "n_obs": 21,
         "mean": 1.6666666666666667,
         "std": 1.1105554165971787,
@@ -323,13 +323,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -361,13 +361,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -406,13 +406,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -451,13 +451,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "warning",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -489,13 +489,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -527,13 +527,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -572,13 +572,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -617,13 +617,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -655,13 +655,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -706,13 +706,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "warning",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -751,13 +751,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "warning",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -802,13 +802,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "warning",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "warning",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -853,13 +853,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "warning",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "warning",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -898,13 +898,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -943,13 +943,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -994,13 +994,13 @@
           }
         ],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "warning",
-          "dtype_violations": "warning",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "warning",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "warning",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -1032,13 +1032,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
@@ -1070,13 +1070,13 @@
       "validation": {
         "issues": [],
         "checks": {
-          "n_obs": "ok",
-          "arithmetic_sequence_detected": "ok",
-          "max_gap_ratio": "ok",
-          "dtype_violations": "ok",
           "duplicate_pct": "ok",
-          "n_unparseable_timestamps": "ok",
+          "arithmetic_sequence_detected": "ok",
+          "n_obs": "ok",
+          "dtype_violations": "ok",
           "time_coverage_ratio": "ok",
+          "max_gap_ratio": "ok",
+          "n_unparseable_timestamps": "ok",
           "variance": "ok"
         }
       }
