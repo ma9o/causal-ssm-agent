@@ -17,7 +17,7 @@ from causal_ssm_agent.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stable_cholesky,
 )
-from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_composite_observation_kernel,
     build_observation_kernel,
@@ -100,12 +100,14 @@ def _simulate_latent_trajectory(
     drift: jnp.ndarray,
     diffusion_chol: jnp.ndarray,
     cint: jnp.ndarray | None,
+    input_effect: jnp.ndarray | None,
     t0_mean: jnp.ndarray,
     t0_chol: jnp.ndarray,
     transition_dt_array: jnp.ndarray,
     n_timepoints: int,
     rng_key: jax.Array,
     transition_semantics,
+    transition_inputs: jnp.ndarray | None = None,
     proc_df: float | jnp.ndarray = 5.0,
 ) -> jnp.ndarray:
     """Simulate one latent trajectory from the continuous-time dynamics."""
@@ -118,7 +120,17 @@ def _simulate_latent_trajectory(
         return eta_0[None, :]
 
     diffusion_cov = diffusion_chol @ diffusion_chol.T
-    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, transition_dt_array)
+    interval_inputs = None
+    if transition_inputs is not None:
+        interval_inputs = jnp.asarray(transition_inputs)[:T][1:]
+    Ad, Qd, cd = discretize_system_with_inputs_batched(
+        drift,
+        diffusion_cov,
+        cint,
+        input_effect,
+        interval_inputs,
+        transition_dt_array,
+    )
     if cd is None:
         cd = jnp.zeros((T - 1, n_latent))
 
@@ -316,6 +328,7 @@ def _simulate_predictive_observations_with_mask(
     n_subsample: int = 50,
     rng_seed: int = 42,
     manifest_names: list[str] | None = None,
+    transition_inputs: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Forward-simulate observations and the effective emission mask."""
     drift_draws = samples["drift"]
@@ -336,6 +349,12 @@ def _simulate_predictive_observations_with_mask(
     diffusion_sub = diffusion_draws[indices]
     t0_means_sub = t0_means[indices]
     cint_sub = cint_draws[indices] if cint_draws is not None else None
+    input_effect_draws = samples.get("input_effect")
+    input_effect_sub = (
+        _broadcast_draw_param(input_effect_draws, n_use, indices)
+        if input_effect_draws is not None
+        else None
+    )
 
     lambda_sub = _broadcast_draw_param(lambda_mat, n_use, indices)
     manifest_cov_sub = _broadcast_draw_param(manifest_cov, n_use, indices)
@@ -476,12 +495,14 @@ def _simulate_predictive_observations_with_mask(
             drift=drift_sub[i],
             diffusion_chol=diffusion_sub[i],
             cint=cint_sub[i] if cint_sub is not None else None,
+            input_effect=input_effect_sub[i] if input_effect_sub is not None else None,
             t0_mean=t0_means_sub[i],
             t0_chol=t0_chol_sub[i],
             transition_dt_array=transition_dt_array,
             n_timepoints=n_timepoints,
             rng_key=key_latent,
             transition_semantics=transition_semantics,
+            transition_inputs=transition_inputs,
             proc_df=proc_df_sub[i] if proc_df_sub is not None else 5.0,
         )
         return _linear_predictors_from_latent_trajectory(
@@ -552,6 +573,7 @@ def simulate_predictive_observations(
     n_subsample: int = 50,
     rng_seed: int = 42,
     manifest_names: list[str] | None = None,
+    transition_inputs: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Forward-simulate observations and their effective emission mask."""
     return _simulate_predictive_observations_with_mask(
@@ -566,4 +588,5 @@ def simulate_predictive_observations(
         n_subsample=n_subsample,
         rng_seed=rng_seed,
         manifest_names=manifest_names,
+        transition_inputs=transition_inputs,
     )

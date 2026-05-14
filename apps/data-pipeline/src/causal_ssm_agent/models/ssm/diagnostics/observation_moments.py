@@ -12,7 +12,7 @@ from jax import lax
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
 from causal_ssm_agent.models.ssm.covariance_utils import symmetrize
-from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     NUMERICAL_EPSILON,
 )
@@ -884,6 +884,7 @@ def _predict_observation_components(
     *,
     structure_runtime: SSMStructureRuntime,
     observation_support=None,
+    transition_inputs: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Predict emitted-observation mean, covariance, lagged covariance, noise scale, and mask."""
     n_latent, n_manifest = spec.n_latent, spec.n_manifest
@@ -897,6 +898,7 @@ def _predict_observation_components(
     manifest_means = det.get("manifest_means", jnp.zeros(n_manifest))
 
     lambda_val = det.get("lambda", structure_runtime.lambda_template)
+    input_effect = det.get("input_effect")
 
     cint = det.get("cint", jnp.zeros(n_latent))
     measurement_semantics = _build_sensitivity_measurement_semantics(
@@ -931,7 +933,17 @@ def _predict_observation_components(
         )
 
     dt_array = jnp.diff(times)
-    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
+    interval_inputs = None
+    if transition_inputs is not None:
+        interval_inputs = jnp.asarray(transition_inputs)[: times.shape[0]][1:]
+    Ad, Qd, cd = discretize_system_with_inputs_batched(
+        drift,
+        diffusion_cov,
+        cint,
+        input_effect,
+        interval_inputs,
+        dt_array,
+    )
     carry_dtype = jnp.result_type(t0_means, t0_cov)
     Ad = Ad.astype(carry_dtype)
     Qd = Qd.astype(carry_dtype)
@@ -1088,6 +1100,7 @@ def _predict_observation_moments(
     structure_runtime: SSMStructureRuntime,
     observation_support=None,
     registry,
+    transition_inputs: jnp.ndarray | None = None,
 ):
     """Predicted observation-space moment summary from unconstrained params."""
     det, extra_params = _assemble_sensitivity_measurement_state(
@@ -1106,6 +1119,7 @@ def _predict_observation_moments(
             times,
             structure_runtime=structure_runtime,
             observation_support=observation_support,
+            transition_inputs=transition_inputs,
         )
     )
     return _flatten_observation_moment_summary(
@@ -1125,6 +1139,7 @@ def _predict_observation_row_scales(
     structure_runtime: SSMStructureRuntime,
     observation_support=None,
     registry,
+    transition_inputs: jnp.ndarray | None = None,
 ):
     """Predicted observation-scale normalizers aligned to the moment summary."""
     det, extra_params = _assemble_sensitivity_measurement_state(
@@ -1143,6 +1158,7 @@ def _predict_observation_row_scales(
             times,
             structure_runtime=structure_runtime,
             observation_support=observation_support,
+            transition_inputs=transition_inputs,
         )
     )
     return _moment_summary_row_scales(emitted_obs_noise_sd)

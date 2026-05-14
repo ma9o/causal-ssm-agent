@@ -92,6 +92,30 @@ def get_estimation_edges(causal_spec: dict) -> list[dict]:
     return list(get_estimation_spec(causal_spec).get("edges") or [])
 
 
+def get_known_inputs(causal_spec: dict) -> list[dict]:
+    """Get known input declarations from the estimation projection."""
+    return list(get_estimation_spec(causal_spec).get("known_inputs") or [])
+
+
+def get_known_input_source_indicators(causal_spec: dict) -> set[str]:
+    """Return indicator names consumed as deterministic transition inputs."""
+    return {
+        str(known_input["source_indicator"])
+        for known_input in get_known_inputs(causal_spec)
+        if known_input.get("source_indicator")
+    }
+
+
+def get_manifest_indicators(causal_spec: dict) -> list[dict]:
+    """Get indicators that remain in the manifest likelihood."""
+    input_sources = get_known_input_source_indicators(causal_spec)
+    return [
+        indicator
+        for indicator in get_indicators(causal_spec)
+        if indicator.get("name") not in input_sources
+    ]
+
+
 def get_estimation_constructs(causal_spec: dict) -> list[dict]:
     """Get retained latent construct payloads in estimation-state order."""
     latent_lookup = {
@@ -376,8 +400,9 @@ def get_all_treatments(latent_model: dict) -> list[str]:
 def get_estimable_treatments(causal_spec: dict) -> list[str]:
     """Get intervention targets that remain in the retained estimation graph."""
     state_order = get_estimation_state_order(causal_spec)
+    known_input_names = [item["construct"] for item in get_known_inputs(causal_spec)]
     return _get_treatments_from_graph(
-        node_names=state_order,
+        node_names=[*state_order, *known_input_names],
         edges=get_estimation_edges(causal_spec),
         outcome=get_outcome_name(causal_spec),
     )

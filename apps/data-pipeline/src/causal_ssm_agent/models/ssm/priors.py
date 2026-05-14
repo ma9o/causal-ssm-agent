@@ -28,6 +28,7 @@ class SSMPriors:
     diffusion_offdiag: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 0.5})
 
     cint: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 1.0})
+    input_effect: dict = field(default_factory=lambda: {"mu": 0.0, "sigma": 0.5})
     static_state_sd: dict = field(default_factory=lambda: {"sigma": 1.0})
 
     lambda_free: dict = field(default_factory=lambda: {"mu": 0.5, "sigma": 0.5})

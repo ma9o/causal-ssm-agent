@@ -90,6 +90,7 @@ class PreparedModelRuntime:
     inference_structure: InferenceStructurePlan
     observations: jnp.ndarray  # (T, n_manifest)
     times: jnp.ndarray  # (T,)
+    transition_inputs: jnp.ndarray | None  # (T, n_input)
     manifest_names: list[str]
 
 
@@ -144,6 +145,7 @@ class SSMModelBuilder:
         self._spec: SSMSpec | None = None
         self._result: InferenceResult | None = None
         self._prepared_times: jnp.ndarray | None = None
+        self._prepared_transition_inputs: jnp.ndarray | None = None
         self._prepared_observation_mask: jnp.ndarray | None = None
         self._prepared_observation_support: ObservationSupportRuntime | None = None
         self._prepared_inference_structure: InferenceStructurePlan | None = None
@@ -338,6 +340,7 @@ class SSMModelBuilder:
             self.build_model(X, y)
 
         observations, times, _manifest_names = self.prepare_fit_inputs(X)
+        self.model.set_transition_inputs(self.prepare_transition_inputs(X))
         return self.fit_prepared(observations, times, **kwargs)
 
     def fit_prepared(
@@ -406,6 +409,50 @@ class SSMModelBuilder:
 
         return observations, times, manifest_cols
 
+    def prepare_transition_inputs(self, X: pl.DataFrame) -> jnp.ndarray | None:
+        """Extract known inputs in compiled input order and align them to transitions."""
+        spec = self.spec
+        input_names = list(spec.input_names or [])
+        if not input_names:
+            return None
+
+        source_indicators = list(spec.input_source_indicators or [])
+        scales = [float(scale) for scale in (spec.input_scales or [])]
+        policies = list(spec.input_missing_policies or [])
+        missing_sources = [name for name in source_indicators if name not in X.columns]
+        if missing_sources:
+            raise ValueError(
+                "Known input source indicators are absent from the model data: "
+                f"{missing_sources}"
+            )
+
+        columns: list[jnp.ndarray] = []
+        for source_indicator, scale, policy in zip(
+            source_indicators,
+            scales,
+            policies,
+            strict=True,
+        ):
+            expr = pl.col(source_indicator).cast(pl.Float64, strict=False)
+            if policy == "zero":
+                filled = X.select(expr.fill_null(0.0).alias(source_indicator))
+            elif policy == "forward_fill":
+                filled = X.select(
+                    expr.fill_null(strategy="forward")
+                    .fill_null(0.0)
+                    .alias(source_indicator)
+                )
+            else:
+                raise ValueError(f"Unsupported known-input missing policy: {policy!r}")
+            columns.append(
+                jnp.asarray(filled[source_indicator].to_numpy(), dtype=jnp.float64) / scale
+            )
+
+        raw_inputs = jnp.stack(columns, axis=1)
+        if raw_inputs.shape[0] <= 1:
+            return raw_inputs
+        return jnp.concatenate([raw_inputs[:1], raw_inputs[:-1]], axis=0)
+
     def sample_prior_predictive(self, samples: int = 500, times: jnp.ndarray | None = None) -> Any:
         """Sample from the prior predictive distribution.
 
@@ -417,6 +464,7 @@ class SSMModelBuilder:
             Prior predictive samples
         """
         prepared_times = getattr(self, "_prepared_times", None)
+        prepared_inputs = getattr(self, "_prepared_transition_inputs", None)
         prepared_support = getattr(self, "_prepared_observation_support", None)
         prepared_mask = getattr(self, "_prepared_observation_mask", None)
 
@@ -434,6 +482,7 @@ class SSMModelBuilder:
         )
         observation_support = prepared_support if use_prepared_schedule else None
         observation_mask = prepared_mask if use_prepared_schedule else None
+        transition_inputs = prepared_inputs if use_prepared_schedule else None
 
         try:
             spec = self.spec
@@ -468,6 +517,7 @@ class SSMModelBuilder:
                 times,
                 observation_support=observation_support,
                 observation_mask=observation_mask,
+                transition_inputs=transition_inputs,
                 num_samples=samples,
             )
 
@@ -482,6 +532,7 @@ class SSMModelBuilder:
             times,
             observation_support=observation_support,
             observation_mask=observation_mask,
+            transition_inputs=transition_inputs,
             num_samples=samples,
         )
 
@@ -603,6 +654,7 @@ def prepare_wide_model_runtime(
         manifest_names,
     )
     observations, times, manifest_names = builder.prepare_fit_inputs(wide_data)
+    transition_inputs = builder.prepare_transition_inputs(wide_data)
     observation_support = compile_observation_support_runtime(
         observation_data,
         wide_data,
@@ -610,6 +662,7 @@ def prepare_wide_model_runtime(
     )
     model_obj = builder.model
     model_obj.set_observation_support(observation_support)
+    model_obj.set_transition_inputs(transition_inputs)
     spec_obj = builder.spec
     likelihood_name = model_obj.likelihood
     inference_structure = plan_inference_structure(
@@ -620,6 +673,7 @@ def prepare_wide_model_runtime(
         n_timepoints=int(times.shape[0]),
     )
     builder._prepared_times = times
+    builder._prepared_transition_inputs = transition_inputs
     builder._prepared_observation_mask = ~jnp.isnan(observations)
     builder._prepared_observation_support = observation_support
     builder._prepared_inference_structure = inference_structure
@@ -649,6 +703,7 @@ def prepare_wide_model_runtime(
         inference_structure=inference_structure,
         observations=observations,
         times=times,
+        transition_inputs=transition_inputs,
         manifest_names=manifest_names,
     )
 

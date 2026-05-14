@@ -42,6 +42,7 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict |
         "drift_diag_mask",
         "drift_offdiag_mask",
         "cint_mask",
+        "input_effect_mask",
         "static_state_sd_mask",
         "lambda_mask",
         "diffusion_chol_mask",
@@ -54,6 +55,7 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict |
     required_matrix_templates = (
         "drift",
         "cint",
+        "input_effect",
         "static_state_sds",
         "static_factor_loadings",
         "lambda_mat",

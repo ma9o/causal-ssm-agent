@@ -20,7 +20,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
 from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
@@ -202,6 +202,7 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
         latent_mode_init: jnp.ndarray | None = None,
+        transition_inputs: jnp.ndarray | None = None,
         include_aux: bool,
         allow_stateful_cache: bool,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray] | None]:
@@ -224,10 +225,12 @@ class LaplaceLikelihood:
 
         def _discretize_base_system() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             with jax.named_scope("map/discretize_system"):
-                Ad, Qd, cd = discretize_system_batched(
+                Ad, Qd, cd = discretize_system_with_inputs_batched(
                     ct_params.drift,
                     ct_params.diffusion_cov,
                     ct_params.cint,
+                    ct_params.input_effect,
+                    transition_inputs,
                     time_intervals,
                 )
             if cd is None:
@@ -478,6 +481,7 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
         latent_mode_init: jnp.ndarray | None = None,
+        transition_inputs: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Compute Laplace-approximated log-likelihood.
 
@@ -493,6 +497,7 @@ class LaplaceLikelihood:
             obs_mask=obs_mask,
             extra_params=extra_params,
             latent_mode_init=latent_mode_init,
+            transition_inputs=transition_inputs,
             include_aux=False,
             allow_stateful_cache=False,
         )
@@ -508,6 +513,7 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
         latent_mode_init: jnp.ndarray | None = None,
+        transition_inputs: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Compute Laplace-approximated log-likelihood plus host-log aux."""
         log_lik, inner_eval_aux = self._compute_log_likelihood_impl(
@@ -519,6 +525,7 @@ class LaplaceLikelihood:
             obs_mask=obs_mask,
             extra_params=extra_params,
             latent_mode_init=latent_mode_init,
+            transition_inputs=transition_inputs,
             include_aux=True,
             allow_stateful_cache=True,
         )

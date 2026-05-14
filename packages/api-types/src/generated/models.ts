@@ -371,6 +371,10 @@ export interface EstimationSpec {
    * Dependencies induced after marginalizing latent root confounders
    */
   induced_dependencies: InducedDependency[];
+  /**
+   * Observed construct trajectories compiled as B u(t) transition inputs
+   */
+  known_inputs: KnownInput[];
 }
 /**
  * Dependence induced among retained states after marginalizing latent roots.
@@ -391,6 +395,27 @@ export interface InducedDependency {
    * Marginalized source constructs that induce this dependence
    */
   source_confounders: string[];
+}
+/**
+ * Observed input trajectory used as a deterministic transition driver.
+ */
+export interface KnownInput {
+  /**
+   * Construct removed from the latent state vector
+   */
+  construct: string;
+  /**
+   * Measurement indicator column supplying u(t)
+   */
+  source_indicator: string;
+  /**
+   * Positive divisor applied to the source indicator before inference
+   */
+  scale: number;
+  /**
+   * How to fill missing input values on the model time grid
+   */
+  missing_policy: "zero" | "forward_fill";
 }
 export interface Stage2Contract {
   outcome: "success" | "warn" | "fail";

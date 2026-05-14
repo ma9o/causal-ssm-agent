@@ -17,6 +17,7 @@ def build_estimation_projection(
     latent_model: dict,
     measurement_model: dict,
     identifiability_result: dict | None,
+    known_inputs: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Project the user-facing DAG into the retained estimation-time state graph.
 
@@ -25,7 +26,8 @@ def build_estimation_projection(
     compiler and downstream model-facing surfaces.
 
     Current compiler/runtime rule:
-    - Retain only constructs with at least one measurement indicator.
+    - Retain measured constructs unless they are declared known inputs.
+    - Compile declared known inputs as observed transition drivers, not latent states.
     - Marginalize only unobserved root exogenous constructs that are safe to
       marginalize per the deterministic identifiability analysis.
     - Convert marginalized shared confounders into pairwise induced
@@ -51,6 +53,12 @@ def build_estimation_projection(
             children_by_construct[cause].add(effect)
 
     observed_constructs = get_observed_constructs(measurement_model)
+    known_input_payloads = [dict(item) for item in (known_inputs or [])]
+    known_input_names = {
+        item["construct"]
+        for item in known_input_payloads
+        if isinstance(item.get("construct"), str)
+    }
 
     analysis = analyze_unobserved_constructs(
         latent_model,
@@ -73,13 +81,14 @@ def build_estimation_projection(
             continue
         marginalizable_roots.add(name)
 
-    retained_names = set(observed_constructs)
+    retained_names = set(observed_constructs) - known_input_names
     state_order = _build_state_order(latent_model, retained_names)
 
     retained_edges = [
         edge
         for edge in latent_model.get("edges", [])
-        if edge.get("cause") in retained_names and edge.get("effect") in retained_names
+        if edge.get("effect") in retained_names
+        and edge.get("cause") in (retained_names | known_input_names)
     ]
 
     dependency_sources: dict[tuple[str, str, str], list[str]] = defaultdict(list)
@@ -121,6 +130,7 @@ def build_estimation_projection(
         "state_order": state_order,
         "edges": retained_edges,
         "induced_dependencies": induced_dependencies,
+        "known_inputs": known_input_payloads,
     }
 
 

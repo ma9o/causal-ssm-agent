@@ -36,6 +36,7 @@ class RecordingBackend:
         time_intervals,
         obs_mask=None,
         extra_params=None,
+        transition_inputs=None,
     ):
         self.calls.append(
             {
@@ -46,6 +47,7 @@ class RecordingBackend:
                 "time_intervals": time_intervals,
                 "obs_mask": obs_mask,
                 "extra_params": extra_params,
+                "transition_inputs": transition_inputs,
             }
         )
         T = observations.shape[0]

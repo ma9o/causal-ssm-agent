@@ -31,7 +31,7 @@ class CTParams(NamedTuple):
     """Continuous-time state-space parameters.
 
     Represents the continuous-time SDE:
-        dη = (A*η + c) dt + G dW
+        dη = (A*η + c + B*u(t)) dt + G dW
 
     where:
         A = drift matrix (n_latent x n_latent)
@@ -44,6 +44,7 @@ class CTParams(NamedTuple):
     drift: jnp.ndarray  # (n_latent, n_latent)
     diffusion_cov: jnp.ndarray  # (n_latent, n_latent) - G @ G.T
     cint: jnp.ndarray | None  # (n_latent,) or None
+    input_effect: jnp.ndarray | None = None  # (n_latent, n_input) or None
 
 
 class MeasurementParams(NamedTuple):
@@ -102,6 +103,7 @@ class LikelihoodBackend(Protocol):
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
+        transition_inputs: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Compute log-likelihood by marginalizing out latent states.
 
@@ -112,6 +114,7 @@ class LikelihoodBackend(Protocol):
             observations: (T, n_manifest) observed data
             time_intervals: (T,) time intervals between observations
             obs_mask: (T, n_manifest) boolean mask for observed values
+            transition_inputs: (T, n_input) known inputs aligned to intervals
 
         Returns:
             (T,) cumulative log-normalizing constants from the filter.

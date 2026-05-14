@@ -102,6 +102,16 @@ class SSMStructureRuntime:
             name: idx for idx, name in enumerate(self.static_factor_names)
         }
         self.static_state_sd_template = jnp.array(spec.static_state_sds)
+        self.input_effect_template = jnp.array(spec.input_effect)
+        self.input_effect_positions: list[tuple[int, int]] = [
+            (state_idx, input_idx)
+            for state_idx in range(spec.n_latent)
+            for input_idx in range(len(spec.input_names or []))
+            if bool(spec.input_effect_mask[state_idx, input_idx])
+        ]
+        self.input_effect_index = {
+            position: flat_idx for flat_idx, position in enumerate(self.input_effect_positions)
+        }
         self.diffusion_chol_template = jnp.array(spec.diffusion_chol)
         self.diffusion_diag_positions: list[int] = [
             idx for idx in range(spec.n_latent) if bool(spec.diffusion_chol_mask[idx, idx])
@@ -179,6 +189,7 @@ class SSMStructureRuntime:
         self.n_drift_offdiag = len(self.offdiag_positions)
         self.n_cint = len(self.cint_free_positions)
         self.n_static_state_sd = len(self.static_state_sd_free_positions)
+        self.n_input_effect = len(self.input_effect_positions)
         self.n_diffusion_diag = len(self.diffusion_diag_positions)
         self.n_diffusion_lower = len(self.diffusion_lower_positions)
         self.n_lambda_free = len(self.lambda_free_positions)
@@ -274,6 +285,18 @@ class SSMStructureRuntime:
             for idx, latent_idx in enumerate(self.cint_free_positions):
                 cint = cint.at[latent_idx].set(free_cint[idx])
         return cint
+
+    def assemble_input_effect(
+        self,
+        free_input_effect: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        """Build known-input transition effects from a template and sparse free entries."""
+        input_effect = self.input_effect_template
+        free_input_effect = _cast_like(free_input_effect, input_effect)
+        if free_input_effect is not None:
+            for idx, (state_idx, input_idx) in enumerate(self.input_effect_positions):
+                input_effect = input_effect.at[state_idx, input_idx].set(free_input_effect[idx])
+        return input_effect
 
     def assemble_t0_cov(
         self,

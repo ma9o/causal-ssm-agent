@@ -19,6 +19,7 @@ from causal_ssm_agent.models.ssm.discretization import (
     discretize_linear_system_exact_batched,
     discretize_system,
     discretize_system_batched,
+    discretize_system_with_inputs_batched,
     solve_lyapunov,
 )
 
@@ -247,6 +248,28 @@ class TestDiscretizeSystemBatched:
         assert Qd.shape == (T, n, n)
         assert cd is not None
         assert cd.shape == (T, n)
+
+    def test_known_inputs_add_discrete_forcing_offsets(self):
+        """Known input forcing is integrated into the discrete intercept."""
+        A = jnp.array([[-1.0]])
+        Q = jnp.array([[0.1]])
+        B = jnp.array([[2.0]])
+        u = jnp.array([[1.0], [3.0]])
+        dts = jnp.array([0.5, 2.0])
+
+        _Ad, _Qd, cd = discretize_system_with_inputs_batched(
+            A, Q, jnp.array([0.0]), B, u, dts
+        )
+
+        assert cd is not None
+        assert cd.shape == (2, 1)
+        expected = jnp.array(
+            [
+                2.0 * (1.0 - jnp.exp(-0.5)),
+                6.0 * (1.0 - jnp.exp(-2.0)),
+            ]
+        )
+        assert jnp.allclose(cd[:, 0], expected, atol=1e-6)
 
     def test_no_cint_batched(self):
         """Batched without cint should return None."""

@@ -168,6 +168,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
         site_runtime.transforms,
         structure_runtime,
         backend,
+        transition_inputs=getattr(model, "transition_inputs", None),
     )
 
     def _predict(z_flat, times):
@@ -180,6 +181,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
             structure_runtime=structure_runtime,
             observation_support=getattr(model, "observation_support", None),
             registry=site_runtime.registry,
+            transition_inputs=getattr(model, "transition_inputs", None),
         )
 
     def _row_scales(z_flat, times):
@@ -192,6 +194,7 @@ def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
             structure_runtime=structure_runtime,
             observation_support=getattr(model, "observation_support", None),
             registry=site_runtime.registry,
+            transition_inputs=getattr(model, "transition_inputs", None),
         )
 
     context = ParametricIdContext(

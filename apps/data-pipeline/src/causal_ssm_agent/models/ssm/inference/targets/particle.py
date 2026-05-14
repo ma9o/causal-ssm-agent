@@ -24,7 +24,10 @@ import jax.random as random
 import jax.scipy.linalg as jla
 
 from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-from causal_ssm_agent.models.ssm.discretization import discretize_system, discretize_system_batched
+from causal_ssm_agent.models.ssm.discretization import (
+    discretize_system,
+    discretize_system_with_inputs_batched,
+)
 from causal_ssm_agent.models.ssm.inference.targets.kernels import (
     build_transition_kernel,
     compile_measurement_semantics,
@@ -253,6 +256,7 @@ class ParticleLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
+        transition_inputs: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Compute log-likelihood via bootstrap particle filter.
 
@@ -289,11 +293,17 @@ class ParticleLikelihood:
                 time_intervals,
                 obs_mask,
                 extra_params,
+                transition_inputs,
             )
 
         # --- Pre-discretize CT→DT for all T timesteps (once, not per particle) ---
-        Ad, Qd, cd = discretize_system_batched(
-            ct_params.drift, ct_params.diffusion_cov, ct_params.cint, time_intervals
+        Ad, Qd, cd = discretize_system_with_inputs_batched(
+            ct_params.drift,
+            ct_params.diffusion_cov,
+            ct_params.cint,
+            ct_params.input_effect,
+            transition_inputs,
+            time_intervals,
         )
         if cd is None:
             cd = jnp.zeros((len(time_intervals), n))
@@ -424,6 +434,7 @@ class ParticleLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray,
         extra_params: dict | None,
+        transition_inputs: jnp.ndarray | None,
     ) -> jnp.ndarray:
         """Compute PF likelihood for interval-summary observation semantics."""
         from cuthbert.filtering import filter as cuthbert_filter
@@ -431,8 +442,13 @@ class ParticleLikelihood:
 
         n = self.n_latent
 
-        Ad, Qd, cd = discretize_system_batched(
-            ct_params.drift, ct_params.diffusion_cov, ct_params.cint, time_intervals
+        Ad, Qd, cd = discretize_system_with_inputs_batched(
+            ct_params.drift,
+            ct_params.diffusion_cov,
+            ct_params.cint,
+            ct_params.input_effect,
+            transition_inputs,
+            time_intervals,
         )
         if cd is None:
             cd = jnp.zeros((len(time_intervals), n))

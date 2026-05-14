@@ -987,6 +987,126 @@ class TestCompiledArtifactIntegration:
         assert "site_registry" in sem
         assert "prior_state" in sem
 
+    def test_known_input_beta_binds_to_input_effect_site(self):
+        """A beta from a known input compiles to B, not the latent drift matrix."""
+        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "dose",
+                        "description": "Dose",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                    },
+                    {
+                        "name": "mood",
+                        "description": "Mood",
+                        "role": "endogenous",
+                        "is_outcome": True,
+                        "temporal_status": "time_varying",
+                    },
+                ],
+                "edges": [
+                    {
+                        "cause": "dose",
+                        "effect": "mood",
+                        "description": "Dose affects mood",
+                        "lagged": True,
+                    }
+                ],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "dose_mg",
+                        "construct_name": "dose",
+                        "construct_polarity": "positive",
+                        "how_to_measure": "Dose in mg",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "sum",
+                    },
+                    {
+                        "name": "mood_score",
+                        "construct_name": "mood",
+                        "construct_polarity": "positive",
+                        "how_to_measure": "Mood score",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                ],
+            },
+            "estimation": {
+                "state_order": ["mood"],
+                "edges": [
+                    {
+                        "cause": "dose",
+                        "effect": "mood",
+                        "description": "Dose affects mood",
+                        "lagged": True,
+                    }
+                ],
+                "induced_dependencies": [],
+                "known_inputs": [
+                    {
+                        "construct": "dose",
+                        "source_indicator": "dose_mg",
+                        "scale": 10.0,
+                        "missing_policy": "forward_fill",
+                    }
+                ],
+            },
+        }
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "mood_score",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "rho_mood",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "beta_dose_mood",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+                {
+                    "name": "sigma_mood",
+                    "role": "residual_sd",
+                    "constraint": "positive",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
+            "beta_dose_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.1}},
+            "sigma_mood": {"distribution": "HalfNormal", "params": {"sigma": 1.0}},
+        }
+
+        artifact = compile_ssm_artifact(model_spec, priors, causal_spec=causal_spec)
+
+        assert artifact["spec"]["manifest_names"] == ["mood_score"]
+        assert artifact["spec"]["input_names"] == ["dose"]
+        assert artifact["spec"]["input_source_indicators"] == ["dose_mg"]
+        assert artifact["spec"]["input_effect_mask"] == [[True]]
+        assert {
+            "parameter": "beta_dose_mood",
+            "site_name": "input_effect_free",
+            "flat_index": 0,
+        } in artifact["parameter_bindings"]
+
     def test_builder_from_artifact_uses_semantics(self, model_spec_and_priors):
         """make_builder_from_compiled_artifact reads compiled_prior_semantics."""
         from causal_ssm_agent.models.ssm_compiler import (

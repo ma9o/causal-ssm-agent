@@ -1519,7 +1519,7 @@ class TestExactMatrixLogConversion:
         from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
 
         # Building masks returns edge_lag_days as 4th value
-        _dm, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
+        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
@@ -1593,7 +1593,7 @@ class TestExactMatrixLogConversion:
         from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
 
         # Build masks to get edge_lag_days, then pass explicitly
-        _dm, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
+        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
