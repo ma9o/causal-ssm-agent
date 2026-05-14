@@ -19,6 +19,8 @@ from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
     build_auxiliary_kalman_bundle,
     build_mala_parameter_kernel,
     build_particle_mgrad_latent_kernel,
+    initialize_ieks_latents,
+    initialize_particle_smoother_latents,
     run_aux_gibbs,
 )
 from causal_ssm_agent.models.ssm.inference.types import InferenceResult
@@ -175,6 +177,9 @@ def _fit_particle_latent_mcmc(
     compute_latent_posterior_summary: bool,
     adaptation_scheme: str,
     init_method: str,
+    latent_init_method: str,
+    latent_init_num_particles: int,
+    latent_init_guidance: str,
     n_ieks_iters: int,
     pathfinder_num_elbo_samples: int,
     pathfinder_maxiter: int,
@@ -191,6 +196,16 @@ def _fit_particle_latent_mcmc(
         raise ValueError(
             f"Unsupported {method_name} init_method {init_method!r}. "
             "Supported: 'random' or 'pathfinder'."
+        )
+    if latent_init_method not in {"predictive", "particle_smoother", "ieks"}:
+        raise ValueError(
+            f"Unsupported {method_name} latent_init_method {latent_init_method!r}. "
+            "Supported: 'predictive', 'particle_smoother', or 'ieks'."
+        )
+    if latent_init_guidance not in {"bootstrap", "bffg"}:
+        raise ValueError(
+            f"Unsupported {method_name} latent_init_guidance {latent_init_guidance!r}. "
+            "Supported: 'bootstrap' or 'bffg'."
         )
 
     overall_t0 = time.monotonic()
@@ -212,7 +227,7 @@ def _fit_particle_latent_mcmc(
     )
 
     base_key = random.PRNGKey(seed)
-    trace_key, pathfinder_key, pf_sample_key = random.split(base_key, 3)
+    trace_key, pathfinder_key, pf_sample_key, latent_init_key = random.split(base_key, 4)
 
     phase_t0 = time.monotonic()
     logger.info("phase 1/5: building auxiliary Kalman bundle...")
@@ -303,14 +318,73 @@ def _fit_particle_latent_mcmc(
             _phase_elapsed(phase_t0),
             f"{best_elbo_log:.2f}" if isinstance(best_elbo_log, (int, float)) else "n/a",
             init_diagnostics.get("n_pathfinder_starts_finite", "n/a"),
-            init_diagnostics.get("pathfinder_sampling_mode")
-            or init_diagnostics.get("init_method"),
+            init_diagnostics.get("pathfinder_sampling_mode") or init_diagnostics.get("init_method"),
         )
     else:
         logger.info(
             "phase 3/5: init_method=random — chains start from prior draws (%.1fs)",
             _phase_elapsed(phase_t0),
         )
+
+    initial_latent_trajectories = None
+    if latent_init_method in {"particle_smoother", "ieks"}:
+        phase_t0 = time.monotonic()
+        if init_positions is None:
+            init_keys = random.split(pf_sample_key, num_chains)
+            init_noise = jax.vmap(
+                lambda key: random.normal(
+                    key,
+                    bundle["flat_example"].shape,
+                    dtype=bundle["flat_example"].dtype,
+                )
+            )(init_keys)
+            init_positions = bundle["flat_example"][None, ...] + init_scale * init_noise
+            init_diagnostics = {
+                **init_diagnostics,
+                "init_method": "random",
+                "random_init_scale": float(init_scale),
+            }
+        seed_int = int(jax.device_get(random.randint(latent_init_key, (), 0, 2**31 - 1)))
+        if latent_init_method == "particle_smoother":
+            logger.info(
+                "phase 3b/5: particle-smoother latent init (particles=%d, guidance=%s)...",
+                latent_init_num_particles,
+                latent_init_guidance,
+            )
+            initial_latent_trajectories, latent_init_diagnostics = (
+                initialize_particle_smoother_latents(
+                    bundle,
+                    init_positions,
+                    seed=seed_int,
+                    num_particles=latent_init_num_particles,
+                    guidance=latent_init_guidance,
+                )
+            )
+        else:  # ieks
+            logger.info(
+                "phase 3b/5: IEKS latent init (n_ieks_iters=%d)...",
+                n_ieks_iters,
+            )
+            initial_latent_trajectories, latent_init_diagnostics = initialize_ieks_latents(
+                bundle,
+                init_positions,
+                model=model,
+                seed=seed_int,
+                n_ieks_iters=n_ieks_iters,
+                reparam=reparam,
+                trace_key=trace_key,
+            )
+        init_diagnostics = {**init_diagnostics, **latent_init_diagnostics}
+        logger.info(
+            "phase 3b/5: %s latent init complete in %.1fs",
+            latent_init_method,
+            _phase_elapsed(phase_t0),
+        )
+    else:
+        init_diagnostics = {
+            **init_diagnostics,
+            "latent_init_method": "predictive",
+        }
 
     phase_t0 = time.monotonic()
     logger.info(
@@ -330,6 +404,7 @@ def _fit_particle_latent_mcmc(
         retain_latent_paths=retain_latent_paths,
         adaptation_scheme=adaptation_scheme,
         init_positions=init_positions,
+        initial_latent_trajectories=initial_latent_trajectories,
         compute_latent_posterior_summary=compute_latent_posterior_summary,
     )
     latent_acc = float(jnp.mean(run_result["chain_extra_fields"]["latent_accept_prob"]))
@@ -443,6 +518,9 @@ def fit_particle_mgrad(
     compute_latent_posterior_summary: bool = True,
     adaptation_scheme: str = "simple",
     init_method: str = "random",
+    latent_init_method: str = "ieks",
+    latent_init_num_particles: int = 64,
+    latent_init_guidance: str = "bffg",
     n_ieks_iters: int = 6,
     pathfinder_num_elbo_samples: int = 20,
     pathfinder_maxiter: int = 20,
@@ -479,6 +557,9 @@ def fit_particle_mgrad(
         compute_latent_posterior_summary=compute_latent_posterior_summary,
         adaptation_scheme=adaptation_scheme,
         init_method=init_method,
+        latent_init_method=latent_init_method,
+        latent_init_num_particles=latent_init_num_particles,
+        latent_init_guidance=latent_init_guidance,
         n_ieks_iters=n_ieks_iters,
         pathfinder_num_elbo_samples=pathfinder_num_elbo_samples,
         pathfinder_maxiter=pathfinder_maxiter,

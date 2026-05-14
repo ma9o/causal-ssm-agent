@@ -27,6 +27,8 @@ from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
     build_auxiliary_kalman_bundle,
     build_auxiliary_kalman_latent_kernel,
     build_mala_parameter_kernel,
+    initialize_ieks_latents,
+    initialize_particle_smoother_latents,
     run_aux_gibbs,
 )
 from causal_ssm_agent.models.ssm.inference.types import InferenceResult
@@ -432,6 +434,9 @@ def fit_aux_gibbs(
     compute_latent_posterior_summary: bool = True,
     adaptation_scheme: str = "dual_averaging",
     init_method: str = "pathfinder",
+    latent_init_method: str = "ieks",
+    latent_init_num_particles: int = 64,
+    latent_init_guidance: str = "bffg",
     n_ieks_iters: int = 6,
     pathfinder_num_elbo_samples: int = 20,
     pathfinder_maxiter: int = 20,
@@ -526,6 +531,16 @@ def fit_aux_gibbs(
             f"Unsupported aux_gibbs init_method {init_method!r}. "
             "Supported: 'random' or 'pathfinder'."
         )
+    if latent_init_method not in {"predictive", "particle_smoother", "ieks"}:
+        raise ValueError(
+            f"Unsupported aux_gibbs latent_init_method {latent_init_method!r}. "
+            "Supported: 'predictive', 'particle_smoother', or 'ieks'."
+        )
+    if latent_init_guidance not in {"bootstrap", "bffg"}:
+        raise ValueError(
+            f"Unsupported aux_gibbs latent_init_guidance {latent_init_guidance!r}. "
+            "Supported: 'bootstrap' or 'bffg'."
+        )
     if latent_delta_profile not in {"scalar", "T_minus_one_third", "informativeness"}:
         raise ValueError(
             f"Unsupported latent_delta_profile {latent_delta_profile!r}. "
@@ -557,7 +572,9 @@ def fit_aux_gibbs(
     )
 
     base_key = random.PRNGKey(seed)
-    trace_key, pathfinder_key, pf_sample_key, release_key = random.split(base_key, 4)
+    trace_key, pathfinder_key, pf_sample_key, release_key, latent_init_key = random.split(
+        base_key, 5
+    )
 
     phase_t0 = time.monotonic()
     logger.info("phase 1/6: building auxiliary Kalman bundle...")
@@ -666,6 +683,66 @@ def fit_aux_gibbs(
             init_method,
             _phase_elapsed(phase_t0),
         )
+
+    initial_latent_trajectories = None
+    if latent_init_method in {"particle_smoother", "ieks"}:
+        phase_t0 = time.monotonic()
+        if init_positions is None:
+            init_keys = random.split(pf_sample_key, num_chains)
+            init_noise = jax.vmap(
+                lambda key: random.normal(
+                    key,
+                    bundle["flat_example"].shape,
+                    dtype=bundle["flat_example"].dtype,
+                )
+            )(init_keys)
+            init_positions = bundle["flat_example"][None, ...] + init_scale * init_noise
+            init_diagnostics = {
+                **init_diagnostics,
+                "init_method": "random",
+                "random_init_scale": float(init_scale),
+            }
+        seed_int = int(jax.device_get(random.randint(latent_init_key, (), 0, 2**31 - 1)))
+        if latent_init_method == "particle_smoother":
+            logger.info(
+                "phase 2b/6: particle-smoother latent init (particles=%d, guidance=%s)...",
+                latent_init_num_particles,
+                latent_init_guidance,
+            )
+            initial_latent_trajectories, latent_init_diagnostics = (
+                initialize_particle_smoother_latents(
+                    bundle,
+                    init_positions,
+                    seed=seed_int,
+                    num_particles=latent_init_num_particles,
+                    guidance=latent_init_guidance,
+                )
+            )
+        else:
+            logger.info(
+                "phase 2b/6: IEKS latent init (n_ieks_iters=%d)...",
+                n_ieks_iters,
+            )
+            initial_latent_trajectories, latent_init_diagnostics = initialize_ieks_latents(
+                bundle,
+                init_positions,
+                model=model,
+                seed=seed_int,
+                n_ieks_iters=n_ieks_iters,
+                reparam=reparam,
+                trace_key=trace_key,
+            )
+        init_diagnostics = {**init_diagnostics, **latent_init_diagnostics}
+        logger.info(
+            "phase 2b/6: %s latent init complete in %.1fs",
+            latent_init_method,
+            _phase_elapsed(phase_t0),
+        )
+    else:
+        init_diagnostics = {
+            **init_diagnostics,
+            "latent_init_method": "predictive",
+        }
 
     # Auto-build the Laplace preconditioner when the caller did not provide
     # one. The MAP path remains the default; the Pathfinder path reuses the
@@ -806,6 +883,7 @@ def fit_aux_gibbs(
         retain_latent_paths=retain_latent_paths,
         adaptation_scheme=adaptation_scheme,
         init_positions=init_positions,
+        initial_latent_trajectories=initial_latent_trajectories,
         emit_per_t_log_alpha=emit_per_t_log_alpha,
         compute_latent_posterior_summary=compute_latent_posterior_summary,
     )
