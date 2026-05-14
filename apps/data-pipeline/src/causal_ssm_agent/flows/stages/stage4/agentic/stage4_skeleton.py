@@ -13,8 +13,8 @@ from causal_ssm_agent.utils.causal_spec import (
     get_estimation_edges,
     get_estimation_state_order,
     get_indicator_polarity,
-    get_indicators,
     get_induced_dependencies,
+    get_manifest_indicators,
     get_marginalized_scales,
 )
 from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
@@ -47,7 +47,7 @@ def derive_deterministic_spec(causal_spec: dict) -> Stage4Skeleton:
     retained_state_order = get_estimation_state_order(causal_spec)
     retained_edges = get_estimation_edges(causal_spec)
     induced_dependencies = get_induced_dependencies(causal_spec)
-    indicators = get_indicators(causal_spec)
+    indicators = get_manifest_indicators(causal_spec)
     latent_construct_lookup = {
         construct["name"]: construct for construct in get_constructs(causal_spec)
     }

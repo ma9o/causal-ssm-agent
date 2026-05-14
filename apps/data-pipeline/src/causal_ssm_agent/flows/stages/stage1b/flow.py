@@ -12,10 +12,18 @@ from .run import run_stage1b
 
 @task(cache_policy=INPUTS, result_serializer="json")
 def build_causal_spec(
-    latent_model: dict, measurement_model: dict, identifiability_status: dict | None = None
+    latent_model: dict,
+    measurement_model: dict,
+    identifiability_status: dict | None = None,
+    known_inputs: list[dict] | None = None,
 ) -> dict:
     """Combine latent and measurement models into full CausalSpec with identifiability."""
-    return _build_causal_spec_core(latent_model, measurement_model, identifiability_status)
+    return _build_causal_spec_core(
+        latent_model,
+        measurement_model,
+        identifiability_status,
+        known_inputs=known_inputs,
+    )
 
 
 propose_measurement_with_identifiability_fix = make_llm_stage_task(
