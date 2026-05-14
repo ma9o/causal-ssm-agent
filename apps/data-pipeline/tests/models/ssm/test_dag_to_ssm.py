@@ -366,8 +366,10 @@ class TestBuilderMasks:
         latent_names = ["X", "Y", "Z"]
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
-        drift_mask, lambda_mat, lambda_mask, _edge_lag_days = build_masks_from_causal_spec(
-            latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
+        drift_mask, _input_effect_mask, lambda_mat, lambda_mask, _edge_lag_days = (
+            build_masks_from_causal_spec(
+                latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
+            )
         )
 
         # Drift mask: baseline persistence diagonals + X→Y + Y→Z
@@ -396,11 +398,100 @@ class TestBuilderMasks:
         """Without causal_spec, structural defaults are still explicit."""
         from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
 
-        drift_mask, _lambda_mat, lambda_mask, _edge_lag_days = build_masks_from_causal_spec(
-            None, ["x1"], 1, 1, causal_spec=None
+        drift_mask, input_effect_mask, _lambda_mat, lambda_mask, _edge_lag_days = (
+            build_masks_from_causal_spec(None, ["x1"], 1, 1, causal_spec=None)
         )
         np.testing.assert_array_equal(drift_mask, np.array([[True]]))
+        np.testing.assert_array_equal(input_effect_mask, np.zeros((1, 0), dtype=bool))
         np.testing.assert_array_equal(lambda_mask, np.array([[False]]))
+
+    def test_known_input_edge_compiles_to_input_effect_mask(self):
+        """Known inputs are transition drivers, not latent drift columns."""
+        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+
+        causal_spec = {
+            "latent": {
+                "constructs": [
+                    {
+                        "name": "dose",
+                        "description": "Medication dose",
+                        "role": "exogenous",
+                        "temporal_status": "time_varying",
+                    },
+                    {
+                        "name": "mood",
+                        "description": "Mood state",
+                        "role": "endogenous",
+                        "temporal_status": "time_varying",
+                    },
+                ],
+                "edges": [
+                    {
+                        "cause": "dose",
+                        "effect": "mood",
+                        "description": "Dose affects mood",
+                        "lagged": True,
+                    }
+                ],
+            },
+            "measurement": {
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "name": "dose_mg",
+                        "construct_name": "dose",
+                        "construct_polarity": "positive",
+                        "how_to_measure": "record dose",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "sum",
+                    },
+                    {
+                        "name": "mood_rating",
+                        "construct_name": "mood",
+                        "construct_polarity": "positive",
+                        "how_to_measure": "record mood",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                ],
+            },
+            "estimation": {
+                "state_order": ["mood"],
+                "edges": [
+                    {
+                        "cause": "dose",
+                        "effect": "mood",
+                        "description": "Dose affects mood",
+                        "lagged": True,
+                    }
+                ],
+                "induced_dependencies": [],
+                "known_inputs": [
+                    {
+                        "construct": "dose",
+                        "source_indicator": "dose_mg",
+                        "scale": 10.0,
+                        "missing_policy": "zero",
+                    }
+                ],
+            },
+        }
+
+        drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
+            build_masks_from_causal_spec(
+                ["mood"],
+                ["mood_rating"],
+                1,
+                1,
+                causal_spec=causal_spec,
+            )
+        )
+
+        np.testing.assert_array_equal(drift_mask, np.array([[True]]))
+        np.testing.assert_array_equal(input_effect_mask, np.array([[True]]))
+        np.testing.assert_array_equal(lambda_mat, np.array([[1.0]]))
+        np.testing.assert_array_equal(lambda_mask, np.array([[False]]))
+        assert edge_lag_days == {}
 
     @pytest.mark.parametrize(
         ("override", "error_pattern"),

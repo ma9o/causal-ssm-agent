@@ -38,6 +38,7 @@ def build_prior_index_maps(
     diag_index: dict[str, tuple[str, int]] = {}
     diffusion_diag_index: dict[str, tuple[str, int]] = {}
     diffusion_offdiag_index: dict[str, tuple[str, int]] = {}
+    input_effect_index: dict[str, tuple[str, int]] = {}
     t0_offdiag_index: dict[str, tuple[str, int]] = {}
     t0_mean_index: dict[str, tuple[str, int]] = {}
     t0_sd_index: dict[str, tuple[str, int]] = {}
@@ -60,6 +61,9 @@ def build_prior_index_maps(
     latent_names = ssm_spec.latent_names or []
     latent_idx_map = {name: idx for idx, name in enumerate(latent_names)}
     latent_name_set = set(latent_idx_map)
+    input_names = ssm_spec.input_names or []
+    input_idx_map = {name: idx for idx, name in enumerate(input_names)}
+    input_name_set = set(input_idx_map)
     strict_structure = causal_spec is not None
     errors: list[str] = []
     structure_runtime = SSMStructureRuntime(ssm_spec)
@@ -168,11 +172,13 @@ def build_prior_index_maps(
         if parameter.role != ParameterRole.FIXED_EFFECT:
             continue
         compound = parameter.name.removeprefix("beta_")
-        result = split_compound_name(compound, latent_name_set, latent_name_set)
+        result = split_compound_name(compound, latent_name_set | input_name_set, latent_name_set)
         if result is None:
             message = (
                 "Could not parse FIXED_EFFECT parameter "
-                f"{parameter.name!r} into (cause, effect) from known latents {sorted(latent_name_set)}"
+                f"{parameter.name!r} into (cause, effect) from known causes "
+                f"{sorted(latent_name_set | input_name_set)} and latent effects "
+                f"{sorted(latent_name_set)}"
             )
             if strict_structure:
                 errors.append(message)
@@ -180,6 +186,17 @@ def build_prior_index_maps(
             logger.warning("%s", message)
             continue
         cause_name, effect_name = result
+        if cause_name in input_idx_map:
+            position = (latent_idx_map[effect_name], input_idx_map[cause_name])
+            flat_idx = structure_runtime.input_effect_index.get(position)
+            if flat_idx is not None:
+                input_effect_index[parameter.name] = ("input_effect", flat_idx)
+            elif strict_structure:
+                errors.append(
+                    "FIXED_EFFECT parameter does not correspond to a known-input edge "
+                    f"in causal_spec: {parameter.name!r}"
+                )
+            continue
         position = (latent_idx_map[effect_name], latent_idx_map[cause_name])
         flat_idx = structure_runtime.offdiag_index.get(position)
         if flat_idx is not None:
@@ -400,6 +417,7 @@ def build_prior_index_maps(
         diag_index,
         diffusion_diag_index,
         diffusion_offdiag_index,
+        input_effect_index,
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
@@ -429,6 +447,7 @@ def check_backward_closure(
         diag_index,
         diffusion_diag_index,
         diffusion_offdiag_index,
+        input_effect_index,
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
@@ -446,6 +465,7 @@ def check_backward_closure(
         ("drift_offdiag", sr.n_drift_offdiag, len(offdiag_index)),
         ("diffusion_diag", sr.n_diffusion_diag, len(diffusion_diag_index)),
         ("diffusion_lower", sr.n_diffusion_lower, len(diffusion_offdiag_index)),
+        ("input_effect", sr.n_input_effect, len(input_effect_index)),
         ("cint", sr.n_cint, len(cint_index)),
         ("static_state_sd", sr.n_static_state_sd, len(static_state_sd_index)),
         ("lambda_free", sr.n_lambda_free, len(lambda_index)),

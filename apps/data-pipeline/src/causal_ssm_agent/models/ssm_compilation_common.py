@@ -32,17 +32,19 @@ PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
     dict[str, tuple[str, int]],
+    dict[str, tuple[str, int]],
 ]
 
 
 def empty_prior_index_maps() -> PriorIndexMaps:
     """Return an empty prior-index payload for spec-only code paths."""
-    return ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
+    return ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
 
 
 SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
     "drift_base_decay": "drift_base_decay_free",
     "drift_offdiag": "drift_offdiag_free",
+    "input_effect": "input_effect_free",
     "diffusion_diag": "diffusion_diag_free",
     "diffusion_offdiag": "diffusion_lower_free",
     "cint": "cint_free",
@@ -68,6 +70,8 @@ SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "drift_base_decay_free": ["rho", "ar"],
     "drift_offdiag": ["beta"],
     "drift_offdiag_free": ["beta"],
+    "input_effect": ["beta"],
+    "input_effect_free": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
     "diffusion_diag_free": ["sigma", "sd"],
     "diffusion_lower_free": ["cor"],
@@ -147,6 +151,14 @@ def resolve_scalar_parameter_name(
     if site_name == "drift_offdiag_free" and flat_index < structure_runtime.n_drift_offdiag:
         effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
         return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
+    if site_name == "input_effect_free" and flat_index < structure_runtime.n_input_effect:
+        effect_idx, input_idx = structure_runtime.input_effect_positions[flat_index]
+        input_names = axis_names_with_fallback(
+            spec.input_names,
+            expected=len(spec.input_names or []),
+            prefix="input",
+        )
+        return f"beta_{input_names[input_idx]}_{latent_names[effect_idx]}"
     if site_name == "diffusion_diag_free" and flat_index < structure_runtime.n_diffusion_diag:
         latent_idx = structure_runtime.diffusion_diag_positions[flat_index]
         return f"sigma_{latent_names[latent_idx]}"
@@ -276,6 +288,9 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
 
     if attr == "drift_offdiag":
         return structure_runtime.n_drift_offdiag
+
+    if attr == "input_effect":
+        return structure_runtime.n_input_effect
 
     if attr == "cint":
         return structure_runtime.n_cint

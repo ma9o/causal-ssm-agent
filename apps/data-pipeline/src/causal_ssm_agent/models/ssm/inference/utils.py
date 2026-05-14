@@ -208,6 +208,7 @@ def _deterministics_to_likelihood_inputs(
             drift=det["drift"],
             diffusion_cov=diffusion_chol @ diffusion_chol.T,
             cint=det["cint"],
+            input_effect=det.get("input_effect"),
         ),
         MeasurementParams(
             lambda_mat=det["lambda"],
@@ -421,6 +422,7 @@ def _build_eval_fns(
     )
     structure_runtime = model.structure_runtime
     runtime_registry = build_site_registry(model.spec, structure_runtime)
+    bound_transition_inputs = getattr(model, "transition_inputs", None)
 
     def _constrain(z):
         unc = unravel_fn(z)
@@ -445,6 +447,7 @@ def _build_eval_fns(
                 observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=bound_transition_inputs,
             )
         else:
             lnc = likelihood_backend.compute_log_likelihood(
@@ -454,6 +457,7 @@ def _build_eval_fns(
                 observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=bound_transition_inputs,
                 latent_mode_init=latent_mode_init,
             )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
@@ -470,6 +474,11 @@ def _build_eval_fns(
             structure_runtime=structure_runtime,
         )
         time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
+        runtime_transition_inputs = (
+            None
+            if bound_transition_inputs is None
+            else bound_transition_inputs[: runtime_times.shape[0]]
+        )
         if latent_mode_init is None:
             lnc = likelihood_backend.compute_log_likelihood(
                 ct_params,
@@ -478,6 +487,7 @@ def _build_eval_fns(
                 runtime_observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=runtime_transition_inputs,
             )
         else:
             lnc = likelihood_backend.compute_log_likelihood(
@@ -487,6 +497,7 @@ def _build_eval_fns(
                 runtime_observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=runtime_transition_inputs,
                 latent_mode_init=latent_mode_init,
             )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
@@ -516,6 +527,7 @@ def _build_eval_fns(
                 observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=bound_transition_inputs,
             )
         else:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
@@ -525,6 +537,7 @@ def _build_eval_fns(
                 observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=bound_transition_inputs,
                 latent_mode_init=latent_mode_init,
             )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
@@ -547,6 +560,11 @@ def _build_eval_fns(
             structure_runtime=structure_runtime,
         )
         time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
+        runtime_transition_inputs = (
+            None
+            if bound_transition_inputs is None
+            else bound_transition_inputs[: runtime_times.shape[0]]
+        )
         if latent_mode_init is None:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
                 ct_params,
@@ -555,6 +573,7 @@ def _build_eval_fns(
                 runtime_observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=runtime_transition_inputs,
             )
         else:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
@@ -564,6 +583,7 @@ def _build_eval_fns(
                 runtime_observations,
                 time_intervals,
                 extra_params=extra_params,
+                transition_inputs=runtime_transition_inputs,
                 latent_mode_init=latent_mode_init,
             )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
@@ -597,6 +617,7 @@ def _build_runtime_eval_fns_from_registry(
     transforms,
     structure_runtime,
     likelihood_backend,
+    transition_inputs=None,
 ):
     """Build compile-stable evaluators that do not close over traced model state.
 
@@ -620,6 +641,9 @@ def _build_runtime_eval_fns_from_registry(
             structure_runtime=structure_runtime,
         )
         time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
+        runtime_transition_inputs = (
+            None if transition_inputs is None else transition_inputs[: times.shape[0]]
+        )
         lnc = likelihood_backend.compute_log_likelihood(
             ct_params,
             measurement_params,
@@ -627,6 +651,7 @@ def _build_runtime_eval_fns_from_registry(
             observations,
             time_intervals,
             extra_params=extra_params,
+            transition_inputs=runtime_transition_inputs,
         )
         total_ll = lnc if lnc.ndim == 0 else lnc[-1]
         return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)

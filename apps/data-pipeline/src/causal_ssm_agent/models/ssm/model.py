@@ -180,6 +180,12 @@ class SSMSpec:
     static_factor_loadings: jnp.ndarray = field(
         default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64)
     )
+    input_effect_mask: np.ndarray = field(
+        default_factory=lambda: np.zeros((0, 0), dtype=bool)
+    )
+    input_effect: jnp.ndarray = field(
+        default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64)
+    )
 
     # Per-variable diffusion noise families.
     diffusion_dists: list[DistributionFamily] = field(default_factory=list)
@@ -205,6 +211,10 @@ class SSMSpec:
     # Parameter names for interpretability
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
+    input_names: list[str] | None = None
+    input_source_indicators: list[str] | None = None
+    input_scales: list[float] | None = None
+    input_missing_policies: list[str] | None = None
     static_factor_names: list[str] | None = None
     initialization_policy: str = "stationary"
     observation_intercept_policy: str = "free"
@@ -225,6 +235,9 @@ class SSMSpec:
 
     # static_state_sd_mask: (n_static_factor,) bool — True where compiled
     # baseline-factor SDs remain free to sample.
+
+    # input_effect_mask: (n_latent, n_input) bool — True where known inputs
+    # have free continuous-time effects on retained latent-state dynamics.
 
     # manifest_means_mask: (n_manifest,) bool — True where manifest
     # intercepts remain free to sample.
@@ -314,6 +327,39 @@ class SSMSpec:
             )
         return value_array
 
+    def _resolve_n_input(self) -> int:
+        if self.input_names is not None:
+            return len(self.input_names)
+        mask_array = np.asarray(self.input_effect_mask)
+        if mask_array.ndim == 2 and mask_array.shape[0] in {0, self.n_latent}:
+            return int(mask_array.shape[1])
+        effect_array = jnp.asarray(self.input_effect)
+        if effect_array.ndim == 2 and effect_array.shape[0] in {0, self.n_latent}:
+            return int(effect_array.shape[1])
+        return 0
+
+    def _coerce_input_effect_mask(self, mask: np.ndarray, n_input: int) -> np.ndarray:
+        mask_array = np.asarray(mask, dtype=bool)
+        if mask_array.size == 0 and n_input == 0:
+            return np.zeros((self.n_latent, 0), dtype=bool)
+        if mask_array.shape != (self.n_latent, n_input):
+            raise ValueError(
+                "input_effect_mask must have shape "
+                f"({self.n_latent}, {n_input}), got {mask_array.shape}"
+            )
+        return mask_array
+
+    def _coerce_input_effect(self, value: jnp.ndarray, n_input: int) -> jnp.ndarray:
+        value_array = jnp.asarray(value)
+        if value_array.size == 0 and n_input == 0:
+            return jnp.zeros((self.n_latent, 0), dtype=jnp.float64)
+        if value_array.shape != (self.n_latent, n_input):
+            raise ValueError(
+                "input_effect must have shape "
+                f"({self.n_latent}, {n_input}), got {value_array.shape}"
+            )
+        return value_array
+
     def _coerce_square_template(self, name: str, value: jnp.ndarray, dim: int) -> jnp.ndarray:
         if isinstance(value, str):
             raise ValueError(f"{name} must be an explicit matrix template array.")
@@ -346,6 +392,45 @@ class SSMSpec:
 
     def __post_init__(self) -> None:
         """Validate structural masks and canonicalize per-channel family metadata."""
+        n_input = self._resolve_n_input()
+        if self.input_names is None:
+            self.input_names = [f"input_{idx}" for idx in range(n_input)]
+        elif len(self.input_names) != n_input:
+            raise ValueError(
+                f"input_names length must match n_input: {len(self.input_names)} vs {n_input}"
+            )
+        if self.input_source_indicators is None:
+            self.input_source_indicators = list(self.input_names)
+        elif len(self.input_source_indicators) != n_input:
+            raise ValueError(
+                "input_source_indicators length must match n_input: "
+                f"{len(self.input_source_indicators)} vs {n_input}"
+            )
+        if self.input_scales is None:
+            self.input_scales = [1.0] * n_input
+        elif len(self.input_scales) != n_input:
+            raise ValueError(
+                f"input_scales length must match n_input: {len(self.input_scales)} vs {n_input}"
+            )
+        if any(float(scale) <= 0.0 for scale in self.input_scales):
+            raise ValueError("input_scales must be strictly positive")
+        if self.input_missing_policies is None:
+            self.input_missing_policies = ["zero"] * n_input
+        elif len(self.input_missing_policies) != n_input:
+            raise ValueError(
+                "input_missing_policies length must match n_input: "
+                f"{len(self.input_missing_policies)} vs {n_input}"
+            )
+        invalid_policies = sorted(
+            {
+                str(policy)
+                for policy in self.input_missing_policies
+                if policy not in {"zero", "forward_fill"}
+            }
+        )
+        if invalid_policies:
+            raise ValueError(f"Unsupported input_missing_policies: {invalid_policies}")
+
         self.drift_diag_mask = self._coerce_diagonal_mask(
             "drift_diag_mask",
             self.drift_diag_mask,
@@ -375,6 +460,11 @@ class SSMSpec:
             ),
             n_static_factor,
         )
+        self.input_effect_mask = self._coerce_input_effect_mask(
+            self.input_effect_mask,
+            n_input,
+        )
+        self.input_effect = self._coerce_input_effect(self.input_effect, n_input)
         self.lambda_mask = self._coerce_lambda_mask(self.lambda_mask)
         self.lambda_mat = self._coerce_lambda_mat(self.lambda_mat)
         self.diffusion_chol_mask = self._coerce_cholesky_mask(
@@ -599,6 +689,7 @@ class SSMModel:
         self._structure_runtime = SSMStructureRuntime(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
+        self.transition_inputs: jnp.ndarray | None = None
         self.parameter_bindings: list[dict[str, Any]] = []
         self._prior_runtime_bundle = prior_runtime_bundle
         self._prior_site_index = (
@@ -623,6 +714,10 @@ class SSMModel:
             for key, value in self._artifact_cache.items()
             if not (isinstance(key, tuple) and key and key[0] == "backend")
         }
+
+    def set_transition_inputs(self, transition_inputs: jnp.ndarray | None) -> None:
+        """Attach prepared known-input trajectories aligned to transition intervals."""
+        self.transition_inputs = transition_inputs
 
     @property
     def structure_runtime(self) -> SSMStructureRuntime:
@@ -718,6 +813,20 @@ class SSMModel:
 
         numpyro.deterministic("cint", cint)
         return cint
+
+    def _sample_input_effect(self, _spec: SSMSpec) -> jnp.ndarray:
+        """Sample known-input transition effects."""
+        n_free = self._structure_runtime.n_input_effect
+        if n_free == 0:
+            return self._structure_runtime.input_effect_template
+
+        input_effect_free = _sample_prior_array(
+            "input_effect_free",
+            self._prior_distribution("input_effect_free"),
+        )
+        input_effect = self._structure_runtime.assemble_input_effect(input_effect_free)
+        numpyro.deterministic("input_effect", input_effect)
+        return input_effect
 
     def _sample_lambda(self, _spec: SSMSpec) -> jnp.ndarray:
         """Sample factor loading matrix for the fitted subject/model.
@@ -964,6 +1073,7 @@ class SSMModel:
         drift = self._sample_drift()
         diffusion_chol = self._sample_diffusion(spec)
         cint = self._sample_cint(spec)
+        input_effect = self._sample_input_effect(spec)
         lambda_mat = self._sample_lambda(spec)
         manifest_means, manifest_chol = self._sample_manifest_params(spec)
         t0_means, t0_chol = self._sample_t0_params(spec)
@@ -973,7 +1083,12 @@ class SSMModel:
         t0_cov = t0_chol @ t0_chol.T
         extra_params = self._sample_likelihood_extra_params(spec)
 
-        ct_params = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=cint)
+        ct_params = CTParams(
+            drift=drift,
+            diffusion_cov=diffusion_cov,
+            cint=cint,
+            input_effect=input_effect,
+        )
         meas_params = MeasurementParams(
             lambda_mat=lambda_mat,
             manifest_means=manifest_means,
@@ -991,6 +1106,7 @@ class SSMModel:
             observations,
             time_intervals,
             extra_params=extra_params or None,
+            transition_inputs=self.transition_inputs,
         )
 
         # lnc is (T,) cumulative log-normalizing constants from the filter.

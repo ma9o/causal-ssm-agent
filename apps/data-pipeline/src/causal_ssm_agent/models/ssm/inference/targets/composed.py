@@ -51,6 +51,7 @@ class ComposedLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
+        transition_inputs: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Compute log-likelihood as sum of Kalman and particle sub-log-likelihoods.
 
@@ -70,6 +71,9 @@ class ComposedLikelihood:
             drift=ct_params.drift[jnp.ix_(ki, ki)],
             diffusion_cov=ct_params.diffusion_cov[jnp.ix_(ki, ki)],
             cint=ct_params.cint[ki] if ct_params.cint is not None else None,
+            input_effect=(
+                ct_params.input_effect[ki, :] if ct_params.input_effect is not None else None
+            ),
         )
         meas_kalman = MeasurementParams(
             lambda_mat=measurement_params.lambda_mat[jnp.ix_(oki, ki)],
@@ -87,6 +91,9 @@ class ComposedLikelihood:
             drift=ct_params.drift[jnp.ix_(pi, pi)],
             diffusion_cov=ct_params.diffusion_cov[jnp.ix_(pi, pi)],
             cint=ct_params.cint[pi] if ct_params.cint is not None else None,
+            input_effect=(
+                ct_params.input_effect[pi, :] if ct_params.input_effect is not None else None
+            ),
         )
         meas_particle = MeasurementParams(
             lambda_mat=measurement_params.lambda_mat[jnp.ix_(opi, pi)],
@@ -114,6 +121,7 @@ class ComposedLikelihood:
             obs_kalman,
             time_intervals,
             obs_mask=obs_mask_kalman,
+            transition_inputs=transition_inputs,
         )
 
         ll_particle = self.particle_backend.compute_log_likelihood(
@@ -124,6 +132,7 @@ class ComposedLikelihood:
             time_intervals,
             obs_mask=obs_mask_particle,
             extra_params=extra_params,
+            transition_inputs=transition_inputs,
         )
 
         return ll_kalman + ll_particle

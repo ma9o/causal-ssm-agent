@@ -33,7 +33,7 @@ from jax.flatten_util import ravel_pytree
 from causal_ssm_agent.artifacts import LinkFunction
 from causal_ssm_agent.models.ssm.constants import MIN_DT
 from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
 from causal_ssm_agent.models.ssm.inference.parallel_kalman import (
     aux_filter_lgssm_lightweight,
     sample_lgssm_trajectory,
@@ -445,10 +445,15 @@ def build_auxiliary_kalman_bundle(
                 )
             )
             time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
-            Ad, Qd, cd = discretize_system_batched(
+            transition_inputs = getattr(model, "transition_inputs", None)
+            if transition_inputs is not None:
+                transition_inputs = transition_inputs[: runtime_times.shape[0]]
+            Ad, Qd, cd = discretize_system_with_inputs_batched(
                 ct_params.drift,
                 ct_params.diffusion_cov,
                 ct_params.cint,
+                ct_params.input_effect,
+                transition_inputs,
                 time_intervals,
             )
             cd_scan = (

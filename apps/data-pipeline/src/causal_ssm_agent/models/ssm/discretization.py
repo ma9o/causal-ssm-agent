@@ -487,3 +487,38 @@ def discretize_system_batched(
 
     Ad, Qd = lax.cond(same_dt, _all_same_dt_no_cint, _varying_dt_no_cint, operand=None)
     return Ad, Qd, None
+
+
+def discretize_system_with_inputs_batched(
+    drift: jnp.ndarray,
+    diffusion_cov: jnp.ndarray,
+    cint: jnp.ndarray | None,
+    input_effect: jnp.ndarray | None,
+    transition_inputs: jnp.ndarray | None,
+    dt_array: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    """Batch-discretize CT dynamics with piecewise-constant known inputs."""
+    Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
+    if input_effect is None or input_effect.shape[1] == 0:
+        return Ad, Qd, cd
+    if transition_inputs is None:
+        raise ValueError("SSM has known input effects but transition_inputs was not provided.")
+
+    transition_inputs = jnp.asarray(transition_inputs, dtype=drift.dtype)
+    if transition_inputs.shape != (dt_array.shape[0], input_effect.shape[1]):
+        raise ValueError(
+            "transition_inputs must have shape "
+            f"({dt_array.shape[0]}, {input_effect.shape[1]}), got {transition_inputs.shape}"
+        )
+
+    continuous_forcing = transition_inputs @ jnp.asarray(input_effect, dtype=drift.dtype).T
+    input_cd = vmap(lambda forcing, dt: compute_discrete_cint_exact(drift, forcing, dt))(
+        continuous_forcing,
+        dt_array,
+    )
+    if cd is None:
+        return Ad, Qd, input_cd
+    cd = jnp.asarray(cd, dtype=input_cd.dtype)
+    if cd.ndim == 1:
+        cd = cd[:, None]
+    return Ad, Qd, cd + input_cd

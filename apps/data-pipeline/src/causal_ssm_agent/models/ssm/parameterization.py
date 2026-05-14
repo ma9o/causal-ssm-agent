@@ -76,6 +76,7 @@ class SiteKind(Enum):
     DIFFUSION_DIAG = "diffusion_diag"
     DIFFUSION_LOWER = "diffusion_lower"
     CINT = "cint"
+    INPUT_EFFECT = "input_effect"
     STATIC_STATE_SD = "static_state_sd"
     LOADING = "loading"
     MANIFEST_MEANS = "manifest_means"
@@ -341,6 +342,16 @@ def build_site_registry(
             "cint",
             "cint",
             "cint",
+        ),
+        (
+            "input_effect_free",
+            "n_input_effect",
+            SupportClass.REAL,
+            "input_effect",
+            SiteKind.INPUT_EFFECT,
+            "input_effect",
+            "input_effect",
+            "input_effect",
         ),
         (
             "static_state_sd_free",
@@ -833,6 +844,14 @@ def assemble_deterministics_from_registry(
         det["cint"] = jax.vmap(structure_runtime.assemble_cint)(samples[cint_site.name])
     else:
         det["cint"] = _broadcast_fixed(structure_runtime.cint_template, n_draws)
+
+    input_effect_site = by_kind.get(SiteKind.INPUT_EFFECT)
+    if input_effect_site is not None and input_effect_site.name in samples:
+        det["input_effect"] = jax.vmap(structure_runtime.assemble_input_effect)(
+            samples[input_effect_site.name]
+        )
+    else:
+        det["input_effect"] = _broadcast_fixed(structure_runtime.input_effect_template, n_draws)
 
     static_state_site = by_kind.get(SiteKind.STATIC_STATE_SD)
     if static_state_site is not None and static_state_site.name in samples:

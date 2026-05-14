@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
-from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
+from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
 from causal_ssm_agent.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT,
     MISSING_DATA_LARGE_VAR,
@@ -70,6 +70,7 @@ class KalmanLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
+        transition_inputs: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         """Compute exact log-likelihood via Kalman filter."""
         log_lik, _aux = self.compute_log_likelihood_with_aux(
@@ -80,6 +81,7 @@ class KalmanLikelihood:
             time_intervals,
             obs_mask=obs_mask,
             extra_params=extra_params,
+            transition_inputs=transition_inputs,
         )
         return log_lik
 
@@ -92,6 +94,7 @@ class KalmanLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
         extra_params: dict | None = None,
+        transition_inputs: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Compute exact log-likelihood via Kalman filter with host-log aux.
 
@@ -129,8 +132,13 @@ class KalmanLikelihood:
 
         # Pre-discretize CT params for all time intervals
         # Ad: (T, n, n), Qd: (T, n, n), cd: (T, n) or None
-        Ad, Qd, cd = discretize_system_batched(
-            ct_params.drift, ct_params.diffusion_cov, ct_params.cint, time_intervals
+        Ad, Qd, cd = discretize_system_with_inputs_batched(
+            ct_params.drift,
+            ct_params.diffusion_cov,
+            ct_params.cint,
+            ct_params.input_effect,
+            transition_inputs,
+            time_intervals,
         )
         if cd is None:
             cd = jnp.zeros((T, n), dtype=dtype)

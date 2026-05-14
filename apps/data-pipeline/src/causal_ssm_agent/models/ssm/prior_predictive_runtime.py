@@ -66,6 +66,7 @@ def sample_prior_predictive_from_runtime(
     *,
     observation_support=None,
     observation_mask: jnp.ndarray | None = None,
+    transition_inputs: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
@@ -105,6 +106,7 @@ def sample_prior_predictive_from_runtime(
         manifest_level_counts=spec.manifest_level_counts,
         observation_support=observation_support,
         observation_mask=observation_mask,
+        transition_inputs=transition_inputs,
         n_subsample=num_samples,
         rng_seed=seed,
         manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
@@ -121,6 +123,7 @@ def sample_prior_predictive_from_compiled_semantics(
     *,
     observation_support=None,
     observation_mask: jnp.ndarray | None = None,
+    transition_inputs: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
@@ -132,6 +135,7 @@ def sample_prior_predictive_from_compiled_semantics(
         times,
         observation_support=observation_support,
         observation_mask=observation_mask,
+        transition_inputs=transition_inputs,
         num_samples=num_samples,
         seed=seed,
     )
@@ -144,6 +148,7 @@ def sample_prior_predictive_from_priors(
     *,
     observation_support=None,
     observation_mask: jnp.ndarray | None = None,
+    transition_inputs: jnp.ndarray | None = None,
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
@@ -155,6 +160,7 @@ def sample_prior_predictive_from_priors(
         times,
         observation_support=observation_support,
         observation_mask=observation_mask,
+        transition_inputs=transition_inputs,
         num_samples=num_samples,
         seed=seed,
     )

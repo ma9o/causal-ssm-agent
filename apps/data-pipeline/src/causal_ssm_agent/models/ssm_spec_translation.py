@@ -37,6 +37,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_estimation_state_order,
     get_indicator_polarity,
     get_indicators,
+    get_known_inputs,
     get_marginalized_scales,
 )
 from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
@@ -109,6 +110,24 @@ def get_estimation_latent_layout(
     return state_order, time_invariant_mask
 
 
+def get_estimation_input_layout(causal_spec: dict | None) -> tuple[
+    list[str],
+    list[str],
+    list[float],
+    list[str],
+]:
+    """Build canonical known-input ordering and source metadata."""
+    if causal_spec is None:
+        return [], [], [], []
+    known_inputs = get_known_inputs(causal_spec)
+    return (
+        [str(item["construct"]) for item in known_inputs],
+        [str(item["source_indicator"]) for item in known_inputs],
+        [float(item.get("scale", 1.0)) for item in known_inputs],
+        [str(item.get("missing_policy", "zero")) for item in known_inputs],
+    )
+
+
 def _mask_time_invariant_vector_support(
     mask: np.ndarray,
     time_invariant_mask: np.ndarray | None,
@@ -154,11 +173,18 @@ def build_masks_from_causal_spec(
     n_manifest: int,
     *,
     causal_spec: dict | None,
-) -> tuple[np.ndarray, jnp.ndarray, np.ndarray, dict[tuple[int, int], float]]:
+) -> tuple[
+    np.ndarray,
+    np.ndarray,
+    jnp.ndarray,
+    np.ndarray,
+    dict[tuple[int, int], float],
+]:
     """Build drift/lambda masks and edge lag metadata from the causal structure."""
     if causal_spec is None or latent_names is None:
         return (
             np.eye(n_latent, dtype=bool) | full_drift_offdiag_mask(n_latent),
+            np.zeros((n_latent, 0), dtype=bool),
             jnp.eye(n_manifest, n_latent),
             zero_loading_mask(n_manifest, n_latent),
             {},
@@ -186,7 +212,12 @@ def build_masks_from_causal_spec(
         )
 
     latent_idx = {name: idx for idx, name in enumerate(latent_names)}
+    input_names, _input_sources, _input_scales, _input_policies = get_estimation_input_layout(
+        causal_spec
+    )
+    input_idx = {name: idx for idx, name in enumerate(input_names)}
     drift_mask = np.zeros((n_latent, n_latent), dtype=bool)
+    input_effect_mask = np.zeros((n_latent, len(input_names)), dtype=bool)
     for latent_name, latent_idx_value in latent_idx.items():
         construct = latent_construct_lookup.get(latent_name) or {}
         if construct.get("temporal_status") != "time_invariant":
@@ -197,11 +228,17 @@ def build_masks_from_causal_spec(
     for edge in edges:
         cause = edge.get("cause") if isinstance(edge, dict) else edge.cause
         effect = edge.get("effect") if isinstance(edge, dict) else edge.effect
-        if cause not in latent_idx or effect not in latent_idx:
+        if effect not in latent_idx:
             continue
         if latent_construct_lookup.get(effect, {}).get("temporal_status") == "time_invariant":
             continue
-        effect_idx, cause_idx = latent_idx[effect], latent_idx[cause]
+        effect_idx = latent_idx[effect]
+        if cause in input_idx:
+            input_effect_mask[effect_idx, input_idx[cause]] = True
+            continue
+        if cause not in latent_idx:
+            continue
+        cause_idx = latent_idx[cause]
         drift_mask[effect_idx, cause_idx] = True
 
         lagged = edge.get("lagged", True) if isinstance(edge, dict) else edge.lagged
@@ -261,7 +298,7 @@ def build_masks_from_causal_spec(
     if errors:
         raise SpecTranslationError(errors)
 
-    return drift_mask, lambda_mat, lambda_mask, edge_lag_days
+    return drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days
 
 
 def build_manifest_variance_from_causal_spec(
@@ -566,16 +603,19 @@ def translate_spec(
     manifest_links: list[LinkFunction] = [likelihood.link for likelihood in model_spec.likelihoods]
 
     try:
-        drift_mask, lambda_mat, lambda_mask, edge_lag_days = build_masks_from_causal_spec(
-            latent_names,
-            manifest_cols,
-            n_latent,
-            n_manifest,
-            causal_spec=causal_spec,
+        drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
+            build_masks_from_causal_spec(
+                latent_names,
+                manifest_cols,
+                n_latent,
+                n_manifest,
+                causal_spec=causal_spec,
+            )
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
         drift_mask = np.eye(n_latent, dtype=bool) | full_drift_offdiag_mask(n_latent)
+        input_effect_mask = np.zeros((n_latent, 0), dtype=bool)
         lambda_mat = jnp.eye(n_manifest, n_latent)
         lambda_mask = zero_loading_mask(n_manifest, n_latent)
         edge_lag_days = {}
@@ -678,6 +718,9 @@ def translate_spec(
             causal_spec=causal_spec,
         )
     )
+    input_names, input_sources, input_scales, input_policies = get_estimation_input_layout(
+        causal_spec
+    )
     manifest_centered = _build_manifest_centered_flags(
         model_spec,
         manifest_cols,
@@ -695,6 +738,8 @@ def translate_spec(
         drift=jnp.zeros((n_latent, n_latent)),
         cint_mask=cint_mask,
         cint=jnp.zeros(n_latent),
+        input_effect_mask=input_effect_mask,
+        input_effect=jnp.zeros((n_latent, len(input_names))),
         static_state_sd_mask=static_state_sd_mask,
         static_state_sds=static_state_sds,
         static_factor_loadings=static_factor_loadings,
@@ -717,6 +762,10 @@ def translate_spec(
         manifest_level_counts=manifest_level_counts,
         latent_names=latent_names,
         manifest_names=manifest_cols,
+        input_names=input_names,
+        input_source_indicators=input_sources,
+        input_scales=input_scales,
+        input_missing_policies=input_policies,
         static_factor_names=static_factor_names,
         initialization_policy=initialization_policy.value,
         observation_intercept_policy=observation_intercept_policy.value,

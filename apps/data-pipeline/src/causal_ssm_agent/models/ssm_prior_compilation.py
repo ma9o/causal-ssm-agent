@@ -874,6 +874,7 @@ def compile_priors(
         diag_param_index,
         diffusion_diag_param_index,
         diffusion_offdiag_param_index,
+        input_effect_param_index,
         t0_offdiag_param_index,
         t0_mean_param_index,
         t0_sd_param_index,
@@ -978,6 +979,32 @@ def compile_priors(
                     causal_spec=causal_spec,
                 )
                 offdiag_interval_days[idx] = dt
+                _append_structured_prior(
+                    per_element,
+                    attr,
+                    idx,
+                    {
+                        "mu": normalized.get("mu", 0.0) / dt,
+                        "sigma": normalized.get("sigma", 0.5) / dt,
+                    },
+                )
+                continue
+
+            if param_name in input_effect_param_index:
+                attr, idx = input_effect_param_index[param_name]
+                ref_days = prior_spec.get("reference_interval_days")
+                resolved_ref_days = float(ref_days) if ref_days is not None else None
+                if resolved_ref_days is not None and resolved_ref_days <= 0:
+                    errors.append(
+                        f"Known-input effect prior '{param_name}' reference_interval_days "
+                        f"must be positive, got {resolved_ref_days:.3g}"
+                    )
+                    continue
+                dt = (
+                    resolved_ref_days
+                    if resolved_ref_days is not None
+                    else get_construct_dt_days(causal_spec)
+                )
                 _append_structured_prior(
                     per_element,
                     attr,
@@ -1095,6 +1122,7 @@ def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
         diag_index,
         diffusion_diag_index,
         diffusion_offdiag_index,
+        input_effect_index,
         t0_offdiag_index,
         t0_mean_index,
         t0_sd_index,
@@ -1109,6 +1137,7 @@ def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
     ordered_maps = (
         diag_index,
         offdiag_index,
+        input_effect_index,
         diffusion_diag_index,
         cint_index,
         static_state_sd_index,

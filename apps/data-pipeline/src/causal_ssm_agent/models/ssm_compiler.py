@@ -45,6 +45,7 @@ _SPEC_ARRAY_FIELDS = {
     "drift",
     "diffusion_chol",
     "cint",
+    "input_effect",
     "static_state_sds",
     "static_factor_loadings",
     "lambda_mat",
@@ -57,6 +58,7 @@ _SPEC_BOOL_ARRAY_FIELDS = {
     "drift_diag_mask",
     "drift_offdiag_mask",
     "cint_mask",
+    "input_effect_mask",
     "static_state_sd_mask",
     "lambda_mask",
     "diffusion_chol_mask",
@@ -156,6 +158,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     required_template_fields = {
         "drift",
         "cint",
+        "input_effect",
         "static_state_sds",
         "static_factor_loadings",
         "lambda_mat",
@@ -174,6 +177,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         )
     required_compiled_mask_fields = {
         "cint_mask",
+        "input_effect_mask",
         "static_state_sd_mask",
         "diffusion_chol_mask",
         "manifest_means_mask",
@@ -317,7 +321,7 @@ def collect_estimation_projection_compile_errors(
     """
     from causal_ssm_agent.utils.causal_spec import (
         get_estimation_state_order,
-        get_indicators,
+        get_manifest_indicators,
     )
 
     errors: list[str] = []
@@ -328,7 +332,7 @@ def collect_estimation_projection_compile_errors(
     if not latent_states:
         return ["causal_spec.estimation.state_order is empty"]
 
-    indicators = get_indicators(causal_spec)
+    indicators = get_manifest_indicators(causal_spec)
     indicator_lookup = {
         indicator["name"]: indicator
         for indicator in indicators
@@ -403,9 +407,9 @@ def validate_model_spec_for_compilation(
     """Validate model-spec schema/domain rules plus compiler-owned invariants."""
     indicators = None
     if causal_spec is not None:
-        from causal_ssm_agent.utils.causal_spec import get_indicators
+        from causal_ssm_agent.utils.causal_spec import get_manifest_indicators
 
-        indicators = get_indicators(causal_spec)
+        indicators = get_manifest_indicators(causal_spec)
 
     model_spec_data = (
         model_spec.model_dump(mode="json") if isinstance(model_spec, ModelSpec) else model_spec

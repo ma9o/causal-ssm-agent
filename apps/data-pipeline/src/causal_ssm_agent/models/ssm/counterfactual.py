@@ -21,7 +21,10 @@ from jax import vmap
 
 from causal_ssm_agent.flows import get_prefect_logger
 from causal_ssm_agent.models.ssm.constants import MIN_DT
-from causal_ssm_agent.models.ssm.discretization import discretize_system, discretize_system_batched
+from causal_ssm_agent.models.ssm.discretization import (
+    discretize_system,
+    discretize_system_with_inputs_batched,
+)
 from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
 
 if TYPE_CHECKING:
@@ -693,8 +696,17 @@ def _try_smoother(
         time_intervals = jnp.diff(times, prepend=times[0])
         time_intervals = jnp.maximum(time_intervals, MIN_DT)
 
-        Ad_all, Qd_all, cd_all = discretize_system_batched(
-            drift, diffusion_cov, cint, time_intervals
+        transition_inputs = getattr(ssm_model, "transition_inputs", None)
+        if transition_inputs is not None:
+            transition_inputs = transition_inputs[: times.shape[0]]
+
+        Ad_all, Qd_all, cd_all = discretize_system_with_inputs_batched(
+            drift,
+            diffusion_cov,
+            cint,
+            det_values.get("input_effect"),
+            transition_inputs,
+            time_intervals,
         )
         cd_for_smoother = cd_all if cd_all is not None else jnp.zeros((len(time_intervals), n_l))
 

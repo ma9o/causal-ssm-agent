@@ -819,6 +819,38 @@ class TestComputeDataStats:
 
 
 class TestCompiledPriorPredictiveRuntime:
+    def test_known_inputs_are_threaded_into_compiled_prior_predictive(self):
+        """Input-driven prior predictive simulation uses prepared transition inputs."""
+        spec = make_ssm_spec(
+            n_latent=1,
+            n_manifest=1,
+            lambda_mat=jnp.eye(1, dtype=jnp.float32),
+            diffusion=jnp.eye(1, dtype=jnp.float32),
+            diffusion_mask=np.diag(full_diagonal_mask(1)),
+            input_effect_mask=np.array([[True]]),
+            input_effect=jnp.zeros((1, 1), dtype=jnp.float32),
+            input_names=["dose"],
+            input_source_indicators=["dose_mg"],
+            input_scales=[10.0],
+            input_missing_policies=["forward_fill"],
+            manifest_dists=[DistributionFamily.GAUSSIAN],
+            manifest_links=[LinkFunction.IDENTITY],
+        )
+        semantics = compile_prior_semantics(spec, SSMPriors())
+
+        samples = sample_prior_predictive_from_compiled_semantics(
+            spec,
+            semantics,
+            jnp.arange(3, dtype=jnp.float32),
+            transition_inputs=jnp.array([[0.0], [0.0], [1.0]], dtype=jnp.float32),
+            num_samples=3,
+            seed=0,
+        )
+
+        assert samples["input_effect"].shape == (3, 1, 1)
+        assert samples["observations"].shape == (3, 3, 1)
+        assert bool(jnp.isfinite(samples["observations"]).all())
+
     def test_ordered_likelihood_requires_hydrated_level_counts(self):
         """Discrete emissions fail clearly until hydration provides level counts."""
         spec = make_ssm_spec(

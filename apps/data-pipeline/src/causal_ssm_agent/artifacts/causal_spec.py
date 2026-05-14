@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .latent_model import CausalEdge, LatentModel  # noqa: TC001
 from .measurement_model import MeasurementModel, validate_measurement_model
@@ -68,6 +68,32 @@ class InducedDependency(BaseModel):
     )
 
 
+class KnownInput(BaseModel):
+    """Observed input trajectory used as a deterministic transition driver."""
+
+    model_config = ConfigDict(populate_by_name=True, serialize_by_alias=True)
+
+    construct_name: str = Field(
+        alias="construct",
+        description="Construct removed from the latent state vector",
+    )
+    source_indicator: str = Field(description="Measurement indicator column supplying u(t)")
+    scale: float = Field(
+        default=1.0,
+        gt=0.0,
+        description="Positive divisor applied to the source indicator before inference",
+    )
+    missing_policy: Literal["zero", "forward_fill"] = Field(
+        default="zero",
+        description="How to fill missing input values on the model time grid",
+    )
+
+    @property
+    def construct(self) -> str:
+        """Artifact-facing construct name."""
+        return self.construct_name
+
+
 class EstimationSpec(BaseModel):
     """Deterministic estimation-time projection of the user-facing latent DAG."""
 
@@ -81,6 +107,10 @@ class EstimationSpec(BaseModel):
     induced_dependencies: list[InducedDependency] = Field(
         default_factory=list,
         description="Dependencies induced after marginalizing latent root confounders",
+    )
+    known_inputs: list[KnownInput] = Field(
+        default_factory=list,
+        description="Observed construct trajectories compiled as B u(t) transition inputs",
     )
 
 
@@ -114,6 +144,16 @@ class CausalSpec(BaseModel):
                 raise ValueError("Estimation state_order contains duplicate construct names")
 
             state_names = set(estimation.state_order)
+            known_input_names = {known_input.construct for known_input in estimation.known_inputs}
+            if len(known_input_names) != len(estimation.known_inputs):
+                raise ValueError("Estimation known_inputs contains duplicate constructs")
+            overlapping_inputs = sorted(state_names & known_input_names)
+            if overlapping_inputs:
+                raise ValueError(
+                    "Known inputs cannot also be retained latent states: "
+                    f"{overlapping_inputs}"
+                )
+
             unknown_states = state_names - construct_names
             if unknown_states:
                 raise ValueError(
@@ -121,10 +161,36 @@ class CausalSpec(BaseModel):
                     f"{sorted(unknown_states)}"
                 )
 
-            for edge in estimation.edges:
-                if edge.cause not in state_names or edge.effect not in state_names:
+            indicator_lookup = {
+                indicator.name: indicator for indicator in self.measurement.indicators
+            }
+            for known_input in estimation.known_inputs:
+                if known_input.construct not in construct_names:
                     raise ValueError(
-                        "Estimation edge must reference retained states: "
+                        "Estimation known_input references unknown construct: "
+                        f"{known_input.construct!r}"
+                    )
+                source_indicator = indicator_lookup.get(known_input.source_indicator)
+                if source_indicator is None:
+                    raise ValueError(
+                        "Estimation known_input references unknown source_indicator: "
+                        f"{known_input.source_indicator!r}"
+                    )
+                if source_indicator.construct_name != known_input.construct:
+                    raise ValueError(
+                        "Estimation known_input source_indicator must measure the same "
+                        f"construct: {known_input.source_indicator!r} measures "
+                        f"{source_indicator.construct_name!r}, expected "
+                        f"{known_input.construct!r}"
+                    )
+
+            for edge in estimation.edges:
+                if edge.effect not in state_names or edge.cause not in (
+                    state_names | known_input_names
+                ):
+                    raise ValueError(
+                        "Estimation edge must point into a retained state and originate "
+                        "from either a retained state or known input: "
                         f"{edge.cause!r} -> {edge.effect!r}"
                     )
 
@@ -161,6 +227,7 @@ class CausalSpec(BaseModel):
 def validate_causal_spec(
     latent_data: dict,
     measurement_data: dict,
+    known_inputs: list[dict] | None = None,
 ) -> tuple[CausalSpec | None, list[str]]:
     """Validate both latent and measurement models together."""
     from causal_ssm_agent.utils.estimation_projection import build_estimation_projection
@@ -186,6 +253,7 @@ def validate_causal_spec(
                     latent_payload,
                     measurement_payload,
                     identifiability_result=None,
+                    known_inputs=known_inputs,
                 )
             ),
         )
@@ -200,6 +268,7 @@ __all__ = [
     "IdentifiabilityStatus",
     "IdentifiedTreatmentStatus",
     "InducedDependency",
+    "KnownInput",
     "NonIdentifiableTreatmentStatus",
     "validate_causal_spec",
 ]

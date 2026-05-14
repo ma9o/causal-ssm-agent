@@ -16,6 +16,7 @@ from causal_ssm_agent.models.ssm.discretization import (
     discretize_linear_system_exact_batched,
     discretize_system,
     discretize_system_batched,
+    discretize_system_with_inputs_batched,
     solve_lyapunov,
 )
 from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult, fit
@@ -46,6 +47,7 @@ __all__ = [
     "discretize_linear_system_exact_batched",
     "discretize_system",
     "discretize_system_batched",
+    "discretize_system_with_inputs_batched",
     # Model
     "SSMModel",
     "SSMPriors",

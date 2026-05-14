@@ -393,10 +393,10 @@ class TestBuilderPriorConversion:
         assert ssm_priors.t0_means["mu"] == [0.1, -0.3]
         assert ssm_priors.t0_means["sigma"] == [0.2, 0.4]
         assert ssm_priors.t0_var_diag["sigma"] == [0.7, 0.9]
-        assert index_maps[6]["t0_mean_mood"] == ("t0_means", 0)
-        assert index_maps[6]["t0_mean_sleep"] == ("t0_means", 1)
-        assert index_maps[7]["t0_sd_mood"] == ("t0_var_diag", 0)
-        assert index_maps[7]["t0_sd_sleep"] == ("t0_var_diag", 1)
+        assert index_maps[7]["t0_mean_mood"] == ("t0_means", 0)
+        assert index_maps[7]["t0_mean_sleep"] == ("t0_means", 1)
+        assert index_maps[8]["t0_sd_mood"] == ("t0_var_diag", 0)
+        assert index_maps[8]["t0_sd_sleep"] == ("t0_var_diag", 1)
 
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         """Filtered initial-state pairs should not leave holes in prior arrays."""
@@ -460,7 +460,7 @@ class TestBuilderPriorConversion:
             ssm_spec=ssm_spec,
         )
 
-        assert index_maps[5]["cor0_C_B"] == ("t0_var_offdiag", 0)
+        assert index_maps[6]["cor0_C_B"] == ("t0_var_offdiag", 0)
         assert ssm_priors.t0_var_offdiag["mu"] == [0.1]
         assert ssm_priors.t0_var_offdiag["sigma"] == [0.2]
         assert ssm_priors.t0_var_offdiag["lower"] == [-1.0]
@@ -599,6 +599,35 @@ class TestPrepareFitInputs:
         np.testing.assert_allclose(np.asarray(observations[:, 0]), np.array([-1.0, 0.0, 1.0]))
         np.testing.assert_allclose(np.asarray(observations[:, 1]), np.array([5.0, 6.0, 7.0]))
 
+    def test_transition_inputs_are_scaled_filled_and_shifted_to_interval_start(self):
+        """Known inputs are deterministic transition covariates aligned to interval starts."""
+        spec = _make_spec(
+            n_latent=1,
+            n_manifest=1,
+            input_effect_mask=np.array([[True]]),
+            input_effect=jnp.zeros((1, 1)),
+            input_names=["dose"],
+            input_source_indicators=["dose_mg"],
+            input_scales=[10.0],
+            input_missing_policies=["forward_fill"],
+        )
+        builder = SSMModelBuilder(ssm_spec=spec)
+        wide = pl.DataFrame(
+            {
+                "time": [0.0, 1.0, 2.0, 3.0],
+                "dose_mg": [0.0, 20.0, None, 30.0],
+                "mood_rating": [1.0, 2.0, 3.0, 4.0],
+            }
+        )
+
+        transition_inputs = builder.prepare_transition_inputs(wide)
+
+        assert transition_inputs is not None
+        np.testing.assert_allclose(
+            np.asarray(transition_inputs),
+            np.array([[0.0], [0.0], [2.0], [2.0]], dtype=np.float32),
+        )
+
 
 class TestPrepareModelRuntime:
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):
@@ -631,6 +660,9 @@ class TestPrepareModelRuntime:
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
 
+            def set_transition_inputs(self, transition_inputs):
+                self.transition_inputs = transition_inputs
+
         class StubBuilder:
             def __init__(self):
                 self._attached_model = StubModel()
@@ -641,6 +673,9 @@ class TestPrepareModelRuntime:
                     jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
                     ["stress_score"],
                 )
+
+            def prepare_transition_inputs(self, _wide_data: pl.DataFrame):
+                return None
 
             @property
             def has_model(self) -> bool:
@@ -722,6 +757,9 @@ class TestPrepareModelRuntime:
             def set_observation_support(self, observation_support):
                 self.observation_support = observation_support
 
+            def set_transition_inputs(self, transition_inputs):
+                self.transition_inputs = transition_inputs
+
         class StubBuilder:
             def __init__(self):
                 self._attached_model = StubModel()
@@ -732,6 +770,9 @@ class TestPrepareModelRuntime:
                     jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
                     ["stress_score"],
                 )
+
+            def prepare_transition_inputs(self, _wide_data: pl.DataFrame):
+                return None
 
             @property
             def has_model(self) -> bool:

@@ -392,11 +392,20 @@
           },
           "title": "Induced Dependencies",
           "type": "array"
+        },
+        "known_inputs": {
+          "description": "Observed construct trajectories compiled as B u(t) transition inputs",
+          "items": {
+            "$ref": "#/$defs/KnownInput"
+          },
+          "title": "Known Inputs",
+          "type": "array"
         }
       },
       "required": [
         "edges",
         "induced_dependencies",
+        "known_inputs",
         "state_order"
       ],
       "title": "EstimationSpec",
@@ -1058,6 +1067,46 @@
       ],
       "title": "InitializationPolicy",
       "type": "string"
+    },
+    "KnownInput": {
+      "description": "Observed input trajectory used as a deterministic transition driver.",
+      "properties": {
+        "construct": {
+          "description": "Construct removed from the latent state vector",
+          "title": "Construct",
+          "type": "string"
+        },
+        "source_indicator": {
+          "description": "Measurement indicator column supplying u(t)",
+          "title": "Source Indicator",
+          "type": "string"
+        },
+        "scale": {
+          "default": 1.0,
+          "description": "Positive divisor applied to the source indicator before inference",
+          "exclusiveMinimum": 0.0,
+          "title": "Scale",
+          "type": "number"
+        },
+        "missing_policy": {
+          "default": "zero",
+          "description": "How to fill missing input values on the model time grid",
+          "enum": [
+            "zero",
+            "forward_fill"
+          ],
+          "title": "Missing Policy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "construct",
+        "missing_policy",
+        "scale",
+        "source_indicator"
+      ],
+      "title": "KnownInput",
+      "type": "object"
     },
     "LLMTrace": {
       "description": "Full trace of an LLM multi-turn conversation.",
