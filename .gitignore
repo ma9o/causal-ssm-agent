@@ -58,3 +58,5 @@ node_modules/
 !**/.gitkeep
 .vercel
 .playwright-mcp/
+
+apps/data-pipeline/notebooks/sweeps
