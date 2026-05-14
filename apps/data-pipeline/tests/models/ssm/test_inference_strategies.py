@@ -2812,6 +2812,151 @@ def test_aux_gibbs_can_skip_latent_posterior_summary():
     assert bool(jnp.isfinite(history).all())
 
 
+def test_particle_smoother_latent_initializer_smoke_on_small_kalman_model():
+    from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
+        build_auxiliary_kalman_bundle,
+        initialize_particle_smoother_latents,
+    )
+
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations, times = _small_kalman_observations_and_times()
+    bundle = build_auxiliary_kalman_bundle(
+        model,
+        observations,
+        times,
+        trace_key=random.PRNGKey(0),
+        reparam=None,
+    )
+    init_positions = jnp.broadcast_to(bundle["flat_example"], (2, bundle["dim"]))
+
+    trajectories, diagnostics = initialize_particle_smoother_latents(
+        bundle,
+        init_positions,
+        seed=23,
+        num_particles=6,
+        guidance="bffg",
+    )
+
+    assert trajectories.shape == (2, 3, 1)
+    assert bool(jnp.isfinite(trajectories).all())
+    assert diagnostics["latent_init_method"] == "particle_smoother"
+    assert diagnostics["latent_init_algorithm"] == "ffbsi"
+    assert diagnostics["latent_init_guidance"] == "bffg"
+    assert diagnostics["latent_init_num_particles"] == 6
+    assert len(diagnostics["latent_init_min_ess"]) == 2
+
+
+def test_aux_gibbs_accepts_particle_smoother_latent_init():
+    from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
+        build_auxiliary_kalman_bundle,
+    )
+
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations, times = _small_kalman_observations_and_times()
+    bundle = build_auxiliary_kalman_bundle(
+        model,
+        observations,
+        times,
+        trace_key=random.PRNGKey(0),
+        reparam=None,
+    )
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="aux_gibbs",
+        num_warmup=4,
+        num_samples=5,
+        num_chains=1,
+        seed=29,
+        init_method="random",
+        latent_init_method="particle_smoother",
+        latent_init_num_particles=6,
+        latent_init_guidance="bffg",
+        latent_delta=0.2,
+        param_step_size=0.03,
+        parameter_preconditioner_chol=jnp.eye(bundle["dim"], dtype=bundle["flat_example"].dtype),
+    )
+
+    diag = result.diagnostics["aux_gibbs"]
+    assert diag["init_method"] == "random"
+    assert diag["latent_init_method"] == "particle_smoother"
+    assert diag["latent_init_algorithm"] == "ffbsi"
+    assert diag["latent_init_guidance"] == "bffg"
+    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
+
+
+@pytest.mark.parametrize(
+    ("method", "extra_kwargs"),
+    [
+        (
+            "aux_gibbs",
+            {
+                "latent_delta": 0.2,
+                "param_step_size": 0.03,
+            },
+        ),
+        (
+            "particle_mgrad",
+            {
+                "latent_delta": 0.2,
+                "latent_target_accept": 0.5,
+                "n_particles": 5,
+                "param_step_size": 0.03,
+            },
+        ),
+    ],
+    ids=["aux-gibbs", "particle-mgrad"],
+)
+def test_particle_mcmc_defaults_to_ieks_latent_init(method, extra_kwargs):
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations, times = _small_kalman_observations_and_times()
+    if method == "aux_gibbs":
+        from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
+            build_auxiliary_kalman_bundle,
+        )
+
+        bundle = build_auxiliary_kalman_bundle(
+            model,
+            observations,
+            times,
+            trace_key=random.PRNGKey(0),
+            reparam=None,
+        )
+        extra_kwargs = {
+            **extra_kwargs,
+            "parameter_preconditioner_chol": jnp.eye(
+                bundle["dim"],
+                dtype=bundle["flat_example"].dtype,
+            ),
+        }
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method=method,
+        num_warmup=3,
+        num_samples=4,
+        num_chains=1,
+        seed=37,
+        init_method="random",
+        init_scale=0.01,
+        n_ieks_iters=2,
+        **extra_kwargs,
+    )
+
+    diag = result.diagnostics[method]
+    assert diag["latent_init_method"] == "ieks"
+    assert diag["latent_init_algorithm"] == "iterated_extended_kalman_smoother"
+    assert diag["latent_init_n_ieks_iters"] == 2
+    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
+
+
 def test_aux_gibbs_dual_averaging_smoke_on_small_kalman_model():
     spec = _make_aux_gibbs_smoke_spec()
     model = SSMModel(spec, likelihood="kalman")
@@ -3085,6 +3230,37 @@ def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
     assert final_latent_delta.shape == (2, 3)
     assert np.all(final_latent_delta >= latent_delta_min)
     assert np.all(final_latent_delta <= latent_delta_max)
+
+
+def test_particle_mgrad_accepts_particle_smoother_latent_init():
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="particle_mgrad",
+        num_warmup=3,
+        num_samples=4,
+        num_chains=1,
+        seed=31,
+        latent_delta=0.2,
+        latent_target_accept=0.5,
+        n_particles=5,
+        param_step_size=0.03,
+        init_scale=0.01,
+        latent_init_method="particle_smoother",
+        latent_init_num_particles=6,
+        latent_init_guidance="bootstrap",
+    )
+
+    diag = result.diagnostics["particle_mgrad"]
+    assert diag["latent_init_method"] == "particle_smoother"
+    assert diag["latent_init_algorithm"] == "ffbsi"
+    assert diag["latent_init_guidance"] == "bootstrap"
+    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
 @pytest.mark.parametrize(

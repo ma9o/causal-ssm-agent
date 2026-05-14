@@ -266,9 +266,19 @@ def _initialize_aux_gibbs_chain_state(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     static: _AuxGibbsRunnerStatic,
+    initial_latent_trajectory: jnp.ndarray | None = None,
 ) -> AuxGibbsState:
     init_context = static.latent_context_runtime_fn(init_position, times)
-    init_latent = static.initial_latent_from_context_fn(init_context)
+    predictive_latent = static.initial_latent_from_context_fn(init_context)
+    if initial_latent_trajectory is None:
+        init_latent = predictive_latent
+    else:
+        init_latent = jnp.asarray(initial_latent_trajectory, dtype=predictive_latent.dtype)
+        if init_latent.shape != predictive_latent.shape:
+            raise ValueError(
+                "initial_latent_trajectory shape must match the model latent trajectory; "
+                f"got {init_latent.shape}, expected {predictive_latent.shape}."
+            )
     init_complete, init_traj = static.complete_log_posterior_from_context_runtime_fn(
         init_position,
         init_context,
@@ -497,6 +507,7 @@ def run_aux_gibbs(
     retain_latent_paths: bool,
     adaptation_scheme: str = "dual_averaging",
     init_positions: jnp.ndarray | None = None,
+    initial_latent_trajectories: jnp.ndarray | None = None,
     emit_per_t_log_alpha: bool = False,
     compute_latent_posterior_summary: bool = True,
 ) -> dict[str, Any]:
@@ -520,6 +531,10 @@ def run_aux_gibbs(
         positions. When ``None`` the sampler perturbs ``bundle["flat_example"]``
         with ``init_scale·randn``; when provided (e.g. from Pathfinder) the
         chains start exactly from those positions.
+    initial_latent_trajectories:
+        Optional ``(num_chains, T, latent_dim)`` array of complete latent paths
+        used to seed the latent block. When ``None`` each chain uses the
+        bundle's predictive mean rollout.
     """
     total_steps = num_warmup + num_samples
     if total_steps <= 0:
@@ -652,6 +667,18 @@ def run_aux_gibbs(
                 f"{chain_init_positions.shape} with num_chains={num_chains} and "
                 f"dim={int(bundle['flat_example'].shape[0])}."
             )
+    if initial_latent_trajectories is not None:
+        chain_initial_latents = jnp.asarray(
+            initial_latent_trajectories,
+            dtype=observations.dtype,
+        )
+        if chain_initial_latents.shape[0] != num_chains:
+            raise ValueError(
+                "initial_latent_trajectories must have leading dimension num_chains; got "
+                f"{chain_initial_latents.shape[0]} with num_chains={num_chains}."
+            )
+    else:
+        chain_initial_latents = None
 
     states = _stack_chain_states(
         [
@@ -661,6 +688,9 @@ def run_aux_gibbs(
                 observations=observations,
                 times=times,
                 static=static,
+                initial_latent_trajectory=(
+                    None if chain_initial_latents is None else chain_initial_latents[chain_idx]
+                ),
             )
             for chain_idx in range(num_chains)
         ]
