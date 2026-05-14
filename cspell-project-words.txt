@@ -1,19 +1,24 @@
 # Project words
 Acyclicity
+Anki
 Biometrika
 Corenflos
+Duolingo
 Dynamax
 Gaussianity
 Lyapunov
 Megaprompt
+Oura
 Psychometrika
 Pyro
+Strava
 Turso
 acyclicity
 autodiff
 backpropagation
 bidirected
 blockwise
+cardiometabolic
 compilability
 elementwise
 estimand

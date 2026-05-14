@@ -33,7 +33,7 @@ flowchart LR
   ID -- no --> L
 ```
 
-In practice, the framework is designed for longitudinal consumer datasets that are easily accessibile via data subject access requests (DSARs), from more domain specific ones like Apple Health, Oura, 23andMe, Strava (cardiometabolic health, chronic conditions, performance & adaptation), Anki, Duolingo, YouTube (education & deliberate practice) to more cross cutting ones like Google Takeout, WhatsApp, ChatGPT/Claude logs (mental health, cognition & attention, habit & behavior change) - and, most interestingly, their intersections!
+In practice, the framework is designed for longitudinal consumer datasets that are easily accessible via data subject access requests (DSARs), from more domain specific ones like Apple Health, Oura, 23andMe, Strava (cardiometabolic health, chronic conditions, performance & adaptation), Anki, Duolingo, YouTube (education & deliberate practice) to more cross cutting ones like Google Takeout, WhatsApp, ChatGPT/Claude logs (mental health, cognition & attention, habit & behavior change) - and, most interestingly, their intersections!
 
 ## Features and Goals
 
@@ -128,20 +128,21 @@ causal-ssm-agent/                    # Turborepo monorepo
 
 | Language | Files | Blank | Comment | Code | p50&nbsp;/&nbsp;p90&nbsp;/&nbsp;max | Top files |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Python | 344 | 16,526 | 9,646 | 101,695 | 163&nbsp;/&nbsp;721&nbsp;/&nbsp;4,665 | [test_reducer_flow.py](<apps/data-pipeline/tests/stages/stage4/test_reducer_flow.py>), [test_inference_strategies.py](<apps/data-pipeline/tests/models/ssm/test_inference_strategies.py>), [test_pipeline.py](<apps/data-pipeline/tests/pipeline/test_pipeline.py>) |
-| TypeScript | 324 | 4,039 | 1,152 | 36,435 | 71&nbsp;/&nbsp;258&nbsp;/&nbsp;1,076 | [generate-markdown.ts](<apps/web/src/lib/utils/generate-markdown.ts>), [generate-markdown.test.ts](<apps/web/src/lib/utils/generate-markdown.test.ts>), [_shared.test.ts](<apps/web/src/app/api/analysis/_shared.test.ts>) |
-| JSON | 48 | 0 | 0 | 32,541 | 179&nbsp;/&nbsp;1,954&nbsp;/&nbsp;6,320 | [stage-4.json](<data/DEMO_HEALTH/run/stage-4.json>), [stage-5b.json](<data/DEMO_HEALTH/run/stage-5b.json>), [contracts.json](<packages/api-types/schemas/contracts.json>) |
-| Markdown | 34 | 1,248 | 0 | 3,965 | 59&nbsp;/&nbsp;171&nbsp;/&nbsp;1,024 | [report.md](<data/DEMO_HEALTH/report.md>), [report.md](<data/DEFAULT/report.md>), [llm-driven-specification.md](<docs/reference/model-spec/llm-driven-specification.md>) |
-| Jupyter Notebook | 1 | 0 | 29,346 | 741 | 741&nbsp;/&nbsp;741&nbsp;/&nbsp;741 | [pathological_geometries_gallery.ipynb](<apps/data-pipeline/notebooks/pathological_geometries_gallery.ipynb>) |
+| JSON | 57 | 0 | 0 | 411,557 | 268&nbsp;/&nbsp;1,954&nbsp;/&nbsp;375,051 | [oura_sleep_raw.json](<data/DEMO/sources/oura_sleep_raw.json>), [stage-4.json](<data/DEMO_HEALTH/run/stage-4.json>), [stage-5b.json](<data/DEMO_HEALTH/run/stage-5b.json>) |
+| Python | 348 | 16,693 | 9,644 | 104,040 | 167&nbsp;/&nbsp;722&nbsp;/&nbsp;4,670 | [test_reducer_flow.py](<apps/data-pipeline/tests/stages/stage4/test_reducer_flow.py>), [test_inference_strategies.py](<apps/data-pipeline/tests/models/ssm/test_inference_strategies.py>), [test_pipeline.py](<apps/data-pipeline/tests/pipeline/test_pipeline.py>) |
+| TypeScript | 315 | 3,811 | 1,044 | 33,938 | 71&nbsp;/&nbsp;253&nbsp;/&nbsp;1,013 | [_shared.test.ts](<apps/web/src/app/api/analysis/_shared.test.ts>), [map-geometry-panel.tsx](<apps/web/src/components/stages/parametric-id/map-geometry-panel.tsx>), [models.ts](<packages/api-types/src/generated/models.ts>) |
+| XML | 1 | 0 | 0 | 18,079 | 18,079&nbsp;/&nbsp;18,079&nbsp;/&nbsp;18,079 | [apple_health_export.xml](<data/DEMO/sources/apple_health_export.xml>) |
+| Markdown | 37 | 1,569 | 0 | 4,553 | 59&nbsp;/&nbsp;264&nbsp;/&nbsp;1,024 | [report.md](<data/DEMO_HEALTH/report.md>), [report.md](<data/DEFAULT/report.md>), [llm-driven-specification.md](<docs/reference/model-spec/llm-driven-specification.md>) |
+| Jupyter Notebook | 2 | 0 | 29,875 | 1,477 | 736&nbsp;/&nbsp;741&nbsp;/&nbsp;741 | [pathological_geometries_gallery.ipynb](<apps/data-pipeline/notebooks/pathological_geometries_gallery.ipynb>), [stage5b_subset_aux_gibbs.ipynb](<apps/data-pipeline/notebooks/stage5b_subset_aux_gibbs.ipynb>) |
 | JavaScript | 5 | 128 | 10 | 617 | 43&nbsp;/&nbsp;376&nbsp;/&nbsp;376 | [codegen_docs_latex.js](<scripts/codegen_docs_latex.js>), [update_readme_cloc.js](<scripts/update_readme_cloc.js>), [copy-perspective-assets.mjs](<apps/web/scripts/copy-perspective-assets.mjs>) |
 | YAML | 10 | 53 | 82 | 327 | 1&nbsp;/&nbsp;80&nbsp;/&nbsp;122 | [ci.yml](<.github/workflows/ci.yml>), [deploy.yml](<.github/workflows/deploy.yml>), [config.yaml](<apps/data-pipeline/config.yaml>) |
 | Bourne Shell | 2 | 50 | 0 | 224 | 44&nbsp;/&nbsp;180&nbsp;/&nbsp;180 | [start_agentic_integration_stack.sh](<scripts/start_agentic_integration_stack.sh>), [mov_to_gif.sh](<scripts/mov_to_gif.sh>) |
-| CSV | 1 | 0 | 0 | 186 | 186&nbsp;/&nbsp;186&nbsp;/&nbsp;186 | [expected-stage2-raw-data.csv](<data/DEMO_HEALTH/expected-stage2-raw-data.csv>) |
+| CSV | 2 | 0 | 0 | 202 | 16&nbsp;/&nbsp;186&nbsp;/&nbsp;186 | [expected-stage2-raw-data.csv](<data/DEMO_HEALTH/expected-stage2-raw-data.csv>), [pharmacy_fills.csv](<data/DEMO/sources/pharmacy_fills.csv>) |
 | TOML | 1 | 10 | 0 | 123 | 123&nbsp;/&nbsp;123&nbsp;/&nbsp;123 | [pyproject.toml](<apps/data-pipeline/pyproject.toml>) |
 | CSS | 1 | 6 | 1 | 100 | 100&nbsp;/&nbsp;100&nbsp;/&nbsp;100 | [globals.css](<apps/web/src/app/globals.css>) |
-| Text | 3 | 0 | 0 | 32 | 1&nbsp;/&nbsp;30&nbsp;/&nbsp;30 | [cspell-project-words.txt](<cspell-project-words.txt>), [query.txt](<data/DEFAULT/query.txt>), [query.txt](<data/DEMO_HEALTH/query.txt>) |
+| Text | 5 | 0 | 0 | 89 | 1&nbsp;/&nbsp;51&nbsp;/&nbsp;51 | [23andme_raw.txt](<data/DEMO/sources/23andme_raw.txt>), [cspell-project-words.txt](<cspell-project-words.txt>), [query.txt](<data/DEFAULT/query.txt>) |
 | Bourne Again Shell | 2 | 7 | 5 | 22 | 2&nbsp;/&nbsp;20&nbsp;/&nbsp;20 | [sync-private-data](<.githooks/sync-private-data>), [post-merge](<.githooks/post-merge>) |
 | SVG | 7 | 0 | 0 | 7 | 1&nbsp;/&nbsp;1&nbsp;/&nbsp;1 | [file.svg](<apps/web/public/file.svg>), [globe.svg](<apps/web/public/globe.svg>), [next.svg](<apps/web/public/next.svg>) |
-| **Total** | **783** | **22,067** | **40,242** | **177,015** | **94&nbsp;/&nbsp;522&nbsp;/&nbsp;6,320** | **[stage-4.json](<data/DEMO_HEALTH/run/stage-4.json>), [test_reducer_flow.py](<apps/data-pipeline/tests/stages/stage4/test_reducer_flow.py>), [stage-5b.json](<data/DEMO_HEALTH/run/stage-5b.json>)** |
+| **Total** | **795** | **22,327** | **40,661** | **575,355** | **99&nbsp;/&nbsp;542&nbsp;/&nbsp;375,051** | **[oura_sleep_raw.json](<data/DEMO/sources/oura_sleep_raw.json>), [apple_health_export.xml](<data/DEMO/sources/apple_health_export.xml>), [stage-4.json](<data/DEMO_HEALTH/run/stage-4.json>)** |
 
 <!-- cloc:end -->
