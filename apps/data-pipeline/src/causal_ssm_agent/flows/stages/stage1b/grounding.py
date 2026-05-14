@@ -32,7 +32,8 @@ def stage1b_grounding(data: dict, latent_model: dict) -> tuple[dict | None, str]
     if "graph_info" in id_result:
         id_status["graph_info"] = id_result["graph_info"]
 
-    causal_spec = build_causal_spec(latent_model, measurement, id_status)
+    known_inputs = data.get("known_inputs") if isinstance(data.get("known_inputs"), list) else None
+    causal_spec = build_causal_spec(latent_model, measurement, id_status, known_inputs=known_inputs)
     estimation_errors = collect_estimation_projection_compile_errors(causal_spec)
     if estimation_errors:
         return None, "VALIDATION ERRORS:\n" + "\n".join(f"- {e}" for e in estimation_errors)

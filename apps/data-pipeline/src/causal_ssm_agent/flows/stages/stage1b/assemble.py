@@ -9,6 +9,7 @@ def build_causal_spec(
     latent_model: dict,
     measurement_model: dict,
     identifiability_status: dict | None = None,
+    known_inputs: list[dict] | None = None,
 ) -> dict:
     """Combine latent and measurement models into a full CausalSpec with identifiability."""
     from causal_ssm_agent.utils.estimation_projection import build_estimation_projection
@@ -17,6 +18,7 @@ def build_causal_spec(
         latent_model,
         measurement_model,
         identifiability_status,
+        known_inputs=known_inputs,
     )
 
     causal_spec = CausalSpec(

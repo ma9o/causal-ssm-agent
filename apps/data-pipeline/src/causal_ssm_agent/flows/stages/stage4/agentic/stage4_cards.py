@@ -15,7 +15,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_constructs,
     get_estimation_edges,
     get_estimation_state_order,
-    get_indicators,
+    get_manifest_indicators,
     get_outcome_name,
 )
 
@@ -50,7 +50,9 @@ def build_distribution_cards(
     skeleton: Stage4Skeleton,
 ) -> list[dict[str, Any]]:
     """Build compact cards for indicators whose likelihoods need judgment."""
-    indicator_lookup = {indicator["name"]: indicator for indicator in get_indicators(causal_spec)}
+    indicator_lookup = {
+        indicator["name"]: indicator for indicator in get_manifest_indicators(causal_spec)
+    }
 
     cards: list[dict[str, Any]] = []
     for item in skeleton.ambiguous_indicators:
@@ -117,7 +119,7 @@ def build_construct_scale_cards(
         for name in retained_state_order
         if name in latent_construct_lookup
     ]
-    indicators = get_indicators(causal_spec)
+    indicators = get_manifest_indicators(causal_spec)
     indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
     indicators_per_construct = indicators_per_construct(indicators)
     reference_indicator_lookup = build_reference_indicator_lookup(indicators)
