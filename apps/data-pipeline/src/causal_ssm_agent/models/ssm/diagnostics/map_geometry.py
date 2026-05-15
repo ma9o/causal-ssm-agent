@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 import jax
@@ -177,6 +178,8 @@ def _summarize_curvature(
         normalized_condition_number=_condition_number(eigvals_norm),
         weak_directions=weak_directions,
         per_parameter=per_parameter,
+        parameter_names=list(scalar_names),
+        eigenvectors_normalized=representative_norm_v.tolist(),
     )
 
 
@@ -242,6 +245,10 @@ def map_geometry_analysis(
     n_starts: int = 8,
     seed: int = 42,
     sweep_context: ParametricIdContext | None = None,
+    optimizer_options: dict | None = None,
+    parallel_workers: int | None = None,
+    initial_starts: list[jnp.ndarray | np.ndarray] | None = None,
+    initial_start_kinds: list[str] | None = None,
 ) -> MAPGeometryResult:
     """Run a multi-start MAP search, then compare H_lik and H_post at the best mode."""
     rng_key = random.PRNGKey(seed)
@@ -303,6 +310,8 @@ def map_geometry_analysis(
             posterior_curvature=likelihood_curvature,
             prior_rescued_parameters=[],
             boundary_parameters=[],
+            z_map_unconstrained=[],
+            prior_std_unconstrained=[],
         )
 
     n_candidate_draws = max(int(n_starts) * 4, 16)
@@ -321,33 +330,71 @@ def map_geometry_analysis(
     prior_std = jnp.std(prior_draws_std, axis=0)
     prior_std = jnp.maximum(prior_std, NUMERICAL_EPSILON)
 
-    candidate_kinds = ["zero", "prior_median"] + [
-        f"prior_draw_{idx}" for idx in range(int(prior_draws.shape[0]))
-    ]
-    candidates = jnp.concatenate(
-        [
-            jnp.zeros((1, flat_dim), dtype=prior_draws.dtype),
-            jnp.median(prior_draws, axis=0, keepdims=True),
-            prior_draws,
-        ],
-        axis=0,
-    )
     batch_log_posterior = jax.jit(jax.vmap(_log_posterior))
-    candidate_scores = batch_log_posterior(candidates)
-    candidate_scores = jnp.where(
-        jnp.isfinite(candidate_scores),
-        candidate_scores,
-        jnp.asarray(-jnp.inf, dtype=candidate_scores.dtype),
-    )
-    order = np.asarray(jnp.argsort(candidate_scores)[::-1], dtype=int)
-    selected = order[: max(int(n_starts), 1)]
+    if initial_starts is None:
+        candidate_kinds = ["zero", "prior_median"] + [
+            f"prior_draw_{idx}" for idx in range(int(prior_draws.shape[0]))
+        ]
+        candidates = jnp.concatenate(
+            [
+                jnp.zeros((1, flat_dim), dtype=prior_draws.dtype),
+                jnp.median(prior_draws, axis=0, keepdims=True),
+                prior_draws,
+            ],
+            axis=0,
+        )
+        candidate_scores = batch_log_posterior(candidates)
+        candidate_scores = jnp.where(
+            jnp.isfinite(candidate_scores),
+            candidate_scores,
+            jnp.asarray(-jnp.inf, dtype=candidate_scores.dtype),
+        )
+        order = np.asarray(jnp.argsort(candidate_scores)[::-1], dtype=int)
+        selected = order[: max(int(n_starts), 1)]
+        selected_starts = [
+            (
+                run_idx,
+                candidates[candidate_idx],
+                candidate_kinds[candidate_idx],
+                float(candidate_scores[candidate_idx]),
+            )
+            for run_idx, candidate_idx in enumerate(selected)
+        ]
+    else:
+        if not initial_starts:
+            raise ValueError("initial_starts must contain at least one start.")
+        if initial_start_kinds is None:
+            start_kinds = [f"initial_start_{idx}" for idx in range(len(initial_starts))]
+        else:
+            if len(initial_start_kinds) != len(initial_starts):
+                raise ValueError("initial_start_kinds must match initial_starts length.")
+            start_kinds = list(initial_start_kinds)
+        start_arrays = []
+        for start in initial_starts:
+            start_array = jnp.asarray(start, dtype=prior_draws.dtype).reshape(-1)
+            if start_array.shape[0] != flat_dim:
+                raise ValueError(
+                    f"initial start has dimension {start_array.shape[0]}, expected {flat_dim}"
+                )
+            start_arrays.append(start_array)
+        candidates = jnp.stack(start_arrays, axis=0)
+        candidate_scores = batch_log_posterior(candidates)
+        candidate_scores = jnp.where(
+            jnp.isfinite(candidate_scores),
+            candidate_scores,
+            jnp.asarray(-jnp.inf, dtype=candidate_scores.dtype),
+        )
+        selected_starts = [
+            (run_idx, candidates[run_idx], start_kinds[run_idx], float(candidate_scores[run_idx]))
+            for run_idx in range(len(start_arrays))
+        ]
 
     value_and_grad_fn = jax.jit(jax.value_and_grad(_neg_log_posterior))
     log_likelihood_jit = jax.jit(_log_likelihood)
     log_prior_jit = jax.jit(_log_prior)
     log_posterior_jit = jax.jit(_log_posterior)
     h_likelihood_fn = jax.jit(jax.hessian(lambda z: -_log_likelihood(z)))
-    h_posterior_fn = jax.jit(jax.hessian(lambda z: -_log_posterior(z)))
+    h_prior_fn = jax.jit(jax.hessian(lambda z: -_log_prior(z)))
 
     runs: list[MAPOptimizationRun] = []
     z_solutions: list[jnp.ndarray] = []
@@ -385,6 +432,7 @@ def map_geometry_analysis(
             np.asarray(jax.device_get(start), dtype=np.float64),
             method="L-BFGS-B",
             jac=_gradient,
+            options=optimizer_options,
         )
         z_opt = jnp.asarray(result.x, dtype=start.dtype)
         grad_norm = float(np.linalg.norm(np.asarray(result.jac, dtype=np.float64), ord=2))
@@ -410,11 +458,33 @@ def map_geometry_analysis(
             z_opt,
         )
 
-    for run_idx, candidate_idx in enumerate(selected):
-        start = candidates[candidate_idx]
-        start_kind = candidate_kinds[candidate_idx]
-        start_lp = float(candidate_scores[candidate_idx])
-        run, z_opt = _optimize_one(run_idx, start, start_kind, start_lp)
+    worker_count = 1 if parallel_workers is None else int(parallel_workers)
+    if worker_count < 1:
+        raise ValueError("parallel_workers must be >= 1.")
+    worker_count = min(worker_count, len(selected_starts))
+
+    if selected_starts:
+        # Trigger JIT compilation before threads start so workers share compiled
+        # callables instead of racing to compile the same objective.
+        warm_start = selected_starts[0][1]
+        warm_value, warm_grad = value_and_grad_fn(warm_start)
+        jax.block_until_ready(warm_value)
+        jax.block_until_ready(warm_grad)
+
+    if worker_count == 1:
+        start_results = [
+            _optimize_one(run_idx, start, start_kind, start_lp)
+            for run_idx, start, start_kind, start_lp in selected_starts
+        ]
+    else:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = [
+                executor.submit(_optimize_one, run_idx, start, start_kind, start_lp)
+                for run_idx, start, start_kind, start_lp in selected_starts
+            ]
+            start_results = [future.result() for future in futures]
+
+    for run, z_opt in start_results:
         runs.append(run)
         z_solutions.append(z_opt)
 
@@ -461,7 +531,8 @@ def map_geometry_analysis(
         )
 
     h_likelihood = _symmetrize(h_likelihood_fn(z_map))
-    h_posterior = _symmetrize(h_posterior_fn(z_map))
+    # Reuse the full-grid likelihood Hessian; the posterior Hessian is additive.
+    h_posterior = _symmetrize(h_likelihood + h_prior_fn(z_map))
     likelihood_curvature = _summarize_curvature(
         h_likelihood,
         prior_std=prior_std,
@@ -501,4 +572,6 @@ def map_geometry_analysis(
         posterior_curvature=posterior_curvature,
         prior_rescued_parameters=prior_rescued_parameters,
         boundary_parameters=_boundary_issue_parameters(context, prior_state, z_map),
+        z_map_unconstrained=best_host.tolist(),
+        prior_std_unconstrained=[float(value) for value in prior_std],
     )
