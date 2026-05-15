@@ -38,6 +38,8 @@ class OutputSensitivityResult:
     n_draws: int
     n_observations: int
     n_parameters: int
+    parameter_names: list[str] = field(default_factory=list)
+    normalized_right_singular_vectors: list[list[float]] = field(default_factory=list)
 
     def print_report(self) -> None:
         """Log a human-readable sensitivity analysis report."""
@@ -151,6 +153,8 @@ class MAPCurvatureResult:
     normalized_condition_number: float | None
     weak_directions: list[dict]
     per_parameter: list[dict]
+    parameter_names: list[str] = field(default_factory=list)
+    eigenvectors_normalized: list[list[float]] = field(default_factory=list)
 
 
 @dataclass
@@ -170,6 +174,8 @@ class MAPGeometryResult:
     posterior_curvature: MAPCurvatureResult
     prior_rescued_parameters: list[str]
     boundary_parameters: list[str]
+    z_map_unconstrained: list[float] = field(default_factory=list)
+    prior_std_unconstrained: list[float] = field(default_factory=list)
 
     def print_report(self) -> None:
         """Log a human-readable MAP-geometry report."""

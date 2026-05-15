@@ -405,4 +405,6 @@ def output_sensitivity_analysis(
         n_draws=len(all_sv),
         n_observations=n_observations,
         n_parameters=n_parameters,
+        parameter_names=list(scalar_names),
+        normalized_right_singular_vectors=representative_norm_v.tolist(),
     )

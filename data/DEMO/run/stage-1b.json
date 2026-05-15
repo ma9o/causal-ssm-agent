@@ -155,12 +155,6 @@
         },
         {
           "cause": "affective_state",
-          "effect": "social_engagement",
-          "description": "Depression produces social withdrawal: reduced communication initiation, longer response latencies, narrower partner network, declining shared meals and visits.",
-          "lagged": true
-        },
-        {
-          "cause": "affective_state",
           "effect": "adherence",
           "description": "Depressive cognition reduces medication-taking via diminished future-orientation, hopelessness about treatment effectiveness, motor inertia, and disrupted routines.",
           "lagged": true
@@ -176,18 +170,6 @@
           "effect": "affective_state",
           "description": "Acute psychosocial stressors (bereavement, relationship loss, family illness) directly worsen mood through HPA-axis activation and cognitive appraisal pathways.",
           "lagged": true
-        },
-        {
-          "cause": "life_events_load",
-          "effect": "social_engagement",
-          "description": "Major life changes alter the structure and accessibility of the social network: a breakup removes the primary partner, a move alters peer proximity, family illness redirects social attention.",
-          "lagged": true
-        },
-        {
-          "cause": "baseline_extraversion",
-          "effect": "social_engagement",
-          "description": "Trait sociability shifts the person-specific baseline rate of social initiation, partner-network breadth, and shared-activity frequency, while day-to-day deviations remain partly driven by mood and context.",
-          "lagged": false
         },
         {
           "cause": "baseline_extraversion",
@@ -305,24 +287,6 @@
           "extraction_mode": "computed",
           "support_kind": "interval",
           "summary_operator": "mean",
-          "anchor_policy": "support_end"
-        },
-        {
-          "name": "late_refill_count",
-          "construct_name": "adherence",
-          "how_to_measure": "Number of pharmacy fills in the support window that occurred \u22657 days after the projected exhaustion date of the prior fill. Serves as a second adherence signal independent of fill density.",
-          "construct_polarity": "negative",
-          "measurement_dtype": "count",
-          "aggregation": "sum",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "late_refill_indicator"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "sum",
           "anchor_policy": "support_end"
         },
         {
@@ -452,24 +416,6 @@
           "anchor_policy": "support_end"
         },
         {
-          "name": "social_calendar_event_count",
-          "construct_name": "social_engagement",
-          "how_to_measure": "Count of non-cancelled calendar VEVENTs whose SUMMARY or LOCATION suggests a social engagement (e.g., 'Brunch w/ Jess', 'Tracy's roof', 'Sam \u2014 drinks', book club, family visits) within the support window. Excludes work meetings and medical appointments.",
-          "construct_polarity": "positive",
-          "measurement_dtype": "count",
-          "aggregation": "sum",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "calendar_events_text"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "interval",
-          "summary_operator": "sum",
-          "anchor_policy": "support_end"
-        },
-        {
           "name": "imessage_daily_volume",
           "construct_name": "social_engagement",
           "how_to_measure": "Sum of sent + received messages across all iMessage threads (excluding the 'Dad' ritual thread, which is one-way and indexes affective state rather than social engagement) in the support window.",
@@ -480,24 +426,6 @@
           "ordinal_levels": null,
           "source_columns": [
             "imessage_volume"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "sum",
-          "anchor_policy": "support_end"
-        },
-        {
-          "name": "weekly_unique_partners",
-          "construct_name": "social_engagement",
-          "how_to_measure": "Count of distinct conversation partners across iMessage threads who exchanged at least one message in the support window. Network-narrowing is a depressive signature distinct from raw volume.",
-          "construct_polarity": "positive",
-          "measurement_dtype": "count",
-          "aggregation": "sum",
-          "observation_window": "1w",
-          "ordinal_levels": null,
-          "source_columns": [
-            "imessage_unique_partners"
           ],
           "computed_rule": null,
           "extraction_mode": "computed",
@@ -545,24 +473,6 @@
           "name": "medical_event_count",
           "construct_name": "life_events_load",
           "how_to_measure": "Count of external medical or family-health stressor events in the support window (for example Mom's diagnosis, surgery logistics, hospital visits, urgent family care). Exclude routine GP follow-ups, therapy appointments, pharmacy fills, and ordinary treatment-management visits because those are partly consequences of symptoms or medication management rather than exogenous life stressors.",
-          "construct_polarity": "positive",
-          "measurement_dtype": "count",
-          "aggregation": "sum",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "calendar_events_text"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "interval",
-          "summary_operator": "sum",
-          "anchor_policy": "support_end"
-        },
-        {
-          "name": "acute_stressor_event_count",
-          "construct_name": "life_events_load",
-          "how_to_measure": "Count of calendar VEVENTs and Plaid transactions in the support window that signal a major life event: relocation/move (rent + deposit + utility setup signatures), bereavement, surgery (patient or family), break-up signal (Splitwise final + lease + broker), or extended NJ trip clusters indicating family crisis.",
           "construct_polarity": "positive",
           "measurement_dtype": "count",
           "aggregation": "sum",
@@ -731,21 +641,11 @@
     "estimation": {
       "state_order": [
         "affective_state",
-        "adherence",
         "sleep_quality",
         "physical_activity",
-        "social_engagement",
-        "prescription_event",
-        "life_events_load",
         "cyp2c19_metabolizer_status"
       ],
       "edges": [
-        {
-          "cause": "affective_state",
-          "effect": "prescription_event",
-          "description": "The initial medication start and the 2024-03-05 dose increase are partly responses to lagged depressive severity and incomplete remission documented at clinical follow-up, so prescribing is not purely exogenous.",
-          "lagged": true
-        },
         {
           "cause": "serotonergic_exposure",
           "effect": "affective_state",
@@ -795,18 +695,6 @@
           "lagged": true
         },
         {
-          "cause": "affective_state",
-          "effect": "social_engagement",
-          "description": "Depression produces social withdrawal: reduced communication initiation, longer response latencies, narrower partner network, declining shared meals and visits.",
-          "lagged": true
-        },
-        {
-          "cause": "affective_state",
-          "effect": "adherence",
-          "description": "Depressive cognition reduces medication-taking via diminished future-orientation, hopelessness about treatment effectiveness, motor inertia, and disrupted routines.",
-          "lagged": true
-        },
-        {
           "cause": "seasonal_load",
           "effect": "affective_state",
           "description": "Reduced photoperiod (winter at 40.7\u00b0N latitude) shifts mood baseline downward through the SAD spectrum: serotonin pathway downregulation and circadian phase delay.",
@@ -816,12 +704,6 @@
           "cause": "life_events_load",
           "effect": "affective_state",
           "description": "Acute psychosocial stressors (bereavement, relationship loss, family illness) directly worsen mood through HPA-axis activation and cognitive appraisal pathways.",
-          "lagged": true
-        },
-        {
-          "cause": "life_events_load",
-          "effect": "social_engagement",
-          "description": "Major life changes alter the structure and accessibility of the social network: a breakup removes the primary partner, a move alters peer proximity, family illness redirects social attention.",
           "lagged": true
         }
       ],
@@ -837,6 +719,30 @@
           "construct": "seasonal_load",
           "source_indicator": "daylight_hours",
           "scale": 12.0,
+          "missing_policy": "forward_fill"
+        },
+        {
+          "construct": "prescription_event",
+          "source_indicator": "pharmacy_fill_count",
+          "scale": 1.0,
+          "missing_policy": "zero"
+        },
+        {
+          "construct": "adherence",
+          "source_indicator": "proportion_days_covered",
+          "scale": 1.0,
+          "missing_policy": "forward_fill"
+        },
+        {
+          "construct": "life_events_load",
+          "source_indicator": "medical_event_count",
+          "scale": 1.0,
+          "missing_policy": "zero"
+        },
+        {
+          "construct": "social_engagement",
+          "source_indicator": "imessage_daily_volume",
+          "scale": 8.0,
           "missing_policy": "forward_fill"
         }
       ]

@@ -36,22 +36,6 @@
         "sources": []
       },
       {
-        "variable": "proportion_days_covered",
-        "distribution": "gaussian",
-        "link": "identity",
-        "centered": false,
-        "reasoning": "PDC is in [0, 1] but with non-trivial mass at 1.0 (perfect adherence windows) which beta/logit cannot represent without inflated boundary mass. Gaussian/identity handles the boundary pragmatically and the compiler clips at observation time.",
-        "sources": []
-      },
-      {
-        "variable": "late_refill_count",
-        "distribution": "poisson",
-        "link": "log",
-        "centered": false,
-        "reasoning": "Late refills are rare events with low mean (mostly 0 per support window, with one positive event at the May 2025 gap). Poisson is appropriate when variance \u2248 mean for low-rate events.",
-        "sources": []
-      },
-      {
         "variable": "total_sleep_hours",
         "distribution": "gaussian",
         "link": "identity",
@@ -105,54 +89,6 @@
         "link": "identity",
         "centered": false,
         "reasoning": "Walking speed in [1.2, 1.5] m/s is symmetric within person; gaussian/identity is standard.",
-        "sources": []
-      },
-      {
-        "variable": "social_calendar_event_count",
-        "distribution": "poisson",
-        "link": "log",
-        "centered": false,
-        "reasoning": "Social calendar events per day are sparse 0-2 with variance close to mean. Poisson is appropriate for this low-rate count.",
-        "sources": []
-      },
-      {
-        "variable": "imessage_daily_volume",
-        "distribution": "negative_binomial",
-        "link": "log",
-        "centered": false,
-        "reasoning": "iMessage daily volume varies widely (mean \u2248 30, SD often comparable). Variance/mean ratio across the trajectory is consistently > 1 due to weekend/weekday and seasonal patterns; negative_binomial handles the overdispersion.",
-        "sources": []
-      },
-      {
-        "variable": "weekly_unique_partners",
-        "distribution": "poisson",
-        "link": "log",
-        "centered": false,
-        "reasoning": "Weekly unique conversation partners is a small integer (2-6) with variance close to mean. Poisson is appropriate; the weekly support window stabilizes the rate for a low-count summary.",
-        "sources": []
-      },
-      {
-        "variable": "pharmacy_fill_count",
-        "distribution": "poisson",
-        "link": "log",
-        "centered": false,
-        "reasoning": "Pharmacy fills per support window are rare (mostly 0, occasional 1). Poisson handles the low-rate count cleanly.",
-        "sources": []
-      },
-      {
-        "variable": "medical_event_count",
-        "distribution": "poisson",
-        "link": "log",
-        "centered": false,
-        "reasoning": "External medical events are rare external stressors. Poisson is the standard choice for low-rate event counts.",
-        "sources": []
-      },
-      {
-        "variable": "acute_stressor_event_count",
-        "distribution": "poisson",
-        "link": "log",
-        "centered": false,
-        "reasoning": "Acute life-event clusters are extremely rare (median 0, isolated 1-2 across the 4-year trajectory). Poisson is appropriate.",
         "sources": []
       },
       {
@@ -220,12 +156,6 @@
         "description": "Measurement-error SD for state_of_mind_valence"
       },
       {
-        "name": "obs_sd_proportion_days_covered",
-        "role": "measurement_error_sd",
-        "constraint": "positive",
-        "description": "Measurement-error SD for proportion_days_covered"
-      },
-      {
         "name": "obs_sd_nightly_hrv_ms",
         "role": "measurement_error_sd",
         "constraint": "positive",
@@ -268,12 +198,6 @@
         "description": "Observation intercept for late_night_message_count"
       },
       {
-        "name": "manifest_mean_late_refill_count",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for late_refill_count"
-      },
-      {
         "name": "manifest_mean_sleep_onset_latency_min",
         "role": "observation_intercept",
         "constraint": "none",
@@ -284,42 +208,6 @@
         "role": "observation_intercept",
         "constraint": "none",
         "description": "Observation intercept for daily_step_count"
-      },
-      {
-        "name": "manifest_mean_imessage_daily_volume",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for imessage_daily_volume"
-      },
-      {
-        "name": "manifest_mean_social_calendar_event_count",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for social_calendar_event_count"
-      },
-      {
-        "name": "manifest_mean_weekly_unique_partners",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for weekly_unique_partners"
-      },
-      {
-        "name": "manifest_mean_pharmacy_fill_count",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for pharmacy_fill_count"
-      },
-      {
-        "name": "manifest_mean_acute_stressor_event_count",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for acute_stressor_event_count"
-      },
-      {
-        "name": "manifest_mean_medical_event_count",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for medical_event_count"
       },
       {
         "name": "obs_r",
@@ -340,12 +228,6 @@
         "description": "Baseline discrete-time persistence absent incoming feedback for affective_state"
       },
       {
-        "name": "rho_adherence",
-        "role": "ar_coefficient",
-        "constraint": "unit_interval",
-        "description": "Baseline discrete-time persistence absent incoming feedback for adherence"
-      },
-      {
         "name": "rho_sleep_quality",
         "role": "ar_coefficient",
         "constraint": "unit_interval",
@@ -356,30 +238,6 @@
         "role": "ar_coefficient",
         "constraint": "unit_interval",
         "description": "Baseline discrete-time persistence absent incoming feedback for physical_activity"
-      },
-      {
-        "name": "rho_social_engagement",
-        "role": "ar_coefficient",
-        "constraint": "unit_interval",
-        "description": "Baseline discrete-time persistence absent incoming feedback for social_engagement"
-      },
-      {
-        "name": "rho_prescription_event",
-        "role": "ar_coefficient",
-        "constraint": "unit_interval",
-        "description": "Baseline discrete-time persistence absent incoming feedback for prescription_event"
-      },
-      {
-        "name": "rho_life_events_load",
-        "role": "ar_coefficient",
-        "constraint": "unit_interval",
-        "description": "Baseline discrete-time persistence absent incoming feedback for life_events_load"
-      },
-      {
-        "name": "beta_affective_state_prescription_event",
-        "role": "fixed_effect",
-        "constraint": "none",
-        "description": "Effect of affective_state on prescription_event"
       },
       {
         "name": "beta_serotonergic_exposure_affective_state",
@@ -430,18 +288,6 @@
         "description": "Effect of affective_state on sleep_quality"
       },
       {
-        "name": "beta_affective_state_social_engagement",
-        "role": "fixed_effect",
-        "constraint": "none",
-        "description": "Effect of affective_state on social_engagement"
-      },
-      {
-        "name": "beta_affective_state_adherence",
-        "role": "fixed_effect",
-        "constraint": "none",
-        "description": "Effect of affective_state on adherence"
-      },
-      {
         "name": "beta_seasonal_load_affective_state",
         "role": "fixed_effect",
         "constraint": "none",
@@ -454,22 +300,10 @@
         "description": "Effect of life_events_load on affective_state"
       },
       {
-        "name": "beta_life_events_load_social_engagement",
-        "role": "fixed_effect",
-        "constraint": "none",
-        "description": "Effect of life_events_load on social_engagement"
-      },
-      {
         "name": "sigma_affective_state",
         "role": "residual_sd",
         "constraint": "positive",
         "description": "Residual/innovation SD for affective_state"
-      },
-      {
-        "name": "sigma_adherence",
-        "role": "residual_sd",
-        "constraint": "positive",
-        "description": "Residual/innovation SD for adherence"
       },
       {
         "name": "sigma_sleep_quality",
@@ -482,24 +316,6 @@
         "role": "residual_sd",
         "constraint": "positive",
         "description": "Residual/innovation SD for physical_activity"
-      },
-      {
-        "name": "sigma_social_engagement",
-        "role": "residual_sd",
-        "constraint": "positive",
-        "description": "Residual/innovation SD for social_engagement"
-      },
-      {
-        "name": "sigma_prescription_event",
-        "role": "residual_sd",
-        "constraint": "positive",
-        "description": "Residual/innovation SD for prescription_event"
-      },
-      {
-        "name": "sigma_life_events_load",
-        "role": "residual_sd",
-        "constraint": "positive",
-        "description": "Residual/innovation SD for life_events_load"
       },
       {
         "name": "t0_mean_cyp2c19_metabolizer_status",
@@ -550,12 +366,6 @@
         "description": "Factor loading for late_night_message_count on affective_state"
       },
       {
-        "name": "lambda_late_refill_count_adherence",
-        "role": "loading",
-        "constraint": "negative",
-        "description": "Factor loading for late_refill_count on adherence"
-      },
-      {
         "name": "lambda_nightly_hrv_ms_sleep_quality",
         "role": "loading",
         "constraint": "positive",
@@ -584,24 +394,6 @@
         "role": "loading",
         "constraint": "positive",
         "description": "Factor loading for walking_speed_mps on physical_activity"
-      },
-      {
-        "name": "lambda_imessage_daily_volume_social_engagement",
-        "role": "loading",
-        "constraint": "positive",
-        "description": "Factor loading for imessage_daily_volume on social_engagement"
-      },
-      {
-        "name": "lambda_weekly_unique_partners_social_engagement",
-        "role": "loading",
-        "constraint": "positive",
-        "description": "Factor loading for weekly_unique_partners on social_engagement"
-      },
-      {
-        "name": "lambda_acute_stressor_event_count_life_events_load",
-        "role": "loading",
-        "constraint": "positive",
-        "description": "Factor loading for acute_stressor_event_count on life_events_load"
       }
     ],
     "initialization_policy": "stationary",
@@ -653,15 +445,6 @@
       },
       "sources": [],
       "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(state_of_mind_valence)=0.305; HalfNormal scale = 0.7 \u00d7 y_sd = 0.214. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
-    },
-    "obs_sd_proportion_days_covered": {
-      "parameter": "obs_sd_proportion_days_covered",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 0.004965480907336638
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(proportion_days_covered)=0.00709; HalfNormal scale = 0.7 \u00d7 y_sd = 0.00497. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
     },
     "obs_sd_nightly_hrv_ms": {
       "parameter": "obs_sd_nightly_hrv_ms",
@@ -728,16 +511,6 @@
       "sources": [],
       "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.78, so manifest intercept centered at log(mean) = -0.249. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
     },
-    "manifest_mean_late_refill_count": {
-      "parameter": "manifest_mean_late_refill_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": -6.907755278982137,
-        "sigma": 2.072326583694641
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.001, so manifest intercept centered at log(mean) = -6.908. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
-    },
     "manifest_mean_sleep_onset_latency_min": {
       "parameter": "manifest_mean_sleep_onset_latency_min",
       "distribution": "Normal",
@@ -757,66 +530,6 @@
       },
       "sources": [],
       "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 8.06e+03, so manifest intercept centered at log(mean) = 8.994. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
-    },
-    "manifest_mean_imessage_daily_volume": {
-      "parameter": "manifest_mean_imessage_daily_volume",
-      "distribution": "Normal",
-      "params": {
-        "mu": 2.109907833522322,
-        "sigma": 0.6329723500566966
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 8.25, so manifest intercept centered at log(mean) = 2.110. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
-    },
-    "manifest_mean_social_calendar_event_count": {
-      "parameter": "manifest_mean_social_calendar_event_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.024097551579060524,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 1.02, so manifest intercept centered at log(mean) = 0.024. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
-    },
-    "manifest_mean_weekly_unique_partners": {
-      "parameter": "manifest_mean_weekly_unique_partners",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.6981386828507514,
-        "sigma": 0.5094416048552254
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 5.46, so manifest intercept centered at log(mean) = 1.698. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
-    },
-    "manifest_mean_pharmacy_fill_count": {
-      "parameter": "manifest_mean_pharmacy_fill_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": -4.662180440704871,
-        "sigma": 1.3986541322114612
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.00945, so manifest intercept centered at log(mean) = -4.662. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
-    },
-    "manifest_mean_acute_stressor_event_count": {
-      "parameter": "manifest_mean_acute_stressor_event_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.09531017980432493,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 1.1, so manifest intercept centered at log(mean) = 0.095. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
-    },
-    "manifest_mean_medical_event_count": {
-      "parameter": "manifest_mean_medical_event_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.026668247082161273,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 1.03, so manifest intercept centered at log(mean) = 0.027. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
     },
     "obs_r": {
       "parameter": "obs_r",
@@ -854,16 +567,6 @@
       "reasoning": "Daily-scale mood persistence has well-documented ar(1) \u2248 0.7. Beta(6, 2) puts \u2248 75% of mass in [0.6, 0.9] which centers on the literature mean while leaving room for the patient's documented fast-shift episodes (the Dec 2023 'Q-train moment').",
       "parameter": "rho_affective_state"
     },
-    "rho_adherence": {
-      "parameter": "rho_adherence",
-      "distribution": "Beta",
-      "params": {
-        "alpha": 4.0,
-        "beta": 1.5
-      },
-      "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain."
-    },
     "rho_sleep_quality": {
       "parameter": "rho_sleep_quality",
       "distribution": "Beta",
@@ -883,47 +586,6 @@
       },
       "sources": [],
       "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain."
-    },
-    "rho_social_engagement": {
-      "parameter": "rho_social_engagement",
-      "distribution": "Beta",
-      "params": {
-        "alpha": 4.0,
-        "beta": 1.5
-      },
-      "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain."
-    },
-    "rho_prescription_event": {
-      "distribution": "Beta",
-      "params": {
-        "alpha": 1.0,
-        "beta": 9.0
-      },
-      "reasoning": "Prescription events are discrete fill spikes, NOT a persistent latent. The construct is closer to a 0/1 indicator on fill days. Beta(1, 9) centers at 0.10 with most mass in [0.0, 0.25] \u2014 the spike has very little carry-over from one day to the next.",
-      "sources": [],
-      "parameter": "rho_prescription_event"
-    },
-    "rho_life_events_load": {
-      "distribution": "Beta",
-      "params": {
-        "alpha": 1.5,
-        "beta": 6.0
-      },
-      "reasoning": "Acute life events are sparse spikes that decay over weeks. On the daily scale, persistence \u2248 0.20 captures the next-day carry-over. Beta(1.5, 6) centers there with skew toward zero.",
-      "sources": [],
-      "parameter": "rho_life_events_load"
-    },
-    "beta_affective_state_prescription_event": {
-      "parameter": "beta_affective_state_prescription_event",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "reference_interval_days": 1.0,
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
     },
     "beta_serotonergic_exposure_affective_state": {
       "distribution": "Normal",
@@ -1044,28 +706,6 @@
       "sources": [],
       "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
     },
-    "beta_affective_state_social_engagement": {
-      "parameter": "beta_affective_state_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "reference_interval_days": 1.0,
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
-    },
-    "beta_affective_state_adherence": {
-      "parameter": "beta_affective_state_adherence",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "reference_interval_days": 1.0,
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
-    },
     "beta_seasonal_load_affective_state": {
       "distribution": "Normal",
       "params": {
@@ -1104,28 +744,8 @@
       "reasoning": "Major external stressors produce \u2248 +1 SD acute mood drops over \u2248 30 days. We author directly on the 1-day model interval: mu \u2248 0.08 per day captures the integrated daily contribution during a stressor episode (which is short-lived for this patient given the resilience demonstrated around mom's diagnosis); sigma=0.05 reflects within-person variability in stressor sensitivity.",
       "parameter": "beta_life_events_load_affective_state"
     },
-    "beta_life_events_load_social_engagement": {
-      "parameter": "beta_life_events_load_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "reference_interval_days": 1.0,
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6)."
-    },
     "sigma_affective_state": {
       "parameter": "sigma_affective_state",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits."
-    },
-    "sigma_adherence": {
-      "parameter": "sigma_adherence",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 1.0
@@ -1144,33 +764,6 @@
     },
     "sigma_physical_activity": {
       "parameter": "sigma_physical_activity",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits."
-    },
-    "sigma_social_engagement": {
-      "parameter": "sigma_social_engagement",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits."
-    },
-    "sigma_prescription_event": {
-      "parameter": "sigma_prescription_event",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits."
-    },
-    "sigma_life_events_load": {
-      "parameter": "sigma_life_events_load",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 1.0
@@ -1265,16 +858,6 @@
       "sources": [],
       "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings."
     },
-    "lambda_late_refill_count_adherence": {
-      "parameter": "lambda_late_refill_count_adherence",
-      "distribution": "Normal",
-      "params": {
-        "mu": -1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings."
-    },
     "lambda_nightly_hrv_ms_sleep_quality": {
       "parameter": "lambda_nightly_hrv_ms_sleep_quality",
       "distribution": "Normal",
@@ -1324,36 +907,6 @@
       },
       "sources": [],
       "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(walking_speed_mps)=0.0362, y_sd(daily_step_count, marker)=1.63e+03, so MLE \u03bb \u2248 sign \u00d7 2.22e-05. Prior centered there with \u03c3=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
-    },
-    "lambda_imessage_daily_volume_social_engagement": {
-      "parameter": "lambda_imessage_daily_volume_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings."
-    },
-    "lambda_weekly_unique_partners_social_engagement": {
-      "parameter": "lambda_weekly_unique_partners_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings."
-    },
-    "lambda_acute_stressor_event_count_life_events_load": {
-      "parameter": "lambda_acute_stressor_event_count_life_events_load",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings."
     }
   },
   "resolved_priors": [
@@ -1409,17 +962,6 @@
       },
       "sources": [],
       "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(state_of_mind_valence)=0.305; HalfNormal scale = 0.7 \u00d7 y_sd = 0.214. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "obs_sd_proportion_days_covered",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 0.004965480907336638
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(proportion_days_covered)=0.00709; HalfNormal scale = 0.7 \u00d7 y_sd = 0.00497. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1503,18 +1045,6 @@
       "density_points": null
     },
     {
-      "parameter": "manifest_mean_late_refill_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": -6.907755278982137,
-        "sigma": 2.072326583694641
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.001, so manifest intercept centered at log(mean) = -6.908. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
       "parameter": "manifest_mean_sleep_onset_latency_min",
       "distribution": "Normal",
       "params": {
@@ -1535,78 +1065,6 @@
       },
       "sources": [],
       "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 8.06e+03, so manifest intercept centered at log(mean) = 8.994. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "manifest_mean_imessage_daily_volume",
-      "distribution": "Normal",
-      "params": {
-        "mu": 2.109907833522322,
-        "sigma": 0.6329723500566966
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 8.25, so manifest intercept centered at log(mean) = 2.110. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "manifest_mean_social_calendar_event_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.024097551579060524,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 1.02, so manifest intercept centered at log(mean) = 0.024. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "manifest_mean_weekly_unique_partners",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.6981386828507514,
-        "sigma": 0.5094416048552254
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 5.46, so manifest intercept centered at log(mean) = 1.698. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "manifest_mean_pharmacy_fill_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": -4.662180440704871,
-        "sigma": 1.3986541322114612
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.00945, so manifest intercept centered at log(mean) = -4.662. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "manifest_mean_acute_stressor_event_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.09531017980432493,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 1.1, so manifest intercept centered at log(mean) = 0.095. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "manifest_mean_medical_event_count",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.026668247082161273,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 1.03, so manifest intercept centered at log(mean) = 0.027. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1653,18 +1111,6 @@
       "density_points": null
     },
     {
-      "parameter": "rho_adherence",
-      "distribution": "Beta",
-      "params": {
-        "alpha": 4.0,
-        "beta": 1.5
-      },
-      "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
       "parameter": "rho_sleep_quality",
       "distribution": "Beta",
       "params": {
@@ -1686,54 +1132,6 @@
       "sources": [],
       "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain.",
       "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "rho_social_engagement",
-      "distribution": "Beta",
-      "params": {
-        "alpha": 4.0,
-        "beta": 1.5
-      },
-      "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "rho_prescription_event",
-      "distribution": "Beta",
-      "params": {
-        "alpha": 1.0,
-        "beta": 9.0
-      },
-      "sources": [],
-      "reasoning": "Prescription events are discrete fill spikes, NOT a persistent latent. The construct is closer to a 0/1 indicator on fill days. Beta(1, 9) centers at 0.10 with most mass in [0.0, 0.25] \u2014 the spike has very little carry-over from one day to the next.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "rho_life_events_load",
-      "distribution": "Beta",
-      "params": {
-        "alpha": 1.5,
-        "beta": 6.0
-      },
-      "sources": [],
-      "reasoning": "Acute life events are sparse spikes that decay over weeks. On the daily scale, persistence \u2248 0.20 captures the next-day carry-over. Beta(1.5, 6) centers there with skew toward zero.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "beta_affective_state_prescription_event",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
-      "reference_interval_days": 1.0,
       "density_points": null
     },
     {
@@ -1864,30 +1262,6 @@
       "density_points": null
     },
     {
-      "parameter": "beta_affective_state_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
-      "reference_interval_days": 1.0,
-      "density_points": null
-    },
-    {
-      "parameter": "beta_affective_state_adherence",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
-      "reference_interval_days": 1.0,
-      "density_points": null
-    },
-    {
       "parameter": "beta_seasonal_load_affective_state",
       "distribution": "Normal",
       "params": {
@@ -1928,30 +1302,7 @@
       "density_points": null
     },
     {
-      "parameter": "beta_life_events_load_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 0.0,
-        "sigma": 0.3
-      },
-      "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
-      "reference_interval_days": 1.0,
-      "density_points": null
-    },
-    {
       "parameter": "sigma_affective_state",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "sigma_adherence",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 1.0
@@ -1974,39 +1325,6 @@
     },
     {
       "parameter": "sigma_physical_activity",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "sigma_social_engagement",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "sigma_prescription_event",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 1.0
-      },
-      "sources": [],
-      "reasoning": "Half-Normal(1) on the latent state scale. Allows substantial innovation variability while constraining the implied stationary covariance to plausible scales given the indicator audits.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "sigma_life_events_load",
       "distribution": "HalfNormal",
       "params": {
         "sigma": 1.0
@@ -2120,18 +1438,6 @@
       "density_points": null
     },
     {
-      "parameter": "lambda_late_refill_count_adherence",
-      "distribution": "Normal",
-      "params": {
-        "mu": -1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
       "parameter": "lambda_nightly_hrv_ms_sleep_quality",
       "distribution": "Normal",
       "params": {
@@ -2192,42 +1498,6 @@
       "density_points": null
     },
     {
-      "parameter": "lambda_imessage_daily_volume_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "lambda_weekly_unique_partners_social_engagement",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "lambda_acute_stressor_event_count_life_events_load",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
       "parameter": "t0_mean_affective_state",
       "distribution": "Normal",
       "params": {
@@ -2252,20 +1522,10 @@
     }
   ],
   "validation_warnings": [
-    "beta_serotonergic_exposure_affective_state is authored on 1.0d via `reference_interval_days`, but the cited evidence for serotonergic_exposure->affective_state is on 49.0d.",
     "beta_sleep_quality_affective_state is authored on 1.0d via `reference_interval_days`, but the cited evidence for sleep_quality->affective_state is on 7.0d.",
     "beta_physical_activity_affective_state is authored on 1.0d via `reference_interval_days`, but the cited evidence for physical_activity->affective_state is on 70.0d.",
-    "beta_seasonal_load_affective_state is authored on 1.0d via `reference_interval_days`, but the cited evidence for seasonal_load->affective_state is on 180.0d.",
-    "beta_life_events_load_affective_state is authored on 1.0d via `reference_interval_days`, but the cited evidence for life_events_load->affective_state is on 30.0d.",
-    "beta_serotonergic_exposure_affective_state (serotonergic_exposure -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.116 1/day versus the elementwise beta/dt value 0.050 1/day; logm deviation is 57% and the exact coupling is 193% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "beta_sleep_quality_affective_state (sleep_quality -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.113 1/day versus the elementwise beta/dt value 0.070 1/day; logm deviation is 38% and the exact coupling is 189% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "beta_physical_activity_affective_state (physical_activity -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.065 1/day versus the elementwise beta/dt value 0.040 1/day; logm deviation is 38% and the exact coupling is 108% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "beta_seasonal_load_affective_state (seasonal_load -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.027 1/day versus the elementwise beta/dt value 0.020 1/day; logm deviation is 27% and the exact coupling is 46% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "beta_life_events_load_affective_state (life_events_load -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.236 1/day versus the elementwise beta/dt value 0.080 1/day; logm deviation is 66% and the exact coupling is 394% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "beta_adherence_serotonergic_exposure (adherence -> serotonergic_exposure): matrix-log mismatch; exact CT coupling at 1.0d is 0.204 1/day versus the elementwise beta/dt value 0.100 1/day; logm deviation is 51% and the exact coupling is 341% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "beta_prescription_event_serotonergic_exposure (prescription_event -> serotonergic_exposure): matrix-log mismatch; exact CT coupling at 1.0d is 0.528 1/day versus the elementwise beta/dt value 0.100 1/day; logm deviation is 81% and the exact coupling is 881% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "beta_cyp2c19_metabolizer_status_serotonergic_exposure (cyp2c19_metabolizer_status -> serotonergic_exposure): matrix-log mismatch; exact CT coupling at 1.0d is 0.165 1/day versus the elementwise beta/dt value 0.100 1/day; logm deviation is 39% and the exact coupling is 275% of the smallest realised CT diagonal damping (0.060 1/day, rho_seasonal_load).",
-    "Scale mismatch for proportion_days_covered: implied std (0.73) vs data std (0.0071), ratio=1e+02"
+    "beta_sleep_quality_affective_state (sleep_quality -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.105 1/day versus the elementwise beta/dt value 0.070 1/day; logm deviation is 33% and the exact coupling is 29% of the smallest realised CT diagonal damping (0.368 1/day, rho_sleep_quality).",
+    "beta_physical_activity_affective_state (physical_activity -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.060 1/day versus the elementwise beta/dt value 0.040 1/day; logm deviation is 33% and the exact coupling is 16% of the smallest realised CT diagonal damping (0.368 1/day, rho_sleep_quality)."
   ],
   "prior_predictive_samples": {},
   "llm_trace": {
