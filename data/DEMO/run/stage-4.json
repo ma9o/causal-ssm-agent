@@ -1,6 +1,6 @@
 {
   "outcome": "warn",
-  "fail_reason": "pp_failed",
+  "fail_reason": null,
   "model_spec": {
     "likelihoods": [
       {
@@ -9,22 +9,6 @@
         "link": "identity",
         "centered": false,
         "reasoning": "Apple Health State of Mind 'dailyMood' valence is a unipolar self-rated VAS in [-1, +1] with quasi-symmetric within-person mass. Beta is rejected because boundary mass is rare in practice and the stationary affective_state filter prefers identity link; Student-t is not needed at the scale of self-report mood (no heavy outliers).",
-        "sources": []
-      },
-      {
-        "variable": "journal_word_count",
-        "distribution": "gaussian",
-        "link": "identity",
-        "centered": false,
-        "reasoning": "Word counts per support window are summed over journaling activity. On non-entry days the sum is 0, which breaks gamma/log support; on entry days the within-person distribution is roughly symmetric around a person-specific median. Treating as continuous with a zero-inflation tolerated by the gaussian innovation captures the linguistic-marker signal without overcommitting.",
-        "sources": []
-      },
-      {
-        "variable": "journal_entry_frequency",
-        "distribution": "negative_binomial",
-        "link": "log",
-        "centered": false,
-        "reasoning": "Journal entries per support window are sparse (mostly 0 with bursts of 1-2 during stable periods). The variance/mean ratio across the trajectory is well above 1 (bursts cluster around therapy and crisis periods), so negative_binomial absorbs the burstiness more honestly than poisson.",
         "sources": []
       },
       {
@@ -84,14 +68,6 @@
         "sources": []
       },
       {
-        "variable": "walking_speed_mps",
-        "distribution": "gaussian",
-        "link": "identity",
-        "centered": false,
-        "reasoning": "Walking speed in [1.2, 1.5] m/s is symmetric within person; gaussian/identity is standard.",
-        "sources": []
-      },
-      {
         "variable": "journal_affect_severity",
         "distribution": "gaussian",
         "link": "identity",
@@ -144,12 +120,6 @@
         "description": "Measurement-error SD for journal_rumination_intensity"
       },
       {
-        "name": "obs_sd_journal_word_count",
-        "role": "measurement_error_sd",
-        "constraint": "positive",
-        "description": "Measurement-error SD for journal_word_count"
-      },
-      {
         "name": "obs_sd_state_of_mind_valence",
         "role": "measurement_error_sd",
         "constraint": "positive",
@@ -178,18 +148,6 @@
         "role": "measurement_error_sd",
         "constraint": "positive",
         "description": "Measurement-error SD for exercise_minutes"
-      },
-      {
-        "name": "obs_sd_walking_speed_mps",
-        "role": "measurement_error_sd",
-        "constraint": "positive",
-        "description": "Measurement-error SD for walking_speed_mps"
-      },
-      {
-        "name": "manifest_mean_journal_entry_frequency",
-        "role": "observation_intercept",
-        "constraint": "none",
-        "description": "Observation intercept for journal_entry_frequency"
       },
       {
         "name": "manifest_mean_late_night_message_count",
@@ -342,22 +300,10 @@
         "description": "Factor loading for journal_affect_severity on affective_state"
       },
       {
-        "name": "lambda_journal_entry_frequency_affective_state",
-        "role": "loading",
-        "constraint": "positive",
-        "description": "Factor loading for journal_entry_frequency on affective_state"
-      },
-      {
         "name": "lambda_journal_rumination_intensity_affective_state",
         "role": "loading",
         "constraint": "negative",
         "description": "Factor loading for journal_rumination_intensity on affective_state"
-      },
-      {
-        "name": "lambda_journal_word_count_affective_state",
-        "role": "loading",
-        "constraint": "positive",
-        "description": "Factor loading for journal_word_count on affective_state"
       },
       {
         "name": "lambda_late_night_message_count_affective_state",
@@ -388,12 +334,6 @@
         "role": "loading",
         "constraint": "positive",
         "description": "Factor loading for exercise_minutes on physical_activity"
-      },
-      {
-        "name": "lambda_walking_speed_mps_physical_activity",
-        "role": "loading",
-        "constraint": "positive",
-        "description": "Factor loading for walking_speed_mps on physical_activity"
       }
     ],
     "initialization_policy": "stationary",
@@ -403,103 +343,99 @@
   "authored_priors": {
     "obs_sd_gp_clinical_severity": {
       "parameter": "obs_sd_gp_clinical_severity",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 1.964370128056319
+        "mu": 0.675171648417116,
+        "sigma": 0.6
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(gp_clinical_severity)=2.81; HalfNormal scale = 0.7 \u00d7 y_sd = 1.96. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
+      "reasoning": "LogNormal observation-noise prior calibrated to the existing empirical measurement scale (median=1.964). The shared manifest variance site must use one positive prior family; using LogNormal keeps mass away from zero while preserving a weak empirical scale for this channel.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "obs_sd_journal_affect_severity": {
       "parameter": "obs_sd_journal_affect_severity",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 0.7773887916180251
+        "mu": -0.2518146784476979,
+        "sigma": 0.6
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(journal_affect_severity)=1.11; HalfNormal scale = 0.7 \u00d7 y_sd = 0.777. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
+      "reasoning": "LogNormal observation-noise prior calibrated to the existing empirical measurement scale (median=0.7774). The shared manifest variance site must use one positive prior family; using LogNormal keeps mass away from zero while preserving a weak empirical scale for this channel.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "obs_sd_journal_rumination_intensity": {
       "parameter": "obs_sd_journal_rumination_intensity",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 1.8502927696268316
+        "mu": 0.6153438804217549,
+        "sigma": 0.6
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(journal_rumination_intensity)=2.64; HalfNormal scale = 0.7 \u00d7 y_sd = 1.85. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
-    },
-    "obs_sd_journal_word_count": {
-      "parameter": "obs_sd_journal_word_count",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 9.87910872411534
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(journal_word_count)=14.1; HalfNormal scale = 0.7 \u00d7 y_sd = 9.88. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
+      "reasoning": "LogNormal observation-noise prior calibrated to the existing empirical measurement scale (median=1.85). The shared manifest variance site must use one positive prior family; using LogNormal keeps mass away from zero while preserving a weak empirical scale for this channel.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "obs_sd_state_of_mind_valence": {
       "parameter": "obs_sd_state_of_mind_valence",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 0.2138370933454284
+        "mu": -1.5425407999045897,
+        "sigma": 0.6
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(state_of_mind_valence)=0.305; HalfNormal scale = 0.7 \u00d7 y_sd = 0.214. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
+      "reasoning": "LogNormal observation-noise prior calibrated to the existing empirical measurement scale (median=0.2138). The shared manifest variance site must use one positive prior family; using LogNormal keeps mass away from zero while preserving a weak empirical scale for this channel.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "obs_sd_nightly_hrv_ms": {
       "parameter": "obs_sd_nightly_hrv_ms",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 4.1666714373140765
+        "mu": 1.4271175005948686,
+        "sigma": 0.6
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(nightly_hrv_ms)=5.95; HalfNormal scale = 0.7 \u00d7 y_sd = 4.17. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
+      "reasoning": "LogNormal observation-noise prior calibrated to the existing empirical measurement scale (median=4.167). The shared manifest variance site must use one positive prior family; using LogNormal keeps mass away from zero while preserving a weak empirical scale for this channel.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "obs_sd_sleep_efficiency_pct": {
       "parameter": "obs_sd_sleep_efficiency_pct",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 2.701136889437709
+        "mu": 0.9936727545472345,
+        "sigma": 0.6
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(sleep_efficiency_pct)=3.86; HalfNormal scale = 0.7 \u00d7 y_sd = 2.7. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
+      "reasoning": "LogNormal observation-noise prior calibrated to the existing empirical measurement scale (median=2.701). The shared manifest variance site must use one positive prior family; using LogNormal keeps mass away from zero while preserving a weak empirical scale for this channel.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "obs_sd_total_sleep_hours": {
       "parameter": "obs_sd_total_sleep_hours",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 0.2742860111824304
+        "mu": -1.2039728043259361,
+        "sigma": 0.25
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(total_sleep_hours)=0.392; HalfNormal scale = 0.7 \u00d7 y_sd = 0.274. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
+      "reasoning": "Informative device-scale observation-noise prior for total sleep time. Median 0.3 h (18 min) keeps nightly TST measurement error away from zero while allowing moderate Oura/aggregation noise; this targets the sigma_sleep_quality vs obs_sd_total_sleep_hours variance-partition ridge diagnosed in DEMO.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "obs_sd_exercise_minutes": {
       "parameter": "obs_sd_exercise_minutes",
-      "distribution": "HalfNormal",
+      "distribution": "LogNormal",
       "params": {
-        "sigma": 5.3793200717614535
+        "mu": 1.791759469228055,
+        "sigma": 0.35
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(exercise_minutes)=7.68; HalfNormal scale = 0.7 \u00d7 y_sd = 5.38. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
-    },
-    "obs_sd_walking_speed_mps": {
-      "parameter": "obs_sd_walking_speed_mps",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 0.025361968365409618
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(walking_speed_mps)=0.0362; HalfNormal scale = 0.7 \u00d7 y_sd = 0.0254. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481."
-    },
-    "manifest_mean_journal_entry_frequency": {
-      "parameter": "manifest_mean_journal_entry_frequency",
-      "distribution": "Normal",
-      "params": {
-        "mu": -4.325708204083658,
-        "sigma": 1.2977124612250974
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.0132, so manifest intercept centered at log(mean) = -4.326. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale."
+      "reasoning": "Informative device-scale observation-noise prior for Apple Exercise Time. Median 6 min with a moderate log-scale spread prevents the physical-activity variance partition from sliding toward zero observation noise after removing the near-duplicate walking_speed_mps channel.",
+      "reference_interval_days": null,
+      "density_points": null
     },
     "manifest_mean_late_night_message_count": {
       "parameter": "manifest_mean_late_night_message_count",
@@ -818,16 +754,6 @@
       "sources": [],
       "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_affect_severity)=1.11, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 3.64. Prior centered there with \u03c3=1.82 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     },
-    "lambda_journal_entry_frequency_affective_state": {
-      "parameter": "lambda_journal_entry_frequency_affective_state",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings."
-    },
     "lambda_journal_rumination_intensity_affective_state": {
       "parameter": "lambda_journal_rumination_intensity_affective_state",
       "distribution": "Normal",
@@ -837,16 +763,6 @@
       },
       "sources": [],
       "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_rumination_intensity)=2.64, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 8.65. Prior centered there with \u03c3=4.33 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
-    },
-    "lambda_journal_word_count_affective_state": {
-      "parameter": "lambda_journal_word_count_affective_state",
-      "distribution": "Normal",
-      "params": {
-        "mu": 46.199228438617126,
-        "sigma": 23.099614219308563
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_word_count)=14.1, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 46.2. Prior centered there with \u03c3=23.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     },
     "lambda_late_night_message_count_affective_state": {
       "parameter": "lambda_late_night_message_count_affective_state",
@@ -897,16 +813,6 @@
       },
       "sources": [],
       "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(exercise_minutes)=7.68, y_sd(daily_step_count, marker)=1.63e+03, so MLE \u03bb \u2248 sign \u00d7 0.00471. Prior centered there with \u03c3=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
-    },
-    "lambda_walking_speed_mps_physical_activity": {
-      "parameter": "lambda_walking_speed_mps_physical_activity",
-      "distribution": "Normal",
-      "params": {
-        "mu": 2.2207000842525098e-05,
-        "sigma": 0.1
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(walking_speed_mps)=0.0362, y_sd(daily_step_count, marker)=1.63e+03, so MLE \u03bb \u2248 sign \u00d7 2.22e-05. Prior centered there with \u03c3=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors."
     }
   },
   "resolved_priors": [
@@ -914,45 +820,28 @@
       "parameter": "obs_sd_gp_clinical_severity",
       "distribution": "HalfNormal",
       "params": {
-        "sigma": 1.964370128056319
+        "sigma": 1.0
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(gp_clinical_severity)=2.81; HalfNormal scale = 0.7 \u00d7 y_sd = 1.96. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
-      "reference_interval_days": null,
-      "density_points": null
+      "reasoning": "tighter for sparse indicator (n\u226421)"
     },
     {
       "parameter": "obs_sd_journal_affect_severity",
       "distribution": "HalfNormal",
       "params": {
-        "sigma": 0.7773887916180251
+        "sigma": 0.4
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(journal_affect_severity)=1.11; HalfNormal scale = 0.7 \u00d7 y_sd = 0.777. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
-      "reference_interval_days": null,
-      "density_points": null
+      "reasoning": "tighter for sparse indicator (n\u226421)"
     },
     {
       "parameter": "obs_sd_journal_rumination_intensity",
       "distribution": "HalfNormal",
       "params": {
-        "sigma": 1.8502927696268316
+        "sigma": 1.0
       },
       "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(journal_rumination_intensity)=2.64; HalfNormal scale = 0.7 \u00d7 y_sd = 1.85. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "obs_sd_journal_word_count",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 9.87910872411534
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(journal_word_count)=14.1; HalfNormal scale = 0.7 \u00d7 y_sd = 9.88. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
-      "reference_interval_days": null,
-      "density_points": null
+      "reasoning": "tighter for sparse indicator (n\u226421)"
     },
     {
       "parameter": "obs_sd_state_of_mind_valence",
@@ -1006,29 +895,6 @@
       },
       "sources": [],
       "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(exercise_minutes)=7.68; HalfNormal scale = 0.7 \u00d7 y_sd = 5.38. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "obs_sd_walking_speed_mps",
-      "distribution": "HalfNormal",
-      "params": {
-        "sigma": 0.025361968365409618
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes measurement-error SD prior. y_sd(walking_speed_mps)=0.0362; HalfNormal scale = 0.7 \u00d7 y_sd = 0.0254. Avoids the original generic HalfNormal(1)'s scale mismatch on channels far from y_sd\u22481.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "manifest_mean_journal_entry_frequency",
-      "distribution": "Normal",
-      "params": {
-        "mu": -4.325708204083658,
-        "sigma": 1.2977124612250974
-      },
-      "sources": [],
-      "reasoning": "Empirically calibrated for log-link emission: data mean \u2248 0.0132, so manifest intercept centered at log(mean) = -4.326. Sigma \u2248 30% of |log(mean)| keeps the prior weakly informative around the empirical mean on the log scale.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1094,45 +960,31 @@
       "parameter": "rho_affective_state",
       "distribution": "Beta",
       "params": {
-        "alpha": 6.0,
-        "beta": 2.0
+        "alpha": 38.12,
+        "beta": 1.8800000000000017
       },
-      "sources": [
-        {
-          "title": "Bringmann et al. (2013) \u2014 Depressive symptom dynamics",
-          "url": "https://doi.org/10.1037/a0034058",
-          "snippet": "Daily mood time-series show ar(1) coefficients in the 0.6-0.85 range across depressed-population samples.",
-          "effect_size": "ar(1) \u2248 0.7 daily",
-          "study_interval_days": 1.0
-        }
-      ],
-      "reasoning": "Daily-scale mood persistence has well-documented ar(1) \u2248 0.7. Beta(6, 2) puts \u2248 75% of mass in [0.6, 0.9] which centers on the literature mean while leaving room for the patient's documented fast-shift episodes (the Dec 2023 'Q-train moment').",
-      "reference_interval_days": null,
-      "density_points": null
+      "sources": [],
+      "reasoning": "informative \u03c1 centered at \u03c4\u224820.8d, conc 40"
     },
     {
       "parameter": "rho_sleep_quality",
       "distribution": "Beta",
       "params": {
-        "alpha": 4.0,
-        "beta": 1.5
+        "alpha": 36.2,
+        "beta": 3.799999999999999
       },
       "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain.",
-      "reference_interval_days": null,
-      "density_points": null
+      "reasoning": "informative \u03c1 centered at \u03c4\u224810.0d, conc 40"
     },
     {
       "parameter": "rho_physical_activity",
       "distribution": "Beta",
       "params": {
-        "alpha": 4.0,
-        "beta": 1.5
+        "alpha": 34.68,
+        "beta": 5.32
       },
       "sources": [],
-      "reasoning": "Daily DT baseline persistence absent feedback. Beta(4, 1.5) implies mean \u2248 0.73 with 90% mass in [0.55, 0.90], reflecting strong but imperfect day-to-day continuity in this domain.",
-      "reference_interval_days": null,
-      "density_points": null
+      "reasoning": "informative \u03c1 centered at \u03c4\u22487.0d, conc 40"
     },
     {
       "parameter": "beta_serotonergic_exposure_affective_state",
@@ -1166,12 +1018,10 @@
       "distribution": "Normal",
       "params": {
         "mu": 0.0,
-        "sigma": 0.3
+        "sigma": 0.04
       },
       "sources": [],
-      "reasoning": "Generic Normal(0, 0.3) prior on the model interval (1 day) for a non-headline causal edge. Center at 0 and let the data inform sign + magnitude; 0.3 keeps the prior weakly informative (95% mass in \u2248 \u00b10.6).",
-      "reference_interval_days": 1.0,
-      "density_points": null
+      "reasoning": "gain Normal(0, 0.3) \u00d7 (1-\u03c1_mode\u22480.133) \u2248 0.04"
     },
     {
       "parameter": "beta_serotonergic_exposure_sleep_quality",
@@ -1390,18 +1240,6 @@
       "density_points": null
     },
     {
-      "parameter": "lambda_journal_entry_frequency_affective_state",
-      "distribution": "Normal",
-      "params": {
-        "mu": 1.0,
-        "sigma": 0.5
-      },
-      "sources": [],
-      "reasoning": "Normal-shape prior centered at the polarity-implied sign with sigma = 0.5. The polarity is fixed by Stage 1b indicator polarity; this prior allows the magnitude to be informed by data while strongly discouraging wrong-sign loadings.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
       "parameter": "lambda_journal_rumination_intensity_affective_state",
       "distribution": "Normal",
       "params": {
@@ -1410,18 +1248,6 @@
       },
       "sources": [],
       "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_rumination_intensity)=2.64, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 8.65. Prior centered there with \u03c3=4.33 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
-      "parameter": "lambda_journal_word_count_affective_state",
-      "distribution": "Normal",
-      "params": {
-        "mu": 46.199228438617126,
-        "sigma": 23.099614219308563
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(journal_word_count)=14.1, y_sd(state_of_mind_valence, marker)=0.305, so MLE \u03bb \u2248 sign \u00d7 46.2. Prior centered there with \u03c3=23.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
       "reference_interval_days": null,
       "density_points": null
     },
@@ -1486,18 +1312,6 @@
       "density_points": null
     },
     {
-      "parameter": "lambda_walking_speed_mps_physical_activity",
-      "distribution": "Normal",
-      "params": {
-        "mu": 2.2207000842525098e-05,
-        "sigma": 0.1
-      },
-      "sources": [],
-      "reasoning": "Empirical-Bayes scale-calibrated loading prior. y_sd(walking_speed_mps)=0.0362, y_sd(daily_step_count, marker)=1.63e+03, so MLE \u03bb \u2248 sign \u00d7 2.22e-05. Prior centered there with \u03c3=0.1 (50% relative SD). This is the data-dependent / BSEM-style approach: scale the prior to the channel rather than the data \u2014 see Bollen-Lennox 2024 (PMC10275390) on scaling-indicator choice and Bayesian-Analysis-Heterogeneous-Datasets-2020 on data-dependent factor-loading priors.",
-      "reference_interval_days": null,
-      "density_points": null
-    },
-    {
       "parameter": "t0_mean_affective_state",
       "distribution": "Normal",
       "params": {
@@ -1527,7 +1341,7 @@
     "beta_sleep_quality_affective_state (sleep_quality -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.105 1/day versus the elementwise beta/dt value 0.070 1/day; logm deviation is 33% and the exact coupling is 29% of the smallest realised CT diagonal damping (0.368 1/day, rho_sleep_quality).",
     "beta_physical_activity_affective_state (physical_activity -> affective_state): matrix-log mismatch; exact CT coupling at 1.0d is 0.060 1/day versus the elementwise beta/dt value 0.040 1/day; logm deviation is 33% and the exact coupling is 16% of the smallest realised CT diagonal damping (0.368 1/day, rho_sleep_quality)."
   ],
-  "prior_predictive_samples": {},
+  "prior_predictive_samples": null,
   "llm_trace": {
     "messages": [
       {

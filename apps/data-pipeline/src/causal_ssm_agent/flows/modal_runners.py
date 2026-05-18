@@ -27,7 +27,7 @@ cpu_image = (
     .apt_install("git")
     .pip_install("uv")
     .uv_sync(uv_project_dir=str(ROOT), groups=["dev", "cloud"], frozen=True)
-    .env({"PYTHONPATH": "/root/src"})
+    .env({"PYTHONPATH": "/root/src", "DEPLOYMENT_ENV": "production"})
     .add_local_file(ROOT / "config.yaml", remote_path="/root/config.yaml")
     .add_local_file(ROOT / "pyproject.toml", remote_path="/root/pyproject.toml")
     .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/src/causal_ssm_agent")
@@ -39,7 +39,7 @@ gpu_image = (
     .pip_install("uv")
     .uv_sync(uv_project_dir=str(ROOT), groups=["dev", "cloud"], frozen=True)
     .uv_pip_install("jax[cuda12]", gpu=GPU_A100_80GB)
-    .env({"PYTHONPATH": "/root/src"})
+    .env({"PYTHONPATH": "/root/src", "DEPLOYMENT_ENV": "production"})
     .add_local_file(ROOT / "config.yaml", remote_path="/root/config.yaml")
     .add_local_file(ROOT / "pyproject.toml", remote_path="/root/pyproject.toml")
     .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/src/causal_ssm_agent")
@@ -55,7 +55,7 @@ secrets = modal.Secret.from_name("causal-ssm-pipeline-secrets")
 
 
 @app.function(
-    timeout=3600,
+    timeout=10800,
     cpu=8,
     memory=32768,
     image=gpu_image,
@@ -72,6 +72,41 @@ def _run_stage5b(
     from causal_ssm_agent.flows.dag import stage5b
 
     return stage5b(stage4, stage2, workspace_id, inference_method)
+
+
+@app.function(
+    timeout=10800,
+    cpu=8,
+    memory=32768,
+    image=gpu_image,
+    gpu=GPU_A100_80GB,
+    secrets=[secrets],
+)
+def _run_stage5b_payload(
+    compiled_ssm: dict | None,
+    data_for_model_parquet: bytes,
+    sampler_config: dict,
+    workspace_id: str,
+    compute_loo_diagnostics: bool,
+) -> BaseStageContract:
+    """Run stage 5b on Modal using caller-supplied artifacts."""
+    import io
+
+    import polars as pl
+
+    from causal_ssm_agent.flows.dag import _filter_to_contract
+    from causal_ssm_agent.flows.stages.stage5b.contracts import Stage5bContract
+    from causal_ssm_agent.flows.stages.stage5b.flow import run_stage5b_with_data
+
+    data_for_model = pl.read_parquet(io.BytesIO(data_for_model_parquet))
+    result = run_stage5b_with_data(
+        compiled_ssm=compiled_ssm,
+        data_for_model=data_for_model,
+        sampler_config=sampler_config,
+        workspace_id=workspace_id,
+        compute_loo_diagnostics=compute_loo_diagnostics,
+    )
+    return Stage5bContract.model_validate(_filter_to_contract(Stage5bContract, result))
 
 
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
@@ -101,7 +136,7 @@ async def _run_stage4(
 
 
 @app.function(
-    timeout=3600,
+    timeout=10800,
     cpu=8,
     memory=32768,
     image=gpu_image,
@@ -138,6 +173,24 @@ def modal_stage5b_runner(
 ) -> BaseStageContract:
     """Invoke stage 5b on Modal."""
     return _run_stage5b.remote(stage4, stage2, inference_method, workspace_id)
+
+
+def modal_stage5b_payload_runner(
+    *,
+    compiled_ssm: dict | None,
+    data_for_model_parquet: bytes,
+    sampler_config: dict,
+    workspace_id: str,
+    compute_loo_diagnostics: bool,
+) -> BaseStageContract:
+    """Invoke stage 5b on Modal with explicit artifacts."""
+    return _run_stage5b_payload.remote(
+        compiled_ssm,
+        data_for_model_parquet,
+        sampler_config,
+        workspace_id,
+        compute_loo_diagnostics,
+    )
 
 
 def spawn_stage4_model_compile_warmup(

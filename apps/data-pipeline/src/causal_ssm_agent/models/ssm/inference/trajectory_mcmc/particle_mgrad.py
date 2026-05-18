@@ -374,13 +374,22 @@ def build_particle_mgrad_latent_kernel(
         )
         next_complete = log_prior_z + next_traj_lp.astype(complete_dtype)
         updated_mask = (origin_path != ref_particle_index).astype(state.position.dtype)
+        latent_move = latent_path - x_ref
+        latent_move_rms_per_t = jnp.sqrt(jnp.mean(latent_move * latent_move, axis=-1))
+        latent_move_rms = jnp.sqrt(jnp.mean(latent_move * latent_move))
+        latent_move_max_abs = jnp.max(jnp.abs(latent_move))
 
         next_state = state._replace(
             latent_trajectory=latent_path,
             trajectory_log_prob=next_traj_lp,
             complete_log_posterior=next_complete,
         )
-        return next_state, {"accepted": updated_mask}
+        return next_state, {
+            "accepted": updated_mask,
+            "latent_move_rms": latent_move_rms,
+            "latent_move_max_abs": latent_move_max_abs,
+            "latent_move_rms_per_t": latent_move_rms_per_t,
+        }
 
     return {
         "name": "particle_mgrad",

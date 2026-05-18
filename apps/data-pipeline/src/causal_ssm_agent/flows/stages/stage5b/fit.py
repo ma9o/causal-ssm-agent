@@ -60,6 +60,7 @@ def fit_model(
     builder: Any = None,
     workspace_id: str | None = None,
     wait_for_compile_cache: bool = False,
+    compute_loo_diagnostics: bool = True,
 ) -> Any:
     """Fit the SSM model to data.
 
@@ -157,25 +158,29 @@ def fit_model(
         svi_diag = result.get_svi_diagnostics()
         smc_diag = result.get_smc_diagnostics()
 
-        # LOO diagnostics (needs model function and data).
-        # Use the inference-consistent likelihood backend: Laplace-based
-        # methods store their backend in diagnostics; MCMC methods fall back
-        # to the model's default backend.
-        import functools
+        loo_diag = None
+        if compute_loo_diagnostics:
+            # LOO diagnostics (needs model function and data).
+            # Use the inference-consistent likelihood backend: Laplace-based
+            # methods store their backend in diagnostics; MCMC methods fall back
+            # to the model's default backend.
+            import functools
 
-        loo_backend = result.diagnostics.get(
-            "likelihood_backend", runtime.model.make_likelihood_backend()
-        )
-        model_fn = functools.partial(
-            runtime.model.model,
-            likelihood_backend=loo_backend,
-        )
-        logger.info("Computing LOO diagnostics...")
-        loo_diag = result.get_loo_diagnostics(
-            model_fn=model_fn,
-            observations=runtime.observations,
-            times=runtime.times,
-        )
+            loo_backend = result.diagnostics.get(
+                "likelihood_backend", runtime.model.make_likelihood_backend()
+            )
+            model_fn = functools.partial(
+                runtime.model.model,
+                likelihood_backend=loo_backend,
+            )
+            logger.info("Computing LOO diagnostics...")
+            loo_diag = result.get_loo_diagnostics(
+                model_fn=model_fn,
+                observations=runtime.observations,
+                times=runtime.times,
+            )
+        else:
+            logger.info("Skipping LOO diagnostics by configuration.")
 
         # Posterior marginals and pairs
         logger.info("Extracting posterior summaries...")

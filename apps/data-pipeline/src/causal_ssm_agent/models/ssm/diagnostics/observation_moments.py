@@ -1079,13 +1079,14 @@ def _moment_summary_row_scales(obs_noise_sd: jnp.ndarray) -> jnp.ndarray:
     """Diagonal-FIM noise-only row scaling for the moment summary.
 
     Returns per-feature scales aligned with ``_flatten_observation_moment_summary``: for
-    a mean feature at manifest ``m`` the scale is ``σ_obs[m]``; for a (same-time or
+    a mean feature at manifest ``m`` the scale is ``sigma_obs[m]``; for a (same-time or
     lag-1) covariance feature at manifests ``(m, n)`` the scale is the product
-    ``σ_obs[m] · σ_obs[n]``. Squaring these gives a diagonal approximation to
+    ``sigma_obs[m] * sigma_obs[n]``. Squaring these gives a diagonal approximation to
     ``Var(g_i)`` under Gaussian observations. The approximation is exact for mean
-    features and matches only the noise-only term ``σ_m² σ_n²`` of the sampling
-    variance for covariance features — it understates ``Var(g_i)`` when manifest means
-    are large relative to ``σ_obs``. Inter-moment correlations are ignored.
+    features and matches only the noise-only term ``sigma_m^2 * sigma_n^2`` of the
+    sampling variance for covariance features; it understates ``Var(g_i)`` when
+    manifest means are large relative to ``sigma_obs``. Inter-moment correlations are
+    ignored.
     """
     mean_scales = obs_noise_sd.reshape(-1)
     same_cov_scales = _flatten_lower_triangular(

@@ -18,6 +18,7 @@ from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
     AuxGibbsMCMCResult,
     build_auxiliary_kalman_bundle,
     build_mala_parameter_kernel,
+    build_nuts_parameter_kernel,
     build_particle_mgrad_latent_kernel,
     initialize_ieks_latents,
     initialize_particle_smoother_latents,
@@ -80,6 +81,13 @@ def _pathfinder_init_positions(
     """
     if n_pathfinder_starts < 1:
         raise ValueError("n_pathfinder_starts must be >= 1.")
+    pathfinder_t0 = time.monotonic()
+    print(
+        "pathfinder progress: "
+        f"building laplace bundle starts={n_pathfinder_starts} "
+        f"maxiter={maxiter} elbo_samples={num_elbo_samples}",
+        flush=True,
+    )
     backend = (
         model.make_likelihood_backend()
         if model.likelihood == "kalman"
@@ -87,6 +95,12 @@ def _pathfinder_init_positions(
     )
     laplace_bundle = _build_map_laplace_bundle(
         model, observations, times, trace_key, backend, reparam
+    )
+    print(
+        "pathfinder progress: "
+        f"laplace bundle ready elapsed={time.monotonic() - pathfinder_t0:.1f}s "
+        f"dim={int(laplace_bundle['flat_example'].shape[0])}",
+        flush=True,
     )
 
     def _log_posterior_for_dataset(z):
@@ -100,7 +114,14 @@ def _pathfinder_init_positions(
     start_keys = random.split(pathfinder_key, n_pathfinder_starts)
     states: list[Any] = []
     elbos: list[float] = []
-    for start_key in start_keys:
+    for start_idx, start_key in enumerate(start_keys, start=1):
+        start_t0 = time.monotonic()
+        print(
+            "pathfinder progress: "
+            f"start {start_idx}/{n_pathfinder_starts} begin "
+            f"elapsed={start_t0 - pathfinder_t0:.1f}s",
+            flush=True,
+        )
         state_k, _ = pathfinder.approximate(
             start_key,
             _log_posterior_for_dataset,
@@ -109,9 +130,19 @@ def _pathfinder_init_positions(
             maxiter=maxiter,
         )
         elbo_k = float(jax.device_get(state_k.elbo))
-        if not bool(jax.device_get(jnp.all(jnp.isfinite(state_k.position)))):
+        finite_position = bool(jax.device_get(jnp.all(jnp.isfinite(state_k.position))))
+        finite_elbo = bool(jnp.isfinite(elbo_k))
+        print(
+            "pathfinder progress: "
+            f"start {start_idx}/{n_pathfinder_starts} done "
+            f"elapsed={time.monotonic() - pathfinder_t0:.1f}s "
+            f"start_seconds={time.monotonic() - start_t0:.1f}s "
+            f"elbo={elbo_k:.3f} finite_position={finite_position} finite_elbo={finite_elbo}",
+            flush=True,
+        )
+        if not finite_position:
             continue
-        if not jnp.isfinite(elbo_k):
+        if not finite_elbo:
             continue
         states.append(state_k)
         elbos.append(elbo_k)
@@ -134,6 +165,14 @@ def _pathfinder_init_positions(
         raise RuntimeError(
             f"Pathfinder returned non-finite chain-init positions for {method_label}."
         )
+    print(
+        "pathfinder progress: "
+        f"complete elapsed={time.monotonic() - pathfinder_t0:.1f}s "
+        f"finite_starts={len(states)}/{n_pathfinder_starts} "
+        f"best_elbo={elbos[best_idx]:.3f} "
+        f"spread={max(elbos) - min(elbos):.3f} sampling_mode={sampling_mode}",
+        flush=True,
+    )
     diagnostics = {
         "init_method": "pathfinder",
         "pathfinder_sampling_mode": sampling_mode,
@@ -171,6 +210,7 @@ def _fit_particle_latent_mcmc(
     parameter_kernel: str,
     param_step_size: float,
     param_target_accept: float,
+    param_max_num_doublings: int,
     adaptation_rate: float,
     init_scale: float,
     retain_latent_paths: bool,
@@ -188,9 +228,10 @@ def _fit_particle_latent_mcmc(
     initial_positions_override: jnp.ndarray | None,
     reparam,
 ) -> InferenceResult:
-    if parameter_kernel != "mala":
+    if parameter_kernel not in {"mala", "nuts"}:
         raise ValueError(
-            f"Unsupported {method_name} parameter kernel {parameter_kernel!r}. Supported: 'mala'."
+            f"Unsupported {method_name} parameter kernel {parameter_kernel!r}. "
+            "Supported: 'mala' or 'nuts'."
         )
     if init_method not in {"random", "pathfinder"}:
         raise ValueError(
@@ -247,8 +288,9 @@ def _fit_particle_latent_mcmc(
 
     phase_t0 = time.monotonic()
     logger.info(
-        "phase 2/5: building PIT dSMC particle-mGRAD latent kernel + MALA "
+        "phase 2/5: building PIT dSMC particle-mGRAD latent kernel + %s "
         "parameter kernel (num_particles=%d, latent_delta=%.4g, param_step_size=%.4g)...",
+        parameter_kernel.upper(),
         num_particles,
         float(latent_delta),
         float(param_step_size),
@@ -262,12 +304,21 @@ def _fit_particle_latent_mcmc(
         max_scale=latent_delta_max,
     )
 
-    parameter_kernel_spec = build_mala_parameter_kernel(
-        bundle,
-        step_size=param_step_size,
-        target_accept=param_target_accept,
-        preconditioner_chol=parameter_preconditioner_chol,
-    )
+    if parameter_kernel == "mala":
+        parameter_kernel_spec = build_mala_parameter_kernel(
+            bundle,
+            step_size=param_step_size,
+            target_accept=param_target_accept,
+            preconditioner_chol=parameter_preconditioner_chol,
+        )
+    else:
+        parameter_kernel_spec = build_nuts_parameter_kernel(
+            bundle,
+            step_size=param_step_size,
+            target_accept=param_target_accept,
+            max_num_doublings=param_max_num_doublings,
+            preconditioner_chol=parameter_preconditioner_chol,
+        )
     logger.info("phase 2/5: kernel specs ready in %.1fs", _phase_elapsed(phase_t0))
 
     phase_t0 = time.monotonic()
@@ -466,6 +517,15 @@ def _fit_particle_latent_mcmc(
         ).tolist(),
         **init_diagnostics,
     }
+    chain_extra_fields = run_result["chain_extra_fields"]
+    if "latent_move_rms" in chain_extra_fields:
+        kernel_diagnostics["latent_move_rms_mean"] = float(
+            jnp.mean(chain_extra_fields["latent_move_rms"])
+        )
+    if "latent_move_max_abs" in chain_extra_fields:
+        kernel_diagnostics["latent_move_max_abs_mean"] = float(
+            jnp.mean(chain_extra_fields["latent_move_max_abs"])
+        )
     diagnostics = {
         "mcmc": mcmc,
         "public_sites": sorted(bundle["public_sites"]),
@@ -499,7 +559,7 @@ def fit_particle_mgrad(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    num_warmup: int = 1000,
+    num_warmup: int = 4000,
     num_samples: int = 1000,
     num_chains: int = 4,
     seed: int = 0,
@@ -507,30 +567,31 @@ def fit_particle_mgrad(
     latent_delta_min: float | None = None,
     latent_delta_max: float | None = None,
     latent_target_accept: float = 0.5,
-    n_particles: int = 25,
+    n_particles: int = 64,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
     parameter_kernel: str = "mala",
     param_step_size: float = 0.05,
     param_target_accept: float = 0.57,
+    param_max_num_doublings: int = 10,
     adaptation_rate: float = 0.05,
     init_scale: float = 0.05,
     retain_latent_paths: bool = False,
     compute_latent_posterior_summary: bool = True,
     adaptation_scheme: str = "simple",
-    init_method: str = "random",
+    init_method: str = "pathfinder",
     latent_init_method: str = "ieks",
     latent_init_num_particles: int = 64,
     latent_init_guidance: str = "bffg",
     n_ieks_iters: int = 6,
     pathfinder_num_elbo_samples: int = 20,
     pathfinder_maxiter: int = 20,
-    n_pathfinder_starts: int = 1,
-    pathfinder_init_scale: float | None = None,
+    n_pathfinder_starts: int = 4,
+    pathfinder_init_scale: float | None = 0.1,
     initial_positions_override: jnp.ndarray | None = None,
     reparam=None,
     **_kwargs,
 ) -> InferenceResult:
-    """Fit an SSM with the Particle-mGRAD latent kernel and MALA parameter updates."""
+    """Fit an SSM with the Particle-mGRAD latent kernel and parameter updates."""
     return _fit_particle_latent_mcmc(
         model,
         observations,
@@ -551,6 +612,7 @@ def fit_particle_mgrad(
         parameter_kernel=parameter_kernel,
         param_step_size=param_step_size,
         param_target_accept=param_target_accept,
+        param_max_num_doublings=param_max_num_doublings,
         adaptation_rate=adaptation_rate,
         init_scale=init_scale,
         retain_latent_paths=retain_latent_paths,

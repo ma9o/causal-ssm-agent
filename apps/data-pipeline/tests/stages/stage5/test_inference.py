@@ -118,6 +118,7 @@ def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
         ),
         observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
         times=jnp.array([0.0, 1.5], dtype=jnp.float32),
+        transition_inputs=None,
         manifest_names=["sleep_avg", "energy"],
     )
 
@@ -162,6 +163,36 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "Computing LOO diagnostics..." in caplog.text
     assert "Extracting posterior summaries..." in caplog.text
     assert "Posterior summaries ready in" in caplog.text
+
+
+def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
+    fake_result = _FakeResult()
+    fake_builder = _FakeBuilder(fake_result)
+    runtime = _make_runtime(fake_builder)
+
+    monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
+
+    data_for_model = pl.DataFrame(
+        {
+            "indicator": ["sleep_avg"],
+            "value": [0.2],
+            "anchor_time": ["2024-01-01T00:00:00"],
+        }
+    )
+
+    with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
+        result = stage5_inference.fit_model.fn(
+            None,
+            data_for_model,
+            sampler_config={"method": "map"},
+            builder=fake_builder,
+            compute_loo_diagnostics=False,
+        )
+
+    assert result["fitted"] is True
+    assert result["loo_diagnostics"] is None
+    assert "Skipping LOO diagnostics by configuration." in caplog.text
+    assert "Computing LOO diagnostics..." not in caplog.text
 
 
 def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
