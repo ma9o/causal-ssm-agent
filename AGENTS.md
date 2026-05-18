@@ -1,6 +1,6 @@
 THINK VERY HARD
 
-- Project description: causal-ssm-agent is for observational longitudinal causal questions, especially intensive longitudinal data (ILD) and idiographic / N-of-1 settings where measurements are irregular, messy, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors. It combines explicit causal-identification checks with continuous-time latent state-space (CT-SEM-style) estimation, and only produces numeric causal claims when those checks support them. When they don't, the system stops at structural reasoning.
+- Project description: nof1-causal-lab is for observational longitudinal causal questions, especially intensive longitudinal data (ILD) and idiographic / N-of-1 settings where measurements are irregular, messy, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors. It combines explicit causal-identification checks with continuous-time latent state-space (CT-SEM-style) estimation, and only produces numeric causal claims when those checks support them. When they don't, the system stops at structural reasoning.
 
 - At the start of each session, check if `scratchpad/TODO.md` exists. If so, read it to understand where work left off. Only update it when the user explicitly ends the session. This file is gitignored and used for local continuity.
 

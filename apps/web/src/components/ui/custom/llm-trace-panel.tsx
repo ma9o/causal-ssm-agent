@@ -6,8 +6,8 @@ import {
 } from "@/lib/contexts/refinement-context";
 import type { RefinementUIMessage } from "@/lib/utils/trace-to-core";
 import { useChat } from "@ai-sdk/react";
-import type { LLMTrace, StageId } from "@causal-ssm/api-types";
-import { INTERACTIVE_STAGES } from "@causal-ssm/api-types";
+import type { LLMTrace, StageId } from "@nof1-causal-lab/api-types";
+import { INTERACTIVE_STAGES } from "@nof1-causal-lab/api-types";
 import { DefaultChatTransport } from "ai";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { LLMTracePanelView } from "./llm-trace-panel-view";

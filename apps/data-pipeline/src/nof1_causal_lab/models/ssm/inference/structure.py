@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import RBPartition
-    from causal_ssm_agent.models.ssm.model import SSMSpec
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import RBPartition
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 StructuralBackend = Literal["kalman", "composed", "particle"]
 RequestedMethod = Literal[
@@ -54,7 +54,7 @@ def _resolve_structural_backend(
     likelihood: Literal["particle", "kalman"],
     observation_support: ObservationSupportRuntime | None,
 ) -> tuple[StructuralBackend, RBPartition | None]:
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
+    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
 
     if observation_support is not None and observation_support.requires_interval_summary_handling:
         return "particle", None
@@ -108,7 +108,7 @@ def _payload_partition_for_plan(
     ):
         return None
 
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
+    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
 
     partition = analyze_first_pass_rb(spec)
     return partition if not partition.has_particle_block else None

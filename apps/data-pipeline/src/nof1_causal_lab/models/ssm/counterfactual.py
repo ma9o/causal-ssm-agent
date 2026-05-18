@@ -19,13 +19,13 @@ import jax
 import jax.numpy as jnp
 from jax import vmap
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.constants import MIN_DT
-from causal_ssm_agent.models.ssm.discretization import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.constants import MIN_DT
+from nof1_causal_lab.models.ssm.discretization import (
     discretize_system,
     discretize_system_with_inputs_batched,
 )
-from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
+from nof1_causal_lab.models.ssm.inference.targets.base import CHOL_JITTER
 
 if TYPE_CHECKING:
     from cuthbert.gaussian.types import LinearizedKalmanFilterState
@@ -378,7 +378,7 @@ def approximate_abducted_state(
     Falls back to a least-squares inversion of the contemporaneous observation
     model at the evidence boundary.
     """
-    from causal_ssm_agent.models.ssm.inference.utils import _assemble_single_deterministics
+    from nof1_causal_lab.models.ssm.inference.utils import _assemble_single_deterministics
 
     posterior_means = {name: jnp.mean(value, axis=0) for name, value in samples.items()}
     det_values = _assemble_single_deterministics(posterior_means, spec)
@@ -479,7 +479,7 @@ def compute_interventions(
     horizon_steps: int | None = None
     model_clock_str = (causal_spec or {}).get("measurement", {}).get("model_clock")
     if model_clock_str:
-        from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
+        from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 
         dt_median = parse_duration_to_hours(model_clock_str) / 24.0
     elif times is not None and len(times) > 1:
@@ -582,7 +582,7 @@ def _kalman_smooth_states(
     from cuthbert.gaussian.moments import build_filter, build_smoother
     from cuthbert.smoothing import smoother as cuthbert_smoother
 
-    from causal_ssm_agent.models.ssm.inference.targets.base import preprocess_missing_data
+    from nof1_causal_lab.models.ssm.inference.targets.base import preprocess_missing_data
 
     T, n_m = observations.shape
     n = Ad.shape[1]

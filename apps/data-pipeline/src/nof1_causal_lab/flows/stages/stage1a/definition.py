@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.flows.stage_runtime import (
+from nof1_causal_lab.flows.stage_runtime import (
     PipelineContext,
     StageDefinition,
     StageOverrideAdapter,
 )
-from causal_ssm_agent.flows.stages.stage1a.contracts import Stage1aContract
+from nof1_causal_lab.flows.stages.stage1a.contracts import Stage1aContract
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.contracts_base import BaseStageContract
+    from nof1_causal_lab.flows.contracts_base import BaseStageContract
 
 
 def _bind_stage1a(ctx: PipelineContext, _states: dict) -> dict:
@@ -43,7 +43,7 @@ def _materialize_override_stage1a(
 
 
 def build_stage1a_definition() -> StageDefinition:
-    from causal_ssm_agent.flows import dag
+    from nof1_causal_lab.flows import dag
 
     return StageDefinition(
         stage_id="stage-1a",

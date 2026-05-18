@@ -7,20 +7,20 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
     build_likelihood_eval_aux,
 )
-from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
 )
-from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
     row_observation_log_prob as _row_observation_log_prob,
 )
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     trajectory_observation_log_prob,
 )
 

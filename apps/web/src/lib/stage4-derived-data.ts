@@ -3,7 +3,7 @@ import type {
   Stage3Data,
   Stage4Data,
   Stage4PersistedData,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import type { FileMetaData } from "hyparquet";
 import { buildStage4LikelihoodDiagnostics } from "./stage4-likelihood-diagnostics";
 

@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, ValidationError
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
     PARAMETER_ROLE_SPECS,
     VALID_LIKELIHOODS_FOR_DTYPE,

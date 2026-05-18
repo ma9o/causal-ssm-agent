@@ -30,7 +30,7 @@ cpu_image = (
     .env({"PYTHONPATH": "/root/src", "DEPLOYMENT_ENV": "production"})
     .add_local_file(ROOT / "config.yaml", remote_path="/root/config.yaml")
     .add_local_file(ROOT / "pyproject.toml", remote_path="/root/pyproject.toml")
-    .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/src/causal_ssm_agent")
+    .add_local_dir(ROOT / "src" / "nof1_causal_lab", remote_path="/root/src/nof1_causal_lab")
 )
 
 gpu_image = (
@@ -42,11 +42,11 @@ gpu_image = (
     .env({"PYTHONPATH": "/root/src", "DEPLOYMENT_ENV": "production"})
     .add_local_file(ROOT / "config.yaml", remote_path="/root/config.yaml")
     .add_local_file(ROOT / "pyproject.toml", remote_path="/root/pyproject.toml")
-    .add_local_dir(ROOT / "src" / "causal_ssm_agent", remote_path="/root/src/causal_ssm_agent")
+    .add_local_dir(ROOT / "src" / "nof1_causal_lab", remote_path="/root/src/nof1_causal_lab")
 )
 
-app = modal.App("causal-ssm-pipeline", image=cpu_image)
-secrets = modal.Secret.from_name("causal-ssm-pipeline-secrets")
+app = modal.App("nof1-causal-lab-pipeline", image=cpu_image)
+secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -69,7 +69,7 @@ def _run_stage5b(
     workspace_id: str,
 ) -> BaseStageContract:
     """Run stage 5b on Modal and persist artifacts to R2."""
-    from causal_ssm_agent.flows.dag import stage5b
+    from nof1_causal_lab.flows.dag import stage5b
 
     return stage5b(stage4, stage2, workspace_id, inference_method)
 
@@ -94,9 +94,9 @@ def _run_stage5b_payload(
 
     import polars as pl
 
-    from causal_ssm_agent.flows.dag import _filter_to_contract
-    from causal_ssm_agent.flows.stages.stage5b.contracts import Stage5bContract
-    from causal_ssm_agent.flows.stages.stage5b.flow import run_stage5b_with_data
+    from nof1_causal_lab.flows.dag import _filter_to_contract
+    from nof1_causal_lab.flows.stages.stage5b.contracts import Stage5bContract
+    from nof1_causal_lab.flows.stages.stage5b.flow import run_stage5b_with_data
 
     data_for_model = pl.read_parquet(io.BytesIO(data_for_model_parquet))
     result = run_stage5b_with_data(
@@ -121,7 +121,7 @@ async def _run_stage4(
     root_run_id: str | None,
 ) -> BaseStageContract:
     """Run stage 4 on Modal."""
-    from causal_ssm_agent.flows.dag import stage4
+    from nof1_causal_lab.flows.dag import stage4
 
     return await stage4(
         question,
@@ -150,7 +150,7 @@ def _warm_stage4_compile_cache(
     topology_fingerprint: str,
 ) -> dict:
     """Warm the topology-matched JAX compile cache on Modal A100 and persist it."""
-    from causal_ssm_agent.flows.stage4_compile_cache import warm_stage4_compile_cache_artifact
+    from nof1_causal_lab.flows.stage4_compile_cache import warm_stage4_compile_cache_artifact
 
     return warm_stage4_compile_cache_artifact(
         workspace_id=workspace_id,
@@ -220,7 +220,7 @@ async def modal_stage4_runner(
     root_run_id: str | None = None,
 ) -> BaseStageContract:
     """Invoke stage 4 on Modal."""
-    from causal_ssm_agent.utils.openrouter_client import get_openrouter_api_key
+    from nof1_causal_lab.utils.openrouter_client import get_openrouter_api_key
 
     return await _run_stage4.remote.aio(
         question,

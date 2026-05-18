@@ -5,7 +5,7 @@ import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { CI_LOWER, CI_UPPER } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import { buildHistogram, quantile } from "@/lib/utils/histogram";
-import type { TreatmentEffect } from "@causal-ssm/api-types";
+import type { TreatmentEffect } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";

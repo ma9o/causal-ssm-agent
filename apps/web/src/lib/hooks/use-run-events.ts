@@ -29,8 +29,8 @@ import {
   STAGE_PROGRESS_EVENT_FILTER_PREFIX,
   type StageProgressStatus,
 } from "@/lib/stage-runtime";
-import type { StageId } from "@causal-ssm/api-types";
-import { STAGES } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { isMockMode, simulatePipelineEvents } from "../api/mock-provider";
@@ -49,7 +49,7 @@ export type { PipelineProgress, StageRunStatus, StageTiming } from "./pipeline-p
 
 const EVENT_LOOKBACK_MS = 60_000;
 const EVENT_LOOKAHEAD_MS = 365 * 24 * 60 * 60 * 1000;
-const CAUSAL_SSM_EVENT_PREFIX = "causal-ssm.";
+const NOF1_CAUSAL_LAB_EVENT_PREFIX = "nof1-causal-lab.";
 
 interface PrefectEventSocketMessage {
   type?: string;
@@ -70,7 +70,7 @@ export function buildPrefectEventFilterMessage(rootFlowRunId: string, now = new 
     filter: {
       // Pipeline emits custom events (stage progress + worker progress)
       // on the root flow run resource.
-      event: { prefix: [CAUSAL_SSM_EVENT_PREFIX] },
+      event: { prefix: [NOF1_CAUSAL_LAB_EVENT_PREFIX] },
       resource: {
         id: [`prefect.flow-run.${rootFlowRunId}`],
       },

@@ -5,9 +5,9 @@ def redirect_storage(monkeypatch, tmp_path, workspace_id: str = "test_workspace"
     """Point run storage to tmp_path so tests do not touch real data."""
     del workspace_id
 
-    from causal_ssm_agent.flows import pipeline
-    from causal_ssm_agent.flows import run_store as run_store_module
-    from causal_ssm_agent.utils import data as data_module
+    from nof1_causal_lab.flows import pipeline
+    from nof1_causal_lab.flows import run_store as run_store_module
+    from nof1_causal_lab.utils import data as data_module
 
     base = str(tmp_path / "data")
 

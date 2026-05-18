@@ -2,7 +2,7 @@
 
 import { PARETO_K_FAIL, PARETO_K_WARN } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
-import type { LOODiagnostics } from "@causal-ssm/api-types";
+import type { LOODiagnostics } from "@nof1-causal-lab/api-types";
 import {
   CartesianGrid,
   Tooltip as RechartsTooltip,

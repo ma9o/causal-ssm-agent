@@ -153,7 +153,7 @@ function generateTools(): void {
     " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py",
     " *   cd packages/api-types && bun run scripts/generate.ts",
     " *",
-    " * Source of truth: apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py",
+    " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py",
     " */",
     "",
     "export interface ToolDefinition {",
@@ -219,7 +219,7 @@ async function generateToolResults(): Promise<void> {
       " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py\n" +
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
-      " * Source of truth: apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py\n" +
+      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py\n" +
       " */",
     additionalProperties: false,
     strictIndexSignatures: true,
@@ -251,7 +251,7 @@ function generateMetadata(): void {
     " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py",
     " *   cd packages/api-types && bun run scripts/generate.ts",
     " *",
-    " * Source of truth: apps/data-pipeline/src/causal_ssm_agent/distributions.py",
+    " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/distributions.py",
     " */",
     "",
     `const _OBS_HYPERS_BY_DIST = ${JSON.stringify(byDist, null, 2)} as const;`,
@@ -284,7 +284,7 @@ async function main() {
       " *   cd apps/data-pipeline && uv run python scripts/export_schemas.py\n" +
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
-      " * Source of truth: apps/data-pipeline/src/causal_ssm_agent/flows/stages/contracts.py\n" +
+      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/stages/contracts.py\n" +
       " */",
     additionalProperties: false,
     strictIndexSignatures: true,

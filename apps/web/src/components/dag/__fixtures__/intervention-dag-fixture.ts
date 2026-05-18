@@ -2,7 +2,7 @@ import type {
   LLMTrace,
   SimulateCounterfactualResult,
   SimulateInterventionResult,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import type { EdgePosterior } from "../intervention-dag-types";
 
 function buildDailyGrid(length: number): number[] {

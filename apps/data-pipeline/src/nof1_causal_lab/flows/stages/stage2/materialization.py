@@ -9,9 +9,9 @@ import polars as pl
 
 def materialize_stage2_outputs(stage2_result: dict, causal_spec: dict) -> dict[str, Any]:
     """Materialize the Stage 2 observation table from a serialized extraction result."""
-    from causal_ssm_agent.utils.aggregations import _encode_non_continuous
-    from causal_ssm_agent.utils.causal_spec import get_indicator_dtypes, get_indicators
-    from causal_ssm_agent.utils.data import ObservationRecord, observation_row_schema
+    from nof1_causal_lab.utils.aggregations import _encode_non_continuous
+    from nof1_causal_lab.utils.causal_spec import get_indicator_dtypes, get_indicators
+    from nof1_causal_lab.utils.data import ObservationRecord, observation_row_schema
 
     observation_dicts = cast("list[ObservationRecord]", stage2_result.get("observation_rows", []))
     if observation_dicts:

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import type {
   LLMTrace,
   Stage1aData,
@@ -7,7 +7,7 @@ import type {
   Stage4Data,
   Stage5bData,
   Stage6Data,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";

@@ -19,84 +19,84 @@ import pandas as pd
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop import (
     _load_resumable_stage4_runtime,
     _validate_stage4_runtime_checkpoint,
     run_stage4,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_cards import build_prior_cards
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_cards import build_prior_cards
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4GroundingResult,
     make_stage4_grounding_result,
     make_stage4_validation_packet,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_navigation import (
     _set_block_cursor,
     _set_done_cursor,
     get_active_plan_block,
     get_stage4_phase,
     make_stage4_runtime,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
     Stage4RepairTopology,
     build_stage4_plan,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_prompt_context import (
     Stage4Messages,
     format_stage4_plan_status,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer import (
     build_model_spec_from_decisions,
     compute_stage4_validate_step_with_transitions,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_repair import (
     ResolvedRepairScope,
     classify_prior_failure_blocks,
     classify_validation_outcome,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_runtime_projections import (
     project_stage4_graph,
     project_stage4_initial_state,
     project_stage4_snapshot,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_session import (
     Stage4FatalSubmissionError,
     Stage4Session,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_skeleton import (
     Stage4Skeleton,
     derive_deterministic_spec,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import (
     Stage4AcceptedArtifacts,
     Stage4DomainState,
     Stage4RepairCampaignState,
     Stage4Runtime,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_submission import get_stage4_block_handler
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
-from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
-from causal_ssm_agent.flows.stages.stage4.flow import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_submission import get_stage4_block_handler
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_types import Stage4Deps
+from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
+from nof1_causal_lab.flows.stages.stage4.flow import (
     _stage4_generate_config,
 )
-from causal_ssm_agent.models.predictive_simulation import (
+from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
 )
-from causal_ssm_agent.models.prior_predictive import (
+from nof1_causal_lab.models.prior_predictive import (
     get_failed_parameters,
     validate_prior_predictive,
 )
-from causal_ssm_agent.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm_compilation import (
     compile_priors as compile_ssm_priors,
 )
-from causal_ssm_agent.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm_compilation import (
     compile_ssm_inputs_from_model_spec,
 )
-from causal_ssm_agent.utils.llm import LLMTrace, make_generate_fn
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig, Tool, execute_tools
-from causal_ssm_agent.workers.schemas_prior import (
+from nof1_causal_lab.utils.llm import LLMTrace, make_generate_fn
+from nof1_causal_lab.utils.openrouter_client import GenerateConfig, Tool, execute_tools
+from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorRepairScope,
     PriorValidationResult,

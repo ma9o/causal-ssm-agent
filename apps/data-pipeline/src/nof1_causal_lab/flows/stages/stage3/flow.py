@@ -6,7 +6,7 @@ import polars as pl
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.flows.stages.stage3.rules import (
+from nof1_causal_lab.flows.stages.stage3.rules import (
     RULES,
     ValidationContext,
     build_indicator_audits,
@@ -49,7 +49,7 @@ def validate_extraction(
     if combined.is_empty():
         return no_data_validation_result()
 
-    from causal_ssm_agent.utils.causal_spec import get_constructs, get_indicators
+    from nof1_causal_lab.utils.causal_spec import get_constructs, get_indicators
 
     indicators = get_indicators(causal_spec)
     indicator_names: set[str] = {ind["name"] for ind in indicators if ind.get("name")}
@@ -63,7 +63,7 @@ def validate_extraction(
     if model_clock_str:
         import contextlib
 
-        from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
+        from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 
         with contextlib.suppress(ValueError):
             model_clock_hours = parse_duration_to_hours(model_clock_str)

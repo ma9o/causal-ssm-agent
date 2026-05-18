@@ -12,10 +12,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from causal_ssm_agent.measurement_types import (
+from nof1_causal_lab.measurement_types import (
     AggregationFunction as _AggregationFunction,
 )
-from causal_ssm_agent.measurement_types import (
+from nof1_causal_lab.measurement_types import (
     MeasurementDtype as _MeasurementDtype,
 )
 

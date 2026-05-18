@@ -22,11 +22,11 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 @dataclass
@@ -59,7 +59,7 @@ def get_per_variable_diffusion(spec: SSMSpec) -> list[DistributionFamily]:
 
 def has_student_t_diffusion(spec: SSMSpec) -> bool:
     """Return whether any latent process uses Student-t diffusion noise."""
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
 
     return DistributionFamily.STUDENT_T in set(get_per_variable_diffusion(spec))
 
@@ -70,7 +70,7 @@ def get_per_channel_links(spec: SSMSpec) -> list[LinkFunction]:
     If spec.manifest_links is set, return it directly.
     Otherwise use the default link for each channel's observation family.
     """
-    from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
         resolve_manifest_families_and_links,
     )
 

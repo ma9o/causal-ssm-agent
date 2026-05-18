@@ -5,7 +5,7 @@ import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatNumber } from "@/lib/utils/format";
-import type { LikelihoodSpec, Stage4LikelihoodDiagnostics } from "@causal-ssm/api-types";
+import type { LikelihoodSpec, Stage4LikelihoodDiagnostics } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import katex from "katex";
 import { ExternalLink } from "lucide-react";

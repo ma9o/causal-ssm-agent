@@ -19,8 +19,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from causal_ssm_agent.utils import config as config_mod
-from causal_ssm_agent.utils.config import (
+from nof1_causal_lab.utils import config as config_mod
+from nof1_causal_lab.utils.config import (
     load_config,
     validate_config,
     validate_runtime_prereqs,

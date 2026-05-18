@@ -7,22 +7,22 @@ Stage 4 test files live in ``_support.py``.
 from types import SimpleNamespace
 from typing import Any
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_grounding_result,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_navigation import (
     get_active_plan_block,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import (
     Stage4Runtime,
 )
-from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
-from causal_ssm_agent.utils.llm import LLMTrace
-from causal_ssm_agent.utils.openrouter_client import Tool
+from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
+from nof1_causal_lab.utils.llm import LLMTrace
+from nof1_causal_lab.utils.openrouter_client import Tool
 from tests.stages.stage4._support import _ORDINAL_LEVELS, _with_positive_indicator_polarity
 
 

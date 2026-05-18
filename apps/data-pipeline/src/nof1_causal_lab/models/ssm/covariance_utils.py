@@ -28,7 +28,7 @@ def inflate_missing_variance(cov: jnp.ndarray, mask_float: jnp.ndarray) -> jnp.n
         cov: Covariance matrix to inflate.
         mask_float: Float observation mask (1.0 = observed, 0.0 = missing).
     """
-    from causal_ssm_agent.models.ssm.inference.targets.base import MISSING_DATA_LARGE_VAR
+    from nof1_causal_lab.models.ssm.inference.targets.base import MISSING_DATA_LARGE_VAR
 
     return cov + jnp.diag((1.0 - mask_float) * MISSING_DATA_LARGE_VAR)
 

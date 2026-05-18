@@ -1,4 +1,4 @@
-import type { Stage3Data } from "@causal-ssm/api-types";
+import type { Stage3Data } from "@nof1-causal-lab/api-types";
 
 export function normalizeStage3Data(value: unknown): Stage3Data {
   const stage3 = value as {

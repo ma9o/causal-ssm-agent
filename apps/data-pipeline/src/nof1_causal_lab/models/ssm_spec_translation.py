@@ -5,8 +5,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
-from causal_ssm_agent.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.artifacts.model_spec import (
     DistributionFamily,
     InitializationPolicy,
     LinkFunction,
@@ -14,12 +14,12 @@ from causal_ssm_agent.artifacts.model_spec import (
     ObservationInterceptPolicy,
     ParameterRole,
 )
-from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.models.model_semantics import should_auto_center_indicator
-from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
+from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
 )
-from causal_ssm_agent.models.ssm.model import (
+from nof1_causal_lab.models.ssm.model import (
     SSMSpec,
     full_cholesky_mask,
     full_diagonal_mask,
@@ -29,8 +29,8 @@ from causal_ssm_agent.models.ssm.model import (
     zero_square_mask,
     zero_vector_mask,
 )
-from causal_ssm_agent.models.ssm.parameter_names import build_initial_state_correlation_mask
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.models.ssm.parameter_names import build_initial_state_correlation_mask
+from nof1_causal_lab.utils.causal_spec import (
     build_reference_indicator_lookup,
     get_constructs,
     get_estimation_edges,
@@ -40,7 +40,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_known_inputs,
     get_marginalized_scales,
 )
-from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
 
 class SpecTranslationError(AggregatedCompileError):

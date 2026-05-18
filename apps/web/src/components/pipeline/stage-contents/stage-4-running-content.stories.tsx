@@ -9,7 +9,7 @@ import {
   parseStage4Event,
 } from "@/lib/stage4-runtime";
 import type { Stage4Graph, Stage4Snapshot } from "@/lib/hooks/use-stage4-graph";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { Stage4RunningView } from "./stage-4-running-content";
 import { stageStoryDecorators } from "../stage-story-helpers";
 import { StageStoryTemplate } from "../stage-story-template";

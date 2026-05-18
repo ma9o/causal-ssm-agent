@@ -1,4 +1,4 @@
-import type { CausalEdge, Construct, Indicator } from "@causal-ssm/api-types";
+import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import { layoutDag } from "./dag-layout";
 

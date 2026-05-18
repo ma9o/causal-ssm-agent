@@ -8,8 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.openrouter_client import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils.openrouter_client import (
     GenerateConfig,
     Tool,
     call_model,
@@ -156,7 +156,7 @@ def get_generate_config() -> GenerateConfig:
 
     Reads settings from config.yaml llm section.
     """
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     embedded = get_config().llm.embedded
     reasoning_effort: ReasoningEffort | None
@@ -351,7 +351,7 @@ def make_validation_tool(
     ``(result, errors)`` validator interface to the ``(stage_output, feedback)``
     grounding interface.
     """
-    from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
+    from nof1_causal_lab.flows.stage_tool_factory import make_stage_tool
 
     def _adapted(data: dict) -> tuple[dict | None, str]:
         result, errors = validator(data)
@@ -787,8 +787,8 @@ async def multi_turn_generate(
 # Legacy note
 # ---------------------------------------------------------------------------
 # The previous ``LLMStageContext`` + ``attach_trace`` helpers have been
-# removed; stages now use :class:`causal_ssm_agent.utils.agent_session.StageSessionFactory`
+# removed; stages now use :class:`nof1_causal_lab.utils.agent_session.StageSessionFactory`
 # which subsumes both trace accumulation and lifecycle logging. The
 # ``multi_turn_generate`` + ``make_generate_fn`` pair is kept for eval
 # scripts outside the main pipeline; new production code should use
-# :func:`causal_ssm_agent.utils.agent_session_factory.open_session`.
+# :func:`nof1_causal_lab.utils.agent_session_factory.open_session`.

@@ -6,7 +6,7 @@
  *   cd apps/data-pipeline && uv run python scripts/export_schemas.py
  *   cd packages/api-types && bun run scripts/generate.ts
  *
- * Source of truth: apps/data-pipeline/src/causal_ssm_agent/distributions.py
+ * Source of truth: apps/data-pipeline/src/nof1_causal_lab/distributions.py
  */
 
 const _OBS_HYPERS_BY_DIST = {

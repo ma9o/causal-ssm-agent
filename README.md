@@ -1,11 +1,11 @@
-# causal-ssm-agent
+# nof1-causal-lab
 
-[![CI](https://github.com/ma9o/causal-ssm-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/ma9o/causal-ssm-agent/actions/workflows/ci.yml)
+[![CI](https://github.com/ma9o/nof1-causal-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/ma9o/nof1-causal-lab/actions/workflows/ci.yml)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776ab?logo=python&logoColor=white)
 ![Next.js 16](https://img.shields.io/badge/Next.js-16-000?logo=next.js)
 ![NumPyro + JAX](https://img.shields.io/badge/NumPyro-JAX-9b59b6)
 
-**causal-ssm-agent** is an opinionated LLM harness for end-to-end Bayesian causal inference on N-of-1 time series data.
+**nof1-causal-lab** is an opinionated LLM harness for end-to-end Bayesian causal inference on N-of-1 time series data.
 
 The ultimate goal of the project is to facilitate epistemically optimal decision-making at the individual level, using dense digital trace datasets (medical records, chatbot conversation logs, browsing history, etc.) while transparently incorporating existing scientific knowledge, where available, in the form of prior distributions and modeling assumptions.
 
@@ -27,9 +27,9 @@ flowchart LR
   L --> M --> ETL --> ID
   ID -- yes --> MS
   subgraph Bayesian modeling state machine 
-  MS
+  MS --> SIM
   end
-  MS --> SIM --> R
+  SIM --> R
   ID -- no --> L
 ```
 
@@ -100,15 +100,18 @@ See the [dev setup guide](docs/guides/dev_setup.md) for full details including e
 ## Project Structure
 
 ```text
-causal-ssm-agent/                    # Turborepo monorepo
+nof1-causal-lab/                    # Turborepo monorepo
 ├── apps/
 │   ├── data-pipeline/               # Python — Prefect pipeline + NumPyro models
-│   │   ├── src/causal_ssm_agent/
+│   │   ├── src/nof1_causal_lab/
+│   │   │   ├── flows/               # Prefect stages (0–6) + orchestration
 │   │   │   ├── orchestrator/        # LLM agents: construct, measurement, prior proposals
 │   │   │   ├── workers/             # Parallel indicator extraction + prior research
-│   │   │   ├── models/              # NumPyro SSM compilation + likelihoods
-│   │   │   ├── flows/               # Prefect stages (0–6) + orchestration
+│   │   │   ├── models/              # NumPyro SSM compilation + predictive checks
+│   │   │   ├── distributions.py     # Indicator-specific likelihoods (Poisson, Bernoulli, Beta, …)
+│   │   │   ├── tool_server.py       # LLM tools server 
 │   │   │   └── utils/               # Identifiability, config, LLM runtime
+│   │   ├── notebooks/               # Exploratory analysis
 │   │   ├── evals/                   # Inspect AI evaluation suites
 │   │   └── tests/                   # pytest suite
 │   └── web/                         # Next.js — interactive frontend

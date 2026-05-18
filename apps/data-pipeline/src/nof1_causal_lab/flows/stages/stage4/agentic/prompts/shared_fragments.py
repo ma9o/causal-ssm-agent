@@ -1,6 +1,6 @@
 """Verbatim Stage 4 prompt fragments shared by reducer and megaprompt modes."""
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     render_dynamic_prior_scale_guidance,
     render_lagged_beta_authored_interval_guidance,
     render_observation_distribution_guidance_bullets,

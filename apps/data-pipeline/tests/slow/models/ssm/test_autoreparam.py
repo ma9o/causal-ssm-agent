@@ -7,7 +7,7 @@ from numpyro.infer import SVI, Predictive, Trace_ELBO
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.optim import Adam
 
-from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
+from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from tests.models.ssm._support import simple_normal_model
 from tests.ssm_test_utils import make_ssm_spec
 
@@ -47,14 +47,14 @@ class TestEndToEndSVI:
 
 
 def _make_simple_ssm():
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
     return SSMModel(spec=make_ssm_spec(n_latent=2, n_manifest=2), likelihood="kalman")
 
 
 class TestAutoReparamSSM:
     def test_fit_svi_with_reparam(self):
-        from causal_ssm_agent.models.ssm.inference import fit
+        from nof1_causal_lab.models.ssm.inference import fit
 
         model = _make_simple_ssm()
         observations = jnp.zeros((10, 2))
@@ -78,7 +78,7 @@ class TestAutoReparamSSM:
             assert jnp.all(jnp.isfinite(value))
 
     def test_fit_map_filters_auxiliary_sites(self):
-        from causal_ssm_agent.models.ssm.inference import fit
+        from nof1_causal_lab.models.ssm.inference import fit
 
         model = _make_simple_ssm()
         observations = jnp.zeros((8, 2))

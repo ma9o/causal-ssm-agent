@@ -7,7 +7,7 @@ import { StageSectionRouter } from "@/components/pipeline/stage-section-router";
 import { RefinementProvider } from "@/lib/contexts/refinement-context";
 import type { AnalysisStageExecution, AnalysisStageRun } from "@/lib/api/analysis";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import {
   delay,
   emitLogs,

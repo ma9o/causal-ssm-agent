@@ -2,42 +2,42 @@
 
 import polars as pl
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_block_specs import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_block_specs import (
     get_stage4_prompt_scope_policy,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_cards import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_cards import (
     build_construct_scale_cards,
     build_distribution_cards,
     build_model_topology,
     build_prior_cards,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_grounding_result,
     make_stage4_validation_packet,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_navigation import (
     _set_block_cursor,
     make_stage4_runtime,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
     build_stage4_plan,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_parameter_surfaces import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_parameter_surfaces import (
     build_stage4_parameter_surface_index,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import Stage4Messages
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_prompt_context import Stage4Messages
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_session import Stage4Session
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_skeleton import (
     Stage4Skeleton,
     derive_deterministic_spec,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import (
     Stage4AcceptedArtifacts,
     Stage4Runtime,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_types import Stage4Deps
 from tests.stages.stage4._support import (
     _make_plan,
 )
@@ -332,7 +332,7 @@ class TestDeriveDeterministicSpec:
 
     def test_stage4_inventory_matches_compiler_public_prior_rows(self):
         """Stage 4 should expose compiler rows plus conditional likelihood extras."""
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             compile_ssm_artifact,
             resolve_prior_proposals,
         )
@@ -418,7 +418,7 @@ class TestDeriveDeterministicSpec:
 
     def test_negative_binomial_candidate_obs_r_is_surfaced_to_stage4(self):
         """Stage 4 should expose the negative-binomial dispersion prior surface."""
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             compile_ssm_artifact,
             resolve_prior_proposals,
         )

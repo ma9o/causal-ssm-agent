@@ -21,7 +21,7 @@ References:
 
 import pytest
 
-from causal_ssm_agent.utils.identifiability import (
+from nof1_causal_lab.utils.identifiability import (
     analyze_unobserved_constructs,
     check_identifiability,
     dag_to_admg,

@@ -9,7 +9,7 @@ from .helpers import _find_block_for_parameter, _ordered_block_ids
 from .types import ResolvedRepairPlan, ResolvedRepairScope, Stage4RepairScopeStrategy
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
         Stage4FrontierBlock,
         Stage4Plan,
     )

@@ -10,21 +10,21 @@ import jax.scipy.stats as jstats
 import numpy as np
 from jax import lax
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize
-from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize
+from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     NUMERICAL_EPSILON,
 )
-from causal_ssm_agent.models.ssm.likelihood_extra_params import (
+from nof1_causal_lab.models.ssm.likelihood_extra_params import (
     assemble_sampled_extra_params,
 )
-from causal_ssm_agent.models.ssm.parameterization import assemble_deterministics_from_registry
+from nof1_causal_lab.models.ssm.parameterization import assemble_deterministics_from_registry
 
 from .results import OutputSensitivityUnsupportedError
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 
 def _assemble_sensitivity_measurement_state(
@@ -192,7 +192,7 @@ def _project_response_moments(
     observation_operator,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Project response-space first/second moments into emitted observation moments."""
-    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         _COUNT_OPERATOR_CODE,
         _MEAN_OPERATOR_CODE,
         _STD_OPERATOR_CODE,
@@ -478,7 +478,7 @@ def _support_response_covariances(
     observation_operator,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Project support-aware same-row and lag-1 covariances with a local scan."""
-    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         _COUNT_OPERATOR_CODE,
         _MEAN_OPERATOR_CODE,
         _STD_OPERATOR_CODE,
@@ -755,7 +755,7 @@ def _build_sensitivity_measurement_semantics(
     observation_support,
 ):
     """Compile measurement semantics for the observation-space sensitivity map."""
-    from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
+    from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
 
     return compile_measurement_semantics(
         manifest_dists=spec.manifest_dists,

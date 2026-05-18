@@ -1,4 +1,4 @@
-import type { ObservationRecord, Stage2Data, Stage2PersistedData } from "@causal-ssm/api-types";
+import type { ObservationRecord, Stage2Data, Stage2PersistedData } from "@nof1-causal-lab/api-types";
 import type { FileMetaData } from "hyparquet";
 
 type ParquetSchemaColumn = {

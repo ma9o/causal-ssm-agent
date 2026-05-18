@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.flows import get_prefect_logger
+from nof1_causal_lab.flows import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 
@@ -15,7 +15,7 @@ def finalize_stage1b_result(
     latent_model: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Materialize Stage 1b derived fields from a causal spec payload."""
-    from causal_ssm_agent.utils.causal_spec import get_estimable_treatments, get_outcome_name
+    from nof1_causal_lab.utils.causal_spec import get_estimable_treatments, get_outcome_name
 
     finalized = dict(result)
     causal_spec = finalized.get("causal_spec", {}) or {}

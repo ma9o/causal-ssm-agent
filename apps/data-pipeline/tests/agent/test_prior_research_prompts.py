@@ -1,6 +1,6 @@
 """Tests for prior research prompt helper behavior."""
 
-from causal_ssm_agent.workers.prompts.prior_research import (
+from nof1_causal_lab.workers.prompts.prior_research import (
     generate_paraphrased_prompts,
 )
 

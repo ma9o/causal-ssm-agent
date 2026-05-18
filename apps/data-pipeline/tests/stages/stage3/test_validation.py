@@ -10,7 +10,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows.stages.stage3.flow import (
+from nof1_causal_lab.flows.stages.stage3.flow import (
     derive_validation_status,
     validate_extraction,
 )

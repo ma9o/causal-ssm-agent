@@ -16,12 +16,12 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from causal_ssm_agent.models.ssm.inference.targets.block_rb import (
+from nof1_causal_lab.models.ssm.inference.targets.block_rb import (
     extract_obs_subblocks,
     extract_subblocks,
     partition_indices,

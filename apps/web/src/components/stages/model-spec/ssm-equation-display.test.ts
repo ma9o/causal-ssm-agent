@@ -1,4 +1,4 @@
-import type { ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
+import type { ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";

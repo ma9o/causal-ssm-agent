@@ -8,16 +8,16 @@ import asyncio
 
 import pytest
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_grounding_result,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
-from causal_ssm_agent.flows.stages.stage4.assembly import format_prior_proposal_errors
-from causal_ssm_agent.flows.stages.stage4.grounding import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
+from nof1_causal_lab.flows.stages.stage4.assembly import format_prior_proposal_errors
+from nof1_causal_lab.flows.stages.stage4.grounding import (
     should_capture_stage4_output,
     stage4_grounding,
 )
-from causal_ssm_agent.flows.stages.stage4.tools import make_search_tool
+from nof1_causal_lab.flows.stages.stage4.tools import make_search_tool
 from tests.stages.stage4._support import make_causal_spec_dict
 
 
@@ -297,7 +297,7 @@ class TestStage4GroundingCompileOwnership:
     """Grounding should surface compile and global validation failures clearly."""
 
     def test_compile_failure_surfaces_in_grounding(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(
             model_spec,
@@ -316,7 +316,7 @@ class TestStage4GroundingCompileOwnership:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
@@ -346,7 +346,7 @@ class TestStage4GroundingCompileOwnership:
         assert "Resubmit only the fields you changed" in feedback
 
     def test_grounding_defaults_skip_ppc_false(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         calls: list[bool] = []
 
@@ -367,7 +367,7 @@ class TestStage4GroundingCompileOwnership:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
@@ -431,8 +431,8 @@ class TestStage4GroundingCompileOwnership:
         assert "bogus_param" in feedback
 
     def test_non_fatal_modeling_warnings_are_returned_without_rejecting_state(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
-        from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
         validation = AssemblyValidation(
             normalized_model_spec={
@@ -468,11 +468,11 @@ class TestStage4GroundingCompileOwnership:
             return validation
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
             lambda *_args, **_kwargs: [],
         )
 
@@ -501,7 +501,7 @@ class TestStage4GroundingCompileOwnership:
         assert "weekly" in feedback
 
     def test_sensitivity_failure_surfaces_distinct_grounding_status(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         model_spec = {
             "likelihoods": [],
@@ -547,11 +547,11 @@ class TestStage4GroundingCompileOwnership:
             return validation
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
             lambda *_args, **_kwargs: [],
         )
 
@@ -578,7 +578,7 @@ class TestStage4GroundingCompileOwnership:
         assert result.stage_output["validation"] is validation
 
     def test_rejected_compile_does_not_overwrite_last_accepted_capture(self):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         accepted_state = {
             "model_spec": {
@@ -713,7 +713,7 @@ class TestStage4SearchTool:
             return f"RESULT for {query}"
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.tools.search_literature",
+            "nof1_causal_lab.flows.stages.stage4.tools.search_literature",
             stub_search_literature,
         )
 
@@ -744,7 +744,7 @@ class TestStage4SearchTool:
         }
 
     def test_model_spec_can_be_saved_before_all_priors_arrive(self, monkeypatch, model_spec):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(model_spec, *_args, **_kwargs):
             return AssemblyValidation(
@@ -753,7 +753,7 @@ class TestStage4SearchTool:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
@@ -771,7 +771,7 @@ class TestStage4SearchTool:
         assert "missing priors" in feedback
 
     def test_model_spec_lock_does_not_require_default_initial_state_priors(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         model_spec = {
             "likelihoods": [
@@ -811,7 +811,7 @@ class TestStage4SearchTool:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
@@ -852,7 +852,7 @@ class TestStage4SearchTool:
 
 class TestStage4GroundingBatches:
     def test_accepts_large_prior_batches(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(model_spec, *_args, **_kwargs):
             return AssemblyValidation(
@@ -862,11 +862,11 @@ class TestStage4GroundingBatches:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
             lambda *_args, **_kwargs: [
                 {"parameter": "rho_mood"},
                 {"parameter": "sigma_mood"},
@@ -939,7 +939,7 @@ class TestStage4GroundingBatches:
         assert "`rho_mood`" in feedback
 
     def test_ignores_redundant_priors_when_submission_contains_real_changes(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+        from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
         def stub_validate_assembly(model_spec, *_args, **_kwargs):
             return AssemblyValidation(
@@ -949,11 +949,11 @@ class TestStage4GroundingBatches:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
             lambda *_args, **_kwargs: [
                 {"parameter": "rho_mood"},
                 {"parameter": "sigma_mood"},
@@ -1011,11 +1011,11 @@ class TestStage4GroundingBatches:
         ]
 
     def test_global_validation_failure_produces_correct_feedback(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.assembly import (
+        from nof1_causal_lab.flows.stages.stage4.assembly import (
             AssemblyValidation,
             build_validation_payload,
         )
-        from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+        from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
         global_failure = PriorValidationResult(
             parameter="model_build",

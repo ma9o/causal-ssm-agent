@@ -10,9 +10,9 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.artifacts import LinkFunction
-from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.models.prior_predictive import (
+from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.prior_predictive import (
     _check_constraint_violations,
     _check_extreme_values,
     _check_lagged_response_plausibility,
@@ -25,13 +25,13 @@ from causal_ssm_agent.models.prior_predictive import (
     get_failed_parameters,
     resolve_scale_target_parameters,
 )
-from causal_ssm_agent.models.ssm.model import SSMPriors, full_diagonal_mask
-from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
-from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
+from nof1_causal_lab.models.ssm.model import SSMPriors, full_diagonal_mask
+from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
+from nof1_causal_lab.models.ssm.prior_predictive_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
-from causal_ssm_agent.models.ssm_compiler import serialize_edge_lag_days, serialize_ssm_spec
-from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+from nof1_causal_lab.models.ssm_compiler import serialize_edge_lag_days, serialize_ssm_spec
+from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 from tests.ssm_test_utils import make_ssm_spec
 
 
@@ -705,7 +705,7 @@ class TestScalePlausibilityDiagnostics:
         }
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.discretization.solve_lyapunov",
+            "nof1_causal_lab.models.ssm.discretization.solve_lyapunov",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("solver failed")),
         )
 

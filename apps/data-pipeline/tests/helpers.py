@@ -26,8 +26,8 @@ def make_mock_session_factory(responses: list[str]):
     """
     from contextlib import asynccontextmanager
 
-    from causal_ssm_agent.utils.agent_session import AgentResult, TurnResult
-    from causal_ssm_agent.utils.llm import LLMTrace
+    from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
+    from nof1_causal_lab.utils.llm import LLMTrace
 
     call_count = [0]
 
@@ -80,8 +80,8 @@ def make_session_factory_from_handler(handler):
     """
     from contextlib import asynccontextmanager
 
-    from causal_ssm_agent.utils.agent_session import AgentResult, TurnResult
-    from causal_ssm_agent.utils.llm import LLMTrace
+    from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
+    from nof1_causal_lab.utils.llm import LLMTrace
 
     class _Session:
         def __init__(self, tools):

@@ -1,4 +1,4 @@
-"""SSM Model Builder for causal SSM pipeline integration."""
+"""SSM Model Builder for N-of-1 Causal Lab pipeline integration."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 import jax.numpy as jnp
 import polars as pl
 
-from causal_ssm_agent.models.ssm import (
+from nof1_causal_lab.models.ssm import (
     InferenceResult,
     SSMModel,
     SSMPriors,
@@ -24,20 +24,20 @@ from causal_ssm_agent.models.ssm import (
     zero_loading_mask,
     zero_vector_mask,
 )
-from causal_ssm_agent.models.ssm.inference.structure import (
+from nof1_causal_lab.models.ssm.inference.structure import (
     InferenceStructurePlan,
     plan_inference_structure,
 )
-from causal_ssm_agent.models.ssm.parameterization import (
+from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     load_prior_runtime_bundle,
 )
-from causal_ssm_agent.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm_compilation import (
     compile_ssm_inputs_from_model_spec,
     compile_ssm_inputs_from_spec,
 )
-from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
-from causal_ssm_agent.models.ssm_observation_metadata import (
+from nof1_causal_lab.models.ssm_compilation_common import dump_prior_payloads
+from nof1_causal_lab.models.ssm_observation_metadata import (
     ObservationSupportRuntime,
     augment_wide_data_with_support_boundaries,
     compile_observation_support_runtime,
@@ -45,13 +45,13 @@ from causal_ssm_agent.models.ssm_observation_metadata import (
     hydrate_discrete_manifest_metadata,
     validate_observation_support,
 )
-from causal_ssm_agent.utils.data import pivot_to_wide
+from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
     import numpy as np
 
-    from causal_ssm_agent.artifacts.model_spec import ModelSpec
-    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,7 @@ class PreparedModelRuntime:
 class SSMModelBuilder:
     """Model builder for SSM using NumPyro.
 
-    This class provides an interface compatible with the causal SSM pipeline,
+    This class provides an interface compatible with the N-of-1 Causal Lab pipeline,
     translating from the ModelSpec to SSMSpec internally.
     """
 
@@ -230,7 +230,7 @@ class SSMModelBuilder:
     @staticmethod
     def get_default_sampler_config() -> dict:
         """Default sampler configuration, read from config.yaml."""
-        from causal_ssm_agent.utils.config import get_config
+        from nof1_causal_lab.utils.config import get_config
 
         return get_config().inference.to_sampler_config()
 
@@ -494,10 +494,10 @@ class SSMModelBuilder:
                     "Cannot sample prior predictive without an SSM specification"
                 ) from None
 
-        from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+        from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
             any_family_needs_level_metadata,
         )
-        from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
+        from nof1_causal_lab.models.ssm.prior_predictive_runtime import (
             sample_prior_predictive_from_priors,
             sample_prior_predictive_from_runtime,
         )
@@ -602,7 +602,7 @@ def build_ssm_builder(
         ValueError: If wide_data is empty
     """
     if compiled_ssm is not None:
-        from causal_ssm_agent.models.ssm_compiler import build_compiled_ssm_builder
+        from nof1_causal_lab.models.ssm_compiler import build_compiled_ssm_builder
 
         return build_compiled_ssm_builder(
             compiled_ssm,

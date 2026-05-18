@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { cn } from "@/lib/utils";
 import { linkifyDocRefs } from "@/lib/utils/linkify-docs";
-import type { StageOutcome } from "@causal-ssm/api-types";
+import type { StageOutcome } from "@nof1-causal-lab/api-types";
 
 export function StageHeader({
   number,

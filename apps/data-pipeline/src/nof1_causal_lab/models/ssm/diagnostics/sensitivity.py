@@ -9,12 +9,12 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
-from causal_ssm_agent.models.ssm.parameterization import sample_prior_unconstrained
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.models.ssm_compilation_common import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.parameterization import sample_prior_unconstrained
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm_compilation_common import (
     axis_names_with_fallback,
     resolve_scalar_parameter_name,
 )
@@ -23,7 +23,7 @@ from .context import ParametricIdContext, get_stage4b_sweep_context
 from .results import OutputSensitivityResult, OutputSensitivityUnsupportedError
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 
 logger = get_prefect_logger(__name__)
 
@@ -36,7 +36,7 @@ def _observation_semantic_mask(
     observation_support,
 ) -> np.ndarray | None:
     """Return the support-aware emission mask aligned to the model time grid."""
-    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         compile_observation_operator,
     )
 

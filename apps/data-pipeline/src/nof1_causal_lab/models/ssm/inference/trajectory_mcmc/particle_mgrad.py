@@ -11,8 +11,8 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
     _AUX_JITTER,
     _gaussian_log_prob_isotropic,
     _initial_latent_moments,

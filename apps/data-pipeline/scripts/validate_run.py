@@ -31,17 +31,17 @@ from pydantic import ValidationError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from causal_ssm_agent.flows.run_store import (
+from nof1_causal_lab.flows.run_store import (
     STAGE0_PARQUET_FILENAMES,
     STAGE2_MODEL_PARQUET_FILENAMES,
     find_run_artifact,
     load_parquet,
     load_public_payload,
 )
-from causal_ssm_agent.flows.stage_contracts import STAGE_CONTRACTS
-from causal_ssm_agent.flows.stage_registry import get_execution_order
-from causal_ssm_agent.utils import storage
-from causal_ssm_agent.utils.data import runs_dir
+from nof1_causal_lab.flows.stage_contracts import STAGE_CONTRACTS
+from nof1_causal_lab.flows.stage_registry import get_execution_order
+from nof1_causal_lab.utils import storage
+from nof1_causal_lab.utils.data import runs_dir
 
 Severity = Literal["error", "warning"]
 

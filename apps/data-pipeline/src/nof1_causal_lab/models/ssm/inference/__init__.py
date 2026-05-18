@@ -18,20 +18,20 @@ from typing import TYPE_CHECKING, Any
 import jax.numpy as jnp
 from numpyro import handlers
 
-from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
-from causal_ssm_agent.models.ssm.inference.shared import (
+from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
+from nof1_causal_lab.models.ssm.inference.shared import (
     select_default_method as select_default_method,
 )
-from causal_ssm_agent.models.ssm.inference.types import (
+from nof1_causal_lab.models.ssm.inference.types import (
     FittedArtifact as FittedArtifact,
 )
-from causal_ssm_agent.models.ssm.inference.types import (  # noqa: TC001
+from nof1_causal_lab.models.ssm.inference.types import (  # noqa: TC001
     InferenceMethod,
     InferenceResult,
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 # Sentinel for "use AutoReparam with method-appropriate centering".
 _AUTO_REPARAM = object()
@@ -74,21 +74,21 @@ def fit(
     """
     reparam = _resolve_reparam(reparam, method)
     if method == "particle_mgrad":
-        from causal_ssm_agent.models.ssm.inference.methods.particle_mgrad import (
+        from nof1_causal_lab.models.ssm.inference.methods.particle_mgrad import (
             fit_particle_mgrad,
         )
 
         return fit_particle_mgrad(model, observations, times, reparam=reparam, **kwargs)
     if method == "aux_gibbs":
-        from causal_ssm_agent.models.ssm.inference.methods.aux_gibbs import fit_aux_gibbs
+        from nof1_causal_lab.models.ssm.inference.methods.aux_gibbs import fit_aux_gibbs
 
         return fit_aux_gibbs(model, observations, times, reparam=reparam, **kwargs)
     if method == "svi":
-        from causal_ssm_agent.models.ssm.inference.methods.svi import fit_svi
+        from nof1_causal_lab.models.ssm.inference.methods.svi import fit_svi
 
         return fit_svi(model, observations, times, reparam=reparam, **kwargs)
     if method == "map":
-        from causal_ssm_agent.models.ssm.inference.methods.map import fit_map
+        from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 
         return fit_map(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
@@ -114,7 +114,7 @@ def prior_predictive(
     Returns:
         Dict of prior predictive samples
     """
-    from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
+    from nof1_causal_lab.models.ssm.prior_predictive_runtime import (
         sample_prior_predictive_from_runtime,
     )
 

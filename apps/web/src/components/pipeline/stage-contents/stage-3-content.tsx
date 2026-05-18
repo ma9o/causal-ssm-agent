@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { IndicatorHealthTable } from "@/components/stages/validation/indicator-health-table";
-import type { Stage3Data, ValidationIssue } from "@causal-ssm/api-types";
+import type { Stage3Data, ValidationIssue } from "@nof1-causal-lab/api-types";
 import { Wrench } from "lucide-react";
 
 export type Stage3FixSeverity = "warning" | "error";

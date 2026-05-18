@@ -53,7 +53,7 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
 
 
 _OPTIONAL_PRIOR_ROLES = frozenset({"initial_state_mean", "initial_state_sd"})
@@ -493,7 +493,7 @@ def _make_megaprompt_tools(
     plumbed into the adapter so every successful submit call overwrites
     the on-disk checkpoint with the latest accepted state.
     """
-    from causal_ssm_agent.flows.stages.stage4.tools import (
+    from nof1_causal_lab.flows.stages.stage4.tools import (
         make_elicit_prior_gmm_tool,
         make_search_tool,
         make_submit_indicator_choice_tool,
@@ -557,7 +557,7 @@ async def run_stage4_megaprompt(
     fresh.
     """
     del max_tool_turns  # inherited from StageSessionFactory initialization
-    from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
+    from nof1_causal_lab.flows.stages.stage4.grounding import stage4_grounding
 
     from .prompts.megaprompt import (
         build_stage4_megaprompt_system_prompt,
@@ -636,7 +636,7 @@ async def run_stage4_megaprompt(
     if state.accepted.model_spec is not None and state.accepted.authored_priors:
         required_prior_names_local = _required_prior_names_from_spec(state.accepted.model_spec)
         if all(name in state.accepted.authored_priors for name in required_prior_names_local):
-            from causal_ssm_agent.flows.stages.stage4.assembly import (
+            from nof1_causal_lab.flows.stages.stage4.assembly import (
                 format_validation_feedback,
                 validate_assembly,
             )

@@ -21,7 +21,7 @@ import type {
   Stage6Data,
   StageMeta,
   StageOutcome,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Suspense,

@@ -174,7 +174,7 @@ export function LandingPageView({
     <div className="w-full max-w-2xl mx-auto space-y-4 sm:space-y-6">
         <motion.div className="text-center space-y-2" {...fadeIn}>
           <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-            causal-ssm-agent
+            nof1-causal-lab
           </h1>
         </motion.div>
 

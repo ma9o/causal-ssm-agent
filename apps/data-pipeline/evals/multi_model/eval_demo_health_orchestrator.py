@@ -34,21 +34,21 @@ from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
-from causal_ssm_agent.flows.pipeline_helpers import format_schema_for_llm
-from causal_ssm_agent.flows.stages.stage2.flow import run_stage2_extraction_core
-from causal_ssm_agent.flows.stages.stage2.materialization import materialize_stage2_outputs
-from causal_ssm_agent.orchestrator.stage1a import Stage1aResult, run_stage1a
-from causal_ssm_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
-from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.demo_health_fixture import (
+from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
+from nof1_causal_lab.flows.stages.stage2.flow import run_stage2_extraction_core
+from nof1_causal_lab.flows.stages.stage2.materialization import materialize_stage2_outputs
+from nof1_causal_lab.orchestrator.stage1a import Stage1aResult, run_stage1a
+from nof1_causal_lab.orchestrator.stage1b import Stage1bResult, run_stage1b
+from nof1_causal_lab.utils.config import get_config
+from nof1_causal_lab.utils.demo_health_fixture import (
     FIXTURE_USER_ID,
     DemoHealthComparison,
     compare_demo_health_outputs,
     load_demo_health_fixture,
 )
-from causal_ssm_agent.utils.litellm_client import GenerateConfig as PipelineGenerateConfig
-from causal_ssm_agent.utils.llm import make_generate_fn as make_pipeline_generate_fn
-from causal_ssm_agent.workers.core import run_worker_extraction
+from nof1_causal_lab.utils.litellm_client import GenerateConfig as PipelineGenerateConfig
+from nof1_causal_lab.utils.llm import make_generate_fn as make_pipeline_generate_fn
+from nof1_causal_lab.workers.core import run_worker_extraction
 
 _CONFIG = load_eval_config()
 ORCHESTRATOR_MODELS = {m["id"]: m["alias"] for m in _CONFIG["orchestrator_models"]}

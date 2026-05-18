@@ -23,8 +23,8 @@ from y0.algorithm.identify import identify_outcomes
 from y0.dsl import Variable
 from y0.graph import NxMixedGraph
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils.causal_spec import (
     build_digraph,
     get_all_treatments,
     get_outcome_name,

@@ -5,7 +5,7 @@ import asyncio
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows import stage_registry
+from nof1_causal_lab.flows import stage_registry
 from tests.pipeline._support import noop_artifact as _noop_artifact
 from tests.pipeline._support import redirect_storage as _redirect_storage
 
@@ -17,7 +17,7 @@ def test_stage4_override_compiles_artifact_for_downstream_stages(monkeypatch, tm
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr("prefect.artifacts.create_markdown_artifact", _noop_artifact)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stage_persistence.persist_web_result",
+        "nof1_causal_lab.flows.stage_persistence.persist_web_result",
         lambda _stage_id, data, _workspace_id: data,
     )
 

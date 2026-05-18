@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage0Data } from "@causal-ssm/api-types";
+import type { Stage0Data } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { DataSummaryStats } from "./data-summary-stats";
 import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-0.json";

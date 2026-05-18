@@ -1,6 +1,6 @@
 "use client";
 
-import type { StageId } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { useQuery } from "@tanstack/react-query";
 import { getStageResult } from "../api/endpoints";
 import { isMockMode } from "../api/mock-provider";

@@ -11,10 +11,10 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     make_stage4_grounding_result,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_megaprompt import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_megaprompt import (
     Stage4MegapromptState,
     _apply_indicator_choice,
     _apply_model_configuration,
@@ -23,17 +23,17 @@ from causal_ssm_agent.flows.stages.stage4.agentic.stage4_megaprompt import (
     _parameter_inventory_from_skeleton,
     _required_prior_names_from_spec,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
     build_stage4_plan,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_skeleton import (
     derive_deterministic_spec,
 )
-from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 from tests.stages.stage4._support import _make_stage4_deps, make_causal_spec_dict
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_types import Stage4Deps
 
 
 def _make_megaprompt_spec() -> dict:
@@ -381,7 +381,7 @@ def test_checkpoint_serde_roundtrip() -> None:
     Ephemeral validation fields (compiled_ssm, pp_raw_samples) are
     intentionally dropped.
     """
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_megaprompt import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_megaprompt import (
         deserialize_stage4_megaprompt_state,
         serialize_stage4_megaprompt_state,
     )

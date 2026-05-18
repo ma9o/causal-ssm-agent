@@ -3,7 +3,7 @@
 import { diagnosisColor, diagnosisLabel } from "@/lib/constants/charts";
 import { POWER_SCALING_THRESHOLD } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
-import type { PowerScalingResult } from "@causal-ssm/api-types";
+import type { PowerScalingResult } from "@nof1-causal-lab/api-types";
 import {
   CartesianGrid,
   Tooltip as RechartsTooltip,

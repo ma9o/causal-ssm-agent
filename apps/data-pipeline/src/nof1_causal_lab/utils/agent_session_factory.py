@@ -17,18 +17,18 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.utils.agent_session_embedded import open_embedded_session
-from causal_ssm_agent.utils.harness.claude import open_claude_harness_session
-from causal_ssm_agent.utils.harness.codex import open_codex_harness_session
-from causal_ssm_agent.utils.llm import DEFAULT_MAX_TOOL_LOOP_TURNS
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig
+from nof1_causal_lab.utils.agent_session_embedded import open_embedded_session
+from nof1_causal_lab.utils.harness.claude import open_claude_harness_session
+from nof1_causal_lab.utils.harness.codex import open_codex_harness_session
+from nof1_causal_lab.utils.llm import DEFAULT_MAX_TOOL_LOOP_TURNS
+from nof1_causal_lab.utils.openrouter_client import GenerateConfig
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from causal_ssm_agent.utils.agent_session import AgentSession
-    from causal_ssm_agent.utils.config import LLMDefaults, StageLLMConfig
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.agent_session import AgentSession
+    from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
 
 def _first_not_none(*values):

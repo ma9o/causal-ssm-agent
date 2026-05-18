@@ -16,13 +16,13 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "causal-ssm-agent",
-    template: "%s | causal-ssm-agent",
+    default: "nof1-causal-lab",
+    template: "%s | nof1-causal-lab",
   },
   description:
     "From research question to quantified treatment effects — powered by LLMs, state-space models, and Bayesian inference.",
   openGraph: {
-    title: "causal-ssm-agent",
+    title: "nof1-causal-lab",
     description:
       "Pedagogical visualization of causal inference from question to treatment effects.",
     type: "website",

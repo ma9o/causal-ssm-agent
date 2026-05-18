@@ -1,6 +1,6 @@
 # Web Frontend
 
-Next.js app for session management and pipeline stage visualization. Part of the [causal-ssm-agent](../../README.md) monorepo.
+Next.js app for session management and pipeline stage visualization. Part of the [nof1-causal-lab](../../README.md) monorepo.
 
 ```bash
 bun run dev    # Start dev server on port 3000 if one is not already running

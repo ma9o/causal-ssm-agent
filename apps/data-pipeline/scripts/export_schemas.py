@@ -16,16 +16,16 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from causal_ssm_agent.distributions import OBSERVATION_FAMILY_SPECS
+from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 
 # Import all stage contracts — this pulls in every nested domain model
-from causal_ssm_agent.flows.stage_contracts import (
+from nof1_causal_lab.flows.stage_contracts import (
     EXPORTED_TOOL_RESULT_MODELS,
     INTERACTIVE_STAGES,
     STAGE_CONTRACTS,
     STAGE_TOOLS,
 )
-from causal_ssm_agent.models.ssm.parameterization import SiteKind
+from nof1_causal_lab.models.ssm.parameterization import SiteKind
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"

@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 from jax import lax, vmap
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize
 
 
 def _kron_lyapunov_solve(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:

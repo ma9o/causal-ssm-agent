@@ -19,22 +19,22 @@ import numpyro.distributions as dist
 from jax.flatten_util import ravel_pytree  # noqa: F401 — re-exported for callers
 from numpyro import handlers
 
-from causal_ssm_agent.models.ssm.autoreparam import fixed_autoreparam_centering
-from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES, MIN_DT
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.autoreparam import fixed_autoreparam_centering
+from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES, MIN_DT
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from causal_ssm_agent.models.ssm.parameterization import (
+from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
     build_site_registry,
 )
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 # ---------------------------------------------------------------------------
@@ -626,7 +626,7 @@ def _build_runtime_eval_fns_from_registry(
     log-likelihood takes ``observations`` and ``times`` as runtime arguments so
     the same compiled closure can be reused across many sweeps in one process.
     """
-    from causal_ssm_agent.models.ssm.parameterization import log_prior_unconstrained
+    from nof1_causal_lab.models.ssm.parameterization import log_prior_unconstrained
 
     def _constrain(z):
         unc = unravel_fn(z)

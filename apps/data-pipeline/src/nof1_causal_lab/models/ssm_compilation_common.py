@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_family_index,
     get_prior_family_spec,
     get_real_runtime_family_index,
 )
-from causal_ssm_agent.models.ssm.parameter_names import (
+from nof1_causal_lab.models.ssm.parameter_names import (
     INITIAL_STATE_CORRELATION_KEYWORDS,
 )
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 PriorIndexMaps = tuple[
     dict[str, tuple[str, int]],

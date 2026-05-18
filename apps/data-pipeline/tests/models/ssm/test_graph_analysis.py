@@ -8,11 +8,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from causal_ssm_agent.artifacts import LinkFunction
-from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.models.ssm.inference import select_default_method
-from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
-from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.ssm.inference import select_default_method
+from nof1_causal_lab.models.ssm.inference.structure import plan_inference_structure
+from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import (
     RBPartition,
     analyze_first_pass_rb,
     compute_drift_sparsity,
@@ -22,9 +22,9 @@ from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
     get_per_variable_diffusion,
     kalman_block_profile_indices,
 )
-from causal_ssm_agent.models.ssm.model import SSMSpec, full_diagonal_mask
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.model import SSMSpec, full_diagonal_mask
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.ssm_test_utils import combined_drift_mask, make_ssm_spec
 
 # =============================================================================

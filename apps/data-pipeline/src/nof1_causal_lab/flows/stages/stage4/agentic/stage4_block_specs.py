@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     allowed_stage4_tool_names,
 )
 

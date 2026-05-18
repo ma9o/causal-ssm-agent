@@ -11,7 +11,7 @@ from typing import Any, cast
 
 import pytest
 
-from causal_ssm_agent.utils.llm import (
+from nof1_causal_lab.utils.llm import (
     LLMTrace,
     _validate_json_and_format,
     make_generate_fn,
@@ -171,7 +171,7 @@ class TestWorkerValidationTools:
                 "stop_reason": "tool_calls",
             }
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -219,7 +219,7 @@ class TestWorkerValidationTools:
                 "stop_reason": "tool_calls",
             }
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -266,7 +266,7 @@ class TestWorkerValidationTools:
                 "stop_reason": "tool_calls",
             }
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -293,7 +293,7 @@ class TestWorkerValidationTools:
         monkeypatch,
         tool_result: str,
     ):
-        from causal_ssm_agent.utils.openrouter_client import Tool
+        from nof1_causal_lab.utils.openrouter_client import Tool
 
         call_count = 0
         execute_count = 0
@@ -346,7 +346,7 @@ class TestWorkerValidationTools:
                 "stop_reason": "tool_calls",
             }
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -412,7 +412,7 @@ class TestWorkerValidationTools:
 
             raise AssertionError("unexpected call")
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -477,7 +477,7 @@ class TestWorkerValidationTools:
 
             raise AssertionError("unexpected call")
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -493,7 +493,7 @@ class TestWorkerValidationTools:
         assert call_count == 2
 
     def test_multi_turn_generate_respects_max_tool_turns(self, monkeypatch):
-        from causal_ssm_agent.utils.openrouter_client import Tool
+        from nof1_causal_lab.utils.openrouter_client import Tool
 
         call_count = 0
 
@@ -534,7 +534,7 @@ class TestWorkerValidationTools:
                 "stop_reason": "tool_calls",
             }
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         with pytest.raises(RuntimeError, match="exceeded 3 turns"):
             _run(
@@ -549,7 +549,7 @@ class TestWorkerValidationTools:
         assert call_count == 3
 
     def test_multi_turn_generate_rewrites_context_but_preserves_trace(self, monkeypatch):
-        from causal_ssm_agent.utils.openrouter_client import Tool
+        from nof1_causal_lab.utils.openrouter_client import Tool
 
         call_count = 0
         rewrite_inputs: list[list[str]] = []
@@ -616,7 +616,7 @@ class TestWorkerValidationTools:
 
             raise AssertionError("unexpected call")
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -645,7 +645,7 @@ class TestWorkerValidationTools:
         assert all("compact-" not in message.content for message in trace.messages)
 
     def test_multi_turn_generate_rewrites_available_tools_each_turn(self, monkeypatch):
-        from causal_ssm_agent.utils.openrouter_client import Tool
+        from nof1_causal_lab.utils.openrouter_client import Tool
 
         call_count = 0
         seen_tool_names: list[list[str]] = []
@@ -715,7 +715,7 @@ class TestWorkerValidationTools:
 
             raise AssertionError("unexpected call")
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         result = _run(
             multi_turn_generate(
@@ -764,7 +764,7 @@ class TestMakeGenerateFn:
                 "stop_reason": "stop",
             }
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         generate = make_generate_fn("test-model", trace_capture=trace_capture)
         result = _run(
@@ -811,7 +811,7 @@ class _FakeOpenRouterClient:
 
 class TestOpenRouterClient:
     def test_call_model_enforces_local_timeout(self, monkeypatch):
-        from causal_ssm_agent.utils import openrouter_client
+        from nof1_causal_lab.utils import openrouter_client
 
         seen: dict[str, object] = {}
 
@@ -852,7 +852,7 @@ class TestOpenRouterClient:
         assert _require_mapping(seen["kwargs"])["timeout"] == 0.01
 
     def test_call_model_logs_completion_tool_calls_and_reasoning(self, monkeypatch, caplog):
-        from causal_ssm_agent.utils import openrouter_client
+        from nof1_causal_lab.utils import openrouter_client
 
         seen: dict[str, object] = {}
         response = {
@@ -900,7 +900,7 @@ class TestOpenRouterClient:
         assert "call_model reasoning:\nthought process" in caplog.text
 
     def test_call_model_logs_completion_without_label(self, monkeypatch, caplog):
-        from causal_ssm_agent.utils import openrouter_client
+        from nof1_causal_lab.utils import openrouter_client
 
         seen: dict[str, object] = {}
         response = {
@@ -937,7 +937,7 @@ class TestOpenRouterClient:
         assert "call_model completion:\nunlabeled completion" in caplog.text
 
     def test_call_model_strips_repo_openrouter_prefix(self, monkeypatch):
-        from causal_ssm_agent.utils import openrouter_client
+        from nof1_causal_lab.utils import openrouter_client
 
         seen: dict[str, object] = {}
         response = {
@@ -970,7 +970,7 @@ class TestOpenRouterClient:
         assert _require_mapping(seen["kwargs"])["model"] == "anthropic/claude-sonnet-4"
 
     def test_call_model_uses_request_local_openrouter_key(self, monkeypatch):
-        from causal_ssm_agent.utils import openrouter_client
+        from nof1_causal_lab.utils import openrouter_client
 
         seen: dict[str, object] = {}
         monkeypatch.setattr(openrouter_client, "_openrouter_clients", {})
@@ -1006,7 +1006,7 @@ class TestOpenRouterClient:
         assert _require_mapping(seen["kwargs"])["model"] == "test-model"
 
     def test_call_model_uses_reasoning_config_in_extra_body(self, monkeypatch):
-        from causal_ssm_agent.utils import openrouter_client
+        from nof1_causal_lab.utils import openrouter_client
 
         seen: dict[str, object] = {}
         response = {
@@ -1042,7 +1042,7 @@ class TestOpenRouterClient:
         }
 
     def test_use_openrouter_api_key_none_preserves_current_request_local_key(self):
-        from causal_ssm_agent.utils import openrouter_client
+        from nof1_causal_lab.utils import openrouter_client
 
         with (
             openrouter_client.use_openrouter_api_key("user-key"),
@@ -1058,19 +1058,19 @@ class TestOpenRouterClient:
 
 class TestDictMessagesToChat:
     def test_unknown_role_skipped(self):
-        from causal_ssm_agent.utils.llm import dict_messages_to_chat
+        from nof1_causal_lab.utils.llm import dict_messages_to_chat
 
         msgs = dict_messages_to_chat([{"role": "unknown", "content": "test"}])
         assert len(msgs) == 0
 
     def test_empty_list(self):
-        from causal_ssm_agent.utils.llm import dict_messages_to_chat
+        from nof1_causal_lab.utils.llm import dict_messages_to_chat
 
         msgs = dict_messages_to_chat([])
         assert len(msgs) == 0
 
     def test_preserves_reasoning_blocks(self):
-        from causal_ssm_agent.utils.llm import dict_messages_to_chat
+        from nof1_causal_lab.utils.llm import dict_messages_to_chat
 
         msgs = dict_messages_to_chat(
             [
@@ -1091,10 +1091,10 @@ class TestMakeLLMStageTask:
     """Tests for the session-based make_llm_stage_task wrapper."""
 
     def test_forwards_stage_llm_and_api_key_via_session_factory(self, monkeypatch):
-        from causal_ssm_agent.flows.llm_stage_task import make_llm_stage_task
-        from causal_ssm_agent.utils import openrouter_client
-        from causal_ssm_agent.utils.agent_session import StageSessionFactory
-        from causal_ssm_agent.utils.config import (
+        from nof1_causal_lab.flows.llm_stage_task import make_llm_stage_task
+        from nof1_causal_lab.utils import openrouter_client
+        from nof1_causal_lab.utils.agent_session import StageSessionFactory
+        from nof1_causal_lab.utils.config import (
             ClaudeCodeDefaults,
             CodexDefaults,
             EmbeddedLLMDefaults,

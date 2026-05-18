@@ -6,7 +6,7 @@ import type { AnalysisStageRuns } from "@/lib/api/analysis";
 import { RefinementProvider, useRefinement } from "@/lib/contexts/refinement-context";
 import { useKeyboardNav } from "@/lib/hooks/use-keyboard-nav";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { ActiveStageIndicator } from "./active-stage-indicator";

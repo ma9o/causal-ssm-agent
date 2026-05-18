@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { LLMTrace } from "@causal-ssm/api-types";
+import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { withContainer } from "@/components/story-decorators";

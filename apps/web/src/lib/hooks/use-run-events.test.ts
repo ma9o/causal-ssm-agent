@@ -8,7 +8,7 @@ describe("buildPrefectEventFilterMessage", () => {
     expect(buildPrefectEventFilterMessage("run-123", now)).toEqual({
       type: "filter",
       filter: {
-        event: { prefix: ["causal-ssm."] },
+        event: { prefix: ["nof1-causal-lab."] },
         resource: {
           id: ["prefect.flow-run.run-123"],
         },
@@ -25,7 +25,7 @@ describe("parsePrefectStageProgressEvent", () => {
   it("extracts a valid stage update from a custom Prefect event", () => {
     expect(
       parsePrefectStageProgressEvent({
-        event: "causal-ssm.pipeline-stage.completed",
+        event: "nof1-causal-lab.pipeline-stage.completed",
         occurred: "2026-03-10T08:06:15.000Z",
         payload: {
           stage_id: "stage-2",
@@ -43,7 +43,7 @@ describe("parsePrefectStageProgressEvent", () => {
   it("captures nested stage runtime metadata from the event payload", () => {
     expect(
       parsePrefectStageProgressEvent({
-        event: "causal-ssm.pipeline-stage.running",
+        event: "nof1-causal-lab.pipeline-stage.running",
         occurred: "2026-03-10T08:06:15.000Z",
         payload: {
           stage_id: "stage-4",
@@ -75,7 +75,7 @@ describe("parsePrefectStageProgressEvent", () => {
 
     expect(
       parsePrefectStageProgressEvent({
-        event: "causal-ssm.pipeline-stage.completed",
+        event: "nof1-causal-lab.pipeline-stage.completed",
         payload: {
           stage_id: "not-a-stage",
           status: "completed",

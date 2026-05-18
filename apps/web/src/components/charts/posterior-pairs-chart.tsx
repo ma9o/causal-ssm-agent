@@ -1,7 +1,7 @@
 "use client";
 
 import { formatNumber } from "@/lib/utils/format";
-import type { PosteriorPair } from "@causal-ssm/api-types";
+import type { PosteriorPair } from "@nof1-causal-lab/api-types";
 import {
   CartesianGrid,
   Tooltip as RechartsTooltip,

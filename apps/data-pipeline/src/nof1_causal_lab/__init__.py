@@ -1,4 +1,4 @@
-"""Package initialization for the causal SSM agent."""
+"""Package initialization for the N-of-1 Causal Lab."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _configure_jax_precision() -> None:
 
 def _configure_jax_persistent_cache() -> None:
     """Enable JAX's persistent compilation cache unless explicitly disabled."""
-    if _truthy_env("CAUSAL_SSM_DISABLE_JAX_PERSISTENT_CACHE"):
+    if _truthy_env("NOF1_CAUSAL_LAB_DISABLE_JAX_PERSISTENT_CACHE"):
         return
 
     try:
@@ -42,7 +42,7 @@ def _configure_jax_persistent_cache() -> None:
 
     cache_dir = os.getenv("JAX_COMPILATION_CACHE_DIR")
     if not cache_dir:
-        cache_dir = str(Path.home() / ".cache" / "causal-ssm-agent" / "jax")
+        cache_dir = str(Path.home() / ".cache" / "nof1-causal-lab" / "jax")
 
     try:
         Path(cache_dir).mkdir(parents=True, exist_ok=True)

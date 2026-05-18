@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from causal_ssm_agent.utils.llm import LLMTrace  # noqa: TC001
+from nof1_causal_lab.utils.llm import LLMTrace  # noqa: TC001
 
 StageId = Literal[
     "stage-0",

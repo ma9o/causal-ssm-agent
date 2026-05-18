@@ -1,7 +1,7 @@
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { PARETO_K_FAIL, PARETO_K_WARN } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
-import type { PowerScalingResult } from "@causal-ssm/api-types";
+import type { PowerScalingResult } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { useMemo } from "react";
 

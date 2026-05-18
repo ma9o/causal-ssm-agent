@@ -1,4 +1,4 @@
-import type { Stage0Data, Stage0PersistedData } from "@causal-ssm/api-types";
+import type { Stage0Data, Stage0PersistedData } from "@nof1-causal-lab/api-types";
 import type { FileMetaData } from "hyparquet";
 
 type TemporalKind = "timestamp" | "date" | "time";

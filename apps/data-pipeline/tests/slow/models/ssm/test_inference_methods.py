@@ -10,8 +10,8 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily
-from causal_ssm_agent.models.ssm import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.models.ssm import (
     SSMModel,
     SSMPriors,
     SSMSpec,
@@ -23,7 +23,7 @@ from causal_ssm_agent.models.ssm import (
     zero_square_mask,
     zero_vector_mask,
 )
-from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.ssm_test_utils import assert_recovery_ci, make_lgss_data
 
 pytestmark = pytest.mark.slow

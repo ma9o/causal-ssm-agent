@@ -29,9 +29,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from causal_ssm_agent.utils.agent_session import AgentResult, TurnResult
-from causal_ssm_agent.utils.harness.mcp_server import serve_tools_http
-from causal_ssm_agent.utils.harness.stream_json import (
+from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
+from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
+from nof1_causal_lab.utils.harness.stream_json import (
     ClaudeStreamState,
     apply_claude_event,
     finalize_trace,
@@ -41,12 +41,12 @@ from causal_ssm_agent.utils.harness.stream_json import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
 # Stream events from the claude subprocess are at INFO level; make sure they
 # clear the root logger's default WARNING threshold so they propagate up to
-# the Prefect APILogHandler attached to ``causal_ssm_agent``.
+# the Prefect APILogHandler attached to ``nof1_causal_lab``.
 logger.setLevel(logging.INFO)
 
 MCP_SERVER_NAME = "pipeline-tools"
@@ -388,7 +388,7 @@ async def open_claude_harness_session(
     :class:`ClaudeHarnessSession`. On exit, the MCP server shuts down
     and the temp MCP config file is deleted.
     """
-    from causal_ssm_agent.utils.config import ensure_harness_prereqs
+    from nof1_causal_lab.utils.config import ensure_harness_prereqs
 
     ensure_harness_prereqs("claude-code")
     async with serve_tools_http(tools, name=MCP_SERVER_NAME) as mcp_url:

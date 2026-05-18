@@ -5,7 +5,7 @@ Two-stage approach following Anderson & Gerbing (1988):
 2. Measurement Model - observed indicators that reflect constructs (data-driven)
 """
 
-from causal_ssm_agent.artifacts import (
+from nof1_causal_lab.artifacts import (
     CausalEdge,
     CausalSpec,
     Construct,

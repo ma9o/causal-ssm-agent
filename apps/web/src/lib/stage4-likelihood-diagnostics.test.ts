@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { IndicatorAudit, LikelihoodSpec, ObservationRecord } from "@causal-ssm/api-types";
+import type { IndicatorAudit, LikelihoodSpec, ObservationRecord } from "@nof1-causal-lab/api-types";
 import { buildStage4LikelihoodDiagnostics } from "./stage4-likelihood-diagnostics";
 
 describe("buildStage4LikelihoodDiagnostics", () => {

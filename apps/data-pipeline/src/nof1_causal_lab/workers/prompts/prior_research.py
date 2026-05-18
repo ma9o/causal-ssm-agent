@@ -4,7 +4,7 @@ Each worker researches a single parameter, using literature evidence
 to propose an informed prior distribution.
 """
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     format_prior_distribution_choice_list,
     render_dynamic_prior_scale_guidance,
     render_prior_distribution_guidance_bullets,

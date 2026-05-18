@@ -17,7 +17,7 @@ from numpy.testing import assert_allclose
 from numpyro import handlers
 from numpyro.infer.reparam import LocScaleReparam, ProjectedNormalReparam
 
-from causal_ssm_agent.models.ssm.autoreparam import (
+from nof1_causal_lab.models.ssm.autoreparam import (
     AutoReparam,
     MinimalReparam,
     _is_unconstrained,
@@ -464,7 +464,7 @@ class TestAutoReparamSSM:
     """Test AutoReparam with the actual SSM model."""
 
     def _make_simple_ssm(self):
-        from causal_ssm_agent.models.ssm.model import SSMModel
+        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = make_ssm_spec(n_latent=2, n_manifest=2)
         return SSMModel(spec=spec, likelihood="kalman")
@@ -511,7 +511,7 @@ class TestAutoReparamSSM:
         """Replay-based extraction should drop internal reparam auxiliaries."""
         from jax.flatten_util import ravel_pytree
 
-        from causal_ssm_agent.models.ssm.inference.utils import (
+        from nof1_causal_lab.models.ssm.inference.utils import (
             _discover_sites,
             extract_constrained_samples,
         )

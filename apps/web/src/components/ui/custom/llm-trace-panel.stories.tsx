@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { LLMTrace } from "@causal-ssm/api-types";
+import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { LLMTracePanelView } from "./llm-trace-panel-view";
 
 const minimalTrace: LLMTrace = {

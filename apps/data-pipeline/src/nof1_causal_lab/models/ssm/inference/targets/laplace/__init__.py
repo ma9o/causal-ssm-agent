@@ -20,12 +20,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
-from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
-from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
+from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
+from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
 )
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_summary_operator_codes,
     get_support_kind_codes,
 )
@@ -64,13 +64,13 @@ from .support import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-    from causal_ssm_agent.models.ssm.inference.targets.base import (
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+    from nof1_causal_lab.models.ssm.inference.targets.base import (
         CTParams,
         InitialStateParams,
         MeasurementParams,
     )
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 
 class LaplaceLikelihood:

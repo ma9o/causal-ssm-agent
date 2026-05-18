@@ -14,8 +14,8 @@ from pathlib import Path
 
 from evals.common import DEFAULT_EVAL_WORKSPACE_ID, get_stage2_eval_chunks
 
-from causal_ssm_agent.workers.core import _format_indicators, _get_outcome_description
-from causal_ssm_agent.workers.prompts.extraction import SYSTEM, USER
+from nof1_causal_lab.workers.core import _format_indicators, _get_outcome_description
+from nof1_causal_lab.workers.prompts.extraction import SYSTEM, USER
 
 OUTPUT_FILE = Path(__file__).resolve().parents[4] / "scratchpad" / "worker-chunks-manual.txt"
 

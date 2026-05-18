@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 from prefect import task
 
-from causal_ssm_agent.utils import storage
-from causal_ssm_agent.utils.data import runs_dir
+from nof1_causal_lab.utils import storage
+from nof1_causal_lab.utils.data import runs_dir
 
 from . import get_prefect_logger
 from .stage_contracts import _validate_stage_model

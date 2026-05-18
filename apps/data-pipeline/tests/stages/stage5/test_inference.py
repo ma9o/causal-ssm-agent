@@ -6,12 +6,12 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
-from causal_ssm_agent.flows.stages.stage5b import fit as stage5_inference
-from causal_ssm_agent.models.ssm.inference import InferenceResult
-from causal_ssm_agent.models.ssm.inference.structure import InferenceStructurePlan
-from causal_ssm_agent.models.ssm.model import SSMModel
-from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, SSMModelBuilder
-from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.flows.stages.stage5b import fit as stage5_inference
+from nof1_causal_lab.models.ssm.inference import InferenceResult
+from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePlan
+from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm_builder import PreparedModelRuntime, SSMModelBuilder
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.ssm_test_utils import make_ssm_spec
 
 
@@ -247,7 +247,7 @@ def test_run_power_scaling_logs_completion_summary(monkeypatch, caplog):
             return None
 
     monkeypatch.setattr(
-        "causal_ssm_agent.models.ssm.diagnostics.power_scaling_sensitivity",
+        "nof1_causal_lab.models.ssm.diagnostics.power_scaling_sensitivity",
         lambda **_kwargs: _FakePowerScalingResult(),
     )
 

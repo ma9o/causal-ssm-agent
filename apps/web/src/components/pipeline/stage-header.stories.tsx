@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { StageOutcome } from "@causal-ssm/api-types";
+import type { StageOutcome } from "@nof1-causal-lab/api-types";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import { withContainer } from "@/components/story-decorators";
 import { StageHeader } from "./stage-header";

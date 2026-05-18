@@ -2,7 +2,7 @@
 
 import type { AnalysisStageRun } from "@/lib/api/analysis";
 import { getPrefectLogsUrl } from "@/lib/runtime-urls";
-import type { StageId } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { getStageLogQueryScopeKey } from "@/lib/stage-observability";
 import {
   buildPrefectLogStreamFilterMessage,

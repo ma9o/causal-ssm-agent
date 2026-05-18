@@ -6,7 +6,7 @@ import jax.random as random
 import numpy as np
 import pytest
 
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
@@ -91,7 +91,7 @@ class TestParameterRecovery:
                 cint=jnp.zeros(n),
             )
 
-            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+            from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -152,7 +152,7 @@ class TestParameterRecovery:
                 cint=jnp.zeros(n),
             )
 
-            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+            from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -221,7 +221,7 @@ class TestParameterRecovery:
             drift = drift.at[1, 0].set(drift_offdiag[1])
             ct = CTParams(drift=drift, diffusion_cov=diffusion_cov, cint=jnp.zeros(n))
 
-            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+            from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,
@@ -289,7 +289,7 @@ class TestParameterRecovery:
                 cint=jnp.zeros(n),
             )
 
-            from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+            from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
             backend = ParticleLikelihood(
                 n_latent=n,

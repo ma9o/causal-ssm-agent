@@ -6,8 +6,8 @@ from collections import defaultdict
 from itertools import combinations
 from typing import Any
 
-from causal_ssm_agent.artifacts.latent_model import Role, TemporalStatus
-from causal_ssm_agent.utils.identifiability import (
+from nof1_causal_lab.artifacts.latent_model import Role, TemporalStatus
+from nof1_causal_lab.utils.identifiability import (
     analyze_unobserved_constructs,
     get_observed_constructs,
 )

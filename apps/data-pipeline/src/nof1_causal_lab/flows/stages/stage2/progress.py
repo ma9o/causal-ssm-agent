@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 
-from causal_ssm_agent.flows.runtime_events import emit_stage2_snapshot_event
+from nof1_causal_lab.flows.runtime_events import emit_stage2_snapshot_event
 
 _TERMINAL_STAGE2_WORKER_STATES = {"completed", "failed"}
 
@@ -105,7 +105,7 @@ def clear_stage2_progress_tracker(root_run_id: str) -> None:
 
 
 def emit_stage2_snapshot(root_run_id: str, snapshot: dict[str, int]) -> None:
-    from causal_ssm_agent.utils.openrouter_client import get_limiter_request_count
+    from nof1_causal_lab.utils.openrouter_client import get_limiter_request_count
 
     emit_stage2_snapshot_event(
         root_run_id,

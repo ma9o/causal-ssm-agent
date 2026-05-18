@@ -6,7 +6,7 @@ import type {
   IndicatorAudit,
   IndicatorEmpiricalProfile,
   IndicatorValidation,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { useMemo } from "react";
 

@@ -5,7 +5,7 @@ Covers: _check_dtype_match, validate_worker_output, WorkerOutput.to_dataframe.
 
 import polars as pl
 
-from causal_ssm_agent.workers.schemas import (
+from nof1_causal_lab.workers.schemas import (
     WindowExtraction,
     WorkerOutput,
     _check_dtype_match,

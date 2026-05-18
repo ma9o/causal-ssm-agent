@@ -17,12 +17,12 @@ from .helpers import (
 from .planning import build_repair_plan
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
         Stage4FrontierBlock,
         Stage4Plan,
     )
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
-    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
     from .types import ResolvedRepairPlan
 

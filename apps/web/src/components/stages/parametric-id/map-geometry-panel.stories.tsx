@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage4bData } from "@causal-ssm/api-types";
+import type { Stage4bData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { MapGeometryPanel } from "./map-geometry-panel";
 

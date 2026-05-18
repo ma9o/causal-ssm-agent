@@ -1,5 +1,5 @@
 [project]
-name = "causal-ssm-agent"
+name = "nof1-causal-lab"
 version = "0.1.0"
 description = "LLM-orchestrated causal inference over long-context, multi-source data"
 readme = "../../README.md"
@@ -119,7 +119,7 @@ parametrize-names-type = "tuple"
 ban-relative-imports = "parents"
 
 [tool.ruff.lint.isort]
-known-first-party = ["causal_ssm_agent"]
+known-first-party = ["nof1_causal_lab"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -10,16 +10,16 @@ from typing import Any
 
 import polars as pl
 
-from causal_ssm_agent.utils.agent_session import StageSessionFactory
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.utils.agent_session import StageSessionFactory
+from nof1_causal_lab.utils.causal_spec import (
     get_indicators,
     get_outcome_construct,
 )
-from causal_ssm_agent.utils.llm import (
+from nof1_causal_lab.utils.llm import (
     make_validation_tool,
     scoped_log,
 )
-from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
 from .prompts.extraction import SYSTEM, USER
 from .schemas import WorkerOutput
@@ -118,7 +118,7 @@ async def run_worker_extraction(
     msgs = WorkerMessages(question, causal_spec, window_text, n_windows=len(window_starts))
 
     extraction_msgs = msgs.extraction_messages()
-    from causal_ssm_agent.workers.schemas import validate_worker_output
+    from nof1_causal_lab.workers.schemas import validate_worker_output
 
     tool, capture = make_validation_tool(
         name="validate_extractions",

@@ -12,15 +12,15 @@ from numpyro.infer import SVI, Predictive, Trace_ELBO, init_to_median
 from numpyro.infer.autoguide import AutoDelta, AutoMultivariateNormal, AutoNormal
 from numpyro.optim import ClippedAdam
 
-from causal_ssm_agent.models.ssm.inference.shared import (
+from nof1_causal_lab.models.ssm.inference.shared import (
     _apply_reparam,
     _filter_public_samples,
     _trace_public_sites,
 )
-from causal_ssm_agent.models.ssm.inference.types import InferenceResult
+from nof1_causal_lab.models.ssm.inference.types import InferenceResult
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 
 def _all_numeric_leaves_finite(tree: Any) -> bool:

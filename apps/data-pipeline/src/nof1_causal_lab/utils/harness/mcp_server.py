@@ -1,7 +1,7 @@
 """In-process MCP server that exposes pipeline tools to an external harness.
 
 The pipeline keeps its tool implementations as :class:`Tool` objects from
-:mod:`causal_ssm_agent.utils.openrouter_client`. When a stage runs against
+:mod:`nof1_causal_lab.utils.openrouter_client`. When a stage runs against
 a harness backend, those same tool callables need to be reachable from a
 subprocess (``claude -p`` / ``codex exec``) — Model Context Protocol
 (MCP) provides the transport.
@@ -41,7 +41,7 @@ from starlette.routing import Mount
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

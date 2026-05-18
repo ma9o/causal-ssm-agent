@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
-from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT,
     MISSING_DATA_LARGE_VAR,
     CTParams,

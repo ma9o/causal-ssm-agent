@@ -4,23 +4,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.flows.stage_runtime import (
+from nof1_causal_lab.flows.stage_runtime import (
     PipelineContext,
     StageDefinition,
     StageOverrideAdapter,
 )
-from causal_ssm_agent.flows.stages.stage4.contracts import Stage4Contract
+from nof1_causal_lab.flows.stages.stage4.contracts import Stage4Contract
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.contracts_base import BaseStageContract
+    from nof1_causal_lab.flows.contracts_base import BaseStageContract
 
 
 def _emit_stage4_initial_replay_state(inputs: dict[str, Any]) -> None:
-    from causal_ssm_agent.flows.runtime_events import (
+    from nof1_causal_lab.flows.runtime_events import (
         emit_stage4_graph_event,
         emit_stage4_snapshot_event,
     )
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_runtime_projections import (
         project_stage4_initial_state,
     )
 
@@ -48,7 +48,7 @@ def _bind_stage4(ctx: PipelineContext, states: dict) -> dict:
 
 
 def _coerce_override_stage4(payload: dict[str, Any]) -> dict[str, Any]:
-    from causal_ssm_agent.flows.stages.stage4.assembly import coerce_stage4_override_payload
+    from nof1_causal_lab.flows.stages.stage4.assembly import coerce_stage4_override_payload
 
     return coerce_stage4_override_payload(payload)
 
@@ -58,13 +58,13 @@ def _materialize_override_stage4(
     ctx: PipelineContext,
     states: dict[str, BaseStageContract],
 ) -> BaseStageContract:
-    from causal_ssm_agent.flows.run_store import (
+    from nof1_causal_lab.flows.run_store import (
         STAGE2_MODEL_PARQUET_FILENAMES,
         find_run_artifact,
         load_parquet,
         save_json,
     )
-    from causal_ssm_agent.flows.stages.stage4.assembly import materialize_stage4_result
+    from nof1_causal_lab.flows.stages.stage4.assembly import materialize_stage4_result
 
     stage1b = states["stage-1b"]
     stage3 = states["stage-3"]
@@ -96,7 +96,7 @@ def _materialize_override_stage4(
 
 
 def build_stage4_definition() -> StageDefinition:
-    from causal_ssm_agent.flows import dag
+    from nof1_causal_lab.flows import dag
 
     return StageDefinition(
         stage_id="stage-4",

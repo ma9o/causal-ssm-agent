@@ -22,7 +22,7 @@ import type {
   LikelihoodSpec,
   ParameterSpec,
   PriorProposal,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import katex from "katex";
 
 interface SsmEquationDisplayProps {
@@ -106,7 +106,6 @@ export function SSMEquationDisplay({
                 State Dynamics
                 <StatTooltip explanation="Each latent state evolves as a discrete-time AR(1) process: it depends on its own previous value (persistence ρ), causal effects from parent states (β), and Gaussian noise." />
               </h4>
-              <Badge variant="outline">Linear-Gaussian Dynamics</Badge>
             </div>
             <div className="overflow-x-auto rounded-md border bg-muted/30 px-4 py-3">
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

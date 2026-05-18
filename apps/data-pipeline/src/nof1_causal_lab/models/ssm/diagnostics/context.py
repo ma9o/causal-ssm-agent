@@ -13,9 +13,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.utils import _build_runtime_eval_fns_from_registry
-from causal_ssm_agent.models.ssm.parameterization import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.inference.utils import _build_runtime_eval_fns_from_registry
+from nof1_causal_lab.models.ssm.parameterization import (
     SiteRuntimeBundle,
     build_site_runtime_bundle,
 )
@@ -28,8 +28,8 @@ from .observation_moments import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from causal_ssm_agent.models.ssm.model import SSMModel, SSMSpec
-    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+    from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
+    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 logger = get_prefect_logger(__name__)
 

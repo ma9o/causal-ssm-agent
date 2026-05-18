@@ -521,7 +521,7 @@ def test_sensitivity_failure_routes_from_weak_normalized_direction():
 
 
 def test_tau_dominated_sensitivity_fail_demotes_to_warning():
-    from causal_ssm_agent.flows.stages.stage4.assembly import (
+    from nof1_causal_lab.flows.stages.stage4.assembly import (
         _collect_sensitivity_warning_messages,
         blocking_sensitivity_fails,
     )
@@ -557,7 +557,7 @@ def test_tau_dominated_sensitivity_fail_demotes_to_warning():
 
 
 def test_mixed_tau_drift_sensitivity_fail_still_blocks():
-    from causal_ssm_agent.flows.stages.stage4.assembly import blocking_sensitivity_fails
+    from nof1_causal_lab.flows.stages.stage4.assembly import blocking_sensitivity_fails
 
     mixed_direction = {
         "index": 1,

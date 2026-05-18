@@ -10,29 +10,29 @@ import jax.random as random
 import numpy as np
 from jax import lax, vmap
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.constants import MIN_DT
-from causal_ssm_agent.models.ssm.covariance_utils import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.constants import MIN_DT
+from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stable_cholesky,
 )
-from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
-from causal_ssm_agent.models.ssm.inference.targets.kernels import (
+from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
+from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_composite_observation_kernel,
     build_observation_kernel,
     build_transition_kernel,
     compile_transition_semantics,
 )
-from causal_ssm_agent.models.ssm.inference.targets.observation_dispatch import (
+from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import (
     PredictiveObservationSampler,
     build_predictive_observation_sampler,
 )
-from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
     resolve_manifest_families_and_links,
 )
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     ObservationOperator,
     compile_observation_operator,
 )
@@ -40,7 +40,7 @@ from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations impor
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 logger = get_prefect_logger(__name__)
 

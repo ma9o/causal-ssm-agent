@@ -29,12 +29,12 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
-from causal_ssm_agent.models.ssm.covariance_utils import (
+from nof1_causal_lab.models.ssm.covariance_utils import (
     inflate_missing_variance,
     symmetrize_with_jitter,
 )
-from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
-from causal_ssm_agent.models.ssm.inference.targets.rao_blackwell import (
+from nof1_causal_lab.models.ssm.inference.targets.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
+from nof1_causal_lab.models.ssm.inference.targets.rao_blackwell import (
     _kalman_predict,
     _kalman_update_gaussian,
     _linearized_update,
@@ -42,7 +42,7 @@ from causal_ssm_agent.models.ssm.inference.targets.rao_blackwell import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.inference.targets.kernels import (
+    from nof1_causal_lab.models.ssm.inference.targets.kernels import (
         ObservationKernel,
         TransitionKernel,
     )
@@ -304,7 +304,7 @@ def make_block_rb_callbacks(
         if quadrature == "unscented":
             sigma_pts_g, sigma_wts = _unscented_sigma_points(state.g_pred_mean, state.g_pred_cov)
         else:
-            from causal_ssm_agent.models.ssm.inference.targets.rao_blackwell import (
+            from nof1_causal_lab.models.ssm.inference.targets.rao_blackwell import (
                 _multivariate_gauss_hermite,
             )
 

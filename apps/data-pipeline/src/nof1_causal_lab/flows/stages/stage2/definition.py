@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import os
 
-from causal_ssm_agent.flows.stage_runtime import PipelineContext, StageDefinition
-from causal_ssm_agent.flows.stages.stage2.contracts import Stage2Contract
+from nof1_causal_lab.flows.stage_runtime import PipelineContext, StageDefinition
+from nof1_causal_lab.flows.stages.stage2.contracts import Stage2Contract
 
 
 def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     return {
         "question": ctx.question,
@@ -25,7 +25,7 @@ def _bind_stage2(ctx: PipelineContext, states: dict) -> dict:
 
 
 def build_stage2_definition() -> StageDefinition:
-    from causal_ssm_agent.flows import dag
+    from nof1_causal_lab.flows import dag
 
     return StageDefinition(
         stage_id="stage-2",

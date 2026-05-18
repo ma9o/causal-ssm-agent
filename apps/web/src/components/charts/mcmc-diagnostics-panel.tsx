@@ -16,7 +16,7 @@ import type {
   MCMCParamDiagnostic,
   RankHistogram as RankHistogramData,
   TraceData,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle } from "lucide-react";
 import { useMemo } from "react";

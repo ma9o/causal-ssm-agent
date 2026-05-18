@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { Construct, Indicator } from "@causal-ssm/api-types";
+import type { Construct, Indicator } from "@nof1-causal-lab/api-types";
 import { Handle, type NodeProps, Position } from "@xyflow/react";
 import { Star } from "lucide-react";
 import { memo } from "react";

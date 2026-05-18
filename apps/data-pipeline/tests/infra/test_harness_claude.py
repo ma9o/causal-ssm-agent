@@ -4,7 +4,7 @@ Unit tests stub out ``asyncio.create_subprocess_exec`` with a fake
 process that emits canned stream-json, so the session can be exercised
 without a real ``claude`` binary. An integration test that actually
 spawns Claude is skipped unless the binary is on PATH AND the
-``CAUSAL_SSM_RUN_CLAUDE_HARNESS`` env var is set.
+``NOF1_CAUSAL_LAB_RUN_CLAUDE_HARNESS`` env var is set.
 """
 
 import json
@@ -13,7 +13,7 @@ import shutil
 
 import pytest
 
-from causal_ssm_agent.utils.harness.claude import (
+from nof1_causal_lab.utils.harness.claude import (
     ClaudeHarnessSession,
     build_claude_argv,
     build_mcp_config_json,
@@ -358,13 +358,13 @@ class TestSessionTurn:
 
 
 _CLAUDE_AVAILABLE = shutil.which("claude") is not None and bool(
-    os.getenv("CAUSAL_SSM_RUN_CLAUDE_HARNESS")
+    os.getenv("NOF1_CAUSAL_LAB_RUN_CLAUDE_HARNESS")
 )
 
 
 @pytest.mark.skipif(
     not _CLAUDE_AVAILABLE,
-    reason="claude binary or CAUSAL_SSM_RUN_CLAUDE_HARNESS not set",
+    reason="claude binary or NOF1_CAUSAL_LAB_RUN_CLAUDE_HARNESS not set",
 )
 class TestClaudeIntegration:
     def test_round_trip(self):

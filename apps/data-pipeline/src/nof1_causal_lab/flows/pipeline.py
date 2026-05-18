@@ -15,11 +15,11 @@ from typing import Any
 from prefect import flow
 from prefect.artifacts import create_markdown_artifact
 
-from causal_ssm_agent.flows import get_current_flow_run_id, get_prefect_logger
-from causal_ssm_agent.flows.runtime_events import emit_stage_progress_event
-from causal_ssm_agent.utils import storage
-from causal_ssm_agent.utils.byok_secret_store import consume_byok_secret_ref
-from causal_ssm_agent.utils.data import DATA_URI, runs_dir
+from nof1_causal_lab.flows import get_current_flow_run_id, get_prefect_logger
+from nof1_causal_lab.flows.runtime_events import emit_stage_progress_event
+from nof1_causal_lab.utils import storage
+from nof1_causal_lab.utils.byok_secret_store import consume_byok_secret_ref
+from nof1_causal_lab.utils.data import DATA_URI, runs_dir
 
 logger = get_prefect_logger(__name__)
 
@@ -171,7 +171,7 @@ async def causal_inference_pipeline(
         openrouter_secret_ref: Single-use encrypted OpenRouter key ref created by
             the web server for production web-launched runs.
     """
-    from causal_ssm_agent.flows.stage_registry import OpenRouterAccessMode
+    from nof1_causal_lab.flows.stage_registry import OpenRouterAccessMode
 
     resolved_openrouter_access_mode: OpenRouterAccessMode | None
     if openrouter_access_mode == "user":
@@ -207,14 +207,14 @@ async def causal_inference_pipeline(
     elif resolved_openrouter_access_mode is not None:
         raise ValueError("openrouter_secret_ref is required for 'user' and 'anonymous' modes")
 
-    from causal_ssm_agent.flows.stage_registry import (
+    from nof1_causal_lab.flows.stage_registry import (
         PipelineContext,
         get_execution_order,
         get_stage_registry,
         load_stage_state,
         run_stage_flow,
     )
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     config = get_config()
     registry = get_stage_registry()

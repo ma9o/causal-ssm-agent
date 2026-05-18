@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from .prompting import templates
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
 
 
 @dataclass
@@ -38,8 +38,8 @@ async def run_stage1a(
     the proposal prompt, then sends the review follow-up in the same
     session so the model keeps its prior reasoning context.
     """
-    from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
-    from causal_ssm_agent.flows.stages.stage1a.grounding import stage1a_grounding
+    from nof1_causal_lab.flows.stage_tool_factory import make_stage_tool
+    from nof1_causal_lab.flows.stages.stage1a.grounding import stage1a_grounding
 
     tool, capture = make_stage_tool(
         name="validate_latent_model",

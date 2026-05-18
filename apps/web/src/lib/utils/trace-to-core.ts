@@ -5,7 +5,7 @@
  * as LLM context. Unlike traceToUIMessages (display-only), this preserves
  * all information: tool calls, reasoning, system messages.
  */
-import type { LLMTrace, TraceMessage } from "@causal-ssm/api-types";
+import type { LLMTrace, TraceMessage } from "@nof1-causal-lab/api-types";
 import type { AssistantModelMessage, ModelMessage, UIMessage } from "ai";
 import { normalizeTraceToolCall } from "./trace-tool-call";
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { type StageId, STAGES } from "@causal-ssm/api-types";
+import { type StageId, STAGES } from "@nof1-causal-lab/api-types";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { resolveStageLogScopeFlowRunIds } from "../../../../_shared";
 

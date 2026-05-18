@@ -5,7 +5,7 @@ import type {
   ParameterSpec,
   PriorDistributionFamily,
   PriorProposal,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 
 /** Convert snake_case to spaced text for use inside LaTeX \text{}. */
 export function textify(name: string): string {

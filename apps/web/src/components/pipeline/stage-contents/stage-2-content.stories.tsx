@@ -1,6 +1,6 @@
 import type { Meta } from "@storybook/nextjs-vite";
-import { STAGES } from "@causal-ssm/api-types";
-import type { Stage2Data } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
+import type { Stage2Data } from "@nof1-causal-lab/api-types";
 import {
   createCompletedStageStory,
   createStageStatusStory,

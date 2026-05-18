@@ -7,7 +7,7 @@ logic the pipeline uses.
 Run alongside Prefect::
 
     cd apps/data-pipeline
-    uv run uvicorn causal_ssm_agent.tool_server:app --port 8100
+    uv run uvicorn nof1_causal_lab.tool_server:app --port 8100
 """
 
 from __future__ import annotations
@@ -24,22 +24,22 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
-from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
-from causal_ssm_agent.flows.run_store import load_parquet, load_pickle
-from causal_ssm_agent.flows.stage_contracts import STAGE_TOOLS
-from causal_ssm_agent.flows.stage_persistence import persist_web_patch
-from causal_ssm_agent.flows.stages.stage1a.grounding import stage1a_grounding
-from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
-from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.flows.run_store import load_parquet, load_pickle
+from nof1_causal_lab.flows.stage_contracts import STAGE_TOOLS
+from nof1_causal_lab.flows.stage_persistence import persist_web_patch
+from nof1_causal_lab.flows.stages.stage1a.grounding import stage1a_grounding
+from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
+from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_search_literature as _execute_search_literature,
 )
-from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_submit_model_spec as _execute_submit_model_spec,
 )
-from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_submit_priors as _execute_submit_priors,
 )
-from causal_ssm_agent.models.ssm.counterfactual import (
+from nof1_causal_lab.models.ssm.counterfactual import (
     approximate_abducted_state,
     forward_simulate_action_from_state,
     forward_simulate_latent_action_from_state,
@@ -47,16 +47,16 @@ from causal_ssm_agent.models.ssm.counterfactual import (
     summarize_draws,
     treatment_effect_for_action,
 )
-from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
-from causal_ssm_agent.utils import storage
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
+from nof1_causal_lab.utils import storage
+from nof1_causal_lab.utils.causal_spec import (
     get_estimable_treatments,
     get_estimation_constructs,
     get_estimation_state_order,
     get_indicators,
     get_outcome_name,
 )
-from causal_ssm_agent.utils.data import runs_dir
+from nof1_causal_lab.utils.data import runs_dir
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     stage5b = _load_stage_result(workspace_id, "stage-5b")
     stage6 = _load_optional_stage_result(workspace_id, "stage-6")
 
-    from causal_ssm_agent.flows.run_store import (
+    from nof1_causal_lab.flows.run_store import (
         STAGE2_MODEL_PARQUET_FILENAMES,
         STAGE5B_PICKLE_FILENAMES,
         find_run_artifact,
@@ -542,8 +542,8 @@ def _execute_validate_measurement_model(
 
 
 def _execute_validate_extractions(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, str]:
-    from causal_ssm_agent.utils.llm import _validate_json_and_format
-    from causal_ssm_agent.workers.schemas import validate_worker_output
+    from nof1_causal_lab.utils.llm import _validate_json_and_format
+    from nof1_causal_lab.workers.schemas import validate_worker_output
 
     schema = ctx.get("_extraction_schema", {})
     result = _validate_json_and_format(

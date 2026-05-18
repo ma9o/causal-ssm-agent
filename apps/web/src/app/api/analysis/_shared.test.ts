@@ -55,7 +55,7 @@ function stageEvent(
     typeof outcomeOrRuntime === "string" ? { outcome: outcomeOrRuntime } : (outcomeOrRuntime ?? {});
   return {
     occurred,
-    event: `causal-ssm.pipeline-stage.${status}`,
+    event: `nof1-causal-lab.pipeline-stage.${status}`,
     payload: {
       stage_id: stageId,
       status,
@@ -69,7 +69,7 @@ function stageEvent(
 function stage4GraphEvent(occurred: string) {
   return {
     occurred,
-    event: "causal-ssm.stage4.graph",
+    event: "nof1-causal-lab.stage4.graph",
     payload: {
       type: "graph",
       nodes: [
@@ -89,7 +89,7 @@ function stage4GraphEvent(occurred: string) {
 function stage4SnapshotEvent(occurred: string, phase: string) {
   return {
     occurred,
-    event: "causal-ssm.stage4.snapshot",
+    event: "nof1-causal-lab.stage4.snapshot",
     payload: {
       type: "snapshot",
       cursor: { kind: "block", block_id: "indicator:sleep_quality" },
@@ -104,7 +104,7 @@ function stage4SnapshotEvent(occurred: string, phase: string) {
 function stage4TransitionEvent(occurred: string) {
   return {
     occurred,
-    event: "causal-ssm.stage4.block_transition",
+    event: "nof1-causal-lab.stage4.block_transition",
     payload: {
       type: "block_transition",
       block_id: "indicator:sleep_quality",
@@ -121,7 +121,7 @@ function stage4TransitionEvent(occurred: string) {
 function stage2PlanEvent(occurred: string) {
   return {
     occurred,
-    event: "causal-ssm.stage2.plan",
+    event: "nof1-causal-lab.stage2.plan",
     payload: {
       type: "plan",
       total_workers: 3,
@@ -139,7 +139,7 @@ function stage2WorkerEvent(
 ) {
   return {
     occurred,
-    event: "causal-ssm.stage2.worker",
+    event: "nof1-causal-lab.stage2.worker",
     payload: {
       type: "worker",
       worker_id: workerId,
@@ -156,7 +156,7 @@ function stage2SnapshotEvent(
 ) {
   return {
     occurred,
-    event: "causal-ssm.stage2.snapshot",
+    event: "nof1-causal-lab.stage2.snapshot",
     payload: {
       type: "snapshot",
       total_workers: 3,
@@ -992,7 +992,7 @@ describe("buildStage4ReplayState", () => {
         const prefix = ((body.filter as { event?: { prefix?: string[] } } | undefined)?.event
           ?.prefix ?? [])[0];
         const rootFlowRunId = getEventRootFlowRunId(body);
-        expect(prefix).toBe("causal-ssm.stage4.");
+        expect(prefix).toBe("nof1-causal-lab.stage4.");
         expect(rootFlowRunId).toBe("run-abc");
         return jsonResponse(
           eventPage([
@@ -1049,7 +1049,7 @@ describe("buildStage2ReplayState", () => {
         const prefix = ((body.filter as { event?: { prefix?: string[] } } | undefined)?.event
           ?.prefix ?? [])[0];
         const rootFlowRunId = getEventRootFlowRunId(body);
-        expect(prefix).toBe("causal-ssm.stage2.");
+        expect(prefix).toBe("nof1-causal-lab.stage2.");
         expect(rootFlowRunId).toBe("run-stage2");
         return jsonResponse(
           eventPage([

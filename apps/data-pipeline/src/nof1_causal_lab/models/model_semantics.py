@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
 
 _ADDITIVE_LOCATION_POINT_OPERATORS = frozenset({"first", "last"})
 _ADDITIVE_LOCATION_INTERVAL_OPERATORS = frozenset({"mean"})

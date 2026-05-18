@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage4bData } from "@causal-ssm/api-types";
+import type { Stage4bData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { InferenceStructureCard } from "./inference-structure-card";
 import fixture from "../../../../../../data/GOLDEN/run/stage-4b.json";

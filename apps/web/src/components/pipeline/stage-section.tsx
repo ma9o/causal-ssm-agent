@@ -2,7 +2,7 @@
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { StageOutcome } from "@causal-ssm/api-types";
+import type { StageOutcome } from "@nof1-causal-lab/api-types";
 import { AlertCircle, ChevronDown, RotateCcw } from "lucide-react";
 import { motion } from "motion/react";
 import prettyMs from "pretty-ms";

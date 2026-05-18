@@ -15,7 +15,7 @@ from blackjax.adaptation.step_size import (
     dual_averaging_adaptation,
 )
 
-from causal_ssm_agent.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
+from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
     _latent_mh_step_eq8_runtime,
     _latent_mh_step_eq10_11_runtime,
 )

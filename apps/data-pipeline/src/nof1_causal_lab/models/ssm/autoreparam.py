@@ -14,7 +14,7 @@ reparameterizations for each sample site based on distribution type:
 
 Usage::
 
-    from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
+    from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 
     # As a decorator (learnable centering for SVI):
     reparam_model = AutoReparam()(model_fn)

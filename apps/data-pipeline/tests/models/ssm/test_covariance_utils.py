@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 
 
 def test_symmetrize_with_jitter_handles_batched_covariances():

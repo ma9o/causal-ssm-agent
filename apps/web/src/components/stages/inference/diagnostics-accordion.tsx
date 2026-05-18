@@ -28,7 +28,7 @@ import type {
   PowerScalingResult,
   SMCDiagnostics,
   SVIDiagnostics,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import { PowerScalingTable } from "./power-scaling-table";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 

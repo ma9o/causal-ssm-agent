@@ -7,15 +7,15 @@ from typing import TYPE_CHECKING, Any
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.config import get_config
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils.config import get_config
 
 from .llm_stage_runtime import LLMStageRuntimeConfig, attach_trace, open_llm_stage
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from causal_ssm_agent.utils.config import LLMDefaults, StageLLMConfig
+    from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
 
 LLMOrchestrator = "Callable[..., Awaitable[Any]]"
 StageLLMGetter = "Callable[[], StageLLMConfig]"

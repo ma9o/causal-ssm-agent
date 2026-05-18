@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-from causal_ssm_agent.flows.stages.stage4.agentic.prompts.accepted_state import (
+from nof1_causal_lab.flows.stages.stage4.agentic.prompts.accepted_state import (
     build_accepted_state_sections,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.prompts.megaprompt import (
+from nof1_causal_lab.flows.stages.stage4.agentic.prompts.megaprompt import (
     build_stage4_megaprompt_system_prompt,
     build_stage4_megaprompt_user_prompt,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.prompts.model_proposal import (
+from nof1_causal_lab.flows.stages.stage4.agentic.prompts.model_proposal import (
     build_stage4_system_prompt,
     build_stage4_user_prompt,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.prompts.shared_fragments import (
+from nof1_causal_lab.flows.stages.stage4.agentic.prompts.shared_fragments import (
     CONTINUOUS_TIME_DYNAMICS_SECTION,
     INITIAL_STATE_SCALE_DISCIPLINE_SECTION,
     LAGGED_EFFECT_INTERVAL_GUIDANCE_SECTION,
@@ -22,7 +22,7 @@ from causal_ssm_agent.flows.stages.stage4.agentic.prompts.shared_fragments impor
     PRIOR_DISTRIBUTION_TYPES_SECTION,
     PRIOR_SOURCE_GUIDANCE,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4ScopeSnapshot,
     default_stage4_validation_packet,
 )

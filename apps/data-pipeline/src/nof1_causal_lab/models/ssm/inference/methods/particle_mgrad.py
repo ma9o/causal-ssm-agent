@@ -12,9 +12,9 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from causal_ssm_agent.models.ssm.inference.methods.map import _build_map_laplace_bundle
-from causal_ssm_agent.models.ssm.inference.shared import _filter_public_samples
-from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
+from nof1_causal_lab.models.ssm.inference.methods.map import _build_map_laplace_bundle
+from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
+from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
     AuxGibbsMCMCResult,
     build_auxiliary_kalman_bundle,
     build_mala_parameter_kernel,
@@ -24,8 +24,8 @@ from causal_ssm_agent.models.ssm.inference.trajectory_mcmc import (
     initialize_particle_smoother_latents,
     run_aux_gibbs,
 )
-from causal_ssm_agent.models.ssm.inference.types import InferenceResult
-from causal_ssm_agent.models.ssm.inference.utils import extract_constrained_samples
+from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
 
 logger = logging.getLogger(__name__)
 

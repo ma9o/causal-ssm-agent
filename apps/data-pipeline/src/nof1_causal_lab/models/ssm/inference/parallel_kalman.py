@@ -16,7 +16,7 @@ from cuthbert.filtering import filter as cuthbert_filter
 from cuthbert.gaussian.kalman import build_filter as build_cuthbert_kalman_filter
 from cuthbertlib.kalman import sampling as cuthbert_sampling
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 
 _DEFAULT_JITTER = 1e-6
 

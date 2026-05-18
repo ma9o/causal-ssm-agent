@@ -5,7 +5,7 @@ import {
   type ParameterSpec,
   type PriorProposal,
   type Stage4Data,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 
 export function collectStage4Priors(data: Stage4Data): PriorProposal[] {
   return data.resolved_priors.filter((prior): prior is PriorProposal => prior != null);

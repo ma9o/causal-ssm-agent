@@ -1,7 +1,7 @@
 "use client";
 
 import { useElkLayout } from "@/lib/hooks/use-elk-layout";
-import type { CausalEdge, Construct, Indicator } from "@causal-ssm/api-types";
+import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
 import {
   Background,
   BackgroundVariant,

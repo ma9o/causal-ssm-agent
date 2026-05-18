@@ -15,23 +15,23 @@ import httpx
 import numpy as np
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.openrouter_client import acquire_limiter
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils.openrouter_client import acquire_limiter
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.artifacts.model_spec import ParameterSpec
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
-from causal_ssm_agent.distributions import PriorDistributionFamily
-from causal_ssm_agent.utils.llm import (
+    from nof1_causal_lab.artifacts.model_spec import ParameterSpec
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
+from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.utils.llm import (
     make_validation_tool,
 )
-from causal_ssm_agent.workers.prompts.prior_research import (
+from nof1_causal_lab.workers.prompts.prior_research import (
     SYSTEM as PRIOR_RESEARCH_SYSTEM,
 )
-from causal_ssm_agent.workers.prompts.prior_research import (
+from nof1_causal_lab.workers.prompts.prior_research import (
     generate_paraphrased_prompts,
 )
-from causal_ssm_agent.workers.schemas_prior import (
+from nof1_causal_lab.workers.schemas_prior import (
     AggregatedPrior,
     PriorProposal,
     RawPriorSample,
@@ -77,7 +77,7 @@ async def search_parameter_literature(
     Returns:
         List of source dicts with title, url, snippet, effect_size
     """
-    from causal_ssm_agent.utils.config import get_secret_async
+    from nof1_causal_lab.utils.config import get_secret_async
 
     api_key = await get_secret_async("EXA_API_KEY")
     if not api_key:
@@ -345,7 +345,7 @@ def get_default_prior(parameter: ParameterSpec) -> PriorProposal:
     Returns:
         Default PriorProposal based on parameter role/constraint
     """
-    from causal_ssm_agent.artifacts.model_spec import ParameterConstraint, ParameterRole
+    from nof1_causal_lab.artifacts.model_spec import ParameterConstraint, ParameterRole
 
     # AR priors live on the baseline DT persistence scale in (0, 1).
     if parameter.role == ParameterRole.AR_COEFFICIENT:

@@ -10,13 +10,13 @@ from .types import ResolvedRepairScope, Stage4FailureLocalization, Stage4ScopeCa
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
         Stage4FrontierBlock,
         Stage4Plan,
         Stage4RepairTopology,
     )
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
-    from causal_ssm_agent.workers.schemas_prior import (
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.workers.schemas_prior import (
         PriorPathologyCertificate,
         PriorRepairScope,
         PriorValidationResult,

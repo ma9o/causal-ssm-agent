@@ -23,9 +23,9 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import Stage4Plan
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
-    from causal_ssm_agent.workers.schemas_prior import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import Stage4Plan
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.workers.schemas_prior import (
         PriorPathologyCertificate,
         PriorRepairScope,
         PriorValidationResult,
@@ -37,7 +37,7 @@ def build_stage4_failure_evidence(
     validation: AssemblyValidation,
 ) -> Stage4FailureEvidence:
     """Build the normalized evidence surface for a failed PP validation."""
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     failed_diagnostics = tuple(
         result for result in validation.prior_predictive_diagnostics if not result.is_valid
@@ -115,7 +115,7 @@ def _authored_parameter_names_from_tokens(
     context: str,
 ) -> tuple[str, ...]:
     """Resolve diagnostic or validator tokens onto authored Stage 4 parameters."""
-    from causal_ssm_agent.models.prior_predictive import resolve_scale_target_parameters
+    from nof1_causal_lab.models.prior_predictive import resolve_scale_target_parameters
 
     indicator_to_construct = {
         indicator_name: construct_name

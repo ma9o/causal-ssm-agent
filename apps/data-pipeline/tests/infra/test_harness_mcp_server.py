@@ -12,11 +12,11 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamablehttp_client
 
-from causal_ssm_agent.utils.harness.mcp_server import (
+from nof1_causal_lab.utils.harness.mcp_server import (
     _find_free_port,
     serve_tools_http,
 )
-from causal_ssm_agent.utils.openrouter_client import Tool
+from nof1_causal_lab.utils.openrouter_client import Tool
 from tests.helpers import run_async as _run
 
 

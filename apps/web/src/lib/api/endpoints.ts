@@ -1,4 +1,4 @@
-import type { StageId } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 
 export async function uploadFile(

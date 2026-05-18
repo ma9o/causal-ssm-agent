@@ -4,7 +4,7 @@ import type {
   Stage3Data,
   Stage4PersistedData,
   StageId,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import { deriveStage0Data } from "@/lib/stage0-data";
 import { deriveStage2Data } from "@/lib/stage2-data";
 import { deriveStage4Data } from "@/lib/stage4-derived-data";

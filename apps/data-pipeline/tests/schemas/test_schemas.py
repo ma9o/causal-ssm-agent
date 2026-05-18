@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from causal_ssm_agent.artifacts import (
+from nof1_causal_lab.artifacts import (
     CausalEdge,
     CausalSpec,
     ComputedRule,
@@ -22,10 +22,10 @@ from causal_ssm_agent.artifacts import (
     check_semantic_collisions,
     parse_duration_to_hours,
 )
-from causal_ssm_agent.artifacts import (
+from nof1_causal_lab.artifacts import (
     Indicator as IndicatorModel,
 )
-from causal_ssm_agent.utils.observation_semantics import (
+from nof1_causal_lab.utils.observation_semantics import (
     AnchorPolicy,
     SummaryOperator,
     SupportKind,

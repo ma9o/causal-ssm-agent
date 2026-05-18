@@ -1,4 +1,4 @@
-"""Configuration loader for the causal agent pipeline."""
+"""Configuration loader for the N-of-1 Causal Lab pipeline."""
 
 from __future__ import annotations
 

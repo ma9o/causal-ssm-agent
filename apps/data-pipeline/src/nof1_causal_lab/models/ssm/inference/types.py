@@ -9,22 +9,22 @@ import jax.numpy as jnp
 import jax.random as random
 from numpyro.infer import Predictive
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
-from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_rank_histograms as _build_rank_histograms,
 )
-from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_trace_data as _build_trace_data,
 )
-from causal_ssm_agent.models.ssm.inference.diagnostics_viz import (
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     compute_posterior_marginals,
     compute_posterior_pairs,
     format_summary,
 )
-from causal_ssm_agent.models.ssm.inference.shared import _filter_public_samples
+from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 
 logger = get_prefect_logger(__name__)
 

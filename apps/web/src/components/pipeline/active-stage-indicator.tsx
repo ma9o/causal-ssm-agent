@@ -1,5 +1,5 @@
-import { STAGES } from "@causal-ssm/api-types";
-import type { StageId } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { Loader2 } from "lucide-react";
 import { motion } from "motion/react";
 

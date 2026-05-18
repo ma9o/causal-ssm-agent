@@ -1,4 +1,4 @@
-import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
+import type { LikelihoodSpec, ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import {
   concreteTransitionLines,

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-const GITHUB_BASE = "https://github.com/ma9o/causal-ssm-agent/blob/master";
+const GITHUB_BASE = "https://github.com/ma9o/nof1-causal-lab/blob/master";
 
 /**
  * Detect file paths ending in .md (e.g. `docs/reference/model-spec/parameters-likelihoods-and-priors.md`)

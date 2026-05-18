@@ -2,7 +2,7 @@
 
 Defines the observation-model vocabulary for [`LikelihoodSpec`](../../pipeline/04-model-specification-priors.md#likelihoodspec) entries in a [`ModelSpec`](../../pipeline/04-model-specification-priors.md#modelspec).
 
-> The sections below are generated from `causal_ssm_agent.distributions`.
+> The sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
 
 ## Dtype-to-Distribution Mapping

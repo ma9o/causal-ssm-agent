@@ -1,7 +1,7 @@
 import { InferenceStructureCard } from "@/components/stages/parametric-id/inference-structure-card";
 import { MapGeometryPanel } from "@/components/stages/parametric-id/map-geometry-panel";
 import { SensitivityAnalysisTable } from "@/components/stages/parametric-id/sensitivity-analysis-table";
-import type { Stage4bData } from "@causal-ssm/api-types";
+import type { Stage4bData } from "@nof1-causal-lab/api-types";
 
 export default function Stage4bContent({ data }: { data: Stage4bData }) {
   const pid = data.parametric_id;

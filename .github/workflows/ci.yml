@@ -78,8 +78,8 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun run lint --filter='!@causal-ssm/data-pipeline'
-      - run: bun run test --filter='!@causal-ssm/data-pipeline'
+      - run: bun run lint --filter='!@nof1-causal-lab/data-pipeline'
+      - run: bun run test --filter='!@nof1-causal-lab/data-pipeline'
       - run: bun run build
       - run: bun run type-check
 
@@ -133,7 +133,7 @@ jobs:
       - name: Cache JAX compilations
         uses: actions/cache@v4
         with:
-          path: ~/.cache/causal-ssm-agent/jax
+          path: ~/.cache/nof1-causal-lab/jax
           key: jax-${{ runner.os }}-${{ hashFiles('apps/data-pipeline/uv.lock') }}-${{ hashFiles('apps/data-pipeline/src/**/*.py') }}
           restore-keys: |
             jax-${{ runner.os }}-${{ hashFiles('apps/data-pipeline/uv.lock') }}-

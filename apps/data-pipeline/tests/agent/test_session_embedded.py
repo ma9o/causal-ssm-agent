@@ -8,8 +8,8 @@ import json
 
 import pytest
 
-from causal_ssm_agent.utils.agent_session_embedded import open_embedded_session
-from causal_ssm_agent.utils.llm import LLMTrace
+from nof1_causal_lab.utils.agent_session_embedded import open_embedded_session
+from nof1_causal_lab.utils.llm import LLMTrace
 from tests.agent._support import make_worker_tool as _make_worker_tool
 from tests.agent._support import valid_worker_output_json as _valid_worker_output_json
 from tests.helpers import run_async as _run
@@ -65,7 +65,7 @@ class TestEmbeddedSessionTurns:
                 {"output_json": _valid_worker_output_json()},
             )
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         async def scenario():
             async with open_embedded_session(
@@ -106,7 +106,7 @@ class TestEmbeddedSessionTurns:
                 return _text_response("reviewed")
             raise AssertionError("unexpected call")
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         async def scenario():
             async with open_embedded_session(
@@ -142,7 +142,7 @@ class TestEmbeddedSessionTurns:
         async def fake_call_model(*_args, **_kwargs):
             return next(responses)
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         async def scenario():
             async with open_embedded_session(
@@ -194,7 +194,7 @@ class TestEmbeddedSessionTurns:
                 {"output_json": _valid_worker_output_json()},
             )
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         async def scenario():
             async with open_embedded_session(
@@ -228,7 +228,7 @@ class TestEmbeddedSessionTurns:
                 {"output_json": _valid_worker_output_json()},
             )
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         async def scenario():
             async with open_embedded_session(
@@ -246,7 +246,7 @@ class TestEmbeddedSessionTurns:
         assert capture["output"]["extractions"][0]["indicator"] == "sleep_hours"
 
     def test_max_tool_turns_exceeded_raises(self, monkeypatch):
-        from causal_ssm_agent.utils.openrouter_client import Tool
+        from nof1_causal_lab.utils.openrouter_client import Tool
 
         call_count = 0
 
@@ -270,7 +270,7 @@ class TestEmbeddedSessionTurns:
             call_count += 1
             return _tool_call_response(f"call_{call_count}", "retry_tool", {})
 
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         async def scenario():
             async with open_embedded_session(

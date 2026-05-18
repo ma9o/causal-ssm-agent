@@ -26,20 +26,20 @@ import jax.random as random
 import numpyro.distributions as dist
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
-from causal_ssm_agent.models.ssm.covariance_utils import (
+from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stabilize_covariance_for_cholesky,
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMSpec
-    from causal_ssm_agent.models.ssm.priors import SSMPriors
-    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.priors import SSMPriors
+    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 
 # ---------------------------------------------------------------------------
@@ -282,8 +282,8 @@ def build_site_registry(
     No model tracing needed.  The returned list is sorted by site name
     (matching JAX pytree dict-key ordering used by ``ravel_pytree``).
     """
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
-    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
     if structure_runtime is None:
         structure_runtime = SSMStructureRuntime(spec)
@@ -550,7 +550,7 @@ def build_site_registry(
                 )
             )
 
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
+    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
 
     if has_student_t_diffusion(spec):
         sites.append(_site("proc_df", (), SupportClass.POSITIVE, "likelihood", SiteKind.PROC_DF))
@@ -773,7 +773,7 @@ def assemble_deterministics_from_registry(
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Assemble deterministic matrices using registry metadata as authority."""
-    from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
     n_draws = _resolve_num_draws(samples, n_draws)
     if structure_runtime is None:
@@ -924,7 +924,7 @@ def assemble_extra_params_from_registry(
     registry: list[SiteDescriptor],
 ) -> dict[str, jnp.ndarray]:
     """Assemble likelihood extra parameters using registry metadata as authority."""
-    from causal_ssm_agent.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
+    from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 
     return assemble_sampled_extra_params(
         spec,
@@ -1255,7 +1255,7 @@ def build_prior_runtime_state(
     The returned dict has fixed structure per topology — only leaf values
     change when priors change.
     """
-    from causal_ssm_agent.models.ssm.priors import SSMPriors as SSMPriorsClass
+    from nof1_causal_lab.models.ssm.priors import SSMPriors as SSMPriorsClass
 
     if priors is None:
         priors = SSMPriorsClass()

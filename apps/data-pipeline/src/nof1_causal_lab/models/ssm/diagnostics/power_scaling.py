@@ -11,14 +11,14 @@ import jax.random as random
 import numpy as np
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discover_sites
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
 
 from .results import PowerScalingResult
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.inference.types import InferenceResult
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = get_prefect_logger(__name__)
 

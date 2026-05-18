@@ -1,6 +1,6 @@
 import { DataTable } from "@/components/ui/data-table";
 import { ExploreDataframeButton } from "@/components/ui/explore-dataframe-button";
-import type { Stage2Data } from "@causal-ssm/api-types";
+import type { Stage2Data } from "@nof1-causal-lab/api-types";
 import { CheckCircle2, XCircle } from "lucide-react";
 
 export default function Stage2Content({

@@ -230,7 +230,7 @@ def validate_causal_spec(
     known_inputs: list[dict] | None = None,
 ) -> tuple[CausalSpec | None, list[str]]:
     """Validate both latent and measurement models together."""
-    from causal_ssm_agent.utils.estimation_projection import build_estimation_projection
+    from nof1_causal_lab.utils.estimation_projection import build_estimation_projection
 
     from .latent_model import validate_latent_model
 

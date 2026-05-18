@@ -3,7 +3,7 @@
 Covers: validate_latent_model, validate_measurement_model, validate_causal_spec.
 """
 
-from causal_ssm_agent.artifacts import (
+from nof1_causal_lab.artifacts import (
     LatentModel,
     validate_causal_spec,
     validate_latent_model,

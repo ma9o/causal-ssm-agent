@@ -3,7 +3,7 @@
 import { CausalDag } from "@/components/dag/causal-dag";
 import { ConstructDetailPanel } from "@/components/stages/latent-model/construct-detail-panel";
 import { EdgeList } from "@/components/stages/latent-model/edge-list";
-import type { Stage1aData } from "@causal-ssm/api-types";
+import type { Stage1aData } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
 
 export default function Stage1aContent({ data }: { data: Stage1aData }) {

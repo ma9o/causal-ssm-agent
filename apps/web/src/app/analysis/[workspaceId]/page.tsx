@@ -8,7 +8,7 @@ import {
 import { hasStoppedStage } from "@/lib/hooks/pipeline-progress";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { use, useEffect, useMemo } from "react";
@@ -57,22 +57,22 @@ export default function AnalysisPage({
 
   useEffect(() => {
     if (!progress) {
-      document.title = "Starting... | causal-ssm-agent";
+      document.title = "Starting... | nof1-causal-lab";
       return;
     }
 
     if (progress.isComplete) {
-      document.title = "Analysis Complete | causal-ssm-agent";
+      document.title = "Analysis Complete | nof1-causal-lab";
       return;
     }
 
     if (hasStoppedStage(progress)) {
-      document.title = "Analysis Stopped | causal-ssm-agent";
+      document.title = "Analysis Stopped | nof1-causal-lab";
       return;
     }
 
     if (progress.isFailed) {
-      document.title = "Failed | causal-ssm-agent";
+      document.title = "Failed | nof1-causal-lab";
       return;
     }
 
@@ -82,8 +82,8 @@ export default function AnalysisPage({
       : null;
 
     document.title = current
-      ? `(${completed}/${STAGES.length}) ${current} | causal-ssm-agent`
-      : `(${completed}/${STAGES.length}) Running | causal-ssm-agent`;
+      ? `(${completed}/${STAGES.length}) ${current} | nof1-causal-lab`
+      : `(${completed}/${STAGES.length}) Running | nof1-causal-lab`;
   }, [progress]);
 
   const mainContent = manifestError ? (
