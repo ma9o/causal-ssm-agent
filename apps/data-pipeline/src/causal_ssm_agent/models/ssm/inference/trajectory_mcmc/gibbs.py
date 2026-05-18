@@ -1,8 +1,9 @@
-"""Blocked Gibbs driver: eq-8 auxiliary-Kalman latent + MALA parameter updates."""
+"""Blocked Gibbs driver: latent trajectory updates + parameter kernels."""
 
 from __future__ import annotations
 
 import functools
+import time
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
@@ -17,7 +18,6 @@ from blackjax.adaptation.step_size import (
 from causal_ssm_agent.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
     _latent_mh_step_eq8_runtime,
     _latent_mh_step_eq10_11_runtime,
-    _parameter_mala_step_runtime,
 )
 
 
@@ -191,6 +191,19 @@ _PER_T_FIELD_NAMES = (
     "log_alpha",
 )
 
+_LATENT_FIELD_NAMES = (
+    "latent_move_rms",
+    "latent_move_max_abs",
+    "latent_move_rms_per_t",
+)
+
+_PARAMETER_FIELD_NAMES = (
+    "accept_prob",
+    "diverging",
+    "num_steps",
+    "energy",
+)
+
 
 @dataclass(frozen=True)
 class _AuxGibbsRunnerStatic:
@@ -210,6 +223,8 @@ class _AuxGibbsRunnerStatic:
     latent_step_fn: Any
     latent_proposal_family: str
     latent_parallel_filter: bool
+    parameter_kernel_name: str
+    parameter_step_fn: Any
     parameter_preconditioned: bool
     latent_target_accept: float
     param_target_accept: float
@@ -392,27 +407,10 @@ def _run_batched_aux_gibbs_latent_step(
 def _run_batched_aux_gibbs_parameter_step(
     states: AuxGibbsState,
     step_keys: jnp.ndarray,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    precond_chol: jnp.ndarray | None,
-    preconditioner_mat: jnp.ndarray | None,
     *,
     static: _AuxGibbsRunnerStatic,
 ) -> tuple[AuxGibbsState, dict[str, jnp.ndarray]]:
-    return jax.vmap(
-        lambda state, key: _parameter_mala_step_runtime(
-            state,
-            key,
-            observations,
-            times,
-            dim=static.dim,
-            runtime_complete_log_posterior_fn=static.complete_log_posterior_runtime_fn,
-            runtime_latent_context_fn=static.latent_context_runtime_fn,
-            log_prior_unc_fn=static.log_prior_unc_fn,
-            precond_chol=precond_chol,
-            preconditioner_mat=preconditioner_mat,
-        )
-    )(states, step_keys)
+    return jax.vmap(static.parameter_step_fn)(states, step_keys)
 
 
 def _apply_dual_averaging_update_batched(
@@ -556,6 +554,14 @@ def run_aux_gibbs(
     if latent_kernel_name == "particle_mgrad" and latent_kernel.get("step_fn") is None:
         raise ValueError("particle_mgrad latent kernel requires a 'step_fn'.")
     latent_target_accept = latent_kernel["target_accept"]
+    parameter_kernel_name = parameter_kernel.get("name", "mala")
+    if parameter_kernel_name not in {"mala", "nuts"}:
+        raise ValueError(
+            f"Unsupported parameter kernel name {parameter_kernel_name!r}; "
+            "expected 'mala' or 'nuts'."
+        )
+    if parameter_kernel.get("step_fn") is None:
+        raise ValueError(f"{parameter_kernel_name} parameter kernel requires a 'step_fn'.")
     param_target_accept = parameter_kernel["target_accept"]
     initial_latent_scale_value = latent_kernel.get(
         "initial_scale_value",
@@ -633,6 +639,8 @@ def run_aux_gibbs(
         latent_step_fn=latent_kernel.get("step_fn"),
         latent_proposal_family=latent_kernel.get("proposal_family", "eq8"),
         latent_parallel_filter=bool(latent_kernel.get("parallel", True)),
+        parameter_kernel_name=parameter_kernel_name,
+        parameter_step_fn=parameter_kernel["step_fn"],
         parameter_preconditioned=bool(parameter_kernel.get("preconditioned", False)),
         latent_target_accept=latent_target_accept,
         param_target_accept=param_target_accept,
@@ -698,8 +706,6 @@ def run_aux_gibbs(
     step_keys = random.split(chain_key, total_steps * num_chains).reshape(
         total_steps, num_chains, 2
     )
-    precond_chol = parameter_kernel.get("preconditioner_chol")
-    preconditioner_mat = parameter_kernel.get("preconditioner_mat")
     need_public_latent = compute_latent_posterior_summary or retain_latent_paths
     if use_dual_averaging:
         _, da_latent_update, _ = dual_averaging_adaptation(target=float(latent_target_accept))
@@ -716,10 +722,27 @@ def run_aux_gibbs(
 
     position_history: list[jnp.ndarray] = []
     latent_accept_history: list[jnp.ndarray] = []
+    latent_extra_history: dict[str, list[jnp.ndarray]] = {
+        name: [] for name in _LATENT_FIELD_NAMES
+    }
     param_accept_history: list[jnp.ndarray] = []
     complete_lp_history: list[jnp.ndarray] = []
     latent_paths_history: list[jnp.ndarray] = []
     per_t_history: dict[str, list[jnp.ndarray]] = {name: [] for name in _PER_T_FIELD_NAMES}
+    parameter_extra_history: dict[str, list[jnp.ndarray]] = {
+        name: [] for name in _PARAMETER_FIELD_NAMES
+    }
+
+    progress_started = time.monotonic()
+    progress_every = max(1, min(250, total_steps // 20))
+    print(
+        "aux_gibbs progress: "
+        f"chains={num_chains} warmup={num_warmup} samples={num_samples} "
+        f"total_steps={total_steps} adaptation={adaptation_scheme} "
+        f"latent_kernel={latent_kernel_name} parameter_kernel={parameter_kernel_name} "
+        f"progress_every={progress_every}",
+        flush=True,
+    )
 
     for step_idx in range(total_steps):
         latent_param_keys = jax.vmap(lambda key: random.split(key, 2))(step_keys[step_idx])
@@ -734,12 +757,34 @@ def run_aux_gibbs(
         states, param_info = _run_batched_aux_gibbs_parameter_step(
             states,
             param_keys,
-            observations,
-            times,
-            precond_chol,
-            preconditioner_mat,
             static=static,
         )
+        if (
+            step_idx == 0
+            or (step_idx + 1) % progress_every == 0
+            or step_idx + 1 == num_warmup
+            or step_idx + 1 == total_steps
+        ):
+            latent_accept_now = jax.device_get(jnp.mean(latent_info["accepted"]))
+            param_accept_now = jax.device_get(jnp.mean(param_info["accepted"]))
+            latent_delta_now = jax.device_get(states.latent_delta)
+            param_step_now = jax.device_get(states.param_step_size)
+            complete_lp_now = jax.device_get(states.complete_log_posterior)
+            phase = "warmup" if step_idx < num_warmup else "sample"
+            elapsed = time.monotonic() - progress_started
+            print(
+                "aux_gibbs progress: "
+                f"step={step_idx + 1}/{total_steps} phase={phase} elapsed={elapsed:.1f}s "
+                f"latent_accept_now={float(latent_accept_now):.3f} "
+                f"param_accept_now={float(param_accept_now):.3f} "
+                f"latent_delta_range=[{float(jnp.min(latent_delta_now)):.3g},"
+                f"{float(jnp.max(latent_delta_now)):.3g}] "
+                f"param_step_range=[{float(jnp.min(param_step_now)):.3g},"
+                f"{float(jnp.max(param_step_now)):.3g}] "
+                f"complete_lp_range=[{float(jnp.min(complete_lp_now)):.3g},"
+                f"{float(jnp.max(complete_lp_now)):.3g}]",
+                flush=True,
+            )
 
         if step_idx < num_warmup:
             if use_dual_averaging:
@@ -763,8 +808,14 @@ def run_aux_gibbs(
 
         position_history.append(states.position)
         latent_accept_history.append(latent_info["accepted"])
+        for latent_field_name in _LATENT_FIELD_NAMES:
+            if latent_field_name in latent_info:
+                latent_extra_history[latent_field_name].append(latent_info[latent_field_name])
         param_accept_history.append(param_info["accepted"])
         complete_lp_history.append(states.complete_log_posterior)
+        for param_field_name in _PARAMETER_FIELD_NAMES:
+            if param_field_name in param_info:
+                parameter_extra_history[param_field_name].append(param_info[param_field_name])
 
         if need_public_latent:
             public_latent = _project_public_latent_batch(
@@ -804,6 +855,14 @@ def run_aux_gibbs(
             dtype=chain_init_positions.dtype,
         ),
     }
+    for latent_field_name in _LATENT_FIELD_NAMES:
+        if latent_extra_history[latent_field_name]:
+            chain_extra_fields[latent_field_name] = _stack_sample_history(
+                latent_extra_history[latent_field_name],
+                num_chains=num_chains,
+                trailing_shape=tuple(latent_extra_history[latent_field_name][0].shape[1:]),
+                dtype=latent_extra_history[latent_field_name][0].dtype,
+            )
     for per_t_name in _PER_T_FIELD_NAMES:
         if per_t_history[per_t_name]:
             chain_extra_fields[per_t_name] = _stack_sample_history(
@@ -811,6 +870,14 @@ def run_aux_gibbs(
                 num_chains=num_chains,
                 trailing_shape=tuple(per_t_history[per_t_name][0].shape[1:]),
                 dtype=per_t_history[per_t_name][0].dtype,
+            )
+    for param_field_name in _PARAMETER_FIELD_NAMES:
+        if parameter_extra_history[param_field_name]:
+            chain_extra_fields[param_field_name] = _stack_sample_history(
+                parameter_extra_history[param_field_name],
+                num_chains=num_chains,
+                trailing_shape=(),
+                dtype=parameter_extra_history[param_field_name][0].dtype,
             )
 
     complete_log_posterior_history = _stack_sample_history(

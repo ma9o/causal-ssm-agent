@@ -86,14 +86,36 @@ stage6_commentary:
 
 # --- Inference (unchanged) -------------------------------------------------
 inference:
-  method: aux_gibbs
-  num_warmup: 1000
+  method: particle_mgrad
+  num_warmup: 4000
   num_samples: 1000
   num_chains: 4
   seed: 0
+  compute_loo_diagnostics: false
   svi:
     num_steps: 5000
     learning_rate: 0.01
     guide_type: mvn
   map:
-    n_ieks_iters: 3
+    n_ieks_iters: 6
+  particle_mgrad:
+    latent_delta: 0.2
+    latent_delta_min:
+    latent_delta_max:
+    latent_target_accept: 0.5
+    n_particles: 64
+    adaptation_scheme: simple
+    init_method: pathfinder
+    latent_init_method: ieks
+    latent_init_num_particles: 64
+    latent_init_guidance: bffg
+    pathfinder_num_elbo_samples: 20
+    pathfinder_maxiter: 20
+    n_pathfinder_starts: 8
+    pathfinder_init_scale: 0.1
+  aux_gibbs:
+    parameter_kernel:
+      kernel: mala
+      step_size: 0.05
+      target_accept: 0.57
+      max_num_doublings: 10

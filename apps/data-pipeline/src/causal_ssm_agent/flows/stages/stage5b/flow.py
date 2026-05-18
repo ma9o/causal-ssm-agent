@@ -110,18 +110,37 @@ def run_stage5b(
     """Fit the model, run diagnostics, and shape the Stage 5b payload."""
     from causal_ssm_agent.utils.config import get_config
 
-    from .fit import fit_model, run_power_scaling, run_ppc
-
     config = get_config()
     data_for_model = load_parquet(stage2["_data_for_model_path"])
     sampler_config = config.inference.to_sampler_config(method_override=inference_method)
 
+    return run_stage5b_with_data(
+        compiled_ssm=stage4.get("_compiled_ssm"),
+        data_for_model=data_for_model,
+        sampler_config=sampler_config,
+        workspace_id=workspace_id,
+        compute_loo_diagnostics=config.inference.compute_loo_diagnostics,
+    )
+
+
+def run_stage5b_with_data(
+    *,
+    compiled_ssm: dict | None,
+    data_for_model: Any,
+    sampler_config: dict[str, Any],
+    workspace_id: str,
+    compute_loo_diagnostics: bool,
+) -> dict[str, Any]:
+    """Fit the model from materialized Stage 4/2 artifacts and shape Stage 5b."""
+    from .fit import fit_model, run_power_scaling, run_ppc
+
     fitted = fit_model(
-        stage4.get("_compiled_ssm"),
+        compiled_ssm,
         data_for_model,
         sampler_config=sampler_config,
         workspace_id=workspace_id,
         wait_for_compile_cache=True,
+        compute_loo_diagnostics=compute_loo_diagnostics,
     )
     fitted_result = unwrap_task_result(fitted)
     inf_method = fitted_result.get("inference_type") or sampler_config.get("method", "unknown")

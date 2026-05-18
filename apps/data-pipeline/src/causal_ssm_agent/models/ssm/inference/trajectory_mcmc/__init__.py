@@ -4,6 +4,7 @@ from causal_ssm_agent.models.ssm.inference.trajectory_mcmc.auxiliary_kalman impo
     build_auxiliary_kalman_bundle,
     build_auxiliary_kalman_latent_kernel,
     build_mala_parameter_kernel,
+    build_nuts_parameter_kernel,
 )
 from causal_ssm_agent.models.ssm.inference.trajectory_mcmc.gibbs import (
     AuxGibbsMCMCResult,
@@ -23,6 +24,7 @@ __all__ = [
     "build_auxiliary_kalman_bundle",
     "build_auxiliary_kalman_latent_kernel",
     "build_mala_parameter_kernel",
+    "build_nuts_parameter_kernel",
     "initialize_ieks_latents",
     "initialize_particle_smoother_latents",
     "run_aux_gibbs",

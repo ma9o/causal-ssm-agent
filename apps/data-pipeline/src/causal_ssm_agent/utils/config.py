@@ -198,7 +198,7 @@ class SVIConfig:
 class MAPConfig:
     """MAP/Laplace inference settings."""
 
-    n_ieks_iters: int = 5
+    n_ieks_iters: int = 6
 
 
 @dataclass(frozen=True)
@@ -218,6 +218,7 @@ class AuxGibbsParameterKernelConfig:
     kernel: str = "mala"
     step_size: float = 0.05
     target_accept: float = 0.57
+    max_num_doublings: int = 10
 
 
 @dataclass(frozen=True)
@@ -235,17 +236,39 @@ class AuxGibbsConfig:
 
 
 @dataclass(frozen=True)
+class ParticleMGradConfig:
+    """Particle-mGRAD inference settings."""
+
+    latent_delta: float = 0.2
+    latent_delta_min: float | None = None
+    latent_delta_max: float | None = None
+    latent_target_accept: float = 0.5
+    n_particles: int = 64
+    adaptation_scheme: Literal["simple", "dual_averaging"] = "simple"
+    init_method: Literal["random", "pathfinder"] = "pathfinder"
+    latent_init_method: Literal["predictive", "particle_smoother", "ieks"] = "ieks"
+    latent_init_num_particles: int = 64
+    latent_init_guidance: Literal["bootstrap", "bffg"] = "bffg"
+    pathfinder_num_elbo_samples: int = 20
+    pathfinder_maxiter: int = 20
+    n_pathfinder_starts: int = 4
+    pathfinder_init_scale: float | None = 0.1
+
+
+@dataclass(frozen=True)
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
-    method: Literal["svi", "map", "aux_gibbs", "particle_mgrad"] = "aux_gibbs"
-    num_warmup: int = 1000
+    method: Literal["svi", "map", "aux_gibbs", "particle_mgrad"] = "particle_mgrad"
+    num_warmup: int = 4000
     num_samples: int = 1000
     num_chains: int = 4
     seed: int = 0
+    compute_loo_diagnostics: bool = True
     svi: SVIConfig = field(default_factory=SVIConfig)
     map: MAPConfig = field(default_factory=MAPConfig)
     aux_gibbs: AuxGibbsConfig = field(default_factory=AuxGibbsConfig)
+    particle_mgrad: ParticleMGradConfig = field(default_factory=ParticleMGradConfig)
 
     def to_sampler_config(self, method_override: str | None = None) -> dict:
         """Build a flat sampler config dict for SSMModelBuilder."""
@@ -269,6 +292,9 @@ class InferenceConfig:
                     "parameter_kernel": self.aux_gibbs.parameter_kernel.kernel,
                     "param_step_size": self.aux_gibbs.parameter_kernel.step_size,
                     "param_target_accept": self.aux_gibbs.parameter_kernel.target_accept,
+                    "param_max_num_doublings": (
+                        self.aux_gibbs.parameter_kernel.max_num_doublings
+                    ),
                     "adaptation_rate": self.aux_gibbs.adaptation_rate,
                     "init_scale": self.aux_gibbs.init_scale,
                     "retain_latent_paths": self.aux_gibbs.retain_latent_paths,
@@ -280,7 +306,24 @@ class InferenceConfig:
         elif method == "map":
             config.update(dataclasses.asdict(self.map))
         elif method == "particle_mgrad":
-            config["n_ieks_iters"] = self.map.n_ieks_iters
+            config.update(
+                {
+                    "n_ieks_iters": self.map.n_ieks_iters,
+                    **dataclasses.asdict(self.particle_mgrad),
+                    "parameter_kernel": self.aux_gibbs.parameter_kernel.kernel,
+                    "param_step_size": self.aux_gibbs.parameter_kernel.step_size,
+                    "param_target_accept": self.aux_gibbs.parameter_kernel.target_accept,
+                    "param_max_num_doublings": (
+                        self.aux_gibbs.parameter_kernel.max_num_doublings
+                    ),
+                    "adaptation_rate": self.aux_gibbs.adaptation_rate,
+                    "init_scale": self.aux_gibbs.init_scale,
+                    "retain_latent_paths": self.aux_gibbs.retain_latent_paths,
+                    "compute_latent_posterior_summary": (
+                        self.aux_gibbs.compute_latent_posterior_summary
+                    ),
+                }
+            )
         else:
             raise ValueError(
                 "Unsupported inference method "
@@ -374,12 +417,18 @@ def _parse_inference(raw: dict) -> InferenceConfig:
     svi_raw = inference_raw.pop("svi", {}) or {}
     map_raw = inference_raw.pop("map", {}) or {}
     aux_gibbs_raw = dict(inference_raw.pop("aux_gibbs", {}) or {})
+    particle_mgrad_raw = inference_raw.pop("particle_mgrad", {}) or {}
     aux_gibbs_latent_raw = aux_gibbs_raw.pop("latent_kernel", {}) or {}
     aux_gibbs_parameter_raw = aux_gibbs_raw.pop("parameter_kernel", {}) or {}
     return InferenceConfig(
         **inference_raw,
         svi=SVIConfig(**svi_raw) if svi_raw else SVIConfig(),
         map=MAPConfig(**map_raw) if map_raw else MAPConfig(),
+        particle_mgrad=(
+            ParticleMGradConfig(**particle_mgrad_raw)
+            if particle_mgrad_raw
+            else ParticleMGradConfig()
+        ),
         aux_gibbs=AuxGibbsConfig(
             **aux_gibbs_raw,
             latent_kernel=(

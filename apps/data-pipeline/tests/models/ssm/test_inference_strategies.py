@@ -3169,6 +3169,12 @@ def test_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_schem
     assert result.diagnostics["particle_mgrad"]["parallel_time"] is True
     assert final_latent_delta.shape == (2, 3)
     assert np.all(np.isfinite(final_latent_delta))
+    extra_fields = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
+    assert "latent_move_rms" in extra_fields
+    assert "latent_move_max_abs" in extra_fields
+    assert "latent_move_rms_per_t" in extra_fields
+    assert np.all(np.isfinite(np.asarray(extra_fields["latent_move_rms"])))
+    assert np.all(np.asarray(extra_fields["latent_move_rms"]) >= 0.0)
     per_chain_spread = final_latent_delta.max(axis=1) - final_latent_delta.min(axis=1)
     assert per_chain_spread.max() > 1e-3, (
         f"per-t δ_t did not diverge across t under {adaptation_scheme!r} adaptation; "
@@ -3230,6 +3236,43 @@ def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
     assert final_latent_delta.shape == (2, 3)
     assert np.all(final_latent_delta >= latent_delta_min)
     assert np.all(final_latent_delta <= latent_delta_max)
+
+
+def test_particle_mgrad_accepts_nuts_parameter_kernel():
+    spec = _make_aux_gibbs_smoke_spec()
+    model = SSMModel(spec, likelihood="kalman")
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="particle_mgrad",
+        num_warmup=2,
+        num_samples=3,
+        num_chains=1,
+        seed=41,
+        latent_delta=0.2,
+        latent_target_accept=0.5,
+        n_particles=5,
+        parameter_kernel="nuts",
+        param_step_size=0.02,
+        param_target_accept=0.8,
+        param_max_num_doublings=2,
+        init_method="random",
+        latent_init_method="predictive",
+        compute_latent_posterior_summary=False,
+    )
+
+    diag = result.diagnostics["particle_mgrad"]
+    assert diag["parameter_kernel"] == "nuts"
+    extra = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
+    assert "accept_prob" in extra
+    assert "diverging" in extra
+    assert "num_steps" in extra
+    assert "energy" in extra
+    assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
 def test_particle_mgrad_accepts_particle_smoother_latent_init():

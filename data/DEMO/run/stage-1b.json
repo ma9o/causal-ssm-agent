@@ -200,42 +200,6 @@
           "anchor_policy": "support_end"
         },
         {
-          "name": "journal_word_count",
-          "construct_name": "affective_state",
-          "how_to_measure": "Sum of words across Day One journal entries within the support window. Depressed periods are characterized by shorter, more telegraphic entries (Pennebaker linguistic markers); recovery periods produce longer, reflective entries.",
-          "construct_polarity": "positive",
-          "measurement_dtype": "continuous",
-          "aggregation": "sum",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "journal_word_count"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "sum",
-          "anchor_policy": "support_end"
-        },
-        {
-          "name": "journal_entry_frequency",
-          "construct_name": "affective_state",
-          "how_to_measure": "Number of Day One journal entries created in the support window. Depressive episodes typically reduce journaling frequency; recovery and structured therapy periods often increase it.",
-          "construct_polarity": "positive",
-          "measurement_dtype": "count",
-          "aggregation": "sum",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "journal_entry_count"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "sum",
-          "anchor_policy": "support_end"
-        },
-        {
           "name": "late_night_message_count",
           "construct_name": "affective_state",
           "how_to_measure": "Count of iMessage messages sent or received between 23:00 and 03:00 local time across all threads, summed over the support window. Late-night messaging spikes in ruminative depressed states (especially in the patient's documented 'Dad' ritual thread).",
@@ -398,42 +362,6 @@
           "anchor_policy": "support_end"
         },
         {
-          "name": "walking_speed_mps",
-          "construct_name": "physical_activity",
-          "how_to_measure": "Average HKQuantityTypeIdentifierWalkingSpeed value in m/s over the support window. A psychomotor-retardation signature: walking pace slows in depressive episodes (the patient drops from 1.36 m/s baseline to 1.27 m/s at the Oct 2023 trough).",
-          "construct_polarity": "positive",
-          "measurement_dtype": "continuous",
-          "aggregation": "mean",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "walking_speed_mps"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "mean",
-          "anchor_policy": "support_end"
-        },
-        {
-          "name": "imessage_daily_volume",
-          "construct_name": "social_engagement",
-          "how_to_measure": "Sum of sent + received messages across all iMessage threads (excluding the 'Dad' ritual thread, which is one-way and indexes affective state rather than social engagement) in the support window.",
-          "construct_polarity": "positive",
-          "measurement_dtype": "count",
-          "aggregation": "sum",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "imessage_volume"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "computed",
-          "support_kind": "interval",
-          "summary_operator": "sum",
-          "anchor_policy": "support_end"
-        },
-        {
           "name": "pharmacy_fill_count",
           "construct_name": "prescription_event",
           "how_to_measure": "Count of escitalopram pharmacy fills in the support window from the CVS DSAR records. Captures prescribing/dispensing events that drive subsequent exposure while remaining partly symptom-responsive in the causal model.",
@@ -467,24 +395,6 @@
           "extraction_mode": "computed",
           "support_kind": "interval",
           "summary_operator": "mean",
-          "anchor_policy": "support_end"
-        },
-        {
-          "name": "medical_event_count",
-          "construct_name": "life_events_load",
-          "how_to_measure": "Count of external medical or family-health stressor events in the support window (for example Mom's diagnosis, surgery logistics, hospital visits, urgent family care). Exclude routine GP follow-ups, therapy appointments, pharmacy fills, and ordinary treatment-management visits because those are partly consequences of symptoms or medication management rather than exogenous life stressors.",
-          "construct_polarity": "positive",
-          "measurement_dtype": "count",
-          "aggregation": "sum",
-          "observation_window": null,
-          "ordinal_levels": null,
-          "source_columns": [
-            "calendar_events_text"
-          ],
-          "computed_rule": null,
-          "extraction_mode": "semantic",
-          "support_kind": "interval",
-          "summary_operator": "sum",
           "anchor_policy": "support_end"
         },
         {

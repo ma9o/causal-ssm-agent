@@ -1,4 +1,4 @@
-"""Auxiliary-Kalman latent MH proposal families and MALA parameter kernel.
+"""Auxiliary-Kalman latent MH proposal families and parameter kernels.
 
 Implements two latent auxiliary-Kalman proposals from Corenflos & Sarkka
 (2025, Sec 2.1-2.2):
@@ -13,8 +13,8 @@ Implements two latent auxiliary-Kalman proposals from Corenflos & Sarkka
   construction and requires separate forward and reverse proposal filters
   because each direction is linearised at a different trajectory.
 
-The parameter block stays as a MALA update on the complete log-posterior at
-fixed ``x``. Both kernels report their own accept signal so the scale
+The parameter block updates the complete log-posterior at fixed ``x`` with
+either MALA or NUTS. Both kernels report their own accept signal so the scale
 adaptation in ``run_aux_gibbs`` can tune each scale against its own target.
 """
 
@@ -28,6 +28,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
+from blackjax.mcmc import nuts as blackjax_nuts
 from jax.flatten_util import ravel_pytree
 
 from causal_ssm_agent.artifacts import LinkFunction
@@ -1462,6 +1463,70 @@ def _parameter_mala_step_runtime(
     return next_state, {"accepted": accept.astype(state.position.dtype)}
 
 
+_PARAMETER_NUTS_KERNEL = blackjax_nuts.build_kernel()
+
+
+def _parameter_nuts_step_runtime(
+    state,
+    key: jnp.ndarray,
+    runtime_observations: jnp.ndarray,
+    runtime_times: jnp.ndarray,
+    *,
+    dim: int,
+    runtime_complete_log_posterior_fn,
+    runtime_latent_context_fn,
+    log_prior_unc_fn,
+    inverse_mass_matrix: jnp.ndarray,
+    max_num_doublings: int,
+):
+    if dim == 0:
+        return state, {
+            "accepted": jnp.asarray(1.0, dtype=state.position.dtype),
+            "accept_prob": jnp.asarray(1.0, dtype=state.position.dtype),
+            "diverging": jnp.asarray(0.0, dtype=state.position.dtype),
+            "num_steps": jnp.asarray(0.0, dtype=state.position.dtype),
+            "energy": jnp.asarray(0.0, dtype=state.position.dtype),
+        }
+
+    def logdensity_fn(position):
+        return runtime_complete_log_posterior_fn(
+            position,
+            state.latent_trajectory,
+            runtime_observations,
+            runtime_times,
+        )
+
+    hmc_state = blackjax_nuts.init(state.position, logdensity_fn)
+    proposal_state, info = _PARAMETER_NUTS_KERNEL(
+        key,
+        hmc_state,
+        logdensity_fn,
+        state.param_step_size,
+        inverse_mass_matrix,
+        max_num_doublings,
+    )
+    context_next = runtime_latent_context_fn(proposal_state.position, runtime_times)
+    log_prior_next = log_prior_unc_fn(proposal_state.position)
+    trajectory_log_prob_next = jnp.asarray(
+        proposal_state.logdensity - log_prior_next,
+        dtype=state.trajectory_log_prob.dtype,
+    )
+    next_state = state._replace(
+        position=proposal_state.position,
+        latent_context=context_next,
+        trajectory_log_prob=trajectory_log_prob_next,
+        complete_log_posterior=proposal_state.logdensity,
+    )
+    dtype = state.position.dtype
+    return next_state, {
+        "accepted": jnp.asarray(info.acceptance_rate, dtype=dtype),
+        "accept_prob": jnp.asarray(info.acceptance_rate, dtype=dtype),
+        "diverging": jnp.asarray(info.is_divergent, dtype=dtype),
+        "num_steps": jnp.asarray(info.num_integration_steps, dtype=dtype),
+        "energy": jnp.asarray(info.energy, dtype=dtype),
+    }
+
+
 def build_auxiliary_kalman_latent_kernel(
     bundle: dict[str, Any],
     *,
@@ -1886,4 +1951,78 @@ def build_mala_parameter_kernel(
         "preconditioned": precond_chol is not None,
         "preconditioner_chol": precond_chol,
         "preconditioner_mat": preconditioner_mat,
+    }
+
+
+def build_nuts_parameter_kernel(
+    bundle: dict[str, Any],
+    *,
+    step_size: float,
+    target_accept: float,
+    max_num_doublings: int = 10,
+    preconditioner_chol: jnp.ndarray | None = None,
+) -> dict[str, Any]:
+    """NUTS update on the complete log-posterior at fixed latent trajectory.
+
+    ``preconditioner_chol`` follows the same convention as MALA: a Cholesky
+    factor of an approximate posterior covariance. BlackJAX expects an inverse
+    mass matrix, which is the covariance-shaped object used for the dynamics.
+    """
+    if max_num_doublings < 1:
+        raise ValueError("max_num_doublings must be >= 1.")
+
+    if preconditioner_chol is not None:
+        precond_chol = jnp.asarray(preconditioner_chol)
+        if precond_chol.ndim != 2 or precond_chol.shape[0] != precond_chol.shape[1]:
+            raise ValueError(
+                f"preconditioner_chol must be square 2-D, got shape {precond_chol.shape}."
+            )
+        if precond_chol.shape[0] != int(bundle["dim"]):
+            raise ValueError(
+                "preconditioner_chol side must equal bundle['dim']; "
+                f"got {precond_chol.shape[0]} vs {bundle['dim']}."
+            )
+        inverse_mass_matrix = precond_chol @ precond_chol.T
+    else:
+        precond_chol = None
+        inverse_mass_matrix = jnp.ones((int(bundle["dim"]),), dtype=bundle["flat_example"].dtype)
+
+    runtime_complete_log_posterior_fn = bundle.get(
+        "complete_log_posterior_runtime_fn",
+        lambda z, latent_trajectory, _runtime_observations, _runtime_times: bundle[
+            "complete_log_posterior_fn"
+        ](z, latent_trajectory),
+    )
+    runtime_latent_context_fn = bundle.get(
+        "latent_context_runtime_fn",
+        lambda z, _runtime_times: bundle["latent_context_fn"](z),
+    )
+    runtime_observations = bundle["observations"]
+    runtime_times = bundle["times"]
+
+    def _parameter_nuts_step(state, key: jnp.ndarray):
+        next_state, info = _parameter_nuts_step_runtime(
+            state,
+            key,
+            runtime_observations,
+            runtime_times,
+            dim=int(bundle["dim"]),
+            runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
+            runtime_latent_context_fn=runtime_latent_context_fn,
+            log_prior_unc_fn=bundle["log_prior_unc_fn"],
+            inverse_mass_matrix=inverse_mass_matrix,
+            max_num_doublings=int(max_num_doublings),
+        )
+        return next_state, info
+
+    return {
+        "name": "nuts",
+        "scale_field": "param_step_size",
+        "initial_scale": step_size,
+        "target_accept": target_accept,
+        "step_fn": _parameter_nuts_step,
+        "preconditioned": precond_chol is not None,
+        "preconditioner_chol": precond_chol,
+        "inverse_mass_matrix": inverse_mass_matrix,
+        "max_num_doublings": int(max_num_doublings),
     }
