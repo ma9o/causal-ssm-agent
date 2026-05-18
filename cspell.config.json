@@ -50,10 +50,6 @@
       "pattern": "/\\\\[A-Za-z]+/g"
     },
     {
-      "name": "readme-generated-cloc",
-      "pattern": "/<!-- cloc:start -->[\\s\\S]*?<!-- cloc:end -->/g"
-    },
-    {
       "name": "markdown-fenced-code",
       "pattern": "/^```[\\s\\S]*?^```/gm"
     },
@@ -74,7 +70,6 @@
     "hyphenated-eponym",
     "inline-author-year-citation",
     "latex-command",
-    "readme-generated-cloc",
     "markdown-fenced-code",
     "markdown-inline-code",
     "markdown-link-target"

@@ -8,7 +8,6 @@
 | Bun | 1.2.23 (`package.json` `packageManager`) | `bun --version` |
 | Python | 3.12+ (`apps/data-pipeline/.python-version`) | `python3 --version` |
 | uv | Latest | `uv --version` |
-| Line counter | Latest | `cloc --version` |
 
 ## Setup
 

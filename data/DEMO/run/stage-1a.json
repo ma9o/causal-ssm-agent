@@ -207,14 +207,6 @@
       }
     ]
   },
-  "outcome_name": "affective_state",
-  "treatments": [
-    "serotonergic_exposure",
-    "sleep_quality",
-    "physical_activity",
-    "social_engagement",
-    "adherence"
-  ],
   "llm_trace": {
     "messages": [
       {

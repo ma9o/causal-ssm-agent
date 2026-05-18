@@ -1406,13 +1406,32 @@
           },
           "title": "Per Parameter",
           "type": "array"
+        },
+        "parameter_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parameter Names",
+          "type": "array"
+        },
+        "eigenvectors_normalized": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Eigenvectors Normalized",
+          "type": "array"
         }
       },
       "required": [
         "deficiency_count",
         "eigenvalues",
+        "eigenvectors_normalized",
         "negative_direction_count",
         "normalized_eigenvalues",
+        "parameter_names",
         "per_parameter",
         "positive_definite",
         "weak_directions"
@@ -1489,6 +1508,20 @@
           },
           "title": "Boundary Parameters",
           "type": "array"
+        },
+        "z_map_unconstrained": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Z Map Unconstrained",
+          "type": "array"
+        },
+        "prior_std_unconstrained": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Prior Std Unconstrained",
+          "type": "array"
         }
       },
       "required": [
@@ -1503,7 +1536,9 @@
         "n_successful_starts",
         "posterior_curvature",
         "prior_rescued_parameters",
-        "starts"
+        "prior_std_unconstrained",
+        "starts",
+        "z_map_unconstrained"
       ],
       "title": "MAPGeometryResult",
       "type": "object"
@@ -2853,6 +2888,23 @@
         "n_parameters": {
           "title": "N Parameters",
           "type": "integer"
+        },
+        "parameter_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Parameter Names",
+          "type": "array"
+        },
+        "normalized_right_singular_vectors": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "title": "Normalized Right Singular Vectors",
+          "type": "array"
         }
       },
       "required": [
@@ -2860,7 +2912,9 @@
         "n_draws",
         "n_observations",
         "n_parameters",
+        "normalized_right_singular_vectors",
         "normalized_singular_values",
+        "parameter_names",
         "per_parameter",
         "singular_values",
         "weak_directions"

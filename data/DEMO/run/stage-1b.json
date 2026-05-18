@@ -587,12 +587,6 @@
           "lagged": true
         },
         {
-          "cause": "social_engagement",
-          "effect": "affective_state",
-          "description": "Behavioral activation through social contact directly improves affect; reduced engagement deepens depressive cognition through anhedonia and rumination.",
-          "lagged": true
-        },
-        {
           "cause": "affective_state",
           "effect": "physical_activity",
           "description": "Low mood reduces motivation, energy, and goal-directed behavior. Psychomotor retardation lowers spontaneous movement; fatigue lowers exercise initiation.",
@@ -608,12 +602,6 @@
           "cause": "seasonal_load",
           "effect": "affective_state",
           "description": "Reduced photoperiod (winter at 40.7\u00b0N latitude) shifts mood baseline downward through the SAD spectrum: serotonin pathway downregulation and circadian phase delay.",
-          "lagged": true
-        },
-        {
-          "cause": "life_events_load",
-          "effect": "affective_state",
-          "description": "Acute psychosocial stressors (bereavement, relationship loss, family illness) directly worsen mood through HPA-axis activation and cognitive appraisal pathways.",
           "lagged": true
         }
       ],
@@ -641,18 +629,6 @@
           "construct": "adherence",
           "source_indicator": "proportion_days_covered",
           "scale": 1.0,
-          "missing_policy": "forward_fill"
-        },
-        {
-          "construct": "life_events_load",
-          "source_indicator": "medical_event_count",
-          "scale": 1.0,
-          "missing_policy": "zero"
-        },
-        {
-          "construct": "social_engagement",
-          "source_indicator": "imessage_daily_volume",
-          "scale": 8.0,
           "missing_policy": "forward_fill"
         }
       ]

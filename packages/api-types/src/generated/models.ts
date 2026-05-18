@@ -664,6 +664,8 @@ export interface SensitivityAnalysisResult {
   n_draws: number;
   n_observations: number;
   n_parameters: number;
+  parameter_names: string[];
+  normalized_right_singular_vectors: number[][];
 }
 /**
  * A direction in parameter space from the normalized sensitivity SVD.
@@ -714,6 +716,8 @@ export interface MAPGeometryResult {
   posterior_curvature: MAPCurvatureResult;
   prior_rescued_parameters: string[];
   boundary_parameters: string[];
+  z_map_unconstrained: number[];
+  prior_std_unconstrained: number[];
 }
 /**
  * One start in the multi-start MAP search.
@@ -747,6 +751,8 @@ export interface MAPCurvatureResult {
   normalized_condition_number?: number | null;
   weak_directions: CurvatureDirection[];
   per_parameter: CurvatureParameterEntry[];
+  parameter_names: string[];
+  eigenvectors_normalized: number[][];
 }
 /**
  * A weak Hessian eigen-direction within the MAP neighborhood.
