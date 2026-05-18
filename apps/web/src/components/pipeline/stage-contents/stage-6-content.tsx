@@ -8,7 +8,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
-import type { Stage6Data } from "@causal-ssm/api-types";
+import type { Stage6Data } from "@nof1-causal-lab/api-types";
 import { Bot } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";

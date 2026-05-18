@@ -1,5 +1,5 @@
-import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@causal-ssm/api-types";
-import type { LLMTrace } from "@causal-ssm/api-types";
+import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@nof1-causal-lab/api-types";
+import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
   addToolInputExamplesMiddleware,

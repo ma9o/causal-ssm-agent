@@ -4,7 +4,7 @@ import textwrap
 
 import pytest
 
-from causal_ssm_agent.utils.config import (
+from nof1_causal_lab.utils.config import (
     AuxGibbsConfig,
     AuxGibbsLatentKernelConfig,
     AuxGibbsParameterKernelConfig,
@@ -335,7 +335,7 @@ class TestLoadConfig:
 
         load_config.cache_clear()
 
-        import causal_ssm_agent.utils.config as config_mod
+        import nof1_causal_lab.utils.config as config_mod
 
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
@@ -363,7 +363,7 @@ class TestLoadConfig:
 
         load_config.cache_clear()
 
-        import causal_ssm_agent.utils.config as config_mod
+        import nof1_causal_lab.utils.config as config_mod
 
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
@@ -416,7 +416,7 @@ class TestLoadConfig:
 
         load_config.cache_clear()
 
-        import causal_ssm_agent.utils.config as config_mod
+        import nof1_causal_lab.utils.config as config_mod
 
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
@@ -556,7 +556,7 @@ class TestValidateConfig:
 
         load_config.cache_clear()
 
-        import causal_ssm_agent.utils.config as config_mod
+        import nof1_causal_lab.utils.config as config_mod
 
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
@@ -592,12 +592,12 @@ class TestGetSecret:
 
 class TestEnsureHarnessPrereqs:
     def _reset(self):
-        from causal_ssm_agent.utils.config import _reset_verified_harnesses_for_testing
+        from nof1_causal_lab.utils.config import _reset_verified_harnesses_for_testing
 
         _reset_verified_harnesses_for_testing()
 
     def test_missing_openrouter_key_raises_for_embedded(self, monkeypatch):
-        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+        from nof1_causal_lab.utils.config import ensure_harness_prereqs
 
         self._reset()
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
@@ -606,7 +606,7 @@ class TestEnsureHarnessPrereqs:
             ensure_harness_prereqs("none")
 
     def test_passes_when_openrouter_key_set(self, monkeypatch):
-        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+        from nof1_causal_lab.utils.config import ensure_harness_prereqs
 
         self._reset()
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -614,7 +614,7 @@ class TestEnsureHarnessPrereqs:
 
     def test_caches_successful_check(self, monkeypatch):
         """Once verified, removing the env var doesn't re-trigger the check."""
-        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+        from nof1_causal_lab.utils.config import ensure_harness_prereqs
 
         self._reset()
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -625,7 +625,7 @@ class TestEnsureHarnessPrereqs:
         ensure_harness_prereqs("none")
 
     def test_reset_clears_cache(self, monkeypatch):
-        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+        from nof1_causal_lab.utils.config import ensure_harness_prereqs
 
         self._reset()
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -637,7 +637,7 @@ class TestEnsureHarnessPrereqs:
             ensure_harness_prereqs("none")
 
     def test_unknown_harness_raises_value_error(self):
-        from causal_ssm_agent.utils.config import ensure_harness_prereqs
+        from nof1_causal_lab.utils.config import ensure_harness_prereqs
 
         self._reset()
         with pytest.raises(ValueError, match="Unknown harness"):

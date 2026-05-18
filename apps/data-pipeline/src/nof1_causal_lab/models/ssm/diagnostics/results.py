@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 import jax
 import jax.numpy as jnp
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 
 logger = get_prefect_logger(__name__)
 

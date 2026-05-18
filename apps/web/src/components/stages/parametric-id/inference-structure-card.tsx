@@ -1,5 +1,5 @@
 import { Card, CardContent } from "@/components/ui/card";
-import type { InferenceStructureResult } from "@causal-ssm/api-types";
+import type { InferenceStructureResult } from "@nof1-causal-lab/api-types";
 import type { ReactNode } from "react";
 
 interface InferenceStructureCardProps {

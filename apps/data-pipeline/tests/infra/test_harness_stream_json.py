@@ -11,7 +11,7 @@ import json
 
 import pytest
 
-from causal_ssm_agent.utils.harness.stream_json import (
+from nof1_causal_lab.utils.harness.stream_json import (
     apply_claude_event,
     apply_codex_event,
     finalize_codex_trace,
@@ -180,7 +180,7 @@ class TestClaudeParser:
         assert state.messages == []
 
     def test_apply_event_incrementally(self):
-        from causal_ssm_agent.utils.harness.stream_json import ClaudeStreamState
+        from nof1_causal_lab.utils.harness.stream_json import ClaudeStreamState
 
         state = ClaudeStreamState()
         for event in _claude_events_simple():
@@ -300,7 +300,7 @@ class TestCodexParser:
         assert trace.usage.input_tokens == 7
 
     def test_apply_event_incrementally(self):
-        from causal_ssm_agent.utils.harness.stream_json import CodexStreamState
+        from nof1_causal_lab.utils.harness.stream_json import CodexStreamState
 
         state = CodexStreamState()
         for event in _codex_events_simple():

@@ -1,7 +1,7 @@
 "use client";
 
 import { formatNumber } from "@/lib/utils/format";
-import type { SensitivityAnalysisResult } from "@causal-ssm/api-types";
+import type { SensitivityAnalysisResult } from "@nof1-causal-lab/api-types";
 import {
   CartesianGrid,
   ReferenceLine,

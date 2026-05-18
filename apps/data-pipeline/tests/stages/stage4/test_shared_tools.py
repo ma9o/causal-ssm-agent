@@ -6,59 +6,59 @@ import asyncio
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4GroundingResult,
     make_stage4_grounding_result,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_megaprompt import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_megaprompt import (
     Stage4MegapromptSessionAdapter,
     Stage4MegapromptState,
     _make_megaprompt_tools,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_navigation import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_navigation import (
     _set_block_cursor,
     make_stage4_runtime,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
     Stage4FrontierBlock,
     Stage4Plan,
     build_stage4_plan,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_prompt_context import Stage4Messages
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_prompt_context import Stage4Messages
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer import (
     build_model_spec_from_decisions,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_skeleton import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_session import Stage4Session
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_skeleton import (
     Stage4Skeleton,
     derive_deterministic_spec,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import (
     Stage4DraftModel,
     Stage4Runtime,
 )
-from causal_ssm_agent.flows.stages.stage4.assembly import (
+from nof1_causal_lab.flows.stages.stage4.assembly import (
     AssemblyValidation,
     format_validation_feedback,
 )
-from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     allowed_stage4_tool_names,
     build_stage4_session_tool_map,
 )
-from causal_ssm_agent.flows.stages.stage4.tools import (
+from nof1_causal_lab.flows.stages.stage4.tools import (
     make_search_tool,
     make_submit_indicator_choice_tool,
     make_submit_model_configuration_tool,
     make_submit_model_review_tool,
     make_submit_prior_block_tool,
 )
-from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 from tests.stages.stage4._support import _make_stage4_deps, make_causal_spec_dict
 
 if TYPE_CHECKING:
     import pytest
 
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_types import Stage4Deps
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_types import Stage4Deps
 
 
 def _make_shared_tool_spec() -> dict[str, Any]:
@@ -502,7 +502,7 @@ def test_search_tool_records_queries_and_caches_separately_in_local_and_global_m
         calls.append(query)
         return f"evidence::{query}"
 
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4.tools.search_literature", fake_search)
+    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage4.tools.search_literature", fake_search)
 
     local_runtime = make_stage4_runtime(plan)
     local_session = _make_local_session(plan=plan, runtime=local_runtime, deps=deps)
@@ -589,7 +589,7 @@ def test_elicit_prior_gmm_tool_matches_between_local_and_global_modes(
         return f"gmm::{kwargs['parameter_name']}::{kwargs['n_paraphrases']}"
 
     monkeypatch.setattr(
-        "causal_ssm_agent.workers.prior_research.run_gmm_elicitation",
+        "nof1_causal_lab.workers.prior_research.run_gmm_elicitation",
         fake_elicitation,
     )
 

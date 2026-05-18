@@ -21,7 +21,7 @@ import {
 import { getStageLogScopePolicy } from "@/lib/stage-observability";
 import { prefectFetch } from "@/lib/server/prefect-runs";
 import { isStorageNotFoundError, prefixExists, readData } from "@/lib/storage";
-import { STAGES, type StageId } from "@causal-ssm/api-types";
+import { STAGES, type StageId } from "@nof1-causal-lab/api-types";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
 
 const PREFECT_API = getPrefectApiUrl();

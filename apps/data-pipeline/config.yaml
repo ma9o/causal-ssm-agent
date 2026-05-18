@@ -1,4 +1,4 @@
-# Causal Agent Pipeline Configuration
+# N-of-1 Causal Lab Pipeline Configuration
 
 # --- LLM backend defaults --------------------------------------------------
 # Each stage below picks a harness via `llm.harness`; these defaults apply

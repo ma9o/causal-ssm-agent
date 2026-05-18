@@ -1,6 +1,6 @@
 "use client";
 
-import type { StageId } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useRef } from "react";
 
 export function useKeyboardNav(visibleStageIds: StageId[]) {

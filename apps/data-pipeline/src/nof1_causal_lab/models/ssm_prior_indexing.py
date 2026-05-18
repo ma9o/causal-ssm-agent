@@ -4,20 +4,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, ModelSpec, ParameterRole
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.models.ssm.parameter_names import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, ModelSpec, ParameterRole
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.ssm.parameter_names import (
     resolve_initial_state_correlation_bindings,
     split_compound_name,
 )
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMSpec
-    from causal_ssm_agent.models.ssm_compilation_common import PriorIndexMaps
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm_compilation_common import PriorIndexMaps
 
-logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
+logger = get_prefect_logger("nof1_causal_lab.models.ssm_compilation")
 
 
 class PriorIndexingError(AggregatedCompileError):

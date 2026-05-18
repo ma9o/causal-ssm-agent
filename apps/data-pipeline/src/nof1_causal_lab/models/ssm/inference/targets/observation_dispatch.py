@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 
 from .base import NUMERICAL_EPSILON
 from .emissions import build_composite_mean_sample_fn

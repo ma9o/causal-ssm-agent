@@ -16,9 +16,9 @@ from typing import Any
 import polars as pl
 from prefect import flow, task
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.run_store import load_parquet
-from causal_ssm_agent.flows.runtime_events import emit_nested_stage_running_event
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.run_store import load_parquet
+from nof1_causal_lab.flows.runtime_events import emit_nested_stage_running_event
 
 logger = get_prefect_logger(__name__)
 
@@ -139,17 +139,17 @@ def parametric_id_task(
     """
     import jax.numpy as jnp
 
-    from causal_ssm_agent.models.ssm.diagnostics import (
+    from nof1_causal_lab.models.ssm.diagnostics import (
         OutputSensitivityUnsupportedError,
         get_stage4b_sweep_context,
         map_geometry_analysis,
         output_sensitivity_analysis,
         profile_likelihood,
     )
-    from causal_ssm_agent.models.ssm.inference.structure import (
+    from nof1_causal_lab.models.ssm.inference.structure import (
         build_inference_structure_payload,
     )
-    from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
+    from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
 
     try:
         runtime = prepare_model_runtime(
@@ -203,7 +203,7 @@ def parametric_id_task(
         # composed likelihood path is actually available in the prepared runtime.
         kalman_indices = None
         try:
-            from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+            from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import (
                 kalman_block_profile_indices,
             )
 

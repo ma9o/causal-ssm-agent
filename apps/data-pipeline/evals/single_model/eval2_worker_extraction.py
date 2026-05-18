@@ -31,9 +31,9 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
-from causal_ssm_agent.workers.core import WorkerResult, run_worker_extraction
-from causal_ssm_agent.workers.prompts.extraction import SYSTEM
-from causal_ssm_agent.workers.schemas import _check_dtype_match, _get_indicator_info
+from nof1_causal_lab.workers.core import WorkerResult, run_worker_extraction
+from nof1_causal_lab.workers.prompts.extraction import SYSTEM
+from nof1_causal_lab.workers.schemas import _check_dtype_match, _get_indicator_info
 
 _CONFIG = load_eval_config()
 MODELS = {m["id"]: m["alias"] for m in _CONFIG["worker_models"]}

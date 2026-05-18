@@ -6,7 +6,7 @@ from hmac import new as hmac_new
 import libsql
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from causal_ssm_agent.utils.byok_secret_store import consume_byok_secret_ref
+from nof1_causal_lab.utils.byok_secret_store import consume_byok_secret_ref
 
 
 def _encode_base64url(raw: bytes) -> str:

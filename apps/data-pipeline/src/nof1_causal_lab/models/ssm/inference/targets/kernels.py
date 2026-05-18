@@ -21,9 +21,9 @@ import jax.scipy.linalg as jla
 import jax.scipy.stats as jstats
 import numpy as np
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 
 from .emissions import (
     build_composite_mean_log_prob_fn,
@@ -39,10 +39,10 @@ logger = get_prefect_logger(__name__)
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         ObservationOperator,
     )
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 # =============================================================================
 # Kernel dataclasses
@@ -233,7 +233,7 @@ def _make_student_t_grad_hess(df: float) -> Callable:
 
 def _make_gaussian_grad_hess() -> Callable:
     """Build emission_grad_hess_fn for Gaussian (full R, exact analytical form)."""
-    from causal_ssm_agent.models.ssm.inference.targets.base import (
+    from nof1_causal_lab.models.ssm.inference.targets.base import (
         MISSING_DATA_LARGE_VAR,
     )
 
@@ -274,7 +274,7 @@ def build_observation_kernel(
             Gaussian/Student-t (used as EKF pseudo-covariance). Ignored
             for GLM families.
     """
-    from causal_ssm_agent.models.ssm.inference.targets.observation_families import FAMILY_REGISTRY
+    from nof1_causal_lab.models.ssm.inference.targets.observation_families import FAMILY_REGISTRY
 
     extra_params = extra_params or {}
     family_spec = FAMILY_REGISTRY.get(dist)
@@ -606,10 +606,10 @@ def compile_measurement_semantics(
     observation_support: ObservationSupportRuntime | None = None,
 ) -> MeasurementSemantics:
     """Compile observation kernels, mean-space likelihoods, and support semantics together."""
-    from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
         resolve_manifest_families_and_links,
     )
-    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         compile_observation_operator,
     )
 

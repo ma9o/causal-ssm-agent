@@ -11,9 +11,9 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows import dag, pipeline, stage_registry
-from causal_ssm_agent.flows import run_store as run_store_module
-from causal_ssm_agent.flows.stage_contracts import (
+from nof1_causal_lab.flows import dag, pipeline, stage_registry
+from nof1_causal_lab.flows import run_store as run_store_module
+from nof1_causal_lab.flows.stage_contracts import (
     Stage0Contract,
     Stage1aContract,
     Stage1bContract,
@@ -25,11 +25,11 @@ from causal_ssm_agent.flows.stage_contracts import (
     Stage5bContract,
     Stage6Contract,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import (
     Stage4DomainState,
     Stage4Runtime,
 )
-from causal_ssm_agent.utils import openrouter_client
+from nof1_causal_lab.utils import openrouter_client
 from tests.pipeline._support import noop_artifact as _noop_artifact
 from tests.pipeline._support import redirect_storage as _redirect_storage
 
@@ -118,7 +118,7 @@ def _write_public_result(tmp_path, workspace_id: str, stage_id: str, payload: di
 
 def _reset_stage_registry(monkeypatch):
     """Reset lazily-initialized stage registry so monkeypatched dag functions are picked up."""
-    from causal_ssm_agent.flows import stage_registry
+    from nof1_causal_lab.flows import stage_registry
 
     monkeypatch.setattr(stage_registry, "_registry", None)
     monkeypatch.setattr(stage_registry, "_execution_order", None)
@@ -190,7 +190,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
 
     # Stub out persistence so finalize_stage doesn't touch the filesystem
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stage_persistence.persist_contract",
+        "nof1_causal_lab.flows.stage_persistence.persist_contract",
         lambda _stage_id, contract, _workspace_id: calls.append(
             ("persist_web_result", _stage_id, contract.model_dump(mode="json"), _workspace_id)
         ),
@@ -209,7 +209,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     monkeypatch.setattr(dag, "stage5b", stage5b)
     monkeypatch.setattr(dag, "stage6", stage6)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stage_persistence.persist_web_result", persist_web_result
+        "nof1_causal_lab.flows.stage_persistence.persist_web_result", persist_web_result
     )
     _reset_stage_registry(monkeypatch)
 
@@ -250,11 +250,11 @@ def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
             "root_run_id": root_run_id,
         }
 
-    fake_modal_runners = _FakeModalRunnersModule("causal_ssm_agent.flows.modal_runners")
+    fake_modal_runners = _FakeModalRunnersModule("nof1_causal_lab.flows.modal_runners")
     fake_modal_runners.modal_stage4_runner = fake_stage4_runner
     fake_modal_runners.modal_stage5b_runner = lambda *_args, **_kwargs: None
     fake_modal_runners.persist_noop = lambda _result, _workspace_id: None
-    monkeypatch.setitem(sys.modules, "causal_ssm_agent.flows.modal_runners", fake_modal_runners)
+    monkeypatch.setitem(sys.modules, "nof1_causal_lab.flows.modal_runners", fake_modal_runners)
     monkeypatch.setattr(dag, "stage4", fake_local_stage4)
 
     registry = stage_registry.get_stage_registry()
@@ -324,8 +324,8 @@ def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
 
 
 def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
-    from causal_ssm_agent.flows.stages.stage2.definition import _bind_stage2
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.flows.stages.stage2.definition import _bind_stage2
+    from nof1_causal_lab.utils.config import get_config
 
     MAX_FREE_WINDOWS = get_config().stage2_workers.max_free_windows
 
@@ -375,7 +375,7 @@ def test_stage2_binding_uses_access_mode_for_free_window_limit(monkeypatch):
 
 
 def test_interactive_overrideable_stages_declare_materialization_policy():
-    from causal_ssm_agent.flows.stage_contracts import INTERACTIVE_STAGES
+    from nof1_causal_lab.flows.stage_contracts import INTERACTIVE_STAGES
 
     registry = stage_registry.get_stage_registry()
 
@@ -412,14 +412,14 @@ def test_run_stage_flow_rejects_override_without_materialization_policy():
 
 
 def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypatch):
-    from causal_ssm_agent.flows.stages.stage4.definition import (
+    from nof1_causal_lab.flows.stages.stage4.definition import (
         _emit_stage4_initial_replay_state,
     )
 
     events: list[tuple[str, object] | tuple[str, object, object]] = []
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections.project_stage4_initial_state",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_runtime_projections.project_stage4_initial_state",
         lambda _causal_spec: (
             {"nodes": [{"id": "indicator:x"}], "edges": [], "phases": []},
             {
@@ -432,11 +432,11 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
         ),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.runtime_events.emit_stage4_graph_event",
+        "nof1_causal_lab.flows.runtime_events.emit_stage4_graph_event",
         lambda root_run_id, *, graph: events.append(("graph", root_run_id, graph)),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.runtime_events.emit_stage4_snapshot_event",
+        "nof1_causal_lab.flows.runtime_events.emit_stage4_snapshot_event",
         lambda root_run_id, *, snapshot: events.append(("snapshot", root_run_id, snapshot)),
     )
     _runner_result = Stage4Contract.model_validate(
@@ -573,7 +573,7 @@ def test_pipeline_threads_openrouter_key_by_access_mode(
 ):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
-    monkeypatch.setattr("causal_ssm_agent.utils.config.get_config", _stub_config)
+    monkeypatch.setattr("nof1_causal_lab.utils.config.get_config", _stub_config)
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
 
     pipeline_kwargs: dict = {
@@ -609,7 +609,7 @@ def test_pipeline_threads_openrouter_key_by_access_mode(
 
     # Stub out persistence so finalize_stage doesn't touch the filesystem
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stage_persistence.persist_contract",
+        "nof1_causal_lab.flows.stage_persistence.persist_contract",
         lambda _stage_id, _contract, _workspace_id: None,
     )
     monkeypatch.setattr(
@@ -649,7 +649,7 @@ def test_stage1a_override_skips_recomputation_and_replays_downstream(monkeypatch
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         _stub_config,
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
@@ -762,7 +762,7 @@ def test_pipeline_stops_cleanly_on_completed_fail_outcome(monkeypatch, tmp_path)
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         _stub_config,
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
@@ -849,7 +849,7 @@ def test_pipeline_materializes_stage1b_override_before_stage6(monkeypatch, tmp_p
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         _stub_config,
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
@@ -934,7 +934,7 @@ def test_pipeline_materializes_stage1b_override_before_stage6(monkeypatch, tmp_p
 def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     from types import SimpleNamespace
 
-    from causal_ssm_agent.models.ssm.inference import FittedArtifact
+    from nof1_causal_lab.models.ssm.inference import FittedArtifact
 
     # Build a minimal FittedArtifact with mock result and builder
     mock_spec = SimpleNamespace(
@@ -954,19 +954,19 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage6.flow.load_pickle",
+        "nof1_causal_lab.flows.stages.stage6.flow.load_pickle",
         lambda _path: fitted_artifact,
     )
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", lambda **_kwargs: None)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: "unused.pkl",
     )
 
     from contextlib import asynccontextmanager
 
-    from causal_ssm_agent.utils.agent_session import AgentResult, TurnResult
-    from causal_ssm_agent.utils.llm import LLMTrace, TraceMessage
+    from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
+    from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage
 
     class _FakeAgentSession:
         async def turn(self, _user_message):
@@ -993,7 +993,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
             yield _FakeAgentSession()
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.llm_stage_runtime.build_stage_session_factory",
+        "nof1_causal_lab.flows.llm_stage_runtime.build_stage_session_factory",
         lambda _config: _FakeStageSessionFactory(),
     )
 
@@ -1002,7 +1002,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         return [{"treatment": "screen_time", "posterior_draws": [0.9, 1.0, 1.1]}]
 
     monkeypatch.setattr(
-        "causal_ssm_agent.models.ssm.counterfactual.compute_interventions",
+        "nof1_causal_lab.models.ssm.counterfactual.compute_interventions",
         fake_compute_interventions,
     )
 
@@ -1071,7 +1071,7 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
 
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", fake_create_table_artifact)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage3.flow.validate_extraction",
+        "nof1_causal_lab.flows.stages.stage3.flow.validate_extraction",
         lambda *_args, **_kwargs: {
             "is_valid": True,
             "indicators": {
@@ -1095,7 +1095,7 @@ def test_stage3_awaits_async_validation_artifact(monkeypatch, tmp_path):
 
     # Monkeypatch find_run_artifact to return our test path
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: str(model_path),
     )
 
@@ -1139,7 +1139,7 @@ def test_stage3_normalizes_global_status_from_local_issue_severity(monkeypatch, 
 
     monkeypatch.setattr("prefect.artifacts.create_table_artifact", fake_create_table_artifact)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage3.flow.validate_extraction",
+        "nof1_causal_lab.flows.stages.stage3.flow.validate_extraction",
         lambda *_args, **_kwargs: {
             "is_valid": False,
             "indicators": {
@@ -1162,7 +1162,7 @@ def test_stage3_normalizes_global_status_from_local_issue_severity(monkeypatch, 
     )
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: str(model_path),
     )
 
@@ -1256,11 +1256,11 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
 
     monkeypatch.setattr(dag, "load_parquet", lambda _path: pl.DataFrame({"value": [1.0]}))
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.pipeline_helpers.format_schema_for_llm",
+        "nof1_causal_lab.flows.pipeline_helpers.format_schema_for_llm",
         lambda *_args, **_kwargs: "schema",
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: "/tmp/ignored.parquet",
     )
 
@@ -1268,7 +1268,7 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
         return {"causal_spec": causal_spec}
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage1b.flow.propose_measurement_with_identifiability_fix",
+        "nof1_causal_lab.flows.stages.stage1b.flow.propose_measurement_with_identifiability_fix",
         fake_propose_measurement_with_identifiability_fix,
     )
 
@@ -1291,7 +1291,7 @@ def test_stage1b_filters_stage6_targets_to_estimable_states(monkeypatch):
 
 
 def test_fitted_artifact_pickles_without_live_jax_caches():
-    from causal_ssm_agent.models.ssm.inference import FittedArtifact, InferenceResult
+    from nof1_causal_lab.models.ssm.inference import FittedArtifact, InferenceResult
 
     class _Unpicklable:
         def __reduce__(self):
@@ -1333,7 +1333,7 @@ def test_resume_from_stage2_loads_existing_artifacts(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         _stub_config,
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
@@ -1508,7 +1508,7 @@ def test_pipeline_emits_stage_progress_events(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         _stub_config,
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
@@ -1554,7 +1554,7 @@ def test_pipeline_emits_failed_stage_event(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _redirect_storage(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         _stub_config,
     )
     monkeypatch.setattr(pipeline, "create_markdown_artifact", _noop_artifact)
@@ -1693,15 +1693,15 @@ def test_stage5a_uses_fit_metadata(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5a.flow.load_parquet",
+        "nof1_causal_lab.flows.stages.stage5a.flow.load_parquet",
         lambda _path: data_for_model,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
+        "nof1_causal_lab.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
         lambda: [{"method": "svi", "guide_type": "mvn"}],
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
+        "nof1_causal_lab.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": True,
             "n_samples": 321,
@@ -1712,11 +1712,11 @@ def test_stage5a_uses_fit_metadata(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        "nof1_causal_lab.flows.dag._load_compiled_ssm",
         lambda _workspace_id: None,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        "nof1_causal_lab.flows.dag._load_data_for_model_path",
         lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
 
@@ -1744,18 +1744,18 @@ def test_stage5a_failed_fit_returns_warn(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5a.flow.load_parquet",
+        "nof1_causal_lab.flows.stages.stage5a.flow.load_parquet",
         lambda _path: data_for_model,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
+        "nof1_causal_lab.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
         lambda: [
             {"method": "svi", "guide_type": "mvn"},
             {"method": "svi", "guide_type": "normal"},
         ],
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
+        "nof1_causal_lab.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": False,
             "error": "fit exploded",
@@ -1763,11 +1763,11 @@ def test_stage5a_failed_fit_returns_warn(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        "nof1_causal_lab.flows.dag._load_compiled_ssm",
         lambda _workspace_id: None,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        "nof1_causal_lab.flows.dag._load_data_for_model_path",
         lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
 
@@ -1797,11 +1797,11 @@ def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5a.flow.load_parquet",
+        "nof1_causal_lab.flows.stages.stage5a.flow.load_parquet",
         lambda _path: data_for_model,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
+        "nof1_causal_lab.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
         lambda: [
             {
                 "method": "svi",
@@ -1835,13 +1835,13 @@ def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
             "posterior_pairs": [],
         }
 
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage5b.fit.fit_model", _fit_model)
+    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage5b.fit.fit_model", _fit_model)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        "nof1_causal_lab.flows.dag._load_compiled_ssm",
         lambda _workspace_id: None,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        "nof1_causal_lab.flows.dag._load_data_for_model_path",
         lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
 
@@ -1871,11 +1871,11 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
     )
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.flow.load_parquet",
+        "nof1_causal_lab.flows.stages.stage5b.flow.load_parquet",
         lambda _path: data_for_model,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
+        "nof1_causal_lab.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": True,
             "n_samples": 654,
@@ -1894,15 +1894,15 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.run_power_scaling",
+        "nof1_causal_lab.flows.stages.stage5b.fit.run_power_scaling",
         lambda *_args, **_kwargs: {"checked": False, "error": "skip"},
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.run_ppc",
+        "nof1_causal_lab.flows.stages.stage5b.fit.run_ppc",
         lambda *_args, **_kwargs: {"checked": False, "per_variable_warnings": []},
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
                 to_sampler_config=lambda method_override=None: {"method": method_override or "map"}
@@ -1910,15 +1910,15 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        "nof1_causal_lab.flows.dag._load_compiled_ssm",
         lambda _workspace_id: None,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        "nof1_causal_lab.flows.dag._load_data_for_model_path",
         lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.save_pickle",
+        "nof1_causal_lab.flows.dag.save_pickle",
         lambda _obj, _workspace_id, _filename: None,
     )
 
@@ -1951,11 +1951,11 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
     )
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.flow.load_parquet",
+        "nof1_causal_lab.flows.stages.stage5b.flow.load_parquet",
         lambda _path: data_for_model,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.fit_model",
+        "nof1_causal_lab.flows.stages.stage5b.fit.fit_model",
         lambda *_args, **_kwargs: {
             "fitted": False,
             "error": "fit exploded",
@@ -1970,15 +1970,15 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         raise AssertionError("run_ppc should not run after a failed fit")
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.run_power_scaling",
+        "nof1_causal_lab.flows.stages.stage5b.fit.run_power_scaling",
         _unexpected_power_scaling,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage5b.fit.run_ppc",
+        "nof1_causal_lab.flows.stages.stage5b.fit.run_ppc",
         _unexpected_ppc,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
                 to_sampler_config=lambda method_override=None: {"method": method_override or "map"}
@@ -1986,15 +1986,15 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         ),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        "nof1_causal_lab.flows.dag._load_compiled_ssm",
         lambda _workspace_id: None,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        "nof1_causal_lab.flows.dag._load_data_for_model_path",
         lambda _workspace_id: "/tmp/stage2-model-data.parquet",
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.save_pickle",
+        "nof1_causal_lab.flows.dag.save_pickle",
         lambda _obj, _workspace_id, _filename: None,
     )
 
@@ -2088,19 +2088,19 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
             "n_total_extractions": 1,
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2.flow.stage2_extraction_flow", stub)
+    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage2.flow.stage2_extraction_flow", stub)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: str(tmp_path / "input.parquet"),
     )
 
     saved_parquets: list[pl.DataFrame] = []
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.save_parquet",
+        "nof1_causal_lab.flows.dag.save_parquet",
         lambda df, _workspace_id, _filename: saved_parquets.append(df),
     )
 
@@ -2155,8 +2155,8 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
 
 
 def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
-    from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-    from causal_ssm_agent.utils.data import pivot_to_wide
+    from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
+    from nof1_causal_lab.utils.data import pivot_to_wide
 
     stub = _AsyncSubflowStub(
         {
@@ -2182,19 +2182,19 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
             "n_total_extractions": 2,
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2.flow.stage2_extraction_flow", stub)
+    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage2.flow.stage2_extraction_flow", stub)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: str(tmp_path / "input.parquet"),
     )
 
     saved_parquets: list[pl.DataFrame] = []
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.save_parquet",
+        "nof1_causal_lab.flows.dag.save_parquet",
         lambda df, _workspace_id, _filename: saved_parquets.append(df),
     )
 
@@ -2287,19 +2287,19 @@ def test_stage2_keeps_semantic_rows_in_model_data(monkeypatch, tmp_path):
             "n_total_extractions": 2,
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage2.flow.stage2_extraction_flow", stub)
+    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage2.flow.stage2_extraction_flow", stub)
     monkeypatch.setattr(
-        "causal_ssm_agent.utils.config.get_config",
+        "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(stage2_workers=SimpleNamespace(max_concurrent_workers=6)),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: str(tmp_path / "input.parquet"),
     )
 
     saved_parquets: list[pl.DataFrame] = []
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.save_parquet",
+        "nof1_causal_lab.flows.dag.save_parquet",
         lambda df, _workspace_id, _filename: saved_parquets.append(df),
     )
 
@@ -2374,13 +2374,13 @@ def test_stage4_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_pa
             },
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4.flow.stage4_agentic_flow", stub)
+    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage4.flow.stage4_agentic_flow", stub)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: str(data_path),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.save_json",
+        "nof1_causal_lab.flows.dag.save_json",
         lambda _obj, _workspace_id, _filename: None,
     )
 
@@ -2434,13 +2434,13 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
             },
         }
     )
-    monkeypatch.setattr("causal_ssm_agent.flows.stages.stage4.flow.stage4_agentic_flow", stub)
+    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage4.flow.stage4_agentic_flow", stub)
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.find_run_artifact",
+        "nof1_causal_lab.flows.dag.find_run_artifact",
         lambda _workspace_id, _filenames: str(data_path),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag.save_json",
+        "nof1_causal_lab.flows.dag.save_json",
         lambda _obj, _workspace_id, _filename: None,
     )
 
@@ -2473,14 +2473,14 @@ def test_stage4b_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_p
 
     stub = _SyncSubflowStub({"parametric_id": {"checked": True}})
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4b.flow.stage4b_parametric_id_flow", stub
+        "nof1_causal_lab.flows.stages.stage4b.flow.stage4b_parametric_id_flow", stub
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_compiled_ssm",
+        "nof1_causal_lab.flows.dag._load_compiled_ssm",
         lambda _workspace_id: "compiled-ssm",
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.dag._load_data_for_model_path",
+        "nof1_causal_lab.flows.dag._load_data_for_model_path",
         lambda _workspace_id: str(data_path),
     )
     builder = object()

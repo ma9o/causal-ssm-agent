@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from causal_ssm_agent.artifacts.model_spec import VALID_LINKS_FOR_DISTRIBUTION
-from causal_ssm_agent.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.artifacts.model_spec import VALID_LINKS_FOR_DISTRIBUTION
+from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE, DistributionFamily
+from nof1_causal_lab.utils.causal_spec import (
     build_reference_indicator_lookup,
     get_constructs,
     get_estimation_edges,
@@ -17,7 +17,7 @@ from causal_ssm_agent.utils.causal_spec import (
     get_manifest_indicators,
     get_marginalized_scales,
 )
-from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
 from .stage4_parameter_surfaces import parameter_is_active_for_model_spec
 
@@ -304,7 +304,7 @@ def _compiler_authoritative_stage4_inventory(
     retained_construct_names: set[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return the compiler-authoritative public Stage 4 prior inventory."""
-    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact, resolve_prior_proposals
+    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact, resolve_prior_proposals
 
     seed_by_name = {
         parameter["name"]: dict(parameter) for parameter in [*seed_parameters, *seed_loading_params]

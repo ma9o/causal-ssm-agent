@@ -10,26 +10,26 @@ from pathlib import Path
 import polars as pl
 from prefect import flow
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.llm_stage_runtime import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.llm_stage_runtime import (
     LLMStageRuntimeConfig,
     attach_trace,
     build_stage_session_factory,
     open_llm_stage,
 )
-from causal_ssm_agent.flows.runtime_events import (
+from nof1_causal_lab.flows.runtime_events import (
     emit_nested_stage_running_event,
     emit_stage4_block_transition_event,
     emit_stage4_graph_event,
     emit_stage4_snapshot_event,
 )
-from causal_ssm_agent.utils.agent_session import (
+from nof1_causal_lab.utils.agent_session import (
     StageSessionFactory,  # noqa: TC001 — runtime-annotated local
 )
-from causal_ssm_agent.utils.config import get_config, get_secret
-from causal_ssm_agent.utils.data import runs_dir
-from causal_ssm_agent.utils.llm import get_generate_config
-from causal_ssm_agent.utils.openrouter_client import GenerateConfig
+from nof1_causal_lab.utils.config import get_config, get_secret
+from nof1_causal_lab.utils.data import runs_dir
+from nof1_causal_lab.utils.llm import get_generate_config
+from nof1_causal_lab.utils.openrouter_client import GenerateConfig
 
 logger = get_prefect_logger(__name__)
 
@@ -67,15 +67,15 @@ async def stage4_agentic_flow(
     Returns:
         Full grounded Stage 4 result (same shape as before).
     """
-    from causal_ssm_agent.flows.run_store import clear_stage4_checkpoint, save_stage4_checkpoint
-    from causal_ssm_agent.flows.stage4_compile_cache import (
+    from nof1_causal_lab.flows.run_store import clear_stage4_checkpoint, save_stage4_checkpoint
+    from nof1_causal_lab.flows.stage4_compile_cache import (
         dispatch_stage4_model_compile_warmup,
     )
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_megaprompt import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop import run_stage4
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_megaprompt import (
         run_stage4_megaprompt,
     )
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_runtime_projections import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_runtime_projections import (
         project_stage4_graph,
         project_stage4_snapshot,
     )
@@ -215,7 +215,7 @@ def _load_stage4_checkpoint_if_present(workspace_id: str):
     Unlike a try/except around :func:`load_stage4_checkpoint`, this only skips
     the load when the cursor is absent — any other I/O or parse error surfaces.
     """
-    from causal_ssm_agent.flows.run_store import (
+    from nof1_causal_lab.flows.run_store import (
         load_stage4_checkpoint,
         stage4_checkpoint_exists,
     )

@@ -5,8 +5,8 @@ import jax.random as random
 import numpy as np
 import pytest
 
-import causal_ssm_agent.models.predictive_simulation as predictive_simulation_module
-from causal_ssm_agent.models.posterior_predictive import (
+import nof1_causal_lab.models.predictive_simulation as predictive_simulation_module
+from nof1_causal_lab.models.posterior_predictive import (
     _check_calibration,
     _check_residual_autocorrelation,
     _check_variance_ratio,
@@ -14,14 +14,14 @@ from causal_ssm_agent.models.posterior_predictive import (
     _compute_test_stats,
     get_relevant_manifest_variables,
 )
-from causal_ssm_agent.models.predictive_simulation import (
+from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
     simulate_predictive_observations,
 )
-from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     get_posterior_predictive_switch_index,
 )
-from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.models.ssm._support import (
     make_samples as _make_samples,
 )
@@ -117,8 +117,17 @@ class TestForwardSimulation:
         }
         times = jnp.array([0.0, 1.0, 2.0])
 
-        def fake_discretize_system_batched(drift, diffusion_cov, cint, dt_array):
+        def fake_discretize_system_with_inputs_batched(
+            drift,
+            diffusion_cov,
+            cint,
+            input_effect,
+            interval_inputs,
+            dt_array,
+        ):
             del drift, diffusion_cov, cint
+            assert input_effect is None
+            assert interval_inputs is None
             assert dt_array.shape == (2,)
             Ad = jnp.array([[[10.0]], [[1.0]]])
             Qd = jnp.zeros((2, 1, 1))
@@ -127,8 +136,8 @@ class TestForwardSimulation:
 
         monkeypatch.setattr(
             predictive_simulation_module,
-            "discretize_system_batched",
-            fake_discretize_system_batched,
+            "discretize_system_with_inputs_batched",
+            fake_discretize_system_with_inputs_batched,
         )
 
         y_sim, _ = predictive_simulation_module.simulate_predictive_observations(
@@ -153,8 +162,17 @@ class TestForwardSimulation:
         samples["t0_cov"] = jnp.broadcast_to(samples["t0_cov"], (3, *samples["t0_cov"].shape))
         times = jnp.array([0.0, 1.0, 2.0])
 
-        def fake_discretize_system_batched(drift, diffusion_cov, cint, dt_array):
+        def fake_discretize_system_with_inputs_batched(
+            drift,
+            diffusion_cov,
+            cint,
+            input_effect,
+            interval_inputs,
+            dt_array,
+        ):
             del drift, diffusion_cov, cint
+            assert input_effect is None
+            assert interval_inputs is None
             assert dt_array.shape == (2,)
             Ad = jnp.broadcast_to(jnp.eye(2), (2, 2, 2))
             Qd = jnp.array(
@@ -168,8 +186,8 @@ class TestForwardSimulation:
 
         monkeypatch.setattr(
             predictive_simulation_module,
-            "discretize_system_batched",
-            fake_discretize_system_batched,
+            "discretize_system_with_inputs_batched",
+            fake_discretize_system_with_inputs_batched,
         )
 
         y_sim, _ = predictive_simulation_module.simulate_predictive_observations(

@@ -2,8 +2,8 @@
 
 import { applyRefinement } from "@/lib/api/analysis";
 import { useRefinement } from "@/lib/contexts/refinement-context";
-import { STAGES, STAGE_IDS } from "@causal-ssm/api-types";
-import type { StageId } from "@causal-ssm/api-types";
+import { STAGES, STAGE_IDS } from "@nof1-causal-lab/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { Loader2, Play } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useState } from "react";

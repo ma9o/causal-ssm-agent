@@ -36,7 +36,7 @@ jobs:
       - run: uv sync --frozen --group dev --group cloud
       - name: Sync runtime secrets to Modal
         run: |
-          uv run modal secret create --force causal-ssm-pipeline-secrets \
+          uv run modal secret create --force nof1-causal-lab-pipeline-secrets \
             DEPLOYMENT_ENV=production \
             OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
             GOOGLE_CLOUD_PROJECT="${{ secrets.GOOGLE_CLOUD_PROJECT }}" \
@@ -47,7 +47,7 @@ jobs:
             R2_SECRET_ACCESS_KEY="${{ secrets.R2_SECRET_ACCESS_KEY }}" \
             R2_BUCKET="${{ secrets.R2_BUCKET }}" \
             R2_PREFIX=data
-      - run: uv run modal deploy src/causal_ssm_agent/flows/modal_runners.py
+      - run: uv run modal deploy src/nof1_causal_lab/flows/modal_runners.py
 
   # ---------------------------------------------------------------------------
   # Deploy web app to Vercel (production)

@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
+from nof1_causal_lab.flows.stages.stage4.model_spec_decisions import (
     ModelConfigurationChoice,
 )
 

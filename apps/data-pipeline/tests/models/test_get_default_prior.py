@@ -2,13 +2,13 @@
 
 import pytest
 
-from causal_ssm_agent.artifacts import (
+from nof1_causal_lab.artifacts import (
     ParameterConstraint,
     ParameterRole,
     ParameterSpec,
 )
-from causal_ssm_agent.distributions import PriorDistributionFamily
-from causal_ssm_agent.workers.prior_research import get_default_prior
+from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.workers.prior_research import get_default_prior
 
 
 def _make_param(

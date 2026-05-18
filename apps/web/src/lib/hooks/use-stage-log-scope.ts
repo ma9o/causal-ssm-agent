@@ -6,7 +6,7 @@ import {
   buildStageLogSubscriptionKey,
 } from "@/lib/stage-observability";
 import type { PrefectLogTimeWindow } from "@/lib/prefect-log-client";
-import type { StageId } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { useQuery } from "@tanstack/react-query";
 import type { StageRunStatus } from "./pipeline-progress";
 

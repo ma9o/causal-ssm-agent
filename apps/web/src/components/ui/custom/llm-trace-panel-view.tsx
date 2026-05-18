@@ -3,7 +3,7 @@
 import { Badge } from "@/components/ui/badge";
 import { formatCompact } from "@/lib/utils/format";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
-import type { LLMTrace } from "@causal-ssm/api-types";
+import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { Clock, Cpu, Loader2, MessageSquare, Send } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef } from "react";

@@ -7,15 +7,15 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.utils.agent_session import StageSessionFactory
-from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
+from nof1_causal_lab.utils.agent_session import StageSessionFactory
+from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from logging import Logger
 
-    from causal_ssm_agent.utils.config import LLMDefaults, StageLLMConfig
-    from causal_ssm_agent.utils.llm import LLMTrace
+    from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
+    from nof1_causal_lab.utils.llm import LLMTrace
 
 
 @dataclass(frozen=True)

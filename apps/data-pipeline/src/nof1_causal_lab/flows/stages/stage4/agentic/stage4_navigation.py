@@ -8,7 +8,7 @@ from .stage4_block_specs import get_stage4_block_phase
 from .stage4_state import Stage4RepairCampaignState, Stage4Runtime
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.workers.schemas_prior import PriorPathologyCertificate
+    from nof1_causal_lab.workers.schemas_prior import PriorPathologyCertificate
 
     from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan
     from .stage4_repair import ResolvedRepairPlan

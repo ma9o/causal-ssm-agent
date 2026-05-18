@@ -11,8 +11,8 @@ import jax.random as random
 import numpy as np
 import scipy.optimize as spo
 
-from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
-from causal_ssm_agent.models.ssm.parameterization import SupportClass, sample_prior_unconstrained
+from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.parameterization import SupportClass, sample_prior_unconstrained
 
 from .context import ParametricIdContext, get_stage4b_sweep_context
 from .results import MAPCurvatureResult, MAPGeometryResult, MAPOptimizationRun
@@ -23,7 +23,7 @@ from .sensitivity import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 _NEGATIVE_EIGENVALUE_TOL = 1e-6
 _BOUNDARY_RELATIVE_TOL = 0.05

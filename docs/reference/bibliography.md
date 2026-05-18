@@ -1,6 +1,6 @@
 # Bibliography
 
-Central literature reference for the causal-ssm-agent documentation. Individual docs cite entries via GitHub footnotes (`[^citekey]`); this page collects every reference in one place.
+Central literature reference for the nof1-causal-lab documentation. Individual docs cite entries via GitHub footnotes (`[^citekey]`); this page collects every reference in one place.
 
 ## Foundational Works
 

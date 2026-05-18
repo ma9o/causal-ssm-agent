@@ -6,15 +6,15 @@ from typing import TYPE_CHECKING, Literal
 
 from numpyro import handlers
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 
 if TYPE_CHECKING:
     import jax.numpy as jnp
 
-    from causal_ssm_agent.models.ssm.inference.types import InferenceMethod
-    from causal_ssm_agent.models.ssm.model import SSMSpec
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.inference.types import InferenceMethod
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 logger = get_prefect_logger(__name__)
 
@@ -26,7 +26,7 @@ def select_default_method(
     n_timepoints: int | None = None,
 ) -> InferenceMethod:
     """Select the default inference method based on model structure."""
-    from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
+    from nof1_causal_lab.models.ssm.inference.structure import plan_inference_structure
 
     inference_structure = plan_inference_structure(
         spec,

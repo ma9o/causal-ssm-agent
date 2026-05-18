@@ -111,31 +111,31 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         return []
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.derive_deterministic_spec",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop.derive_deterministic_spec",
         stub_derive_deterministic_spec,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_model_topology",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop.build_model_topology",
         stub_build_model_topology,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_distribution_cards",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop.build_distribution_cards",
         stub_build_distribution_cards,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_construct_scale_cards",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop.build_construct_scale_cards",
         stub_build_construct_scale_cards,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_prior_cards",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop.build_prior_cards",
         stub_build_prior_cards,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.build_stage4_plan",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop.build_stage4_plan",
         lambda _causal_spec, _skeleton: _make_plan(),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.agentic.stage4_agent_loop.make_stage4_runtime",
+        "nof1_causal_lab.flows.stages.stage4.agentic.stage4_agent_loop.make_stage4_runtime",
         lambda _plan: Stage4Runtime(
             domain=Stage4DomainState(
                 done=True,
@@ -152,7 +152,7 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
         return _make_stub_grounding_result(capture, "VALID")
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
+        "nof1_causal_lab.flows.stages.stage4.grounding.stage4_grounding",
         stub_stage4_grounding,
     )
 
@@ -175,23 +175,23 @@ def test_run_stage4_returns_captured_validation(monkeypatch):
 
 
 def test_materialize_override_stage4_marks_missing_compiled_ssm_as_failure(monkeypatch):
-    from causal_ssm_agent.flows.stage_runtime import PipelineContext
-    from causal_ssm_agent.flows.stages.stage4.definition import build_stage4_definition
+    from nof1_causal_lab.flows.stage_runtime import PipelineContext
+    from nof1_causal_lab.flows.stages.stage4.definition import build_stage4_definition
 
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.run_store.find_run_artifact",
+        "nof1_causal_lab.flows.run_store.find_run_artifact",
         lambda *_args, **_kwargs: "ignored.parquet",
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.run_store.load_parquet",
+        "nof1_causal_lab.flows.run_store.load_parquet",
         lambda *_args, **_kwargs: pl.DataFrame(),
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.run_store.save_json",
+        "nof1_causal_lab.flows.run_store.save_json",
         lambda *_args, **_kwargs: None,
     )
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.assembly.materialize_stage4_result",
+        "nof1_causal_lab.flows.stages.stage4.assembly.materialize_stage4_result",
         lambda **_kwargs: {
             "model_spec": {"likelihoods": [], "parameters": []},
             "authored_priors": {},
@@ -483,7 +483,7 @@ class TestStage4Mechanics:
     def test_compile_failure_route_uses_structured_manifest_diagnostics_without_exact_feedback_match(
         self,
     ):
-        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+        from nof1_causal_lab.flows.stages.stage4.agentic.stage4_repair import (
             classify_compile_failure_route,
         )
 
@@ -515,7 +515,7 @@ class TestStage4Mechanics:
         assert repair_plan.uses_repair_campaign is False
 
     def test_model_lock_failure_block_ids_cover_configuration_and_indicator_attribution(self):
-        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer import (
+        from nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer import (
             _model_lock_failure_block_ids,
         )
 
@@ -734,7 +734,7 @@ class TestStage4Mechanics:
             }, "BLOCK ACCEPTED"
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_partial_drift.validate_dynamics_block_partial_drift",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_partial_drift.validate_dynamics_block_partial_drift",
             lambda **_kwargs: (
                 PriorValidationResult(
                     parameter="rho_sleep",
@@ -1476,11 +1476,11 @@ class TestStage4Mechanics:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_partial_drift.validate_effect_block_partial_drift",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_partial_drift.validate_effect_block_partial_drift",
             lambda **_kwargs: None,
         )
 
@@ -1749,7 +1749,7 @@ class TestStage4Mechanics:
         assert repair_plan.scope.scope_key == "global_prior_review:prior_system"
 
     def test_failure_evidence_surface_owns_supporting_compile_context(self):
-        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+        from nof1_causal_lab.flows.stages.stage4.agentic.stage4_repair import (
             _localize_prior_failure,
             build_stage4_failure_evidence,
         )
@@ -1917,7 +1917,7 @@ class TestStage4Mechanics:
         assert repair_plan.block_ids == ("dynamics:activity+sleep", "effects:sleep")
 
     def test_scc_repair_plan_narrows_effect_prompt_to_internal_scc_parameters(self):
-        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import build_repair_plan
+        from nof1_causal_lab.flows.stages.stage4.agentic.stage4_repair import build_repair_plan
 
         causal_spec = _with_positive_indicator_polarity(
             {
@@ -2044,7 +2044,7 @@ class TestStage4Mechanics:
     def test_validate_dynamics_block_partial_drift_treats_budget_overrun_as_advisory(
         self, monkeypatch
     ):
-        from causal_ssm_agent.flows.stages.stage4.agentic import (
+        from nof1_causal_lab.flows.stages.stage4.agentic import (
             stage4_partial_drift as partial_drift_module,
         )
 
@@ -2085,7 +2085,7 @@ class TestStage4Mechanics:
     def test_validate_effect_block_partial_drift_treats_budget_overrun_as_advisory(
         self, monkeypatch
     ):
-        from causal_ssm_agent.flows.stages.stage4.agentic import (
+        from nof1_causal_lab.flows.stages.stage4.agentic import (
             stage4_partial_drift as partial_drift_module,
         )
 
@@ -2128,7 +2128,7 @@ class TestStage4FailureRouting:
     """Compile-failure routing, repair-scope classification, and global escalation."""
 
     def test_compile_failure_route_prefers_true_indicator_owner_for_exact_match(self):
-        from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair import (
+        from nof1_causal_lab.flows.stages.stage4.agentic.stage4_repair import (
             classify_compile_failure_route,
         )
 
@@ -2477,7 +2477,7 @@ class TestStage4FailureRouting:
         self,
         monkeypatch,
     ):
-        from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
+        from nof1_causal_lab.flows.stages.stage4.grounding import stage4_grounding
 
         causal_spec = _make_stage4_global_repair_spec()
         skeleton = derive_deterministic_spec(causal_spec)
@@ -2514,11 +2514,11 @@ class TestStage4FailureRouting:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
             lambda *_args, **_kwargs: [
                 {"parameter": "sigma_activity"},
                 {"parameter": "beta_activity_sleep"},
@@ -2994,11 +2994,11 @@ class TestStage4FailureRouting:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
             _stub_stage4_repair_barrier_success,
         )
 
@@ -3191,11 +3191,11 @@ class TestStage4RunE2E:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
+            "nof1_causal_lab.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
             _stub_stage4_repair_barrier_success,
         )
 
@@ -3440,11 +3440,11 @@ class TestStage4RunE2E:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
+            "nof1_causal_lab.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
 
@@ -3591,11 +3591,11 @@ class TestStage4RunE2E:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
+            "nof1_causal_lab.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
             _stub_stage4_repair_barrier_success,
         )
 
@@ -3781,11 +3781,11 @@ class TestStage4RunE2E:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
+            "nof1_causal_lab.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
             _stub_stage4_repair_barrier_success,
         )
 
@@ -3915,7 +3915,7 @@ class TestStage4RunE2E:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
+            "nof1_causal_lab.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
 
@@ -4081,7 +4081,7 @@ class TestStage4RunE2E:
             raise ValueError("Stage 4 exhausted the deterministic repair-scope ladder")
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
             fail_compute,
         )
 
@@ -4169,7 +4169,7 @@ class TestStage4RunE2E:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.grounding.stage4_grounding",
+            "nof1_causal_lab.flows.stages.stage4.grounding.stage4_grounding",
             stub_stage4_grounding,
         )
 
@@ -4374,7 +4374,7 @@ class TestStage4Session:
             raise ValueError("Stage 4 exhausted the deterministic repair-scope ladder")
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
             fail_compute,
         )
 
@@ -4453,7 +4453,7 @@ class TestStage4Session:
             return None, "LOCKED", ({"block_id": "indicator:steps", "status": "accepted"},)
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_session.compute_stage4_validate_step_with_transitions",
             _lock_after_submit,
         )
 
@@ -4469,7 +4469,7 @@ class TestStage4Session:
         assert locked_model_specs == [{"parameters": [{"name": "rho_sleep"}], "likelihoods": []}]
 
     def test_stage4_tool_loop_compacts_context_while_trace_grows(self, monkeypatch):
-        from causal_ssm_agent.flows.stages.stage4.tools import (
+        from nof1_causal_lab.flows.stages.stage4.tools import (
             make_submit_indicator_choice_tool,
             make_submit_model_review_tool,
             make_submit_prior_block_tool,
@@ -4808,11 +4808,11 @@ class TestStage4Session:
             )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.assembly.validate_assembly",
+            "nof1_causal_lab.flows.stages.stage4.assembly.validate_assembly",
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_reducer._finalize_repair_campaign_if_complete",
             _stub_stage4_repair_barrier_success,
         )
 
@@ -4869,7 +4869,7 @@ class TestStage4Session:
             "submit_model_review": make_submit_model_review_tool(session),
             "submit_prior_block": make_submit_prior_block_tool(session),
         }
-        monkeypatch.setattr("causal_ssm_agent.utils.llm.call_model", fake_call_model)
+        monkeypatch.setattr("nof1_causal_lab.utils.llm.call_model", fake_call_model)
 
         generate = make_generate_fn(
             "test-model",

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.run_store import load_parquet, unwrap_task_result
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.run_store import load_parquet, unwrap_task_result
 
 logger = get_prefect_logger(__name__)
 
@@ -17,7 +17,7 @@ def build_stage5a_svi_attempts() -> list[dict[str, Any]]:
     configuration. Use a bounded attempt ladder that keeps the stage cheap and
     non-blocking while giving harder models a second, more stable try.
     """
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     svi_config = get_config().inference.svi
     sample_count = min(250, get_config().inference.num_samples)
@@ -55,7 +55,7 @@ def run_stage5a_preflight(
     workspace_id: str,
 ) -> dict:
     """Run Stage 5a SVI preflight with a bounded attempt ladder."""
-    from causal_ssm_agent.flows.stages.stage5b.fit import fit_model
+    from nof1_causal_lab.flows.stages.stage5b.fit import fit_model
 
     data_for_model = load_parquet(stage2["_data_for_model_path"])
 

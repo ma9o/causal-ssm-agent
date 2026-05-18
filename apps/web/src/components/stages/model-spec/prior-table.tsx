@@ -5,7 +5,7 @@ import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { evaluatePdf } from "@/lib/utils/distributions";
 import { formatNumber } from "@/lib/utils/format";
-import type { ParameterSpec, PriorProposal } from "@causal-ssm/api-types";
+import type { ParameterSpec, PriorProposal } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { ExternalLink } from "lucide-react";
 import {

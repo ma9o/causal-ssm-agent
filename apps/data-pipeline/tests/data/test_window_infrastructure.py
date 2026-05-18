@@ -9,8 +9,8 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from causal_ssm_agent.utils.data import bucket_by_clock
-from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
+from nof1_causal_lab.utils.data import bucket_by_clock
+from nof1_causal_lab.workers.windows import chunk_windows, format_window_chunk
 
 # =============================================================================
 # bucket_by_clock

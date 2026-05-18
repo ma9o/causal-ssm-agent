@@ -1,4 +1,4 @@
-import { type StageId, STAGES, type StageLogScopePolicy } from "@causal-ssm/api-types";
+import { type StageId, STAGES, type StageLogScopePolicy } from "@nof1-causal-lab/api-types";
 import type { AnalysisStageExecution, AnalysisStageRun } from "./api/analysis";
 import { buildFlowRunIdsSignature, normalizeFlowRunIds } from "./flow-run-ids";
 import type { PrefectLogTimeWindow } from "./prefect-log-client";

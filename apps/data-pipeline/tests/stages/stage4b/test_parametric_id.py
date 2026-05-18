@@ -7,20 +7,20 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.flows.stages.stage4b.flow import parametric_id_task, run_stage4b
-from causal_ssm_agent.models.ssm.diagnostics.results import (
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.flows.stages.stage4b.flow import parametric_id_task, run_stage4b
+from nof1_causal_lab.models.ssm.diagnostics.results import (
     MAPCurvatureResult,
     MAPGeometryResult,
     MAPOptimizationRun,
 )
-from causal_ssm_agent.models.ssm.inference.structure import (
+from nof1_causal_lab.models.ssm.inference.structure import (
     build_inference_structure_payload,
     plan_inference_structure,
 )
-from causal_ssm_agent.models.ssm.model import SSMSpec
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.model import SSMSpec
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.ssm_test_utils import make_ssm_spec
 
 
@@ -234,19 +234,19 @@ class TestStage4bInferenceStructurePayload:
                 return None
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
+            "nof1_causal_lab.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(scalar_names=[]),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.map_geometry_analysis",
             lambda *_args, **_kwargs: _stub_map_geometry_result(),
         )
 
@@ -336,21 +336,21 @@ class TestStage4bInferenceStructurePayload:
                 }
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
+            "nof1_causal_lab.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["drift_offdiag_free[0]", "lambda_free"]
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.map_geometry_analysis",
             lambda *_args, **_kwargs: _stub_map_geometry_result(
                 likelihood_per_parameter=[
                     {
@@ -367,11 +367,11 @@ class TestStage4bInferenceStructurePayload:
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
+            "nof1_causal_lab.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
             lambda *_args, **_kwargs: [0, 1],
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
+            "nof1_causal_lab.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: StubProfileLikelihoodResult(),
         )
 
@@ -441,21 +441,21 @@ class TestStage4bInferenceStructurePayload:
                 return None
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
+            "nof1_causal_lab.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["diffusion_diag_free[0]", "drift_diag_free[0]"]
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.map_geometry_analysis",
             lambda *_args, **_kwargs: _stub_map_geometry_result(
                 likelihood_per_parameter=[
                     {
@@ -471,7 +471,7 @@ class TestStage4bInferenceStructurePayload:
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
+            "nof1_causal_lab.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail("profile_likelihood should be skipped"),
         )
 
@@ -571,29 +571,29 @@ class TestStage4bInferenceStructurePayload:
             return StubProfileLikelihoodResult()
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
+            "nof1_causal_lab.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(
                 scalar_names=["diffusion_diag_free[0]", "drift_offdiag_free[0]", "lambda_free"]
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.map_geometry_analysis",
             lambda *_args, **_kwargs: _stub_map_geometry_result(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
+            "nof1_causal_lab.models.ssm.inference.targets.graph_analysis.kalman_block_profile_indices",
             lambda *_args, **_kwargs: [2],
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
+            "nof1_causal_lab.models.ssm.diagnostics.profile_likelihood",
             _profile_likelihood_stub,
         )
 
@@ -648,25 +648,25 @@ class TestStage4bInferenceStructurePayload:
                 return None
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
+            "nof1_causal_lab.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(scalar_names=["lambda_free"]),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: StubSensitivityResult(),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.map_geometry_analysis",
             lambda *_args, **_kwargs: pytest.fail(
                 "map_geometry_analysis should be skipped on particle-only paths"
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
+            "nof1_causal_lab.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail(
                 "profile_likelihood should be skipped on particle-only paths"
             ),
@@ -682,7 +682,7 @@ class TestStage4bInferenceStructurePayload:
         assert pid["summary"]["weak_params"] == ["lambda_free"]
 
     def test_unsupported_sensitivity_screen_does_not_emit_false_weak_params(self, monkeypatch):
-        from causal_ssm_agent.models.ssm.diagnostics import OutputSensitivityUnsupportedError
+        from nof1_causal_lab.models.ssm.diagnostics import OutputSensitivityUnsupportedError
 
         spec = _make_separable_spec()
         model = _make_model(spec)
@@ -700,27 +700,27 @@ class TestStage4bInferenceStructurePayload:
         )
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
             lambda **_: runtime,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.get_stage4b_sweep_context",
+            "nof1_causal_lab.models.ssm.diagnostics.get_stage4b_sweep_context",
             lambda *_args, **_kwargs: SimpleNamespace(scalar_names=["lambda_free"]),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.output_sensitivity_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.output_sensitivity_analysis",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 OutputSensitivityUnsupportedError("unsupported")
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.map_geometry_analysis",
+            "nof1_causal_lab.models.ssm.diagnostics.map_geometry_analysis",
             lambda *_args, **_kwargs: pytest.fail(
                 "map_geometry_analysis should be skipped on particle-only paths"
             ),
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.diagnostics.profile_likelihood",
+            "nof1_causal_lab.models.ssm.diagnostics.profile_likelihood",
             lambda *_args, **_kwargs: pytest.fail(
                 "profile_likelihood should be skipped on particle-only paths"
             ),
@@ -738,7 +738,7 @@ class TestStage4bInferenceStructurePayload:
 
     def test_stage4b_warns_on_summary_issues(self, monkeypatch):
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4b.flow.stage4b_parametric_id_flow",
+            "nof1_causal_lab.flows.stages.stage4b.flow.stage4b_parametric_id_flow",
             lambda *_args, **_kwargs: {
                 "parametric_id": {
                     "checked": True,
@@ -751,7 +751,7 @@ class TestStage4bInferenceStructurePayload:
             },
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.flows.stages.stage4b.flow.load_parquet",
+            "nof1_causal_lab.flows.stages.stage4b.flow.load_parquet",
             lambda _path: pl.DataFrame(),
         )
 

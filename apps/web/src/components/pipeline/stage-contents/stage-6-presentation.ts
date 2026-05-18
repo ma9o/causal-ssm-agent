@@ -4,7 +4,7 @@ import type {
   Stage4Data,
   Stage5aData,
   Stage5bData,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import type { EdgePosterior } from "@/components/dag/intervention-dag-types";
 import { parseFixedEffect } from "@/lib/utils/ssm-latex";

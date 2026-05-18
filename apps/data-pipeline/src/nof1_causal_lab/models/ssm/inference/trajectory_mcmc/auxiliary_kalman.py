@@ -31,41 +31,41 @@ import jax.scipy.linalg as jla
 from blackjax.mcmc import nuts as blackjax_nuts
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.artifacts import LinkFunction
-from causal_ssm_agent.models.ssm.constants import MIN_DT
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.discretization import discretize_system_with_inputs_batched
-from causal_ssm_agent.models.ssm.inference.parallel_kalman import (
+from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.models.ssm.constants import MIN_DT
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
+from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     aux_filter_lgssm_lightweight,
     sample_lgssm_trajectory,
 )
-from causal_ssm_agent.models.ssm.inference.shared import _trace_public_sites
-from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
-from causal_ssm_agent.models.ssm.inference.targets.kernels import compile_measurement_semantics
-from causal_ssm_agent.models.ssm.inference.targets.laplace.shared import (
+from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
+from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
+from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
+from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     GaussianTrajectoryPriorTerms,
     _build_gaussian_trajectory_prior_terms,
     _build_linear_summary_accumulator_plan,
     _predictive_latent_init,
     _trajectory_prior_log_prob_from_terms,
 )
-from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system,
     row_observation_log_prob,
     row_observation_log_probs,
 )
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_support_kind_codes,
     trajectory_observation_log_prob,
     trajectory_observation_log_probs,
 )
-from causal_ssm_agent.models.ssm.inference.utils import (
+from nof1_causal_lab.models.ssm.inference.utils import (
     _assemble_likelihood_inputs,
     _build_original_sample_resolver,
     _discover_sites,
     _DummyLikelihoodBackend,
 )
-from causal_ssm_agent.models.ssm.parameterization import build_site_registry
+from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
 # Match laplace/shared.py's default jitter so the auxiliary-Kalman proposal and
 # the target trajectory log-prob agree on the covariance being evaluated.
@@ -146,7 +146,7 @@ def _trajectory_prior_log_prob_per_t_from_terms(
     Summing equals :func:`_trajectory_prior_log_prob_from_terms`. Used by
     the per-t MH-ratio diagnostic only.
     """
-    from causal_ssm_agent.models.ssm.inference.targets.laplace.shared import (
+    from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
         _coerce_transition_intercepts,
         _gaussian_log_prob_from_cholesky,
     )

@@ -7,7 +7,7 @@
  * - Tool results are merged into the assistant message's tool parts (state: "output-available")
  * - System/user messages become simple text-part messages
  */
-import type { LLMTrace, TraceMessage } from "@causal-ssm/api-types";
+import type { LLMTrace, TraceMessage } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { normalizeTraceToolCall } from "./trace-tool-call";
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from causal_ssm_agent.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.model_spec import (
     DistributionFamily,
     InitializationPolicy,
     LinkFunction,
@@ -14,10 +14,10 @@ from causal_ssm_agent.artifacts.model_spec import (
     ObservationInterceptPolicy,
     validate_model_spec_dict,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_parameter_surfaces import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_parameter_surfaces import (
     parameter_is_active_for_model_spec,
 )
-from causal_ssm_agent.models.model_semantics import should_auto_center_indicator
+from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
 
 
 class DistributionChoice(BaseModel):

@@ -9,7 +9,7 @@ import logging
 
 import pytest
 
-from causal_ssm_agent.workers.core import (
+from nof1_causal_lab.workers.core import (
     WorkerMessages,
     _format_indicators,
     _get_outcome_description,

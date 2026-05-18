@@ -6,12 +6,12 @@ Covers: _aggregate_simple, _aggregate_gmm, aggregate_prior_samples.
 import numpy as np
 import pytest
 
-from causal_ssm_agent.workers.prior_research import (
+from nof1_causal_lab.workers.prior_research import (
     _aggregate_gmm,
     _aggregate_simple,
     aggregate_prior_samples,
 )
-from causal_ssm_agent.workers.schemas_prior import RawPriorSample
+from nof1_causal_lab.workers.schemas_prior import RawPriorSample
 
 
 def _make_samples(mus: list[float], sigmas: list[float]) -> list[RawPriorSample]:

@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils/format";
-import type { PosteriorMarginal } from "@causal-ssm/api-types";
+import type { PosteriorMarginal } from "@nof1-causal-lab/api-types";
 import {
   Area,
   CartesianGrid,

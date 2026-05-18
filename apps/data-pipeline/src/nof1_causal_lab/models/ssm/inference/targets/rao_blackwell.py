@@ -24,15 +24,15 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
-from causal_ssm_agent.models.ssm.covariance_utils import (
+from nof1_causal_lab.models.ssm.covariance_utils import (
     inflate_missing_variance,
     symmetrize,
     symmetrize_with_jitter,
 )
-from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
+from nof1_causal_lab.models.ssm.inference.targets.base import CHOL_JITTER, MISSING_DATA_LARGE_VAR
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.inference.targets.kernels import ObservationKernel
+    from nof1_causal_lab.models.ssm.inference.targets.kernels import ObservationKernel
 
 # =============================================================================
 # RBState — Kalman sufficient statistics carried per particle

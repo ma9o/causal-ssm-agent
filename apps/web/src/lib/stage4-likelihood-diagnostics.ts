@@ -4,7 +4,7 @@ import type {
   LikelihoodSpec,
   ObservationRecord,
   Stage4LikelihoodDiagnostics,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 
 function toNumericValue(value: ObservationRecord["value"]): number | null {
   if (value == null) {

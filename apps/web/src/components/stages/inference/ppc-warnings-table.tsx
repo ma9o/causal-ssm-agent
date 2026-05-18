@@ -5,7 +5,7 @@ import { InfoTable } from "@/components/ui/info-table";
 import { PPC_P_LOWER, PPC_P_UPPER } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 import { buildHistogram } from "@/lib/utils/histogram";
-import type { PPCOverlay, PPCTestStat, PPCWarning } from "@causal-ssm/api-types";
+import type { PPCOverlay, PPCTestStat, PPCWarning } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import {
   Area,

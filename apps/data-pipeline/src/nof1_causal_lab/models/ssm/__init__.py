@@ -7,8 +7,8 @@ This module implements Bayesian state-space models with:
 - Automatic reparameterization via AutoReparam
 """
 
-from causal_ssm_agent.models.ssm.autoreparam import AutoReparam, MinimalReparam, Strategy
-from causal_ssm_agent.models.ssm.discretization import (
+from nof1_causal_lab.models.ssm.autoreparam import AutoReparam, MinimalReparam, Strategy
+from nof1_causal_lab.models.ssm.discretization import (
     compute_asymptotic_diffusion,
     compute_discrete_cint,
     compute_discrete_diffusion,
@@ -19,8 +19,8 @@ from causal_ssm_agent.models.ssm.discretization import (
     discretize_system_with_inputs_batched,
     solve_lyapunov,
 )
-from causal_ssm_agent.models.ssm.inference import InferenceMethod, InferenceResult, fit
-from causal_ssm_agent.models.ssm.model import (
+from nof1_causal_lab.models.ssm.inference import InferenceMethod, InferenceResult, fit
+from nof1_causal_lab.models.ssm.model import (
     SSMModel,
     SSMPriors,
     SSMSpec,
@@ -34,7 +34,7 @@ from causal_ssm_agent.models.ssm.model import (
     zero_square_mask,
     zero_vector_mask,
 )
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 __all__ = [
     # Discretization

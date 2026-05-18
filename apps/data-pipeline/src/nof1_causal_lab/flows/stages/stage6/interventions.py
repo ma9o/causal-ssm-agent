@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING
 
 from prefect import task
 
-from causal_ssm_agent.flows import get_prefect_logger
+from nof1_causal_lab.flows import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.inference import FittedArtifact
+    from nof1_causal_lab.models.ssm.inference import FittedArtifact
 
 
 @task(result_serializer="json")
@@ -22,7 +22,7 @@ def run_interventions(
     causal_spec: dict | None = None,
 ) -> list[dict]:
     """Run do-operator interventions and rank treatments by effect size."""
-    from causal_ssm_agent.models.ssm.counterfactual import compute_interventions
+    from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
 
     logger.info(
         "Running interventions: treatments=%d outcome=%s fitted=%s",

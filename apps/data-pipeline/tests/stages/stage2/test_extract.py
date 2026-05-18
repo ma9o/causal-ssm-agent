@@ -7,7 +7,7 @@ from typing import Any
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows.stages.stage2 import flow as stage2_extract
+from nof1_causal_lab.flows.stages.stage2 import flow as stage2_extract
 from tests.helpers import run_async as _run
 
 
@@ -105,11 +105,11 @@ def test_collect_batch_results_records_failures(monkeypatch):
 
 
 def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, caplog):
-    import causal_ssm_agent.utils.causal_spec as causal_spec_mod
-    import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.workers.core as worker_core
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
-    from causal_ssm_agent.utils.config import (
+    import nof1_causal_lab.utils.causal_spec as causal_spec_mod
+    import nof1_causal_lab.utils.config as config_mod
+    import nof1_causal_lab.workers.core as worker_core
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.config import (
         ClaudeCodeDefaults,
         CodexDefaults,
         EmbeddedLLMDefaults,
@@ -199,10 +199,10 @@ def test_extract_window_chunk_task_uses_stage2_generate_config(monkeypatch, capl
 
 
 def test_extract_window_chunk_task_emits_running_stage2_worker_and_snapshot_events(monkeypatch):
-    import causal_ssm_agent.utils.causal_spec as causal_spec_mod
-    import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.workers.core as worker_core
-    from causal_ssm_agent.utils.config import (
+    import nof1_causal_lab.utils.causal_spec as causal_spec_mod
+    import nof1_causal_lab.utils.config as config_mod
+    import nof1_causal_lab.workers.core as worker_core
+    from nof1_causal_lab.utils.config import (
         ClaudeCodeDefaults,
         CodexDefaults,
         EmbeddedLLMDefaults,
@@ -341,8 +341,8 @@ def test_project_missing_columns_warns(caplog):
 def test_run_stage2_extraction_core_accepts_injected_semantic_chunk_runner(
     monkeypatch,
 ):
-    import causal_ssm_agent.utils.data as data_mod
-    import causal_ssm_agent.workers.windows as windows_mod
+    import nof1_causal_lab.utils.data as data_mod
+    import nof1_causal_lab.workers.windows as windows_mod
 
     raw_df = pl.DataFrame(
         {
@@ -546,9 +546,9 @@ def test_run_semantic_chunks_prefect_emits_stage2_plan_worker_and_snapshot_event
 def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_window(
     monkeypatch, tmp_path
 ):
-    import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.utils.data as data_mod
-    import causal_ssm_agent.workers.windows as windows_mod
+    import nof1_causal_lab.utils.config as config_mod
+    import nof1_causal_lab.utils.data as data_mod
+    import nof1_causal_lab.workers.windows as windows_mod
 
     raw_df = pl.DataFrame(
         {
@@ -643,8 +643,8 @@ def test_stage2_extraction_flow_buckets_semantic_indicators_by_observation_windo
 def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_support_window(
     monkeypatch, tmp_path
 ):
-    import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.workers.windows as windows_mod
+    import nof1_causal_lab.utils.config as config_mod
+    import nof1_causal_lab.workers.windows as windows_mod
 
     raw_df = pl.DataFrame(
         {
@@ -748,8 +748,8 @@ def test_stage2_extraction_flow_annotates_medical_imaging_monthly_summary_suppor
 def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observation_rows(
     monkeypatch, tmp_path
 ):
-    import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.workers.windows as windows_mod
+    import nof1_causal_lab.utils.config as config_mod
+    import nof1_causal_lab.workers.windows as windows_mod
 
     raw_df = pl.DataFrame(
         {
@@ -872,8 +872,8 @@ def test_stage2_extraction_flow_annotates_semantic_rows_into_canonical_observati
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
 def test_stage2_extraction_flow_merges_computed_rule_rows_with_semantic_rows(monkeypatch, tmp_path):
-    import causal_ssm_agent.utils.config as config_mod
-    import causal_ssm_agent.workers.windows as windows_mod
+    import nof1_causal_lab.utils.config as config_mod
+    import nof1_causal_lab.workers.windows as windows_mod
 
     raw_df = pl.DataFrame(
         {

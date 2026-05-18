@@ -1,5 +1,5 @@
 {
-  "name": "@causal-ssm/typescript-config",
+  "name": "@nof1-causal-lab/typescript-config",
   "license": "Apache-2.0",
   "private": true,
   "files": ["base.json", "nextjs.json"]

@@ -12,7 +12,7 @@ PREFECT_PORT=4200
 TOOL_PORT=8100
 WEB_PORT=3000
 PREFECT_API_URL="http://localhost:${PREFECT_PORT}/api"
-PREFECT_DB_PATH="/tmp/causal-ssm-agent-prefect.db"
+PREFECT_DB_PATH="/tmp/nof1-causal-lab-prefect.db"
 
 START_TIMEOUT_SECONDS="${START_TIMEOUT_SECONDS:-90}"
 POLL_INTERVAL_SECONDS=1
@@ -157,28 +157,28 @@ web_log="$LOG_DIR/web.log"
 require_port_free "$PREFECT_PORT" "Prefect server"
 require_port_free "$TOOL_PORT" "Tool server"
 require_port_free "$WEB_PORT" "Next.js dev server"
-require_process_absent "python -m causal_ssm_agent\\.flows\\.pipeline" "Pipeline deployment process"
+require_process_absent "python -m nof1_causal_lab\\.flows\\.pipeline" "Pipeline deployment process"
 
 rm -f "$PREFECT_DB_PATH" "$PREFECT_DB_PATH-shm" "$PREFECT_DB_PATH-wal"
 start_process \
   "prefect" \
   "$REPO_ROOT/apps/data-pipeline" \
   "$prefect_log" \
-  "PREFECT_SERVER_DATABASE_CONNECTION_URL='sqlite+aiosqlite:////tmp/causal-ssm-agent-prefect.db' uv run prefect server start"
+  "PREFECT_SERVER_DATABASE_CONNECTION_URL='sqlite+aiosqlite:////tmp/nof1-causal-lab-prefect.db' uv run prefect server start"
 wait_for_http "$PREFECT_API_URL/health" "Prefect server"
 
 start_process \
   "pipeline" \
   "$REPO_ROOT/apps/data-pipeline" \
   "$pipeline_log" \
-  "PREFECT_API_URL='$PREFECT_API_URL' uv run python -m causal_ssm_agent.flows.pipeline"
+  "PREFECT_API_URL='$PREFECT_API_URL' uv run python -m nof1_causal_lab.flows.pipeline"
 wait_for_deployment
 
 start_process \
   "tool-server" \
   "$REPO_ROOT/apps/data-pipeline" \
   "$tool_log" \
-  "uv run uvicorn causal_ssm_agent.tool_server:app --port $TOOL_PORT"
+  "uv run uvicorn nof1_causal_lab.tool_server:app --port $TOOL_PORT"
 wait_for_http "http://localhost:${TOOL_PORT}/api/tools/docs" "tool server"
 
 start_process \

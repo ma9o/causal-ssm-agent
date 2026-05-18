@@ -10,15 +10,15 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_support_kind_codes,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 _DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM = 160
 

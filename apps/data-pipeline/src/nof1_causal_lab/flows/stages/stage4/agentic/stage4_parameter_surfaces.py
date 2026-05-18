@@ -6,13 +6,13 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-from causal_ssm_agent.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.model_spec import (
     InitializationPolicy,
     ObservationInterceptPolicy,
 )
-from causal_ssm_agent.models.model_semantics import indicator_requires_observation_intercept
-from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
-from causal_ssm_agent.utils.causal_spec import get_estimation_edges
+from nof1_causal_lab.models.model_semantics import indicator_requires_observation_intercept
+from nof1_causal_lab.models.ssm_spec_translation import get_construct_dt_days
+from nof1_causal_lab.utils.causal_spec import get_estimation_edges
 
 if TYPE_CHECKING:
     from .stage4_skeleton import Stage4Skeleton

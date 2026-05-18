@@ -1,7 +1,7 @@
 import { DataSummaryStats } from "@/components/stages/preprocess/data-summary-stats";
 import { DataTable } from "@/components/ui/data-table";
 import { ExploreDataframeButton } from "@/components/ui/explore-dataframe-button";
-import type { Stage0Data } from "@causal-ssm/api-types";
+import type { Stage0Data } from "@nof1-causal-lab/api-types";
 import { useMemo } from "react";
 
 export default function Stage0Content({

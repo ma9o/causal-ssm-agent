@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     format_prior_distribution_name_list,
 )

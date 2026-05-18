@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.stages.stage3.checks import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.stages.stage3.checks import (
     MIN_OBSERVATIONS,
     OBSERVATION_TIME_COLUMN,
     check_construct_correlations,

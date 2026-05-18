@@ -7,9 +7,9 @@ import jax.numpy as jnp
 import polars as pl
 from prefect import task
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.stage4_compile_cache import restore_stage4_compile_cache
-from causal_ssm_agent.models.ssm_builder import PreparedModelRuntime, prepare_model_runtime
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.stage4_compile_cache import restore_stage4_compile_cache
+from nof1_causal_lab.models.ssm_builder import PreparedModelRuntime, prepare_model_runtime
 
 logger = get_prefect_logger(__name__)
 
@@ -237,7 +237,7 @@ def run_power_scaling(fitted_result: dict) -> dict:
     Returns:
         Dict with power-scaling diagnostics
     """
-    from causal_ssm_agent.models.ssm.diagnostics import power_scaling_sensitivity
+    from nof1_causal_lab.models.ssm.diagnostics import power_scaling_sensitivity
 
     if not fitted_result.get("fitted", False):
         return {"checked": False, "error": "Model not fitted"}
@@ -299,7 +299,7 @@ def run_ppc(fitted_result: dict) -> dict:
     Returns:
         Dict with PPC diagnostics (PPCResult.model_dump())
     """
-    from causal_ssm_agent.models.posterior_predictive import run_posterior_predictive_checks
+    from nof1_causal_lab.models.posterior_predictive import run_posterior_predictive_checks
 
     if not fitted_result.get("fitted", False):
         return {"checked": False, "per_variable_warnings": []}

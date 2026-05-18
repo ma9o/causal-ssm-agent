@@ -1,4 +1,4 @@
-import type { Indicator, Stage4Data } from "@causal-ssm/api-types";
+import type { Indicator, Stage4Data } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 
 import { collectStage4ObservationPriorTerms, collectStage4UiPriors } from "./stage4-data";

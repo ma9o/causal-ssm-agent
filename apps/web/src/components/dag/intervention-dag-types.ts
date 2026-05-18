@@ -1,7 +1,7 @@
 import type {
   SimulateCounterfactualResult,
   SimulateInterventionResult,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 
 export interface EdgePosterior {
   mean: number;

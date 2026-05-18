@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.openrouter_client import Tool, tool
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils.openrouter_client import Tool, tool
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -133,7 +133,7 @@ class ModalCodeSandbox:
         import modal
 
         image = _make_sandbox_image()
-        app = modal.App.lookup("causal-ssm-stage0", create_if_missing=True)
+        app = modal.App.lookup("nof1-causal-lab-stage0", create_if_missing=True)
 
         self._sandbox = modal.Sandbox.create(
             image=image,

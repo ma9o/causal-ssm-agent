@@ -14,15 +14,15 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
         Stage4FrontierBlock,
         Stage4Plan,
     )
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import (
         Stage4RepairCampaignState,
         Stage4Runtime,
     )
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
 
 def classify_validation_outcome(

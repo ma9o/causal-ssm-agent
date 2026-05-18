@@ -11,8 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils import storage
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils import storage
 
 from .run_store import (
     STAGE2_MODEL_PARQUET_FILENAMES,
@@ -102,7 +102,7 @@ def _archive_exists(workspace_id: str) -> bool:
 
 
 def _jax_persistent_cache_dir() -> Path:
-    cache_dir = Path.home() / ".cache" / "causal-ssm-agent" / "jax"
+    cache_dir = Path.home() / ".cache" / "nof1-causal-lab" / "jax"
     override = os.getenv("JAX_COMPILATION_CACHE_DIR")
     if isinstance(override, str) and override:
         cache_dir = Path(override)
@@ -199,7 +199,7 @@ def dispatch_stage4_model_compile_warmup(
     if not storage.is_remote():
         return None
 
-    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact_with_default_priors
+    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact_with_default_priors
 
     warmup_artifact = compile_ssm_artifact_with_default_priors(model_spec, causal_spec=causal_spec)
     topology_fingerprint = compiled_ssm_topology_fingerprint(warmup_artifact)
@@ -216,7 +216,7 @@ def dispatch_stage4_model_compile_warmup(
         _build_metadata(status="pending", topology_fingerprint=topology_fingerprint),
     )
 
-    from causal_ssm_agent.flows.modal_runners import spawn_stage4_model_compile_warmup
+    from nof1_causal_lab.flows.modal_runners import spawn_stage4_model_compile_warmup
 
     function_call_id = spawn_stage4_model_compile_warmup(
         workspace_id=workspace_id,
@@ -245,7 +245,7 @@ def warm_stage4_compile_cache_artifact(
     topology_fingerprint: str,
 ) -> dict[str, Any]:
     """Build and persist the Stage 4 compile-cache sidecar on a Modal A100 worker."""
-    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact_with_default_priors
+    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact_with_default_priors
 
     try:
         compiled_ssm = compile_ssm_artifact_with_default_priors(
@@ -285,8 +285,8 @@ def _warm_compiled_ssm_runtime(compiled_ssm: dict[str, Any], data_for_model: Any
     import jax
     import jax.numpy as jnp
 
-    from causal_ssm_agent.models.ssm.diagnostics import get_stage4b_sweep_context
-    from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
+    from nof1_causal_lab.models.ssm.diagnostics import get_stage4b_sweep_context
+    from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
 
     runtime = prepare_model_runtime(data_for_model=data_for_model, compiled_ssm=compiled_ssm)
     context = get_stage4b_sweep_context(runtime.model)

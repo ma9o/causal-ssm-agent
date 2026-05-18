@@ -1,4 +1,4 @@
-import type { Stage4Data } from "@causal-ssm/api-types";
+import type { Stage4Data } from "@nof1-causal-lab/api-types";
 import type { ModelMessage } from "ai";
 import { isRecord } from "@/lib/utils/type-guards";
 

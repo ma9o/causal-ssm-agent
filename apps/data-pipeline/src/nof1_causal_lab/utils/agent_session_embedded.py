@@ -11,8 +11,8 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.utils.agent_session import AgentResult, TurnResult
-from causal_ssm_agent.utils.llm import (
+from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
+from nof1_causal_lab.utils.llm import (
     DEFAULT_MAX_TOOL_LOOP_TURNS,
     _build_trace,
     _call_model_with_tool_repair,
@@ -25,7 +25,7 @@ from causal_ssm_agent.utils.llm import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from causal_ssm_agent.utils.openrouter_client import GenerateConfig, Tool
+    from nof1_causal_lab.utils.openrouter_client import GenerateConfig, Tool
 
 
 class EmbeddedSession:
@@ -143,7 +143,7 @@ async def open_embedded_session(
     max_tool_turns: int = DEFAULT_MAX_TOOL_LOOP_TURNS,
 ) -> AsyncIterator[EmbeddedSession]:
     """Open an embedded ``AgentSession`` scoped to an ``async with`` block."""
-    from causal_ssm_agent.utils.config import ensure_harness_prereqs
+    from nof1_causal_lab.utils.config import ensure_harness_prereqs
 
     ensure_harness_prereqs("none")
     session = EmbeddedSession(

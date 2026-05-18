@@ -7,9 +7,9 @@ Graph analysis and partition tests live in test_graph_analysis.py.
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.models.ssm.model import SSMSpec
-from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.ssm.model import SSMSpec
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 from tests.ssm_test_utils import make_ssm_spec
 
 # =============================================================================
@@ -75,8 +75,8 @@ class TestMakeLikelihoodBackend:
 
     def test_creates_composed_for_mixed_separable(self):
         """Mixed separable spec -> ComposedLikelihood."""
-        from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
-        from causal_ssm_agent.models.ssm.model import SSMModel
+        from nof1_causal_lab.models.ssm.inference.targets.composed import ComposedLikelihood
+        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         model = SSMModel(spec=spec)
@@ -85,9 +85,9 @@ class TestMakeLikelihoodBackend:
 
     def test_first_pass_rb_false_skips_analysis(self):
         """first_pass_rb=False -> no ComposedLikelihood, just ParticleLikelihood."""
-        from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
-        from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
-        from causal_ssm_agent.models.ssm.model import SSMModel
+        from nof1_causal_lab.models.ssm.inference.targets.composed import ComposedLikelihood
+        from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
+        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         # Override first_pass_rb
@@ -112,7 +112,7 @@ class TestMakeLikelihoodBackend:
 
     def test_second_pass_rb_false_forces_bootstrap(self):
         """second_pass_rb=False -> ParticleLikelihood with block_rb=False."""
-        from causal_ssm_agent.models.ssm.model import SSMModel
+        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         spec = make_ssm_spec(
@@ -133,7 +133,7 @@ class TestMakeLikelihoodBackend:
         backend = model.make_likelihood_backend()
         # Should still create composed (first pass is on) but particle sub-backend
         # has block_rb=False
-        from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
+        from nof1_causal_lab.models.ssm.inference.targets.composed import ComposedLikelihood
 
         assert isinstance(backend, ComposedLikelihood)
         # The particle sub-backend should not use block RBPF
@@ -141,8 +141,8 @@ class TestMakeLikelihoodBackend:
 
     def test_both_toggles_off_pure_bootstrap(self):
         """Both toggles off -> pure bootstrap PF."""
-        from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
-        from causal_ssm_agent.models.ssm.model import SSMModel
+        from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
+        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         spec = make_ssm_spec(
@@ -169,8 +169,8 @@ class TestMakeLikelihoodBackend:
 
     def test_kalman_override_bypasses_analysis(self):
         """likelihood="kalman" bypasses first-pass analysis entirely."""
-        from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
-        from causal_ssm_agent.models.ssm.model import SSMModel
+        from nof1_causal_lab.models.ssm.inference.targets.kalman import KalmanLikelihood
+        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         model = SSMModel(spec=spec, likelihood="kalman")
@@ -179,9 +179,9 @@ class TestMakeLikelihoodBackend:
 
     def test_non_point_support_disables_first_pass_rb_and_uses_full_particle(self):
         """Interval-summary support should bypass composed/RB dispatch."""
-        from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
-        from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
-        from causal_ssm_agent.models.ssm.model import SSMModel
+        from nof1_causal_lab.models.ssm.inference.targets.composed import ComposedLikelihood
+        from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
+        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = _make_separable_spec(n_g=2, n_s=1, n_obs_g=2, n_obs_s=1)
         support = ObservationSupportRuntime(

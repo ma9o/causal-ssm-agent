@@ -3,9 +3,9 @@
 import jax.numpy as jnp
 import pytest
 
-from causal_ssm_agent.models.ssm.model import SSMPriors
-from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
-from causal_ssm_agent.models.ssm.prior_predictive_runtime import (
+from nof1_causal_lab.models.ssm.model import SSMPriors
+from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
+from nof1_causal_lab.models.ssm.prior_predictive_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
 from tests.models.ssm._support import complex_mixed_runtime_spec

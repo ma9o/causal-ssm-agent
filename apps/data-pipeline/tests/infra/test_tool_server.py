@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import pytest
 from fastapi.testclient import TestClient
 
-import causal_ssm_agent.tool_server as tool_server
+import nof1_causal_lab.tool_server as tool_server
 
 
 def test_execute_tool_rejects_invalid_input_before_invoking_tool(monkeypatch):
@@ -89,7 +89,7 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
 
 
 def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch):
-    import causal_ssm_agent.flows.run_store as run_store
+    import nof1_causal_lab.flows.run_store as run_store
 
     spec = SimpleNamespace(
         latent_names=["screen_time", "sleep_quality"], manifest_names=["sleep_obs"]
@@ -150,10 +150,10 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
 
 
 def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypatch):
-    import causal_ssm_agent.flows.run_store as run_store
-    import causal_ssm_agent.flows.stages.stage4.grounding as stage4_grounding_module
-    import causal_ssm_agent.flows.stages.stage4.tool_registry as stage4_tool_registry
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+    import nof1_causal_lab.flows.run_store as run_store
+    import nof1_causal_lab.flows.stages.stage4.grounding as stage4_grounding_module
+    import nof1_causal_lab.flows.stages.stage4.tool_registry as stage4_tool_registry
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
         make_stage4_grounding_result,
     )
 

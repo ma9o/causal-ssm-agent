@@ -11,7 +11,7 @@ import polars as pl
 
 class TestAnnotateObservationRows:
     def test_adds_observation_metadata_from_indicator_specs(self):
-        from causal_ssm_agent.utils.data import annotate_observation_rows
+        from nof1_causal_lab.utils.data import annotate_observation_rows
 
         raw = pl.DataFrame(
             {
@@ -44,7 +44,7 @@ class TestAnnotateObservationRows:
         assert annotated["support_end"][0] == "2024-01-02T00:00:00"
 
     def test_uses_indicator_specific_observation_window_when_present(self):
-        from causal_ssm_agent.utils.data import annotate_observation_rows
+        from nof1_causal_lab.utils.data import annotate_observation_rows
 
         raw = pl.DataFrame(
             {
@@ -76,7 +76,7 @@ class TestAnnotateObservationRows:
         assert annotated["support_end"][0] == "2024-02-01T00:00:00"
 
     def test_point_last_observations_anchor_at_window_end(self):
-        from causal_ssm_agent.utils.data import annotate_observation_rows
+        from nof1_causal_lab.utils.data import annotate_observation_rows
 
         raw = pl.DataFrame(
             {
@@ -118,7 +118,7 @@ class TestPivotToWide:
                 "value": [10.0, 20.0, 30.0, 40.0],
             }
         )
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         wide = pivot_to_wide(df)
         assert "time" in wide.columns
@@ -128,7 +128,7 @@ class TestPivotToWide:
 
     def test_empty_dataframe(self):
         """Empty input returns empty output."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame({"anchor_time": [], "indicator": [], "value": []})
         result = pivot_to_wide(df)
@@ -136,7 +136,7 @@ class TestPivotToWide:
 
     def test_anchor_time_column(self):
         """Uses anchor_time as the canonical observation time."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -150,7 +150,7 @@ class TestPivotToWide:
 
     def test_datetime_to_fractional_days(self):
         """Datetime timestamps are converted to fractional days from t0."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         t0 = datetime(2024, 1, 1)
         t1 = t0 + timedelta(days=1)
@@ -171,7 +171,7 @@ class TestPivotToWide:
 
     def test_sorted_by_time(self):
         """Output should be sorted by time."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -186,7 +186,7 @@ class TestPivotToWide:
 
     def test_missing_values_as_null(self):
         """Indicators without values at certain times should be null."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -202,7 +202,7 @@ class TestPivotToWide:
 
     def test_string_timestamps_parsed(self):
         """String timestamps should be parsed to datetime."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -219,7 +219,7 @@ class TestPivotToWide:
 
     def test_string_values_cast_to_float(self):
         """String values should be cast to Float64."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -234,7 +234,7 @@ class TestPivotToWide:
 
     def test_duplicate_values_aggregated_with_mean(self):
         """Multiple values at same time for same indicator should be averaged."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -251,7 +251,7 @@ class TestPivotToWide:
 
     def test_single_indicator(self):
         """Minimal case with just one indicator."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -273,7 +273,7 @@ class TestPivotToWideSparsity:
         """Sparse multi-granularity data triggers a warning."""
         import logging
 
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         rows = []
         for h in range(24):
@@ -282,9 +282,9 @@ class TestPivotToWideSparsity:
         rows.append({"indicator": "daily_c", "value": 9.0, "anchor_time": 0})
 
         raw = pl.DataFrame(rows)
-        logger = logging.getLogger("causal_ssm_agent.utils.data")
+        logger = logging.getLogger("nof1_causal_lab.utils.data")
         logger.propagate = True
-        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.utils.data"):
+        with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.utils.data"):
             wide = pivot_to_wide(raw)
 
         assert wide.height == 24
@@ -294,7 +294,7 @@ class TestPivotToWideSparsity:
         """Complete data should not trigger sparsity warning."""
         import logging
 
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         rows = []
         for t in range(10):
@@ -302,7 +302,7 @@ class TestPivotToWideSparsity:
             rows.append({"indicator": "B", "value": float(t * 2), "anchor_time": t})
 
         raw = pl.DataFrame(rows)
-        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.utils.data"):
+        with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.utils.data"):
             pivot_to_wide(raw)
 
         assert not any("Sparse" in msg for msg in caplog.messages)
@@ -311,7 +311,7 @@ class TestPivotToWideSparsity:
 class TestPivotToWideTimezoneStrings:
     def test_utc_string_timestamps_parsed(self):
         """UTC timestamps with timezone suffix should parse to fractional days."""
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         df = pl.DataFrame(
             {

@@ -1,7 +1,7 @@
 "use client";
 
-import { STAGE_IDS } from "@causal-ssm/api-types";
-import type { StageId } from "@causal-ssm/api-types";
+import { STAGE_IDS } from "@nof1-causal-lab/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import type { RefinementUIMessage } from "@/lib/utils/trace-to-core";
 import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from "react";
 

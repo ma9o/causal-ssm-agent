@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING, NamedTuple
 import jax
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from causal_ssm_agent.models.ssm.inference.targets.kernels import ObservationKernel
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.inference.targets.kernels import ObservationKernel
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 _POINT_SUPPORT_CODE = 0
 _INTERVAL_SUPPORT_CODE = 1

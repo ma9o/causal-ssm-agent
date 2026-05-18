@@ -1,5 +1,5 @@
 import type { Meta } from "@storybook/nextjs-vite";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { normalizeStage3Data } from "@/components/stages/validation/__fixtures__/normalize-stage3";
 import {
   createCompletedStageStory,

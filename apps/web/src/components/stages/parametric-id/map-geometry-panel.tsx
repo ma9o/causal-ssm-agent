@@ -12,7 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
 import { formatNumber } from "@/lib/utils/format";
-import type { Stage4bData } from "@causal-ssm/api-types";
+import type { Stage4bData } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import type { ReactNode } from "react";

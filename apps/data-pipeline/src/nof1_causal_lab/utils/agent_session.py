@@ -8,10 +8,10 @@ each turn's assistant output.
 Two backends are supported:
 
 * Embedded: calls OpenRouter directly via ``call_model``/``execute_tools``
-  (see :mod:`causal_ssm_agent.utils.agent_session_embedded`).
+  (see :mod:`nof1_causal_lab.utils.agent_session_embedded`).
 * Harness: spawns an external agent CLI such as ``claude -p`` or
   ``codex exec`` and exposes tools over an in-process MCP server
-  (see :mod:`causal_ssm_agent.utils.harness`).
+  (see :mod:`nof1_causal_lab.utils.harness`).
 
 Stages don't talk to those modules directly: they receive a
 :class:`StageSessionFactory` that already knows the stage's
@@ -26,13 +26,13 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
-from causal_ssm_agent.utils.llm import LLMTrace, _merge_trace
+from nof1_causal_lab.utils.llm import LLMTrace, _merge_trace
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from causal_ssm_agent.utils.config import LLMDefaults, StageLLMConfig
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
 
 @dataclass
@@ -103,7 +103,7 @@ class StageSessionFactory:
         log_label: str | None = None,
     ) -> AsyncIterator[AgentSession]:
         """Open a backend-appropriate :class:`AgentSession`."""
-        from causal_ssm_agent.utils.agent_session_factory import open_session
+        from nof1_causal_lab.utils.agent_session_factory import open_session
 
         async with open_session(
             self._stage_llm,

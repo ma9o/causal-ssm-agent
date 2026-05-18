@@ -1,7 +1,7 @@
 "use client";
 
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { StageMeta, StageOutcome } from "@causal-ssm/api-types";
+import type { StageMeta, StageOutcome } from "@nof1-causal-lab/api-types";
 import type { ReactNode } from "react";
 import { StageSection } from "./stage-section";
 import { StageWithTrace, StageWithTraceView } from "./stage-with-trace";

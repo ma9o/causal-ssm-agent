@@ -16,11 +16,11 @@ import jax.scipy.linalg as jla
 import jax.scipy.special
 import jax.scipy.stats as jstats
 
-from causal_ssm_agent.models.ssm.covariance_utils import (
+from nof1_causal_lab.models.ssm.covariance_utils import (
     inflate_missing_variance,
     symmetrize_with_jitter,
 )
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     MISSING_DATA_LARGE_VAR,
     NUMERICAL_EPSILON,
     PROB_CLIP_MIN,
@@ -495,7 +495,7 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
     semantics where the mean is aggregated over a support window after applying
     the link function.
     """
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
 
     extra_params = extra_params or {}
     dist = DistributionFamily(manifest_dist)
@@ -585,7 +585,7 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
 
 def get_mean_param_sample_fn(manifest_dist, extra_params=None):
     """Return a sampler operating directly in observation mean-parameter space."""
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
 
     extra_params = extra_params or {}
     dist = DistributionFamily(manifest_dist)
@@ -700,7 +700,7 @@ def build_composite_mean_log_prob_fn(
     extra_params: dict | None = None,
 ):
     """Build an observation-space log-prob for heterogeneous manifest families."""
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
 
     dists = [DistributionFamily(dist) for dist in manifest_dists]
     if len(set(dists)) == 1:
@@ -743,7 +743,7 @@ def build_composite_mean_sample_fn(
     extra_params: dict | None = None,
 ):
     """Build an observation-space sampler for heterogeneous manifest families."""
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
 
     dists = [DistributionFamily(dist) for dist in manifest_dists]
     if len(set(dists)) == 1:

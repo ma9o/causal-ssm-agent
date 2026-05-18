@@ -1,7 +1,7 @@
 """Correctness tests for the parallel-in-time Kalman filter/sampler.
 
 These tests verify that the associative-scan parallel filter in
-:mod:`causal_ssm_agent.models.ssm.inference.parallel_kalman` matches a plain
+:mod:`nof1_causal_lab.models.ssm.inference.parallel_kalman` matches a plain
 sequential Kalman filter to numerical precision on the three observation
 paths exercised by ``gibbs``:
 
@@ -28,8 +28,8 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.inference.parallel_kalman import (
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     aux_filter_lgssm,
     filter_lgssm,
     sample_lgssm_trajectory,
@@ -165,24 +165,24 @@ def test_filter_matches_sequential_interval_summary():
     """Augmented-state LGSSM produced by ``build_linear_summary_augmented_system``."""
     import sys
 
-    from causal_ssm_agent.models.ssm.constants import MIN_DT
-    from causal_ssm_agent.models.ssm.inference.targets.laplace.shared import (
+    from nof1_causal_lab.models.ssm.constants import MIN_DT
+    from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
         _build_linear_summary_accumulator_plan,
     )
-    from causal_ssm_agent.models.ssm.inference.targets.linear_summary_augmentation import (
+    from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
         build_linear_summary_augmented_system,
     )
-    from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+    from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         get_support_kind_codes,
     )
 
     sys.path.insert(
         0,
-        "/Users/ma9o/Desktop/causal-ssm-agent/trees/main/apps/data-pipeline/scripts",
+        "/Users/ma9o/Desktop/nof1-causal-lab/trees/main/apps/data-pipeline/scripts",
     )
     from run_map_mixed_support_recovery import _make_mixed_support_recovery_data
 
-    from causal_ssm_agent.artifacts import LinkFunction
+    from nof1_causal_lab.artifacts import LinkFunction
 
     data = _make_mixed_support_recovery_data(n_time=12)
     spec = data["spec"]

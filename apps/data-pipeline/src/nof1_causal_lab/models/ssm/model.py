@@ -20,41 +20,41 @@ import numpyro
 import numpyro.distributions as dist
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_kind_from_index,
     get_real_runtime_kind_from_index,
 )
-from causal_ssm_agent.models.ssm.constants import MIN_DT
-from causal_ssm_agent.models.ssm.covariance_utils import (
+from nof1_causal_lab.models.ssm.constants import MIN_DT
+from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stabilize_covariance_for_cholesky,
 )
-from causal_ssm_agent.models.ssm.inference.backend_factory import (
+from nof1_causal_lab.models.ssm.inference.backend_factory import (
     build_laplace_backend,
     make_likelihood_backend,
 )
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
 )
-from causal_ssm_agent.models.ssm.likelihood_extra_params import (
+from nof1_causal_lab.models.ssm.likelihood_extra_params import (
     assemble_sampled_extra_params,
 )
-from causal_ssm_agent.models.ssm.parameterization import (
+from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     build_prior_runtime_bundle,
     build_site_prior_distribution,
 )
-from causal_ssm_agent.models.ssm.priors import SSMPriors
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.priors import SSMPriors
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 
 @jax.custom_vjp
@@ -1035,7 +1035,7 @@ class SSMModel:
                     self._prior_distribution("obs_cat_slopes"),
                 )
 
-        from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+        from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import (
             has_student_t_diffusion,
         )
 

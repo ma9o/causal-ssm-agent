@@ -11,14 +11,14 @@ import json
 
 import pytest
 
-from causal_ssm_agent.artifacts import CausalSpec
-from causal_ssm_agent.flows.stages.stage1b.flow import build_causal_spec
-from causal_ssm_agent.flows.stages.stage1b.run import (
+from nof1_causal_lab.artifacts import CausalSpec
+from nof1_causal_lab.flows.stages.stage1b.flow import build_causal_spec
+from nof1_causal_lab.flows.stages.stage1b.run import (
     Stage1bResult,
     run_stage1b,
 )
-from causal_ssm_agent.models.ssm_compiler import trial_compile_measurement_model
-from causal_ssm_agent.utils.causal_spec import get_outcome_name
+from nof1_causal_lab.models.ssm_compiler import trial_compile_measurement_model
+from nof1_causal_lab.utils.causal_spec import get_outcome_name
 from tests.helpers import make_mock_session_factory
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -143,7 +143,7 @@ class TestStage1bGrounding:
 
     def test_valid_identifiable(self, stage1b_simple_latent, stage1b_measurement_all_observed):
         """Valid + identifiable returns VALID feedback and stage_output."""
-        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+        from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
             stage1b_measurement_all_observed, stage1b_simple_latent
@@ -157,7 +157,7 @@ class TestStage1bGrounding:
         self, stage1b_confounded_latent, stage1b_measurement_all_observed
     ):
         """Valid but not identifiable returns stage_output with identifiability feedback."""
-        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+        from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
             stage1b_measurement_all_observed, stage1b_confounded_latent
@@ -172,7 +172,7 @@ class TestStage1bGrounding:
 
     def test_lagged_time_varying_query_uses_prior_timestep(self):
         """Lagged X->Y effects are checked as X_{t-1}->Y_t, not X_t->Y_t."""
-        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+        from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
         latent_model = {
             "constructs": [
@@ -252,7 +252,7 @@ class TestStage1bGrounding:
 
     def test_invalid_schema(self, stage1b_simple_latent):
         """Invalid schema returns None stage_output."""
-        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+        from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
         output, feedback = stage1b_grounding(
             {"indicators": [{"bad": "data"}]}, stage1b_simple_latent
@@ -263,7 +263,7 @@ class TestStage1bGrounding:
 
     def test_drops_unmeasured_constructs_from_estimation_projection(self, monkeypatch):
         """Latent-only constructs should not remain in the executable state vector."""
-        from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+        from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
         latent_model = {
             "constructs": [
@@ -323,7 +323,7 @@ class TestStage1bGrounding:
         }
 
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.identifiability.check_identifiability",
+            "nof1_causal_lab.utils.identifiability.check_identifiability",
             lambda *_args, **_kwargs: {
                 "identifiable_treatments": {},
                 "non_identifiable_treatments": {},

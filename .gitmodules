@@ -1,4 +1,4 @@
 [submodule "data/.private"]
 	path = data/.private
-	url = https://github.com/ma9o/causal-ssm-agent-test-data.git
+	url = https://github.com/ma9o/nof1-causal-lab-test-data.git
 	branch = main

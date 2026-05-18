@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 import pytest
 
-from causal_ssm_agent.models.ssm.inference.targets.emissions import (
+from nof1_causal_lab.models.ssm.inference.targets.emissions import (
     emission_log_prob_bernoulli,
     emission_log_prob_bernoulli_probit,
     emission_log_prob_beta,
@@ -23,7 +23,7 @@ from causal_ssm_agent.models.ssm.inference.targets.emissions import (
     emission_log_prob_student_t,
     get_mean_param_log_prob_fn,
 )
-from causal_ssm_agent.models.ssm.inference.targets.observation_dispatch import get_emission_fn
+from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import get_emission_fn
 
 # =============================================================================
 # Helpers

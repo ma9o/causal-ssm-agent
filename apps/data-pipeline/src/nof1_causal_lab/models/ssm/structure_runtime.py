@@ -17,12 +17,12 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize
 
 if TYPE_CHECKING:
     import numpy as np
 
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 def lower_triangle_positions(

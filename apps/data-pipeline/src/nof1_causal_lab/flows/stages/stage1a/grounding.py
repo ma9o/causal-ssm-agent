@@ -3,7 +3,7 @@
 
 def stage1a_grounding(data: dict) -> tuple[dict | None, str]:
     """Validate latent model."""
-    from causal_ssm_agent.artifacts.latent_model import validate_latent_model
+    from nof1_causal_lab.artifacts.latent_model import validate_latent_model
 
     _result, errors = validate_latent_model(data)
     if errors:

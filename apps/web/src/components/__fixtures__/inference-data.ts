@@ -1,4 +1,4 @@
-import type { Stage5aData, Stage5bData } from "@causal-ssm/api-types";
+import type { Stage5aData, Stage5bData } from "@nof1-causal-lab/api-types";
 import stage5aFixture from "../../../../../data/DEMO_HEALTH/run/stage-5a.json";
 import stage5bFixture from "../../../../../data/DEMO_HEALTH/run/stage-5b.json";
 import stage5bAuxGibbsFixture from "../../../../../data/DEMO_HEALTH/run/stage-5b-aux-gibbs.json";

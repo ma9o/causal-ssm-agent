@@ -8,18 +8,18 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import scipy.linalg
 
-from causal_ssm_agent.artifacts.duration import parse_duration_to_hours
-from causal_ssm_agent.artifacts.model_spec import ModelSpec, ParameterRole
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.artifacts.model_spec import ModelSpec, ParameterRole
+from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_family_index,
 )
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
-from causal_ssm_agent.models.ssm.priors import SSMPriors
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.models.ssm_compilation_common import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.priors import SSMPriors
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm_compilation_common import (
     SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
     axis_names_with_fallback,
@@ -28,17 +28,17 @@ from causal_ssm_agent.models.ssm_compilation_common import (
     normalize_prior_params,
     resolve_scalar_parameter_name,
 )
-from causal_ssm_agent.models.ssm_prior_indexing import build_prior_index_maps
-from causal_ssm_agent.models.ssm_spec_translation import get_construct_dt_days
-from causal_ssm_agent.workers.schemas_prior import (
+from nof1_causal_lab.models.ssm_prior_indexing import build_prior_index_maps
+from nof1_causal_lab.models.ssm_spec_translation import get_construct_dt_days
+from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
-logger = get_prefect_logger("causal_ssm_agent.models.ssm_compilation")
+logger = get_prefect_logger("nof1_causal_lab.models.ssm_compilation")
 CompileDiagnostic = PriorValidationResult
 PriorFailureStage = Literal[
     "compiled_parameters",

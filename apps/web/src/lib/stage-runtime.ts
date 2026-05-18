@@ -1,7 +1,7 @@
 import type { AnalysisStageExecution, AnalysisStageRun } from "@/lib/api/analysis";
 import { normalizeFlowRunIds } from "./flow-run-ids";
 
-export const STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage";
+export const STAGE_PROGRESS_EVENT_PREFIX = "nof1-causal-lab.pipeline-stage";
 export const STAGE_PROGRESS_EVENT_FILTER_PREFIX = `${STAGE_PROGRESS_EVENT_PREFIX}.`;
 
 export type StageProgressStatus = "running" | "completed" | "failed";

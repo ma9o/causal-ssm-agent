@@ -4,7 +4,7 @@ import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { LLMTrace, StageMeta, StageOutcome } from "@causal-ssm/api-types";
+import type { LLMTrace, StageMeta, StageOutcome } from "@nof1-causal-lab/api-types";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { StagePresentationShellView } from "./stage-presentation-shell";
 

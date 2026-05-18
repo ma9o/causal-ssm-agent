@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
     from .stage4_feedback import Stage4GroundingResult
     from .stage4_skeleton import Stage4Skeleton

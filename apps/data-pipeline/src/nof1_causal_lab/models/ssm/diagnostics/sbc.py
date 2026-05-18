@@ -8,15 +8,15 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.inference.utils import _build_runtime_eval_fns_from_registry
-from causal_ssm_agent.models.ssm.parameterization import sample_prior_unconstrained
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.inference.utils import _build_runtime_eval_fns_from_registry
+from nof1_causal_lab.models.ssm.parameterization import sample_prior_unconstrained
 
 from .results import SBCResult
 from .simulation import _simulate_from_params
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = get_prefect_logger(__name__)
 
@@ -36,7 +36,7 @@ def sbc_check(
     **fit_kwargs,
 ) -> SBCResult:
     """Simulation-based calibration check (Modrak et al. 2023)."""
-    from causal_ssm_agent.models.ssm.inference import fit
+    from nof1_causal_lab.models.ssm.inference import fit
 
     rng_key = random.PRNGKey(seed)
     times = jnp.arange(T, dtype=jnp.float64) * dt

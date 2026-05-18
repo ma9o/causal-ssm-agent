@@ -14,9 +14,9 @@ import asyncio
 
 import pytest
 
-from causal_ssm_agent.utils.agent_session_embedded import EmbeddedSession
-from causal_ssm_agent.utils.agent_session_factory import open_session
-from causal_ssm_agent.utils.config import (
+from nof1_causal_lab.utils.agent_session_embedded import EmbeddedSession
+from nof1_causal_lab.utils.agent_session_factory import open_session
+from nof1_causal_lab.utils.config import (
     ClaudeCodeDefaults,
     CodexDefaults,
     EmbeddedLLMDefaults,
@@ -112,7 +112,7 @@ class TestHarnessDispatch:
             yield "claude-stub"
 
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.agent_session_factory.open_claude_harness_session",
+            "nof1_causal_lab.utils.agent_session_factory.open_claude_harness_session",
             stub_open_claude_harness_session,
         )
 
@@ -155,7 +155,7 @@ class TestHarnessDispatch:
             yield "codex-stub"
 
         monkeypatch.setattr(
-            "causal_ssm_agent.utils.agent_session_factory.open_codex_harness_session",
+            "nof1_causal_lab.utils.agent_session_factory.open_codex_harness_session",
             stub_open_codex_harness_session,
         )
 

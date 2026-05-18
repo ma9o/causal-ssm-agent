@@ -65,7 +65,7 @@ Or individually:
 | Web frontend | `cd apps/web && bun run dev` | 3000 |
 | Prefect server | `cd apps/data-pipeline && PREFECT_SERVER_LOGS_STREAM_OUT_ENABLED=true PREFECT_SERVER_LOGS_STREAM_PUBLISHING_ENABLED=true uv run prefect server start` | 4200 |
 | Tool server | `cd apps/data-pipeline && bun run dev` | 8100 |
-| Pipeline deployment | `cd apps/data-pipeline && uv run python -m causal_ssm_agent.flows.pipeline` | — |
+| Pipeline deployment | `cd apps/data-pipeline && uv run python -m nof1_causal_lab.flows.pipeline` | — |
 
 The web frontend works standalone with mock data. Live pipeline runs also need the Prefect server, tool server, and pipeline deployment.
 

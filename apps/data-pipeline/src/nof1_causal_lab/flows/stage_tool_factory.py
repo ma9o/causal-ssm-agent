@@ -6,7 +6,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.flows import get_prefect_logger
+from nof1_causal_lab.flows import get_prefect_logger
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,7 +40,7 @@ def make_stage_tool(
     Returns:
         (Tool, capture_dict)
     """
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
     capture: dict = {}
 

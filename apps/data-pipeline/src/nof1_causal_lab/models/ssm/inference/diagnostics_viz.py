@@ -12,7 +12,7 @@ from typing import Any
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.flows import get_prefect_logger
+from nof1_causal_lab.flows import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 

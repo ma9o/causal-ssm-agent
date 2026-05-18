@@ -4,41 +4,41 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from causal_ssm_agent.flows.contracts_base import (
+from nof1_causal_lab.flows.contracts_base import (
     BaseStageContract,
     LLMStageContract,
     StageId,
     ToolContract,
 )
-from causal_ssm_agent.flows.stage_tools import INTERACTIVE_STAGES, STAGE_TOOLS
-from causal_ssm_agent.flows.stages.inference_contracts import InferenceMetadataContract
-from causal_ssm_agent.flows.stages.stage0.contracts import (
+from nof1_causal_lab.flows.stage_tools import INTERACTIVE_STAGES, STAGE_TOOLS
+from nof1_causal_lab.flows.stages.inference_contracts import InferenceMetadataContract
+from nof1_causal_lab.flows.stages.stage0.contracts import (
     Stage0ColumnDescriptionContract,
     Stage0Contract,
 )
-from causal_ssm_agent.flows.stages.stage1a.contracts import Stage1aContract
-from causal_ssm_agent.flows.stages.stage1b.contracts import Stage1bContract
-from causal_ssm_agent.flows.stages.stage2.contracts import (
+from nof1_causal_lab.flows.stages.stage1a.contracts import Stage1aContract
+from nof1_causal_lab.flows.stages.stage1b.contracts import Stage1bContract
+from nof1_causal_lab.flows.stages.stage2.contracts import (
     ObservationRecordContract,
     Stage2Contract,
     WorkerStatusContract,
 )
-from causal_ssm_agent.flows.stages.stage3.contracts import (
+from nof1_causal_lab.flows.stages.stage3.contracts import (
     IndicatorAuditContract,
     IndicatorEmpiricalProfileContract,
     IndicatorValidationContract,
     Stage3Contract,
     ValidationIssueContract,
 )
-from causal_ssm_agent.flows.stages.stage4.contracts import Stage4Contract
-from causal_ssm_agent.flows.stages.stage4b.contracts import Stage4bContract
-from causal_ssm_agent.flows.stages.stage5a.contracts import Stage5aContract
-from causal_ssm_agent.flows.stages.stage5b.contracts import (
+from nof1_causal_lab.flows.stages.stage4.contracts import Stage4Contract
+from nof1_causal_lab.flows.stages.stage4b.contracts import Stage4bContract
+from nof1_causal_lab.flows.stages.stage5a.contracts import Stage5aContract
+from nof1_causal_lab.flows.stages.stage5b.contracts import (
     PowerScalingResultContract,
     PPCResultContract,
     Stage5bContract,
 )
-from causal_ssm_agent.flows.stages.stage6.contracts import (
+from nof1_causal_lab.flows.stages.stage6.contracts import (
     EXPORTED_TOOL_RESULT_MODELS,
     CounterfactualEvidenceResultContract,
     EffectSummaryContract,

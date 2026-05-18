@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from causal_ssm_agent.artifacts.model_spec import ModelSpec  # noqa: TC001
-from causal_ssm_agent.flows.contracts_base import LLMStageContract
-from causal_ssm_agent.flows.stages.stage4.tool_registry import build_stage4_public_tool_contracts
-from causal_ssm_agent.workers.schemas_prior import PriorProposal  # noqa: TC001
+from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
+from nof1_causal_lab.flows.contracts_base import LLMStageContract
+from nof1_causal_lab.flows.stages.stage4.tool_registry import build_stage4_public_tool_contracts
+from nof1_causal_lab.workers.schemas_prior import PriorProposal  # noqa: TC001
 
 STAGE_ID = "stage-4"
 IS_INTERACTIVE_STAGE = True

@@ -9,13 +9,13 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.optimize
 
-from causal_ssm_agent.models.ssm.parameterization import sample_prior_unconstrained
+from nof1_causal_lab.models.ssm.parameterization import sample_prior_unconstrained
 
 from .context import ParametricIdContext, get_stage4b_sweep_context
 from .results import ProfileLikelihoodResult
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.model import SSMModel
 
 CHI2_THRESHOLD_95 = 1.92
 CHI2_THRESHOLD_99 = 3.32

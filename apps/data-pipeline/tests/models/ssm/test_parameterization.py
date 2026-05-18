@@ -11,13 +11,13 @@ import pytest
 from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     DistributionFamily,
     PriorDistributionFamily,
     get_positive_runtime_family_index,
 )
-from causal_ssm_agent.models.ssm.inference.utils import _discover_sites
-from causal_ssm_agent.models.ssm.model import (
+from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
+from nof1_causal_lab.models.ssm.model import (
     SSMModel,
     SSMPriors,
     SSMSpec,
@@ -25,7 +25,7 @@ from causal_ssm_agent.models.ssm.model import (
     full_diagonal_mask,
     full_vector_mask,
 )
-from causal_ssm_agent.models.ssm.parameterization import (
+from nof1_causal_lab.models.ssm.parameterization import (
     SupportClass,
     assemble_deterministics_from_registry,
     build_prior_runtime_state,
@@ -43,7 +43,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
     serialize_site_registry,
     verify_registry_matches_trace,
 )
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 from tests.ssm_test_utils import make_ssm_spec
 
 # ---------------------------------------------------------------------------
@@ -590,7 +590,7 @@ class TestPriorRuntimeState:
 class TestLogPriorCorrectness:
     def test_normal_log_prob_matches_numpyro(self):
         """Pure-JAX Normal log_prob terms match NumPyro."""
-        from causal_ssm_agent.models.ssm.parameterization import _normal_log_prob_terms
+        from nof1_causal_lab.models.ssm.parameterization import _normal_log_prob_terms
 
         x = jnp.array([0.5, -1.0, 2.0])
         loc = jnp.array([0.0, 0.0, 1.0])
@@ -601,7 +601,7 @@ class TestLogPriorCorrectness:
 
     def test_half_normal_log_prob_matches_numpyro(self):
         """Pure-JAX HalfNormal log_prob terms match NumPyro."""
-        from causal_ssm_agent.models.ssm.parameterization import _half_normal_log_prob_terms
+        from nof1_causal_lab.models.ssm.parameterization import _half_normal_log_prob_terms
 
         x = jnp.array([0.5, 1.0, 2.0])
         scale = jnp.array([1.0, 2.0, 0.5])
@@ -611,7 +611,7 @@ class TestLogPriorCorrectness:
 
     def test_gamma_log_prob_matches_numpyro(self):
         """Pure-JAX Gamma log_prob terms match NumPyro."""
-        from causal_ssm_agent.models.ssm.parameterization import _gamma_log_prob_terms
+        from nof1_causal_lab.models.ssm.parameterization import _gamma_log_prob_terms
 
         x = jnp.array([0.5, 1.0, 2.0])
         concentration = jnp.array([2.0, 5.0, 1.0])
@@ -727,7 +727,7 @@ class TestCompileStability:
 
     def test_no_retrace_on_family_switch(self, simple_spec):
         """Changing family index does not trigger JAX retracing."""
-        from causal_ssm_agent.models.ssm.parameterization import _make_positive_params
+        from nof1_causal_lab.models.ssm.parameterization import _make_positive_params
 
         registry = build_site_registry(simple_spec)
         D, unravel_fn = build_unravel_fn(registry)
@@ -974,7 +974,7 @@ class TestCompiledArtifactIntegration:
 
     def test_artifact_contains_compiled_prior_semantics(self, model_spec_and_priors):
         """compile_ssm_artifact emits semantics and omits legacy priors."""
-        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
 
         model_spec, priors = model_spec_and_priors
         artifact = compile_ssm_artifact(model_spec, priors)
@@ -989,7 +989,7 @@ class TestCompiledArtifactIntegration:
 
     def test_known_input_beta_binds_to_input_effect_site(self):
         """A beta from a known input compiles to B, not the latent drift matrix."""
-        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
 
         causal_spec = {
             "latent": {
@@ -1109,7 +1109,7 @@ class TestCompiledArtifactIntegration:
 
     def test_builder_from_artifact_uses_semantics(self, model_spec_and_priors):
         """make_builder_from_compiled_artifact reads compiled_prior_semantics."""
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             compile_ssm_artifact,
             make_builder_from_compiled_artifact,
         )
@@ -1122,7 +1122,7 @@ class TestCompiledArtifactIntegration:
 
     def test_builder_requires_compiled_prior_semantics(self, model_spec_and_priors):
         """Builder fails clearly when compiled semantics are missing."""
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             compile_ssm_artifact,
             make_builder_from_compiled_artifact,
         )
@@ -1139,9 +1139,9 @@ class TestCompiledArtifactIntegration:
         import numpy as np
         import polars as pl
 
-        from causal_ssm_agent.models.ssm_builder import build_ssm_builder
-        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.models.ssm_builder import build_ssm_builder
+        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         model_spec, priors = model_spec_and_priors
         artifact = compile_ssm_artifact(model_spec, priors)
@@ -1162,7 +1162,7 @@ class TestCompiledArtifactIntegration:
 
     def test_compiled_builder_prior_predictive_without_model(self, model_spec_and_priors):
         """Compiled builders can sample prior predictive without building a model."""
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             compile_ssm_artifact,
             make_builder_from_compiled_artifact,
         )
@@ -1179,7 +1179,7 @@ class TestCompiledArtifactIntegration:
         """Compiled builders execute vector-valued positive priors via runtime semantics."""
         import polars as pl
 
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             make_builder_from_compiled_artifact,
             serialize_ssm_spec,
         )

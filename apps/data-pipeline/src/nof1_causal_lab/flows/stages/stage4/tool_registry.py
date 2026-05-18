@@ -17,20 +17,20 @@ from typing import TYPE_CHECKING, Any
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from causal_ssm_agent.flows.run_store import load_parquet
-from causal_ssm_agent.flows.stages.stage4.tools import (
+from nof1_causal_lab.flows.run_store import load_parquet
+from nof1_causal_lab.flows.stages.stage4.tools import (
     make_search_tool,
     make_submit_indicator_choice_tool,
     make_submit_model_configuration_tool,
     make_submit_model_review_tool,
     make_submit_prior_block_tool,
 )
-from causal_ssm_agent.utils import storage
-from causal_ssm_agent.utils.data import runs_dir
+from nof1_causal_lab.utils import storage
+from nof1_causal_lab.utils.data import runs_dir
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stage_contracts import ToolContract
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_session import Stage4Session
+    from nof1_causal_lab.flows.stage_contracts import ToolContract
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_session import Stage4Session
 
 
 Stage4SessionToolFactory = Callable[["Stage4Session", "Stage4SessionToolConfig"], Any]
@@ -112,7 +112,7 @@ def _parse_json_arg(args: dict[str, Any], param_name: str) -> tuple[Any | None, 
 
 def _load_stage2_data_for_model(workspace_id: str) -> Any:
     """Load Stage 2 canonical modeling rows for public Stage 4 tool execution."""
-    from causal_ssm_agent.flows.run_store import (
+    from nof1_causal_lab.flows.run_store import (
         STAGE2_MODEL_PARQUET_FILENAMES,
         find_run_artifact,
     )
@@ -141,7 +141,7 @@ def _execute_stage4_submission(
     data: dict[str, Any],
 ) -> dict[str, Any]:
     """Execute one public Stage 4 refinement submission."""
-    from causal_ssm_agent.flows.stages.stage4.grounding import (
+    from nof1_causal_lab.flows.stages.stage4.grounding import (
         should_capture_stage4_output,
         stage4_grounding,
     )
@@ -182,7 +182,7 @@ async def execute_public_search_literature(
     _ctx: dict[str, Any], args: dict[str, Any]
 ) -> dict[str, Any]:
     """Execute the public Stage 4 literature-search tool."""
-    from causal_ssm_agent.flows.stages.stage4.tools import search_literature
+    from nof1_causal_lab.flows.stages.stage4.tools import search_literature
 
     query = args.get("query", "")
     if not query:
@@ -212,7 +212,7 @@ def _make_elicit_prior_gmm_session_tool(
     _session: Stage4Session,
     config: Stage4SessionToolConfig,
 ) -> Any:
-    from causal_ssm_agent.flows.stages.stage4.tools import make_elicit_prior_gmm_tool
+    from nof1_causal_lab.flows.stages.stage4.tools import make_elicit_prior_gmm_tool
 
     return make_elicit_prior_gmm_tool(
         question=config.question,
@@ -290,7 +290,7 @@ STAGE4_TOOL_SPECS: tuple[Stage4ToolSpec, ...] = (
 
 def build_stage4_public_tool_contracts() -> list[ToolContract]:
     """Materialize Stage 4 public tool contracts from the shared registry."""
-    from causal_ssm_agent.flows.contracts_base import ToolContract
+    from nof1_causal_lab.flows.contracts_base import ToolContract
 
     return [
         ToolContract(

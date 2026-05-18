@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4GroundingResult,
     make_stage4_grounding_result,
 )
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_text import summarize_stage4_names
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_text import summarize_stage4_names
 
 # ---------------------------------------------------------------------------
 # Stage 4: Model grounding (model spec + priors, unified)
@@ -39,7 +39,7 @@ def stage4_grounding(
     2. Compile (default priors if none available, real priors otherwise)
     3. Prior predictive (only when real priors + data_for_model present and skip_ppc is False)
     """
-    from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+    from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
 
     from .assembly import (
         format_prior_proposal_errors,

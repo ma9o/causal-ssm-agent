@@ -33,10 +33,10 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
-from causal_ssm_agent.orchestrator.prompts import latent_model
-from causal_ssm_agent.orchestrator.schemas import LatentModel
-from causal_ssm_agent.orchestrator.scoring import _count_rule_points
-from causal_ssm_agent.orchestrator.stage1a import Stage1aResult, run_stage1a
+from nof1_causal_lab.orchestrator.prompts import latent_model
+from nof1_causal_lab.orchestrator.schemas import LatentModel
+from nof1_causal_lab.orchestrator.scoring import _count_rule_points
+from nof1_causal_lab.orchestrator.stage1a import Stage1aResult, run_stage1a
 
 # Load config for models
 _CONFIG = load_eval_config()

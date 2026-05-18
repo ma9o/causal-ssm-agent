@@ -22,21 +22,21 @@ import numpy as np
 import scipy.optimize as spo
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.covariance_utils import symmetrize_with_jitter
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
 )
-from causal_ssm_agent.models.ssm.inference.types import InferenceResult
-from causal_ssm_agent.models.ssm.inference.utils import (
+from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+from nof1_causal_lab.models.ssm.inference.utils import (
     _build_eval_fns,
     _discover_sites,
     extract_constrained_samples,
 )
-from causal_ssm_agent.models.ssm.parameterization import assemble_deterministics_from_registry
+from nof1_causal_lab.models.ssm.parameterization import assemble_deterministics_from_registry
 
 logger = get_prefect_logger(__name__)
 

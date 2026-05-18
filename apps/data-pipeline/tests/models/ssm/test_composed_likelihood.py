@@ -7,13 +7,13 @@ without requiring actual Kalman/PF computation.
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
-from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import RBPartition
+from nof1_causal_lab.models.ssm.inference.targets.composed import ComposedLikelihood
+from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import RBPartition
 
 # =============================================================================
 # Mock backends that record their inputs

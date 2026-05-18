@@ -6,7 +6,7 @@ import inspect
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
+from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
 
 from .run_store import finalize_stage
 

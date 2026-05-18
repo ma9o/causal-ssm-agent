@@ -317,7 +317,7 @@ def select_questions(questions: list[EvalQuestion], selectors: str) -> list[Eval
 
 def get_generate_config() -> GenerateConfig:
     """Build the standard Inspect GenerateConfig from project config."""
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     llm = get_config().llm
     return GenerateConfig(
@@ -472,8 +472,8 @@ def sample_evenly[T](items: list[T], n: int, seed: int | None = None) -> list[T]
 
 def load_workspace_question(workspace_id: str | None = None) -> str:
     """Load the materialized query for an eval workspace."""
-    from causal_ssm_agent.utils import storage
-    from causal_ssm_agent.utils.data import DATA_URI
+    from nof1_causal_lab.utils import storage
+    from nof1_causal_lab.utils.data import DATA_URI
 
     resolved = resolve_eval_workspace_id(workspace_id)
     query_path = storage.join(DATA_URI, resolved, "query.txt")
@@ -484,7 +484,7 @@ def load_workspace_question(workspace_id: str | None = None) -> str:
 
 def load_workspace_stage_state(stage_id: str, workspace_id: str | None = None) -> Any:
     """Restore a persisted stage contract for an eval workspace."""
-    from causal_ssm_agent.flows.stage_registry import load_stage_state
+    from nof1_causal_lab.flows.stage_registry import load_stage_state
 
     resolved = resolve_eval_workspace_id(workspace_id)
     return load_stage_state(resolved, stage_id)
@@ -492,8 +492,8 @@ def load_workspace_stage_state(stage_id: str, workspace_id: str | None = None) -
 
 def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, Any]:
     """Load the exact Stage 1b inputs from a persisted workspace run."""
-    from causal_ssm_agent.flows.pipeline_helpers import format_schema_for_llm
-    from causal_ssm_agent.flows.run_store import (
+    from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
+    from nof1_causal_lab.flows.run_store import (
         STAGE0_PARQUET_FILENAMES,
         find_run_artifact,
         load_parquet,
@@ -520,13 +520,13 @@ def load_workspace_stage1b_inputs(workspace_id: str | None = None) -> dict[str, 
 
 def load_workspace_stage2_inputs(workspace_id: str | None = None) -> dict[str, Any]:
     """Load the exact Stage 2 semantic-worker inputs from a persisted workspace run."""
-    from causal_ssm_agent.flows.run_store import (
+    from nof1_causal_lab.flows.run_store import (
         STAGE0_PARQUET_FILENAMES,
         find_run_artifact,
         load_parquet,
     )
-    from causal_ssm_agent.flows.stages.stage2_extract import _prepare_semantic_chunks
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.flows.stages.stage2_extract import _prepare_semantic_chunks
+    from nof1_causal_lab.utils.config import get_config
 
     resolved = resolve_eval_workspace_id(workspace_id)
     question = load_workspace_question(resolved)

@@ -16,9 +16,9 @@ import numpyro.handlers as handlers
 import polars as pl
 import pytest
 
-from causal_ssm_agent.artifacts import LinkFunction
-from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.models.ssm.model import (
+from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.ssm.model import (
     SSMModel,
     SSMPriors,
     SSMSpec,
@@ -359,7 +359,7 @@ class TestBuilderMasks:
 
     def test_build_masks_from_causal_spec(self):
         """Builder constructs drift_mask and lambda_mask from CausalSpec."""
-        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
 
         causal_spec = _make_causal_spec_dict()
 
@@ -396,7 +396,7 @@ class TestBuilderMasks:
 
     def test_no_causal_spec_materializes_explicit_default_masks(self):
         """Without causal_spec, structural defaults are still explicit."""
-        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
 
         drift_mask, input_effect_mask, _lambda_mat, lambda_mask, _edge_lag_days = (
             build_masks_from_causal_spec(None, ["x1"], 1, 1, causal_spec=None)
@@ -407,7 +407,7 @@ class TestBuilderMasks:
 
     def test_known_input_edge_compiles_to_input_effect_mask(self):
         """Known inputs are transition drivers, not latent drift columns."""
-        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
 
         causal_spec = {
             "latent": {
@@ -568,7 +568,7 @@ class TestBuilderMasks:
 
     def test_builder_rejects_direct_ssm_spec_plus_causal_spec(self):
         """Direct specs may not carry a causal graph unless already translated."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
 
         causal_spec = _make_causal_spec_dict()
         builder = SSMModelBuilder(
@@ -598,7 +598,7 @@ class TestBuilderMasks:
 
     def test_builder_rejects_autodetect_when_causal_spec_present(self):
         """Auto-detected specs may not bypass causal-structure translation."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
 
         causal_spec = _make_causal_spec_dict()
         builder = SSMModelBuilder(causal_spec=causal_spec)
@@ -619,7 +619,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(self):
         """Initial-state confounders should compile to low-rank baseline factors."""
-        from causal_ssm_agent.artifacts import (
+        from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -628,7 +628,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm_compilation import translate_spec
 
         causal_spec = {
             "latent": {
@@ -731,13 +731,13 @@ class TestBuilderMasks:
 
     def test_translate_spec_marks_centerable_gaussian_mean_indicators(self):
         """Gaussian identity indicators with interval means should be auto-centered."""
-        from causal_ssm_agent.artifacts import (
+        from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
             ModelSpec,
         )
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -776,7 +776,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
         """Single-indicator constructs get fixed zero manifest noise in the compiled spec."""
-        from causal_ssm_agent.artifacts import (
+        from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -785,7 +785,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -884,7 +884,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_rejects_initial_state_correlation_parameters_with_causal_spec(self):
         """Causal-spec compilation no longer accepts pairwise cor0 parameters."""
-        from causal_ssm_agent.artifacts import (
+        from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -893,7 +893,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -941,7 +941,7 @@ class TestBuilderMasks:
 
     def test_translate_spec_rejects_self_initial_state_correlation_with_causal_spec(self):
         """Even self-pairs are rejected once causal-spec compilation is active."""
-        from causal_ssm_agent.artifacts import (
+        from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -950,7 +950,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from causal_ssm_agent.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm_compilation import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -999,7 +999,7 @@ class TestBuilderMasks:
     def test_builder_end_to_end(self):
         """Full builder pipeline with causal_spec produces masked spec."""
 
-        from causal_ssm_agent.artifacts import (
+        from nof1_causal_lab.artifacts import (
             DistributionFamily,
             LikelihoodSpec,
             LinkFunction,
@@ -1008,7 +1008,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
 
         def _lik(var: str) -> LikelihoodSpec:
             return LikelihoodSpec(
@@ -1132,7 +1132,7 @@ class TestSiteRegistryMasks:
 
     def test_site_registry_with_drift_mask(self):
         """Site registry should size masked drift entries correctly."""
-        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
+        from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
         # 3 latent, X→Y and Y→Z = 2 off-diagonal entries
         mask = np.eye(3, dtype=bool)
@@ -1157,7 +1157,7 @@ class TestSiteRegistryMasks:
 
     def test_site_registry_with_lambda_mask(self):
         """Site registry should size masked loading entries correctly."""
-        from causal_ssm_agent.models.ssm.parameterization import build_site_registry
+        from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
         lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
         lambda_mask = np.array([[False, False], [False, False], [True, False]])

@@ -2,7 +2,7 @@
 
 Unit tests stub out ``asyncio.create_subprocess_exec`` with a fake
 process that emits canned Codex ``--json`` events. Integration against
-a real ``codex`` binary is gated on presence + ``CAUSAL_SSM_RUN_CODEX_HARNESS``.
+a real ``codex`` binary is gated on presence + ``NOF1_CAUSAL_LAB_RUN_CODEX_HARNESS``.
 """
 
 import os
@@ -10,7 +10,7 @@ import shutil
 
 import pytest
 
-from causal_ssm_agent.utils.harness.codex import (
+from nof1_causal_lab.utils.harness.codex import (
     CodexHarnessSession,
     build_codex_argv,
     build_codex_mcp_toml,
@@ -202,13 +202,13 @@ class TestSessionTurn:
 
 
 _CODEX_AVAILABLE = shutil.which("codex") is not None and bool(
-    os.getenv("CAUSAL_SSM_RUN_CODEX_HARNESS")
+    os.getenv("NOF1_CAUSAL_LAB_RUN_CODEX_HARNESS")
 )
 
 
 @pytest.mark.skipif(
     not _CODEX_AVAILABLE,
-    reason="codex binary or CAUSAL_SSM_RUN_CODEX_HARNESS not set",
+    reason="codex binary or NOF1_CAUSAL_LAB_RUN_CODEX_HARNESS not set",
 )
 class TestCodexIntegration:
     def test_round_trip(self):

@@ -1,8 +1,8 @@
 "use client";
 
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@causal-ssm/api-types";
-import type { StageId } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import { ArrowDown } from "lucide-react";
 import { motion } from "motion/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";

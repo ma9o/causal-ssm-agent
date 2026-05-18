@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { AlertTriangle, Check, Loader2, X } from "lucide-react";
 import Link from "next/link";
 
@@ -30,7 +30,7 @@ export function PipelineProgressBar({
             href="/"
             className="text-base font-semibold tracking-tight hover:opacity-80 transition-opacity"
           >
-            Causal SSM Agent
+            N-of-1 Causal Lab
           </Link>
           <div className="flex items-center gap-2">
             {workspaceId && (

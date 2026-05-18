@@ -7,10 +7,10 @@ import jax.numpy as jnp
 import jax.random as random
 from jax import lax
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily
-from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.inference.targets.base import CHOL_JITTER
-from causal_ssm_agent.models.ssm.parameterization import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
+from nof1_causal_lab.models.ssm.inference.targets.base import CHOL_JITTER
+from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
 )

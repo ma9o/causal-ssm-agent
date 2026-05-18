@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from causal_ssm_agent.flows.contracts_base import BaseStageContract
+from nof1_causal_lab.flows.contracts_base import BaseStageContract
 
 STAGE_ID = "stage-3"
 IS_INTERACTIVE_STAGE = False

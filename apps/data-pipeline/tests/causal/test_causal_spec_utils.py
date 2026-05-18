@@ -12,7 +12,7 @@ the helpers with real transformation or graph logic:
 
 import pytest
 
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.utils.causal_spec import (
     build_digraph,
     get_all_treatments,
     get_estimable_treatments,

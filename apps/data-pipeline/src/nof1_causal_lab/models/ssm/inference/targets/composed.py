@@ -16,14 +16,14 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import RBPartition
+    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import RBPartition
 
 
 class ComposedLikelihood:

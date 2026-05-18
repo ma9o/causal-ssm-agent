@@ -2,7 +2,7 @@
 
 import pytest
 
-from causal_ssm_agent.artifacts import (
+from nof1_causal_lab.artifacts import (
     Construct,
     Indicator,
     IndicatorPolarity,

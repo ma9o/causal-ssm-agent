@@ -5,13 +5,13 @@ at a time.
 
 NOTE: Keep distributions/links in sync with VALID_LIKELIHOODS_FOR_DTYPE
 and VALID_LINKS_FOR_DISTRIBUTION in artifacts/model_spec.py, and prior families
-in causal_ssm_agent.distributions.PriorDistributionFamily
+in nof1_causal_lab.distributions.PriorDistributionFamily
 """
 
 from typing import Any
 
-from causal_ssm_agent.distributions import PRIOR_PARAMETER_GUIDANCE_ROWS
-from causal_ssm_agent.flows.stages.stage4.agentic.stage4_feedback import (
+from nof1_causal_lab.distributions import PRIOR_PARAMETER_GUIDANCE_ROWS
+from nof1_causal_lab.flows.stages.stage4.agentic.stage4_feedback import (
     Stage4ScopeSnapshot,
     render_stage4_validation_feedback,
 )

@@ -1,5 +1,5 @@
-import type { StageId } from "@causal-ssm/api-types";
-import { STAGES } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 
 export function isMockMode(): boolean {
   const v = process.env.NEXT_PUBLIC_MOCK_DATA;

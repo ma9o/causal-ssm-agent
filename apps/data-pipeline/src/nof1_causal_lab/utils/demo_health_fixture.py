@@ -9,7 +9,7 @@ from typing import Any
 
 import polars as pl
 
-from causal_ssm_agent.utils.causal_spec import get_indicators
+from nof1_causal_lab.utils.causal_spec import get_indicators
 
 FIXTURE_USER_ID = "DEMO_HEALTH"
 EXPECTED_STAGE2_COLUMNS = ["indicator", "value", "anchor_time"]

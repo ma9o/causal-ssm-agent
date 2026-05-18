@@ -7,18 +7,18 @@ from typing import Any
 
 import numpy as np
 
-from causal_ssm_agent.artifacts.model_spec import ParameterRole
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.models.ssm_compilation import translate_spec
-from causal_ssm_agent.models.ssm_compiler import validate_model_spec_for_compilation
-from causal_ssm_agent.models.ssm_prior_compilation import (
+from nof1_causal_lab.artifacts.model_spec import ParameterRole
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm_compilation import translate_spec
+from nof1_causal_lab.models.ssm_compiler import validate_model_spec_for_compilation
+from nof1_causal_lab.models.ssm_prior_compilation import (
     PriorCompilationError,
     _positive_prior_mean_values,
     compile_priors,
     logm_diagnostic_mean_drift,
 )
-from causal_ssm_agent.workers.schemas_prior import (
+from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
 )

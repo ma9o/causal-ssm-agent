@@ -1,5 +1,5 @@
 {
-  "name": "@causal-ssm/api-types",
+  "name": "@nof1-causal-lab/api-types",
   "version": "0.1.0",
   "license": "Apache-2.0",
   "private": true,
@@ -20,7 +20,7 @@
     "codegen:check": "cd ../../apps/data-pipeline && uv run python scripts/export_schemas.py --check && cd ../../packages/api-types && bun run scripts/generate.ts --check"
   },
   "devDependencies": {
-    "@causal-ssm/typescript-config": "workspace:*",
+    "@nof1-causal-lab/typescript-config": "workspace:*",
     "json-schema-to-typescript": "^15.0.4",
     "typescript": "^5"
   }

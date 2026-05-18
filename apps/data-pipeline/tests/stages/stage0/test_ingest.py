@@ -15,7 +15,7 @@ from typing import Any, cast
 import polars as pl
 import pytest
 
-from causal_ssm_agent.flows.stages.stage0.tools import (
+from nof1_causal_lab.flows.stages.stage0.tools import (
     _safe_resolve,
     make_ingestion_tools,
 )
@@ -293,8 +293,8 @@ class TestIngestionTools:
 
 class TestFindRawInput:
     def test_finds_most_recent_text_file_regardless_of_extension(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0.flow as mod
-        from causal_ssm_agent.flows.stages.stage0.flow import _find_raw_input
+        import nof1_causal_lab.flows.stages.stage0.flow as mod
+        from nof1_causal_lab.flows.stages.stage0.flow import _find_raw_input
 
         workspace_dir = tmp_path / "test_workspace"
         workspace_dir.mkdir()
@@ -313,8 +313,8 @@ class TestFindRawInput:
         assert result.endswith("/notes.txt")
 
     def test_no_files_raises(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0.flow as mod
-        from causal_ssm_agent.flows.stages.stage0.flow import _find_raw_input
+        import nof1_causal_lab.flows.stages.stage0.flow as mod
+        from nof1_causal_lab.flows.stages.stage0.flow import _find_raw_input
 
         workspace_dir = tmp_path / "empty_workspace"
         workspace_dir.mkdir()
@@ -326,7 +326,7 @@ class TestFindRawInput:
 
 class TestPrepareRawInput:
     def test_extracts_zip_archives(self, tmp_path):
-        from causal_ssm_agent.flows.stages.stage0.flow import _prepare_raw_input
+        from nof1_causal_lab.flows.stages.stage0.flow import _prepare_raw_input
 
         raw_zip = tmp_path / "input.zip"
         with zipfile.ZipFile(raw_zip, "w") as zf:
@@ -339,7 +339,7 @@ class TestPrepareRawInput:
         assert (prepared_dir / "nested" / "data.csv").read_text() == "date,value\n2024-01-01,1\n"
 
     def test_copies_non_archive_files(self, tmp_path):
-        from causal_ssm_agent.flows.stages.stage0.flow import _prepare_raw_input
+        from nof1_causal_lab.flows.stages.stage0.flow import _prepare_raw_input
 
         raw_text = tmp_path / "input.txt"
         raw_text.write_text("line one\nline two\n")
@@ -364,7 +364,7 @@ class _MockSandboxContext:
 
 class TestRunAgenticIngestion:
     def test_returns_finalize_metadata_when_submit_table_is_called(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0.flow as mod
+        import nof1_causal_lab.flows.stages.stage0.flow as mod
 
         csv_file = tmp_path / "data.csv"
         csv_file.write_text("timestamp,value,category\n2024-01-01,1.5,A\n2024-01-02,2.3,B\n")
@@ -406,7 +406,7 @@ class TestRunAgenticIngestion:
         }
 
     def test_returns_dataframe_when_agent_never_finalizes(self, tmp_path, monkeypatch):
-        import causal_ssm_agent.flows.stages.stage0.flow as mod
+        import nof1_causal_lab.flows.stages.stage0.flow as mod
 
         csv_file = tmp_path / "data.csv"
         csv_file.write_text("timestamp,value\n2024-01-01,1.5\n")

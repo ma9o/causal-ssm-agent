@@ -2,15 +2,15 @@ from typing import TypedDict
 
 import polars as pl
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils.causal_spec import (
     get_effective_observation_window,
 )
-from causal_ssm_agent.utils.observation_semantics import (
+from nof1_causal_lab.utils.observation_semantics import (
     AnchorPolicy,
     get_observation_semantics,
 )
-from causal_ssm_agent.utils.storage import get_base_uri, join
+from nof1_causal_lab.utils.storage import get_base_uri, join
 
 logger = get_prefect_logger(__name__)
 

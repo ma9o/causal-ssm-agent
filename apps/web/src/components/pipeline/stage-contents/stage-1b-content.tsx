@@ -5,7 +5,7 @@ import type { ConstructStatus } from "@/components/dag/construct-node";
 import { IndicatorTable } from "@/components/stages/measurement/indicator-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import type { Stage1bData } from "@causal-ssm/api-types";
+import type { Stage1bData } from "@nof1-causal-lab/api-types";
 import { AlertTriangle } from "lucide-react";
 import { useMemo } from "react";
 

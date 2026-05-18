@@ -6,12 +6,12 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from causal_ssm_agent.flows import get_prefect_logger
+from nof1_causal_lab.flows import get_prefect_logger
 
 from .prompting import templates
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
 
 logger = get_prefect_logger(__name__)
 
@@ -53,8 +53,8 @@ async def run_stage1b(
     returns rich feedback the model can use to add proxy indicators in
     the next turn — all within one session.
     """
-    from causal_ssm_agent.flows.stage_tool_factory import make_stage_tool
-    from causal_ssm_agent.flows.stages.stage1b.grounding import stage1b_grounding
+    from nof1_causal_lab.flows.stage_tool_factory import make_stage_tool
+    from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 
     tool, capture = make_stage_tool(
         name="validate_measurement_model",

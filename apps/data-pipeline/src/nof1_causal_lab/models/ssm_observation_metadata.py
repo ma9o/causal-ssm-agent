@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import polars as pl
 
-from causal_ssm_agent.flows import get_prefect_logger
+from nof1_causal_lab.flows import get_prefect_logger
 
 logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 NON_MANIFEST_COLUMNS = {"time"}
 SECONDS_PER_DAY = 86400.0
@@ -458,7 +458,7 @@ def extract_numeric_column_values(X: Any, column: str) -> np.ndarray:
 
 def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpec:
     """Infer per-channel discrete level counts from encoded wide data."""
-    from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+    from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
         any_family_needs_level_metadata,
         get_family_spec,
     )
@@ -524,7 +524,7 @@ def hydrate_discrete_manifest_metadata(spec: SSMSpec, X: pl.DataFrame) -> SSMSpe
 
 def validate_observation_support(spec: SSMSpec, X: Any) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
-    from causal_ssm_agent.models.ssm.inference.targets.observation_families import get_family_spec
+    from nof1_causal_lab.models.ssm.inference.targets.observation_families import get_family_spec
 
     manifest_cols, manifest_dists = resolve_manifest_metadata(spec, X)
 

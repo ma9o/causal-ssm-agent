@@ -7,8 +7,8 @@ from typing import Any
 
 async def search_literature(query: str) -> str:
     """Search Exa for empirical literature, return formatted results."""
-    from causal_ssm_agent.workers.prior_research import search_parameter_literature
-    from causal_ssm_agent.workers.prompts.prior_research import format_literature_for_parameter
+    from nof1_causal_lab.workers.prior_research import search_parameter_literature
+    from nof1_causal_lab.workers.prompts.prior_research import format_literature_for_parameter
 
     sources = await search_parameter_literature(query)
     if not sources:
@@ -18,7 +18,7 @@ async def search_literature(query: str) -> str:
 
 def make_search_tool(state: Any) -> Any:
     """Create a search_literature Tool for pipeline use."""
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
     async def _execute(*, query: str, parameter_name: str) -> str:
         state.search_queries[parameter_name] = query
@@ -59,7 +59,7 @@ def make_submit_indicator_choice_tool(state: Any, *, stop_on_success: bool = Tru
     active block's submission. Megaprompt callers pass ``stop_on_success=False``
     because they run the whole stage inside a single long session.
     """
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
     async def _execute(
         *,
@@ -109,7 +109,7 @@ def make_submit_indicator_choice_tool(state: Any, *, stop_on_success: bool = Tru
 
 def make_submit_model_configuration_tool(state: Any, *, stop_on_success: bool = True) -> Any:
     """Submit the global initialization / observation-intercept / equilibrium-forcing decision."""
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
     async def _execute(
         *,
@@ -169,7 +169,7 @@ def make_submit_model_configuration_tool(state: Any, *, stop_on_success: bool = 
 
 def make_submit_model_review_tool(state: Any, *, stop_on_success: bool = True) -> Any:
     """Submit a model-review decision (state-machine only: approve or reopen blocks)."""
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
     async def _execute(
         *,
@@ -222,7 +222,7 @@ def make_submit_prior_block_tool(state: Any, *, stop_on_success: bool = True) ->
     shared — the scope check lives in the caller's ``submit_prior_block``
     method.
     """
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
     async def _execute(*, priors: dict[str, dict[str, Any]]) -> str:
         return state.submit_prior_block(priors=priors)
@@ -253,7 +253,7 @@ def make_elicit_prior_gmm_tool(
     n_paraphrases: int = 10,
 ) -> Any:
     """Create an ``elicit_prior_gmm`` tool for the agentic Stage 4 flow."""
-    from causal_ssm_agent.utils.openrouter_client import Tool
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
     async def _execute(
         *,
@@ -262,7 +262,7 @@ def make_elicit_prior_gmm_tool(
         parameter_constraint: str,
         context: str,
     ) -> str:
-        from causal_ssm_agent.workers.prior_research import run_gmm_elicitation
+        from nof1_causal_lab.workers.prior_research import run_gmm_elicitation
 
         return await run_gmm_elicitation(
             parameter_name=parameter_name,

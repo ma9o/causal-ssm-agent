@@ -1,5 +1,5 @@
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
-import type { StageMeta } from "@causal-ssm/api-types";
+import type { StageMeta } from "@nof1-causal-lab/api-types";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
 import { StoryStageLogView } from "./stage-story-log-stream";

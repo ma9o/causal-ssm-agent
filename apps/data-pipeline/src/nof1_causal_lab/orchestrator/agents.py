@@ -7,10 +7,10 @@ Two-stage approach following Anderson & Gerbing (1988):
 
 import asyncio
 
-from causal_ssm_agent.flows.stages.stage1a.run import run_stage1a
-from causal_ssm_agent.flows.stages.stage1b.run import run_stage1b
-from causal_ssm_agent.utils.agent_session import StageSessionFactory
-from causal_ssm_agent.utils.config import get_config  # also loads .env
+from nof1_causal_lab.flows.stages.stage1a.run import run_stage1a
+from nof1_causal_lab.flows.stages.stage1b.run import run_stage1b
+from nof1_causal_lab.utils.agent_session import StageSessionFactory
+from nof1_causal_lab.utils.config import get_config  # also loads .env
 
 __all__ = [
     "propose_latent_model",

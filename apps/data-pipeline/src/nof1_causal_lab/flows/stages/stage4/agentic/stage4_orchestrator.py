@@ -12,13 +12,13 @@ from typing import Any, Literal
 
 import networkx as nx
 
-from causal_ssm_agent.models.model_semantics import indicator_has_additive_location_support
-from causal_ssm_agent.utils.causal_spec import (
+from nof1_causal_lab.models.model_semantics import indicator_has_additive_location_support
+from nof1_causal_lab.utils.causal_spec import (
     get_estimation_edges,
     get_estimation_state_order,
     get_indicators,
 )
-from causal_ssm_agent.utils.observation_semantics import get_observation_semantics
+from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 
 from .stage4_parameter_surfaces import build_stage4_parameter_surface_index
 from .stage4_skeleton import Stage4Skeleton, indicators_per_construct

@@ -15,15 +15,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     import polars as pl
 
-    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+    from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 logger = get_prefect_logger(__name__)
 _RECOVERABLE_STAGE4_ASSEMBLY_ERRORS = (
@@ -93,7 +93,7 @@ def validate_assembly(
     Returns:
         AssemblyValidation with structured results.
     """
-    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact, trial_compile_model_spec
+    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact, trial_compile_model_spec
 
     candidate = _prepare_model_spec(model_spec)
     if authored_priors:
@@ -120,7 +120,7 @@ def validate_assembly(
         compile_diagnostics = []
 
     if authored_priors and data_for_model is not None and not skip_ppc:
-        from causal_ssm_agent.models.prior_predictive import validate_prior_predictive
+        from nof1_causal_lab.models.prior_predictive import validate_prior_predictive
 
         is_valid, results, raw_samples = validate_prior_predictive(
             candidate,
@@ -154,7 +154,7 @@ def validate_assembly(
 
 def _collect_compile_failure_diagnostics(failure: Any) -> list[PriorValidationResult]:
     """Best-effort extraction of structured diagnostics from a compile failure payload."""
-    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+    from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
     pending: list[Any] = [failure]
     seen_ids: set[int] = set()
@@ -238,12 +238,12 @@ def run_output_sensitivity_validation(
     data_for_model: pl.DataFrame,
 ) -> tuple[bool, bool, bool, dict[str, Any] | None, list[str]]:
     """Run the Stage 4 Jacobian sensitivity gate on the compiled accepted model."""
-    from causal_ssm_agent.models.ssm.diagnostics import (
+    from nof1_causal_lab.models.ssm.diagnostics import (
         OutputSensitivityUnsupportedError,
         get_stage4b_sweep_context,
         output_sensitivity_analysis,
     )
-    from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
+    from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
 
     try:
         runtime = prepare_model_runtime(data_for_model=data_for_model, compiled_ssm=compiled_ssm)
@@ -283,7 +283,7 @@ def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
 
 def _collect_compile_diagnostics(compiled_ssm: dict[str, Any]) -> list[PriorValidationResult]:
     """Collect typed compiler-owned diagnostics for Stage 4 feedback."""
-    from causal_ssm_agent.workers.schemas_prior import PriorValidationResult
+    from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
     diagnostics = compiled_ssm.get("compile_diagnostics") or []
     typed: list[PriorValidationResult] = []
@@ -325,7 +325,7 @@ def partition_prior_proposals(
     priors: dict[str, dict] | None,
 ) -> tuple[dict[str, dict], dict[str, str]]:
     """Split prior proposals into schema-valid payloads and per-prior errors."""
-    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
     validated: dict[str, dict] = {}
     errors: dict[str, str] = {}
@@ -392,7 +392,7 @@ def build_prior_predictive_samples(
     try:
         import numpy as np
 
-        from causal_ssm_agent.artifacts.model_spec import ModelSpec
+        from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
         spec = ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
         manifest_names = [lik.variable for lik in spec.likelihoods]
@@ -433,7 +433,7 @@ def build_validation_payload(
     model_spec: dict,
 ) -> dict[str, Any]:
     """Convert ``AssemblyValidation`` into the web-facing validation payload."""
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     payload_spec = validation.normalized_model_spec or model_spec
     if not validation.compile_ok:
@@ -861,8 +861,8 @@ def compile_model_artifact(
     compiled_ssm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile and verify the executable SSM artifact for Stage 4 output."""
-    from causal_ssm_agent.models.ssm_builder import prepare_model_runtime
-    from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+    from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
+    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
 
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
@@ -911,7 +911,7 @@ def materialize_stage4_result(
     search_queries: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the full grounded stage-4 result from authored inputs."""
-    from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+    from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
 
     validation = validation or validate_assembly(
         model_spec,
@@ -983,8 +983,8 @@ def format_validation_feedback(
     if not validation.pp_checked or validation.pp_valid:
         return warning_feedback or "VALID"
 
-    from causal_ssm_agent.models.prior_predictive import format_parameter_feedback
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.prior_predictive import format_parameter_feedback
+    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     # Global failures → single concise summary, not one block per parameter.
     # Always shown regardless of ``focus_parameters`` — they affect the whole

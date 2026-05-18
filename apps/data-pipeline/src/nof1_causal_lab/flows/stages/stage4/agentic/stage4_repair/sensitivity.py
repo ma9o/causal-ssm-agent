@@ -10,15 +10,15 @@ from .prior import _advance_repair_scope, _build_scope_candidates
 from .types import RepairReasons, Stage4FailureLocalization
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
         Stage4FrontierBlock,
         Stage4Plan,
     )
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_repair.types import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_repair.types import (
         ResolvedRepairPlan,
     )
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
 _SENSITIVITY_LOADING_MIN = 0.1
 _SENSITIVITY_DIRECT_LOADING_COVERAGE = 0.6
@@ -29,7 +29,7 @@ _SENSITIVITY_DRIFT_BLOCK_KINDS = frozenset({"dynamics_prior", "effect_prior"})
 
 def _failing_sensitivity_directions(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Return weak normalized directions that should block Stage 4 completion."""
-    from causal_ssm_agent.flows.stages.stage4.assembly import blocking_sensitivity_fails
+    from nof1_causal_lab.flows.stages.stage4.assembly import blocking_sensitivity_fails
 
     return sorted(
         blocking_sensitivity_fails(payload),
@@ -111,7 +111,7 @@ def _format_sensitivity_reason(
     supporting_parameters: tuple[str, ...],
 ) -> str:
     """Build one concrete repair reason from the weakest normalized direction."""
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_text import summarize_stage4_names
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_text import summarize_stage4_names
 
     try:
         normalized_sv = f"{float(direction.get('normalized_singular_value')):.3g}"

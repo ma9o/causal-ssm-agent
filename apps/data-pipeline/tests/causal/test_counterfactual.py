@@ -7,7 +7,7 @@ Covers: steady_state, do, treatment_effect, forward_simulate_intervention,
 import jax.numpy as jnp
 import pytest
 
-from causal_ssm_agent.models.ssm.counterfactual import (
+from nof1_causal_lab.models.ssm.counterfactual import (
     _summarize_trajectory,
     approximate_abducted_state,
     compute_interventions,
@@ -319,11 +319,11 @@ class TestApproximateAbductedState:
             }
 
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.counterfactual._try_smoother",
+            "nof1_causal_lab.models.ssm.counterfactual._try_smoother",
             fake_try_smoother,
         )
         monkeypatch.setattr(
-            "causal_ssm_agent.models.ssm.inference.utils._assemble_single_deterministics",
+            "nof1_causal_lab.models.ssm.inference.utils._assemble_single_deterministics",
             fake_assemble_single_deterministics,
         )
 

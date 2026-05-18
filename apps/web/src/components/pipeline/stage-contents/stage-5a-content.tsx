@@ -1,7 +1,7 @@
 "use client";
 
 import { DiagnosticsAccordion } from "@/components/stages/inference/diagnostics-accordion";
-import type { Stage5aData } from "@causal-ssm/api-types";
+import type { Stage5aData } from "@nof1-causal-lab/api-types";
 
 export default function Stage5aContent({ data }: { data: Stage5aData }) {
   return (

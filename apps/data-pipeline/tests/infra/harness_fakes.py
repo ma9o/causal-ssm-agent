@@ -6,7 +6,7 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
-from causal_ssm_agent.utils.openrouter_client import Tool
+from nof1_causal_lab.utils.openrouter_client import Tool
 
 if TYPE_CHECKING:
     from collections.abc import Callable

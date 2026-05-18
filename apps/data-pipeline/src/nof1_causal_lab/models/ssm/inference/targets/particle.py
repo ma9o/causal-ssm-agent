@@ -23,17 +23,17 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-from causal_ssm_agent.models.ssm.discretization import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.models.ssm.discretization import (
     discretize_system,
     discretize_system_with_inputs_batched,
 )
-from causal_ssm_agent.models.ssm.inference.targets.kernels import (
+from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_transition_kernel,
     compile_measurement_semantics,
     compile_transition_semantics,
 )
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     advance_support_observation_state,
     compile_observation_operator,
     summarize_support_observation,
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from cuthbert.smc.types import InitSample, LogPotential, PropagateSample
     from cuthbertlib.types import ArrayTree, ArrayTreeLike, KeyArray, ScalarArray
 
-    from causal_ssm_agent.models.ssm.inference.targets.base import (
+    from nof1_causal_lab.models.ssm.inference.targets.base import (
         CTParams,
         InitialStateParams,
         MeasurementParams,
@@ -336,7 +336,7 @@ class ParticleLikelihood:
 
         # Build Feynman-Kac model closures.
         if self.transition_semantics.is_gaussian and self._block_rb:
-            from causal_ssm_agent.models.ssm.inference.targets.rao_blackwell import (
+            from nof1_causal_lab.models.ssm.inference.targets.rao_blackwell import (
                 make_rb_callbacks,
             )
 
@@ -347,7 +347,7 @@ class ParticleLikelihood:
                 obs_kernel=obs_kernel,
             )
         elif self.transition_semantics.is_mixed and self._block_rb:
-            from causal_ssm_agent.models.ssm.inference.targets.block_rb import (
+            from nof1_causal_lab.models.ssm.inference.targets.block_rb import (
                 make_block_rb_callbacks,
             )
 

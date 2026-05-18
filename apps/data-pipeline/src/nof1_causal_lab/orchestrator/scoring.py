@@ -13,7 +13,7 @@ import logging
 
 from pydantic import ValidationError
 
-from causal_ssm_agent.artifacts.latent_model import LatentModel, Role
+from nof1_causal_lab.artifacts.latent_model import LatentModel, Role
 
 _logger = logging.getLogger(__name__)
 

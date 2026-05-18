@@ -1,5 +1,5 @@
-import type { LLMTrace } from "@causal-ssm/api-types";
-import { STAGE_IDS } from "@causal-ssm/api-types";
+import type { LLMTrace } from "@nof1-causal-lab/api-types";
+import { STAGE_IDS } from "@nof1-causal-lab/api-types";
 import { NextResponse } from "next/server";
 import { isStorageNotFoundError, readData } from "@/lib/storage";
 import { getToolServerUrl } from "@/lib/runtime-urls";

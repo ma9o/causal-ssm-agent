@@ -6,7 +6,7 @@ import type {
   EdgePosterior,
   Stage6SimulationResult,
 } from "@/components/dag/intervention-dag-types";
-import type { CausalEdge, Construct, Indicator, Stage6Data } from "@causal-ssm/api-types";
+import type { CausalEdge, Construct, Indicator, Stage6Data } from "@nof1-causal-lab/api-types";
 import Stage6Content from "./stage-6-content";
 
 type Stage6DagSceneBase = {

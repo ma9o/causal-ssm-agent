@@ -1,4 +1,4 @@
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { afterEach, describe, expect, it } from "vitest";
 import { getMockFixture, isMockMode, simulatePipelineEvents } from "./mock-provider";
 

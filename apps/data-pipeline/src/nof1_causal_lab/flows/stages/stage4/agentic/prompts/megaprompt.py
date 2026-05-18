@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.distributions import PRIOR_PARAMETER_GUIDANCE_ROWS
+from nof1_causal_lab.distributions import PRIOR_PARAMETER_GUIDANCE_ROWS
 
 from .accepted_state import build_accepted_state_sections
 from .model_proposal import (

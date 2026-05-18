@@ -1,8 +1,8 @@
 """Stage 1b causal-spec assembly."""
 
-from causal_ssm_agent.artifacts.causal_spec import CausalSpec, EstimationSpec, IdentifiabilityStatus
-from causal_ssm_agent.artifacts.latent_model import LatentModel
-from causal_ssm_agent.artifacts.measurement_model import MeasurementModel
+from nof1_causal_lab.artifacts.causal_spec import CausalSpec, EstimationSpec, IdentifiabilityStatus
+from nof1_causal_lab.artifacts.latent_model import LatentModel
+from nof1_causal_lab.artifacts.measurement_model import MeasurementModel
 
 
 def build_causal_spec(
@@ -12,7 +12,7 @@ def build_causal_spec(
     known_inputs: list[dict] | None = None,
 ) -> dict:
     """Combine latent and measurement models into a full CausalSpec with identifiability."""
-    from causal_ssm_agent.utils.estimation_projection import build_estimation_projection
+    from nof1_causal_lab.utils.estimation_projection import build_estimation_projection
 
     estimation = build_estimation_projection(
         latent_model,

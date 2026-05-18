@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from causal_ssm_agent.flows import get_prefect_logger
+from nof1_causal_lab.flows import get_prefect_logger
 
 if TYPE_CHECKING:
     import polars as pl
@@ -46,7 +46,7 @@ def group_indicators_by_window(
     indicators: list[dict],
     model_clock: str,
 ) -> list[tuple[str, list[dict]]]:
-    from causal_ssm_agent.utils.causal_spec import get_effective_observation_window
+    from nof1_causal_lab.utils.causal_spec import get_effective_observation_window
 
     grouped: dict[str, list[dict]] = {}
     for indicator in indicators:
@@ -71,9 +71,9 @@ def prepare_semantic_chunks(
     max_windows: int | None,
 ) -> tuple[list[str], list[list[str]], list[dict]]:
     """Prepare semantic extraction chunks without executing them."""
-    from causal_ssm_agent.utils.causal_spec import make_extraction_context
-    from causal_ssm_agent.utils.data import bucket_by_clock
-    from causal_ssm_agent.workers.windows import chunk_windows, format_window_chunk
+    from nof1_causal_lab.utils.causal_spec import make_extraction_context
+    from nof1_causal_lab.utils.data import bucket_by_clock
+    from nof1_causal_lab.workers.windows import chunk_windows, format_window_chunk
 
     chunk_texts: list[str] = []
     chunk_window_starts: list[list[str]] = []

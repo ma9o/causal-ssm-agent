@@ -1,5 +1,5 @@
 {
-  "extends": "@causal-ssm/typescript-config/nextjs.json",
+  "extends": "@nof1-causal-lab/typescript-config/nextjs.json",
   "compilerOptions": {
     "paths": {
       "@/*": ["./src/*"]

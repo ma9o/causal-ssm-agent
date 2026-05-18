@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { LLMTrace, Stage3Data, Stage4PersistedData } from "@causal-ssm/api-types";
+import type { LLMTrace, Stage3Data, Stage4PersistedData } from "@nof1-causal-lab/api-types";
 
 vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({

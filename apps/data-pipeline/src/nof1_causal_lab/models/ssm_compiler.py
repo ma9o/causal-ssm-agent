@@ -12,23 +12,23 @@ import jax.numpy as jnp
 import numpy as np
 from pydantic import BaseModel
 
-from causal_ssm_agent.artifacts.latent_model import LatentModel
-from causal_ssm_agent.artifacts.measurement_model import (
+from nof1_causal_lab.artifacts.latent_model import LatentModel
+from nof1_causal_lab.artifacts.measurement_model import (
     MeasurementModel,
     check_semantic_collisions,
     validate_measurement_model,
 )
-from causal_ssm_agent.artifacts.model_spec import (
+from nof1_causal_lab.artifacts.model_spec import (
     DistributionFamily,
     LinkFunction,
     ModelSpec,
     ParameterRole,
     validate_model_spec_dict,
 )
-from causal_ssm_agent.distributions import PriorDistributionFamily
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.ssm import SSMSpec
-from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
+from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.ssm import SSMSpec
+from nof1_causal_lab.models.ssm_compilation_common import dump_prior_payloads
 
 logger = get_prefect_logger(__name__)
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
 CompiledSSMArtifact = dict[str, Any]
 
@@ -319,7 +319,7 @@ def collect_estimation_projection_compile_errors(
     supported by at least one manifest channel, and the loading matrix must be
     able to reach full column rank.
     """
-    from causal_ssm_agent.utils.causal_spec import (
+    from nof1_causal_lab.utils.causal_spec import (
         get_estimation_state_order,
         get_manifest_indicators,
     )
@@ -407,7 +407,7 @@ def validate_model_spec_for_compilation(
     """Validate model-spec schema/domain rules plus compiler-owned invariants."""
     indicators = None
     if causal_spec is not None:
-        from causal_ssm_agent.utils.causal_spec import get_manifest_indicators
+        from nof1_causal_lab.utils.causal_spec import get_manifest_indicators
 
         indicators = get_manifest_indicators(causal_spec)
 
@@ -433,8 +433,8 @@ def _compile_validated_ssm_artifact(
     causal_spec: dict | None = None,
 ) -> CompiledSSMArtifact:
     """Compile an already-validated ``ModelSpec`` into a serialized SSM artifact."""
-    from causal_ssm_agent.models.ssm.parameterization import compile_prior_semantics
-    from causal_ssm_agent.models.ssm_compilation import compile_ssm_inputs_from_model_spec
+    from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
+    from nof1_causal_lab.models.ssm_compilation import compile_ssm_inputs_from_model_spec
 
     spec, ssm_priors, parameter_bindings, compile_diagnostics, edge_lag_days = (
         compile_ssm_inputs_from_model_spec(
@@ -461,7 +461,7 @@ def compile_ssm_artifact_with_default_priors(
     causal_spec: dict | None = None,
 ) -> CompiledSSMArtifact:
     """Compile a ModelSpec using compiler-owned default priors for warmup paths."""
-    from causal_ssm_agent.workers.prior_research import get_default_prior
+    from nof1_causal_lab.workers.prior_research import get_default_prior
 
     validated_model_spec, errors = validate_model_spec_for_compilation(
         model_spec,
@@ -545,12 +545,12 @@ def _compiled_distribution_for_site(
     flat_index: int,
 ) -> tuple[str, dict[str, float]]:
     """Convert one compiled site element back to a user-facing distribution row."""
-    from causal_ssm_agent.distributions import (
+    from nof1_causal_lab.distributions import (
         PriorDistributionFamily,
         get_positive_runtime_kind_from_index,
         get_real_runtime_kind_from_index,
     )
-    from causal_ssm_agent.models.ssm.parameterization import SupportClass
+    from nof1_causal_lab.models.ssm.parameterization import SupportClass
 
     if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
         family = int(_extract_serialized_prior_value(params, "family", flat_index))
@@ -608,7 +608,7 @@ def _normalize_authored_prior_payload(
     payload: dict[str, Any],
 ) -> dict[str, Any]:
     """Validate authored prior metadata and force the canonical parameter name."""
-    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
     normalized = dict(payload)
     normalized["parameter"] = parameter
@@ -623,7 +623,7 @@ def _build_compiled_parameter_prior(
     prior_state: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     """Build a generic public prior row from one compiler binding."""
-    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
     site_name = str(binding["site_name"])
     flat_index = int(binding["flat_index"])
@@ -703,7 +703,7 @@ def _build_compiled_initial_state_priors(
     prior_state: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Expose implicit initial-state compiler defaults as public prior rows."""
-    from causal_ssm_agent.workers.schemas_prior import PriorProposal
+    from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
     mean_site = site_by_field.get("t0_means")
     sd_site = site_by_field.get("t0_var_diag")
@@ -767,7 +767,7 @@ def resolve_prior_proposals(
     semantic priors (for example DT-scale Beta priors on persistence) are
     intentionally lossy after compilation to the executable CT representation.
     """
-    from causal_ssm_agent.models.ssm.parameterization import load_prior_runtime_bundle
+    from nof1_causal_lab.models.ssm.parameterization import load_prior_runtime_bundle
 
     semantics = compiled_ssm.get("compiled_prior_semantics")
     if not isinstance(semantics, dict):
@@ -840,8 +840,8 @@ def make_builder_from_compiled_artifact(
     Uses ``compiled_prior_semantics`` as the canonical runtime prior state for
     compiled artifacts.
     """
-    from causal_ssm_agent.models.ssm.parameterization import load_prior_runtime_bundle
-    from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+    from nof1_causal_lab.models.ssm.parameterization import load_prior_runtime_bundle
+    from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
 
     spec = deserialize_ssm_spec(compiled_ssm["spec"])
     semantics = compiled_ssm.get("compiled_prior_semantics")

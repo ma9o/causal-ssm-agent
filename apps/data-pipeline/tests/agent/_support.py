@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from causal_ssm_agent.utils.llm import make_validation_tool
-from causal_ssm_agent.workers.schemas import validate_worker_output
+from nof1_causal_lab.utils.llm import make_validation_tool
+from nof1_causal_lab.workers.schemas import validate_worker_output
 
 
 def worker_schema():

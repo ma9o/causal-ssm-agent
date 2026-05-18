@@ -8,8 +8,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from causal_ssm_agent.models.ssm.discretization import discretize_linear_system_exact_batched
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.discretization import discretize_linear_system_exact_batched
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     advance_support_observation_state,
     compile_observation_operator,
 )

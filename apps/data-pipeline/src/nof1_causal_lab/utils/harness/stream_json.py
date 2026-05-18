@@ -26,7 +26,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from causal_ssm_agent.utils.llm import LLMTrace, TraceMessage, TraceUsage
+from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage
 
 
 @dataclass

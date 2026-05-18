@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 
-from causal_ssm_agent.models.ssm.discretization import (
+from nof1_causal_lab.models.ssm.discretization import (
     _kron_lyapunov_solve,
     compute_asymptotic_diffusion,
     compute_discrete_cint,

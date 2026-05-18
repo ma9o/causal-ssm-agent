@@ -6,8 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
-from causal_ssm_agent.flows.contracts_base import LLMStageContract, ToolContract
-from causal_ssm_agent.models.ssm.inference.schemas import TemporalEffect  # noqa: TC001
+from nof1_causal_lab.flows.contracts_base import LLMStageContract, ToolContract
+from nof1_causal_lab.models.ssm.inference.schemas import TemporalEffect  # noqa: TC001
 
 STAGE_ID = "stage-6"
 IS_INTERACTIVE_STAGE = True

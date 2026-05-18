@@ -12,11 +12,11 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from causal_ssm_agent.models.predictive_simulation import simulate_predictive_observations
-from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.models.predictive_simulation import simulate_predictive_observations
+from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
 )
-from causal_ssm_agent.models.ssm.parameterization import (
+from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
@@ -26,7 +26,7 @@ from causal_ssm_agent.models.ssm.parameterization import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMPriors, SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMPriors, SSMSpec
 
 
 def _ensure_discrete_metadata(spec: SSMSpec) -> None:

@@ -20,8 +20,8 @@ from typing import Any, Literal, cast
 from openai import AsyncOpenAI
 from pydantic import Field, ValidationError, create_model
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.utils.config import get_secret
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.utils.config import get_secret
 
 logger = get_prefect_logger(__name__)
 _RECOVERABLE_TOOL_EXECUTION_ERRORS = (

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.run_store import load_parquet, unwrap_task_result
-from causal_ssm_agent.models.ssm.inference import FittedArtifact
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.run_store import load_parquet, unwrap_task_result
+from nof1_causal_lab.models.ssm.inference import FittedArtifact
 
 logger = get_prefect_logger(__name__)
 
@@ -108,7 +108,7 @@ def run_stage5b(
     workspace_id: str,
 ) -> dict[str, Any]:
     """Fit the model, run diagnostics, and shape the Stage 5b payload."""
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     config = get_config()
     data_for_model = load_parquet(stage2["_data_for_model_path"])

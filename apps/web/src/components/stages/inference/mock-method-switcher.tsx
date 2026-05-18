@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import type { Stage5bData } from "@causal-ssm/api-types";
+import type { Stage5bData } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
 
 type InferenceMethod = "map" | "aux_gibbs" | "particle_mgrad";

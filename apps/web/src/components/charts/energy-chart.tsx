@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils/format";
-import type { EnergyDiagnostics } from "@causal-ssm/api-types";
+import type { EnergyDiagnostics } from "@nof1-causal-lab/api-types";
 import {
   Area,
   CartesianGrid,

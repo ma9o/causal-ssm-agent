@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Stage3Data } from "@causal-ssm/api-types";
+import type { Stage3Data } from "@nof1-causal-lab/api-types";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildFixPrompt, getFixPromptData, Stage3FixAction } from "./stage-3-content";

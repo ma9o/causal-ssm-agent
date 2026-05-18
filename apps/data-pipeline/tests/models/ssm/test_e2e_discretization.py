@@ -25,13 +25,13 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.models.ssm import SSMSpec, discretize_system
-from causal_ssm_agent.models.ssm.structure_runtime import SSMStructureRuntime
-from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
-from causal_ssm_agent.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm import SSMSpec, discretize_system
+from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
+from nof1_causal_lab.models.ssm_compilation import (
     compile_priors as compile_ssm_priors,
 )
-from causal_ssm_agent.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm_compilation import (
     translate_spec as translate_ssm_spec,
 )
 from tests.ssm_test_utils import combined_drift_mask, make_ssm_spec
@@ -708,11 +708,11 @@ class TestE2ESpecToDiscretization:
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
     ):
         """Compiled artifacts preserve the grounded latent and measurement layout."""
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             build_compiled_ssm_builder,
             compile_ssm_artifact,
         )
-        from causal_ssm_agent.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.data import pivot_to_wide
 
         compiled = compile_ssm_artifact(
             two_construct_model_spec,
@@ -1039,7 +1039,7 @@ class TestE2ESpecToDiscretization:
         """Prior predictive sampling produces finite, bounded outputs."""
         import polars as pl
 
-        from causal_ssm_agent.models.ssm.inference import prior_predictive
+        from nof1_causal_lab.models.ssm.inference import prior_predictive
 
         builder = SSMModelBuilder(
             model_spec=two_construct_model_spec,
@@ -1516,7 +1516,7 @@ class TestExactMatrixLogConversion:
 
     def test_edge_lag_days_populated(self, two_construct_causal_spec):
         """Builder stores edge lag metadata from causal spec during mask building."""
-        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
 
         # Building masks returns edge_lag_days as 4th value
         _dm, _input_mask, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
@@ -1590,7 +1590,7 @@ class TestExactMatrixLogConversion:
             latent_names=["mood", "stress"],
             drift_mask=drift_mask,
         )
-        from causal_ssm_agent.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
 
         # Build masks to get edge_lag_days, then pass explicitly
         _dm, _input_mask, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
@@ -1600,7 +1600,7 @@ class TestExactMatrixLogConversion:
             2,
             causal_spec=two_construct_causal_spec,
         )
-        with caplog.at_level(logging.WARNING, logger="causal_ssm_agent.models.ssm_compilation"):
+        with caplog.at_level(logging.WARNING, logger="nof1_causal_lab.models.ssm_compilation"):
             _compile_priors_for_test(
                 priors,
                 model_spec,

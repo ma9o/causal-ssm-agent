@@ -8,11 +8,11 @@ from copy import deepcopy
 import pytest
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows.stage_contracts import (
+from nof1_causal_lab.flows.stage_contracts import (
     STAGE_TOOLS,
     validate_stage_payload,
 )
-from causal_ssm_agent.flows.stage_persistence import persist_web_result
+from nof1_causal_lab.flows.stage_persistence import persist_web_result
 
 
 @pytest.fixture
@@ -261,7 +261,7 @@ def valid_stage_payloads() -> dict[str, dict]:
 def test_persist_web_result_normalizes_nonfinite_numbers(
     tmp_path, monkeypatch, valid_stage_payloads
 ):
-    from causal_ssm_agent.flows import stage_persistence as persist_module
+    from nof1_causal_lab.flows import stage_persistence as persist_module
 
     captured: dict[str, str] = {}
 
@@ -289,7 +289,7 @@ def test_persist_web_result_normalizes_nonfinite_numbers(
 
 def test_tool_server_registry_matches_served_tool_contracts() -> None:
     """Served tool contracts should match the tool server registry exactly."""
-    from causal_ssm_agent.tool_server import _TOOL_IMPLS
+    from nof1_causal_lab.tool_server import _TOOL_IMPLS
 
     served_stage_ids = {stage_id for stage_id, _tool_name in _TOOL_IMPLS}
     assert served_stage_ids == {"stage-1a", "stage-1b", "stage-2", "stage-4", "stage-6"}

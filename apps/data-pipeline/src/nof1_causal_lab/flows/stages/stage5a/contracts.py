@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from causal_ssm_agent.flows.contracts_base import BaseStageContract
-from causal_ssm_agent.flows.stages.inference_contracts import (  # noqa: TC001
+from nof1_causal_lab.flows.contracts_base import BaseStageContract
+from nof1_causal_lab.flows.stages.inference_contracts import (  # noqa: TC001
     InferenceMetadataContract,
 )
-from causal_ssm_agent.models.ssm.inference.schemas import (  # noqa: TC001
+from nof1_causal_lab.models.ssm.inference.schemas import (  # noqa: TC001
     PosteriorMarginal,
     PosteriorPair,
     SVIDiagnostics,

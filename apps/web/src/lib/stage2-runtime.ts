@@ -1,4 +1,4 @@
-export const STAGE2_EVENT_PREFIX = "causal-ssm.stage2.";
+export const STAGE2_EVENT_PREFIX = "nof1-causal-lab.stage2.";
 const STAGE2_RPM_WINDOW_MS = 60_000;
 
 export type Stage2WorkerState = "pending" | "running" | "completed" | "failed";

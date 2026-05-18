@@ -3,8 +3,8 @@
 import jax.numpy as jnp
 import pytest
 
-from causal_ssm_agent.models.posterior_predictive import PPCResult, run_posterior_predictive_checks
-from causal_ssm_agent.models.predictive_simulation import simulate_predictive_observations
+from nof1_causal_lab.models.posterior_predictive import PPCResult, run_posterior_predictive_checks
+from nof1_causal_lab.models.predictive_simulation import simulate_predictive_observations
 from tests.models.ssm._support import (
     complex_mixed_family_config,
     make_complex_mixed_samples,

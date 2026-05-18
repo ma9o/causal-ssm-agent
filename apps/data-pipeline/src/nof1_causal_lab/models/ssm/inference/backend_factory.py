@@ -8,9 +8,9 @@ import jax
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.artifacts.model_spec import DistributionFamily, LinkFunction
-    from causal_ssm_agent.models.ssm.model import SSMSpec
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 
 def build_laplace_backend(
@@ -19,11 +19,11 @@ def build_laplace_backend(
     observation_support: ObservationSupportRuntime | None = None,
 ):
     """Construct a Laplace likelihood backend for a compiled spec."""
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import (
         get_per_channel_links,
         get_per_channel_manifest,
     )
-    from causal_ssm_agent.models.ssm.inference.targets.laplace import LaplaceLikelihood
+    from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
 
     return LaplaceLikelihood(
         n_latent=spec.n_latent,
@@ -43,7 +43,7 @@ def make_likelihood_backend(
     observation_support: ObservationSupportRuntime | None = None,
 ):
     """Construct a likelihood backend from model configuration."""
-    from causal_ssm_agent.models.ssm.inference.structure import plan_inference_structure
+    from nof1_causal_lab.models.ssm.inference.structure import plan_inference_structure
 
     if pf_key is None:
         pf_key = jax.random.PRNGKey(0)
@@ -55,14 +55,14 @@ def make_likelihood_backend(
     )
 
     if inference_structure.structural_backend == "kalman":
-        from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
+        from nof1_causal_lab.models.ssm.inference.targets.kalman import KalmanLikelihood
 
         return KalmanLikelihood(
             n_latent=spec.n_latent,
             n_manifest=spec.n_manifest,
         )
 
-    from causal_ssm_agent.models.ssm.inference.targets.graph_analysis import (
+    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import (
         get_per_channel_links,
         get_per_channel_manifest,
         get_per_variable_diffusion,
@@ -73,9 +73,9 @@ def make_likelihood_backend(
     per_links = list(get_per_channel_links(spec))
 
     if inference_structure.structural_backend == "composed":
-        from causal_ssm_agent.models.ssm.inference.targets.composed import ComposedLikelihood
-        from causal_ssm_agent.models.ssm.inference.targets.kalman import KalmanLikelihood
-        from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+        from nof1_causal_lab.models.ssm.inference.targets.composed import ComposedLikelihood
+        from nof1_causal_lab.models.ssm.inference.targets.kalman import KalmanLikelihood
+        from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
         partition = inference_structure.first_pass_partition
         if partition is None:
@@ -115,7 +115,7 @@ def make_likelihood_backend(
             ),
         )
 
-    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
     return ParticleLikelihood(
         n_latent=spec.n_latent,

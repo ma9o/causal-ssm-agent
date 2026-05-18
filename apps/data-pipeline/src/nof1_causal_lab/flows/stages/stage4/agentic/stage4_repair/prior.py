@@ -28,12 +28,12 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
         Stage4FrontierBlock,
         Stage4Plan,
     )
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_state import Stage4Runtime
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
 
 def _support_failure_scope(
@@ -383,7 +383,7 @@ def classify_prior_failure_blocks(
             f"{active_block.id!r}"
         )
 
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     localization = _localize_prior_failure(plan, validation)
     candidates = _build_scope_candidates(plan, localization)

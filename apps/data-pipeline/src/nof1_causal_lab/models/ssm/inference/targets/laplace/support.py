@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Any
 import jax
 import jax.numpy as jnp
 
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
     build_likelihood_eval_aux,
 )
-from causal_ssm_agent.models.ssm.inference.targets.trajectory_observations import (
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     accumulate_support_statistics,
     expected_observation_mean,
     get_point_like_mask,
@@ -44,7 +44,7 @@ from .shared import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 
 def _assemble_support_aware_observation_system(

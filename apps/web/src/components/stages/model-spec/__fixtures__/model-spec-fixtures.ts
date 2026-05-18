@@ -5,7 +5,7 @@ import type {
   Stage2Data,
   Stage3Data,
   Stage4Data,
-} from "@causal-ssm/api-types";
+} from "@nof1-causal-lab/api-types";
 import { collectStage4UiPriors } from "@/lib/stage4-data";
 import { buildStage4LikelihoodDiagnostics } from "@/lib/stage4-likelihood-diagnostics";
 import stage1bFixture from "../../../../../../../data/DEMO_HEALTH/run/stage-1b.json";

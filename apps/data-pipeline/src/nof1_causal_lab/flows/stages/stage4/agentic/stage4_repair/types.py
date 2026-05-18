@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from causal_ssm_agent.flows.stages.stage4.agentic.stage4_orchestrator import (
+    from nof1_causal_lab.flows.stages.stage4.agentic.stage4_orchestrator import (
         Stage4FrontierBlock,
         Stage4Plan,
         Stage4RepairTopology,
     )
-    from causal_ssm_agent.workers.schemas_prior import (
+    from nof1_causal_lab.workers.schemas_prior import (
         PriorPathologyCertificate,
         PriorRepairScope,
         PriorValidationResult,

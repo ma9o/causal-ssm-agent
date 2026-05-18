@@ -9,8 +9,8 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
-from causal_ssm_agent.models.ssm import discretize_system
-from causal_ssm_agent.models.ssm.model import (
+from nof1_causal_lab.models.ssm import discretize_system
+from nof1_causal_lab.models.ssm.model import (
     SSMSpec,
     full_cholesky_mask,
     full_diagonal_mask,
@@ -22,7 +22,7 @@ from causal_ssm_agent.models.ssm.model import (
     zero_square_mask,
     zero_vector_mask,
 )
-from causal_ssm_agent.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 
 def make_lgss_data(

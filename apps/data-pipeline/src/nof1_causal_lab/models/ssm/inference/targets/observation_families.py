@@ -23,13 +23,13 @@ import jax.numpy as jnp
 import numpy as np
 from jax import core as jax_core
 
-import causal_ssm_agent.models.ssm.inference.targets.emissions as emission_math
-from causal_ssm_agent.artifacts.model_spec import (
+import nof1_causal_lab.models.ssm.inference.targets.emissions as emission_math
+from nof1_causal_lab.artifacts.model_spec import (
     VALID_LINKS_FOR_DISTRIBUTION,
     DistributionFamily,
     LinkFunction,
 )
-from causal_ssm_agent.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 
 from .emissions import (
     categorical_probabilities,

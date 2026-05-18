@@ -1,5 +1,5 @@
 import { type LayoutResult, layoutDag } from "@/lib/utils/dag-layout";
-import type { CausalEdge, Construct, Indicator } from "@causal-ssm/api-types";
+import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 interface UseElkLayoutResult extends LayoutResult {

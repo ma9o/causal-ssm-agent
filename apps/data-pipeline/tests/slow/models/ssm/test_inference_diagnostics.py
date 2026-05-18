@@ -6,7 +6,7 @@ import numpyro
 import numpyro.distributions as dist
 import pytest
 
-from causal_ssm_agent.models.ssm.inference import InferenceResult
+from nof1_causal_lab.models.ssm.inference import InferenceResult
 
 pytestmark = pytest.mark.slow
 

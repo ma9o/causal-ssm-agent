@@ -15,11 +15,11 @@ import numpy as np
 import polars as pl
 from pydantic import ValidationError
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily, ModelSpec
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
-from causal_ssm_agent.models.ssm.parameter_names import split_compound_name
-from causal_ssm_agent.workers.schemas_prior import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily, ModelSpec
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
+from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorProposal,
     PriorRepairScope,
@@ -111,7 +111,7 @@ def _indicator_to_construct_lookup(
     """Return the construct name implied by each manifest indicator."""
     lookup: dict[str, str] = dict(indicator_to_construct or {})
     if causal_spec:
-        from causal_ssm_agent.utils.causal_spec import get_indicators
+        from nof1_causal_lab.utils.causal_spec import get_indicators
 
         for indicator in get_indicators(causal_spec):
             if not isinstance(indicator, dict):
@@ -432,7 +432,7 @@ def _ordered_latent_sccs(
     if causal_spec is None or not latent_names:
         return []
 
-    from causal_ssm_agent.utils.causal_spec import get_estimation_edges, get_estimation_state_order
+    from nof1_causal_lab.utils.causal_spec import get_estimation_edges, get_estimation_state_order
 
     latent_name_set = set(latent_names)
     construct_order = [
@@ -471,7 +471,7 @@ def _infer_dynamics_repair_scope(
         logger.debug("Skipping dynamics repair-scope attribution (missing inputs)")
         return None
 
-    from causal_ssm_agent.models.ssm_compiler import deserialize_ssm_spec
+    from nof1_causal_lab.models.ssm_compiler import deserialize_ssm_spec
 
     try:
         spec_payload = compiled_ssm.get("spec")
@@ -519,7 +519,7 @@ def _check_nan_inf(
     manifest_names: list[str] | None = None,
 ) -> PriorValidationResult | None:
     """Check for NaN or Inf in any sample site."""
-    from causal_ssm_agent.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
+    from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES
 
     def _draw_indices(mask: np.ndarray) -> list[int]:
         if mask.ndim == 0:
@@ -727,7 +727,7 @@ def _check_scale_plausibility(
     observation arrays are treated as harness errors rather than silently
     approximating scale from latent stationary covariance.
     """
-    from causal_ssm_agent.models.ssm.discretization import solve_lyapunov
+    from nof1_causal_lab.models.ssm.discretization import solve_lyapunov
 
     results = []
 
@@ -929,11 +929,11 @@ def _check_lagged_response_plausibility(
         logger.debug("Skipping lagged-response plausibility check (missing inputs)")
         return []
 
-    from causal_ssm_agent.models.ssm_compiler import (
+    from nof1_causal_lab.models.ssm_compiler import (
         deserialize_edge_lag_days,
         deserialize_ssm_spec,
     )
-    from causal_ssm_agent.utils.causal_spec import get_estimation_edges
+    from nof1_causal_lab.utils.causal_spec import get_estimation_edges
 
     try:
         spec_payload = compiled_ssm.get("spec")
@@ -1072,15 +1072,15 @@ def validate_prior_predictive(
         Unpack ``simulate_predictive_observations()`` to generate per-variable
         observation samples and their effective emission mask for visualization.
     """
-    from causal_ssm_agent.models.predictive_simulation import (
+    from nof1_causal_lab.models.predictive_simulation import (
         PredictiveObservationMeanOverflow,
     )
-    from causal_ssm_agent.models.ssm_builder import (
+    from nof1_causal_lab.models.ssm_builder import (
         prepare_model_runtime,
         prepare_wide_model_runtime,
     )
-    from causal_ssm_agent.models.ssm_compilation_common import dump_prior_payloads
-    from causal_ssm_agent.models.ssm_compiler import (
+    from nof1_causal_lab.models.ssm_compilation_common import dump_prior_payloads
+    from nof1_causal_lab.models.ssm_compiler import (
         compile_ssm_artifact,
         make_builder_from_compiled_artifact,
     )
@@ -1288,7 +1288,7 @@ def format_parameter_feedback(
     Returns:
         Formatted feedback string for inclusion in re-elicitation prompt
     """
-    from causal_ssm_agent.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
 
     # Find results relevant to this parameter
     # Global failures (affect all parameters) are always included
@@ -1391,7 +1391,7 @@ def get_failed_parameters(
     if not failed_results:
         return []
 
-    from causal_ssm_agent.models.ssm_compilation_common import (
+    from nof1_causal_lab.models.ssm_compilation_common import (
         GLOBAL_FAILURE_SITES,
         NUISANCE_SITES,
         SITE_TO_KEYWORDS,
@@ -1404,7 +1404,7 @@ def get_failed_parameters(
     # Build indicator→construct lookup from causal_spec
     indicator_to_construct: dict[str, str] = {}
     if causal_spec:
-        from causal_ssm_agent.utils.causal_spec import get_indicators
+        from nof1_causal_lab.utils.causal_spec import get_indicators
 
         for ind in get_indicators(causal_spec):
             ind_name = ind.get("name") if isinstance(ind, dict) else ind.name

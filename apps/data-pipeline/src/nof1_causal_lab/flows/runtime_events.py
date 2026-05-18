@@ -6,10 +6,10 @@ from typing import Any
 
 from prefect.events import emit_event
 
-from causal_ssm_agent.flows import get_current_flow_run_id
+from nof1_causal_lab.flows import get_current_flow_run_id
 
-STAGE_PROGRESS_EVENT_PREFIX = "causal-ssm.pipeline-stage"
-STAGE2_EVENT_PREFIX = "causal-ssm.stage2"
+STAGE_PROGRESS_EVENT_PREFIX = "nof1-causal-lab.pipeline-stage"
+STAGE2_EVENT_PREFIX = "nof1-causal-lab.stage2"
 
 
 def _normalize_log_flow_run_ids(
@@ -177,7 +177,7 @@ def emit_stage2_snapshot_event(
     )
 
 
-STAGE4_EVENT_PREFIX = "causal-ssm.stage4"
+STAGE4_EVENT_PREFIX = "nof1-causal-lab.stage4"
 
 
 def emit_stage4_graph_event(

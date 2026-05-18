@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_family_index,
 )
-from causal_ssm_agent.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
+from nof1_causal_lab.models.ssm.parameter_names import INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS
 
 
 @dataclass

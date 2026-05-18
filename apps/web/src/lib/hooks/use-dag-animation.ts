@@ -1,4 +1,4 @@
-import type { CausalEdge, Construct } from "@causal-ssm/api-types";
+import type { CausalEdge, Construct } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   EdgeAnimState,

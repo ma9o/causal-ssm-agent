@@ -1,4 +1,4 @@
-export const STAGE4_EVENT_PREFIX = "causal-ssm.stage4.";
+export const STAGE4_EVENT_PREFIX = "nof1-causal-lab.stage4.";
 export const STAGE4_LOCK_NODE_ID = "__lock__";
 export const STAGE4_REPAIR_BARRIER_NODE_ID = "__repair_barrier__";
 export const STAGE4_DONE_NODE_ID = "__done__";

@@ -1,1 +1,1 @@
-"""Utility modules for causal-ssm-agent."""
+"""Utility modules for nof1-causal-lab."""

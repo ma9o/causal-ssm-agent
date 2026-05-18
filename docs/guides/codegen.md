@@ -2,7 +2,7 @@
 
 `bun run docs:codegen` runs two generators:
 
-- **TypeScript contracts**: [`stage_contracts.py`](../../apps/data-pipeline/src/causal_ssm_agent/flows/stage_contracts.py) and the domain models it imports are the source of truth. `export_schemas.py` calls `.model_json_schema(mode="serialization")` → `schemas/contracts.json` + `schemas/tools.json`; `generate.ts` feeds those through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) → `src/generated/models.ts` + `src/generated/tools.ts`.
+- **TypeScript contracts**: [`stage_contracts.py`](../../apps/data-pipeline/src/nof1_causal_lab/flows/stage_contracts.py) and the domain models it imports are the source of truth. `export_schemas.py` calls `.model_json_schema(mode="serialization")` → `schemas/contracts.json` + `schemas/tools.json`; `generate.ts` feeds those through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) → `src/generated/models.ts` + `src/generated/tools.ts`.
 - **Docs LaTeX images**: math in `README.md` and `docs/` (`$...$`, `$$...$$`, `\(...\)`, `\[...\]`) is rewritten as SVG embeds under [`docs/assets/generated/latex`](../assets/generated/latex), with source retained in nearby `docs-latex` metadata comments. GitHub math rendering is unreliable across Markdown contexts.
 
 ```bash

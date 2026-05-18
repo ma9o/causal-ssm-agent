@@ -9,32 +9,33 @@ import numpy as np
 import pytest
 from jax.flatten_util import ravel_pytree
 
-from causal_ssm_agent.artifacts import LinkFunction
-from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.models.ssm import SSMModel, fit
-from causal_ssm_agent.models.ssm.autoreparam import AutoReparam
-from causal_ssm_agent.models.ssm.discretization import discretize_system_batched
-from causal_ssm_agent.models.ssm.inference import _apply_reparam, _eval_model
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.ssm import SSMModel, fit
+from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
+from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
+from nof1_causal_lab.models.ssm.inference import _eval_model
+from nof1_causal_lab.models.ssm.inference.shared import _apply_reparam
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
 )
-from causal_ssm_agent.models.ssm.inference.targets.emissions import (
+from nof1_causal_lab.models.ssm.inference.targets.emissions import (
     get_mean_param_log_prob_fn,
 )
-from causal_ssm_agent.models.ssm.inference.targets.kernels import (
+from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
 )
-from causal_ssm_agent.models.ssm.inference.targets.laplace import (
+from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
     _dense_support_laplace_log_lik,
 )
-from causal_ssm_agent.models.ssm.inference.targets.particle import (
+from nof1_causal_lab.models.ssm.inference.targets.particle import (
     ParticleLikelihood,
     SSMAdapter,
 )
-from causal_ssm_agent.models.ssm.inference.utils import _build_eval_fns, _discover_sites
+from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
 from tests.ssm_test_utils import (
     diagonal_diffusion_kwargs,
     make_observation_support_runtime,
@@ -176,7 +177,7 @@ class TestStudentTProcessNoise:
     """Tests for Student-t process noise variance calibration."""
 
     def test_student_t_process_noise_variance_matches_qd(self):
-        from causal_ssm_agent.models.ssm.discretization import discretize_system
+        from nof1_causal_lab.models.ssm.discretization import discretize_system
 
         n_latent, n_manifest = 1, 1
         df = 5.0
@@ -328,7 +329,7 @@ class TestHighDimNonlinear:
     def test_high_dimensional_poisson_pf_map(self):
         import jax.scipy.linalg as jla
 
-        from causal_ssm_agent.models.ssm.discretization import discretize_system
+        from nof1_causal_lab.models.ssm.discretization import discretize_system
 
         n_latent, n_manifest = 6, 6
         T = 30

@@ -34,10 +34,10 @@ from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver, system_message
 
-from causal_ssm_agent.orchestrator.prompts import measurement_model
-from causal_ssm_agent.orchestrator.schemas import LatentModel, MeasurementModel
-from causal_ssm_agent.orchestrator.stage1b import Stage1bResult, run_stage1b
-from causal_ssm_agent.utils.causal_spec import get_all_treatments, get_outcome_name
+from nof1_causal_lab.orchestrator.prompts import measurement_model
+from nof1_causal_lab.orchestrator.schemas import LatentModel, MeasurementModel
+from nof1_causal_lab.orchestrator.stage1b import Stage1bResult, run_stage1b
+from nof1_causal_lab.utils.causal_spec import get_all_treatments, get_outcome_name
 
 # Load config for models
 _CONFIG = load_eval_config()

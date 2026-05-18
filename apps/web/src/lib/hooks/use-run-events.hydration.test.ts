@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { STAGES, type StageId } from "@causal-ssm/api-types";
+import { STAGES, type StageId } from "@nof1-causal-lab/api-types";
 import type { AnalysisStageRun, AnalysisStageRuns } from "@/lib/api/analysis";
 import { getStage4StateQueryKey } from "@/lib/stage4-runtime";
 import { createElement } from "react";

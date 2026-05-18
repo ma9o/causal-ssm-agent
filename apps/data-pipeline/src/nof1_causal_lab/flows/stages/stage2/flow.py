@@ -9,19 +9,19 @@ import polars as pl
 from prefect import flow, get_run_logger, task
 from prefect.futures import as_completed
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.runtime_events import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.runtime_events import (
     emit_nested_stage_running_event,
     emit_stage2_plan_event,
     emit_stage2_worker_event,
 )
-from causal_ssm_agent.flows.stages.stage2.execution import collect_batch_results
-from causal_ssm_agent.flows.stages.stage2.planning import (
+from nof1_causal_lab.flows.stages.stage2.execution import collect_batch_results
+from nof1_causal_lab.flows.stages.stage2.planning import (
     chunk_log_label,
     prepare_semantic_chunks,
     project_to_source_columns,
 )
-from causal_ssm_agent.flows.stages.stage2.progress import (
+from nof1_causal_lab.flows.stages.stage2.progress import (
     clear_stage2_progress_tracker,
     emit_stage2_snapshot,
     get_stage2_progress_tracker,
@@ -123,7 +123,7 @@ async def _run_semantic_chunks_prefect(
     """Execute semantic chunks through the existing Prefect worker path."""
     from prefect.utilities.annotations import unmapped
 
-    from causal_ssm_agent.utils.openrouter_client import RpmLimiter, set_limiter
+    from nof1_causal_lab.utils.openrouter_client import RpmLimiter, set_limiter
 
     all_indices = list(range(len(chunk_texts)))
     all_n_windows = [len(ids) for ids in chunk_window_starts]
@@ -196,8 +196,8 @@ async def run_stage2_extraction_core(
     4. delegating semantic execution to an injected backend
     5. annotating canonical observation-row support metadata
     """
-    from causal_ssm_agent.utils.causal_spec import get_indicators
-    from causal_ssm_agent.utils.data import ObservationRecord, annotate_observation_rows
+    from nof1_causal_lab.utils.causal_spec import get_indicators
+    from nof1_causal_lab.utils.data import ObservationRecord, annotate_observation_rows
 
     semantic_chunk_runner = semantic_chunk_runner or _run_semantic_chunks_prefect
 
@@ -218,7 +218,7 @@ async def run_stage2_extraction_core(
 
     computed_dicts: list[dict] = []
     if computed_inds:
-        from causal_ssm_agent.utils.aggregations import compute_indicators
+        from nof1_causal_lab.utils.aggregations import compute_indicators
 
         computed_df = compute_indicators(raw_df, computed_inds, model_clock, time_col)
         computed_dicts = computed_df.to_dicts()
@@ -317,11 +317,11 @@ async def extract_window_chunk_task(
     """
     from dataclasses import replace
 
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
-    from causal_ssm_agent.utils.causal_spec import get_indicators
-    from causal_ssm_agent.utils.config import get_config
-    from causal_ssm_agent.utils.openrouter_client import use_openrouter_api_key
-    from causal_ssm_agent.workers.core import run_worker_extraction
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.causal_spec import get_indicators
+    from nof1_causal_lab.utils.config import get_config
+    from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
+    from nof1_causal_lab.workers.core import run_worker_extraction
 
     run_logger = get_run_logger()
     config = get_config()
@@ -422,7 +422,7 @@ async def stage2_extraction_flow(
         Dict with 'observation_rows' (long-format observation rows as list of dicts),
         'worker_statuses', and 'n_total_extractions'.
     """
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     if root_run_id:
         emit_nested_stage_running_event(root_run_id, "stage-2")

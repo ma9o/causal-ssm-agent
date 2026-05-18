@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from causal_ssm_agent.artifacts.causal_spec import CausalSpec  # noqa: TC001
-from causal_ssm_agent.flows.contracts_base import LLMStageContract, ToolContract
+from nof1_causal_lab.artifacts.causal_spec import CausalSpec  # noqa: TC001
+from nof1_causal_lab.flows.contracts_base import LLMStageContract, ToolContract
 
 STAGE_ID = "stage-1b"
 IS_INTERACTIVE_STAGE = True

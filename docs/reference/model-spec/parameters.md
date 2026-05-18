@@ -2,7 +2,7 @@
 
 Defines the parameter roles, prior vocabulary, and default guidance for [`ParameterSpec`](../../pipeline/04-model-specification-priors.md#parameterspec) and [`PriorProposal`](../../pipeline/04-model-specification-priors.md) entries in a [`ModelSpec`](../../pipeline/04-model-specification-priors.md#modelspec).
 
-> All sections below are generated from `causal_ssm_agent.distributions`.
+> All sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/export_distribution_docs.py` instead of editing them manually.
 
 ## Parameter Roles

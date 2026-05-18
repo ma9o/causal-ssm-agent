@@ -29,7 +29,7 @@ def _require_text(value: str | None) -> str:
 
 def test_stage4_generate_config_sets_stage4_timeout(monkeypatch):
     monkeypatch.setattr(
-        "causal_ssm_agent.flows.stages.stage4.flow.get_generate_config",
+        "nof1_causal_lab.flows.stages.stage4.flow.get_generate_config",
         lambda: GenerateConfig(
             max_tokens=65536,
             timeout=321,
@@ -54,7 +54,7 @@ class TestSSMModelBuilder:
 
     def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):
         """Builder creates an SSMModel with correct dimensions."""
-        from causal_ssm_agent.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
 
         builder = SSMModelBuilder(
             model_spec=simple_model_spec,
@@ -119,7 +119,7 @@ class TestPriorPredictiveValidation:
         # This should still build (builder is tolerant), but let's test
         # with a truly broken spec by patching build_model to raise
         with patch(
-            "causal_ssm_agent.models.ssm_builder.SSMModelBuilder.build_model",
+            "nof1_causal_lab.models.ssm_builder.SSMModelBuilder.build_model",
             side_effect=ValueError("deliberate test failure"),
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -160,7 +160,7 @@ class TestPriorPredictiveValidation:
         }
 
         with patch(
-            "causal_ssm_agent.models.ssm_builder.SSMModelBuilder.sample_prior_predictive",
+            "nof1_causal_lab.models.ssm_builder.SSMModelBuilder.sample_prior_predictive",
             return_value={"drift_base_decay_free": np.ones((2, 1))},
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -176,7 +176,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Final Stage 4 artifacts should carry non-fatal validation warnings."""
-        from causal_ssm_agent.flows.stages.stage4.assembly import (
+        from nof1_causal_lab.flows.stages.stage4.assembly import (
             AssemblyValidation,
             materialize_stage4_result,
         )
@@ -205,7 +205,7 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "causal_ssm_agent.flows.stages.stage4.assembly.compile_model_artifact",
+                "nof1_causal_lab.flows.stages.stage4.assembly.compile_model_artifact",
                 return_value={
                     "model_built": True,
                     "model_type": "test",
@@ -214,7 +214,7 @@ class TestPriorPredictiveValidation:
                 },
             ),
             patch(
-                "causal_ssm_agent.models.ssm_compiler.resolve_prior_proposals",
+                "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
                 return_value=[],
             ),
         ):
@@ -237,7 +237,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Stage 4 should compile once per validation attempt and pass that artifact through."""
-        from causal_ssm_agent.flows.stages.stage4.assembly import validate_assembly
+        from nof1_causal_lab.flows.stages.stage4.assembly import validate_assembly
 
         compiled_artifact = {"schema_version": 1}
         seen_compiled: list[dict[str, Any] | None] = []
@@ -248,15 +248,15 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
                 return_value=compiled_artifact,
             ) as compile_mock,
             patch(
-                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
+                "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
                 side_effect=stub_validate_prior_predictive,
             ),
             patch(
-                "causal_ssm_agent.flows.stages.stage4.assembly.run_output_sensitivity_validation",
+                "nof1_causal_lab.flows.stages.stage4.assembly.run_output_sensitivity_validation",
                 return_value=(True, True, True, None, []),
             ),
         ):
@@ -278,7 +278,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Lagged DT/CT heuristics should surface as warnings, not compile errors."""
-        from causal_ssm_agent.flows.stages.stage4.assembly import validate_assembly
+        from nof1_causal_lab.flows.stages.stage4.assembly import validate_assembly
 
         compiled_artifact = {
             "schema_version": 1,
@@ -288,11 +288,11 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
                 return_value=compiled_artifact,
             ),
             patch(
-                "causal_ssm_agent.flows.stages.stage4.assembly._collect_compile_diagnostics",
+                "nof1_causal_lab.flows.stages.stage4.assembly._collect_compile_diagnostics",
                 return_value=[
                     PriorValidationResult(
                         parameter="beta_stress_sleep",
@@ -306,11 +306,11 @@ class TestPriorPredictiveValidation:
                 ],
             ),
             patch(
-                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
+                "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
                 return_value=(True, [], {}),
             ) as pp_mock,
             patch(
-                "causal_ssm_agent.flows.stages.stage4.assembly.run_output_sensitivity_validation",
+                "nof1_causal_lab.flows.stages.stage4.assembly.run_output_sensitivity_validation",
                 return_value=(True, True, True, None, []),
             ),
         ):
@@ -346,7 +346,7 @@ class TestPriorPredictiveValidation:
         simple_model_spec,
         simple_priors,
     ):
-        from causal_ssm_agent.flows.stages.stage4.assembly import validate_assembly
+        from nof1_causal_lab.flows.stages.stage4.assembly import validate_assembly
 
         compiled_artifact = {"schema_version": 1, "compiled_prior_semantics": {}}
         data_for_model = _make_polars_data()
@@ -372,15 +372,15 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
                 return_value=compiled_artifact,
             ),
             patch(
-                "causal_ssm_agent.models.prior_predictive.validate_prior_predictive",
+                "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
                 return_value=(True, [], {}),
             ),
             patch(
-                "causal_ssm_agent.flows.stages.stage4.assembly.run_output_sensitivity_validation",
+                "nof1_causal_lab.flows.stages.stage4.assembly.run_output_sensitivity_validation",
                 return_value=(True, True, False, sensitivity_payload, []),
             ) as sensitivity_mock,
         ):
@@ -425,11 +425,11 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "causal_ssm_agent.models.ssm_compiler.compile_ssm_artifact",
+                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
                 side_effect=AssertionError("compile should not be called"),
             ),
             patch(
-                "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+                "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
                 return_value=runtime,
             ),
         ):
@@ -466,7 +466,7 @@ class TestPriorPredictiveValidation:
         runtime = SimpleNamespace(builder=_OverflowBuilder())
 
         with patch(
-            "causal_ssm_agent.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
             return_value=runtime,
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -489,7 +489,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_reads_compiled_semantics_per_state(self):
         """Implicit initial-state priors should come from compiled semantics."""
-        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
 
         compiled_ssm = {
             "spec": {"latent_names": ["stress", "sleep"]},
@@ -587,7 +587,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Resolved public priors should retain authored semantics when compilation is lossy."""
-        from causal_ssm_agent.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm_compiler import (
             compile_ssm_artifact,
             resolve_prior_proposals,
         )
@@ -606,7 +606,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_roundtrips_new_supported_prior_families(self):
         """Compiled semantics should surface LogNormal and bounded real priors."""
-        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
 
         compiled_ssm = {
             "compiled_prior_semantics": {
@@ -679,7 +679,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_uses_family_over_canonical_bounds(self):
         """Canonical low/high leaves must not force Normal sites to look truncated."""
-        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
 
         compiled_ssm = {
             "compiled_prior_semantics": {
@@ -730,7 +730,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_roundtrips_correlation_support_sites(self):
         """Compiled correlation-support sites should reconstruct bounded real priors."""
-        from causal_ssm_agent.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
 
         compiled_ssm = {
             "compiled_prior_semantics": {
@@ -870,7 +870,7 @@ class TestSSMPriorConversion:
 
     def test_compile_ssm_inputs_validates_dict_once(self, simple_model_spec, simple_priors):
         """Compilation should validate a dict spec once, then pass the parsed object through."""
-        from causal_ssm_agent.artifacts import ModelSpec
+        from nof1_causal_lab.artifacts import ModelSpec
 
         with patch.object(ModelSpec, "model_validate", wraps=ModelSpec.model_validate) as validate:
             compile_ssm_inputs_from_model_spec(simple_model_spec, simple_priors)
@@ -955,7 +955,7 @@ class TestSSMPriorConversion:
 
     def test_compile_ssm_artifact_aggregates_strict_binding_errors(self):
         """Strict causal-spec binding errors should be reported together."""
-        from causal_ssm_agent.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
 
         causal_spec = _with_positive_indicator_polarity(
             {
@@ -1650,14 +1650,14 @@ class TestTrialCompile:
 
     def test_valid_spec_returns_none(self, simple_model_spec):
         """A well-formed spec compiles successfully with default priors."""
-        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
 
         result = trial_compile_model_spec(simple_model_spec)
         assert result is None
 
     def test_compile_failure_returns_error(self):
         """When compilation raises, trial_compile returns the error string."""
-        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1678,7 +1678,7 @@ class TestTrialCompile:
             ],
         }
         with patch(
-            "causal_ssm_agent.models.ssm_compiler._compile_validated_ssm_artifact",
+            "nof1_causal_lab.models.ssm_compiler._compile_validated_ssm_artifact",
             side_effect=ValueError("dimension mismatch in drift matrix"),
         ):
             result = trial_compile_model_spec(spec)
@@ -1687,7 +1687,7 @@ class TestTrialCompile:
 
     def test_role_constraint_mismatch_returns_error(self):
         """Compiler should reject parameter-role constraint mismatches."""
-        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1721,7 +1721,7 @@ class TestTrialCompile:
 
     def test_missing_ar_parameters_returns_error(self):
         """Compiler should reject ModelSpecs with no latent dimensionality signal."""
-        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1749,7 +1749,7 @@ class TestTrialCompile:
 
     def test_rank_deficient_structure_returns_error(self):
         """Compiler should reject model specs with fewer manifests than latents."""
-        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1816,7 +1816,7 @@ class TestTrialCompile:
 
     def test_trial_compile_aggregates_initial_state_translation_errors(self):
         """Translation should report multiple initial-state correlation errors together."""
-        from causal_ssm_agent.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
 
         causal_spec = _with_positive_indicator_polarity(
             {

@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from causal_ssm_agent.artifacts.model_spec import DistributionFamily
-from causal_ssm_agent.models.ssm.inference.targets.observation_families import (
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
 )
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
 def assemble_sampled_extra_params(

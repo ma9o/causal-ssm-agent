@@ -3,7 +3,7 @@ import { MeasurementTable } from "@/components/stages/model-spec/measurement-tab
 import { PriorTable } from "@/components/stages/model-spec/prior-table";
 import { SSMEquationDisplay } from "@/components/stages/model-spec/ssm-equation-display";
 import { collectStage4UiPriors } from "@/lib/stage4-data";
-import type { Indicator, Stage4Data } from "@causal-ssm/api-types";
+import type { Indicator, Stage4Data } from "@nof1-causal-lab/api-types";
 
 export default function Stage4Content({
   data,

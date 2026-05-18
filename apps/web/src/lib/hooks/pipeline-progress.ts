@@ -1,5 +1,5 @@
-import type { StageId, StageOutcome, StageStatus } from "@causal-ssm/api-types";
-import { STAGES } from "@causal-ssm/api-types";
+import type { StageId, StageOutcome, StageStatus } from "@nof1-causal-lab/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 
 export type StageRunStatus = Exclude<StageStatus, "blocked">;
 

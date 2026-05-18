@@ -19,7 +19,7 @@ import re
 import sys
 from pathlib import Path
 
-from causal_ssm_agent.distributions import (
+from nof1_causal_lab.distributions import (
     render_distribution_families_prose,
     render_dtype_likelihood_markdown_table,
     render_link_functions_prose,

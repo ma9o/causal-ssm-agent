@@ -3,7 +3,7 @@
 import { DiagnosticsAccordion } from "@/components/stages/inference/diagnostics-accordion";
 import { MockMethodSwitcher } from "@/components/stages/inference/mock-method-switcher";
 import { isMockMode } from "@/lib/api/mock-provider";
-import type { Stage5bData } from "@causal-ssm/api-types";
+import type { Stage5bData } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
 
 export default function Stage5bContent({ workspaceId, data }: { workspaceId: string; data: Stage5bData }) {

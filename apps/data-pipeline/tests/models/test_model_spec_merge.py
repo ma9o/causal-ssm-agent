@@ -2,7 +2,7 @@
 
 import pytest
 
-from causal_ssm_agent.artifacts import (
+from nof1_causal_lab.artifacts import (
     DistributionFamily,
     InitializationPolicy,
     LinkFunction,
@@ -10,7 +10,7 @@ from causal_ssm_agent.artifacts import (
     ParameterConstraint,
     validate_model_spec_dict,
 )
-from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
+from nof1_causal_lab.flows.stages.stage4.model_spec_decisions import (
     DistributionChoice,
     ModelSpecDecisions,
     merge_decisions_to_spec,

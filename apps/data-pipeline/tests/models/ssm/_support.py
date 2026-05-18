@@ -16,9 +16,9 @@ import jax.scipy.linalg as jla
 import numpyro
 import numpyro.distributions as dist
 
-from causal_ssm_agent.artifacts import LinkFunction
-from causal_ssm_agent.distributions import DistributionFamily
-from causal_ssm_agent.models.ssm.inference.targets.base import (
+from nof1_causal_lab.artifacts import LinkFunction
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
     InitialStateParams,
     MeasurementParams,
@@ -26,7 +26,7 @@ from causal_ssm_agent.models.ssm.inference.targets.base import (
 from tests.ssm_test_utils import make_ssm_spec
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMSpec
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTOREPARAM
@@ -348,7 +348,7 @@ def simulate_data(key, ct_params, meas_params, init, T=30):
 
 def simulate_data_exact(key, ct_params, meas_params, init, T=30):
     """Simulate Gaussian observations using exact CT-to-DT discretization."""
-    from causal_ssm_agent.models.ssm.discretization import discretize_system
+    from nof1_causal_lab.models.ssm.discretization import discretize_system
 
     n = init.mean.shape[0]
     n_manifest = meas_params.lambda_mat.shape[0]
@@ -379,7 +379,7 @@ def simulate_data_exact(key, ct_params, meas_params, init, T=30):
 
 def simulate_poisson_data(key, ct_params, meas_params, init, T=30):
     """Simulate Poisson count observations using exact CT-to-DT discretization."""
-    from causal_ssm_agent.models.ssm.discretization import discretize_system
+    from nof1_causal_lab.models.ssm.discretization import discretize_system
 
     n = init.mean.shape[0]
     dt = 1.0
@@ -420,7 +420,7 @@ def run_block_rbpf(
     manifest_links=None,
 ):
     """Run block RBPF with per-variable diffusion distributions."""
-    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -460,7 +460,7 @@ def run_full_rbpf(
     manifest_links=None,
 ):
     """Run full RBPF with all latent variables Rao-Blackwellized."""
-    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)
@@ -501,7 +501,7 @@ def run_bootstrap_pf(
     manifest_links=None,
 ):
     """Run bootstrap PF with all latent variables sampled."""
-    from causal_ssm_agent.models.ssm.inference.targets.particle import ParticleLikelihood
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood
 
     if rng_key is None:
         rng_key = random.PRNGKey(42)

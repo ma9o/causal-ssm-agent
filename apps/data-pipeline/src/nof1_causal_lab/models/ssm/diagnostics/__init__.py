@@ -1,14 +1,14 @@
 """Parametric diagnostics for state-space models."""
 
-from causal_ssm_agent.models.ssm.diagnostics.context import (
+from nof1_causal_lab.models.ssm.diagnostics.context import (
     ParametricIdContext,
     clear_stage4b_sweep_context_cache,
     get_stage4b_sweep_context,
 )
-from causal_ssm_agent.models.ssm.diagnostics.map_geometry import map_geometry_analysis
-from causal_ssm_agent.models.ssm.diagnostics.power_scaling import power_scaling_sensitivity
-from causal_ssm_agent.models.ssm.diagnostics.profile_likelihood import profile_likelihood
-from causal_ssm_agent.models.ssm.diagnostics.results import (
+from nof1_causal_lab.models.ssm.diagnostics.map_geometry import map_geometry_analysis
+from nof1_causal_lab.models.ssm.diagnostics.power_scaling import power_scaling_sensitivity
+from nof1_causal_lab.models.ssm.diagnostics.profile_likelihood import profile_likelihood
+from nof1_causal_lab.models.ssm.diagnostics.results import (
     MAPCurvatureResult,
     MAPGeometryResult,
     MAPOptimizationRun,
@@ -18,9 +18,9 @@ from causal_ssm_agent.models.ssm.diagnostics.results import (
     ProfileLikelihoodResult,
     SBCResult,
 )
-from causal_ssm_agent.models.ssm.diagnostics.sbc import sbc_check
-from causal_ssm_agent.models.ssm.diagnostics.sensitivity import output_sensitivity_analysis
-from causal_ssm_agent.models.ssm.diagnostics.simulation import simulate_ssm
+from nof1_causal_lab.models.ssm.diagnostics.sbc import sbc_check
+from nof1_causal_lab.models.ssm.diagnostics.sensitivity import output_sensitivity_analysis
+from nof1_causal_lab.models.ssm.diagnostics.simulation import simulate_ssm
 
 __all__ = [
     "OutputSensitivityResult",

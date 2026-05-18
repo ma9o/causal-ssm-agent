@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { formatNumber } from "@/lib/utils/format";
-import type { SMCDiagnostics } from "@causal-ssm/api-types";
+import type { SMCDiagnostics } from "@nof1-causal-lab/api-types";
 import {
   CartesianGrid,
   Line,

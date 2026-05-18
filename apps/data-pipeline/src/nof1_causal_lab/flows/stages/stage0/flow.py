@@ -15,16 +15,16 @@ import polars as pl
 from prefect import task
 from prefect.cache_policies import INPUTS
 
-from causal_ssm_agent.flows import get_prefect_logger
-from causal_ssm_agent.flows.llm_stage_runtime import (
+from nof1_causal_lab.flows import get_prefect_logger
+from nof1_causal_lab.flows.llm_stage_runtime import (
     LLMStageRuntimeConfig,
     attach_trace,
     open_llm_stage,
 )
-from causal_ssm_agent.utils import storage
-from causal_ssm_agent.utils.agent_session import StageSessionFactory
-from causal_ssm_agent.utils.config import get_config
-from causal_ssm_agent.utils.data import input_dir
+from nof1_causal_lab.utils import storage
+from nof1_causal_lab.utils.agent_session import StageSessionFactory
+from nof1_causal_lab.utils.config import get_config
+from nof1_causal_lab.utils.data import input_dir
 
 from .tools import ModalCodeSandbox, make_ingestion_tools
 

@@ -8,7 +8,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from causal_ssm_agent.utils.aggregations import (
+from nof1_causal_lab.utils.aggregations import (
     _build_agg_expr,
     _build_map_groups_fn,
     _encode_non_continuous,

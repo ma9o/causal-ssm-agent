@@ -157,12 +157,17 @@ export function InfoTable<TData>({
     return items;
   }, [groupBy, renderGroupHeader, rows, isRowExpanded]);
 
+  // For small tables, render every row by setting overscan to the full count.
+  // With variable-height cells (e.g. wrapping text) the browser's auto table-layout
+  // recomputes column widths from visible cells, so virtualizing rows in/out can
+  // oscillate column widths → row heights → measurements in an infinite feedback loop.
+  // Keeping all rows mounted breaks the loop; virtualization still helps for large tables.
   const virtualizer = useVirtualizer({
     count: flatItems.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) =>
       flatItems[index].kind === "group-header" ? GROUP_HEADER_HEIGHT : estimateRowHeight,
-    overscan: 5,
+    overscan: flatItems.length <= 100 ? flatItems.length : 5,
   });
 
   const { focusedRowIndex, containerProps } = useTableKeyboardNav(rows.length);

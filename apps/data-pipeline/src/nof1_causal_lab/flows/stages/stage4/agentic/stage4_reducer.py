@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from causal_ssm_agent.flows.stages.stage4.model_spec_decisions import (
+from nof1_causal_lab.flows.stages.stage4.model_spec_decisions import (
     validate_model_spec_decisions_dict,
 )
-from causal_ssm_agent.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 
 from .stage4_events import (
     Stage4AcceptedStatePersistedEvent,
@@ -59,7 +59,7 @@ from .stage4_submission import (
 from .stage4_text import summarize_stage4_names
 
 if TYPE_CHECKING:
-    from causal_ssm_agent.flows.stages.stage4.assembly import AssemblyValidation
+    from nof1_causal_lab.flows.stages.stage4.assembly import AssemblyValidation
 
     from .stage4_orchestrator import Stage4FrontierBlock, Stage4Plan
     from .stage4_skeleton import Stage4Skeleton
@@ -536,7 +536,7 @@ def _scope_prior_grounding_packet(
     }:
         return scoped_packet
 
-    from causal_ssm_agent.flows.stages.stage4.assembly import format_validation_feedback
+    from nof1_causal_lab.flows.stages.stage4.assembly import format_validation_feedback
 
     authored_priors = runtime.domain.accepted.authored_priors
     if stage_output is not None and isinstance(stage_output.get("authored_priors"), dict):
@@ -1364,7 +1364,7 @@ def _finalize_repair_campaign_if_complete(
     deps: Stage4Deps,
 ) -> tuple[dict[str, Any], ...]:
     """Validate a completed multi-block repair campaign at the campaign barrier."""
-    from causal_ssm_agent.flows.stages.stage4.assembly import (
+    from nof1_causal_lab.flows.stages.stage4.assembly import (
         format_validation_feedback,
         validate_assembly,
     )

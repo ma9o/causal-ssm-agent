@@ -12,7 +12,7 @@ from collections import defaultdict
 
 import networkx as nx
 
-from causal_ssm_agent.utils.observation_semantics import (
+from nof1_causal_lab.utils.observation_semantics import (
     get_observation_semantics,
 )
 

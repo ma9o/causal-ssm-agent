@@ -129,7 +129,7 @@ async def stage2(
     """Extract indicator values from data using LLM workers."""
     from prefect.task_runners import ThreadPoolTaskRunner
 
-    from causal_ssm_agent.utils.config import get_config
+    from nof1_causal_lab.utils.config import get_config
 
     from .stages.stage2.flow import stage2_extraction_flow
     from .stages.stage2.materialization import materialize_stage2_outputs
@@ -405,7 +405,7 @@ def stage5b(
 
 def _derive_identified_treatments(causal_spec: Any) -> list[str]:
     """Derive identified treatments from a CausalSpec contract."""
-    from causal_ssm_agent.utils.causal_spec import get_estimable_treatments
+    from nof1_causal_lab.utils.causal_spec import get_estimable_treatments
 
     causal_spec_dict = (
         causal_spec.model_dump() if hasattr(causal_spec, "model_dump") else causal_spec

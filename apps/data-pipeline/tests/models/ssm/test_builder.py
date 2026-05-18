@@ -10,13 +10,13 @@ import numpy as np
 import polars as pl
 import pytest
 
-from causal_ssm_agent.models.ssm.model import (
+from nof1_causal_lab.models.ssm.model import (
     SSMPriors,
     SSMSpec,
     full_diagonal_mask,
 )
-from causal_ssm_agent.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
-from causal_ssm_agent.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
+from nof1_causal_lab.models.ssm_compilation import (
     compile_priors,
     compile_ssm_inputs_from_spec,
     normalize_prior_params,

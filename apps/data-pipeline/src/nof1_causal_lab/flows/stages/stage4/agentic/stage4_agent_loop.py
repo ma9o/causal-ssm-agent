@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     import polars as pl
 
-    from causal_ssm_agent.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.agent_session import StageSessionFactory
 
     from .stage4_orchestrator import Stage4Plan
 
@@ -40,7 +40,7 @@ def _build_stage4_tool_map(
     max_tool_turns: int,
 ) -> dict[str, Any]:
     """Build the Stage 4 tool map for one reducer-owned session."""
-    from causal_ssm_agent.flows.stages.stage4.tool_registry import (
+    from nof1_causal_lab.flows.stages.stage4.tool_registry import (
         build_stage4_session_tool_map,
     )
 
@@ -291,7 +291,7 @@ async def run_stage4(
     | None = None,
 ) -> Stage4Result:
     """Run the frontier-reduced Stage 4 flow sequentially."""
-    from causal_ssm_agent.flows.stages.stage4.grounding import stage4_grounding
+    from nof1_causal_lab.flows.stages.stage4.grounding import stage4_grounding
 
     skeleton = derive_deterministic_spec(causal_spec)
     model_topology = build_model_topology(causal_spec)

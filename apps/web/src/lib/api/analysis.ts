@@ -1,4 +1,4 @@
-import type { StageId } from "@causal-ssm/api-types";
+import type { StageId } from "@nof1-causal-lab/api-types";
 import type { Stage2ReplayState } from "../stage2-runtime";
 import type { Stage4ReplayState } from "../stage4-runtime";
 import { apiFetch } from "./client";

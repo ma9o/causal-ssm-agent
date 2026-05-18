@@ -1,7 +1,7 @@
 "use client";
 
 import { useRefinement } from "@/lib/contexts/refinement-context";
-import { STAGES } from "@causal-ssm/api-types";
+import { STAGES } from "@nof1-causal-lab/api-types";
 import { AlertTriangle } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 

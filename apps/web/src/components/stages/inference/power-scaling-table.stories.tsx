@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage5bData } from "@causal-ssm/api-types";
+import type { Stage5bData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
 import { stage5bAuxGibbs } from "@/components/__fixtures__/inference-data";
 import { PowerScalingTable } from "./power-scaling-table";
