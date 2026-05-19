@@ -246,61 +246,30 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         },
     )
 
-    def fake_forward(
-        drift,
-        cint,
-        initial_state,
-        treat_idx,
-        outcome_idx,
+    def fake_vmap_simulate(
+        vector_field,
+        drift_draws,
+        cint_draws,
         *,
+        initial_states,
+        treat_idx,
         mode,
         value=None,
         amount=None,
-        dt,
-        horizon_steps,
+        time_grid,
     ):
-        del cint, initial_state, treat_idx, outcome_idx, mode, value, amount, dt
-        baseline = jnp.arange(1, horizon_steps + 1, dtype=jnp.float32) + drift[0, 0]
-        counterfactual = baseline + 10.0
-        effect = jnp.full((horizon_steps,), drift[0, 0] + 1.0)
-        return baseline, counterfactual, effect
-
-    def fake_forward_latent(
-        drift,
-        cint,
-        initial_state,
-        treat_idx,
-        *,
-        mode,
-        value=None,
-        amount=None,
-        dt,
-        horizon_steps,
-    ):
-        del cint, initial_state, treat_idx, mode, value, amount, dt
-        baseline = jnp.stack(
-            [
-                jnp.full((horizon_steps,), 0.5, dtype=jnp.float32),
-                jnp.full((horizon_steps,), 1.0, dtype=jnp.float32),
-            ],
-            axis=1,
-        )
-        effect = jnp.stack(
-            [
-                jnp.full((horizon_steps,), 1.5, dtype=jnp.float32),
-                jnp.full((horizon_steps,), drift[0, 0] + 1.0, dtype=jnp.float32),
-            ],
-            axis=1,
-        )
+        del vector_field, cint_draws, initial_states, treat_idx, mode, value, amount
+        n_draws = drift_draws.shape[0]
+        n_t = time_grid.shape[0]
+        n_latent = drift_draws.shape[-1]
+        baseline_per_t = jnp.array([0.5, 5.0], dtype=jnp.float32)
+        effect_per_t = jnp.array([1.5, 3.0], dtype=jnp.float32)
+        baseline = jnp.broadcast_to(baseline_per_t, (n_draws, n_t, n_latent))
+        effect = jnp.broadcast_to(effect_per_t, (n_draws, n_t, n_latent))
         counterfactual = baseline + effect
         return baseline, counterfactual, effect
 
-    monkeypatch.setattr(tool_server, "forward_simulate_action_from_state", fake_forward)
-    monkeypatch.setattr(
-        tool_server,
-        "forward_simulate_latent_action_from_state",
-        fake_forward_latent,
-    )
+    monkeypatch.setattr(tool_server, "vmap_simulate_action_from_state", fake_vmap_simulate)
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
@@ -376,11 +345,11 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     assert trajectory["visualization"] == {
         "reference_node_trajectories": {
             "treat": [0.5, 0.5, 0.5],
-            "outcome": [1.0, 1.0, 1.0],
+            "outcome": [5.0, 5.0, 5.0],
         },
         "action_node_trajectories": {
             "treat": [2.0, 2.0, 2.0],
-            "outcome": [4.0, 4.0, 4.0],
+            "outcome": [8.0, 8.0, 8.0],
         },
         "node_effect_trajectories": {
             "treat": [1.5, 1.5, 1.5],

@@ -1021,6 +1021,7 @@ class TestLaplaceSupportAware:
 class TestLaplaceSupportAwareGradients:
     """Implicit-mode gradient + autodiff equivalence checks for support-aware Laplace."""
 
+    @pytest.mark.slow
     def test_support_aware_implicit_mode_gradient_matches_direct_autodiff(self):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
@@ -2158,6 +2159,7 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
     assert latent_paths.shape == (1, num_samples, 3, 1)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("method", "num_warmup", "num_samples", "seed", "extra_kwargs"),
     [
@@ -2600,6 +2602,7 @@ def test_aux_kalman_mcmc_pathfinder_init_scale_switches_sampling_mode(monkeypatc
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("adaptation_scheme", ["simple", "dual_averaging"])
 def test_pit_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_scheme):
     """After warmup, per-t δ_t should differ across t in at least one chain.
@@ -2742,6 +2745,7 @@ def test_pit_particle_mgrad_accepts_nuts_parameter_kernel():
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
+@pytest.mark.slow
 def test_pit_particle_mgrad_accepts_particle_smoother_latent_init():
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)
@@ -2773,6 +2777,7 @@ def test_pit_particle_mgrad_accepts_particle_smoother_latent_init():
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("method", "num_warmup", "seed", "extra_kwargs"),
     [
@@ -2826,6 +2831,7 @@ def test_particle_mcmc_multi_chain_diagnostics(method, num_warmup, seed, extra_k
     assert "rank_histograms" in diag
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("method", "seed", "extra_kwargs"),
     [
@@ -2948,6 +2954,7 @@ def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("method", "seed", "extra_kwargs"),
     [
