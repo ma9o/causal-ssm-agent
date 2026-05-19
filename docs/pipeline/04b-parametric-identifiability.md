@@ -57,7 +57,7 @@ For a model with three latent constructs (Stress, Sleep Quality, Work Performanc
 | Output | Type | Description |
 |---|---|---|
 | `parametric_id` | `ParametricIdResult` | Combined sensitivity, MAP-geometry, and profile-likelihood diagnostics |
-| `inference_structure` | [`InferenceStructureResult`](#inferencestructureresult) | Resolved likelihood path and inference-routing plan; consumed by the web frontend — [Stage 5](05a-svi-preflight.md) re-derives the routing at fit time |
+| `inference_structure` | [`InferenceStructureResult`](#inferencestructureresult) | Resolved likelihood path and inference-routing plan; consumed by the web frontend — [Stage 5b](05b-inference-diagnostics.md) re-derives the routing at fit time |
 
 ### `ParametricIdResult`
 

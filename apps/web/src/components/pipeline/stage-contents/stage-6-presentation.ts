@@ -2,7 +2,6 @@ import type {
   Stage1aData,
   Stage1bData,
   Stage4Data,
-  Stage5aData,
   Stage5bData,
 } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
@@ -49,12 +48,10 @@ function parseFixedEffectDescription(
 function buildEdgePosteriors({
   stage1a,
   stage4,
-  stage5a,
   stage5b,
 }: {
   stage1a?: Stage1aData;
   stage4?: Stage4Data;
-  stage5a?: Stage5aData;
   stage5b?: Stage5bData;
 }): Record<string, EdgePosterior> {
   if (!stage1a) {
@@ -65,7 +62,7 @@ function buildEdgePosteriors({
   const parametersByName = new Map(
     (stage4?.model_spec.parameters ?? []).map((parameter) => [parameter.name, parameter]),
   );
-  const marginals = stage5b?.posterior_marginals ?? stage5a?.posterior_marginals ?? [];
+  const marginals = stage5b?.posterior_marginals ?? [];
   const edgePosteriors: Record<string, EdgePosterior> = {};
 
   for (const marginal of marginals) {
@@ -96,7 +93,6 @@ export function buildStage6DagScene({
   stage1a,
   stage1b,
   stage4,
-  stage5a,
   stage5b,
   refinementMessages = [],
   height = "600px",
@@ -104,7 +100,6 @@ export function buildStage6DagScene({
   stage1a?: Stage1aData;
   stage1b?: Stage1bData;
   stage4?: Stage4Data;
-  stage5a?: Stage5aData;
   stage5b?: Stage5bData;
   refinementMessages?: UIMessage[];
   height?: string;
@@ -121,7 +116,7 @@ export function buildStage6DagScene({
   };
   const followUpSimulation = extractLatestStage6FollowUpSimulation(refinementMessages);
   const simulationResult = followUpSimulation?.output ?? null;
-  const edgePosteriors = buildEdgePosteriors({ stage1a, stage4, stage5a, stage5b });
+  const edgePosteriors = buildEdgePosteriors({ stage1a, stage4, stage5b });
 
   return simulationResult
     ? createStage6SimulationDagScene({

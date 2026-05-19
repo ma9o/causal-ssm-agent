@@ -16,7 +16,6 @@ import type {
   Stage3Data,
   Stage4Data,
   Stage4bData,
-  Stage5aData,
   Stage5bData,
   Stage6Data,
   StageMeta,
@@ -48,7 +47,6 @@ const Stage4RunningContent = lazy(() => import("./stage-contents/stage-4-running
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
-const Stage5aContent = lazy(() => import("./stage-contents/stage-5a-content"));
 const Stage5bContent = lazy(() => import("./stage-contents/stage-5b-content"));
 const Stage6Showcase = lazy(() => import("./stage-contents/stage-6-showcase"));
 
@@ -60,7 +58,6 @@ type AnyStageData =
   | Stage3Data
   | Stage4Data
   | Stage4bData
-  | Stage5aData
   | Stage5bData
   | Stage6Data;
 
@@ -258,7 +255,6 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
   const { data: stage4 } = useStageData<Stage4Data>(workspaceId, "stage-4", true);
-  const { data: stage5a } = useStageData<Stage5aData>(workspaceId, "stage-5a", true);
   const { data: stage5b } = useStageData<Stage5bData>(workspaceId, "stage-5b", true);
   const dagScene = useMemo(
     () =>
@@ -266,12 +262,11 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
         stage1a,
         stage1b,
         stage4,
-        stage5a,
         stage5b,
         refinementMessages: refinementMessages["stage-6"] ?? [],
         height: "600px",
       }),
-    [refinementMessages, stage1a, stage1b, stage4, stage5a, stage5b],
+    [refinementMessages, stage1a, stage1b, stage4, stage5b],
   );
 
   return <Stage6Showcase data={data} dagScene={dagScene} />;
@@ -291,7 +286,6 @@ const stageContentAdapters = {
     <Stage4ConnectedContent workspaceId={workspaceId} data={data as Stage4Data} />
   ),
   "stage-4b": createStageDataAdapter<Stage4bData>(Stage4bContent),
-  "stage-5a": createStageDataAdapter<Stage5aData>(Stage5aContent),
   "stage-5b": ({ workspaceId, data }: StageContentAdapterProps) => (
     <Stage5bConnectedContent workspaceId={workspaceId} data={data as Stage5bData} />
   ),

@@ -182,5 +182,5 @@ This route launches a new root flow run with `start_stage` set to the edited sta
 The full stage sequence is:
 
 ```text
-stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5a → stage-5b → stage-6
+stage-0 → stage-1a → stage-1b → stage-2 → stage-3 → stage-4 → stage-4b → stage-5b → stage-6
 ```

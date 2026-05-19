@@ -37,7 +37,6 @@ from .stage_contracts import (
     Stage3Contract,
     Stage4bContract,
     Stage4Contract,
-    Stage5aContract,
     Stage5bContract,
     Stage6Contract,
 )
@@ -349,26 +348,6 @@ def stage4b(
 # ═══════════════════════════════════════════════════════════════════════════════
 # Stage 5: Inference + diagnostics
 # ═══════════════════════════════════════════════════════════════════════════════
-
-
-def stage5a(
-    stage4: Stage4Contract,
-    stage2: Stage2Contract,
-    workspace_id: str,
-) -> Stage5aContract:
-    """SVI preflight: fast approximate fit before expensive inference."""
-    from .stages.stage5a.flow import run_stage5a_preflight
-
-    compiled_ssm = _load_compiled_ssm(workspace_id)
-    data_for_model_path = _load_data_for_model_path(workspace_id)
-
-    result = run_stage5a_preflight(
-        {"_compiled_ssm": compiled_ssm},
-        {"_data_for_model_path": data_for_model_path},
-        workspace_id,
-    )
-
-    return Stage5aContract.model_validate(_filter_to_contract(Stage5aContract, result))
 
 
 def stage5b(

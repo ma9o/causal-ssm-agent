@@ -80,7 +80,6 @@ export type {
   Stage2Contract as Stage2PersistedData,
   Stage3Contract as Stage3Data,
   Stage4BContract as Stage4bData,
-  Stage5AContract as Stage5aData,
   Stage5BContract as Stage5bData,
   Stage6Contract as Stage6Data,
   SVIDiagnostics,

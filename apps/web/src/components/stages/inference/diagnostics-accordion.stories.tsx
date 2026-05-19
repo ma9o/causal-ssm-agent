@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage5a, stage5b, stage5bAuxGibbs } from "@/components/__fixtures__/inference-data";
+import { stage5b, stage5bAuxGibbs } from "@/components/__fixtures__/inference-data";
 import { DiagnosticsAccordion } from "./diagnostics-accordion";
 
 const meta = {
@@ -14,7 +14,7 @@ type Story = StoryObj<typeof meta>;
 
 export const SVIOnly: Story = {
   args: {
-    sviDiagnostics: stage5a.svi_diagnostics,
+    sviDiagnostics: stage5b.svi_diagnostics,
     posteriorMarginals: stage5b.posterior_marginals,
     posteriorPairs: stage5b.posterior_pairs,
   },
