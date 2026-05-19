@@ -35,7 +35,6 @@ from tests.pipeline._support import redirect_storage as _redirect_storage
 class _FakeModalRunnersModule(ModuleType):
     modal_stage4_runner: Any
     modal_stage5b_runner: Any
-    persist_noop: Any
 
 
 async def _resolve_maybe_awaitable(value: Any) -> Any:
@@ -74,6 +73,7 @@ def _stage1a_latent_model(treatment: str = "treatment", outcome: str = "outcome"
                 "effect": outcome,
                 "description": f"{treatment} affects {outcome}",
                 "lagged": True,
+                "sources": [],
             }
         ],
     }
@@ -239,7 +239,6 @@ def test_production_registry_routes_stage4_by_access_mode(monkeypatch):
     fake_modal_runners = _FakeModalRunnersModule("nof1_causal_lab.flows.modal_runners")
     fake_modal_runners.modal_stage4_runner = fake_stage4_runner
     fake_modal_runners.modal_stage5b_runner = lambda *_args, **_kwargs: None
-    fake_modal_runners.persist_noop = lambda _result, _workspace_id: None
     monkeypatch.setitem(sys.modules, "nof1_causal_lab.flows.modal_runners", fake_modal_runners)
     monkeypatch.setattr(dag, "stage4", fake_local_stage4)
 

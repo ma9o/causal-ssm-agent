@@ -422,6 +422,10 @@ export const Rung3FollowUp = createCompletedStageStory({
 
 export const InteractiveFollowUpDemo: StoryObj<typeof meta> = {
   name: "Interactive Follow-up Demo",
+  args: {
+    data: dataWithTrace,
+    dagScene: baselineDagScene,
+  },
   parameters: {
     docs: {
       description: {

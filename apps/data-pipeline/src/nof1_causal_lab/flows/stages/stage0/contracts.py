@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.contracts_base import LLMStageContract, ToolContract
 
-STAGE_ID = "stage-0"
 IS_INTERACTIVE_STAGE = False
 
 

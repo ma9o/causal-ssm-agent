@@ -4,27 +4,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const originalCwd = process.cwd();
-const originalNodeEnv = process.env.NODE_ENV;
-const originalAppSecret = process.env.APP_SECRET;
 
 describe("app secret", () => {
   let tempDir: string | null = null;
 
   afterEach(() => {
     vi.resetModules();
+    vi.unstubAllEnvs();
     process.chdir(originalCwd);
-
-    if (originalNodeEnv === undefined) {
-      delete process.env.NODE_ENV;
-    } else {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
-
-    if (originalAppSecret === undefined) {
-      delete process.env.APP_SECRET;
-    } else {
-      process.env.APP_SECRET = originalAppSecret;
-    }
 
     if (tempDir) {
       rmSync(tempDir, { recursive: true, force: true });
@@ -37,16 +24,14 @@ describe("app secret", () => {
     mkdirSync(join(tempDir, "apps"));
     mkdirSync(join(tempDir, "packages"));
     process.chdir(tempDir);
-    process.env.NODE_ENV = "test";
-    process.env.APP_SECRET = "0123456789abcdef0123456789abcdef";
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_SECRET", "0123456789abcdef0123456789abcdef");
 
     const { deriveAppSecret } = await import("./app-secret");
 
     expect(deriveAppSecret("openrouter-session")).toHaveLength(64);
     expect(deriveAppSecret("byok-secret-store")).toHaveLength(64);
-    expect(deriveAppSecret("openrouter-session")).not.toBe(
-      deriveAppSecret("byok-secret-store"),
-    );
+    expect(deriveAppSecret("openrouter-session")).not.toBe(deriveAppSecret("byok-secret-store"));
   });
 
   it("fails fast when APP_SECRET is missing", async () => {
@@ -54,8 +39,8 @@ describe("app secret", () => {
     mkdirSync(join(tempDir, "apps"));
     mkdirSync(join(tempDir, "packages"));
     process.chdir(tempDir);
-    process.env.NODE_ENV = "test";
-    delete process.env.APP_SECRET;
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("APP_SECRET", "");
 
     const { getAppSecret } = await import("./app-secret");
 

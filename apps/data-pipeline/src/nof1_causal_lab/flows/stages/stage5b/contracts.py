@@ -23,7 +23,6 @@ from nof1_causal_lab.models.ssm.inference.schemas import (  # noqa: TC001
     SMCDiagnostics,
 )
 
-STAGE_ID = "stage-5b"
 IS_INTERACTIVE_STAGE = False
 
 

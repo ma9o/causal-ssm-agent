@@ -72,6 +72,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/react-test-renderer": "^19.1.0",
     "eslint": "^9",
     "eslint-config-next": "16.1.7",
     "eslint-plugin-storybook": "^10.3.0",

@@ -6,6 +6,10 @@ import { createRoot, type Root } from "react-dom/client";
 import type { PrefectLogEntry } from "@/lib/prefect-log-client";
 import { isNearLogTail, VirtualizedLogList } from "./virtualized-log-list";
 
+declare global {
+  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
+}
+
 const scrollToIndex = vi.fn();
 
 vi.mock("@tanstack/react-virtual", () => ({
@@ -48,6 +52,20 @@ describe("VirtualizedLogList", () => {
   let container: HTMLDivElement | null = null;
   let root: Root | null = null;
 
+  function getContainer(): HTMLDivElement {
+    if (!container) {
+      throw new Error("Test container has not been initialized");
+    }
+    return container;
+  }
+
+  function getRoot(): Root {
+    if (!root) {
+      throw new Error("React root has not been initialized");
+    }
+    return root;
+  }
+
   beforeEach(() => {
     scrollToIndex.mockReset();
     // React 19 warns unless the test env opts into act-aware updates.
@@ -76,7 +94,7 @@ describe("VirtualizedLogList", () => {
 
   it("pins the live view to the tail when new logs arrive", () => {
     act(() => {
-      root.render(
+      getRoot().render(
         createElement(VirtualizedLogList, {
           logs: [makeLog("1"), makeLog("2")],
           emptyMessage: "Waiting for logs...",
@@ -85,8 +103,11 @@ describe("VirtualizedLogList", () => {
       );
     });
 
-    const scrollContainer = container.querySelector(".max-h-64") as HTMLDivElement;
+    const scrollContainer = getContainer().querySelector(".max-h-64") as HTMLDivElement | null;
     expect(scrollContainer).toBeTruthy();
+    if (!scrollContainer) {
+      throw new Error("Could not find virtualized log scroll container");
+    }
 
     Object.defineProperty(scrollContainer, "scrollHeight", {
       configurable: true,
@@ -103,7 +124,7 @@ describe("VirtualizedLogList", () => {
     });
 
     act(() => {
-      root.render(
+      getRoot().render(
         createElement(VirtualizedLogList, {
           logs: [makeLog("1"), makeLog("2"), makeLog("3")],
           emptyMessage: "Waiting for logs...",

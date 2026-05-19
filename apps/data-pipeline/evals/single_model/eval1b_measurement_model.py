@@ -39,9 +39,7 @@ from nof1_causal_lab.orchestrator.schemas import LatentModel, MeasurementModel
 from nof1_causal_lab.orchestrator.stage1b import Stage1bResult, run_stage1b
 from nof1_causal_lab.utils.causal_spec import get_all_treatments, get_outcome_name
 
-# Load config for models
 _CONFIG = load_eval_config()
-MODELS = {m["id"]: m["alias"] for m in _CONFIG["orchestrator_models"]}
 
 
 def create_eval_dataset(

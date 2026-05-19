@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NextResponse } from "next/server";
 
 vi.mock("@/lib/workspace-access", () => ({
   requireWorkspaceAccess: vi.fn(),
@@ -53,10 +54,7 @@ describe("POST /api/runs", () => {
   it("returns the access error when the workspace is not authorized", async () => {
     vi.mocked(requireWorkspaceAccess).mockResolvedValue({
       ok: false,
-      response: new Response(JSON.stringify({ error: "Workspace access denied" }), {
-        status: 403,
-        headers: { "Content-Type": "application/json" },
-      }),
+      response: NextResponse.json({ error: "Workspace access denied" }, { status: 403 }),
     });
 
     const response = await POST(
@@ -214,10 +212,7 @@ describe("POST /api/runs", () => {
     vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
     vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
     vi.mocked(launchWorkspaceRootFlowRun).mockRejectedValue(
-      new PrefectRunError(
-        402,
-        "Anonymous credits exhausted. Sign in with OpenRouter to continue.",
-      ),
+      new PrefectRunError(402, "Anonymous credits exhausted. Sign in with OpenRouter to continue."),
     );
 
     const response = await POST(

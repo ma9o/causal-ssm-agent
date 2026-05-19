@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict
 
 from nof1_causal_lab.flows.contracts_base import BaseStageContract
 
-STAGE_ID = "stage-3"
 IS_INTERACTIVE_STAGE = False
 
 

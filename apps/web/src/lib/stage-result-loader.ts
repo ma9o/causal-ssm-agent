@@ -26,13 +26,13 @@ function normalizeNonFiniteJsonTokens(serialized: string): string {
         escaping = false;
       } else if (char === "\\") {
         escaping = true;
-      } else if (char === "\"") {
+      } else if (char === '"') {
         inString = false;
       }
       continue;
     }
 
-    if (char === "\"") {
+    if (char === '"') {
       inString = true;
       normalized += char;
       continue;
@@ -62,12 +62,22 @@ function normalizeNonFiniteJsonTokens(serialized: string): string {
   return normalized;
 }
 
+function isWrappedPrefectResultPayload(
+  value: unknown,
+): value is { metadata: unknown; result: string } {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  return "metadata" in value && "result" in value && typeof value.result === "string";
+}
+
 function parseStoredStagePayload(raw: string): unknown {
   let parsed: unknown;
 
   try {
     parsed = JSON.parse(raw);
-  } catch (parseError) {
+  } catch {
     try {
       parsed = JSON.parse(normalizeNonFiniteJsonTokens(raw));
     } catch (normalizeError) {
@@ -77,13 +87,13 @@ function parseStoredStagePayload(raw: string): unknown {
     }
   }
 
-  if (!parsed?.metadata || typeof parsed.result !== "string") {
+  if (!isWrappedPrefectResultPayload(parsed)) {
     return parsed;
   }
 
   try {
     return JSON.parse(parsed.result);
-  } catch (parseError) {
+  } catch {
     try {
       return JSON.parse(normalizeNonFiniteJsonTokens(parsed.result));
     } catch (normalizeError) {
@@ -116,7 +126,11 @@ const STAGE_RESULT_LOADERS: Partial<Record<StageId, StageResultLoader>> = {
   },
 };
 
-export async function loadStageResult(stageId: string, raw: string, workspaceId: string): Promise<unknown> {
+export async function loadStageResult(
+  stageId: string,
+  raw: string,
+  workspaceId: string,
+): Promise<unknown> {
   const payload = parseStoredStagePayload(raw);
   const loader = STAGE_RESULT_LOADERS[stageId as StageId];
   return loader ? loader(payload, workspaceId) : payload;

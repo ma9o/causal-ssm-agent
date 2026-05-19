@@ -1,7 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { randomUUID } from "node:crypto";
 import { createElement } from "react";
-import TestRenderer, { act, type ReactTestRenderer } from "react-test-renderer";
+import TestRenderer, {
+  act,
+  type ReactTestInstance,
+  type ReactTestRenderer,
+} from "react-test-renderer";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { StageSectionRouter } from "@/components/pipeline/stage-section-router";
 import { RefinementProvider } from "@/lib/contexts/refinement-context";
@@ -18,17 +22,21 @@ import {
 } from "./prefect-test-harness";
 
 const WAIT_TIMEOUT_MS = 10_000;
-const STAGE = STAGES.find((stage) => stage.id === "stage-4");
-
-if (!STAGE) {
-  throw new Error("Stage 4 metadata is unavailable");
+function getStage4Meta() {
+  const stage = STAGES.find((candidate) => candidate.id === "stage-4");
+  if (!stage) {
+    throw new Error("Stage 4 metadata is unavailable");
+  }
+  return stage;
 }
+
+const STAGE = getStage4Meta();
 
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function collectInstanceText(value: ReactTestRenderer["root"] | ReactTestRenderer["root"]["children"][number]): string {
+function collectInstanceText(value: ReactTestInstance | string): string {
   if (typeof value === "string") {
     return value;
   }
@@ -68,13 +76,7 @@ class StageSectionRouterTestDriver {
     });
   }
 
-  async render({
-    stageRun,
-    status,
-  }: {
-    stageRun: AnalysisStageRun;
-    status: StageRunStatus;
-  }) {
+  async render({ stageRun, status }: { stageRun: AnalysisStageRun; status: StageRunStatus }) {
     const tree = createElement(
       QueryClientProvider,
       { client: this.queryClient },
@@ -143,7 +145,9 @@ async function waitForButtonText(
     });
   }
 
-  throw new Error(`Timed out waiting for stage log button text; last value: ${driver.readLogButtonText()}`);
+  throw new Error(
+    `Timed out waiting for stage log button text; last value: ${driver.readLogButtonText()}`,
+  );
 }
 
 describe("StageSectionRouter log integration", () => {
@@ -170,11 +174,7 @@ describe("StageSectionRouter log integration", () => {
 
     globalThis.fetch = (input, init) => {
       const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url === "/prefect/logs/filter") {
         return originalFetch(`${server?.apiBaseUrl}/logs/filter`, init);
@@ -214,85 +214,77 @@ describe("StageSectionRouter log integration", () => {
     }
   }, 60_000);
 
-  it(
-    "catches up when manifest turns terminal before progress catches up",
-    async () => {
-      if (!server) {
-        throw new Error("Prefect server did not start");
-      }
+  it("catches up when manifest turns terminal before progress catches up", async () => {
+    if (!server) {
+      throw new Error("Prefect server did not start");
+    }
 
-      const flowRunId = randomUUID();
-      const driver = new StageSectionRouterTestDriver();
-      drivers.add(driver);
+    const flowRunId = randomUUID();
+    const driver = new StageSectionRouterTestDriver();
+    drivers.add(driver);
 
-      await driver.render({
-        stageRun: buildStageRun(flowRunId, "RUNNING"),
-        status: "running",
-      });
+    await driver.render({
+      stageRun: buildStageRun(flowRunId, "RUNNING"),
+      status: "running",
+    });
 
-      await waitForButtonText(driver, (text) => text.includes("Show logs"));
+    await waitForButtonText(driver, (text) => text.includes("Show logs"));
 
-      await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
-      await waitForButtonText(driver, (text) => text.includes("(1)"));
+    await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
+    await waitForButtonText(driver, (text) => text.includes("(1)"));
 
-      insertPersistedLogs(server.dbPath, flowRunId, ["missed-1", "missed-2"]);
+    insertPersistedLogs(server.dbPath, flowRunId, ["missed-1", "missed-2"]);
 
-      await driver.render({
-        stageRun: buildStageRun(flowRunId, "FAILED"),
-        status: "running",
-      });
+    await driver.render({
+      stageRun: buildStageRun(flowRunId, "FAILED"),
+      status: "running",
+    });
 
-      const intermediate = await waitForButtonText(driver, (text) => text.includes("(1)"));
-      expect(intermediate).toContain("Show logs");
+    const intermediate = await waitForButtonText(driver, (text) => text.includes("(1)"));
+    expect(intermediate).toContain("Show logs");
 
-      await driver.render({
-        stageRun: buildStageRun(flowRunId, "FAILED"),
-        status: "failed",
-      });
+    await driver.render({
+      stageRun: buildStageRun(flowRunId, "FAILED"),
+      status: "failed",
+    });
 
-      const terminal = await waitForButtonText(driver, (text) => text.includes("(3)"));
-      expect(terminal).toContain("Show logs");
-    },
-    30_000,
-  );
+    const terminal = await waitForButtonText(driver, (text) => text.includes("(3)"));
+    expect(terminal).toContain("Show logs");
+  }, 30_000);
 
-  it(
-    "catches up when progress turns terminal before the manifest updates",
-    async () => {
-      if (!server) {
-        throw new Error("Prefect server did not start");
-      }
+  it("catches up when progress turns terminal before the manifest updates", async () => {
+    if (!server) {
+      throw new Error("Prefect server did not start");
+    }
 
-      const flowRunId = randomUUID();
-      const driver = new StageSectionRouterTestDriver();
-      drivers.add(driver);
+    const flowRunId = randomUUID();
+    const driver = new StageSectionRouterTestDriver();
+    drivers.add(driver);
 
-      await driver.render({
-        stageRun: buildStageRun(flowRunId, "RUNNING"),
-        status: "running",
-      });
+    await driver.render({
+      stageRun: buildStageRun(flowRunId, "RUNNING"),
+      status: "running",
+    });
 
-      await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
-      await waitForButtonText(driver, (text) => text.includes("(1)"));
+    await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
+    await waitForButtonText(driver, (text) => text.includes("(1)"));
 
-      insertPersistedLogs(server.dbPath, flowRunId, ["missed-1", "missed-2"]);
+    insertPersistedLogs(server.dbPath, flowRunId, ["missed-1", "missed-2"]);
 
-      await driver.render({
-        stageRun: buildStageRun(flowRunId, "RUNNING"),
-        status: "failed",
-      });
+    await driver.render({
+      stageRun: buildStageRun(flowRunId, "RUNNING"),
+      status: "failed",
+    });
 
-      const fromProgress = await waitForButtonText(driver, (text) => text.includes("(3)"));
-      expect(fromProgress).toContain("Show logs");
+    const fromProgress = await waitForButtonText(driver, (text) => text.includes("(3)"));
+    expect(fromProgress).toContain("Show logs");
 
-      await driver.render({
-        stageRun: buildStageRun(flowRunId, "FAILED"),
-        status: "failed",
-      });
+    await driver.render({
+      stageRun: buildStageRun(flowRunId, "FAILED"),
+      status: "failed",
+    });
 
-      const settled = await waitForButtonText(driver, (text) => text.includes("(3)"));
-      expect(settled).toContain("Show logs");
-    },
-    30_000,
-  );
+    const settled = await waitForButtonText(driver, (text) => text.includes("(3)"));
+    expect(settled).toContain("Show logs");
+  }, 30_000);
 });

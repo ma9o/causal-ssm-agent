@@ -29,6 +29,7 @@ const stage4Data = {
     ],
     initialization_policy: "free",
     equilibrium_forcing: false,
+    observation_intercept_policy: "fixed",
   },
   authored_priors: {
     rho_sleep: {

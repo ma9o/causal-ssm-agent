@@ -17,11 +17,6 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
 
-LLMOrchestrator = "Callable[..., Awaitable[Any]]"
-StageLLMGetter = "Callable[[], StageLLMConfig]"
-PayloadBuilder = "Callable[[Any], dict[str, Any]]"
-MaxToolTurnsGetter = "Callable[[], int]"
-
 logger = get_prefect_logger(__name__)
 
 

@@ -199,7 +199,6 @@ class SSMStructureRuntime:
         self.n_t0_diag = len(self.t0_diag_free_positions)
         self.n_t0_correlation = len(self.t0_correlation_positions)
 
-        self.manifest_cov_template = self.manifest_chol_template @ self.manifest_chol_template.T
         self.t0_cov_template = self.t0_chol_template @ self.t0_chol_template.T
         self.t0_base_std = jnp.sqrt(jnp.clip(jnp.diag(self.t0_cov_template), min=0.0))
         denom = self.t0_base_std[:, None] * self.t0_base_std[None, :]

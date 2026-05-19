@@ -91,15 +91,6 @@ class PriorFamilySpec:
 
 
 @dataclass(frozen=True)
-class PriorConstraintGuidance:
-    """Constraint-level prior guidance derived from the prior catalog."""
-
-    constraint: str
-    domain: str
-    typical_families: str
-
-
-@dataclass(frozen=True)
 class PriorParameterGuidanceRow:
     """Parameter-level prior heuristics reused across Stage 4 prompts."""
 
@@ -428,22 +419,6 @@ _DTYPE_ALTERNATIVE_NOTES: Final[dict[tuple[str, DistributionFamily], str]] = {
         "when categories are substantively ordered"
     ),
 }
-
-PRIOR_CONSTRAINT_GUIDANCE: Final[tuple[PriorConstraintGuidance, ...]] = (
-    PriorConstraintGuidance("none", "(-inf, +inf)", "Normal"),
-    PriorConstraintGuidance("positive", "(0, +inf)", "HalfNormal, Gamma, LogNormal, Exponential"),
-    PriorConstraintGuidance(
-        "negative",
-        "(-inf, 0)",
-        "TruncatedNormal(mu<0, sigma, lower, 0), Uniform(lower, 0)",
-    ),
-    PriorConstraintGuidance("unit_interval", "[0, 1]", "Beta, Uniform(0, 1)"),
-    PriorConstraintGuidance(
-        "correlation",
-        "[-1, 1]",
-        "Uniform(-1, 1), TruncatedNormal(0, sigma, -1, 1)",
-    ),
-)
 
 PRIOR_PARAMETER_GUIDANCE_ROWS: Final[tuple[PriorParameterGuidanceRow, ...]] = (
     PriorParameterGuidanceRow(
