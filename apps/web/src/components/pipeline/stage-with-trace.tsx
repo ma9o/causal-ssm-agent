@@ -88,7 +88,7 @@ export function StageWithTraceView({
             <button
               type="button"
               onClick={() => setIsOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-muted bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+              className="inline-flex items-center gap-1.5 rounded-md border border-muted bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:shadow-md"
             >
               <Bot className="h-3.5 w-3.5" />
               {interactive ? "Interact with LLM" : "Show LLM Trace"}

@@ -138,7 +138,7 @@ export function DiagnosticsAccordion({
               Posterior Predictive Checks
               <StatTooltip explanation="Checks whether the fitted model can reproduce aspects of the observed data (distributional shape, variance, autocorrelation). Passing does not validate causal structure — only that the statistical model is not grossly misspecified." />
               <Badge
-                variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "destructive"}
+                variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "warning"}
               >
                 {ppc.per_variable_warnings.every((w) => w.passed) ? "Consistent" : "Misfit detected"}
               </Badge>
