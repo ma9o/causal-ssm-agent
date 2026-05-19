@@ -1,7 +1,7 @@
-"""Recovery tests for all inference methods.
+"""Slow recovery tests for MAP and auxiliary-Kalman SSM inference.
 
-Smoke tests verify pipeline correctness (small settings, fast).
-Recovery tests verify parameter recovery within 90% CIs (slow).
+These tests verify parameter recovery within 90% intervals on larger synthetic
+benchmarks than the smoke tests.
 """
 
 import jax.numpy as jnp
@@ -320,16 +320,16 @@ def _summarize_family_recovery(
 # =============================================================================
 
 
-class TestLaplaceEM:
-    """Canonical MAP recovery tests on an informative 1D LGSS."""
+class TestMapLaplaceRecovery:
+    """Canonical MAP + Laplace recovery tests."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
     def test_map_recovery(self):
-        """MAP recovers a well-identified 1D LGSS under Kalman likelihood.
+        """MAP recovers a well-identified 1D LGSS through the Laplace backend.
 
         This checks more than execution:
-        1. BFGS converges on a genuinely informative dataset.
+        1. L-BFGS-B converges on a genuinely informative dataset.
         2. The Gaussian parameter-space approximation contains the truth in its
            90% intervals.
         3. Posterior means stay close to the generating parameters, so the

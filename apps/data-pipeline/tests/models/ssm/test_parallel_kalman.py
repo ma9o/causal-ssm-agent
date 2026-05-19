@@ -221,6 +221,7 @@ def _enable_x64():
     jax.config.update("jax_enable_x64", prev)
 
 
+@pytest.mark.slow
 def test_filter_matches_sequential_point_in_time():
     T, D, Dy = 32, 4, 3
     (init_mean, init_cov, Fs, Qs, bs, Hs, Rs, cs, ys) = _make_random_lgssm(

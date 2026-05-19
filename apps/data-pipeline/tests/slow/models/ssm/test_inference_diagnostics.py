@@ -1,4 +1,4 @@
-"""Slow diagnostics tests that require real posterior inference."""
+"""Slow diagnostics tests for MCMC-shaped inference results."""
 
 import jax.numpy as jnp
 import jax.random as random
@@ -138,7 +138,7 @@ class TestLOODiagnostics:
     def test_loo_without_model_returns_none(self, mcmc_result):
         assert mcmc_result.get_loo_diagnostics() is None
 
-    def test_loo_smc_path(self):
+    def test_loo_map_result_with_timestep_log_likelihood(self):
         key = random.PRNGKey(0)
         n_obs = 30
         x = jnp.linspace(-2, 2, n_obs)
@@ -160,12 +160,12 @@ class TestLOODiagnostics:
             "sigma": 0.5 + 0.04 * random.normal(k_sigma, (200,)),
         }
 
-        smc_result = InferenceResult(
+        map_result = InferenceResult(
             _samples=samples,
             method="map",
             diagnostics={},
         )
-        loo = smc_result.get_loo_diagnostics(model_fn=_ssm_style_model, observations=x, times=y)
+        loo = map_result.get_loo_diagnostics(model_fn=_ssm_style_model, observations=x, times=y)
         assert loo is not None
         assert "elpd_loo" in loo
         assert "p_loo" in loo

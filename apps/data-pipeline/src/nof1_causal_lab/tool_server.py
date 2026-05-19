@@ -40,12 +40,13 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_submit_priors as _execute_submit_priors,
 )
 from nof1_causal_lab.models.ssm.counterfactual import (
+    Intervention,
+    LinearVectorField,
     approximate_abducted_state,
-    forward_simulate_action_from_state,
-    forward_simulate_latent_action_from_state,
-    steady_state,
+    compute_steady_state,
     summarize_draws,
-    treatment_effect_for_action,
+    vmap_simulate_action_from_state,
+    vmap_steady_state_effect,
 )
 from nof1_causal_lab.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from nof1_causal_lab.utils import storage
@@ -178,13 +179,14 @@ def _manifest_effects(
     return effects or None
 
 
-def _serialize_effect_trajectory(trajectory: jnp.ndarray, dt_days: float) -> list[dict[str, float]]:
+def _serialize_effect_trajectory(
+    trajectory: jnp.ndarray, time_grid_days: jnp.ndarray
+) -> list[dict[str, float]]:
+    days = time_grid_days.tolist()
+    values = trajectory.tolist()
     return [
-        {
-            "day": round((idx + 1) * dt_days, 3),
-            "effect": float(value),
-        }
-        for idx, value in enumerate(trajectory.tolist())
+        {"day": round(float(day), 3), "effect": float(value)}
+        for day, value in zip(days, values, strict=False)
     ]
 
 
@@ -303,6 +305,8 @@ class Stage6SimulationSetup:
     cint_draws: Any
     dt_days: float
     horizon_steps: int
+    time_grid: jnp.ndarray
+    vector_field: LinearVectorField
 
 
 @dataclass(frozen=True)
@@ -366,6 +370,8 @@ def _prepare_stage6_simulation(
         runtime.times,
         int(query.get("horizon_days") or 30),
     )
+    time_grid = jnp.linspace(0.0, dt_days * horizon_steps, horizon_steps + 1)
+    vector_field = LinearVectorField(n_latent=int(drift_draws.shape[-1]))
 
     return (
         Stage6SimulationSetup(
@@ -386,6 +392,8 @@ def _prepare_stage6_simulation(
             cint_draws=cint_draws,
             dt_days=dt_days,
             horizon_steps=horizon_steps,
+            time_grid=time_grid,
+            vector_field=vector_field,
         ),
         None,
     )
@@ -400,17 +408,17 @@ def _build_visualization_payload(
     abducted_state: dict[str, float] | None = None,
 ) -> dict[str, Any] | None:
     reference_node_trajectories = (
-        _serialize_node_trajectories(reference_node_paths, latent_names)
+        _serialize_node_trajectories(reference_node_paths[:, 1:], latent_names)
         if reference_node_paths is not None
         else None
     )
     action_node_trajectories = (
-        _serialize_node_trajectories(action_node_paths, latent_names)
+        _serialize_node_trajectories(action_node_paths[:, 1:], latent_names)
         if action_node_paths is not None
         else None
     )
     node_effect_trajectories = (
-        _serialize_node_trajectories(node_effect_paths, latent_names)
+        _serialize_node_trajectories(node_effect_paths[:, 1:], latent_names)
         if node_effect_paths is not None
         else None
     )
@@ -442,7 +450,9 @@ def _build_effect_outputs(
     if effect_paths is not None:
         effect_draws = effect_paths[:, -1]
         mean_effect_trajectory = jnp.mean(effect_paths, axis=0)
-        effect_trajectory = _serialize_effect_trajectory(mean_effect_trajectory, setup.dt_days)
+        effect_trajectory = _serialize_effect_trajectory(
+            mean_effect_trajectory[1:], setup.time_grid[1:]
+        )
     else:
         effect_trajectory = None
 
@@ -688,23 +698,27 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
         return error
     assert setup is not None
 
-    baseline_states = jax.vmap(lambda d, c: steady_state(d, c))(setup.drift_draws, setup.cint_draws)
+    baseline_states = jax.vmap(
+        lambda d, c: compute_steady_state(
+            setup.vector_field, {"drift": d, "cint": c}, Intervention.none()
+        )
+    )(setup.drift_draws, setup.cint_draws)
     baseline_treatment_mean = float(jnp.mean(baseline_states[:, setup.treat_idx]))
 
     if setup.query.get("estimand", "steady_state") == "trajectory":
-        baseline_state_paths, action_state_paths, effect_state_paths = jax.vmap(
-            lambda d, c, s: forward_simulate_latent_action_from_state(
-                d,
-                c,
-                s,
-                setup.treat_idx,
+        baseline_state_paths, action_state_paths, effect_state_paths = (
+            vmap_simulate_action_from_state(
+                setup.vector_field,
+                setup.drift_draws,
+                setup.cint_draws,
+                initial_states=baseline_states,
+                treat_idx=setup.treat_idx,
                 mode=str(setup.action["mode"]),
                 value=setup.action.get("value"),
                 amount=setup.action.get("amount"),
-                dt=setup.dt_days,
-                horizon_steps=setup.horizon_steps,
+                time_grid=setup.time_grid,
             )
-        )(setup.drift_draws, setup.cint_draws, baseline_states)
+        )
         outputs = _build_effect_outputs(
             setup,
             effect_paths=effect_state_paths[:, :, setup.outcome_idx],
@@ -715,17 +729,16 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
     else:
         outputs = _build_effect_outputs(
             setup,
-            effect_draws=jax.vmap(
-                lambda d, c: treatment_effect_for_action(
-                    d,
-                    c,
-                    setup.treat_idx,
-                    setup.outcome_idx,
-                    mode=str(setup.action["mode"]),
-                    value=setup.action.get("value"),
-                    amount=setup.action.get("amount"),
-                )
-            )(setup.drift_draws, setup.cint_draws),
+            effect_draws=vmap_steady_state_effect(
+                setup.vector_field,
+                setup.drift_draws,
+                setup.cint_draws,
+                treat_idx=setup.treat_idx,
+                outcome_idx=setup.outcome_idx,
+                mode=str(setup.action["mode"]),
+                value=setup.action.get("value"),
+                amount=setup.action.get("amount"),
+            ),
         )
 
     return {
@@ -772,21 +785,25 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
     abducted_state = _serialize_latent_state(initial_state, setup.latent_names)
     estimand = str(setup.query.get("estimand", "end_state"))
 
+    initial_states = jnp.broadcast_to(
+        initial_state, (setup.drift_draws.shape[0], initial_state.shape[0])
+    )
+    baseline_state_paths, counterfactual_state_paths, effect_state_paths = (
+        vmap_simulate_action_from_state(
+            setup.vector_field,
+            setup.drift_draws,
+            setup.cint_draws,
+            initial_states=initial_states,
+            treat_idx=setup.treat_idx,
+            mode=str(setup.action["mode"]),
+            value=setup.action.get("value"),
+            amount=setup.action.get("amount"),
+            time_grid=setup.time_grid,
+        )
+    )
+    baseline_paths = baseline_state_paths[:, :, setup.outcome_idx]
+
     if estimand == "trajectory":
-        baseline_state_paths, counterfactual_state_paths, effect_state_paths = jax.vmap(
-            lambda d, c: forward_simulate_latent_action_from_state(
-                d,
-                c,
-                initial_state,
-                setup.treat_idx,
-                mode=str(setup.action["mode"]),
-                value=setup.action.get("value"),
-                amount=setup.action.get("amount"),
-                dt=setup.dt_days,
-                horizon_steps=setup.horizon_steps,
-            )
-        )(setup.drift_draws, setup.cint_draws)
-        baseline_paths = baseline_state_paths[:, :, setup.outcome_idx]
         outputs = _build_effect_outputs(
             setup,
             effect_paths=effect_state_paths[:, :, setup.outcome_idx],
@@ -796,23 +813,9 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
             abducted_state=abducted_state,
         )
     else:
-        baseline_paths, _counterfactual_paths, effect_paths = jax.vmap(
-            lambda d, c: forward_simulate_action_from_state(
-                d,
-                c,
-                initial_state,
-                setup.treat_idx,
-                setup.outcome_idx,
-                mode=str(setup.action["mode"]),
-                value=setup.action.get("value"),
-                amount=setup.action.get("amount"),
-                dt=setup.dt_days,
-                horizon_steps=setup.horizon_steps,
-            )
-        )(setup.drift_draws, setup.cint_draws)
         outputs = _build_effect_outputs(
             setup,
-            effect_draws=effect_paths[:, -1],
+            effect_draws=effect_state_paths[:, -1, setup.outcome_idx],
             abducted_state=abducted_state,
         )
 
