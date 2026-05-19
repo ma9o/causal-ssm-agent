@@ -486,7 +486,6 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
                 },
             }
         },
-        "stage-4b": {},
         "stage-5b": {"inference_metadata": {"method": "svi"}},
         "stage-6": {},
         "_prepared_runtime": SimpleNamespace(

@@ -43,7 +43,6 @@ function renderStageSection({
 }: StagePresentationShellProps) {
   return (
     <StageSection
-      id={stage.id}
       number={stage.number}
       title={stage.label}
       status={status}

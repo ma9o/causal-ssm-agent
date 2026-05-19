@@ -22,9 +22,6 @@
     "stage-4": {
       "$ref": "#/$defs/Stage4Contract"
     },
-    "stage-4b": {
-      "$ref": "#/$defs/Stage4bContract"
-    },
     "stage-5b": {
       "$ref": "#/$defs/Stage5bContract"
     },
@@ -65,13 +62,22 @@
           "description": "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.",
           "title": "Lagged",
           "type": "boolean"
+        },
+        "sources": {
+          "description": "Literature sources supporting this causal link",
+          "items": {
+            "$ref": "#/$defs/EdgeSource"
+          },
+          "title": "Sources",
+          "type": "array"
         }
       },
       "required": [
         "cause",
         "description",
         "effect",
-        "lagged"
+        "lagged",
+        "sources"
       ],
       "title": "CausalEdge",
       "type": "object"
@@ -172,131 +178,6 @@
       "title": "Construct",
       "type": "object"
     },
-    "CurvatureDirection": {
-      "description": "A weak Hessian eigen-direction within the MAP neighborhood.",
-      "properties": {
-        "index": {
-          "title": "Index",
-          "type": "integer"
-        },
-        "eigenvalue": {
-          "title": "Eigenvalue",
-          "type": "number"
-        },
-        "normalized_eigenvalue": {
-          "title": "Normalized Eigenvalue",
-          "type": "number"
-        },
-        "status": {
-          "enum": [
-            "pass",
-            "warn",
-            "fail"
-          ],
-          "title": "Status",
-          "type": "string"
-        },
-        "top_loadings": {
-          "items": {
-            "$ref": "#/$defs/CurvatureDirectionLoading"
-          },
-          "title": "Top Loadings",
-          "type": "array"
-        }
-      },
-      "required": [
-        "eigenvalue",
-        "index",
-        "normalized_eigenvalue",
-        "status",
-        "top_loadings"
-      ],
-      "title": "CurvatureDirection",
-      "type": "object"
-    },
-    "CurvatureDirectionLoading": {
-      "description": "One parameter's loading within a weak local-curvature eigen-direction.",
-      "properties": {
-        "parameter": {
-          "title": "Parameter",
-          "type": "string"
-        },
-        "interpretable_parameter": {
-          "title": "Interpretable Parameter",
-          "type": "string"
-        },
-        "loading": {
-          "title": "Loading",
-          "type": "number"
-        },
-        "abs_loading": {
-          "title": "Abs Loading",
-          "type": "number"
-        }
-      },
-      "required": [
-        "abs_loading",
-        "interpretable_parameter",
-        "loading",
-        "parameter"
-      ],
-      "title": "CurvatureDirectionLoading",
-      "type": "object"
-    },
-    "CurvatureParameterEntry": {
-      "description": "Per-parameter local-curvature summary at the selected MAP.",
-      "properties": {
-        "parameter": {
-          "title": "Parameter",
-          "type": "string"
-        },
-        "interpretable_parameter": {
-          "title": "Interpretable Parameter",
-          "type": "string"
-        },
-        "diagonal_curvature": {
-          "title": "Diagonal Curvature",
-          "type": "number"
-        },
-        "effective_eigenvalue": {
-          "title": "Effective Eigenvalue",
-          "type": "number"
-        },
-        "status": {
-          "enum": [
-            "pass",
-            "warn",
-            "fail"
-          ],
-          "title": "Status",
-          "type": "string"
-        },
-        "normalized_effective_eigenvalue": {
-          "title": "Normalized Effective Eigenvalue",
-          "type": "number"
-        },
-        "normalized_status": {
-          "enum": [
-            "pass",
-            "warn",
-            "fail"
-          ],
-          "title": "Normalized Status",
-          "type": "string"
-        }
-      },
-      "required": [
-        "diagonal_curvature",
-        "effective_eigenvalue",
-        "interpretable_parameter",
-        "normalized_effective_eigenvalue",
-        "normalized_status",
-        "parameter",
-        "status"
-      ],
-      "title": "CurvatureParameterEntry",
-      "type": "object"
-    },
     "DistributionFamily": {
       "description": "Distribution families for observation and process noise.",
       "enum": [
@@ -312,6 +193,40 @@
       ],
       "title": "DistributionFamily",
       "type": "string"
+    },
+    "EdgeSource": {
+      "description": "A source of evidence supporting a causal edge.",
+      "properties": {
+        "title": {
+          "description": "Title of the source (paper, meta-analysis, textbook, etc.)",
+          "title": "Title",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "URL of the source if available",
+          "title": "Url"
+        },
+        "snippet": {
+          "description": "Relevant excerpt or paraphrase from the source",
+          "title": "Snippet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "snippet",
+        "title"
+      ],
+      "title": "EdgeSource",
+      "type": "object"
     },
     "EnergyDiagnostics": {
       "description": "Hamiltonian energy diagnostics.",
@@ -406,40 +321,6 @@
         "state_order"
       ],
       "title": "EstimationSpec",
-      "type": "object"
-    },
-    "FirstPassRBResult": {
-      "description": "Active first-pass Rao-Blackwellization plan for the prepared runtime.",
-      "properties": {
-        "status": {
-          "enum": [
-            "active",
-            "inactive"
-          ],
-          "title": "Status",
-          "type": "string"
-        },
-        "latent_variables": {
-          "items": {
-            "$ref": "#/$defs/InferenceStructureVariable"
-          },
-          "title": "Latent Variables",
-          "type": "array"
-        },
-        "obs_variables": {
-          "items": {
-            "$ref": "#/$defs/InferenceStructureVariable"
-          },
-          "title": "Obs Variables",
-          "type": "array"
-        }
-      },
-      "required": [
-        "latent_variables",
-        "obs_variables",
-        "status"
-      ],
-      "title": "FirstPassRBResult",
       "type": "object"
     },
     "IdentifiabilityStatus": {
@@ -1004,58 +885,6 @@
       "title": "InferenceMetadataContract",
       "type": "object"
     },
-    "InferenceStructureResult": {
-      "description": "Canonical inference-structure plan shared by pipeline and web.",
-      "properties": {
-        "likelihood_path": {
-          "enum": [
-            "kalman",
-            "composed",
-            "particle"
-          ],
-          "title": "Likelihood Path",
-          "type": "string"
-        },
-        "auto_method": {
-          "const": "aux_gibbs",
-          "title": "Auto Method",
-          "type": "string"
-        },
-        "first_pass_rb": {
-          "$ref": "#/$defs/FirstPassRBResult"
-        }
-      },
-      "required": [
-        "auto_method",
-        "first_pass_rb",
-        "likelihood_path"
-      ],
-      "title": "InferenceStructureResult",
-      "type": "object"
-    },
-    "InferenceStructureVariable": {
-      "description": "A single latent or observed channel assignment in the active split.",
-      "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "method": {
-          "enum": [
-            "kalman",
-            "particle"
-          ],
-          "title": "Method",
-          "type": "string"
-        }
-      },
-      "required": [
-        "method",
-        "name"
-      ],
-      "title": "InferenceStructureVariable",
-      "type": "object"
-    },
     "InitializationPolicy": {
       "description": "Global initial-state policy for retained dynamic states.",
       "enum": [
@@ -1336,288 +1165,6 @@
       ],
       "title": "LinkFunction",
       "type": "string"
-    },
-    "MAPCurvatureResult": {
-      "description": "One Hessian family's local geometry at the selected MAP.",
-      "properties": {
-        "eigenvalues": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Eigenvalues",
-          "type": "array"
-        },
-        "normalized_eigenvalues": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Normalized Eigenvalues",
-          "type": "array"
-        },
-        "negative_direction_count": {
-          "title": "Negative Direction Count",
-          "type": "integer"
-        },
-        "deficiency_count": {
-          "title": "Deficiency Count",
-          "type": "integer"
-        },
-        "positive_definite": {
-          "title": "Positive Definite",
-          "type": "boolean"
-        },
-        "condition_number": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Condition Number"
-        },
-        "normalized_condition_number": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Normalized Condition Number"
-        },
-        "weak_directions": {
-          "items": {
-            "$ref": "#/$defs/CurvatureDirection"
-          },
-          "title": "Weak Directions",
-          "type": "array"
-        },
-        "per_parameter": {
-          "items": {
-            "$ref": "#/$defs/CurvatureParameterEntry"
-          },
-          "title": "Per Parameter",
-          "type": "array"
-        },
-        "parameter_names": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Parameter Names",
-          "type": "array"
-        },
-        "eigenvectors_normalized": {
-          "items": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array"
-          },
-          "title": "Eigenvectors Normalized",
-          "type": "array"
-        }
-      },
-      "required": [
-        "deficiency_count",
-        "eigenvalues",
-        "eigenvectors_normalized",
-        "negative_direction_count",
-        "normalized_eigenvalues",
-        "parameter_names",
-        "per_parameter",
-        "positive_definite",
-        "weak_directions"
-      ],
-      "title": "MAPCurvatureResult",
-      "type": "object"
-    },
-    "MAPGeometryResult": {
-      "description": "Dataset-conditioned MAP search plus H_lik / H_post local geometry.",
-      "properties": {
-        "n_starts": {
-          "title": "N Starts",
-          "type": "integer"
-        },
-        "n_successful_starts": {
-          "title": "N Successful Starts",
-          "type": "integer"
-        },
-        "best_start_index": {
-          "title": "Best Start Index",
-          "type": "integer"
-        },
-        "map_log_posterior": {
-          "title": "Map Log Posterior",
-          "type": "number"
-        },
-        "map_log_likelihood": {
-          "title": "Map Log Likelihood",
-          "type": "number"
-        },
-        "map_log_prior": {
-          "title": "Map Log Prior",
-          "type": "number"
-        },
-        "final_grad_norm": {
-          "title": "Final Grad Norm",
-          "type": "number"
-        },
-        "runner_up_objective_gap": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Runner Up Objective Gap"
-        },
-        "starts": {
-          "items": {
-            "$ref": "#/$defs/MAPOptimizationRun"
-          },
-          "title": "Starts",
-          "type": "array"
-        },
-        "likelihood_curvature": {
-          "$ref": "#/$defs/MAPCurvatureResult"
-        },
-        "posterior_curvature": {
-          "$ref": "#/$defs/MAPCurvatureResult"
-        },
-        "prior_rescued_parameters": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Prior Rescued Parameters",
-          "type": "array"
-        },
-        "boundary_parameters": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Boundary Parameters",
-          "type": "array"
-        },
-        "z_map_unconstrained": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Z Map Unconstrained",
-          "type": "array"
-        },
-        "prior_std_unconstrained": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Prior Std Unconstrained",
-          "type": "array"
-        }
-      },
-      "required": [
-        "best_start_index",
-        "boundary_parameters",
-        "final_grad_norm",
-        "likelihood_curvature",
-        "map_log_likelihood",
-        "map_log_posterior",
-        "map_log_prior",
-        "n_starts",
-        "n_successful_starts",
-        "posterior_curvature",
-        "prior_rescued_parameters",
-        "prior_std_unconstrained",
-        "starts",
-        "z_map_unconstrained"
-      ],
-      "title": "MAPGeometryResult",
-      "type": "object"
-    },
-    "MAPOptimizationRun": {
-      "description": "One start in the multi-start MAP search.",
-      "properties": {
-        "index": {
-          "title": "Index",
-          "type": "integer"
-        },
-        "start_kind": {
-          "title": "Start Kind",
-          "type": "string"
-        },
-        "start_log_posterior": {
-          "title": "Start Log Posterior",
-          "type": "number"
-        },
-        "log_posterior": {
-          "title": "Log Posterior",
-          "type": "number"
-        },
-        "log_likelihood": {
-          "title": "Log Likelihood",
-          "type": "number"
-        },
-        "log_prior": {
-          "title": "Log Prior",
-          "type": "number"
-        },
-        "objective": {
-          "title": "Objective",
-          "type": "number"
-        },
-        "success": {
-          "title": "Success",
-          "type": "boolean"
-        },
-        "status": {
-          "title": "Status",
-          "type": "integer"
-        },
-        "message": {
-          "title": "Message",
-          "type": "string"
-        },
-        "n_iters": {
-          "title": "N Iters",
-          "type": "integer"
-        },
-        "n_function_evals": {
-          "title": "N Function Evals",
-          "type": "integer"
-        },
-        "grad_norm": {
-          "title": "Grad Norm",
-          "type": "number"
-        },
-        "distance_to_best": {
-          "title": "Distance To Best",
-          "type": "number"
-        }
-      },
-      "required": [
-        "distance_to_best",
-        "grad_norm",
-        "index",
-        "log_likelihood",
-        "log_posterior",
-        "log_prior",
-        "message",
-        "n_function_evals",
-        "n_iters",
-        "objective",
-        "start_kind",
-        "start_log_posterior",
-        "status",
-        "success"
-      ],
-      "title": "MAPOptimizationRun",
-      "type": "object"
     },
     "MCMCDiagnostics": {
       "description": "Top-level MCMC diagnostics container.",
@@ -2148,72 +1695,6 @@
       "title": "ParameterConstraint",
       "type": "string"
     },
-    "ParameterIdentification": {
-      "description": "Per-parameter identifiability classification.",
-      "properties": {
-        "name": {
-          "title": "Name",
-          "type": "string"
-        },
-        "classification": {
-          "enum": [
-            "identified",
-            "practically_unidentifiable",
-            "structurally_unidentifiable"
-          ],
-          "title": "Classification",
-          "type": "string"
-        },
-        "contraction_ratio": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Contraction Ratio"
-        },
-        "profile_x": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Profile X"
-        },
-        "profile_ll": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Profile Ll"
-        }
-      },
-      "required": [
-        "classification",
-        "name"
-      ],
-      "title": "ParameterIdentification",
-      "type": "object"
-    },
     "ParameterRole": {
       "description": "Role of a parameter in the model.",
       "enum": [
@@ -2265,126 +1746,6 @@
       ],
       "title": "ParameterSpec",
       "type": "object"
-    },
-    "ParametricIdResult": {
-      "description": "Full parametric identifiability result (Stage 4b payload).",
-      "properties": {
-        "checked": {
-          "default": false,
-          "title": "Checked",
-          "type": "boolean"
-        },
-        "sensitivity_analysis": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SensitivityAnalysisResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "map_geometry": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/MAPGeometryResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "summary": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ParametricIdSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "per_param_classification": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/ParameterIdentification"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Per Param Classification"
-        },
-        "threshold": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Threshold"
-        },
-        "error": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Error"
-        }
-      },
-      "title": "ParametricIdResult",
-      "type": "object",
-      "required": [
-        "checked"
-      ]
-    },
-    "ParametricIdSummary": {
-      "description": "Summary of parametric identifiability issues.",
-      "properties": {
-        "structural_issues": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Structural Issues",
-          "type": "array"
-        },
-        "boundary_issues": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Boundary Issues",
-          "type": "array"
-        },
-        "weak_params": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Weak Params",
-          "type": "array"
-        }
-      },
-      "title": "ParametricIdSummary",
-      "type": "object",
-      "required": [
-        "boundary_issues",
-        "structural_issues",
-        "weak_params"
-      ]
     },
     "PosteriorMarginal": {
       "description": "Marginal posterior density for a single scalar parameter.",
@@ -2839,216 +2200,6 @@
       "title": "SavedScenarioContract",
       "type": "object"
     },
-    "SensitivityAnalysisResult": {
-      "description": "Output sensitivity analysis result (pre-inference identifiability).\n\nStructural identifiability check via the Jacobian of the forward model's\nemitted-observation moment summary. Near-zero singular values indicate\nparameter combinations that observations cannot distinguish.",
-      "properties": {
-        "singular_values": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Singular Values",
-          "type": "array"
-        },
-        "normalized_singular_values": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Normalized Singular Values",
-          "type": "array"
-        },
-        "deficiency_count": {
-          "title": "Deficiency Count",
-          "type": "integer"
-        },
-        "weak_directions": {
-          "items": {
-            "$ref": "#/$defs/SensitivityDirection"
-          },
-          "title": "Weak Directions",
-          "type": "array"
-        },
-        "per_parameter": {
-          "items": {
-            "$ref": "#/$defs/SensitivityEntry"
-          },
-          "title": "Per Parameter",
-          "type": "array"
-        },
-        "n_draws": {
-          "title": "N Draws",
-          "type": "integer"
-        },
-        "n_observations": {
-          "title": "N Observations",
-          "type": "integer"
-        },
-        "n_parameters": {
-          "title": "N Parameters",
-          "type": "integer"
-        },
-        "parameter_names": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Parameter Names",
-          "type": "array"
-        },
-        "normalized_right_singular_vectors": {
-          "items": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array"
-          },
-          "title": "Normalized Right Singular Vectors",
-          "type": "array"
-        }
-      },
-      "required": [
-        "deficiency_count",
-        "n_draws",
-        "n_observations",
-        "n_parameters",
-        "normalized_right_singular_vectors",
-        "normalized_singular_values",
-        "parameter_names",
-        "per_parameter",
-        "singular_values",
-        "weak_directions"
-      ],
-      "title": "SensitivityAnalysisResult",
-      "type": "object"
-    },
-    "SensitivityDirection": {
-      "description": "A direction in parameter space from the normalized sensitivity SVD.",
-      "properties": {
-        "index": {
-          "title": "Index",
-          "type": "integer"
-        },
-        "singular_value": {
-          "title": "Singular Value",
-          "type": "number"
-        },
-        "normalized_singular_value": {
-          "title": "Normalized Singular Value",
-          "type": "number"
-        },
-        "status": {
-          "enum": [
-            "pass",
-            "warn",
-            "fail"
-          ],
-          "title": "Status",
-          "type": "string"
-        },
-        "top_loadings": {
-          "items": {
-            "$ref": "#/$defs/SensitivityDirectionLoading"
-          },
-          "title": "Top Loadings",
-          "type": "array"
-        }
-      },
-      "required": [
-        "index",
-        "normalized_singular_value",
-        "singular_value",
-        "status",
-        "top_loadings"
-      ],
-      "title": "SensitivityDirection",
-      "type": "object"
-    },
-    "SensitivityDirectionLoading": {
-      "description": "One parameter's loading within a weak local sensitivity direction.",
-      "properties": {
-        "parameter": {
-          "title": "Parameter",
-          "type": "string"
-        },
-        "interpretable_parameter": {
-          "title": "Interpretable Parameter",
-          "type": "string"
-        },
-        "loading": {
-          "title": "Loading",
-          "type": "number"
-        },
-        "abs_loading": {
-          "title": "Abs Loading",
-          "type": "number"
-        }
-      },
-      "required": [
-        "abs_loading",
-        "interpretable_parameter",
-        "loading",
-        "parameter"
-      ],
-      "title": "SensitivityDirectionLoading",
-      "type": "object"
-    },
-    "SensitivityEntry": {
-      "description": "Per-parameter output sensitivity analysis entry.",
-      "properties": {
-        "parameter": {
-          "title": "Parameter",
-          "type": "string"
-        },
-        "interpretable_parameter": {
-          "title": "Interpretable Parameter",
-          "type": "string"
-        },
-        "sensitivity_norm": {
-          "title": "Sensitivity Norm",
-          "type": "number"
-        },
-        "effective_sv": {
-          "title": "Effective Sv",
-          "type": "number"
-        },
-        "sv_status": {
-          "enum": [
-            "pass",
-            "warn",
-            "fail"
-          ],
-          "title": "Sv Status",
-          "type": "string"
-        },
-        "normalized_effective_sv": {
-          "title": "Normalized Effective Sv",
-          "type": "number"
-        },
-        "normalized_sv_status": {
-          "enum": [
-            "pass",
-            "warn",
-            "fail"
-          ],
-          "title": "Normalized Sv Status",
-          "type": "string"
-        },
-        "identifiable": {
-          "title": "Identifiable",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "effective_sv",
-        "identifiable",
-        "interpretable_parameter",
-        "normalized_effective_sv",
-        "normalized_sv_status",
-        "parameter",
-        "sensitivity_norm",
-        "sv_status"
-      ],
-      "title": "SensitivityEntry",
-      "type": "object"
-    },
     "Stage0ColumnDescriptionContract": {
       "additionalProperties": false,
       "properties": {
@@ -3426,53 +2577,6 @@
         "resolved_priors"
       ],
       "title": "Stage4Contract",
-      "type": "object"
-    },
-    "Stage4bContract": {
-      "additionalProperties": false,
-      "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
-        "parametric_id": {
-          "$ref": "#/$defs/ParametricIdResult"
-        },
-        "inference_structure": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InferenceStructureResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "outcome",
-        "parametric_id"
-      ],
-      "title": "Stage4bContract",
       "type": "object"
     },
     "Stage5bContract": {
@@ -4057,7 +3161,6 @@
     "stage-2",
     "stage-3",
     "stage-4",
-    "stage-4b",
     "stage-5b",
     "stage-6"
   ]

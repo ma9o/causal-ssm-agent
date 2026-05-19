@@ -19,8 +19,6 @@ export { STAGE_IDS, STAGES } from "./stages";
 // Validation types
 // Model spec types
 // Prior types
-// Parametric ID types
-// Inference structure types
 // LLM trace types
 // Inference diagnostic types
 export type {
@@ -28,9 +26,9 @@ export type {
   CausalSpec,
   Construct,
   DistributionFamily,
+  EdgeSource,
   EnergyDiagnostics,
   EnergyHistogram,
-  FirstPassRBResult,
   IdentifiabilityStatus,
   IdentifiedTreatmentStatus,
   Indicator,
@@ -38,8 +36,6 @@ export type {
   IndicatorEmpiricalProfileContract as IndicatorEmpiricalProfile,
   IndicatorValidationContract as IndicatorValidation,
   InferenceMetadataContract as InferenceMetadata,
-  InferenceStructureResult,
-  InferenceStructureVariable,
   LatentModel,
   LikelihoodSource,
   LikelihoodSpec,
@@ -52,10 +48,8 @@ export type {
   ModelSpec,
   NonIdentifiableTreatmentStatus,
   ParameterConstraint,
-  ParameterIdentification,
   ParameterRole,
   ParameterSpec,
-  ParametricIdResult,
   PosteriorMarginal,
   PosteriorPair,
   PowerScalingResultContract as PowerScalingResult,
@@ -69,17 +63,12 @@ export type {
   RankHistogram,
   RankHistogramChain,
   Role,
-  SensitivityAnalysisResult,
-  SensitivityDirection,
-  SensitivityDirectionLoading,
-  SensitivityEntry,
   SMCDiagnostics,
   Stage0Contract as Stage0PersistedData,
   Stage1AContract as Stage1aData,
   Stage1BContract as Stage1bData,
   Stage2Contract as Stage2PersistedData,
   Stage3Contract as Stage3Data,
-  Stage4BContract as Stage4bData,
   Stage5BContract as Stage5bData,
   Stage6Contract as Stage6Data,
   SVIDiagnostics,
@@ -143,10 +132,6 @@ export interface StageData<T = unknown> {
 }
 
 // Named type aliases inlined in generated types but needed as standalone exports
-export type ParameterClassification =
-  | "identified"
-  | "practically_unidentifiable"
-  | "structurally_unidentifiable";
 export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error";
 export type PowerScalingDiagnosis = "prior_dominated" | "well_identified" | "prior_data_conflict";

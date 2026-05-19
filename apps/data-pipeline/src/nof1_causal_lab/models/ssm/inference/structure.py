@@ -87,33 +87,6 @@ def _resolve_default_method(
     return "aux_gibbs"
 
 
-def _payload_partition_for_plan(
-    spec: SSMSpec,
-    plan: InferenceStructurePlan,
-    *,
-    likelihood: Literal["particle", "kalman"],
-    observation_support: ObservationSupportRuntime | None,
-) -> RBPartition | None:
-    if plan.first_pass_partition is not None:
-        return plan.first_pass_partition
-
-    if (
-        plan.structural_backend != "kalman"
-        or not spec.first_pass_rb
-        or likelihood == "kalman"
-        or (
-            observation_support is not None
-            and observation_support.requires_interval_summary_handling
-        )
-    ):
-        return None
-
-    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import analyze_first_pass_rb
-
-    partition = analyze_first_pass_rb(spec)
-    return partition if not partition.has_particle_block else None
-
-
 def plan_inference_structure(
     spec: SSMSpec,
     *,
@@ -140,55 +113,3 @@ def plan_inference_structure(
         method_override=normalized_override,
         first_pass_partition=first_pass_partition,
     )
-
-
-def build_inference_structure_payload(
-    spec: SSMSpec,
-    plan: InferenceStructurePlan,
-    *,
-    likelihood: Literal["particle", "kalman"] = "particle",
-    observation_support: ObservationSupportRuntime | None = None,
-) -> dict:
-    """Serialize an inference-structure plan for stage payloads."""
-    latent_names = spec.latent_names or [f"latent_{i}" for i in range(spec.n_latent)]
-    manifest_names = spec.manifest_names or [f"obs_{i}" for i in range(spec.n_manifest)]
-
-    latent_variables: list[dict[str, str]] = []
-    obs_variables: list[dict[str, str]] = []
-    partition = _payload_partition_for_plan(
-        spec,
-        plan,
-        likelihood=likelihood,
-        observation_support=observation_support,
-    )
-    if partition is not None:
-        latent_variables = [
-            {
-                "name": latent_names[i],
-                "method": "kalman" if i in partition.kalman_idx else "particle",
-            }
-            for i in range(spec.n_latent)
-        ]
-        obs_variables = [
-            {
-                "name": manifest_names[i],
-                "method": "kalman" if i in partition.obs_kalman_idx else "particle",
-            }
-            for i in range(spec.n_manifest)
-        ]
-
-    auto_method = _resolve_default_method(
-        structural_backend=plan.structural_backend,
-        observation_support=observation_support,
-        n_timepoints=None,
-    )
-
-    return {
-        "likelihood_path": plan.structural_backend,
-        "auto_method": auto_method,
-        "first_pass_rb": {
-            "status": "active" if partition is not None else "inactive",
-            "latent_variables": latent_variables,
-            "obs_variables": obs_variables,
-        },
-    }

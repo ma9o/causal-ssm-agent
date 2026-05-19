@@ -236,7 +236,6 @@ def _select_evidence_window(
 def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     stage1b = _load_stage_result(workspace_id, "stage-1b")
     stage4 = _load_optional_stage_result(workspace_id, "stage-4")
-    stage4b = _load_optional_stage_result(workspace_id, "stage-4b")
     stage5b = _load_stage_result(workspace_id, "stage-5b")
     stage6 = _load_optional_stage_result(workspace_id, "stage-6")
 
@@ -275,7 +274,6 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "_workspace_id": workspace_id,
         "stage-1b": stage1b,
         "stage-4": stage4,
-        "stage-4b": stage4b,
         "stage-5b": stage5b,
         "stage-6": stage6,
         "_fitted_artifact": fitted_artifact,
@@ -557,7 +555,6 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
     sections = list(args.get("sections") or ["overview", "variables", "capabilities"])
     focused = {str(name) for name in (args.get("names") or [])}
     stage1b = ctx["stage-1b"]
-    stage4b = ctx.get("stage-4b", {})
     stage5b = ctx.get("stage-5b", {})
     stage6 = ctx.get("stage-6", {})
     runtime = ctx["_prepared_runtime"]
@@ -644,7 +641,6 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
                 for entry in power_scaling
                 if entry.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
             ],
-            "inference_structure": (stage4b.get("inference_structure") or {}),
         }
     if "baseline_effects" in sections:
         baseline = list(stage6.get("intervention_results", []) or [])

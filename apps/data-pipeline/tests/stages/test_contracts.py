@@ -207,12 +207,6 @@ def valid_stage_payloads() -> dict[str, dict]:
             ],
             "prior_predictive_samples": {"stress_score": [0.1, -0.2, 0.3]},
         },
-        "stage-4b": {
-            "parametric_id": {
-                "checked": True,
-                "summary": {"structural_issues": [], "boundary_issues": [], "weak_params": []},
-            }
-        },
         "stage-5b": {
             "power_scaling": [
                 {

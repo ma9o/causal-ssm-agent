@@ -5,7 +5,6 @@ export const STAGE_IDS = [
   "stage-2",
   "stage-3",
   "stage-4",
-  "stage-4b",
   "stage-5b",
   "stage-6",
 ] as const;
@@ -82,15 +81,6 @@ export const STAGES: StageMeta[] = [
     description:
       "Specifies prior distributions and model parameters using domain knowledge and empirical data.",
     interactive: true,
-  },
-  {
-    id: "stage-4b",
-    label: "Parametric Identifiability",
-    number: "4b",
-    loadingHint: "Checking parametric identifiability...",
-    description:
-      "Checks whether the specified model parameters are identifiable from the available data.",
-    interactive: false,
   },
   {
     id: "stage-5b",

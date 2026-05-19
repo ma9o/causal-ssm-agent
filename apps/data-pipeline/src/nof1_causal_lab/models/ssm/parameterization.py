@@ -1458,8 +1458,8 @@ def compile_prior_semantics(
 
     This is the single cross-stage source of truth for prior/runtime
     semantics.  Downstream readers (``make_builder_from_compiled_artifact``,
-    Stage 4b, prior predictive) should use this as the only supported
-    serialized prior/runtime representation.
+    pre-fit diagnostics, prior predictive) should use this as the only
+    supported serialized prior/runtime representation.
     """
     bundle = build_prior_runtime_bundle(spec, priors)
     return {

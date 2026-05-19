@@ -15,7 +15,6 @@ import type {
   Stage2Data,
   Stage3Data,
   Stage4Data,
-  Stage4bData,
   Stage5bData,
   Stage6Data,
   StageMeta,
@@ -46,7 +45,6 @@ const Stage2RunningContent = lazy(() => import("./stage-contents/stage-2-running
 const Stage4RunningContent = lazy(() => import("./stage-contents/stage-4-running-content"));
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
-const Stage4bContent = lazy(() => import("./stage-contents/stage-4b-content"));
 const Stage5bContent = lazy(() => import("./stage-contents/stage-5b-content"));
 const Stage6Showcase = lazy(() => import("./stage-contents/stage-6-showcase"));
 
@@ -57,7 +55,6 @@ type AnyStageData =
   | Stage2Data
   | Stage3Data
   | Stage4Data
-  | Stage4bData
   | Stage5bData
   | Stage6Data;
 
@@ -285,7 +282,6 @@ const stageContentAdapters = {
   "stage-4": ({ workspaceId, data }: StageContentAdapterProps) => (
     <Stage4ConnectedContent workspaceId={workspaceId} data={data as Stage4Data} />
   ),
-  "stage-4b": createStageDataAdapter<Stage4bData>(Stage4bContent),
   "stage-5b": ({ workspaceId, data }: StageContentAdapterProps) => (
     <Stage5bConnectedContent workspaceId={workspaceId} data={data as Stage5bData} />
   ),

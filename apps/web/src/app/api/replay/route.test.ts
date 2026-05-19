@@ -292,7 +292,7 @@ describe("POST /api/replay", () => {
           id: "resume-run",
           parameters: {
             workspace_id: "user-123",
-            start_stage: "stage-4b",
+            start_stage: "stage-5b",
             end_stage: "stage-6",
             stage_overrides: {
               "stage-1a": { latent_model: { constructs: ["existing"] } },
@@ -323,7 +323,7 @@ describe("POST /api/replay", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      resumeFrom: "stage-4b",
+      resumeFrom: "stage-5b",
       rootFlowRunId: "new-run",
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -531,7 +531,7 @@ describe("POST /api/replay", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      resumeFrom: "stage-4b",
+      resumeFrom: "stage-5b",
       rootFlowRunId: "new-run",
     });
     expect(fetchMock).toHaveBeenNthCalledWith(

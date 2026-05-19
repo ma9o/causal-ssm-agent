@@ -95,115 +95,263 @@
         "cause": "prescription_event",
         "effect": "serotonergic_exposure",
         "description": "Pharmacy fill events drive plasma escitalopram concentration with first-order pharmacokinetics (half-life ~32 h in this patient given CYP2C19 *1/*2 intermediate metabolizer status). Steady state achieved within 5-7 days of each dose change.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Rao N. (2007). The clinical pharmacokinetics of escitalopram. Clinical Pharmacokinetics, 46(4), 281-290.",
+            "url": "https://doi.org/10.2165/00003088-200746040-00002",
+            "snippet": "Escitalopram has a mean terminal elimination half-life of ~27-32 h, linear pharmacokinetics across the 10-30 mg dose range, and reaches steady state in ~7-10 days."
+          }
+        ]
       },
       {
         "cause": "affective_state",
         "effect": "prescription_event",
         "description": "The initial medication start and the 2024-03-05 dose increase are partly responses to lagged depressive severity and incomplete remission documented at clinical follow-up, so prescribing is not purely exogenous.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Trivedi MH, Rush AJ, Wisniewski SR, et al. (2006). Evaluation of outcomes with citalopram for depression using measurement-based care in STAR*D: implications for clinical practice. American Journal of Psychiatry, 163(1), 28-40.",
+            "url": "https://doi.org/10.1176/appi.ajp.163.1.28",
+            "snippet": "Measurement-based care drove protocolized dose escalations conditional on lagged symptom severity (QIDS-SR), making antidepressant dose a function of prior outcome rather than an exogenous assignment."
+          }
+        ]
       },
       {
         "cause": "adherence",
         "effect": "serotonergic_exposure",
         "description": "Daily pill-taking determines whether each prescribed dose actually contributes to circulating drug. Missed doses produce trough concentrations; ~93% PDC sustains therapeutic plasma levels.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Sansone RA, Sansone LA. (2012). Antidepressant adherence: are patients taking their medications? Innovations in Clinical Neuroscience, 9(5-6), 41-46.",
+            "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3398686/",
+            "snippet": "Roughly half of antidepressant patients discontinue or miss doses within the first months; intermittent dosing produces subtherapeutic plasma exposure and is a major modifier of effective drug delivery."
+          }
+        ]
       },
       {
         "cause": "serotonergic_exposure",
         "effect": "affective_state",
         "description": "5-HT reuptake inhibition increases synaptic serotonin acutely; downstream neuroadaptive changes (BDNF upregulation, hippocampal neurogenesis, HPA axis recalibration) lift mood with onset typically at week 3-4 and full response by week 8-12.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Cipriani A, Furukawa TA, Salanti G, et al. (2018). Comparative efficacy and acceptability of 21 antidepressant drugs for the acute treatment of adults with major depressive disorder: a systematic review and network meta-analysis. The Lancet, 391(10128), 1357-1366.",
+            "url": "https://doi.org/10.1016/S0140-6736(17)32802-7",
+            "snippet": "Escitalopram showed an SMD of about -0.32 vs. placebo across 522 trials (network meta-analysis), with response onset typically emerging from week 2-4."
+          },
+          {
+            "title": "Duman RS, Aghajanian GK, Sanacora G, Krystal JH. (2016). Synaptic plasticity and depression: new insights from stress and rapid-acting antidepressants. Nature Medicine, 22(3), 238-249.",
+            "url": "https://doi.org/10.1038/nm.4050",
+            "snippet": "SSRI antidepressant action requires weeks of downstream neuroplastic adaptation (BDNF/TrkB signaling, synaptogenesis) rather than acute monoaminergic effects alone, consistent with a 3-8 week therapeutic latency."
+          }
+        ]
       },
       {
         "cause": "serotonergic_exposure",
         "effect": "physical_activity",
         "description": "Restoration of energy and goal-directed motivation as treatment takes effect; activation is a documented behavioral signature of SSRI response.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Demyttenaere K, Jaspers L. (2008). Review: bupropion and SSRI-induced side effects. Journal of Psychopharmacology, 22(7), 792-804.",
+            "url": "https://doi.org/10.1177/0269881107083798",
+            "snippet": "SSRIs commonly produce a transient activation/agitation profile in early weeks alongside later restoration of psychomotor drive, both of which translate into measurable movement and activity changes."
+          }
+        ]
       },
       {
         "cause": "serotonergic_exposure",
         "effect": "sleep_quality",
         "description": "REM suppression (~10-15% of total REM time) is a robust SSRI pharmacological signature; total sleep continuity initially worsens during the first 2-3 weeks of titration (initial-insomnia bump) and improves thereafter as mood stabilizes.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Wichniak A, Wierzbicka A, Walęcka M, Jernajczyk W. (2017). Effects of antidepressants on sleep. Current Psychiatry Reports, 19(9), 63.",
+            "url": "https://doi.org/10.1007/s11920-017-0816-4",
+            "snippet": "SSRIs robustly suppress REM sleep and lengthen REM latency; subjective sleep often worsens transiently during titration and improves with sustained response."
+          }
+        ]
       },
       {
         "cause": "physical_activity",
         "effect": "affective_state",
         "description": "Exercise produces independent antidepressant effects via BDNF release, beta-endorphin, behavioral activation, and improved sleep pressure regulation.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Schuch FB, Vancampfort D, Richards J, Rosenbaum S, Ward PB, Stubbs B. (2016). Exercise as a treatment for depression: a meta-analysis adjusting for publication bias. Journal of Psychiatric Research, 77, 42-51.",
+            "url": "https://doi.org/10.1016/j.jpsychires.2016.02.023",
+            "snippet": "Adjusted pooled SMD ≈ -1.1 for exercise vs. control on depressive symptoms across 25 RCTs; effect persists after adjusting for publication bias."
+          }
+        ]
       },
       {
         "cause": "sleep_quality",
         "effect": "affective_state",
         "description": "Sleep deprivation and architectural disruption acutely worsen mood and emotional regulation; restorative sleep produces same-day and next-day improvement.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Baglioni C, Battagliese G, Feige B, et al. (2011). Insomnia as a predictor of depression: a meta-analytic evaluation of longitudinal epidemiological studies. Journal of Affective Disorders, 135(1-3), 10-19.",
+            "url": "https://doi.org/10.1016/j.jad.2011.01.011",
+            "snippet": "Non-depressed individuals with insomnia had a ~2.6-fold elevated risk of developing depression (OR ≈ 2.60, 95% CI 1.98-3.42) across 21 longitudinal epidemiological studies."
+          }
+        ]
       },
       {
         "cause": "social_engagement",
         "effect": "affective_state",
         "description": "Behavioral activation through social contact directly improves affect; reduced engagement deepens depressive cognition through anhedonia and rumination.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Cuijpers P, van Straten A, Warmerdam L. (2007). Behavioral activation treatments of depression: a meta-analysis. Clinical Psychology Review, 27(3), 318-326.",
+            "url": "https://doi.org/10.1016/j.cpr.2006.11.001",
+            "snippet": "Behavioral activation, which centers on increasing positively-reinforced (often social) activity, showed a large effect size (d ≈ 0.87) for depression across 16 controlled trials."
+          },
+          {
+            "title": "Santini ZI, Koyanagi A, Tyrovolas S, Mason C, Haro JM. (2015). The association between social relationships and depression: a systematic review. Journal of Affective Disorders, 175, 53-65.",
+            "url": "https://doi.org/10.1016/j.jad.2014.12.049",
+            "snippet": "Perceived social support and contact frequency are consistently inversely associated with depressive symptoms in longitudinal cohorts."
+          }
+        ]
       },
       {
         "cause": "affective_state",
         "effect": "physical_activity",
         "description": "Low mood reduces motivation, energy, and goal-directed behavior. Psychomotor retardation lowers spontaneous movement; fatigue lowers exercise initiation.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Buyukdura JS, McClintock SM, Croarkin PE. (2011). Psychomotor retardation in depression: biological underpinnings, measurement, and treatment. Progress in Neuro-Psychopharmacology & Biological Psychiatry, 35(2), 395-409.",
+            "url": "https://doi.org/10.1016/j.pnpbp.2010.10.019",
+            "snippet": "Psychomotor retardation is a core feature of melancholic depression and produces objectively measurable reductions in spontaneous movement and gait speed."
+          }
+        ]
       },
       {
         "cause": "affective_state",
         "effect": "sleep_quality",
         "description": "Depression disrupts sleep continuity and architecture: early-morning awakening, reduced slow-wave sleep, disinhibited REM, or hypersomnia depending on subtype.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Nutt D, Wilson S, Paterson L. (2008). Sleep disorders as core symptoms of depression. Dialogues in Clinical Neuroscience, 10(3), 329-336.",
+            "url": "https://doi.org/10.31887/DCNS.2008.10.3/dnutt",
+            "snippet": "Sleep disturbance (insomnia or hypersomnia) is reported by ~90% of depressed patients; polysomnography typically shows reduced SWS, shortened REM latency, and increased REM density."
+          }
+        ]
       },
       {
         "cause": "affective_state",
         "effect": "social_engagement",
         "description": "Depression produces social withdrawal: reduced communication initiation, longer response latencies, narrower partner network, declining shared meals and visits.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Kupferberg A, Bicks L, Hasler G. (2016). Social functioning in major depressive disorder. Neuroscience & Biobehavioral Reviews, 69, 313-332.",
+            "url": "https://doi.org/10.1016/j.neubiorev.2016.07.002",
+            "snippet": "MDD is consistently associated with reduced social network size, lower partner-interaction rates, and impaired reward sensitivity to social stimuli."
+          }
+        ]
       },
       {
         "cause": "affective_state",
         "effect": "adherence",
         "description": "Depressive cognition reduces medication-taking via diminished future-orientation, hopelessness about treatment effectiveness, motor inertia, and disrupted routines.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "DiMatteo MR, Lepper HS, Croghan TW. (2000). Depression is a risk factor for noncompliance with medical treatment: meta-analysis of the effects of anxiety and depression on patient adherence. Archives of Internal Medicine, 160(14), 2101-2107.",
+            "url": "https://doi.org/10.1001/archinte.160.14.2101",
+            "snippet": "Across 12 studies, depressed patients had 3x the odds of being non-adherent to medical treatment compared with non-depressed patients (OR ~3.0)."
+          }
+        ]
       },
       {
         "cause": "seasonal_load",
         "effect": "affective_state",
         "description": "Reduced photoperiod (winter at 40.7\u00b0N latitude) shifts mood baseline downward through the SAD spectrum: serotonin pathway downregulation and circadian phase delay.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Rosenthal NE, Sack DA, Gillin JC, et al. (1984). Seasonal affective disorder: a description of the syndrome and preliminary findings with light therapy. Archives of General Psychiatry, 41(1), 72-80.",
+            "url": "https://doi.org/10.1001/archpsyc.1984.01790120076010",
+            "snippet": "Initial clinical description of recurrent fall/winter depression remitting with bright light, establishing photoperiod as a causal driver of affective state at mid-latitudes."
+          },
+          {
+            "title": "Lam RW, Tam EM. (2009). A Clinician's Guide to Using Light Therapy. Cambridge University Press.",
+            "url": null,
+            "snippet": "Subclinical seasonal mood variation is detectable in roughly 10-15% of mid-latitude populations and is driven by photoperiodic regulation of serotonergic and circadian systems."
+          }
+        ]
       },
       {
         "cause": "life_events_load",
         "effect": "affective_state",
         "description": "Acute psychosocial stressors (bereavement, relationship loss, family illness) directly worsen mood through HPA-axis activation and cognitive appraisal pathways.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Kendler KS, Karkowski LM, Prescott CA. (1999). Causal relationship between stressful life events and the onset of major depression. American Journal of Psychiatry, 156(6), 837-841.",
+            "url": "https://doi.org/10.1176/ajp.156.6.837",
+            "snippet": "In a co-twin control design, the odds ratio for MDD onset in the month of a stressful life event was 5.64 overall and remained 3.58 within monozygotic pairs, supporting a substantially causal stressor → depression effect not fully explained by shared genetic liability."
+          }
+        ]
       },
       {
         "cause": "life_events_load",
         "effect": "social_engagement",
         "description": "Major life changes alter the structure and accessibility of the social network: a breakup removes the primary partner, a move alters peer proximity, family illness redirects social attention.",
-        "lagged": true
+        "lagged": true,
+        "sources": [
+          {
+            "title": "Holmes TH, Rahe RH. (1967). The Social Readjustment Rating Scale. Journal of Psychosomatic Research, 11(2), 213-218.",
+            "url": "https://doi.org/10.1016/0022-3999(67)90010-4",
+            "snippet": "Foundational instrument quantifying readjustment demand of major life events (bereavement, divorce, relocation, illness); each event is defined in part by its direct disruption of social-role structure."
+          }
+        ]
       },
       {
         "cause": "cyp2c19_metabolizer_status",
         "effect": "serotonergic_exposure",
         "description": "CYP2C19 enzyme activity scales escitalopram first-order clearance (~32 h half-life at *1/*2 intermediate metabolizer status; faster at *1/*1, slower at *2/*2). The phenotype shifts plasma exposure per dose without affecting affective_state directly.",
-        "lagged": false
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Hicks JK, Bishop JR, Sangkuhl K, et al. (2015). Clinical Pharmacogenetics Implementation Consortium (CPIC) guideline for CYP2D6 and CYP2C19 genotypes and dosing of selective serotonin reuptake inhibitors. Clinical Pharmacology & Therapeutics, 98(2), 127-134.",
+            "url": "https://doi.org/10.1002/cpt.147",
+            "snippet": "CPIC guideline recommends 50% starting-dose reduction for CYP2C19 poor metabolizers on escitalopram; intermediate metabolizers (*1/*2) show modestly elevated plasma exposure per mg dose."
+          }
+        ]
       },
       {
         "cause": "baseline_extraversion",
         "effect": "social_engagement",
         "description": "Trait sociability shifts the person-specific baseline rate of social initiation, partner-network breadth, and shared-activity frequency, while day-to-day deviations remain partly driven by mood and context.",
-        "lagged": false
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Asendorpf JB, Wilpers S. (1998). Personality effects on social relationships. Journal of Personality and Social Psychology, 74(6), 1531-1544.",
+            "url": "https://doi.org/10.1037/0022-3514.74.6.1531",
+            "snippet": "Extraversion prospectively predicted number and contact frequency of peer relationships across an 18-month longitudinal study of young adults."
+          }
+        ]
       },
       {
         "cause": "baseline_extraversion",
         "effect": "affective_state",
         "description": "Trait extraversion may contribute to baseline positive affectivity, reward sensitivity, and stress buffering. The edge represents a broad trait prior rather than a decisive predictor of this patient's depressive trajectory.",
-        "lagged": false
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Kotov R, Gamez W, Schmidt F, Watson D. (2010). Linking 'big' personality traits to anxiety, depressive, and substance use disorders: a meta-analysis. Psychological Bulletin, 136(5), 768-821.",
+            "url": "https://doi.org/10.1037/a0020327",
+            "snippet": "Low extraversion was modestly but consistently associated with MDD (r ≈ -0.25 across 175 studies), supporting a stable trait-level contribution to depression vulnerability; effect was larger for dysthymia and social phobia."
+          }
+        ]
       }
     ]
   },

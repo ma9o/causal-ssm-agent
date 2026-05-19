@@ -104,7 +104,6 @@ export interface CausalSSMContracts {
   "stage-2": Stage2Contract;
   "stage-3": Stage3Contract;
   "stage-4": Stage4Contract;
-  "stage-4b": Stage4BContract;
   "stage-5b": Stage5BContract;
   "stage-6": Stage6Contract;
 }
@@ -210,6 +209,27 @@ export interface CausalEdge {
    * If True, effect at t is caused by cause at t-1 (one model_clock tick delay). If False (contemporaneous), effect at t is caused by cause at t.
    */
   lagged: boolean;
+  /**
+   * Literature sources supporting this causal link
+   */
+  sources: EdgeSource[];
+}
+/**
+ * A source of evidence supporting a causal edge.
+ */
+export interface EdgeSource {
+  /**
+   * Title of the source (paper, meta-analysis, textbook, etc.)
+   */
+  title: string;
+  /**
+   * URL of the source if available
+   */
+  url?: string | null;
+  /**
+   * Relevant excerpt or paraphrase from the source
+   */
+  snippet: string;
 }
 export interface Stage1BContract {
   outcome: "success" | "warn" | "fail";
@@ -628,202 +648,6 @@ export interface PriorSource {
    * Observation/measurement interval of this study in days (daily=1, weekly=7, monthly=30)
    */
   study_interval_days?: number | null;
-}
-export interface Stage4BContract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
-  parametric_id: ParametricIdResult;
-  inference_structure?: InferenceStructureResult | null;
-}
-/**
- * Full parametric identifiability result (Stage 4b payload).
- */
-export interface ParametricIdResult {
-  checked: boolean;
-  sensitivity_analysis?: SensitivityAnalysisResult | null;
-  map_geometry?: MAPGeometryResult | null;
-  summary?: ParametricIdSummary | null;
-  per_param_classification?: ParameterIdentification[] | null;
-  threshold?: number | null;
-  error?: string | null;
-}
-/**
- * Output sensitivity analysis result (pre-inference identifiability).
- *
- * Structural identifiability check via the Jacobian of the forward model's
- * emitted-observation moment summary. Near-zero singular values indicate
- * parameter combinations that observations cannot distinguish.
- */
-export interface SensitivityAnalysisResult {
-  singular_values: number[];
-  normalized_singular_values: number[];
-  deficiency_count: number;
-  weak_directions: SensitivityDirection[];
-  per_parameter: SensitivityEntry[];
-  n_draws: number;
-  n_observations: number;
-  n_parameters: number;
-  parameter_names: string[];
-  normalized_right_singular_vectors: number[][];
-}
-/**
- * A direction in parameter space from the normalized sensitivity SVD.
- */
-export interface SensitivityDirection {
-  index: number;
-  singular_value: number;
-  normalized_singular_value: number;
-  status: "pass" | "warn" | "fail";
-  top_loadings: SensitivityDirectionLoading[];
-}
-/**
- * One parameter's loading within a weak local sensitivity direction.
- */
-export interface SensitivityDirectionLoading {
-  parameter: string;
-  interpretable_parameter: string;
-  loading: number;
-  abs_loading: number;
-}
-/**
- * Per-parameter output sensitivity analysis entry.
- */
-export interface SensitivityEntry {
-  parameter: string;
-  interpretable_parameter: string;
-  sensitivity_norm: number;
-  effective_sv: number;
-  sv_status: "pass" | "warn" | "fail";
-  normalized_effective_sv: number;
-  normalized_sv_status: "pass" | "warn" | "fail";
-  identifiable: boolean;
-}
-/**
- * Dataset-conditioned MAP search plus H_lik / H_post local geometry.
- */
-export interface MAPGeometryResult {
-  n_starts: number;
-  n_successful_starts: number;
-  best_start_index: number;
-  map_log_posterior: number;
-  map_log_likelihood: number;
-  map_log_prior: number;
-  final_grad_norm: number;
-  runner_up_objective_gap?: number | null;
-  starts: MAPOptimizationRun[];
-  likelihood_curvature: MAPCurvatureResult;
-  posterior_curvature: MAPCurvatureResult;
-  prior_rescued_parameters: string[];
-  boundary_parameters: string[];
-  z_map_unconstrained: number[];
-  prior_std_unconstrained: number[];
-}
-/**
- * One start in the multi-start MAP search.
- */
-export interface MAPOptimizationRun {
-  index: number;
-  start_kind: string;
-  start_log_posterior: number;
-  log_posterior: number;
-  log_likelihood: number;
-  log_prior: number;
-  objective: number;
-  success: boolean;
-  status: number;
-  message: string;
-  n_iters: number;
-  n_function_evals: number;
-  grad_norm: number;
-  distance_to_best: number;
-}
-/**
- * One Hessian family's local geometry at the selected MAP.
- */
-export interface MAPCurvatureResult {
-  eigenvalues: number[];
-  normalized_eigenvalues: number[];
-  negative_direction_count: number;
-  deficiency_count: number;
-  positive_definite: boolean;
-  condition_number?: number | null;
-  normalized_condition_number?: number | null;
-  weak_directions: CurvatureDirection[];
-  per_parameter: CurvatureParameterEntry[];
-  parameter_names: string[];
-  eigenvectors_normalized: number[][];
-}
-/**
- * A weak Hessian eigen-direction within the MAP neighborhood.
- */
-export interface CurvatureDirection {
-  index: number;
-  eigenvalue: number;
-  normalized_eigenvalue: number;
-  status: "pass" | "warn" | "fail";
-  top_loadings: CurvatureDirectionLoading[];
-}
-/**
- * One parameter's loading within a weak local-curvature eigen-direction.
- */
-export interface CurvatureDirectionLoading {
-  parameter: string;
-  interpretable_parameter: string;
-  loading: number;
-  abs_loading: number;
-}
-/**
- * Per-parameter local-curvature summary at the selected MAP.
- */
-export interface CurvatureParameterEntry {
-  parameter: string;
-  interpretable_parameter: string;
-  diagonal_curvature: number;
-  effective_eigenvalue: number;
-  status: "pass" | "warn" | "fail";
-  normalized_effective_eigenvalue: number;
-  normalized_status: "pass" | "warn" | "fail";
-}
-/**
- * Summary of parametric identifiability issues.
- */
-export interface ParametricIdSummary {
-  structural_issues: string[];
-  boundary_issues: string[];
-  weak_params: string[];
-}
-/**
- * Per-parameter identifiability classification.
- */
-export interface ParameterIdentification {
-  name: string;
-  classification: "identified" | "practically_unidentifiable" | "structurally_unidentifiable";
-  contraction_ratio?: number | null;
-  profile_x?: number[] | null;
-  profile_ll?: number[] | null;
-}
-/**
- * Canonical inference-structure plan shared by pipeline and web.
- */
-export interface InferenceStructureResult {
-  likelihood_path: "kalman" | "composed" | "particle";
-  auto_method: "aux_gibbs";
-  first_pass_rb: FirstPassRBResult;
-}
-/**
- * Active first-pass Rao-Blackwellization plan for the prepared runtime.
- */
-export interface FirstPassRBResult {
-  status: "active" | "inactive";
-  latent_variables: InferenceStructureVariable[];
-  obs_variables: InferenceStructureVariable[];
-}
-/**
- * A single latent or observed channel assignment in the active split.
- */
-export interface InferenceStructureVariable {
-  name: string;
-  method: "kalman" | "particle";
 }
 export interface Stage5BContract {
   outcome: "success" | "warn" | "fail";
