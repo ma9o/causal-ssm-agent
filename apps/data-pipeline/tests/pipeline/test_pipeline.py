@@ -21,7 +21,6 @@ from nof1_causal_lab.flows.stage_contracts import (
     Stage3Contract,
     Stage4bContract,
     Stage4Contract,
-    Stage5aContract,
     Stage5bContract,
     Stage6Contract,
 )
@@ -169,12 +168,6 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             inference_metadata={"method": "svi", "n_samples": 0, "duration_seconds": 0.0},
         )
 
-    def stage5a(stage4, stage2, workspace_id: str) -> Stage5aContract:
-        calls.append(("stage5a", stage4, stage2))
-        return Stage5aContract(
-            inference_metadata={"method": "svi", "n_samples": 0, "duration_seconds": 0.0},
-        )
-
     async def stage6(
         stage5b,
         stage1b,
@@ -205,7 +198,6 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     monkeypatch.setattr(dag, "stage2", stage2)
     monkeypatch.setattr(dag, "stage3", stage3)
     monkeypatch.setattr(dag, "stage4b", stage4b)
-    monkeypatch.setattr(dag, "stage5a", stage5a)
     monkeypatch.setattr(dag, "stage5b", stage5b)
     monkeypatch.setattr(dag, "stage6", stage6)
     monkeypatch.setattr(
@@ -1685,184 +1677,6 @@ def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload
     assert state.inference_structure is not None
     assert state.inference_structure.likelihood_path == "composed"
     assert state.inference_structure.auto_method == "aux_gibbs"
-
-
-def test_stage5a_uses_fit_metadata(monkeypatch):
-    data_for_model = pl.DataFrame(
-        {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
-    )
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5a.flow.load_parquet",
-        lambda _path: data_for_model,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
-        lambda: [{"method": "svi", "guide_type": "mvn"}],
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5b.fit.fit_model",
-        lambda *_args, **_kwargs: {
-            "fitted": True,
-            "n_samples": 321,
-            "duration_seconds": 4.25,
-            "svi_diagnostics": {"elbo_losses": [3.0, 2.0, 1.0]},
-            "posterior_marginals": [],
-            "posterior_pairs": [],
-        },
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_compiled_ssm",
-        lambda _workspace_id: None,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_data_for_model_path",
-        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
-    )
-
-    _s4 = Stage4Contract(
-        model_spec={"parameters": [], "likelihoods": []},
-        authored_priors={},
-        resolved_priors=[],
-    )
-    _s2 = Stage2Contract(workers=[])
-
-    result = dag.stage5a(_s4, _s2, workspace_id="test-workspace")
-
-    assert isinstance(result, Stage5aContract)
-    result_dict = result.model_dump(mode="json")
-    assert result_dict["inference_metadata"] == {
-        "method": "svi",
-        "n_samples": 321,
-        "duration_seconds": 4.25,
-    }
-
-
-def test_stage5a_failed_fit_returns_warn(monkeypatch):
-    data_for_model = pl.DataFrame(
-        {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
-    )
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5a.flow.load_parquet",
-        lambda _path: data_for_model,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
-        lambda: [
-            {"method": "svi", "guide_type": "mvn"},
-            {"method": "svi", "guide_type": "normal"},
-        ],
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5b.fit.fit_model",
-        lambda *_args, **_kwargs: {
-            "fitted": False,
-            "error": "fit exploded",
-            "duration_seconds": 1.25,
-        },
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_compiled_ssm",
-        lambda _workspace_id: None,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_data_for_model_path",
-        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
-    )
-
-    _s4 = Stage4Contract(
-        model_spec={"parameters": [], "likelihoods": []},
-        authored_priors={},
-        resolved_priors=[],
-    )
-    _s2 = Stage2Contract(workers=[])
-
-    result = dag.stage5a(_s4, _s2, workspace_id="test-workspace")
-
-    assert isinstance(result, Stage5aContract)
-    assert result.outcome == "warn"
-    result_dict = result.model_dump(mode="json")
-    assert result_dict["inference_metadata"] == {
-        "method": "svi",
-        "n_samples": 0,
-        "duration_seconds": 2.5,
-    }
-    assert result.svi_diagnostics is None
-
-
-def test_stage5a_retries_with_safer_svi_attempt(monkeypatch):
-    data_for_model = pl.DataFrame(
-        {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
-    )
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5a.flow.load_parquet",
-        lambda _path: data_for_model,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5a.flow.build_stage5a_svi_attempts",
-        lambda: [
-            {
-                "method": "svi",
-                "guide_type": "mvn",
-                "learning_rate": 0.003,
-            },
-            {
-                "method": "svi",
-                "guide_type": "normal",
-                "learning_rate": 0.001,
-            },
-        ],
-    )
-
-    calls: list[dict] = []
-
-    def _fit_model(_compiled, _data, sampler_config=None, **_kwargs):
-        calls.append(dict(sampler_config or {}))
-        if len(calls) == 1:
-            return {
-                "fitted": False,
-                "error": "SVI produced non-finite losses",
-                "duration_seconds": 1.25,
-            }
-        return {
-            "fitted": True,
-            "n_samples": 123,
-            "duration_seconds": 2.5,
-            "svi_diagnostics": {"elbo_losses": [2.0, 1.0]},
-            "posterior_marginals": [],
-            "posterior_pairs": [],
-        }
-
-    monkeypatch.setattr("nof1_causal_lab.flows.stages.stage5b.fit.fit_model", _fit_model)
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_compiled_ssm",
-        lambda _workspace_id: None,
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_data_for_model_path",
-        lambda _workspace_id: "/tmp/stage2-model-data.parquet",
-    )
-
-    _s4 = Stage4Contract(
-        model_spec={"parameters": [], "likelihoods": []},
-        authored_priors={},
-        resolved_priors=[],
-    )
-    _s2 = Stage2Contract(workers=[])
-
-    result = dag.stage5a(_s4, _s2, workspace_id="test-workspace")
-
-    assert [call["guide_type"] for call in calls] == ["mvn", "normal"]
-    assert isinstance(result, Stage5aContract)
-    assert result.outcome == "success"
-    result_dict = result.model_dump(mode="json")
-    assert result_dict["inference_metadata"] == {
-        "method": "svi",
-        "n_samples": 123,
-        "duration_seconds": 3.75,
-    }
 
 
 def test_stage5b_uses_fit_metadata(monkeypatch):

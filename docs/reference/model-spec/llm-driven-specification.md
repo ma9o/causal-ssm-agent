@@ -480,7 +480,7 @@ The boundary around Stage 4 is exact and deliberate.
 | Which constructs, indicators, and causal edges belong in the model | [Stage 1a](../../pipeline/01a-latent-model.md) and [Stage 1b](../../pipeline/01b-measurement-identifiability.md) |
 | Whether a causal estimand is identified from the graph | [Stage 1b](../../pipeline/01b-measurement-identifiability.md) |
 | The broader profile-likelihood and MAP-curvature parametric-identifiability workup | [Stage 4b](../../pipeline/04b-parametric-identifiability.md) |
-| Posterior fitting and post-fit diagnostics | [Stage 5](../../pipeline/05a-svi-preflight.md) and [Stage 5b](../../pipeline/05b-inference-diagnostics.md) |
+| Posterior fitting and post-fit diagnostics | [Stage 5b](../../pipeline/05b-inference-diagnostics.md) |
 | Intervention ranking and interactive causal analysis | [Stage 6](../../pipeline/06-intervention-analysis.md) |
 
 The exact role of Stage 4 is still narrower: it is the controlled functional-specification stage that turns a fixed upstream causal and measurement problem into a locked `ModelSpec`, an accepted prior system, and a compiled executable artifact for downstream diagnostics and fitting, with one final Jacobian-sensitivity gate before acceptance. Stage 4b still owns the richer post-assembly parametric-identifiability suite.

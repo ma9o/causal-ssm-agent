@@ -6,7 +6,6 @@ export const STAGE_IDS = [
   "stage-3",
   "stage-4",
   "stage-4b",
-  "stage-5a",
   "stage-5b",
   "stage-6",
 ] as const;
@@ -91,15 +90,6 @@ export const STAGES: StageMeta[] = [
     loadingHint: "Checking parametric identifiability...",
     description:
       "Checks whether the specified model parameters are identifiable from the available data.",
-    interactive: false,
-  },
-  {
-    id: "stage-5a",
-    label: "SVI Preflight",
-    number: "5a",
-    loadingHint: "Running fast SVI approximation...",
-    description:
-      "Fast variational fit as a diagnostic before expensive inference. Shows ELBO convergence and approximate posterior.",
     interactive: false,
   },
   {

@@ -29,14 +29,14 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
   it("unwraps Prefect payloads that contain non-finite numbers instead of returning a fake 404", async () => {
     vi.mocked(readData).mockResolvedValue(
       JSON.stringify({
-        metadata: { storage_key: "/tmp/data/user/run/stage-5a.json" },
+        metadata: { storage_key: "/tmp/data/user/run/stage-5b.json" },
         result:
           '{"value":NaN,"upper":Infinity,"lower":-Infinity,"label":"Infinity should stay a string"}',
       }),
     );
 
-    const response = await GET(new Request("http://localhost/api/results/user/stage-5a"), {
-      params: Promise.resolve({ workspaceId: "user", stage: "stage-5a" }),
+    const response = await GET(new Request("http://localhost/api/results/user/stage-5b"), {
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-5b" }),
     });
 
     expect(response.status).toBe(200);
@@ -68,14 +68,14 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
   it("returns a parse error when the persisted payload is invalid", async () => {
     vi.mocked(readData).mockResolvedValue('{"metadata":{},"result":"{"}');
 
-    const response = await GET(new Request("http://localhost/api/results/user/stage-5a"), {
-      params: Promise.resolve({ workspaceId: "user", stage: "stage-5a" }),
+    const response = await GET(new Request("http://localhost/api/results/user/stage-5b"), {
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-5b" }),
     });
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
-        error: expect.stringContaining("Invalid persisted data for stage-5a"),
+        error: expect.stringContaining("Invalid persisted data for stage-5b"),
       }),
     );
   });

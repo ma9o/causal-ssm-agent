@@ -23,7 +23,6 @@ const STAGE_ORDER = [
   "stage-3",
   "stage-4",
   "stage-4b",
-  "stage-5a",
   "stage-5b",
   "stage-6",
 ];

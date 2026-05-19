@@ -25,9 +25,6 @@
     "stage-4b": {
       "$ref": "#/$defs/Stage4bContract"
     },
-    "stage-5a": {
-      "$ref": "#/$defs/Stage5aContract"
-    },
     "stage-5b": {
       "$ref": "#/$defs/Stage5bContract"
     },
@@ -3478,84 +3475,6 @@
       "title": "Stage4bContract",
       "type": "object"
     },
-    "Stage5aContract": {
-      "additionalProperties": false,
-      "description": "SVI preflight: fast approximate fit before expensive inference.",
-      "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
-        "inference_metadata": {
-          "$ref": "#/$defs/InferenceMetadataContract"
-        },
-        "svi_diagnostics": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SVIDiagnostics"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "posterior_marginals": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/PosteriorMarginal"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posterior Marginals"
-        },
-        "posterior_pairs": {
-          "anyOf": [
-            {
-              "items": {
-                "$ref": "#/$defs/PosteriorPair"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Posterior Pairs"
-        }
-      },
-      "required": [
-        "inference_metadata",
-        "outcome"
-      ],
-      "title": "Stage5aContract",
-      "type": "object"
-    },
     "Stage5bContract": {
       "additionalProperties": false,
       "properties": {
@@ -4139,7 +4058,6 @@
     "stage-3",
     "stage-4",
     "stage-4b",
-    "stage-5a",
     "stage-5b",
     "stage-6"
   ]

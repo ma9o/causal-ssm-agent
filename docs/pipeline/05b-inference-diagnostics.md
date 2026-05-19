@@ -2,7 +2,7 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Computed | No | [`PowerScalingResult`](#powerscalingresult), [`PPCResult`](#ppcresult), [`LOODiagnostics`](#loodiagnostics) |
+| Computed | No | [`PowerScalingResult`](#powerscalingresult), [`PPCResult`](#ppcresult), [`LOODiagnostics`](#loodiagnostics), [`SVIDiagnostics`](#svidiagnostics) (SVI only), [`PosteriorMarginal`](#posteriormarginal)s, [`PosteriorPair`](#posteriorpair)s |
 
 Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive fit, and leave-one-out cross-validation. Backend selection follows the [structural routing](../reference/inference-routing.md) decision tree; the user can override to any [available method](../reference/inference-routing.md#method-taxonomy).
 
@@ -44,8 +44,9 @@ For a longitudinal study of teacher workload and student outcomes with latent co
 |---|---|---|
 | `power_scaling` | list\[[`PowerScalingResult`](#powerscalingresult)\] | Per-parameter sensitivity diagnosis with PSIS reliability |
 | `ppc` | [`PPCResult`](#ppcresult) | Per-variable posterior predictive interval-coverage, autocorrelation, and variance checks |
-| `posterior_marginals` | list\[[`PosteriorMarginal`](05a-svi-preflight.md#posteriormarginal)\] \| `null` | Per-parameter posterior mean, sd, and 94% HDI |
-| `posterior_pairs` | list\[[`PosteriorPair`](05a-svi-preflight.md#posteriorpair)\] \| `null` | Pairwise posterior scatter data with divergence flags (MCMC only) |
+| `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) \| `null` | ELBO convergence curve when fitting via SVI; `null` otherwise |
+| `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] \| `null` | Per-parameter posterior mean, sd, and 94% HDI |
+| `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] \| `null` | Pairwise posterior scatter data with divergence flags (MCMC only) |
 | `_fitted_artifact` | [`FittedArtifact`](#fittedartifact) | Persisted runtime artifact consumed by [Stage 6](06-intervention-analysis.md); bundles posterior samples, runtime builder, and diagnostic results |
 
 ### `FittedArtifact`
@@ -91,6 +92,39 @@ PSIS-LOO cross-validation as in Vehtari, Gelman, and Gabry (2017)[^vehtari2017].
 | `pareto_k` | `list[float]` \| `null` | Per-timestep Pareto-k shape parameters |
 | `n_bad_k` | `int` \| `null` | Count of timesteps with k > 0.7 |
 | `loo_pit` | `list[float]` \| `null` | LOO-PIT values for calibration assessment |
+
+### `SVIDiagnostics`
+
+A monotonically decreasing ELBO curve indicates convergence; oscillations or a plateau suggest the guide cannot capture the posterior geometry.
+
+| Field | Type | Description |
+|---|---|---|
+| `elbo_losses` | `list[float]` | ELBO loss at each optimization step, thinned to at most 500 points |
+
+### `PosteriorMarginal`
+
+Per-parameter marginal posterior density summary.
+
+| Field | Type | Description |
+|---|---|---|
+| `parameter` | `str` | Parameter name (array elements indexed as `name[i]`) |
+| `x_values` | `list[float]` | Bin centers for the density curve |
+| `density` | `list[float]` | Normalized density at each bin center |
+| `mean` | `float` | Posterior mean |
+| `sd` | `float` | Posterior standard deviation |
+| `hdi_3` | `float` | Lower bound of the 94% HDI |
+| `hdi_97` | `float` | Upper bound of the 94% HDI |
+
+### `PosteriorPair`
+
+Pairwise posterior scatter data for joint visualization.
+
+| Field | Type | Description |
+|---|---|---|
+| `param_x` | `str` | Name of the x-axis parameter |
+| `param_y` | `str` | Name of the y-axis parameter |
+| `x_values` | `list[float]` | Posterior draws for x |
+| `y_values` | `list[float]` | Posterior draws for y |
 
 [^kallioinen2024]: Kallioinen, N., Paananen, T., Bürkner, P.-C., & Vehtari, A. (2024). Detecting and Diagnosing Prior and Likelihood Sensitivity with Power-Scaling. *Statistics and Computing*, 34, 57. [Bibliography entry](../reference/bibliography.md)
 [^durbin2012]: Durbin, J., & Koopman, S. J. (2012). *Time Series Analysis by State Space Methods* (2nd ed.). Oxford University Press. [Bibliography entry](../reference/bibliography.md)

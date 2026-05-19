@@ -76,7 +76,7 @@ For a study of classroom engagement and academic performance where Stage 1b posi
 | Output | Type | Description |
 |---|---|---|
 | `model_spec` | `ModelSpec` | Complete statistical model specification |
-| `_compiled_ssm` | [`CompiledSSMArtifact`](../reference/compilation.md) | Serializable compiled model consumed by [Stage 5a](05a-svi-preflight.md); contains the flat `SSMSpec`, `edge_lag_days`, compiled prior semantics, parameter bindings, and compile diagnostics |
+| `_compiled_ssm` | [`CompiledSSMArtifact`](../reference/compilation.md) | Serializable compiled model consumed by [Stage 5b](05b-inference-diagnostics.md); contains the flat `SSMSpec`, `edge_lag_days`, compiled prior semantics, parameter bindings, and compile diagnostics |
 
 ### ModelSpec.LikelihoodSpec
 

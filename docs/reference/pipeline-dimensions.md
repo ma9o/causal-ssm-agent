@@ -15,7 +15,6 @@ The main domain spine is the sequence of artifacts the pipeline produces and ref
 | Data-quality surface | `IndicatorAudit` | Stage 3 | [../pipeline/03-extraction-validation.md](../pipeline/03-extraction-validation.md) | Describes whether extracted observations are usable |
 | Functional specification | `ModelSpec` plus priors | Stage 4 | [../pipeline/04-model-specification-priors.md](../pipeline/04-model-specification-priors.md) | Chooses likelihoods, parameters, and prior beliefs |
 | Parametric identification diagnostics | `ParametricIdResult` plus inference structure | Stage 4b | [../pipeline/04b-parametric-identifiability.md](../pipeline/04b-parametric-identifiability.md) | Runs conservative degrees-of-freedom, local-identification, and practical-identifiability checks |
-| Variational pre-fit diagnostic | SVI diagnostics | Stage 5a | [../pipeline/05a-svi-preflight.md](../pipeline/05a-svi-preflight.md) | Lightweight approximate fit before expensive inference |
 | Fitted runtime artifact | `FittedArtifact` plus diagnostics | Stage 5b | [../pipeline/05b-inference-diagnostics.md](../pipeline/05b-inference-diagnostics.md) | Holds posterior inference outputs used downstream |
 | Interventional and counterfactual effect summaries | `TreatmentEffect` plus follow-up simulations | Stage 6 | [../pipeline/06-intervention-analysis.md](../pipeline/06-intervention-analysis.md) | Answers interventional (`do`) and counterfactual queries |
 
@@ -53,7 +52,6 @@ The pipeline has several kinds of checks. They target different failure modes an
 | Causal identifiability | 1b | Is the treatment-to-outcome effect identified from the latent and measurement assumptions? |
 | Extraction and data quality | 3 | Are the observed indicator series usable and coherent? |
 | Parametric identifiability | 4b | Does the chosen parameterization pass conservative degrees-of-freedom, local-identification, and practical-identifiability checks? |
-| Variational pre-fit diagnostic | 5a | Does a lightweight approximate fit immediately reveal gross pathologies? |
 | Post-fit diagnostics | 5b | Does the fitted model behave well under posterior diagnostics and predictive checks? |
 
 ## Assumption Map

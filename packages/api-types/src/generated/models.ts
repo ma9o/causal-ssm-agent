@@ -105,7 +105,6 @@ export interface CausalSSMContracts {
   "stage-3": Stage3Contract;
   "stage-4": Stage4Contract;
   "stage-4b": Stage4BContract;
-  "stage-5a": Stage5AContract;
   "stage-5b": Stage5BContract;
   "stage-6": Stage6Contract;
 }
@@ -826,50 +825,6 @@ export interface InferenceStructureVariable {
   name: string;
   method: "kalman" | "particle";
 }
-/**
- * SVI preflight: fast approximate fit before expensive inference.
- */
-export interface Stage5AContract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
-  inference_metadata: InferenceMetadataContract;
-  svi_diagnostics?: SVIDiagnostics | null;
-  posterior_marginals?: PosteriorMarginal[] | null;
-  posterior_pairs?: PosteriorPair[] | null;
-}
-export interface InferenceMetadataContract {
-  method: string;
-  n_samples: number;
-  duration_seconds: number;
-}
-/**
- * SVI (variational inference) diagnostics.
- */
-export interface SVIDiagnostics {
-  elbo_losses: number[];
-}
-/**
- * Marginal posterior density for a single scalar parameter.
- */
-export interface PosteriorMarginal {
-  parameter: string;
-  x_values: number[];
-  density: number[];
-  mean: number;
-  sd: number;
-  hdi_3: number;
-  hdi_97: number;
-}
-/**
- * Pairwise posterior scatter data for joint visualization.
- */
-export interface PosteriorPair {
-  param_x: string;
-  param_y: string;
-  x_values: number[];
-  y_values: number[];
-  divergent?: boolean[] | null;
-}
 export interface Stage5BContract {
   outcome: "success" | "warn" | "fail";
   fail_reason?: string | null;
@@ -935,6 +890,11 @@ export interface PPCTestStat {
   stat_name: "mean" | "sd" | "min" | "max";
   observed_value: number;
   rep_values: number[];
+}
+export interface InferenceMetadataContract {
+  method: string;
+  n_samples: number;
+  duration_seconds: number;
 }
 /**
  * Top-level MCMC diagnostics container.
@@ -1008,6 +968,12 @@ export interface EnergyHistogram {
   density: number[];
 }
 /**
+ * SVI (variational inference) diagnostics.
+ */
+export interface SVIDiagnostics {
+  elbo_losses: number[];
+}
+/**
  * Sequential Monte Carlo diagnostics.
  */
 export interface SMCDiagnostics {
@@ -1033,6 +999,28 @@ export interface LOODiagnostics {
   pareto_k?: number[] | null;
   n_bad_k?: number | null;
   loo_pit?: number[] | null;
+}
+/**
+ * Marginal posterior density for a single scalar parameter.
+ */
+export interface PosteriorMarginal {
+  parameter: string;
+  x_values: number[];
+  density: number[];
+  mean: number;
+  sd: number;
+  hdi_3: number;
+  hdi_97: number;
+}
+/**
+ * Pairwise posterior scatter data for joint visualization.
+ */
+export interface PosteriorPair {
+  param_x: string;
+  param_y: string;
+  x_values: number[];
+  y_values: number[];
+  divergent?: boolean[] | null;
 }
 export interface Stage6Contract {
   outcome: "success" | "warn" | "fail";

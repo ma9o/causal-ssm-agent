@@ -32,7 +32,6 @@ from nof1_causal_lab.flows.stages.stage3.contracts import (
 )
 from nof1_causal_lab.flows.stages.stage4.contracts import Stage4Contract
 from nof1_causal_lab.flows.stages.stage4b.contracts import Stage4bContract
-from nof1_causal_lab.flows.stages.stage5a.contracts import Stage5aContract
 from nof1_causal_lab.flows.stages.stage5b.contracts import (
     PowerScalingResultContract,
     PPCResultContract,
@@ -67,7 +66,6 @@ STAGE_CONTRACTS: dict[StageId, type[BaseStageContract]] = {
     "stage-3": Stage3Contract,
     "stage-4": Stage4Contract,
     "stage-4b": Stage4bContract,
-    "stage-5a": Stage5aContract,
     "stage-5b": Stage5bContract,
     "stage-6": Stage6Contract,
 }
@@ -115,7 +113,6 @@ __all__ = [
     "Stage3Contract",
     "Stage4Contract",
     "Stage4bContract",
-    "Stage5aContract",
     "Stage5bContract",
     "Stage6Contract",
     "Stage6VisualizationContract",

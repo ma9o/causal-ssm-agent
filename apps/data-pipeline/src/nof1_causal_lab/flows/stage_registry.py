@@ -24,7 +24,6 @@ from .stages.stage2.definition import build_stage2_definition
 from .stages.stage3.definition import build_stage3_definition
 from .stages.stage4.definition import build_stage4_definition
 from .stages.stage4b.definition import build_stage4b_definition
-from .stages.stage5a.definition import build_stage5a_definition
 from .stages.stage5b.definition import build_stage5b_definition
 from .stages.stage6.definition import build_stage6_definition
 
@@ -59,7 +58,6 @@ def _build_registry() -> dict[str, StageDefinition]:
             build_stage3_definition(),
             build_stage4_definition(),
             build_stage4b_definition(),
-            build_stage5a_definition(),
             build_stage5b_definition(),
             build_stage6_definition(),
         )
