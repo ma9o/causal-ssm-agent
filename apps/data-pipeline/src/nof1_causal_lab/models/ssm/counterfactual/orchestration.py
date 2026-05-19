@@ -1,9 +1,10 @@
 """Stage-6 entry point: rank treatments by intervention effect.
 
 Single trajectory path (Diffrax) for both steady-state contrasts and
-temporal trajectories. Steady-state effects come from
-``compute_steady_state`` on the baseline and on the intervened system;
-temporal effects come from ``simulate_pair`` over a horizon grid.
+temporal trajectories. The vector field is a ``CompositeVectorField``
+with a single ``DenseLinear`` component for the existing Stage 5b
+dense-posterior shape; the same code path will work for explicit
+primitive composition once Stage 4 emits non-linear edges.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from jax import Array, vmap
 
 from nof1_causal_lab.flows import get_prefect_logger
 
+from .edges import DenseLinear
 from .estimands import (
     build_time_grid,
     summarize_temporal_effect,
@@ -23,13 +25,27 @@ from .estimands import (
 from .intervention import Intervention, VariableOverride, constant_value
 from .simulator import simulate, simulate_pair
 from .steady_state import compute_steady_state
-from .vector_field import LinearVectorField, VectorField
+from .vector_field import CompositeVectorField
 
 logger = get_prefect_logger(__name__)
 
 
+def linear_vector_field(n_latent: int) -> CompositeVectorField:
+    """Factory: dense-linear vector field equivalent to ``f(η) = A·η + c``.
+
+    Used wherever the consumer has the Stage 5b dense posterior shape.
+    The returned field has one ``DenseLinear`` component; callers pass
+    ``params=({"drift": A, "cint": c},)``.
+    """
+    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+
+
+def _linear_params(drift: Array, cint: Array) -> tuple[dict[str, Array]]:
+    return ({"drift": drift, "cint": cint},)
+
+
 def _steady_state_treatment_effect(
-    vector_field: VectorField,
+    vector_field: CompositeVectorField,
     drift: Array,
     cint: Array,
     treat_idx: int,
@@ -37,7 +53,7 @@ def _steady_state_treatment_effect(
     shift_size: float,
 ) -> Array:
     """Equilibrium contrast: ``effect = (do(treat = baseline+shift) - baseline)[outcome]``."""
-    params = {"drift": drift, "cint": cint}
+    params = _linear_params(drift, cint)
     baseline = compute_steady_state(vector_field, params, Intervention.none())
     do_value = baseline[treat_idx] + shift_size
     intervention = Intervention(
@@ -50,7 +66,7 @@ def _steady_state_treatment_effect(
 
 
 def _temporal_treatment_effect(
-    vector_field: VectorField,
+    vector_field: CompositeVectorField,
     drift: Array,
     cint: Array,
     treat_idx: int,
@@ -58,7 +74,7 @@ def _temporal_treatment_effect(
     time_grid: Array,
 ) -> Array:
     """Per-time effect trajectory: ``(action - baseline)`` over ``time_grid``."""
-    params = {"drift": drift, "cint": cint}
+    params = _linear_params(drift, cint)
     baseline_state = compute_steady_state(vector_field, params, Intervention.none())
     do_value = baseline_state[treat_idx] + shift_size
     action_intervention = Intervention(
@@ -110,7 +126,7 @@ def compute_interventions(
     if cint_draws is None:
         cint_draws = jnp.zeros((drift_draws.shape[0], n_latent))
 
-    vector_field = LinearVectorField(n_latent=n_latent)
+    vector_field = linear_vector_field(n_latent)
 
     time_grid = _build_horizon_grid(causal_spec, times)
 
@@ -203,7 +219,7 @@ def _build_horizon_grid(
 
 
 def vmap_steady_state_effect(
-    vector_field: VectorField,
+    vector_field: CompositeVectorField,
     drift_draws: Array,
     cint_draws: Array,
     treat_idx: int,
@@ -217,7 +233,7 @@ def vmap_steady_state_effect(
     from .estimands import resolve_action_value
 
     def _per_draw(d: Array, c: Array) -> Array:
-        params = {"drift": d, "cint": c}
+        params = _linear_params(d, c)
         baseline = compute_steady_state(vector_field, params, Intervention.none())
         do_value = resolve_action_value(
             baseline[treat_idx], mode=mode, value=value, amount=amount
@@ -234,7 +250,7 @@ def vmap_steady_state_effect(
 
 
 def vmap_simulate_action_from_state(
-    vector_field: VectorField,
+    vector_field: CompositeVectorField,
     drift_draws: Array,
     cint_draws: Array,
     initial_states: Array | None,
@@ -254,7 +270,7 @@ def vmap_simulate_action_from_state(
     from .estimands import resolve_action_value
 
     def _per_draw(d: Array, c: Array, y0_seed: Array) -> tuple[Array, Array, Array]:
-        params = {"drift": d, "cint": c}
+        params = _linear_params(d, c)
         if initial_states is None:
             y0 = compute_steady_state(vector_field, params, Intervention.none())
         else:

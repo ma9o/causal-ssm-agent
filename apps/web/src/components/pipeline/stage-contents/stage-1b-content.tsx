@@ -9,13 +9,19 @@ import type { Stage1bData } from "@nof1-causal-lab/api-types";
 import { AlertTriangle } from "lucide-react";
 import { useMemo } from "react";
 
-function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
+function edgeKey(source: string, target: string): string {
+  return `${source} ${target}`;
+}
+
+interface IdentifiabilityViewModel {
+  nodeStatuses: Record<string, ConstructStatus>;
+  blockingEdges: Set<string>;
+}
+
+function useIdentifiabilityViewModel(data: Stage1bData): IdentifiabilityViewModel {
   const spec = data.causal_spec;
   return useMemo(() => {
     const statuses: Record<string, ConstructStatus> = {};
-    const observedConstructs = new Set(
-      spec.measurement.indicators.map((i) => i.construct_name),
-    );
 
     // Collect marginalized confounders across all identified treatments
     const marginalized = new Set<string>();
@@ -25,11 +31,17 @@ function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
       }
     }
 
-    // Collect blocking confounders across all non-identifiable treatments
+    // Collect both the blocked treatments and their blocking confounders
+    // so the non-identifiable pair reads as red on both ends.
     const blocking = new Set<string>();
-    for (const status of Object.values(spec.identifiability?.non_identifiable_treatments ?? {})) {
+    const blockingEdges = new Set<string>();
+    for (const [treatment, status] of Object.entries(
+      spec.identifiability?.non_identifiable_treatments ?? {},
+    )) {
+      blocking.add(treatment);
       for (const c of status?.confounders ?? []) {
         blocking.add(c);
+        blockingEdges.add(edgeKey(c, treatment));
       }
     }
 
@@ -43,7 +55,7 @@ function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
       }
     }
 
-    return statuses;
+    return { nodeStatuses: statuses, blockingEdges };
   }, [spec]);
 }
 
@@ -51,7 +63,7 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
   const spec = data.causal_spec;
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
-  const nodeStatuses = useNodeStatuses(data);
+  const { nodeStatuses, blockingEdges } = useIdentifiabilityViewModel(data);
 
   return (
     <div className="space-y-4">
@@ -119,6 +131,7 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
         edges={spec.latent.edges}
         indicators={spec.measurement.indicators}
         nodeStatuses={nodeStatuses}
+        blockingEdges={blockingEdges}
         height="min(600px, 70vh)"
       />
       <IndicatorTable indicators={spec.measurement.indicators} />

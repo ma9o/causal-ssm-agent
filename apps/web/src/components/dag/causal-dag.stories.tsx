@@ -1,7 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
 import { CausalDag } from "./causal-dag";
-import { constructs, edges, indicators, nodeStatuses } from "./__fixtures__/dag-base-fixtures";
+import {
+  blockingEdges,
+  constructs,
+  edges,
+  indicators,
+  nodeStatuses,
+} from "./__fixtures__/dag-base-fixtures";
 
 const meta = {
   title: "DAG/CausalDag",
@@ -22,6 +28,10 @@ export const WithIndicators: Story = {
 
 export const WithNodeStatuses: Story = {
   args: { constructs, edges, indicators, nodeStatuses },
+};
+
+export const WithBlockingEdge: Story = {
+  args: { constructs, edges, indicators, nodeStatuses, blockingEdges },
 };
 
 export const Empty: Story = {

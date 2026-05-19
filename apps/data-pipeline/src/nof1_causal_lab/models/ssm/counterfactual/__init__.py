@@ -1,14 +1,20 @@
 """Counterfactual simulation for the SSM.
 
-Single Diffrax-backed trajectory path with an Optimistix steady-state
-root-finder behind a vector-field protocol. The protocol is the seam where
-the non-linear edge-primitive vocabulary will plug in later: a new
-``VectorField`` implementation slots in behind the same simulator, steady
-state, and orchestration code without touching call sites.
+One vector-field class (``CompositeVectorField``) composes drift
+components into the system's dynamics. ``DenseLinear`` recovers the
+existing Stage 5b dense-posterior shape ``f(η) = A·η + c`` in one
+matmul; per-edge primitives (``LinearEdge``, ``HillEdge``,
+``MultiplicativeEdge``) plus ``DiagonalDecay`` and ``Intercept`` are
+how the LLM-elicited non-linear vocabulary plugs in. Either case goes
+through the same Diffrax simulator and Optimistix steady-state
+root-finder.
 
 Public API:
 
-- ``VectorField``, ``LinearVectorField``, ``VectorFieldArgs`` — dynamics
+- ``CompositeVectorField``, ``VectorFieldArgs``, ``VectorField`` — dynamics
+- ``DriftComponent``, ``DenseLinear``, ``DiagonalDecay``, ``Intercept``,
+  ``LinearEdge``, ``HillEdge``, ``MultiplicativeEdge`` — components
+- ``linear_vector_field`` — factory for the dense-linear case
 - ``Intervention``, ``VariableOverride``, ``EdgeInputOverride``,
   ``constant_value``, ``linear_ramp`` — intervention DSL
 - ``simulate``, ``simulate_pair``, ``SimulationConfig`` — Diffrax forward
@@ -24,6 +30,16 @@ Public API:
 from __future__ import annotations
 
 from .abduction import approximate_abducted_state
+from .discretization import discretize_at_state
+from .edges import (
+    DenseLinear,
+    DiagonalDecay,
+    DriftComponent,
+    HillEdge,
+    Intercept,
+    LinearEdge,
+    MultiplicativeEdge,
+)
 from .estimands import (
     build_time_grid,
     project_to_manifest,
@@ -42,17 +58,25 @@ from .intervention import (
 )
 from .orchestration import (
     compute_interventions,
+    linear_vector_field,
     vmap_simulate_action_from_state,
     vmap_steady_state_effect,
 )
 from .simulator import SimulationConfig, simulate, simulate_pair
 from .steady_state import compute_steady_state
-from .vector_field import LinearVectorField, VectorField, VectorFieldArgs
+from .vector_field import CompositeVectorField, VectorField, VectorFieldArgs
 
 __all__ = [
+    "CompositeVectorField",
+    "DenseLinear",
+    "DiagonalDecay",
+    "DriftComponent",
     "EdgeInputOverride",
+    "HillEdge",
+    "Intercept",
     "Intervention",
-    "LinearVectorField",
+    "LinearEdge",
+    "MultiplicativeEdge",
     "Override",
     "SimulationConfig",
     "ValueFn",
@@ -64,7 +88,9 @@ __all__ = [
     "compute_interventions",
     "compute_steady_state",
     "constant_value",
+    "discretize_at_state",
     "linear_ramp",
+    "linear_vector_field",
     "project_to_manifest",
     "resolve_action_value",
     "simulate",

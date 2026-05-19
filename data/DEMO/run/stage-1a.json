@@ -88,6 +88,14 @@
         "is_outcome": false,
         "temporal_status": "time_invariant",
         "temporal_scale": null
+      },
+      {
+        "name": "chronic_inflammation_baseline",
+        "description": "Stable trait-level systemic inflammatory tone (cytokine baseline). Elevated chronic inflammation drives sickness-behavior phenomena — fragmented sleep and reduced motor activity — which then feed into mood downstream rather than acting directly on affect. The DSAR contains no CRP, IL-6, or TNF-α measurements, so this construct is treated as a stable unmeasured trait acting on this patient over the observation window.",
+        "role": "exogenous",
+        "is_outcome": false,
+        "temporal_status": "time_invariant",
+        "temporal_scale": null
       }
     ],
     "edges": [
@@ -350,6 +358,32 @@
             "title": "Kotov R, Gamez W, Schmidt F, Watson D. (2010). Linking 'big' personality traits to anxiety, depressive, and substance use disorders: a meta-analysis. Psychological Bulletin, 136(5), 768-821.",
             "url": "https://doi.org/10.1037/a0020327",
             "snippet": "Low extraversion was modestly but consistently associated with MDD (r ≈ -0.25 across 175 studies), supporting a stable trait-level contribution to depression vulnerability; effect was larger for dysthymia and social phobia."
+          }
+        ]
+      },
+      {
+        "cause": "chronic_inflammation_baseline",
+        "effect": "sleep_quality",
+        "description": "Inflammatory cytokines disrupt sleep architecture: elevated IL-6 and TNF-α reduce slow-wave sleep, increase nocturnal awakenings, and produce subjective unrefreshing sleep. The trait-level baseline drives the patient-specific tendency toward fragmented sleep independent of mood state.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Irwin MR, Olmstead R, Carroll JE. (2016). Sleep disturbance, sleep duration, and inflammation: a systematic review and meta-analysis of cohort studies and experimental sleep deprivation. Biological Psychiatry, 80(1), 40-52.",
+            "url": "https://doi.org/10.1016/j.biopsych.2015.05.014",
+            "snippet": "Across 72 cohort studies (n>50,000), sleep disturbance and inflammatory marker elevation are bidirectionally associated; experimental sleep deprivation acutely elevates IL-6 and CRP within 24 hours."
+          }
+        ]
+      },
+      {
+        "cause": "chronic_inflammation_baseline",
+        "effect": "physical_activity",
+        "description": "Cytokine-induced sickness behavior reduces voluntary motor activity, exercise tolerance, and energy availability. Pro-inflammatory IL-6 and TNF-α suppress motivation and movement via central serotonergic, dopaminergic, and kynurenine-pathway effects on basal ganglia reward signaling.",
+        "lagged": false,
+        "sources": [
+          {
+            "title": "Felger JC, Miller AH. (2012). Cytokine effects on the basal ganglia and dopamine function: the subcortical source of inflammatory malaise. Frontiers in Neuroendocrinology, 33(3), 315-327.",
+            "url": "https://doi.org/10.1016/j.yfrne.2012.09.003",
+            "snippet": "Peripheral inflammatory cytokines reduce striatal dopamine release and produce measurable reductions in motor activity, motivation, and effort-based reward seeking in both animal models and humans receiving IFN-α therapy."
           }
         ]
       }

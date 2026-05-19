@@ -5,6 +5,7 @@ import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-type
 import {
   Background,
   BackgroundVariant,
+  type Edge,
   type NodeChange,
   type NodeTypes,
   ReactFlow,
@@ -22,6 +23,8 @@ interface CausalDagProps {
   edges: CausalEdge[];
   indicators?: Indicator[];
   nodeStatuses?: Record<string, ConstructStatus>;
+  /** Set of `${source} ${target}` keys for edges to render in the destructive (red) palette. */
+  blockingEdges?: Set<string>;
   onNodeClick?: (constructName: string) => void;
   height?: string;
 }
@@ -91,7 +94,7 @@ function NodeLegend({
         </div>
         {hasMarginalized && (
           <div className="flex items-center gap-2">
-            <span className="inline-block h-3 w-3 rounded-sm border-2 border-success bg-card" />
+            <span className="inline-block h-3 w-3 rounded-sm border-2 border-warning bg-card" />
             <span className="text-muted-foreground">marginalized</span>
           </div>
         )}
@@ -111,6 +114,7 @@ export function CausalDag({
   edges,
   indicators,
   nodeStatuses,
+  blockingEdges,
   onNodeClick,
   height = "500px",
 }: CausalDagProps) {
@@ -197,15 +201,25 @@ export function CausalDag({
   }, [nodesWithStatus, flowEdges, selectedNode]);
 
   const styledEdges = useMemo(() => {
-    if (!selectedNode) return flowEdges;
-    return flowEdges.map((e) => ({
-      ...e,
-      style: {
-        ...e.style,
-        opacity: e.source === selectedNode || e.target === selectedNode ? 1 : 0.15,
-      },
-    }));
-  }, [flowEdges, selectedNode]);
+    if (!selectedNode && (!blockingEdges || blockingEdges.size === 0)) return flowEdges;
+    return flowEdges.map((e) => {
+      const isBlocking = blockingEdges?.has(`${e.source} ${e.target}`) ?? false;
+      const dimmed =
+        selectedNode != null && e.source !== selectedNode && e.target !== selectedNode;
+      const next: Edge = {
+        ...e,
+        style: {
+          ...e.style,
+          ...(isBlocking ? { stroke: "var(--destructive)", strokeWidth: 2.5 } : null),
+          ...(selectedNode != null ? { opacity: dimmed ? 0.15 : 1 } : null),
+        },
+      };
+      if (isBlocking && e.markerEnd && typeof e.markerEnd === "object") {
+        next.markerEnd = { ...e.markerEnd, color: "var(--destructive)" };
+      }
+      return next;
+    });
+  }, [flowEdges, selectedNode, blockingEdges]);
 
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: { id: string; type?: string }) => {

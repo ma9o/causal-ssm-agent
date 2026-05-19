@@ -11,7 +11,10 @@ export const edges = stage1a.latent_model.edges;
 export const spec = stage1b.causal_spec;
 export const indicators = spec.measurement.indicators;
 
-function deriveNodeStatuses(): Record<string, ConstructStatus> {
+function deriveIdentifiabilityView(): {
+  nodeStatuses: Record<string, ConstructStatus>;
+  blockingEdges: Set<string>;
+} {
   const statuses: Record<string, ConstructStatus> = {};
 
   const marginalized = new Set<string>();
@@ -20,8 +23,15 @@ function deriveNodeStatuses(): Record<string, ConstructStatus> {
   }
 
   const blocking = new Set<string>();
-  for (const s of Object.values(spec.identifiability?.non_identifiable_treatments ?? {})) {
-    for (const c of s?.confounders ?? []) blocking.add(c);
+  const blockingEdges = new Set<string>();
+  for (const [treatment, s] of Object.entries(
+    spec.identifiability?.non_identifiable_treatments ?? {},
+  )) {
+    blocking.add(treatment);
+    for (const c of s?.confounders ?? []) {
+      blocking.add(c);
+      blockingEdges.add(`${c} ${treatment}`);
+    }
   }
 
   for (const c of spec.latent.constructs) {
@@ -29,7 +39,9 @@ function deriveNodeStatuses(): Record<string, ConstructStatus> {
     else if (marginalized.has(c.name)) statuses[c.name] = "marginalized";
     else statuses[c.name] = "observed";
   }
-  return statuses;
+  return { nodeStatuses: statuses, blockingEdges };
 }
 
-export const nodeStatuses = deriveNodeStatuses();
+const identifiabilityView = deriveIdentifiabilityView();
+export const nodeStatuses = identifiabilityView.nodeStatuses;
+export const blockingEdges = identifiabilityView.blockingEdges;
