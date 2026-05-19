@@ -832,7 +832,6 @@ def resolve_prior_proposals(
 def make_builder_from_compiled_artifact(
     compiled_ssm: CompiledSSMArtifact,
     *,
-    model_config: dict | None = None,
     sampler_config: dict | None = None,
 ):
     """Instantiate an SSMModelBuilder directly from a compiled artifact.
@@ -856,7 +855,6 @@ def make_builder_from_compiled_artifact(
         ssm_spec=spec,
         compiled_prior_semantics=semantics,
         prior_runtime_bundle=prior_runtime_bundle,
-        model_config=model_config,
         sampler_config=sampler_config,
         parameter_bindings=list(compiled_ssm.get("parameter_bindings", []) or []),
     )
@@ -866,7 +864,6 @@ def build_compiled_ssm_builder(
     compiled_ssm: CompiledSSMArtifact,
     wide_data: pl.DataFrame,
     *,
-    model_config: dict | None = None,
     sampler_config: dict | None = None,
 ):
     """Build a ready-to-fit SSMModelBuilder from a compiled artifact."""
@@ -875,7 +872,6 @@ def build_compiled_ssm_builder(
 
     builder = make_builder_from_compiled_artifact(
         compiled_ssm,
-        model_config=model_config,
         sampler_config=sampler_config,
     )
     builder.build_model(wide_data)

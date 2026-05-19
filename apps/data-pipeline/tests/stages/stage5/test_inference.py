@@ -18,7 +18,7 @@ from tests.ssm_test_utils import make_ssm_spec
 class _FakeResult(InferenceResult):
     def __init__(self) -> None:
         self.method = "map"
-        self.diagnostics = {}
+        self.diagnostics = {"likelihood_backend": object()}
         self._samples = {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
 
     def get_smc_diagnostics(self):
@@ -111,10 +111,9 @@ def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
         observation_data=None,
         observation_support=_make_observation_support_runtime(),
         inference_structure=InferenceStructurePlan(
-            structural_backend="particle",
+            structural_backend="laplace",
             resolved_method="map",
             method_override=None,
-            first_pass_partition=None,
         ),
         observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
         times=jnp.array([0.0, 1.5], dtype=jnp.float32),
@@ -156,7 +155,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "Manifest order: sleep_avg, energy" in caplog.text
     assert (
         "Inference route: requested_method=map resolved_method=map "
-        "structural_backend=particle method_override=none first_pass_partition=none"
+        "structural_backend=laplace method_override=none"
     ) in caplog.text
     assert "Starting inference kernel..." in caplog.text
     assert "Collecting sampler diagnostics..." in caplog.text

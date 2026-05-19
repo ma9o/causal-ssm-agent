@@ -166,7 +166,7 @@ class Stage4Config:
     prompting the LLM one block at a time. When ``False``, Stage 4 runs a single
     "megaprompt" agent session that exposes the same submit tools all at once
     and lets the model submit decisions and priors in any order; the same
-    validation checks (schema, compile, prior-predictive, sensitivity) apply."""
+    validation checks (schema, compile, prior-predictive) apply."""
     megaprompt_max_outer_turns: int = 8
     """Maximum outer agent turns allowed when running in megaprompt mode. Each
     outer turn gives the model one opportunity to call tools; the loop stops
@@ -186,15 +186,6 @@ class Stage6Config:
 
 
 @dataclass(frozen=True)
-class SVIConfig:
-    """SVI-specific inference settings."""
-
-    num_steps: int = 5000
-    learning_rate: float = 0.01
-    guide_type: str = "mvn"
-
-
-@dataclass(frozen=True)
 class MAPConfig:
     """MAP/Laplace inference settings."""
 
@@ -202,8 +193,8 @@ class MAPConfig:
 
 
 @dataclass(frozen=True)
-class AuxGibbsLatentKernelConfig:
-    """Latent-kernel settings for auxiliary Gibbs inference."""
+class AuxKalmanMCMCLatentKernelConfig:
+    """Latent-kernel settings for auxiliary Kalman MCMC inference."""
 
     kernel: str = "kalman"
     proposal_family: str = "eq8"
@@ -212,8 +203,8 @@ class AuxGibbsLatentKernelConfig:
 
 
 @dataclass(frozen=True)
-class AuxGibbsParameterKernelConfig:
-    """Parameter-kernel settings for auxiliary Gibbs inference."""
+class AuxKalmanMCMCParameterKernelConfig:
+    """Parameter-kernel settings for auxiliary Kalman MCMC inference."""
 
     kernel: str = "mala"
     step_size: float = 0.05
@@ -222,22 +213,24 @@ class AuxGibbsParameterKernelConfig:
 
 
 @dataclass(frozen=True)
-class AuxGibbsConfig:
-    """Auxiliary Gibbs inference settings."""
+class AuxKalmanMCMCConfig:
+    """Auxiliary Kalman MCMC inference settings."""
 
     adaptation_rate: float = 0.05
     init_scale: float = 0.05
     retain_latent_paths: bool = False
     compute_latent_posterior_summary: bool = True
-    latent_kernel: AuxGibbsLatentKernelConfig = field(default_factory=AuxGibbsLatentKernelConfig)
-    parameter_kernel: AuxGibbsParameterKernelConfig = field(
-        default_factory=AuxGibbsParameterKernelConfig
+    latent_kernel: AuxKalmanMCMCLatentKernelConfig = field(
+        default_factory=AuxKalmanMCMCLatentKernelConfig
+    )
+    parameter_kernel: AuxKalmanMCMCParameterKernelConfig = field(
+        default_factory=AuxKalmanMCMCParameterKernelConfig
     )
 
 
 @dataclass(frozen=True)
-class ParticleMGradConfig:
-    """Particle-mGRAD inference settings."""
+class PITParticleMGradConfig:
+    """PIT Particle-mGRAD inference settings."""
 
     latent_delta: float = 0.2
     latent_delta_min: float | None = None
@@ -259,16 +252,15 @@ class ParticleMGradConfig:
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
-    method: Literal["svi", "map", "aux_gibbs", "particle_mgrad"] = "particle_mgrad"
+    method: Literal["map", "aux_kalman_mcmc", "pit_particle_mgrad"] = "pit_particle_mgrad"
     num_warmup: int = 4000
     num_samples: int = 1000
     num_chains: int = 4
     seed: int = 0
     compute_loo_diagnostics: bool = True
-    svi: SVIConfig = field(default_factory=SVIConfig)
     map: MAPConfig = field(default_factory=MAPConfig)
-    aux_gibbs: AuxGibbsConfig = field(default_factory=AuxGibbsConfig)
-    particle_mgrad: ParticleMGradConfig = field(default_factory=ParticleMGradConfig)
+    aux_kalman_mcmc: AuxKalmanMCMCConfig = field(default_factory=AuxKalmanMCMCConfig)
+    pit_particle_mgrad: PITParticleMGradConfig = field(default_factory=PITParticleMGradConfig)
 
     def to_sampler_config(self, method_override: str | None = None) -> dict:
         """Build a flat sampler config dict for SSMModelBuilder."""
@@ -280,54 +272,52 @@ class InferenceConfig:
             "num_chains": self.num_chains,
             "seed": self.seed,
         }
-        if method == "svi":
-            config.update(dataclasses.asdict(self.svi))
-        elif method == "aux_gibbs":
+        if method == "aux_kalman_mcmc":
             config.update(
                 {
-                    "latent_kernel": self.aux_gibbs.latent_kernel.kernel,
-                    "latent_proposal_family": self.aux_gibbs.latent_kernel.proposal_family,
-                    "latent_delta": self.aux_gibbs.latent_kernel.delta,
-                    "latent_target_accept": self.aux_gibbs.latent_kernel.target_accept,
-                    "parameter_kernel": self.aux_gibbs.parameter_kernel.kernel,
-                    "param_step_size": self.aux_gibbs.parameter_kernel.step_size,
-                    "param_target_accept": self.aux_gibbs.parameter_kernel.target_accept,
+                    "latent_kernel": self.aux_kalman_mcmc.latent_kernel.kernel,
+                    "latent_proposal_family": self.aux_kalman_mcmc.latent_kernel.proposal_family,
+                    "latent_delta": self.aux_kalman_mcmc.latent_kernel.delta,
+                    "latent_target_accept": self.aux_kalman_mcmc.latent_kernel.target_accept,
+                    "parameter_kernel": self.aux_kalman_mcmc.parameter_kernel.kernel,
+                    "param_step_size": self.aux_kalman_mcmc.parameter_kernel.step_size,
+                    "param_target_accept": self.aux_kalman_mcmc.parameter_kernel.target_accept,
                     "param_max_num_doublings": (
-                        self.aux_gibbs.parameter_kernel.max_num_doublings
+                        self.aux_kalman_mcmc.parameter_kernel.max_num_doublings
                     ),
-                    "adaptation_rate": self.aux_gibbs.adaptation_rate,
-                    "init_scale": self.aux_gibbs.init_scale,
-                    "retain_latent_paths": self.aux_gibbs.retain_latent_paths,
+                    "adaptation_rate": self.aux_kalman_mcmc.adaptation_rate,
+                    "init_scale": self.aux_kalman_mcmc.init_scale,
+                    "retain_latent_paths": self.aux_kalman_mcmc.retain_latent_paths,
                     "compute_latent_posterior_summary": (
-                        self.aux_gibbs.compute_latent_posterior_summary
+                        self.aux_kalman_mcmc.compute_latent_posterior_summary
                     ),
                 }
             )
         elif method == "map":
             config.update(dataclasses.asdict(self.map))
-        elif method == "particle_mgrad":
+        elif method == "pit_particle_mgrad":
             config.update(
                 {
                     "n_ieks_iters": self.map.n_ieks_iters,
-                    **dataclasses.asdict(self.particle_mgrad),
-                    "parameter_kernel": self.aux_gibbs.parameter_kernel.kernel,
-                    "param_step_size": self.aux_gibbs.parameter_kernel.step_size,
-                    "param_target_accept": self.aux_gibbs.parameter_kernel.target_accept,
+                    **dataclasses.asdict(self.pit_particle_mgrad),
+                    "parameter_kernel": self.aux_kalman_mcmc.parameter_kernel.kernel,
+                    "param_step_size": self.aux_kalman_mcmc.parameter_kernel.step_size,
+                    "param_target_accept": self.aux_kalman_mcmc.parameter_kernel.target_accept,
                     "param_max_num_doublings": (
-                        self.aux_gibbs.parameter_kernel.max_num_doublings
+                        self.aux_kalman_mcmc.parameter_kernel.max_num_doublings
                     ),
-                    "adaptation_rate": self.aux_gibbs.adaptation_rate,
-                    "init_scale": self.aux_gibbs.init_scale,
-                    "retain_latent_paths": self.aux_gibbs.retain_latent_paths,
+                    "adaptation_rate": self.aux_kalman_mcmc.adaptation_rate,
+                    "init_scale": self.aux_kalman_mcmc.init_scale,
+                    "retain_latent_paths": self.aux_kalman_mcmc.retain_latent_paths,
                     "compute_latent_posterior_summary": (
-                        self.aux_gibbs.compute_latent_posterior_summary
+                        self.aux_kalman_mcmc.compute_latent_posterior_summary
                     ),
                 }
             )
         else:
             raise ValueError(
                 "Unsupported inference method "
-                f"{method!r}; expected 'svi', 'map', 'aux_gibbs', or 'particle_mgrad'."
+                f"{method!r}; expected 'map', 'aux_kalman_mcmc', or 'pit_particle_mgrad'."
             )
         return config
 
@@ -414,36 +404,34 @@ def _parse_llm_defaults(raw: dict) -> LLMDefaults:
 def _parse_inference(raw: dict) -> InferenceConfig:
     """Parse the inference: section into InferenceConfig."""
     inference_raw = dict(raw)
-    svi_raw = inference_raw.pop("svi", {}) or {}
     map_raw = inference_raw.pop("map", {}) or {}
-    aux_gibbs_raw = dict(inference_raw.pop("aux_gibbs", {}) or {})
-    particle_mgrad_raw = inference_raw.pop("particle_mgrad", {}) or {}
-    aux_gibbs_latent_raw = aux_gibbs_raw.pop("latent_kernel", {}) or {}
-    aux_gibbs_parameter_raw = aux_gibbs_raw.pop("parameter_kernel", {}) or {}
+    aux_kalman_mcmc_raw = dict(inference_raw.pop("aux_kalman_mcmc", {}) or {})
+    pit_particle_mgrad_raw = inference_raw.pop("pit_particle_mgrad", {}) or {}
+    aux_kalman_mcmc_latent_raw = aux_kalman_mcmc_raw.pop("latent_kernel", {}) or {}
+    aux_kalman_mcmc_parameter_raw = aux_kalman_mcmc_raw.pop("parameter_kernel", {}) or {}
     return InferenceConfig(
         **inference_raw,
-        svi=SVIConfig(**svi_raw) if svi_raw else SVIConfig(),
         map=MAPConfig(**map_raw) if map_raw else MAPConfig(),
-        particle_mgrad=(
-            ParticleMGradConfig(**particle_mgrad_raw)
-            if particle_mgrad_raw
-            else ParticleMGradConfig()
+        pit_particle_mgrad=(
+            PITParticleMGradConfig(**pit_particle_mgrad_raw)
+            if pit_particle_mgrad_raw
+            else PITParticleMGradConfig()
         ),
-        aux_gibbs=AuxGibbsConfig(
-            **aux_gibbs_raw,
+        aux_kalman_mcmc=AuxKalmanMCMCConfig(
+            **aux_kalman_mcmc_raw,
             latent_kernel=(
-                AuxGibbsLatentKernelConfig(**aux_gibbs_latent_raw)
-                if aux_gibbs_latent_raw
-                else AuxGibbsLatentKernelConfig()
+                AuxKalmanMCMCLatentKernelConfig(**aux_kalman_mcmc_latent_raw)
+                if aux_kalman_mcmc_latent_raw
+                else AuxKalmanMCMCLatentKernelConfig()
             ),
             parameter_kernel=(
-                AuxGibbsParameterKernelConfig(**aux_gibbs_parameter_raw)
-                if aux_gibbs_parameter_raw
-                else AuxGibbsParameterKernelConfig()
+                AuxKalmanMCMCParameterKernelConfig(**aux_kalman_mcmc_parameter_raw)
+                if aux_kalman_mcmc_parameter_raw
+                else AuxKalmanMCMCParameterKernelConfig()
             ),
         )
-        if aux_gibbs_raw or aux_gibbs_latent_raw or aux_gibbs_parameter_raw
-        else AuxGibbsConfig(),
+        if aux_kalman_mcmc_raw or aux_kalman_mcmc_latent_raw or aux_kalman_mcmc_parameter_raw
+        else AuxKalmanMCMCConfig(),
     )
 
 

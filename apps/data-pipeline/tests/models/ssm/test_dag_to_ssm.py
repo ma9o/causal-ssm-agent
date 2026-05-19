@@ -5,8 +5,7 @@ Tests that:
 2. lambda_mask + template constrains factor loadings to measurement model
 3. Per-element priors align with mask positions
 4. Builder constructs masks from CausalSpec
-5. parametric_id respects masks
-6. Pipeline threading passes causal_spec through
+5. Pipeline threading passes causal_spec through
 """
 
 import jax.numpy as jnp
@@ -367,9 +366,7 @@ class TestBuilderMasks:
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
         drift_mask, _input_effect_mask, lambda_mat, lambda_mask, _edge_lag_days = (
-            build_masks_from_causal_spec(
-                latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
-            )
+            build_masks_from_causal_spec(latent_names, manifest_cols, 3, 4, causal_spec=causal_spec)
         )
 
         # Drift mask: baseline persistence diagonals + X→Y + Y→Z
@@ -1123,7 +1120,7 @@ class TestBuilderMasks:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Parametric ID mask awareness
+# Site-registry mask awareness
 # ═══════════════════════════════════════════════════════════════════════
 
 

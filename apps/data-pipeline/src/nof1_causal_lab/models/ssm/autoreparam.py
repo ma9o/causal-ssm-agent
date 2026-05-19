@@ -16,7 +16,7 @@ Usage::
 
     from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 
-    # As a decorator (learnable centering for SVI):
+    # As a decorator:
     reparam_model = AutoReparam()(model_fn)
 
     # As a config for handlers.reparam:
@@ -131,7 +131,7 @@ class AutoReparam(Strategy):
     decentered (non-centered) parameterizations:
 
     - ``centered=None`` (default): Learn per-site per-element centering via
-      ``numpyro.param``. Requires an optimization loop (SVI).
+      ``numpyro.param``. Requires an optimization loop.
     - ``centered=0.0``: Fully decentered (standard NCP). Best for MCMC.
     - ``centered=1.0``: Fully centered (no-op). Original parameterization.
     - ``centered=0.5``: Halfway between centered and decentered.
@@ -179,15 +179,6 @@ class AutoReparam(Strategy):
 
         # Fallback to minimal reparameterization.
         return _minimal_reparam(fn, msg.get("is_observed", False))
-
-
-def reparam_cache_key(reparam) -> tuple[str, object] | None:
-    """Return a stable cache token for supported reparameterization configs."""
-    if reparam is None:
-        return ("none", None)
-    if isinstance(reparam, AutoReparam):
-        return ("autoreparam", reparam.centered)
-    return None
 
 
 def fixed_autoreparam_centering(reparam) -> float | None:

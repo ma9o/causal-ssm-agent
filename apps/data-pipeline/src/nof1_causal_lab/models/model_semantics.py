@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
 
 _ADDITIVE_LOCATION_POINT_OPERATORS = frozenset({"first", "last"})
@@ -78,12 +76,3 @@ def indicator_requires_observation_intercept(
     return False
 
 
-def likelihood_semantics_lookup(
-    likelihoods: list[dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    """Index likelihood metadata by manifest variable."""
-    return {
-        str(likelihood["variable"]): dict(likelihood)
-        for likelihood in likelihoods
-        if isinstance(likelihood, dict) and isinstance(likelihood.get("variable"), str)
-    }

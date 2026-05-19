@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from numpyro import handlers
 
@@ -21,7 +21,6 @@ logger = get_prefect_logger(__name__)
 
 def select_default_method(
     spec: SSMSpec,
-    likelihood: Literal["particle", "kalman"] = "particle",
     observation_support: ObservationSupportRuntime | None = None,
     n_timepoints: int | None = None,
 ) -> InferenceMethod:
@@ -30,15 +29,13 @@ def select_default_method(
 
     inference_structure = plan_inference_structure(
         spec,
-        likelihood=likelihood,
         observation_support=observation_support,
         n_timepoints=n_timepoints,
     )
     logger.info(
-        "Inference routing: resolved_method=%s structural_backend=%s first_pass_partition=%s",
+        "Inference routing: resolved_method=%s structural_backend=%s",
         inference_structure.resolved_method,
         inference_structure.structural_backend,
-        "active" if inference_structure.first_pass_partition is not None else "none",
     )
     return inference_structure.resolved_method
 

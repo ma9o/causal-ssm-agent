@@ -20,13 +20,13 @@ import { StoryStageLogView } from "../stage-story-log-stream";
 import { StageStoryTemplate } from "../stage-story-template";
 import Stage6Showcase from "./stage-6-showcase";
 import { buildStage6DagScene } from "./stage-6-presentation";
-import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-6.json";
-import auxGibbsFixture from "../../../../../../data/DEMO_HEALTH/run/stage-6-aux-gibbs.json";
-import stage1aFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1a.json";
-import stage1bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1b.json";
-import stage4Fixture from "../../../../../../data/DEMO_HEALTH/run/stage-4.json";
-import stage5bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-5b.json";
-import stage5bAuxGibbsFixture from "../../../../../../data/DEMO_HEALTH/run/stage-5b-aux-gibbs.json";
+import fixture from "../../../../../../data/DEMO/run/stage-6.json";
+import auxKalmanMCMCFixture from "../../../../../../data/DEMO/run/stage-6.json";
+import stage1aFixture from "../../../../../../data/DEMO/run/stage-1a.json";
+import stage1bFixture from "../../../../../../data/DEMO/run/stage-1b.json";
+import stage4Fixture from "../../../../../../data/DEMO/run/stage-4.json";
+import stage5bFixture from "../../../../../../data/DEMO/run/stage-5b.json";
+import stage5bAuxKalmanMCMCFixture from "../../../../../../data/DEMO/run/stage-5b.json";
 import {
   counterfactualResult,
   interventionResult,
@@ -40,9 +40,9 @@ const stage1a = stage1aFixture as unknown as Stage1aData;
 const stage1b = stage1bFixture as unknown as Stage1bData;
 const stage4 = stage4Fixture as unknown as Stage4Data;
 const stage5b = stage5bFixture as unknown as Stage5bData;
-const stage5bAuxGibbs = stage5bAuxGibbsFixture as unknown as Stage5bData;
-const data = { outcome: "success", ...fixture } as Stage6Data;
-const auxGibbsData = { outcome: "success", ...auxGibbsFixture } as Stage6Data;
+const stage5bAuxKalmanMCMC = stage5bAuxKalmanMCMCFixture as unknown as Stage5bData;
+const data = fixture as Stage6Data;
+const auxKalmanMCMCData = auxKalmanMCMCFixture as Stage6Data;
 const storyTrace = mockTrace as LLMTrace;
 const finalSummary =
   storyTrace.messages[storyTrace.messages.length - 1]?.content ??
@@ -54,8 +54,8 @@ const dataWithTrace = {
   final_summary: finalSummary,
 } as Stage6Data;
 
-const auxGibbsDataWithTrace = {
-  ...auxGibbsData,
+const auxKalmanMCMCDataWithTrace = {
+  ...auxKalmanMCMCData,
   llm_trace: storyTrace,
   final_summary: finalSummary,
 } as Stage6Data;
@@ -68,11 +68,11 @@ const baselineDagScene = buildStage6DagScene({
   refinementMessages: [],
   height: "600px",
 });
-const auxGibbsBaselineDagScene = buildStage6DagScene({
+const auxKalmanMCMCBaselineDagScene = buildStage6DagScene({
   stage1a,
   stage1b,
   stage4,
-  stage5b: stage5bAuxGibbs,
+  stage5b: stage5bAuxKalmanMCMC,
   refinementMessages: [],
   height: "600px",
 });
@@ -83,8 +83,8 @@ const completedShellProps = {
   trace: storyTrace,
 };
 
-const RUNG2_PROMPT = "What happens if we shift lipid burden by +1?";
-const RUNG3_PROMPT = "What would have happened had medication adherence been higher?";
+const RUNG2_PROMPT = "What happens if we shift serotonergic exposure by +1?";
+const RUNG3_PROMPT = "What would have happened had adherence been higher?";
 
 function getScenarioPrompt(scenario: FollowUpScenario): string {
   return scenario === "rung2" ? RUNG2_PROMPT : RUNG3_PROMPT;
@@ -102,7 +102,9 @@ function getResultHorizonDays(scenario: FollowUpScenario): number {
     : 30;
 }
 
-function getToolName(scenario: FollowUpScenario): "simulate_intervention" | "simulate_counterfactual" {
+function getToolName(
+  scenario: FollowUpScenario,
+): "simulate_intervention" | "simulate_counterfactual" {
   return scenario === "rung2" ? "simulate_intervention" : "simulate_counterfactual";
 }
 
@@ -137,10 +139,10 @@ function getToolInput(scenario: FollowUpScenario) {
 
 function getAssistantSummary(scenario: FollowUpScenario): string {
   if (scenario === "rung2") {
-    return "Rung 2 completed. Shifting lipid burden upward raises cardiovascular risk through vascular inflammation, with the strongest response accumulating over the forward trajectory.";
+    return "Rung 2 completed. Shifting serotonergic exposure upward improves affective state, with downstream movement through sleep quality and physical activity.";
   }
 
-  return "Rung 3 completed. Conditioning on the observed history and then increasing medication adherence lowers the projected cardiovascular-risk trajectory relative to the factual forecast.";
+  return "Rung 3 completed. Conditioning on the observed history and then increasing adherence improves the projected affective-state trajectory relative to the factual forecast.";
 }
 
 function createUserMessage(id: string, prompt: string): UIMessage {
@@ -176,7 +178,7 @@ function createUnsupportedAssistantMessage(id: string): UIMessage {
     parts: [
       {
         type: "text",
-        text: "This story only supports two canned follow-ups: a rung 2 \"What happens if we shift lipid burden by +1?\" and a rung 3 \"What would have happened had medication adherence been higher?\"",
+        text: 'This story only supports two canned follow-ups: a rung 2 "What happens if we shift serotonergic exposure by +1?" and a rung 3 "What would have happened had adherence been higher?"',
       },
     ],
   };
@@ -187,14 +189,14 @@ function matchScenario(prompt: string): FollowUpScenario | null {
 
   if (
     normalized === RUNG2_PROMPT.toLowerCase() ||
-    (normalized.includes("lipid") && normalized.includes("shift"))
+    (normalized.includes("serotonergic") && normalized.includes("shift"))
   ) {
     return "rung2";
   }
 
   if (
     normalized === RUNG3_PROMPT.toLowerCase() ||
-    (normalized.includes("medication") && normalized.includes("higher"))
+    (normalized.includes("adherence") && normalized.includes("higher"))
   ) {
     return "rung3";
   }
@@ -313,10 +315,7 @@ function InteractiveFollowUpDemoView() {
       trace={storyTrace}
       defaultPanelOpen
       logView={
-        <StoryStageLogView
-          storyId="stage-6-interactive-follow-up-demo"
-          status="completed"
-        />
+        <StoryStageLogView storyId="stage-6-interactive-follow-up-demo" status="completed" />
       }
       panelContent={
         <Stage6FollowUpPanel
@@ -329,10 +328,7 @@ function InteractiveFollowUpDemoView() {
         />
       }
     >
-      <Stage6Showcase
-        data={dataWithTrace}
-        dagScene={dagScene}
-      />
+      <Stage6Showcase data={dataWithTrace} dagScene={dagScene} />
     </StageStoryTemplate>
   );
 }
@@ -371,14 +367,14 @@ export const OpenPanel = createCompletedStageStory({
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
 
-export const CompletedAuxGibbs = createCompletedStageStory({
-  name: "Completed (Aux Gibbs)",
+export const CompletedAuxKalmanMCMC = createCompletedStageStory({
+  name: "Completed (Auxiliary Kalman MCMC)",
   stage,
   args: {
-    data: auxGibbsDataWithTrace,
-    dagScene: auxGibbsBaselineDagScene,
+    data: auxKalmanMCMCDataWithTrace,
+    dagScene: auxKalmanMCMCBaselineDagScene,
   },
-  outcome: auxGibbsDataWithTrace.outcome,
+  outcome: auxKalmanMCMCDataWithTrace.outcome,
   elapsedMs: 8_100,
   trace: storyTrace,
   renderContent: (args) => <Stage6Showcase {...args} />,
@@ -400,9 +396,7 @@ export const Rung2FollowUp = createCompletedStageStory({
   },
   ...completedShellProps,
   defaultPanelOpen: true,
-  panelContent: (
-    <Stage6FollowUpPanel refinementMessages={buildFollowUpMessages("rung2")} />
-  ),
+  panelContent: <Stage6FollowUpPanel refinementMessages={buildFollowUpMessages("rung2")} />,
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
 
@@ -422,9 +416,7 @@ export const Rung3FollowUp = createCompletedStageStory({
   },
   ...completedShellProps,
   defaultPanelOpen: true,
-  panelContent: (
-    <Stage6FollowUpPanel refinementMessages={buildFollowUpMessages("rung3")} />
-  ),
+  panelContent: <Stage6FollowUpPanel refinementMessages={buildFollowUpMessages("rung3")} />,
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
 
@@ -434,7 +426,7 @@ export const InteractiveFollowUpDemo: StoryObj<typeof meta> = {
     docs: {
       description: {
         story:
-          "Use the follow-up chat input with either `What happens if we shift lipid burden by +1?` or `What would have happened had medication adherence been higher?`.",
+          "Use the follow-up chat input with either `What happens if we shift serotonergic exposure by +1?` or `What would have happened had adherence been higher?`.",
       },
     },
   },

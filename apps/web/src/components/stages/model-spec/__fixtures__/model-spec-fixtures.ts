@@ -8,10 +8,10 @@ import type {
 } from "@nof1-causal-lab/api-types";
 import { collectStage4UiPriors } from "@/lib/stage4-data";
 import { buildStage4LikelihoodDiagnostics } from "@/lib/stage4-likelihood-diagnostics";
-import stage1bFixture from "../../../../../../../data/DEMO_HEALTH/run/stage-1b.json";
-import stage2Fixture from "../../../../../../../data/DEMO_HEALTH/run/stage-2.json";
-import stage3Fixture from "../../../../../../../data/DEMO_HEALTH/run/stage-3.json";
-import stage4Fixture from "../../../../../../../data/DEMO_HEALTH/run/stage-4.json";
+import stage1bFixture from "../../../../../../../data/DEMO/run/stage-1b.json";
+import stage2Fixture from "../../../../../../../data/DEMO/run/stage-2.json";
+import stage3Fixture from "../../../../../../../data/DEMO/run/stage-3.json";
+import stage4Fixture from "../../../../../../../data/DEMO/run/stage-4.json";
 
 type DemoHealthStage3Health = {
   indicator: string;

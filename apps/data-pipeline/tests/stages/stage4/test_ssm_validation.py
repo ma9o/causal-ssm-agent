@@ -1,6 +1,5 @@
 """Stage 4 assembly, prior predictive, and SSM compilation tests."""
 
-
 from tests.stages.stage4._support import (
     Any,
     GenerateConfig,
@@ -63,7 +62,6 @@ class TestSSMModelBuilder:
         model = builder.build_model(simple_data)
         assert model.spec.n_manifest == 1  # mood_score only
         assert model.spec.n_latent >= 1
-        assert model.likelihood is not None
         # Lambda should map latent to manifest
         assert model.spec.lambda_mat.shape == (model.spec.n_manifest, model.spec.n_latent)
 
@@ -255,10 +253,6 @@ class TestPriorPredictiveValidation:
                 "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
                 side_effect=stub_validate_prior_predictive,
             ),
-            patch(
-                "nof1_causal_lab.flows.stages.stage4.assembly.run_output_sensitivity_validation",
-                return_value=(True, True, True, None, []),
-            ),
         ):
             validation = validate_assembly(
                 simple_model_spec,
@@ -309,10 +303,6 @@ class TestPriorPredictiveValidation:
                 "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
                 return_value=(True, [], {}),
             ) as pp_mock,
-            patch(
-                "nof1_causal_lab.flows.stages.stage4.assembly.run_output_sensitivity_validation",
-                return_value=(True, True, True, None, []),
-            ),
         ):
             validation = validate_assembly(
                 simple_model_spec,
@@ -340,68 +330,6 @@ class TestPriorPredictiveValidation:
             ).model_dump()
         ]
         pp_mock.assert_called_once()
-
-    def test_validate_assembly_runs_jacobian_sensitivity_after_passing_ppc(
-        self,
-        simple_model_spec,
-        simple_priors,
-    ):
-        from nof1_causal_lab.flows.stages.stage4.assembly import validate_assembly
-
-        compiled_artifact = {"schema_version": 1, "compiled_prior_semantics": {}}
-        data_for_model = _make_polars_data()
-        sensitivity_payload = {
-            "deficiency_count": 1,
-            "weak_directions": [
-                {
-                    "index": 1,
-                    "normalized_singular_value": 0.25,
-                    "status": "fail",
-                    "top_loadings": [
-                        {
-                            "parameter": "drift_offdiag_free[0]",
-                            "interpretable_parameter": "beta_stress_sleep",
-                            "loading": 0.9,
-                            "abs_loading": 0.9,
-                        }
-                    ],
-                }
-            ],
-            "per_parameter": [],
-        }
-
-        with (
-            patch(
-                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
-                return_value=compiled_artifact,
-            ),
-            patch(
-                "nof1_causal_lab.models.prior_predictive.validate_prior_predictive",
-                return_value=(True, [], {}),
-            ),
-            patch(
-                "nof1_causal_lab.flows.stages.stage4.assembly.run_output_sensitivity_validation",
-                return_value=(True, True, False, sensitivity_payload, []),
-            ) as sensitivity_mock,
-        ):
-            validation = validate_assembly(
-                simple_model_spec,
-                simple_priors,
-                data_for_model,
-                None,
-                None,
-            )
-
-        sensitivity_mock.assert_called_once_with(
-            compiled_ssm=compiled_artifact,
-            data_for_model=data_for_model,
-        )
-        assert validation.sensitivity_consulted is True
-        assert validation.sensitivity_supported is True
-        assert validation.sensitivity_valid is False
-        assert validation.sensitivity_payload == sensitivity_payload
-        assert validation.has_sensitivity_failure is True
-        assert validation.is_valid is False
 
     def test_validate_prior_predictive_skips_recompile_when_artifact_provided(
         self,
@@ -785,7 +713,7 @@ class TestPriorPredictiveValidation:
 
 
 class TestFailedParameters:
-    """Test failed parameter identification."""
+    """Test failed parameter localization."""
 
     def test_scale_mismatch_with_causal_spec_targets_construct(self):
         """Scale mismatch with causal_spec targets only the affected construct."""

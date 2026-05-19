@@ -219,11 +219,6 @@ def _validator_scope_identity(repair_scope: PriorRepairScope | None) -> tuple[An
     )
 
 
-def _all_dynamics_block_ids(plan: Stage4Plan) -> tuple[str, ...]:
-    """Return all dynamics-prior block ids in plan order."""
-    return tuple(block.id for block in plan.prior_blocks if block.kind == "dynamics_prior")
-
-
 def _compile_diagnostics_for_supporting_codes(
     validation: AssemblyValidation,
     *,
@@ -245,18 +240,6 @@ def _certificate_order_key(certificate: PriorPathologyCertificate) -> tuple[floa
         certificate.secondary_score if certificate.secondary_score is not None else float("inf")
     )
     return (certificate.primary_score, secondary)
-
-
-def _certificate_improved(
-    current: PriorPathologyCertificate | None,
-    best_so_far: PriorPathologyCertificate | None,
-) -> bool:
-    """Whether the latest pathology certificate strictly improved at this scope."""
-    if current is None or best_so_far is None:
-        return False
-    if current.kind != best_so_far.kind:
-        return False
-    return _certificate_order_key(current) < _certificate_order_key(best_so_far)
 
 
 def _parameter_construct_names(

@@ -44,8 +44,6 @@ Central literature reference for the nof1-causal-lab documentation. Individual d
 
 - **Bell (1994).** Bell, B. M. (1994). The Iterated Kalman Smoother as a Gauss-Newton Method. *SIAM Journal on Optimization*, 4(3), 626–636. https://doi.org/10.1137/0804035
 
-- **Doucet et al. (2000).** Doucet, A., de Freitas, N., Murphy, K., & Russell, S. (2000). Rao-Blackwellised Particle Filtering for Dynamic Bayesian Networks. *UAI*, 176–183. https://ora.ox.ac.uk/objects/uuid:7dbf5fe6-8e61-4e74-9075-cbacd9585527
-
 ## Bayesian Workflow and Inference
 
 - **Gelman et al. (2020).** Gelman, A., Vehtari, A., Simpson, D., Margossian, C. C., Carpenter, B., Yao, Y., Kennedy, L., Gabry, J., Bürkner, P.-C., & Modrák, M. (2020). Bayesian Workflow. arXiv:2011.01808. https://arxiv.org/abs/2011.01808
@@ -93,12 +91,6 @@ Central literature reference for the nof1-causal-lab documentation. Individual d
 - **Kallioinen et al. (2024).** Kallioinen, N., Paananen, T., Bürkner, P.-C., & Vehtari, A. (2024). Detecting and Diagnosing Prior and Likelihood Sensitivity with Power-Scaling. *Statistics and Computing*, 34, 57. https://doi.org/10.1007/s11222-023-10366-5
 
 - **Gabry et al. (2019).** Gabry, J., Simpson, D., Vehtari, A., Betancourt, M., & Gelman, A. (2019). Visualization in Bayesian Workflow. *JRSS-A*, 182(2), 389–402. https://doi.org/10.1111/rssa.12378
-
-- **Raue et al. (2009).** Raue, A., Kreutz, C., Maiwald, T., Bachmann, J., Schilling, M., Klingmüller, U., & Timmer, J. (2009). Structural and Practical Identifiability Analysis of Partially Observed Dynamical Models by Exploiting the Profile Likelihood. *Bioinformatics*, 25(15), 1923–1929. https://doi.org/10.1093/bioinformatics/btp358
-
-## Parametric Identification
-
-- **Hunter et al. (2025).** Hunter, M. D., Kirkpatrick, R. M., & Neale, M. C. (2025). Show Me Some ID: A Universal Identification Program for Structural Equation Models. *Psychometrika*, 90(2), 418–441. https://doi.org/10.1017/psy.2025.19
 
 ## Prior Elicitation
 

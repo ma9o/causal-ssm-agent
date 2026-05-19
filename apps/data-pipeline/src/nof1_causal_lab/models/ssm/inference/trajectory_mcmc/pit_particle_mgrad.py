@@ -185,7 +185,7 @@ def _dsmc_tree_reduce(
     )
 
 
-def build_particle_mgrad_latent_kernel(
+def build_pit_particle_mgrad_latent_kernel(
     bundle: dict[str, Any],
     *,
     delta: float,
@@ -194,10 +194,10 @@ def build_particle_mgrad_latent_kernel(
     min_scale: float | None = None,
     max_scale: float | None = None,
 ) -> dict[str, Any]:
-    """Build the Particle-mGRAD latent update from Corenflos & Finke (2024).
+    """Build the PIT Particle-mGRAD latent update from Corenflos & Finke (2024).
 
     This uses the Corenflos-Chopin-Särkkä de-sequentialized conditional particle
-    smoother inside the Particle-mGRAD Gibbs block:
+    smoother inside the PIT Particle-mGRAD latent block:
 
     1. draw pseudo-observations ``u_t ~ N(x_t + (δ_t/2) ∇ log G_t(x_t), (δ_t/2) I)``
        from the current reference trajectory,
@@ -209,7 +209,7 @@ def build_particle_mgrad_latent_kernel(
     yielding a particle-Gibbs latent transition with O(log T) parallel depth.
     """
     if num_particles < 2:
-        raise ValueError("particle_mgrad requires num_particles >= 2.")
+        raise ValueError("pit_particle_mgrad requires num_particles >= 2.")
 
     obs_increment_fn = bundle["observation_increment_log_prob_from_context_fn"]
     _raw_obs_increment_grad_fn = jax.grad(obs_increment_fn, argnums=1)
@@ -217,7 +217,7 @@ def build_particle_mgrad_latent_kernel(
     def obs_increment_grad_fn(context, latent_t, time_idx):
         """TULAc-tamed observation log-prob gradient (fixed h, see _TULAC_H).
 
-        Same fix as `_tame_gradient_tulac` used in aux_gibbs: bounds the
+        Same fix as `_tame_gradient_tulac` used in aux_kalman_mcmc: bounds the
         gradient-augmented pseudo-observation perturbation so it can shrink
         with adaptation. Applied identically to every grad call so the MH
         ratio remains valid (proposal kernel just becomes a different but
@@ -228,7 +228,7 @@ def build_particle_mgrad_latent_kernel(
     ref_particle_index = 0
     num_free_particles = num_particles - 1
 
-    def _latent_particle_mgrad_step(state, key: jnp.ndarray):
+    def _latent_pit_particle_mgrad_step(state, key: jnp.ndarray):
         aux_key, proposal_key, combine_key, select_key = random.split(key, 4)
         x_ref = state.latent_trajectory
         context = state.latent_context
@@ -314,9 +314,9 @@ def build_particle_mgrad_latent_kernel(
                     )
                 )(right_particles)
             )(pred_means)
-            obs_lp = jax.vmap(
-                lambda particle: obs_increment_fn(context, particle, time_idx)
-            )(right_particles)
+            obs_lp = jax.vmap(lambda particle: obs_increment_fn(context, particle, time_idx))(
+                right_particles
+            )
             proposal_lp = jax.vmap(
                 lambda particle: _gaussian_log_prob_isotropic(
                     particle,
@@ -392,7 +392,7 @@ def build_particle_mgrad_latent_kernel(
         }
 
     return {
-        "name": "particle_mgrad",
+        "name": "pit_particle_mgrad",
         "scale_field": "latent_delta",
         "initial_scale": delta,
         "initial_scale_value": delta,
@@ -400,5 +400,5 @@ def build_particle_mgrad_latent_kernel(
         "min_scale": min_scale,
         "max_scale": max_scale,
         "target_accept": target_accept,
-        "step_fn": _latent_particle_mgrad_step,
+        "step_fn": _latent_pit_particle_mgrad_step,
     }

@@ -409,8 +409,6 @@ def _make_stage4_deps(
         status = (
             "compile_error"
             if validation is not None and getattr(validation, "compile_ok", True) is False
-            else "sensitivity_failure"
-            if validation is not None and getattr(validation, "has_sensitivity_failure", False)
             else "prior_predictive_failure"
             if validation is not None
             and getattr(validation, "pp_checked", False)

@@ -1,4 +1,4 @@
-"""Pydantic models for inference diagnostics (MCMC, SVI, LOO, posterior).
+"""Pydantic models for inference diagnostics (MCMC, LOO, posterior).
 
 These are the typed schemas for Stage 5 diagnostic payloads. They mirror
 the dict structures already produced by InferenceResult.get_*_diagnostics()
@@ -94,17 +94,6 @@ class MCMCDiagnostics(BaseModel):
     trace_data: list[TraceData] | None = None
     rank_histograms: list[RankHistogram] | None = None
     energy: EnergyDiagnostics | None = None
-
-
-# ---------------------------------------------------------------------------
-# SVI diagnostics
-# ---------------------------------------------------------------------------
-
-
-class SVIDiagnostics(BaseModel):
-    """SVI (variational inference) diagnostics."""
-
-    elbo_losses: list[float]
 
 
 # ---------------------------------------------------------------------------

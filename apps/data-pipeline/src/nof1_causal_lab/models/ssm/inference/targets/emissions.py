@@ -3,7 +3,7 @@
 Each function computes log p(y_t | z_t) for a single time step given
 the measurement model parameters (H, d, R) and an observation mask.
 
-Used by: MAP, SVI, blocked MCMC, Rao-Blackwell PF, bootstrap PF.
+Used by: MAP and blocked MCMC.
 """
 
 from __future__ import annotations

@@ -86,19 +86,15 @@ stage6_commentary:
 
 # --- Inference (unchanged) -------------------------------------------------
 inference:
-  method: particle_mgrad
+  method: pit_particle_mgrad
   num_warmup: 4000
   num_samples: 1000
   num_chains: 4
   seed: 0
   compute_loo_diagnostics: false
-  svi:
-    num_steps: 5000
-    learning_rate: 0.01
-    guide_type: mvn
   map:
     n_ieks_iters: 6
-  particle_mgrad:
+  pit_particle_mgrad:
     latent_delta: 0.2
     latent_delta_min:
     latent_delta_max:
@@ -113,7 +109,7 @@ inference:
     pathfinder_maxiter: 20
     n_pathfinder_starts: 8
     pathfinder_init_scale: 0.1
-  aux_gibbs:
+  aux_kalman_mcmc:
     parameter_kernel:
       kernel: mala
       step_size: 0.05

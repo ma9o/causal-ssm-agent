@@ -76,7 +76,9 @@ def _validate_nondegenerate_prior(
     every distribution that ``normalize_prior_params`` accepts.
     """
     family_str = (
-        distribution.value if isinstance(distribution, PriorDistributionFamily) else str(distribution)
+        distribution.value
+        if isinstance(distribution, PriorDistributionFamily)
+        else str(distribution)
     )
     family_lower = family_str.lower().replace("-", "_")
     issues: list[str] = []
@@ -120,11 +122,7 @@ def _validate_nondegenerate_prior(
         "log_normal",
         "lognormal",
     }
-    if (
-        family_lower in sigma_families
-        and sigma is not None
-        and float(sigma) <= _NONDEGENERATE_TOL
-    ):
+    if family_lower in sigma_families and sigma is not None and float(sigma) <= _NONDEGENERATE_TOL:
         issues.append(_err(f"sigma={float(sigma):.3g} must be strictly positive"))
 
     bound_families = {"uniform", "truncated_normal", "truncatednormal"}
@@ -954,9 +952,7 @@ def compile_priors(
                     attr,
                     idx,
                     {
-                        "family": get_positive_runtime_family_index(
-                            PriorDistributionFamily.GAMMA
-                        ),
+                        "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
                         "concentration": (base_decay / sd) ** 2,
                         "rate": base_decay / (sd**2),
                     },

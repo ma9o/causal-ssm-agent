@@ -20,7 +20,10 @@ import {
   hasOpenRouterWorkspaceAccess,
   resolveWorkspaceOwnershipContext,
 } from "@/lib/server/workspace-ownership";
-import { authorizeWorkspaceInSession, hasWorkspaceSessionAccess } from "@/lib/server/workspace-session";
+import {
+  authorizeWorkspaceInSession,
+  hasWorkspaceSessionAccess,
+} from "@/lib/server/workspace-session";
 import { prefixExists } from "@/lib/storage";
 import { finalizeWorkspaceCreate, requireWorkspaceAccess } from "./workspace-access";
 
@@ -44,6 +47,17 @@ describe("requireWorkspaceAccess", () => {
     expect(result).toEqual({
       ok: true,
       workspaceId: "DEFAULT",
+      creationPending: false,
+    });
+    expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
+  });
+
+  it("routes the demo-health shared fixture alias to DEMO", async () => {
+    const result = await requireWorkspaceAccess(new Request("http://localhost"), "demo_health");
+
+    expect(result).toEqual({
+      ok: true,
+      workspaceId: "DEMO",
       creationPending: false,
     });
     expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
@@ -178,10 +192,7 @@ describe("requireWorkspaceAccess", () => {
 
     await finalizeWorkspaceCreate("USER123");
 
-    expect(authorizeWorkspaceForOpenRouterUser).toHaveBeenCalledWith(
-      "or-user-123",
-      "USER123",
-    );
+    expect(authorizeWorkspaceForOpenRouterUser).toHaveBeenCalledWith("or-user-123", "USER123");
     expect(authorizeWorkspaceInSession).not.toHaveBeenCalled();
   });
 });

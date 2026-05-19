@@ -17,15 +17,8 @@ function constantArray(value: number, length: number): number[] {
   return Array.from({ length }, () => value);
 }
 
-function driftToward(
-  start: number,
-  target: number,
-  tau: number,
-  days: number[],
-): number[] {
-  return days.map(
-    (day) => +(start + (target - start) * (1 - Math.exp(-day / tau))).toFixed(4),
-  );
+function driftToward(start: number, target: number, tau: number, days: number[]): number[] {
+  return days.map((day) => +(start + (target - start) * (1 - Math.exp(-day / tau))).toFixed(4));
 }
 
 function subtractSeries(left: number[], right: number[]): number[] {
@@ -44,84 +37,85 @@ function toEffectTrajectory(days: number[], effect: number[]) {
 }
 
 export const edgePosteriors: Record<string, EdgePosterior> = {
-  "lipid_burden→vascular_inflammation": {
-    mean: 0.65,
-    ci_lower: 0.48,
-    ci_upper: 0.82,
+  "serotonergic_exposure→affective_state": {
+    mean: 0.058,
+    ci_lower: 0.02416,
+    ci_upper: 0.09184,
   },
-  "vascular_inflammation→cardiovascular_risk": {
-    mean: 0.58,
-    ci_lower: 0.38,
-    ci_upper: 0.78,
+  "physical_activity→affective_state": {
+    mean: 0.041,
+    ci_lower: 0.01468,
+    ci_upper: 0.06732,
   },
-  "glycemic_control→cardiovascular_risk": {
-    mean: 0.35,
-    ci_lower: 0.15,
-    ci_upper: 0.55,
+  "sleep_quality→affective_state": {
+    mean: 0.072,
+    ci_lower: 0.0344,
+    ci_upper: 0.1096,
   },
-  "arterial_pressure→cardiovascular_risk": {
-    mean: 0.42,
-    ci_lower: 0.25,
-    ci_upper: 0.59,
+  "social_engagement→affective_state": {
+    mean: 0.029,
+    ci_lower: -0.01236,
+    ci_upper: 0.07036,
   },
-  "medication_adherence→lipid_burden": {
-    mean: -0.48,
-    ci_lower: -0.68,
-    ci_upper: -0.28,
+  "seasonal_load→affective_state": {
+    mean: -0.018,
+    ci_lower: -0.03868,
+    ci_upper: 0.00268,
   },
-  "medication_adherence→glycemic_control": {
-    mean: -0.32,
-    ci_lower: -0.52,
-    ci_upper: -0.12,
+  "life_events_load→affective_state": {
+    mean: -0.034,
+    ci_lower: -0.05844,
+    ci_upper: -0.00956,
   },
-  "medication_adherence→arterial_pressure": {
-    mean: -0.38,
-    ci_lower: -0.58,
-    ci_upper: -0.18,
+  "affective_state→physical_activity": {
+    mean: 0.046,
+    ci_lower: 0.01216,
+    ci_upper: 0.07984,
   },
-  "genetic_predisposition→lipid_burden": {
-    mean: 0.3,
-    ci_lower: 0.12,
-    ci_upper: 0.48,
+  "affective_state→sleep_quality": {
+    mean: 0.052,
+    ci_lower: 0.02004,
+    ci_upper: 0.08396,
   },
-  "genetic_predisposition→cardiovascular_risk": {
-    mean: 0.15,
-    ci_lower: -0.05,
-    ci_upper: 0.35,
+  "serotonergic_exposure→physical_activity": {
+    mean: 0.011,
+    ci_lower: -0.1488,
+    ci_upper: 0.1708,
   },
-  "psychosocial_stress→glycemic_control": {
-    mean: 0.25,
-    ci_lower: 0.03,
-    ci_upper: 0.47,
-  },
-  "psychosocial_stress→cardiovascular_risk": {
-    mean: 0.2,
-    ci_lower: 0.01,
-    ci_upper: 0.39,
+  "serotonergic_exposure→sleep_quality": {
+    mean: 0.024,
+    ci_lower: -0.12264,
+    ci_upper: 0.17064,
   },
 };
 
 export const processNoise: Record<string, number> = {
-  cardiovascular_risk: 0.15,
-  lipid_burden: 0.2,
-  vascular_inflammation: 0.18,
-  glycemic_control: 0.25,
-  arterial_pressure: 0.22,
-  medication_adherence: 0.3,
-  genetic_predisposition: 0.05,
-  psychosocial_stress: 0.08,
+  affective_state: 0.18,
+  serotonergic_exposure: 0.12,
+  adherence: 0.16,
+  sleep_quality: 0.22,
+  physical_activity: 0.31,
+  social_engagement: 0.2,
+  prescription_event: 0.08,
+  seasonal_load: 0.04,
+  life_events_load: 0.14,
+  cyp2c19_metabolizer_status: 0.02,
+  baseline_extraversion: 0.02,
 };
 
 const rung2Days = buildDailyGrid(60);
 const rung2BaselineState: Record<string, number> = {
-  cardiovascular_risk: 0.72,
-  lipid_burden: 0.85,
-  vascular_inflammation: 0.55,
-  glycemic_control: 0.48,
-  arterial_pressure: 0.62,
-  medication_adherence: 0.35,
-  genetic_predisposition: 0.4,
-  psychosocial_stress: 0.3,
+  affective_state: 0.38,
+  serotonergic_exposure: 0.62,
+  adherence: 0.86,
+  sleep_quality: 0.48,
+  physical_activity: 0.54,
+  social_engagement: 0.44,
+  prescription_event: 0.2,
+  seasonal_load: -0.12,
+  life_events_load: 0.16,
+  cyp2c19_metabolizer_status: 0.5,
+  baseline_extraversion: 0.57,
 };
 const rung2ReferenceTrajectories = Object.fromEntries(
   Object.entries(rung2BaselineState).map(([node, value]) => [
@@ -130,14 +124,17 @@ const rung2ReferenceTrajectories = Object.fromEntries(
   ]),
 );
 const rung2NodeEffects = {
-  lipid_burden: constantArray(1.0, rung2Days.length),
-  vascular_inflammation: expApproach(0.65, 15, rung2Days),
-  cardiovascular_risk: expApproach(0.43, 30, rung2Days),
-  glycemic_control: constantArray(0, rung2Days.length),
-  arterial_pressure: constantArray(0, rung2Days.length),
-  medication_adherence: constantArray(0, rung2Days.length),
-  genetic_predisposition: constantArray(0, rung2Days.length),
-  psychosocial_stress: constantArray(0, rung2Days.length),
+  affective_state: expApproach(0.31, 18, rung2Days),
+  serotonergic_exposure: constantArray(1.0, rung2Days.length),
+  adherence: expApproach(0.05, 35, rung2Days),
+  sleep_quality: expApproach(0.14, 22, rung2Days),
+  physical_activity: expApproach(0.18, 25, rung2Days),
+  social_engagement: expApproach(0.09, 30, rung2Days),
+  prescription_event: expApproach(0.03, 40, rung2Days),
+  seasonal_load: constantArray(0, rung2Days.length),
+  life_events_load: constantArray(0, rung2Days.length),
+  cyp2c19_metabolizer_status: constantArray(0, rung2Days.length),
+  baseline_extraversion: constantArray(0, rung2Days.length),
 };
 const rung2ActionTrajectories = Object.fromEntries(
   Object.keys(rung2ReferenceTrajectories).map((node) => [
@@ -152,24 +149,21 @@ const rung2ActionTrajectories = Object.fromEntries(
 export const interventionResult: SimulateInterventionResult = {
   rung: 2,
   action: {
-    variable: "lipid_burden",
+    variable: "serotonergic_exposure",
     mode: "shift",
     amount: 1.0,
   },
-  outcome: "cardiovascular_risk",
+  outcome: "affective_state",
   estimand: "trajectory",
-  baseline_treatment_mean: 0.85,
+  baseline_treatment_mean: 0.62,
   summary: {
-    mean: 0.43,
-    median: 0.42,
-    lower_95: 0.19,
-    upper_95: 0.71,
-    prob_positive: 0.99,
+    mean: 0.31,
+    median: 0.3,
+    lower_95: 0.13,
+    upper_95: 0.49,
+    prob_positive: 0.98,
   },
-  effect_trajectory: toEffectTrajectory(
-    rung2Days,
-    rung2NodeEffects.cardiovascular_risk,
-  ),
+  effect_trajectory: toEffectTrajectory(rung2Days, rung2NodeEffects.affective_state),
   visualization: {
     reference_node_trajectories: rung2ReferenceTrajectories,
     action_node_trajectories: rung2ActionTrajectories,
@@ -181,56 +175,59 @@ export const interventionResult: SimulateInterventionResult = {
 
 const rung3Days = buildDailyGrid(60);
 const abductedState: Record<string, number> = {
-  cardiovascular_risk: 0.72,
-  lipid_burden: 0.85,
-  vascular_inflammation: 0.55,
-  glycemic_control: 0.48,
-  arterial_pressure: 0.62,
-  medication_adherence: 0.35,
-  genetic_predisposition: 0.4,
-  psychosocial_stress: 0.3,
+  affective_state: 0.34,
+  serotonergic_exposure: 0.58,
+  adherence: 0.74,
+  sleep_quality: 0.46,
+  physical_activity: 0.49,
+  social_engagement: 0.4,
+  prescription_event: 0.18,
+  seasonal_load: -0.14,
+  life_events_load: 0.18,
+  cyp2c19_metabolizer_status: 0.5,
+  baseline_extraversion: 0.57,
 };
-
 const factualEq: Record<string, number> = {
-  cardiovascular_risk: 0.68,
-  lipid_burden: 0.8,
-  vascular_inflammation: 0.52,
-  glycemic_control: 0.45,
-  arterial_pressure: 0.58,
-  medication_adherence: 0.35,
-  genetic_predisposition: 0.4,
-  psychosocial_stress: 0.3,
+  affective_state: 0.4,
+  serotonergic_exposure: 0.6,
+  adherence: 0.74,
+  sleep_quality: 0.5,
+  physical_activity: 0.52,
+  social_engagement: 0.43,
+  prescription_event: 0.18,
+  seasonal_load: -0.14,
+  life_events_load: 0.18,
+  cyp2c19_metabolizer_status: 0.5,
+  baseline_extraversion: 0.57,
 };
-
 const cfTargets: Record<string, number> = {
-  medication_adherence: 1.35,
-  lipid_burden: 0.37,
-  glycemic_control: 0.16,
-  arterial_pressure: 0.24,
-  vascular_inflammation: 0.238,
-  cardiovascular_risk: 0.384,
-  genetic_predisposition: 0.4,
-  psychosocial_stress: 0.3,
+  affective_state: 0.64,
+  serotonergic_exposure: 0.94,
+  adherence: 1.24,
+  sleep_quality: 0.62,
+  physical_activity: 0.67,
+  social_engagement: 0.52,
+  prescription_event: 0.2,
+  seasonal_load: -0.14,
+  life_events_load: 0.18,
+  cyp2c19_metabolizer_status: 0.5,
+  baseline_extraversion: 0.57,
 };
-
 const factualTrajectories = Object.fromEntries(
   Object.entries(abductedState).map(([node, start]) => [
     node,
     driftToward(start, factualEq[node] ?? start, 60, rung3Days),
   ]),
 );
-
 const counterfactualTrajectories = Object.fromEntries(
   Object.entries(abductedState).map(([node, start]) => {
-    if (node === "medication_adherence") {
-      return [node, constantArray(1.35, rung3Days.length)];
+    if (node === "adherence") {
+      return [node, constantArray(cfTargets.adherence, rung3Days.length)];
     }
-    const tau =
-      node === "cardiovascular_risk" ? 30 : node === "vascular_inflammation" ? 20 : 18;
+    const tau = node === "affective_state" ? 30 : node === "serotonergic_exposure" ? 18 : 24;
     return [node, driftToward(start, cfTargets[node] ?? start, tau, rung3Days)];
   }),
 );
-
 const rung3NodeEffects = Object.fromEntries(
   Object.keys(abductedState).map((node) => [
     node,
@@ -244,35 +241,28 @@ const rung3NodeEffects = Object.fromEntries(
 export const counterfactualResult: SimulateCounterfactualResult = {
   rung: 3,
   evidence: {
-    start_time: "2024-01-01T00:00:00+00:00",
-    end_time: "2024-03-31T00:00:00+00:00",
+    start_time: "2025-12-01T00:00:00+00:00",
+    end_time: "2026-02-28T00:00:00+00:00",
     n_timepoints: 90,
-    variables: [
-      "medication_adherence",
-      "lipid_burden",
-      "cardiovascular_risk",
-    ],
-    conditioning_method: "kalman_smoother",
+    variables: ["adherence", "serotonergic_exposure", "affective_state"],
+    conditioning_method: "posterior_smoother",
   },
   action: {
-    variable: "medication_adherence",
+    variable: "adherence",
     mode: "shift",
-    amount: 1.0,
+    amount: 0.5,
   },
-  outcome: "cardiovascular_risk",
+  outcome: "affective_state",
   estimand: "trajectory",
-  baseline_forecast_mean: factualEq.cardiovascular_risk,
+  baseline_forecast_mean: factualEq.affective_state,
   summary: {
-    mean: -0.296,
-    median: -0.29,
-    lower_95: -0.47,
-    upper_95: -0.12,
-    prob_positive: 0.03,
+    mean: 0.24,
+    median: 0.23,
+    lower_95: 0.08,
+    upper_95: 0.39,
+    prob_positive: 0.96,
   },
-  effect_trajectory: toEffectTrajectory(
-    rung3Days,
-    rung3NodeEffects.cardiovascular_risk,
-  ),
+  effect_trajectory: toEffectTrajectory(rung3Days, rung3NodeEffects.affective_state),
   visualization: {
     reference_node_trajectories: factualTrajectories,
     action_node_trajectories: counterfactualTrajectories,
@@ -290,13 +280,13 @@ export const mockTrace: LLMTrace = {
     {
       role: "system",
       content:
-        "You are generating the baseline treatment ranking for Stage 6 of a causal state-space model. Compute do-operator steady-state effects for all identifiable treatments.",
+        "You are generating follow-up simulations for Stage 6 of a causal state-space model. Compute intervention and counterfactual trajectories over the fitted latent graph.",
       tool_is_error: false,
     },
     {
       role: "assistant",
       content:
-        "Lipid burden shows the strongest positive effect on cardiovascular risk (\u03C4\u0302 = 0.43, 95% CI [0.19, 0.71]) via its causal chain through vascular inflammation. Medication adherence has the strongest protective effect (\u03C4\u0302 = \u22120.34) via simultaneous reduction of lipid burden, glycemic dysregulation, and arterial pressure. Arterial pressure and vascular inflammation have comparable direct effects (\u03C4\u0302 \u2248 0.36\u20130.38).\n\nYou can now run rung 2 interventional queries (for example, what happens if we shift lipid burden by +1?) or rung 3 counterfactual queries (for example, what would have happened had medication adherence been higher?).",
+        "The escitalopram exposure path has a positive projected effect on affective state, with downstream movement through sleep quality and physical activity. A counterfactual adherence increase raises serotonergic exposure and improves the affective-state trajectory relative to the factual forecast.",
       tool_is_error: false,
     },
   ],

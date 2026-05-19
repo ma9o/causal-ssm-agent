@@ -358,38 +358,6 @@ def advance_support_observation_state(
     )
 
 
-def support_observation_log_prob(
-    observation_operator: ObservationOperator,
-    obs_kernel: ObservationKernel,
-    mean_log_prob_fn: Callable,
-    observation: jnp.ndarray,
-    obs_mask_t: jnp.ndarray,
-    latent_state: jnp.ndarray,
-    H: jnp.ndarray,
-    d_meas: jnp.ndarray,
-    R: jnp.ndarray,
-    summary: SupportObservationSummary,
-) -> jnp.ndarray:
-    """Compute one support-aware observation log-probability increment."""
-    dtype = summary.expected_mean.dtype
-    obs_mask_float = jnp.asarray(obs_mask_t, dtype=dtype)
-    point_ll = obs_kernel.emission_fn(
-        observation,
-        latent_state,
-        H,
-        d_meas,
-        R,
-        obs_mask_float * observation_operator.point_like_mask(dtype),
-    )
-    interval_summary_ll = mean_log_prob_fn(
-        observation,
-        summary.expected_mean,
-        R,
-        summary.emitted_interval_summary_mask,
-    )
-    return point_ll + interval_summary_ll
-
-
 def _project_response_trajectory_with_operator(
     response_trajectory: jnp.ndarray,
     observation_operator: ObservationOperator,

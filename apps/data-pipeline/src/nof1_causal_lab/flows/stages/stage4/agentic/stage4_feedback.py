@@ -18,7 +18,6 @@ Stage4ValidationStatus = Literal[
     "accepted_pending_priors",
     "compile_error",
     "prior_predictive_failure",
-    "sensitivity_failure",
     "partial_drift_failure",
     "repair_campaign_active",
     "repair_campaign_progress",
@@ -306,8 +305,6 @@ def _validation_summary(
         if failing_parameters:
             return "Prior predictive validation failed for active or related parameters."
         return "Prior predictive validation failed."
-    if status == "sensitivity_failure":
-        return "Jacobian sensitivity validation found a weak coupled parameter direction."
     if status == "accepted_pending_priors":
         return "Current state was accepted, but the full prior inventory is still incomplete."
     if status == "repair_campaign_active":

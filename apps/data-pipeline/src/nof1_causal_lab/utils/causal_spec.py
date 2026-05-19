@@ -22,11 +22,6 @@ def get_constructs(causal_spec: dict) -> list[dict]:
     return causal_spec.get("latent", {}).get("constructs", [])
 
 
-def get_edges(causal_spec: dict) -> list[dict]:
-    """Get latent DAG edges from a CausalSpec dict."""
-    return causal_spec.get("latent", {}).get("edges", [])
-
-
 def get_indicators(causal_spec: dict) -> list[dict]:
     """Get indicators from a CausalSpec dict."""
     return causal_spec.get("measurement", {}).get("indicators", [])

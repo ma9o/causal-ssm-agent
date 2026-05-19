@@ -1,4 +1,4 @@
-"""Shared DEMO_HEALTH fixture utilities for tests and evals."""
+"""Shared DEMO fixture utilities for tests and evals."""
 
 from __future__ import annotations
 
@@ -11,18 +11,13 @@ import polars as pl
 
 from nof1_causal_lab.utils.causal_spec import get_indicators
 
-FIXTURE_USER_ID = "DEMO_HEALTH"
+FIXTURE_USER_ID = "DEMO"
 EXPECTED_STAGE2_COLUMNS = ["indicator", "value", "anchor_time"]
-EXPECTED_SCHEMA_OVERRIDES = {
-    "indicator": pl.String,
-    "value": pl.Float64,
-    "anchor_time": pl.String,
-}
 
 
 @dataclass(frozen=True)
 class DemoHealthFixture:
-    """Tracked DEMO_HEALTH fixture inputs."""
+    """Tracked DEMO fixture inputs."""
 
     fixture_dir: Path
     run_dir: Path
@@ -51,7 +46,7 @@ class ComparisonLevel:
 
 @dataclass(frozen=True)
 class DemoHealthComparison:
-    """Ordered comparison result for the DEMO_HEALTH fixture."""
+    """Ordered comparison result for the DEMO fixture."""
 
     levels: tuple[ComparisonLevel, ...]
     summary: dict[str, Any]
@@ -67,7 +62,7 @@ class DemoHealthComparison:
 
     def format_report(self, *, max_issues_per_level: int = 8) -> str:
         lines = [
-            "DEMO_HEALTH comparison summary",
+            "DEMO comparison summary",
             f"- rows: {self.summary['actual_rows']} actual vs {self.summary['expected_rows']} expected",
             f"- stage1b indicators: {self.summary['actual_indicator_count']} actual vs {self.summary['expected_indicator_count']} expected",
             f"- rank key: {self.rank_key()} (lower is better)",
@@ -97,10 +92,8 @@ def _find_fixture_dir() -> Path:
 
 
 def _load_expected_table(fixture_dir: Path) -> pl.DataFrame:
-    return pl.read_csv(
-        fixture_dir / "expected-stage2-model-data.csv",
-        null_values="",
-        schema_overrides=EXPECTED_SCHEMA_OVERRIDES,
+    return pl.read_parquet(fixture_dir / "run" / "stage2-model-data.parquet").select(
+        EXPECTED_STAGE2_COLUMNS
     )
 
 
@@ -116,7 +109,7 @@ def _column_descriptions_from_stage0_payload(stage0_payload: dict[str, Any]) -> 
 
 
 def load_demo_health_fixture() -> DemoHealthFixture:
-    """Load the tracked DEMO_HEALTH fixture inputs."""
+    """Load the tracked DEMO fixture inputs."""
 
     fixture_dir = _find_fixture_dir()
     run_dir = fixture_dir / "run"
@@ -236,7 +229,7 @@ def compare_demo_health_outputs(
         levels=(
             ComparisonLevel(
                 name="stage1b_surface",
-                description="Indicator identity expected by the DEMO_HEALTH fixture.",
+                description="Indicator identity expected by the DEMO fixture.",
                 issues=tuple(stage1b_surface_issues),
             ),
             ComparisonLevel(

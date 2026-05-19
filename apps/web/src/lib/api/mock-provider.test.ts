@@ -49,7 +49,7 @@ describe("getMockFixture", () => {
     [undefined, "DEFAULT"],
     ["", "DEFAULT"],
     ["true", "DEFAULT"],
-    ["demo_health", "DEMO_HEALTH"],
+    ["demo_health", "DEMO"],
   ])("maps NEXT_PUBLIC_MOCK_DATA=%s to fixture %s", (value, expected) => {
     if (value === undefined) {
       unsetEnv("NEXT_PUBLIC_MOCK_DATA");

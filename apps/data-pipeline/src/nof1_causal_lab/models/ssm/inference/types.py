@@ -30,10 +30,9 @@ logger = get_prefect_logger(__name__)
 
 
 InferenceMethod = Literal[
-    "particle_mgrad",
-    "aux_gibbs",
+    "pit_particle_mgrad",
+    "aux_kalman_mcmc",
     "map",
-    "svi",
 ]
 
 
@@ -59,7 +58,7 @@ class InferenceResult:
 
     def get_mcmc_diagnostics(self) -> dict[str, Any] | None:
         """Extract JSON-serializable MCMC diagnostics."""
-        if self.method in ("svi", "map"):
+        if self.method == "map":
             return None
 
         mcmc = self.diagnostics.get("mcmc")
@@ -102,7 +101,7 @@ class InferenceResult:
 
         import arviz as az
 
-        if getattr(mcmc, "backend", None) in {"aux_gibbs", "particle_mgrad"}:
+        if getattr(mcmc, "backend", None) in {"aux_kalman_mcmc", "pit_particle_mgrad"}:
             idata = _arviz_idata_from_posterior(chain_samples)
         else:
             idata = az.from_numpyro(mcmc)
@@ -166,17 +165,6 @@ class InferenceResult:
             "n_particles": int(self.diagnostics.get("n_csmc_particles", 0)),
         }
 
-    def get_svi_diagnostics(self) -> dict[str, Any] | None:
-        """Extract JSON-serializable SVI diagnostics (ELBO loss curve)."""
-        if self.method != "svi":
-            return None
-
-        losses = self.diagnostics.get("losses")
-        if losses is None:
-            return None
-
-        return {"elbo_losses": [float(v) for v in losses]}
-
     def get_loo_diagnostics(
         self,
         model_fn: Any = None,
@@ -233,7 +221,7 @@ class InferenceResult:
                 n_chains, n_per_chain, n_timesteps
             )
             if mcmc is not None:
-                if getattr(mcmc, "backend", None) in {"aux_gibbs", "particle_mgrad"}:
+                if getattr(mcmc, "backend", None) in {"aux_kalman_mcmc", "pit_particle_mgrad"}:
                     chain_samples = mcmc.get_samples(group_by_chain=True)
                     if public_sites is not None:
                         chain_samples = _filter_public_samples(chain_samples, set(public_sites))
@@ -260,7 +248,7 @@ class InferenceResult:
                 )
             ll_per_timestep_found = True
         elif mcmc is not None:
-            if getattr(mcmc, "backend", None) in {"aux_gibbs", "particle_mgrad"}:
+            if getattr(mcmc, "backend", None) in {"aux_kalman_mcmc", "pit_particle_mgrad"}:
                 chain_samples = mcmc.get_samples(group_by_chain=True)
                 if public_sites is not None:
                     chain_samples = _filter_public_samples(chain_samples, set(public_sites))

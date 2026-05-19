@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage5bAuxGibbs } from "@/components/__fixtures__/inference-data";
+import { stage5bAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
-const ppc = stage5bAuxGibbs.ppc!;
+const ppc = stage5bAuxKalmanMCMC.ppc!;
 
 const meta = {
   title: "Stages/Inference/PPCWarningsTable",

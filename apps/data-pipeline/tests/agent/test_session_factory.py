@@ -91,17 +91,6 @@ class TestHarnessDispatch:
     def test_claude_code_dispatches_with_merged_kwargs(self, monkeypatch):
         captured: dict = {}
 
-        async def fake_opener(**kwargs):
-            captured.update(kwargs)
-
-            class _Stub:
-                result = None
-
-                async def aclose(self):
-                    return None
-
-            return _Stub()
-
         # Replace the opener with a stub that records its kwargs. The
         # real opener is an async context manager; wrap the stub.
         from contextlib import asynccontextmanager

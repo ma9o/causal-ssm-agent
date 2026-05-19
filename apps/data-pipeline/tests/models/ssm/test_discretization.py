@@ -257,9 +257,7 @@ class TestDiscretizeSystemBatched:
         u = jnp.array([[1.0], [3.0]])
         dts = jnp.array([0.5, 2.0])
 
-        _Ad, _Qd, cd = discretize_system_with_inputs_batched(
-            A, Q, jnp.array([0.0]), B, u, dts
-        )
+        _Ad, _Qd, cd = discretize_system_with_inputs_batched(A, Q, jnp.array([0.0]), B, u, dts)
 
         assert cd is not None
         assert cd.shape == (2, 1)

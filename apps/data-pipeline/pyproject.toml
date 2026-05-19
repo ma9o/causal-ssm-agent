@@ -59,6 +59,7 @@ dev = [
     "pytest-timeout>=2.3.1",
     "pytest-xdist>=3.6.1",
     "ruff>=0.9.0",
+    "vulture>=2.14",
 ]
 
 [tool.ruff]
@@ -125,6 +126,40 @@ known-first-party = ["nof1_causal_lab"]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
+
+[tool.vulture]
+paths = ["src", "tests", "evals", "scripts", "notebooks"]
+min_confidence = 60
+sort_by_size = true
+ignore_decorators = [
+    "@task",
+    "@flow",
+    "@pytest.fixture",
+    "@solver",
+    "@scorer",
+    "@app.*",
+    "@router.*",
+    "@register_*",
+    "@field_validator",
+    "@model_validator",
+    "@validator",
+    "@root_validator",
+    "@computed_field",
+    "@property",
+    "@*.defjvp",
+    "@*.defvjp",
+    "@*.list_tools",
+    "@*.call_tool",
+]
+ignore_names = [
+    "test_*",
+    "model",
+    "model_config",
+    "pytestmark",
+    "exc_type",
+    "exc_val",
+    "exc_tb",
+]
 
 [tool.pytest.ini_options]
 addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10"

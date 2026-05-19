@@ -12,7 +12,7 @@ pytestmark = pytest.mark.slow
 
 
 class _FakeBlockedMCMC:
-    backend = "aux_gibbs"
+    backend = "aux_kalman_mcmc"
 
     def __init__(self, chain_samples, extra_fields):
         self._chain_samples = chain_samples
@@ -61,7 +61,7 @@ def mcmc_result():
 
     return InferenceResult(
         _samples=mcmc.get_samples(),
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         diagnostics={"mcmc": mcmc},
     )
 

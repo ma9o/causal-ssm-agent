@@ -223,12 +223,11 @@ def valid_stage_payloads() -> dict[str, dict]:
                 "test_stats": [],
             },
             "inference_metadata": {
-                "method": "svi",
+                "method": "map",
                 "n_samples": 1000,
                 "duration_seconds": 1.2,
             },
             "mcmc_diagnostics": None,
-            "svi_diagnostics": None,
             "loo_diagnostics": None,
             "posterior_marginals": None,
             "posterior_pairs": None,

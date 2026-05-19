@@ -1,6 +1,6 @@
 import type { Stage1aData, Stage1bData } from "@nof1-causal-lab/api-types";
-import stage1aFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1a.json";
-import stage1bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1b.json";
+import stage1aFixture from "../../../../../../data/DEMO/run/stage-1a.json";
+import stage1bFixture from "../../../../../../data/DEMO/run/stage-1b.json";
 import type { ConstructStatus } from "../construct-node";
 
 const stage1a = stage1aFixture as unknown as Stage1aData;

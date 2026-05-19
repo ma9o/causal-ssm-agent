@@ -7,12 +7,12 @@ import {
   stageStoryDecorators,
 } from "../stage-story-helpers";
 import Stage5bContent from "./stage-5b-content";
-import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-5b.json";
-import auxGibbsFixture from "../../../../../../data/DEMO_HEALTH/run/stage-5b-aux-gibbs.json";
+import fixture from "../../../../../../data/DEMO/run/stage-5b.json";
+import auxKalmanMCMCFixture from "../../../../../../data/DEMO/run/stage-5b.json";
 
 const stage = STAGES.find((s) => s.id === "stage-5b")!;
 const data = fixture as Stage5bData;
-const auxGibbsData = auxGibbsFixture as Stage5bData;
+const auxKalmanMCMCData = auxKalmanMCMCFixture as Stage5bData;
 
 const meta = {
   title: "Pipeline/Stages/5b – Inference & Diagnostics",
@@ -35,11 +35,11 @@ export const CompletedMAP = createCompletedStageStory({
   renderContent: (args) => <Stage5bContent {...args} />,
 });
 
-export const CompletedAuxGibbs = createCompletedStageStory({
-  name: "Completed (Aux Gibbs)",
+export const CompletedAuxKalmanMCMC = createCompletedStageStory({
+  name: "Completed (Auxiliary Kalman MCMC)",
   stage,
-  args: { data: auxGibbsData, workspaceId: "demo-user" },
-  outcome: auxGibbsData.outcome,
+  args: { data: auxKalmanMCMCData, workspaceId: "demo-user" },
+  outcome: auxKalmanMCMCData.outcome,
   elapsedMs: 342_000,
   renderContent: (args) => <Stage5bContent {...args} />,
 });

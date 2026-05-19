@@ -7,8 +7,8 @@ Returns the (T,) cumulative log-normalizing-constant array from the filter.
 The total log-likelihood is lnc[-1]; per-timestep one-step-ahead predictive
 log-likelihoods are jnp.diff(lnc, prepend=0.0).
 
-Used by ParticleLikelihood to integrate out latent states via bootstrap PF
-and inject the result into NumPyro models via numpyro.factor().
+Used by Laplace likelihood backends to inject marginalized state likelihoods
+into NumPyro models via numpyro.factor().
 """
 
 from typing import NamedTuple, Protocol
@@ -21,7 +21,6 @@ NUMERICAL_EPSILON = 1e-10
 PROB_CLIP_MIN = 1e-7
 ETA_CLIP_MIN = 1e-6
 
-LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT = 0
 LIKELIHOOD_SOLVER_KIND_POINT_IEKS = 1
 LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS = 2
 LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT = 3
@@ -89,8 +88,6 @@ class LikelihoodBackend(Protocol):
     - diff(lnc) = per-timestep one-step-ahead predictive log p(y_t|y_{1:t-1},θ),
       used for LOO-CV via the innovation decomposition
 
-    Implementation:
-    - ParticleLikelihood: Universal backend via differentiable bootstrap PF (cuthbert SMC)
     """
 
     checkpoint_loglik: bool

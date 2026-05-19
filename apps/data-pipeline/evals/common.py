@@ -16,10 +16,8 @@ from inspect_ai.model import (
     GenerateConfig,
     Model,
     execute_tools,
-    get_model,
 )
 from inspect_ai.scorer import Score
-from inspect_ai.solver import Generate, TaskState, solver
 from inspect_ai.tool import Tool
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -217,39 +215,6 @@ class EvalQuestion:
         """Has model_spec + priors + causal_spec (all Stage 4 artifacts)."""
         return self.has_model_spec and self.has_priors and self.has_causal_spec
 
-    # ── loaders ──
-
-    def load_latent_model(self) -> dict:
-        with (self.dir / "latent_model.json").open() as f:
-            return json.load(f)
-
-    def load_causal_spec(self) -> dict:
-        with (self.dir / "causal_spec.json").open() as f:
-            return json.load(f)
-
-    def load_model_spec(self) -> dict:
-        with (self.dir / "model_spec.json").open() as f:
-            return json.load(f)
-
-    def save_model_spec(self, spec: dict) -> Path:
-        path = self.dir / "model_spec.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w") as f:
-            json.dump(spec, f, indent=2)
-        return path
-
-    def load_priors(self) -> dict:
-        with (self.dir / "priors.json").open() as f:
-            return json.load(f)
-
-    def save_priors(self, priors: dict) -> Path:
-        path = self.dir / "priors.json"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w") as f:
-            json.dump(priors, f, indent=2)
-        return path
-
-
 def discover_questions() -> list[EvalQuestion]:
     """Discover all eval questions from the filesystem.
 
@@ -269,31 +234,6 @@ def discover_questions() -> list[EvalQuestion]:
             )
         )
     return questions
-
-
-def get_questions_with_latent_model() -> list[EvalQuestion]:
-    """Return questions that have a latent_model.json artifact."""
-    return [q for q in discover_questions() if q.has_latent_model]
-
-
-def get_questions_with_causal_spec() -> list[EvalQuestion]:
-    """Return questions that have a causal_spec.json artifact."""
-    return [q for q in discover_questions() if q.has_causal_spec]
-
-
-def get_questions_with_model_spec() -> list[EvalQuestion]:
-    """Return questions that have a model_spec.json artifact."""
-    return [q for q in discover_questions() if q.has_model_spec]
-
-
-def get_questions_with_model_spec_and_causal_spec() -> list[EvalQuestion]:
-    """Return questions that have both model_spec.json and causal_spec.json."""
-    return [q for q in discover_questions() if q.has_model_spec and q.has_causal_spec]
-
-
-def get_questions_with_full_spec() -> list[EvalQuestion]:
-    """Return questions that have model_spec + priors + causal_spec."""
-    return [q for q in discover_questions() if q.has_full_spec]
 
 
 def select_question(questions: list[EvalQuestion], selector: str) -> EvalQuestion:
@@ -407,42 +347,6 @@ def make_generate_fn(
         return response.completion
 
     return generate
-
-
-def tool_assisted_generate(
-    tools: list[Tool],
-    follow_ups: list[str] | None = None,
-):
-    """Solver that runs multi-turn generation with tools.
-
-    Uses multi_turn_generate with tools, ensuring evals test
-    the exact same logic as production.
-
-    Args:
-        tools: List of tools available to the model
-        follow_ups: Optional follow-up prompts after initial response
-    """
-
-    @solver
-    def _solver():
-        async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
-            model = get_model()
-            config = get_generate_config()
-
-            completion = await multi_turn_generate(
-                messages=list(state.messages),
-                model=model,
-                follow_ups=follow_ups,
-                tools=tools,
-                config=config,
-            )
-
-            state.output.completion = completion
-            return state
-
-        return solve
-
-    return _solver()
 
 
 def resolve_eval_workspace_id(workspace_id: str | None = None) -> str:

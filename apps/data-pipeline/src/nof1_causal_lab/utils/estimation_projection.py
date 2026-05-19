@@ -55,9 +55,7 @@ def build_estimation_projection(
     observed_constructs = get_observed_constructs(measurement_model)
     known_input_payloads = [dict(item) for item in (known_inputs or [])]
     known_input_names = {
-        item["construct"]
-        for item in known_input_payloads
-        if isinstance(item.get("construct"), str)
+        item["construct"] for item in known_input_payloads if isinstance(item.get("construct"), str)
     }
 
     analysis = analyze_unobserved_constructs(

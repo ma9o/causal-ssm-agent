@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
-import { authorizeWorkspaceInSession, hasWorkspaceSessionAccess } from "@/lib/server/workspace-session";
+import { isSharedWorkspaceId, resolveSharedWorkspaceId } from "@/lib/shared-workspaces";
+import {
+  authorizeWorkspaceInSession,
+  hasWorkspaceSessionAccess,
+} from "@/lib/server/workspace-session";
 import {
   authorizeWorkspaceForOpenRouterUser,
   hasOpenRouterWorkspaceAccess,
@@ -10,10 +13,6 @@ import {
 import { prefixExists } from "@/lib/storage";
 
 const MAX_WORKSPACE_ID_LENGTH = 200;
-
-export type WorkspaceAccessDecision =
-  | { ok: true }
-  | { ok: false; response: NextResponse };
 
 export type WorkspaceAccessOptions = {
   allowCreate?: boolean;
@@ -40,7 +39,7 @@ export function normalizeWorkspaceId(value: string): string | null {
   return trimmed;
 }
 
-function deny403(): WorkspaceAccessDecision {
+function deny403(): { ok: false; response: NextResponse } {
   return {
     ok: false,
     response: NextResponse.json({ error: "Workspace access denied" }, { status: 403 }),
@@ -81,8 +80,11 @@ export async function authorizeWorkspaceRequest(
 ): Promise<AuthorizedWorkspaceRequestResult> {
   const { allowCreate = false } = options;
 
-  if (isSharedWorkspaceId(workspaceId)) {
-    return allowCreate ? deny403() : { ok: true, workspaceId, creationPending: false };
+  const sharedWorkspaceId = resolveSharedWorkspaceId(workspaceId);
+  if (sharedWorkspaceId) {
+    return allowCreate
+      ? deny403()
+      : { ok: true, workspaceId: sharedWorkspaceId, creationPending: false };
   }
 
   const ownership = await resolveWorkspaceOwnershipContext();
@@ -141,7 +143,7 @@ export async function requireWorkspaceAccess(
 
   return {
     ok: true,
-    workspaceId,
+    workspaceId: authorization.workspaceId,
     creationPending: authorization.creationPending,
   };
 }

@@ -54,18 +54,15 @@ class ObservationKernel:
     """Pre-resolved observation model for SSM inference.
 
     Built once from DistributionFamily + LinkFunction + sampled hyperparameters.
-    Consumed by all inference backends (RBPF, block RBPF, bootstrap PF,
-    MAP, SVI, blocked MCMC).
+    Consumed by the marginal likelihood and blocked MCMC backends.
 
     Attributes:
         emission_fn: Log-probability (y, z, H, d, R, mask) -> scalar.
         response_fn: Inverse link, maps linear predictor to mean (elementwise).
         variance_fn: Maps predicted mean to (n_m, n_m) pseudo-covariance for
             EKF linearization. Diagonal for GLM families; full manifest_cov
-            for Gaussian/Student-t. Not used when is_gaussian is True (callers
-            take the exact Kalman path), but available for uniformity.
-        is_gaussian: If True, callers should use exact Kalman update/marginal
-            instead of EKF linearization + quadrature.
+            for Gaussian/Student-t.
+        is_gaussian: Whether the observation family is Gaussian.
     """
 
     emission_fn: Callable
@@ -84,7 +81,7 @@ class TransitionKernel:
 
     Attributes:
         sample_noise_fn: (key, chol_Q) -> (n,) noise vector (Cholesky applied).
-        is_gaussian: Whether dynamics are Gaussian (enables Rao-Blackwellization).
+        is_gaussian: Whether dynamics are Gaussian.
     """
 
     sample_noise_fn: Callable

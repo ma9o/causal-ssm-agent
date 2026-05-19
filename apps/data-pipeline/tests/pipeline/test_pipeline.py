@@ -160,7 +160,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         return Stage5bContract(
             power_scaling=[],
             ppc={"checked": False, "per_variable_warnings": []},
-            inference_metadata={"method": "svi", "n_samples": 0, "duration_seconds": 0.0},
+            inference_metadata={"method": "map", "n_samples": 0, "duration_seconds": 0.0},
         )
 
     async def stage6(
@@ -493,23 +493,6 @@ def test_run_stage_flow_emits_stage4_initial_replay_state_before_runner(monkeypa
         ),
         ("runner", "root-run-123"),
     ]
-
-
-def _stub_stage0_result():
-    return {
-        "outcome": "success",
-        "source_label": "stub",
-        "n_records": 1,
-        "n_columns": 2,
-        "date_range": {"start": "2024-01-01", "end": "2024-01-01"},
-        "sample": [],
-        "column_descriptions": [
-            {"name": "timestamp", "description": "ts"},
-            {"name": "value", "description": "val"},
-        ],
-        "_df": pl.DataFrame({"timestamp": ["2024-01-01"], "value": ["1"]}),
-        "_column_descriptions": {},
-    }
 
 
 def _stub_stage1a_result():
@@ -1020,7 +1003,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     stage5b_contract = Stage5bContract(
         power_scaling=[],
         ppc={"checked": True, "per_variable_warnings": []},
-        inference_metadata={"method": "svi", "n_samples": 100, "duration_seconds": 1.0},
+        inference_metadata={"method": "map", "n_samples": 100, "duration_seconds": 1.0},
     )
     result = asyncio.run(
         dag.stage6(
@@ -1612,9 +1595,8 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
                     }
                 ],
             },
-            "inference_metadata": {"method": "svi", "n_samples": 100, "duration_seconds": 5.0},
+            "inference_metadata": {"method": "map", "n_samples": 100, "duration_seconds": 5.0},
             "mcmc_diagnostics": None,
-            "svi_diagnostics": {"elbo_losses": [1.0]},
             "smc_diagnostics": None,
             "loo_diagnostics": None,
             "posterior_marginals": None,
@@ -1627,8 +1609,6 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
     assert isinstance(state, Stage5bContract)
     assert state.power_scaling[0].diagnosis == "prior_dominated"
     assert state.ppc.checked is True
-    assert state.svi_diagnostics is not None
-    assert state.svi_diagnostics.elbo_losses == [1.0]
 
 
 def test_stage5b_uses_fit_metadata(monkeypatch):
@@ -1646,13 +1626,12 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
             "fitted": True,
             "n_samples": 654,
             "duration_seconds": 7.5,
-            "inference_type": "svi",
+            "inference_type": "map",
             "result": None,
             "builder": None,
             "runtime": SimpleNamespace(observation_support=None),
             "times": np.array([0.0]),
             "mcmc_diagnostics": None,
-            "svi_diagnostics": {"elbo_losses": [1.0]},
             "smc_diagnostics": None,
             "loo_diagnostics": None,
             "posterior_marginals": [],
@@ -1671,7 +1650,8 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
-                to_sampler_config=lambda method_override=None: {"method": method_override or "map"}
+                to_sampler_config=lambda method_override=None: {"method": method_override or "map"},
+                compute_loo_diagnostics=False,
             )
         ),
     )
@@ -1699,13 +1679,13 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         _s4,
         _s2,
         workspace_id="test-workspace",
-        inference_method="svi",
+        inference_method="map",
     )
 
     assert isinstance(result, Stage5bContract)
     result_dict = result.model_dump(mode="json")
     assert result_dict["inference_metadata"] == {
-        "method": "svi",
+        "method": "map",
         "n_samples": 654,
         "duration_seconds": 7.5,
     }
@@ -1747,7 +1727,8 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
-                to_sampler_config=lambda method_override=None: {"method": method_override or "map"}
+                to_sampler_config=lambda method_override=None: {"method": method_override or "map"},
+                compute_loo_diagnostics=False,
             )
         ),
     )
@@ -1775,7 +1756,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         _s4,
         _s2,
         workspace_id="test-workspace",
-        inference_method="svi",
+        inference_method="map",
     )
 
     assert isinstance(result, Stage5bContract)
@@ -1791,7 +1772,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         "n_subsample": None,
     }
     assert result_dict["inference_metadata"] == {
-        "method": "svi",
+        "method": "map",
         "n_samples": 0,
         "duration_seconds": 2.5,
     }
@@ -1813,21 +1794,6 @@ class _AsyncSubflowStub:
         return self.result
 
     async def fn(self, *args, **kwargs):
-        self.fn_calls.append((args, kwargs))
-        raise AssertionError("subflow should be invoked directly, not via .fn")
-
-
-class _SyncSubflowStub:
-    def __init__(self, result: dict):
-        self.result = result
-        self.calls: list[tuple[tuple, dict]] = []
-        self.fn_calls: list[tuple[tuple, dict]] = []
-
-    def __call__(self, *args, **kwargs):
-        self.calls.append((args, kwargs))
-        return self.result
-
-    def fn(self, *args, **kwargs):
         self.fn_calls.append((args, kwargs))
         raise AssertionError("subflow should be invoked directly, not via .fn")
 
@@ -2229,5 +2195,3 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
 
     assert len(stub.calls) == 1
     assert stub.calls[0][1]["openrouter_api_key"] == "explicit-key"
-
-

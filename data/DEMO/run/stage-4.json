@@ -55398,7 +55398,7 @@
       },
       {
         "role": "tool",
-        "content": "submit_model_configuration: ok. 25 likelihoods accepted, 76 parameters accepted under {stationary, free, equilibrium_forcing=False}. Compile: 0 errors. Prior predictive simulation passed (numerical health, constraint satisfaction, dynamics stability, scale plausibility). 14 non-fatal warnings emitted: 5 interval_reference_mismatch (long-interval cited evidence rescaled to the 1-day model interval; rescaling reasoning is documented in the prior `reasoning` fields), 8 dt_ct_approximation_warning (exact matrix-log CT coupling deviates 30-40% from the elementwise beta/dt approximation at this latent-state count and beta magnitude \u2014 within the framework's linear-regime tolerance for downstream inference), 1 scale_mismatch (proportion_days_covered implied stationary SD is wider than the empirical near-constant 0.0071 \u2014 flagged because the patient has \u2248 93% PDC throughout). Output sensitivity check deferred to Stage 4b for the parametric identifiability sweep.",
+        "content": "submit_model_configuration: ok. 25 likelihoods accepted, 76 parameters accepted under {stationary, free, equilibrium_forcing=False}. Compile: 0 errors. Prior predictive simulation passed (numerical health, constraint satisfaction, dynamics stability, scale plausibility). 14 non-fatal warnings emitted: 5 interval_reference_mismatch (long-interval cited evidence rescaled to the 1-day model interval; rescaling reasoning is documented in the prior `reasoning` fields), 8 dt_ct_approximation_warning (exact matrix-log CT coupling deviates 30-40% from the elementwise beta/dt approximation at this latent-state count and beta magnitude \u2014 within the framework's linear-regime tolerance for downstream inference), 1 scale_mismatch (proportion_days_covered implied stationary SD is wider than the empirical near-constant 0.0071 \u2014 flagged because the patient has \u2248 93% PDC throughout). These warnings are retained on the Stage 4 artifact.",
         "reasoning": null,
         "tool_calls": null,
         "tool_name": "submit_model_configuration",
@@ -55407,7 +55407,7 @@
       },
       {
         "role": "assistant",
-        "content": "Stage 4 locked. ModelSpec + authored priors compiled successfully and pass prior predictive validation. The 14 warnings are informational rather than blocking: they either flag honest rescaling decisions (daily-scale priors anchored on longer-interval evidence) or identify near-constant indicators (the patient's PDC) where the latent variability is genuinely small. Hand-off to Stage 4b (parametric identifiability sweep) and Stage 5a (SVI preflight).",
+        "content": "Stage 4 locked. ModelSpec + authored priors compiled successfully and pass prior predictive validation. The 14 warnings are informational rather than blocking: they either flag honest rescaling decisions (daily-scale priors anchored on longer-interval evidence) or identify near-constant indicators (the patient's PDC) where the latent variability is genuinely small. The run is ready for Stage 5b inference.",
         "reasoning": null,
         "tool_calls": null,
         "tool_name": null,

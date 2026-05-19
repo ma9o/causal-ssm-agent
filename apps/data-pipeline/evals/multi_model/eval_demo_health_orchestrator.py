@@ -1,7 +1,7 @@
-"""Inspect AI evaluation for orchestrator models on the DEMO_HEALTH fixture.
+"""Inspect AI evaluation for orchestrator models on the DEMO fixture.
 
 Ranks competing orchestrator models on how well they reproduce the fixed
-DEMO_HEALTH Stage 2 fixture after running the real Stage 1a -> 1b -> 2
+DEMO Stage 2 fixture after running the real Stage 1a -> 1b -> 2
 domain components against a fixed Stage 0 parquet and fixed worker model.
 
 Usage:
@@ -59,7 +59,7 @@ You are an expert evaluator assessing which orchestrator model best reproduces a
 fixed Stage 2 fixture.
 
 Each candidate used:
-- the same fixed DEMO_HEALTH Stage 0 parquet and question
+- the same fixed DEMO Stage 0 parquet and question
 - the same fixed Stage 2 worker model
 - the same production Stage 1a, Stage 1b, and Stage 2 domain components
 
@@ -116,7 +116,7 @@ class CandidateRun:
 
 
 def create_eval_dataset() -> MemoryDataset:
-    """Create the fixed DEMO_HEALTH eval dataset."""
+    """Create the fixed DEMO eval dataset."""
     fixture = load_demo_health_fixture()
     return MemoryDataset(
         [
@@ -413,7 +413,7 @@ def demo_health_orchestrator_eval(
     candidate_timeout_seconds: float | None = None,
     chunk_timeout_seconds: float | None = None,
 ):
-    """Judge-rank orchestrator models on DEMO_HEALTH fixture reproduction."""
+    """Judge-rank orchestrator models on DEMO fixture reproduction."""
     model_ids = parse_csv_task_arg(models)
     return Task(
         dataset=create_eval_dataset(),

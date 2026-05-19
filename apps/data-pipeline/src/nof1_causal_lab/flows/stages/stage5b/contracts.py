@@ -21,7 +21,6 @@ from nof1_causal_lab.models.ssm.inference.schemas import (  # noqa: TC001
     PosteriorMarginal,
     PosteriorPair,
     SMCDiagnostics,
-    SVIDiagnostics,
 )
 
 STAGE_ID = "stage-5b"
@@ -53,7 +52,6 @@ class Stage5bContract(BaseStageContract):
     ppc: PPCResultContract
     inference_metadata: InferenceMetadataContract
     mcmc_diagnostics: MCMCDiagnostics | None = None
-    svi_diagnostics: SVIDiagnostics | None = None
     smc_diagnostics: SMCDiagnostics | None = None
     loo_diagnostics: LOODiagnostics | None = None
     posterior_marginals: list[PosteriorMarginal] | None = None

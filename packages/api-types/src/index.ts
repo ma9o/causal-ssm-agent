@@ -71,7 +71,6 @@ export type {
   Stage3Contract as Stage3Data,
   Stage5BContract as Stage5bData,
   Stage6Contract as Stage6Data,
-  SVIDiagnostics,
   TemporalStatus,
   TraceChain,
   TraceData,

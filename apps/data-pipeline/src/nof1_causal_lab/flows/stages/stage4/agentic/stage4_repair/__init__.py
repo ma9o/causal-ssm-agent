@@ -11,7 +11,6 @@ from .localization import _localize_prior_failure, build_stage4_failure_evidence
 from .planning import build_repair_plan, get_stage4_repair_scope_strategy
 from .prior import classify_prior_failure_blocks
 from .routing import classify_validation_outcome, resolve_prior_repair_decision
-from .sensitivity import classify_sensitivity_failure_blocks
 from .types import (
     RepairReasons,
     ResolvedRepairPlan,
@@ -47,7 +46,6 @@ __all__ = [
     "build_stage4_failure_evidence",
     "classify_compile_failure_route",
     "classify_prior_failure_blocks",
-    "classify_sensitivity_failure_blocks",
     "classify_validation_outcome",
     "get_stage4_repair_scope_strategy",
     "resolve_prior_repair_decision",

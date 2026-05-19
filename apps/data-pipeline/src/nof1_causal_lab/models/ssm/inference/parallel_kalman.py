@@ -1,6 +1,6 @@
-"""Cuthbert-backed Kalman filter and RTS sampler wrappers for aux-Gibbs.
+"""Cuthbert-backed Kalman filter and RTS sampler wrappers for aux-Kalman MCMC.
 
-``aux_gibbs`` needs a compact interface that works with covariance matrices
+``aux_kalman_mcmc`` needs a compact interface that works with covariance matrices
 and returns filtered covariances/log-likelihood increments. Cuthbert's public
 Kalman API works in square-root form and returns cumulative log normalizers.
 This module is the adapter between those two interfaces.

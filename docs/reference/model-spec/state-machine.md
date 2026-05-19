@@ -93,7 +93,7 @@ On the happy path, execution is simple.
 3. It pauses and tries to lock the full `ModelSpec`.
 4. It runs `review:model_spec`.
 5. It asks for prior blocks in deterministic order.
-6. Once the required active priors exist, it runs full assembly validation and, if that passes, one unconditional Jacobian sensitivity check on the accepted compiled model.
+6. Once the required active priors exist, it runs full assembly validation.
 7. If validation succeeds, the stage finishes.
 
 Two points matter here.
@@ -177,7 +177,7 @@ At a high level, the routing policy is:
 |---|---|
 | Model-form compile issue | Reopen the responsible model block or review checkpoint. |
 | Likelihood support issue | Route back to the responsible indicator decision. |
-| Local prior issue with identifiable owning parameters | Reopen the direct writer blocks for those parameters. |
+| Local prior issue with known owning parameters | Reopen the direct writer blocks for those parameters. |
 | Drift or stability issue that spans a motif or subsystem | Escalate through increasingly wider structural scopes. |
 | Global prior-system issue | Activate the whole-system prior review block. |
 
@@ -237,7 +237,7 @@ The state machine is done only when all of these conditions hold at once.
 | No active repair campaign remains | The run is no longer inside a coordinated repair scope. |
 | Latest accepted validation is clean enough to proceed | The stage is not ending on a compile failure or unresolved prior-predictive failure. |
 
-Operationally, that means Stage 4 finishes with one accepted model form and one accepted prior system that passed both assembled prior validation and the final Jacobian sensitivity gate, not just with a sequence of accepted local edits.
+Operationally, that means Stage 4 finishes with one accepted model form and one accepted prior system that passed assembled prior validation, not just with a sequence of accepted local edits.
 
 ## 16. What This Page Intentionally Leaves Out
 

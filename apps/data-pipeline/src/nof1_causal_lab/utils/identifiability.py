@@ -523,9 +523,7 @@ def find_blocking_confounders_for_query(
         if not has_observed_child:
             continue
 
-        is_ancestor_of_treatment = (
-            treatment_node in dag and nx.has_path(dag, node, treatment_node)
-        )
+        is_ancestor_of_treatment = treatment_node in dag and nx.has_path(dag, node, treatment_node)
         reaches_outcome_via_backdoor = (
             node in dag_sans_treatment
             and outcome_node in dag_sans_treatment

@@ -7,7 +7,7 @@ import {
   stageStoryDecorators,
 } from "../stage-story-helpers";
 import Stage1aContent from "./stage-1a-content";
-import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-1a.json";
+import fixture from "../../../../../../data/DEMO/run/stage-1a.json";
 
 const stage = STAGES.find((s) => s.id === "stage-1a")!;
 const data = fixture as unknown as Stage1aData;

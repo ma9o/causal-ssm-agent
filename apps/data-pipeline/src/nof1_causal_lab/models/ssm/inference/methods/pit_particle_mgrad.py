@@ -1,4 +1,4 @@
-"""Particle-mGRAD latent sampler with MALA parameter updates."""
+"""PIT Particle-mGRAD latent sampler with MALA parameter updates."""
 
 from __future__ import annotations
 
@@ -15,14 +15,14 @@ import numpy as np
 from nof1_causal_lab.models.ssm.inference.methods.map import _build_map_laplace_bundle
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
-    AuxGibbsMCMCResult,
+    AuxKalmanMCMCResult,
     build_auxiliary_kalman_bundle,
     build_mala_parameter_kernel,
     build_nuts_parameter_kernel,
-    build_particle_mgrad_latent_kernel,
+    build_pit_particle_mgrad_latent_kernel,
     initialize_ieks_latents,
     initialize_particle_smoother_latents,
-    run_aux_gibbs,
+    run_aux_kalman_mcmc,
 )
 from nof1_causal_lab.models.ssm.inference.types import InferenceResult
 from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
@@ -61,11 +61,11 @@ def _pathfinder_init_positions(
     dtype,
     n_pathfinder_starts: int = 1,
     pathfinder_init_scale: float | None = None,
-    method_label: str = "particle_mgrad",
+    method_label: str = "pit_particle_mgrad",
 ) -> tuple[jnp.ndarray, dict[str, Any]]:
     """Run Pathfinder on the IEKS-marginal log-posterior for theta.
 
-    See the aux_gibbs twin for the multi-start (``n_pathfinder_starts > 1``)
+    See the aux_kalman_mcmc twin for the multi-start (``n_pathfinder_starts > 1``)
     semantics — same behaviour and diagnostics here.
 
     ``pathfinder_init_scale``:
@@ -88,11 +88,7 @@ def _pathfinder_init_positions(
         f"maxiter={maxiter} elbo_samples={num_elbo_samples}",
         flush=True,
     )
-    backend = (
-        model.make_likelihood_backend()
-        if model.likelihood == "kalman"
-        else model.make_laplace_backend(n_ieks_iters)
-    )
+    backend = model.make_laplace_backend(n_ieks_iters)
     laplace_bundle = _build_map_laplace_bundle(
         model, observations, times, trace_key, backend, reparam
     )
@@ -295,7 +291,7 @@ def _fit_particle_latent_mcmc(
         float(latent_delta),
         float(param_step_size),
     )
-    latent_kernel_spec = build_particle_mgrad_latent_kernel(
+    latent_kernel_spec = build_pit_particle_mgrad_latent_kernel(
         bundle,
         delta=latent_delta,
         target_accept=latent_target_accept,
@@ -442,7 +438,7 @@ def _fit_particle_latent_mcmc(
         "phase 4/5: starting MCMC kernel — first call triggers JAX JIT compile of "
         "the divide-and-conquer particle smoother (PIT dSMC) + MALA + adaptation.",
     )
-    run_result = run_aux_gibbs(
+    run_result = run_aux_kalman_mcmc(
         bundle,
         latent_kernel=latent_kernel_spec,
         parameter_kernel=parameter_kernel_spec,
@@ -488,7 +484,8 @@ def _fit_particle_latent_mcmc(
         name: values.reshape((num_chains, num_samples, *values.shape[1:]))
         for name, values in public_samples.items()
     }
-    mcmc = AuxGibbsMCMCResult(
+    diagnostic_likelihood_backend = model.make_laplace_backend(n_ieks_iters)
+    mcmc = AuxKalmanMCMCResult(
         chain_samples=grouped_public_samples,
         chain_extra_fields=run_result["chain_extra_fields"],
         num_chains=num_chains,
@@ -496,7 +493,7 @@ def _fit_particle_latent_mcmc(
         backend=method_name,
     )
     kernel_diagnostics = {
-        "latent_kernel": "particle_mgrad",
+        "latent_kernel": "pit_particle_mgrad",
         "latent_kernel_algorithm": "pit_dsmc",
         "parallel_time": True,
         "parameter_kernel": parameter_kernel,
@@ -529,7 +526,7 @@ def _fit_particle_latent_mcmc(
     diagnostics = {
         "mcmc": mcmc,
         "public_sites": sorted(bundle["public_sites"]),
-        "likelihood_backend": model.make_likelihood_backend(),
+        "likelihood_backend": diagnostic_likelihood_backend,
         diagnostics_key: kernel_diagnostics,
         "latent_posterior_summary": run_result["latent_posterior_summary"],
         "chain_complete_log_posterior_history": run_result["complete_log_posterior_history"],
@@ -554,7 +551,7 @@ def _fit_particle_latent_mcmc(
     )
 
 
-def fit_particle_mgrad(
+def fit_pit_particle_mgrad(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
@@ -591,13 +588,13 @@ def fit_particle_mgrad(
     reparam=None,
     **_kwargs,
 ) -> InferenceResult:
-    """Fit an SSM with the Particle-mGRAD latent kernel and parameter updates."""
+    """Fit an SSM with the PIT Particle-mGRAD latent kernel and parameter updates."""
     return _fit_particle_latent_mcmc(
         model,
         observations,
         times,
-        method_name="particle_mgrad",
-        diagnostics_key="particle_mgrad",
+        method_name="pit_particle_mgrad",
+        diagnostics_key="pit_particle_mgrad",
         num_particles=n_particles,
         particle_count_diagnostic_key="n_particles",
         num_warmup=num_warmup,
