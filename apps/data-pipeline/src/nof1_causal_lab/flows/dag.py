@@ -35,7 +35,6 @@ from .stage_contracts import (
     Stage1bContract,
     Stage2Contract,
     Stage3Contract,
-    Stage4bContract,
     Stage4Contract,
     Stage5bContract,
     Stage6Contract,
@@ -303,7 +302,7 @@ async def stage4(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Stage 4b: Parametric identifiability
+# Stage 5: Inference + diagnostics
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
@@ -319,35 +318,6 @@ def _load_compiled_ssm(workspace_id: str) -> dict[str, Any] | None:
 def _load_data_for_model_path(workspace_id: str) -> str:
     """Resolve the data-for-model parquet path."""
     return find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
-
-
-def stage4b(
-    stage4: Stage4Contract,
-    stage2: Stage2Contract,
-    workspace_id: str,
-    ssm_builder: Any = None,
-    root_run_id: str | None = None,
-) -> Stage4bContract:
-    """Parametric identifiability diagnostics."""
-    from .stages.stage4b.flow import run_stage4b
-
-    compiled_ssm = _load_compiled_ssm(workspace_id)
-    data_for_model_path = _load_data_for_model_path(workspace_id)
-
-    # Bridge to internal flow that expects dicts
-    result = run_stage4b(
-        {"_compiled_ssm": compiled_ssm},
-        {"_data_for_model_path": data_for_model_path},
-        ssm_builder=ssm_builder,
-        root_run_id=root_run_id,
-    )
-
-    return Stage4bContract.model_validate(_filter_to_contract(Stage4bContract, result))
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Stage 5: Inference + diagnostics
-# ═══════════════════════════════════════════════════════════════════════════════
 
 
 def stage5b(

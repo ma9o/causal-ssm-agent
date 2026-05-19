@@ -19,7 +19,6 @@ from nof1_causal_lab.flows.stage_contracts import (
     Stage1bContract,
     Stage2Contract,
     Stage3Contract,
-    Stage4bContract,
     Stage4Contract,
     Stage5bContract,
     Stage6Contract,
@@ -151,10 +150,6 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             dataset_issues=[],
         )
 
-    def stage4b(stage4, stage2, workspace_id: str, root_run_id: str | None = None):
-        calls.append(("stage4b", stage4, stage2, None, root_run_id))
-        return Stage4bContract(parametric_id={})
-
     def stage5b(
         stage4,
         stage2,
@@ -197,7 +192,6 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     monkeypatch.setattr(dag, "stage0", stage0)
     monkeypatch.setattr(dag, "stage2", stage2)
     monkeypatch.setattr(dag, "stage3", stage3)
-    monkeypatch.setattr(dag, "stage4b", stage4b)
     monkeypatch.setattr(dag, "stage5b", stage5b)
     monkeypatch.setattr(dag, "stage6", stage6)
     monkeypatch.setattr(
@@ -1637,48 +1631,6 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
     assert state.svi_diagnostics.elbo_losses == [1.0]
 
 
-def test_load_stage4b_state_reconstructs_inference_structure_from_public_payload(
-    tmp_path, monkeypatch
-):
-    monkeypatch.chdir(tmp_path)
-    _redirect_storage(monkeypatch, tmp_path)
-
-    workspace_id = "test_workspace"
-    _write_public_result(
-        tmp_path,
-        workspace_id,
-        "stage-4b",
-        {
-            "outcome": "warn",
-            "parametric_id": {
-                "checked": True,
-                "summary": {
-                    "structural_issues": ["beta_x"],
-                    "boundary_issues": [],
-                    "weak_params": ["beta_y"],
-                },
-            },
-            "inference_structure": {
-                "likelihood_path": "composed",
-                "auto_method": "aux_gibbs",
-                "first_pass_rb": {
-                    "status": "active",
-                    "latent_variables": [{"name": "x", "method": "kalman"}],
-                    "obs_variables": [{"name": "y", "method": "kalman"}],
-                },
-            },
-        },
-    )
-
-    state = stage_registry.load_stage_state(workspace_id, "stage-4b")
-
-    assert isinstance(state, Stage4bContract)
-    assert state.parametric_id.checked is True
-    assert state.inference_structure is not None
-    assert state.inference_structure.likelihood_path == "composed"
-    assert state.inference_structure.auto_method == "aux_gibbs"
-
-
 def test_stage5b_uses_fit_metadata(monkeypatch):
     data_for_model = pl.DataFrame(
         {"indicator": ["y"], "value": ["1"], "anchor_time": ["2024-01-01"]}
@@ -2279,50 +2231,3 @@ def test_stage4_accepts_explicit_openrouter_api_key(monkeypatch, tmp_path):
     assert stub.calls[0][1]["openrouter_api_key"] == "explicit-key"
 
 
-def test_stage4b_loads_model_data_and_forwards_subflow_inputs(monkeypatch, tmp_path):
-    data_path = tmp_path / "stage2-model-data.parquet"
-    pl.DataFrame(
-        {"indicator": ["stress_score"], "value": ["1.0"], "anchor_time": ["2024-01-01"]}
-    ).write_parquet(data_path)
-
-    stub = _SyncSubflowStub({"parametric_id": {"checked": True}})
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage4b.flow.stage4b_parametric_id_flow", stub
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_compiled_ssm",
-        lambda _workspace_id: "compiled-ssm",
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.dag._load_data_for_model_path",
-        lambda _workspace_id: str(data_path),
-    )
-    builder = object()
-
-    stage4_contract = Stage4Contract(
-        model_spec={"parameters": [], "likelihoods": []},
-        authored_priors={},
-        resolved_priors=[],
-    )
-    stage2_contract = Stage2Contract(workers=[])
-
-    result = dag.stage4b(
-        stage4_contract,
-        stage2_contract,
-        workspace_id="test-workspace",
-        ssm_builder=builder,
-        root_run_id="root-123",
-    )
-
-    assert len(stub.calls) == 1
-    assert stub.fn_calls == []
-    args, kwargs = stub.calls[0]
-    assert args == ()
-    assert kwargs["compiled_ssm"] == "compiled-ssm"
-    assert kwargs["builder"] is builder
-    assert kwargs["root_run_id"] == "root-123"
-    assert kwargs["data_for_model"].to_dicts() == [
-        {"indicator": "stress_score", "value": "1.0", "anchor_time": "2024-01-01"}
-    ]
-    assert isinstance(result, Stage4bContract)
-    assert result.parametric_id.checked is True

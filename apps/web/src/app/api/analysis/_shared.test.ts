@@ -328,7 +328,7 @@ describe("buildAnalysisManifest", () => {
         return jsonResponse({
           id: "resume-run",
           created: "2026-03-13T18:33:00.000Z",
-          parameters: { start_stage: "stage-4b" },
+          parameters: { start_stage: "stage-5b" },
         });
       }
 
@@ -352,12 +352,10 @@ describe("buildAnalysisManifest", () => {
           return jsonResponse(
             eventPage([
               stageEvent("stage-4", "completed", "2026-03-13T18:33:00.000Z"),
-              stageEvent("stage-4b", "running", "2026-03-13T18:33:05.000Z", {
-                stageSubflowRunId: "stage-4b-subflow",
-                logFlowRunIds: ["stage-4b-subflow"],
+              stageEvent("stage-5b", "running", "2026-03-13T18:35:10.000Z", {
+                stageSubflowRunId: "stage-5b-subflow",
+                logFlowRunIds: ["stage-5b-subflow"],
               }),
-              stageEvent("stage-4b", "completed", "2026-03-13T18:35:00.000Z"),
-              stageEvent("stage-5b", "running", "2026-03-13T18:35:10.000Z"),
               stageEvent("stage-5b", "completed", "2026-03-13T18:45:00.000Z", "warn"),
             ]),
           );
@@ -397,20 +395,10 @@ describe("buildAnalysisManifest", () => {
         endTime: "2026-03-13T18:20:00.000Z",
       },
     });
-    expect(manifest?.stages["stage-4b"]).toEqual({
-      ownerRootFlowRunId: "resume-run",
-      stageSubflowRunId: "stage-4b-subflow",
-      initialLogFlowRunIds: ["stage-4b-subflow"],
-      execution: {
-        stateType: "COMPLETED",
-        startTime: "2026-03-13T18:33:05.000Z",
-        endTime: "2026-03-13T18:35:00.000Z",
-      },
-    });
     expect(manifest?.stages["stage-5b"]).toEqual({
       ownerRootFlowRunId: "resume-run",
-      stageSubflowRunId: null,
-      initialLogFlowRunIds: [],
+      stageSubflowRunId: "stage-5b-subflow",
+      initialLogFlowRunIds: ["stage-5b-subflow"],
       execution: {
         stateType: "COMPLETED",
         startTime: "2026-03-13T18:35:10.000Z",
@@ -446,11 +434,11 @@ describe("buildAnalysisManifest", () => {
       if (url === "http://localhost:4200/api/events/filter") {
         return jsonResponse(
           eventPage([
-            stageEvent("stage-4b", "running", "2026-03-13T18:33:00.000Z", {
+            stageEvent("stage-5b", "running", "2026-03-13T18:33:00.000Z", {
               stageSubflowRunId: "flow-123",
               logFlowRunIds: ["flow-123"],
             }),
-            stageEvent("stage-4b", "completed", "2026-03-13T18:35:00.000Z"),
+            stageEvent("stage-5b", "completed", "2026-03-13T18:35:00.000Z"),
           ]),
         );
       }
@@ -462,7 +450,7 @@ describe("buildAnalysisManifest", () => {
 
     const manifest = await buildAnalysisManifest("user-123");
 
-    expect(manifest?.stages["stage-4b"]).toEqual({
+    expect(manifest?.stages["stage-5b"]).toEqual({
       ownerRootFlowRunId: "run-abc",
       stageSubflowRunId: "flow-123",
       initialLogFlowRunIds: ["flow-123"],
@@ -627,7 +615,7 @@ describe("buildAnalysisManifest", () => {
           return jsonResponse(
             eventPage([
               stageEvent("stage-4", "completed", "2026-03-13T18:45:00.000Z"),
-              stageEvent("stage-4b", "completed", "2026-03-13T18:46:00.000Z"),
+              stageEvent("stage-5b", "completed", "2026-03-13T18:46:00.000Z"),
               stageEvent("stage-6", "completed", "2026-03-13T18:50:00.000Z"),
             ]),
           );
@@ -661,7 +649,7 @@ describe("buildAnalysisManifest", () => {
         endTime: "2026-03-13T19:00:00.000Z",
       },
     });
-    expect(manifest?.stages["stage-4b"]).toEqual({
+    expect(manifest?.stages["stage-5b"]).toEqual({
       ownerRootFlowRunId: "full-run",
       stageSubflowRunId: null,
       initialLogFlowRunIds: [],
@@ -928,7 +916,7 @@ describe("buildAnalysisManifest", () => {
         return jsonResponse({
           id: "resume-run",
           created: "2026-03-13T18:33:00.000Z",
-          parameters: { start_stage: "stage-4b" },
+          parameters: { start_stage: "stage-5b" },
         });
       }
 

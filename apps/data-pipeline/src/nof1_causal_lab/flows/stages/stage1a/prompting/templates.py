@@ -81,11 +81,23 @@ Contemporaneous edges must form a DAG within each time slice (A4). Feedback loop
       "cause": "cause_construct_name",
       "effect": "effect_construct_name",
       "description": "theoretical justification for this causal link",
-      "lagged": true | false
+      "lagged": true | false,
+      "sources": [
+        {
+          "title": "Author (Year). Title of paper / meta-analysis / textbook.",
+          "url": "https://doi.org/... (or null if not known)",
+          "snippet": "Brief paraphrase of the supporting finding"
+        }
+      ]
     }
   ]
 }
 ```
+
+For each edge, cite 1-3 supporting sources you recall from the literature
+(meta-analyses, seminal studies, well-established textbook results). Use
+`sources: []` if you cannot recall specific literature for an edge - do not
+fabricate citations.
 
 ## Validation Tool
 

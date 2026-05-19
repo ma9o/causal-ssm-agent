@@ -14,7 +14,7 @@ import scipy.optimize as spo
 from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from nof1_causal_lab.models.ssm.parameterization import SupportClass, sample_prior_unconstrained
 
-from .context import ParametricIdContext, get_stage4b_sweep_context
+from .context import ParametricIdContext, get_diagnostics_sweep_context
 from .results import MAPCurvatureResult, MAPGeometryResult, MAPOptimizationRun
 from .sensitivity import (
     _interpretable_parameter_name_map,
@@ -252,7 +252,7 @@ def map_geometry_analysis(
 ) -> MAPGeometryResult:
     """Run a multi-start MAP search, then compare H_lik and H_post at the best mode."""
     rng_key = random.PRNGKey(seed)
-    context = sweep_context or get_stage4b_sweep_context(model)
+    context = sweep_context or get_diagnostics_sweep_context(model)
     prior_state = model.get_prior_runtime_bundle().prior_state
 
     flat_dim = context.flat_dim

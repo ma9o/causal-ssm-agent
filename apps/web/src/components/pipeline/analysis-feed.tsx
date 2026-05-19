@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react";
 import { useMemo } from "react";
 import { ActiveStageIndicator } from "./active-stage-indicator";
 import { InvalidationWarningModal } from "./invalidation-warning-modal";
+import { LazyStageMount } from "./lazy-stage-mount";
 import { NewStagesNotification } from "./new-stages-notification";
 import { PipelineProgressBar } from "./progress-bar";
 import { ResumeButton } from "./resume-button";
@@ -44,14 +45,15 @@ function FeedContent({
       <PipelineProgressBar progress={progress} question={question} workspaceId={workspaceId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6">
         {visibleStages.map((stage) => (
-          <StageSectionRouter
-            key={stage.id}
-            stage={stage}
-            workspaceId={workspaceId}
-            stageRun={stageRuns?.[stage.id]}
-            status={progress.stages[stage.id]}
-            timing={progress.timings[stage.id]}
-          />
+          <LazyStageMount key={stage.id} stage={stage}>
+            <StageSectionRouter
+              stage={stage}
+              workspaceId={workspaceId}
+              stageRun={stageRuns?.[stage.id]}
+              status={progress.stages[stage.id]}
+              timing={progress.timings[stage.id]}
+            />
+          </LazyStageMount>
         ))}
         {!progress.isComplete && (
           <div className="max-w-6xl mx-auto">

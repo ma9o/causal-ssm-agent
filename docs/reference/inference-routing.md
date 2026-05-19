@@ -45,7 +45,7 @@ Before fitting, graph analysis partitions the model's latent and observed variab
 
 The analysis (`graph_analysis.analyze_first_pass_rb`) examines drift sparsity, observation dependencies, and noise families to identify decoupled linear-Gaussian sub-blocks that can be marginalized exactly via the Kalman filter before the particle backend runs.
 
-The resulting `RBPartition` assigns each latent variable and each observation channel to either `kalman` or `particle`. This determines the `likelihood_path` emitted by [Stage 4b](../pipeline/04b-parametric-identifiability.md) and re-derived by [Stage 5b](../pipeline/05b-inference-diagnostics.md).
+The resulting `RBPartition` assigns each latent variable and each observation channel to either `kalman` or `particle`. This determines the `likelihood_path` re-derived by [Stage 5b](../pipeline/05b-inference-diagnostics.md) at fit time.
 
 First-pass RB is disabled when:
 

@@ -8,9 +8,8 @@ Tests:
 4. Profile likelihood result classification
 5. SBC: basic structure and uniform ranks for identified model
 6. Power-scaling: prior-dominated params flagged correctly
-7. Stage 4b flow: smoke test
-8. Recovery: simulate_ssm produces data recoverable by Kalman fit
-9. Recovery: profile_likelihood correctly classifies identified vs non-identified
+7. Recovery: simulate_ssm produces data recoverable by Kalman fit
+8. Recovery: profile_likelihood correctly classifies identified vs non-identified
 """
 
 from dataclasses import replace
@@ -402,12 +401,14 @@ class TestSimulateSSM:
 class TestOutputSensitivity:
     """Test output sensitivity analysis."""
 
-    def test_stage4b_jacobian_matches_finite_difference_on_identifiable_mixed_family_model(self):
+    def test_diagnostics_jacobian_matches_finite_difference_on_identifiable_mixed_family_model(
+        self,
+    ):
         """A GOLDEN-like mixed-family interval model should match a finite-difference Jacobian."""
         from nof1_causal_lab.models.ssm.diagnostics import context as pid
 
         model = _make_mixed_family_interval_oracle_model()
-        context = pid.get_stage4b_sweep_context(model)
+        context = pid.get_diagnostics_sweep_context(model)
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
         unconstrained = context.unravel_fn(jnp.zeros(context.flat_dim, dtype=jnp.float32))
         unconstrained["diffusion_diag_free"] = jnp.array([0.25, 0.1], dtype=jnp.float32)
@@ -434,12 +435,12 @@ class TestOutputSensitivity:
             rtol=2e-2,
         )
 
-    def test_stage4b_sweep_context_reuses_cached_topology_bundle(self):
-        """Identical topology should reuse one cached Stage 4b sweep context."""
+    def test_diagnostics_sweep_context_reuses_cached_topology_bundle(self):
+        """Identical topology should reuse one cached diagnostics sweep context."""
         from nof1_causal_lab.models.ssm.diagnostics import context as pid
 
         model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
-        pid.clear_stage4b_sweep_context_cache()
+        pid.clear_diagnostics_sweep_context_cache()
 
         with (
             patch.object(
@@ -451,25 +452,25 @@ class TestOutputSensitivity:
                 wraps=pid._build_runtime_eval_fns_from_registry,
             ) as build_eval_fns,
         ):
-            ctx_1 = pid.get_stage4b_sweep_context(model)
-            ctx_2 = pid.get_stage4b_sweep_context(model)
+            ctx_1 = pid.get_diagnostics_sweep_context(model)
+            ctx_2 = pid.get_diagnostics_sweep_context(model)
 
         assert ctx_1 is ctx_2
         assert build_site_runtime.call_count == 1
         assert build_eval_fns.call_count == 1
 
-    def test_stage4b_sweep_context_separates_distinct_topologies(self):
+    def test_diagnostics_sweep_context_separates_distinct_topologies(self):
         """A topology change should create a different cached sweep context."""
         from nof1_causal_lab.models.ssm.diagnostics import (
-            clear_stage4b_sweep_context_cache,
-            get_stage4b_sweep_context,
+            clear_diagnostics_sweep_context_cache,
+            get_diagnostics_sweep_context,
         )
 
-        clear_stage4b_sweep_context_cache()
-        ctx_1 = get_stage4b_sweep_context(
+        clear_diagnostics_sweep_context_cache()
+        ctx_1 = get_diagnostics_sweep_context(
             _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
         )
-        ctx_2 = get_stage4b_sweep_context(
+        ctx_2 = get_diagnostics_sweep_context(
             _make_identified_model(n_latent=2, n_manifest=2, likelihood="kalman")
         )
 
@@ -748,7 +749,7 @@ class TestOutputSensitivity:
 
         model = _make_identified_model(n_latent=1, n_manifest=1, likelihood="kalman")
         times = jnp.arange(6, dtype=jnp.float32)
-        context = pid.get_stage4b_sweep_context(model)
+        context = pid.get_diagnostics_sweep_context(model)
         real_jacobian = context.jacobian_fn
         output_dim = int(context.predict_moments_fn(jnp.ones(context.flat_dim), times).shape[0])
 
@@ -877,7 +878,7 @@ class TestProfileLikelihood:
     def test_profile_likelihood_accepts_cached_sweep_context(self):
         """Explicitly reusing a cached Stage 4b context should still work."""
         from nof1_causal_lab.models.ssm.diagnostics import (
-            get_stage4b_sweep_context,
+            get_diagnostics_sweep_context,
             output_sensitivity_analysis,
             profile_likelihood,
             simulate_ssm,
@@ -895,7 +896,7 @@ class TestProfileLikelihood:
             times=times,
             rng_key=random.PRNGKey(7),
         )
-        sweep_context = get_stage4b_sweep_context(model)
+        sweep_context = get_diagnostics_sweep_context(model)
 
         sa_result = output_sensitivity_analysis(
             model,
@@ -1000,7 +1001,7 @@ class TestMAPGeometry:
 
     def test_map_geometry_accepts_cached_sweep_context(self):
         from nof1_causal_lab.models.ssm.diagnostics import (
-            get_stage4b_sweep_context,
+            get_diagnostics_sweep_context,
             map_geometry_analysis,
             simulate_ssm,
         )
@@ -1017,7 +1018,7 @@ class TestMAPGeometry:
             times=times,
             rng_key=random.PRNGKey(11),
         )
-        sweep_context = get_stage4b_sweep_context(model)
+        sweep_context = get_diagnostics_sweep_context(model)
 
         result = map_geometry_analysis(
             model=model,

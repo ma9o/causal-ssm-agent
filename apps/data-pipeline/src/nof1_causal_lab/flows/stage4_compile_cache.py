@@ -285,11 +285,11 @@ def _warm_compiled_ssm_runtime(compiled_ssm: dict[str, Any], data_for_model: Any
     import jax
     import jax.numpy as jnp
 
-    from nof1_causal_lab.models.ssm.diagnostics import get_stage4b_sweep_context
+    from nof1_causal_lab.models.ssm.diagnostics import get_diagnostics_sweep_context
     from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
 
     runtime = prepare_model_runtime(data_for_model=data_for_model, compiled_ssm=compiled_ssm)
-    context = get_stage4b_sweep_context(runtime.model)
+    context = get_diagnostics_sweep_context(runtime.model)
     prior_state = runtime.model.get_prior_runtime_bundle().prior_state
     z0 = jnp.zeros((context.flat_dim,), dtype=jnp.float64)
 

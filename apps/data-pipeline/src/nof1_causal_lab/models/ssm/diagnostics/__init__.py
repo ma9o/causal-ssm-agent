@@ -2,8 +2,8 @@
 
 from nof1_causal_lab.models.ssm.diagnostics.context import (
     ParametricIdContext,
-    clear_stage4b_sweep_context_cache,
-    get_stage4b_sweep_context,
+    clear_diagnostics_sweep_context_cache,
+    get_diagnostics_sweep_context,
 )
 from nof1_causal_lab.models.ssm.diagnostics.map_geometry import map_geometry_analysis
 from nof1_causal_lab.models.ssm.diagnostics.power_scaling import power_scaling_sensitivity
@@ -32,8 +32,8 @@ __all__ = [
     "PowerScalingResult",
     "ProfileLikelihoodResult",
     "SBCResult",
-    "clear_stage4b_sweep_context_cache",
-    "get_stage4b_sweep_context",
+    "clear_diagnostics_sweep_context_cache",
+    "get_diagnostics_sweep_context",
     "map_geometry_analysis",
     "output_sensitivity_analysis",
     "power_scaling_sensitivity",

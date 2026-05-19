@@ -11,7 +11,7 @@ import jax.scipy.optimize
 
 from nof1_causal_lab.models.ssm.parameterization import sample_prior_unconstrained
 
-from .context import ParametricIdContext, get_stage4b_sweep_context
+from .context import ParametricIdContext, get_diagnostics_sweep_context
 from .results import ProfileLikelihoodResult
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ def profile_likelihood(
 ) -> ProfileLikelihoodResult:
     """Profile likelihood identifiability diagnostic."""
     rng_key = random.PRNGKey(seed)
-    context = sweep_context or get_stage4b_sweep_context(model)
+    context = sweep_context or get_diagnostics_sweep_context(model)
 
     flat_dim = context.flat_dim
     param_names = context.param_names

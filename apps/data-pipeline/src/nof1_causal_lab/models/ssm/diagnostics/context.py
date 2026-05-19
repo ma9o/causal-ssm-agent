@@ -145,12 +145,12 @@ def _parametric_id_context_key(model: SSMModel) -> tuple[str, ...]:
     )
 
 
-def clear_stage4b_sweep_context_cache() -> None:
+def clear_diagnostics_sweep_context_cache() -> None:
     """Clear the process-local diagnostic context cache."""
     _PARAMETRIC_ID_CONTEXT_CACHE.clear()
 
 
-def get_stage4b_sweep_context(model: SSMModel) -> ParametricIdContext:
+def get_diagnostics_sweep_context(model: SSMModel) -> ParametricIdContext:
     """Build or reuse a topology-keyed diagnostic runtime context."""
     cache_key = _parametric_id_context_key(model)
     cached = _PARAMETRIC_ID_CONTEXT_CACHE.get(cache_key)

@@ -45,6 +45,14 @@ class Construct(BaseModel):
         return self
 
 
+class EdgeSource(BaseModel):
+    """A source of evidence supporting a causal edge."""
+
+    title: str = Field(description="Title of the source (paper, meta-analysis, textbook, etc.)")
+    url: str | None = Field(default=None, description="URL of the source if available")
+    snippet: str = Field(description="Relevant excerpt or paraphrase from the source")
+
+
 class CausalEdge(BaseModel):
     """A directed causal relationship between constructs."""
 
@@ -57,6 +65,10 @@ class CausalEdge(BaseModel):
             "If True, effect at t is caused by cause at t-1 (one model_clock tick delay). "
             "If False (contemporaneous), effect at t is caused by cause at t."
         ),
+    )
+    sources: list[EdgeSource] = Field(
+        default_factory=list,
+        description="Literature sources supporting this causal link",
     )
 
 
@@ -255,6 +267,7 @@ def validate_latent_model(data: dict) -> tuple[LatentModel | None, list[str]]:
 __all__ = [
     "CausalEdge",
     "Construct",
+    "EdgeSource",
     "LatentModel",
     "Role",
     "TemporalStatus",

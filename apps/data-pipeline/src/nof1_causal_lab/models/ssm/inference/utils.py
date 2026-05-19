@@ -621,7 +621,7 @@ def _build_runtime_eval_fns_from_registry(
 ):
     """Build compile-stable evaluators that do not close over traced model state.
 
-    This is intended for Stage 4b sweep-style diagnostics that repeatedly vary
+    This is intended for sweep-style diagnostics that repeatedly vary
     prior values while keeping the model topology fixed. The returned
     log-likelihood takes ``observations`` and ``times`` as runtime arguments so
     the same compiled closure can be reused across many sweeps in one process.

@@ -60,7 +60,7 @@ class OutputSensitivityResult:
 
 
 class OutputSensitivityUnsupportedError(ValueError):
-    """Raised when the observation-space Stage 4b map is not valid for a model."""
+    """Raised when the observation-space sensitivity map is not valid for a model."""
 
 
 @dataclass

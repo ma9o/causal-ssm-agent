@@ -17,7 +17,6 @@ StageId = Literal[
     "stage-2",
     "stage-3",
     "stage-4",
-    "stage-4b",
     "stage-5b",
     "stage-6",
 ]

@@ -17,7 +17,6 @@
 | `ObservationRecord`s and the encoded observation table (`data_for_model`) | [pipeline/02-indicator-extraction.md](pipeline/02-indicator-extraction.md) |
 | `IndicatorAudit` and validation findings | [pipeline/03-extraction-validation.md](pipeline/03-extraction-validation.md) |
 | `ModelSpec`, `LikelihoodSpec`, `ParameterSpec`, `PriorProposal` | [pipeline/04-model-specification-priors.md](pipeline/04-model-specification-priors.md) |
-| `ParametricIdResult` and `InferenceStructureResult` | [pipeline/04b-parametric-identifiability.md](pipeline/04b-parametric-identifiability.md) |
 | `FittedArtifact` and post-fit diagnostics | [pipeline/05b-inference-diagnostics.md](pipeline/05b-inference-diagnostics.md) |
 | `TreatmentEffect` and intervention tools | [pipeline/06-intervention-analysis.md](pipeline/06-intervention-analysis.md) |
 

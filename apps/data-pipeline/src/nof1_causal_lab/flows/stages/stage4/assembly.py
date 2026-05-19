@@ -240,7 +240,7 @@ def run_output_sensitivity_validation(
     """Run the Stage 4 Jacobian sensitivity gate on the compiled accepted model."""
     from nof1_causal_lab.models.ssm.diagnostics import (
         OutputSensitivityUnsupportedError,
-        get_stage4b_sweep_context,
+        get_diagnostics_sweep_context,
         output_sensitivity_analysis,
     )
     from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
@@ -253,7 +253,7 @@ def run_output_sensitivity_validation(
             observations=runtime.observations,
             n_draws=8,
             seed=42,
-            sweep_context=get_stage4b_sweep_context(runtime.model),
+            sweep_context=get_diagnostics_sweep_context(runtime.model),
         )
         payload = {
             "singular_values": sa_result.singular_values,

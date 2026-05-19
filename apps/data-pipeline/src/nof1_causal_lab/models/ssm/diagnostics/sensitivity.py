@@ -19,7 +19,7 @@ from nof1_causal_lab.models.ssm_compilation_common import (
     resolve_scalar_parameter_name,
 )
 
-from .context import ParametricIdContext, get_stage4b_sweep_context
+from .context import ParametricIdContext, get_diagnostics_sweep_context
 from .results import OutputSensitivityResult, OutputSensitivityUnsupportedError
 
 if TYPE_CHECKING:
@@ -87,7 +87,7 @@ def _spectral_svd_from_gram(S: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
 
 
 def _normalized_direction_status(value: float) -> str:
-    """Bucket a normalized singular value into the Stage 4b severity bands."""
+    """Bucket a normalized singular value into the diagnostic severity bands."""
     if value > 10.0:
         return "pass"
     if value > 1.0:
@@ -200,7 +200,7 @@ def output_sensitivity_analysis(
     """Pre-inference parametric identifiability via output sensitivity analysis."""
     _validate_output_sensitivity_supported(model)
     rng_key = random.PRNGKey(seed)
-    context = sweep_context or get_stage4b_sweep_context(model)
+    context = sweep_context or get_diagnostics_sweep_context(model)
 
     n_parameters = context.flat_dim
     scalar_names = context.scalar_names
