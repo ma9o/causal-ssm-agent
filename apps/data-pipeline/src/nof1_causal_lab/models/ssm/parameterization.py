@@ -550,7 +550,7 @@ def build_site_registry(
                 )
             )
 
-    from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
+    from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
 
     if has_student_t_diffusion(spec):
         sites.append(_site("proc_df", (), SupportClass.POSITIVE, "likelihood", SiteKind.PROC_DF))

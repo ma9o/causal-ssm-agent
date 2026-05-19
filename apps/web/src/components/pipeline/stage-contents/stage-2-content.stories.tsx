@@ -25,7 +25,7 @@ import { Stage2RunningView } from "./stage-2-running-content";
 import { StoryStageLogView } from "../stage-story-log-stream";
 import { StageStoryTemplate } from "../stage-story-template";
 import { useEffect, useMemo, useState } from "react";
-import fixture from "../../../../../../data/DEMO_HEALTH/run/stage-2.json";
+import fixture from "../../../../../../data/DEMO/run/stage-2.json";
 
 const stage = STAGES.find((s) => s.id === "stage-2")!;
 const data = fixture as unknown as Stage2Data;

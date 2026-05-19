@@ -2,7 +2,7 @@
 
 | Modality | Interactive | Produces |
 |---|---|---|
-| Computed | No | [`PowerScalingResult`](#powerscalingresult), [`PPCResult`](#ppcresult), [`LOODiagnostics`](#loodiagnostics), [`SVIDiagnostics`](#svidiagnostics) (SVI only), [`PosteriorMarginal`](#posteriormarginal)s, [`PosteriorPair`](#posteriorpair)s |
+| Computed | No | [`PowerScalingResult`](#powerscalingresult), [`PPCResult`](#ppcresult), [`LOODiagnostics`](#loodiagnostics), [`PosteriorMarginal`](#posteriormarginal)s, [`PosteriorPair`](#posteriorpair)s |
 
 Fits the compiled state-space model from [Stage 4](04-model-specification-priors.md) to the extracted observation data from [Stage 2](02-indicator-extraction.md), then runs post-fit diagnostics that assess prior–data agreement, posterior predictive fit, and leave-one-out cross-validation. Backend selection follows the [structural routing](../reference/inference-routing.md) decision tree; the user can override to any [available method](../reference/inference-routing.md#method-taxonomy).
 
@@ -12,7 +12,7 @@ Fits the compiled state-space model from [Stage 4](04-model-specification-priors
 |---|---|---|
 | `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
-| `inference_method` | Pipeline config | Optional sampler override (`"map"`, `"svi"`, `"aux_gibbs"`, or `"particle_mgrad"`); `null` uses the [default route](../reference/inference-routing.md#structural-routing) |
+| `inference_method` | Pipeline config | Optional sampler override (`"map"`, `"aux_kalman_mcmc"`, or `"pit_particle_mgrad"`); `null` uses the [default route](../reference/inference-routing.md#structural-routing) |
 
 Stage 4 provided the compiled model and priors; Stage 5b is where that model is fitted to data and the posterior is characterized.
 
@@ -36,7 +36,7 @@ flowchart LR
 
 ### Example
 
-For a longitudinal study of teacher workload and student outcomes with latent constructs `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`, Stage 5b would default to `aux_gibbs`, draw blocked MCMC posterior samples, then produce: power-scaling results classifying the cross-lag from `Teacher Burnout` to `Instructional Quality` as `well_identified` and a weakly informed diffusion parameter as `prior_dominated`; PPC overlays showing 93% posterior predictive interval coverage for each manifest indicator; and LOO diagnostics with no Pareto-k values exceeding 0.7—all before Stage 6 uses the fitted artifact to simulate interventions.
+For a longitudinal study of teacher workload and student outcomes with latent constructs `Teacher Burnout`, `Instructional Quality`, and `Student Achievement`, Stage 5b would default to `aux_kalman_mcmc`, draw blocked MCMC posterior samples, then produce: power-scaling results classifying the cross-lag from `Teacher Burnout` to `Instructional Quality` as `well_identified` and a weakly informed diffusion parameter as `prior_dominated`; PPC overlays showing 93% posterior predictive interval coverage for each manifest indicator; and LOO diagnostics with no Pareto-k values exceeding 0.7—all before Stage 6 uses the fitted artifact to simulate interventions.
 
 ## Outputs
 
@@ -44,7 +44,6 @@ For a longitudinal study of teacher workload and student outcomes with latent co
 |---|---|---|
 | `power_scaling` | list\[[`PowerScalingResult`](#powerscalingresult)\] | Per-parameter sensitivity diagnosis with PSIS reliability |
 | `ppc` | [`PPCResult`](#ppcresult) | Per-variable posterior predictive interval-coverage, autocorrelation, and variance checks |
-| `svi_diagnostics` | [`SVIDiagnostics`](#svidiagnostics) \| `null` | ELBO convergence curve when fitting via SVI; `null` otherwise |
 | `posterior_marginals` | list\[[`PosteriorMarginal`](#posteriormarginal)\] \| `null` | Per-parameter posterior mean, sd, and 94% HDI |
 | `posterior_pairs` | list\[[`PosteriorPair`](#posteriorpair)\] \| `null` | Pairwise posterior scatter data with divergence flags (MCMC only) |
 | `_fitted_artifact` | [`FittedArtifact`](#fittedartifact) | Persisted runtime artifact consumed by [Stage 6](06-intervention-analysis.md); bundles posterior samples, runtime builder, and diagnostic results |
@@ -92,14 +91,6 @@ PSIS-LOO cross-validation as in Vehtari, Gelman, and Gabry (2017)[^vehtari2017].
 | `pareto_k` | `list[float]` \| `null` | Per-timestep Pareto-k shape parameters |
 | `n_bad_k` | `int` \| `null` | Count of timesteps with k > 0.7 |
 | `loo_pit` | `list[float]` \| `null` | LOO-PIT values for calibration assessment |
-
-### `SVIDiagnostics`
-
-A monotonically decreasing ELBO curve indicates convergence; oscillations or a plateau suggest the guide cannot capture the posterior geometry.
-
-| Field | Type | Description |
-|---|---|---|
-| `elbo_losses` | `list[float]` | ELBO loss at each optimization step, thinned to at most 500 points |
 
 ### `PosteriorMarginal`
 

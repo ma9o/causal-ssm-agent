@@ -105,4 +105,3 @@ def make_session_factory_from_handler(handler):
             yield _Session(tools)
 
     return _Factory()
-

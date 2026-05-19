@@ -189,8 +189,6 @@ def _make_stub_grounding_result(stage_output: dict | None, feedback: str):
     validation = stage_output.get("validation") if isinstance(stage_output, dict) else None
     if validation is not None and getattr(validation, "compile_ok", True) is False:
         status = "compile_error"
-    elif validation is not None and getattr(validation, "has_sensitivity_failure", False):
-        status = "sensitivity_failure"
     elif (
         validation is not None
         and getattr(validation, "pp_checked", False)

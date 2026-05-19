@@ -1,6 +1,6 @@
 """Shared utilities for inference backends.
 
-Functions used by MAP, SVI, blocked MCMC, and parametric-id diagnostics:
+Functions used by MAP, blocked MCMC, and post-fit diagnostics:
 - _discover_sites: trace model to discover sample sites
 - _assemble_deterministics: build SSM matrices from constrained samples
 - _build_eval_fns: build differentiable log-likelihood and log-prior evaluators
@@ -47,9 +47,9 @@ def _discover_sites(model, observations, times, rng_key, likelihood_backend, rep
 
     Site discovery is structural: it only needs the latent sample/deterministic
     sites emitted by ``model.model``. Tracing through the real likelihood backend
-    can trigger large JAX/XLA compilations for support-aware Laplace and
-    particle-filter backends before inference even starts, so discovery always
-    replays the model with the dummy backend instead.
+    can trigger large JAX/XLA compilations for support-aware Laplace before
+    inference even starts, so discovery always replays the model with the dummy
+    backend instead.
     """
     _ = likelihood_backend
     model_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
@@ -610,57 +610,3 @@ def _build_eval_fns(
     return log_lik_fn, log_prior_unc_fn
 
 
-def _build_runtime_eval_fns_from_registry(
-    spec,
-    registry,
-    unravel_fn,
-    transforms,
-    structure_runtime,
-    likelihood_backend,
-    transition_inputs=None,
-):
-    """Build compile-stable evaluators that do not close over traced model state.
-
-    This is intended for sweep-style diagnostics that repeatedly vary
-    prior values while keeping the model topology fixed. The returned
-    log-likelihood takes ``observations`` and ``times`` as runtime arguments so
-    the same compiled closure can be reused across many sweeps in one process.
-    """
-    from nof1_causal_lab.models.ssm.parameterization import log_prior_unconstrained
-
-    def _constrain(z):
-        unc = unravel_fn(z)
-        return {name: transforms[name](unc[name]) for name in unc}
-
-    def _log_lik_fn(z, observations, times):
-        con = _constrain(z)
-        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
-            con,
-            spec,
-            registry=registry,
-            structure_runtime=structure_runtime,
-        )
-        time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
-        runtime_transition_inputs = (
-            None if transition_inputs is None else transition_inputs[: times.shape[0]]
-        )
-        lnc = likelihood_backend.compute_log_likelihood(
-            ct_params,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
-            extra_params=extra_params,
-            transition_inputs=runtime_transition_inputs,
-        )
-        total_ll = lnc if lnc.ndim == 0 else lnc[-1]
-        return jnp.where(jnp.isfinite(total_ll), total_ll, -jnp.inf)
-
-    log_lik_fn = (
-        jax.checkpoint(_log_lik_fn) if likelihood_backend.checkpoint_loglik else _log_lik_fn
-    )
-
-    def log_prior_unc_fn(z, prior_state):
-        return log_prior_unconstrained(z, unravel_fn, registry, prior_state)
-
-    return log_lik_fn, log_prior_unc_fn

@@ -4,12 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import type { Stage5bData } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
 
-type InferenceMethod = "map" | "aux_gibbs" | "particle_mgrad";
+type InferenceMethod = "map" | "aux_kalman_mcmc" | "pit_particle_mgrad";
 
 const METHODS: { id: InferenceMethod; label: string; disabled: boolean }[] = [
   { id: "map", label: "MAP", disabled: false },
-  { id: "aux_gibbs", label: "Aux Gibbs", disabled: false },
-  { id: "particle_mgrad", label: "Particle-mGRAD", disabled: true },
+  { id: "aux_kalman_mcmc", label: "Auxiliary Kalman MCMC", disabled: false },
+  { id: "pit_particle_mgrad", label: "PIT Particle-mGRAD", disabled: true },
 ];
 
 interface MockMethodSwitcherProps {
@@ -18,29 +18,33 @@ interface MockMethodSwitcherProps {
   onDataChange: (data: Stage5bData) => void;
 }
 
-export function MockMethodSwitcher({ workspaceId, baseData, onDataChange }: MockMethodSwitcherProps) {
+export function MockMethodSwitcher({
+  workspaceId,
+  baseData,
+  onDataChange,
+}: MockMethodSwitcherProps) {
   const [active, setActive] = useState<InferenceMethod>("map");
-  const [auxGibbsData, setAuxGibbsData] = useState<Stage5bData | null>(null);
+  const [auxKalmanMCMCData, setAuxKalmanMCMCData] = useState<Stage5bData | null>(null);
 
   const handleSwitch = (method: InferenceMethod) => {
     if (method === active) return;
     setActive(method);
     if (method === "map") {
       onDataChange(baseData);
-    } else if (method === "aux_gibbs") {
-      if (auxGibbsData) {
-        onDataChange(auxGibbsData);
+    } else if (method === "aux_kalman_mcmc") {
+      if (auxKalmanMCMCData) {
+        onDataChange(auxKalmanMCMCData);
       } else {
-        fetch(`/api/results/${workspaceId}/stage-5b-aux-gibbs`)
+        fetch(`/api/results/${workspaceId}/stage-5b`)
           .then((r) => {
-            if (!r.ok) throw new Error(`Aux Gibbs fetch failed: ${r.status}`);
+            if (!r.ok) throw new Error(`Auxiliary Kalman MCMC fetch failed: ${r.status}`);
             return r.json();
           })
           .then((d) => {
-            setAuxGibbsData(d);
+            setAuxKalmanMCMCData(d);
             onDataChange(d);
           })
-          .catch((e) => console.error("Failed to fetch Aux Gibbs data:", e));
+          .catch((e) => console.error("Failed to fetch Auxiliary Kalman MCMC data:", e));
       }
     }
   };

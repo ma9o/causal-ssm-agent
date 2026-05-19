@@ -32,10 +32,6 @@ _STAGE4_COMPILE_CACHE_ACCELERATOR = "modal-a100-80gb"
 _STAGE4_COMPILE_CACHE_WAIT_TIMEOUT_SECONDS = 3600
 
 
-def _metadata_path(workspace_id: str) -> str:
-    return storage.join(ensure_run_dir(workspace_id), STAGE4_JAX_CACHE_METADATA_FILENAMES[0])
-
-
 def _archive_path(workspace_id: str) -> str:
     return storage.join(ensure_run_dir(workspace_id), STAGE4_JAX_CACHE_FILENAMES[0])
 
@@ -284,25 +280,38 @@ def warm_stage4_compile_cache_artifact(
 def _warm_compiled_ssm_runtime(compiled_ssm: dict[str, Any], data_for_model: Any) -> None:
     import jax
     import jax.numpy as jnp
+    import jax.random as random
+    from jax.flatten_util import ravel_pytree
 
-    from nof1_causal_lab.models.ssm.diagnostics import get_diagnostics_sweep_context
+    from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
     from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
 
     runtime = prepare_model_runtime(data_for_model=data_for_model, compiled_ssm=compiled_ssm)
-    context = get_diagnostics_sweep_context(runtime.model)
-    prior_state = runtime.model.get_prior_runtime_bundle().prior_state
-    z0 = jnp.zeros((context.flat_dim,), dtype=jnp.float64)
+    backend = runtime.model.make_likelihood_backend()
+    site_info = _discover_sites(
+        runtime.model,
+        runtime.observations,
+        runtime.times,
+        random.PRNGKey(0),
+        backend,
+    )
+    example_unc = {name: info["transform"].inv(info["value"]) for name, info in site_info.items()}
+    flat_example, unravel_fn = ravel_pytree(example_unc)
+    z0 = jnp.zeros_like(flat_example)
+    log_lik_fn, log_prior_unc_fn = _build_eval_fns(
+        runtime.model,
+        runtime.observations,
+        runtime.times,
+        site_info,
+        unravel_fn,
+        backend,
+    )
 
     def _neg_log_posterior(z):
-        return -(
-            context.log_lik_fn(z, runtime.observations, runtime.times)
-            + context.log_prior_unc_fn(z, prior_state)
-        )
+        return -(log_lik_fn(z) + log_prior_unc_fn(z))
 
     value_and_grad = jax.jit(jax.value_and_grad(_neg_log_posterior))
 
-    jax.device_get(context.log_prior_unc_fn(z0, prior_state))
-    jax.device_get(context.log_lik_fn(z0, runtime.observations, runtime.times))
-    jax.device_get(context.row_scales_fn(z0, runtime.times))
-    jax.device_get(context.jacobian_fn(z0, runtime.times))
+    jax.device_get(log_prior_unc_fn(z0))
+    jax.device_get(log_lik_fn(z0))
     jax.device_get(value_and_grad(z0))

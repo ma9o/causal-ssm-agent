@@ -1,11 +1,10 @@
-"""Auxiliary Gibbs sampler: blocked aux-Kalman latent + MALA parameter."""
+"""Auxiliary Kalman MCMC sampler: blocked aux-Kalman latent + MALA parameter."""
 
 from __future__ import annotations
 
 import functools
 import logging
 import time
-from dataclasses import dataclass
 from typing import Any
 
 import jax
@@ -23,13 +22,13 @@ from nof1_causal_lab.models.ssm.inference.methods.scipy_pathfinder import (
 )
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
-    AuxGibbsMCMCResult,
+    AuxKalmanMCMCResult,
     build_auxiliary_kalman_bundle,
     build_auxiliary_kalman_latent_kernel,
     build_mala_parameter_kernel,
     initialize_ieks_latents,
     initialize_particle_smoother_latents,
-    run_aux_gibbs,
+    run_aux_kalman_mcmc,
 )
 from nof1_causal_lab.models.ssm.inference.types import InferenceResult
 from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
@@ -41,21 +40,10 @@ def _phase_elapsed(t0: float) -> float:
     return time.monotonic() - t0
 
 
-# Sites the output-sensitivity check typically flags as having zero Jacobian at
-# prior draws — Pathfinder's Gaussian approximation can't meaningfully
-# initialise them, so they inherit the prior-median flat-layout value plus a
-# small per-chain jitter. See Corenflos & Särkkä docstring block in the
-# slow-test benchmark discussion for the literature pattern this implements.
-_WEAKLY_IDENTIFIED_SITE_NAMES: tuple[str, ...] = ("obs_df",)
-
-
-@dataclass(frozen=True)
-class AuxGibbsPathfinderCache:
-    """Reusable Pathfinder outputs for aux_gibbs initialisation."""
-
-    initial_positions_override: jnp.ndarray
-    parameter_preconditioner_chol: jnp.ndarray
-    diagnostics: dict[str, Any]
+# Sites whose posterior geometry is usually too weak for Pathfinder's Gaussian
+# approximation to initialise well, so they inherit the prior-median
+# flat-layout value plus a small per-chain jitter.
+_PRIOR_RELEASED_SITE_NAMES: tuple[str, ...] = ("obs_df",)
 
 
 @functools.partial(jax.jit, static_argnames=("runtime_log_posterior_fn",))
@@ -151,11 +139,7 @@ def _run_pathfinder_approximation(
     """
     if n_pathfinder_starts < 1:
         raise ValueError("n_pathfinder_starts must be >= 1.")
-    backend = (
-        model.make_likelihood_backend()
-        if model.likelihood == "kalman"
-        else model.make_laplace_backend(n_ieks_iters)
-    )
+    backend = model.make_laplace_backend(n_ieks_iters)
     laplace_bundle = _build_map_laplace_bundle(
         model, observations, times, trace_key, backend, reparam
     )
@@ -225,7 +209,7 @@ def _pathfinder_init_positions(
     pathfinder_parallel_workers: int | None = None,
     pathfinder_init_scale: float | None = None,
     aux_bundle: dict[str, Any] | None = None,
-    weakly_identified_sites: tuple[str, ...] = _WEAKLY_IDENTIFIED_SITE_NAMES,
+    prior_released_sites: tuple[str, ...] = _PRIOR_RELEASED_SITE_NAMES,
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,
     best_state: Any | None = None,
@@ -236,7 +220,7 @@ def _pathfinder_init_positions(
     Returns ``(init_positions_per_chain, diagnostics, best_state)``. The
     laplace bundle uses the same ``_discover_sites`` + ``ravel_pytree`` layout
     as ``build_auxiliary_kalman_bundle``, so the flat positions are directly
-    consumable by :func:`run_aux_gibbs`.
+    consumable by :func:`run_aux_kalman_mcmc`.
 
     When ``n_pathfinder_starts > 1`` this runs K independent Pathfinder
     approximations, picks the one with the highest ELBO, and samples the
@@ -251,11 +235,10 @@ def _pathfinder_init_positions(
           chains into distant basins on ill-conditioned posteriors.
 
     Per-parameter init: when ``aux_bundle`` is provided, flat indices that
-    belong to ``weakly_identified_sites`` are overridden with the prior-median
+    belong to ``prior_released_sites`` are overridden with the prior-median
     value (``aux_bundle["flat_example"]``) plus ``prior_release_scale * randn``
-    per chain. This is the literature-standard pattern for sites the output
-    sensitivity check flags as having zero Jacobian at prior draws (e.g.
-    Student-t ``obs_df``): Pathfinder's Gaussian approximation can't
+    per chain. This is the literature-standard pattern for weak-curvature sites
+    such as Student-t ``obs_df``: Pathfinder's Gaussian approximation can't
     meaningfully initialise them, so they start at the prior mode and let the
     parameter-MALA kernel explore from there.
     """
@@ -289,14 +272,16 @@ def _pathfinder_init_positions(
         sampling_mode = "mode_plus_scaled_normal"
     positions = jnp.asarray(positions_np, dtype=dtype)
     if not bool(jax.device_get(jnp.all(jnp.isfinite(positions)))):
-        raise RuntimeError("Pathfinder returned non-finite chain-init positions for aux_gibbs.")
+        raise RuntimeError(
+            "Pathfinder returned non-finite chain-init positions for aux_kalman_mcmc."
+        )
 
     prior_site_indices: list[int] = []
-    if aux_bundle is not None and weakly_identified_sites:
+    if aux_bundle is not None and prior_released_sites:
         prior_site_indices = _flat_indices_for_sites(
             aux_bundle["flat_example"],
             aux_bundle["unravel_fn"],
-            weakly_identified_sites,
+            prior_released_sites,
         )
         if prior_site_indices:
             flat_example = jnp.asarray(aux_bundle["flat_example"], dtype=dtype)
@@ -319,100 +304,14 @@ def _pathfinder_init_positions(
         "pathfinder_sampling_mode": sampling_mode,
         "pathfinder_init_scale": pathfinder_init_scale,
         **pathfinder_diagnostics,
-        "prior_released_site_names": list(weakly_identified_sites) if prior_site_indices else [],
+        "prior_released_site_names": list(prior_released_sites) if prior_site_indices else [],
         "prior_released_site_indices": prior_site_indices,
         "prior_release_scale": float(prior_release_scale) if prior_site_indices else 0.0,
     }
     return positions, diag, best_state
 
 
-def build_aux_gibbs_pathfinder_cache(
-    model,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    *,
-    num_chains: int,
-    seed: int,
-    reparam,
-    n_ieks_iters: int = 6,
-    pathfinder_num_elbo_samples: int = 20,
-    pathfinder_maxiter: int = 20,
-    n_pathfinder_starts: int = 2,
-    pathfinder_parallel_workers: int | None = None,
-    pathfinder_init_scale: float | None = None,
-    prior_release_scale: float = 0.05,
-) -> AuxGibbsPathfinderCache:
-    """Build reusable aux_gibbs Pathfinder init positions and MALA preconditioner."""
-    base_key = random.PRNGKey(seed)
-    trace_key, pathfinder_key, pf_sample_key, release_key = random.split(base_key, 4)
-    bundle = build_auxiliary_kalman_bundle(
-        model,
-        observations,
-        times,
-        trace_key=trace_key,
-        reparam=reparam,
-    )
-    pathfinder_state, pathfinder_diagnostics = _run_pathfinder_approximation(
-        model,
-        observations,
-        times,
-        trace_key=trace_key,
-        pathfinder_key=pathfinder_key,
-        reparam=reparam,
-        n_ieks_iters=n_ieks_iters,
-        num_elbo_samples=pathfinder_num_elbo_samples,
-        maxiter=pathfinder_maxiter,
-        n_pathfinder_starts=n_pathfinder_starts,
-        pathfinder_parallel_workers=pathfinder_parallel_workers,
-    )
-    init_positions, init_diagnostics, pathfinder_state = _pathfinder_init_positions(
-        model,
-        observations,
-        times,
-        trace_key=trace_key,
-        pathfinder_key=pathfinder_key,
-        sample_key=pf_sample_key,
-        reparam=reparam,
-        n_ieks_iters=n_ieks_iters,
-        num_chains=num_chains,
-        num_elbo_samples=pathfinder_num_elbo_samples,
-        maxiter=pathfinder_maxiter,
-        dtype=bundle["flat_example"].dtype,
-        n_pathfinder_starts=n_pathfinder_starts,
-        pathfinder_parallel_workers=pathfinder_parallel_workers,
-        pathfinder_init_scale=pathfinder_init_scale,
-        aux_bundle=bundle,
-        prior_release_scale=prior_release_scale,
-        release_jitter_key=release_key,
-        best_state=pathfinder_state,
-        pathfinder_diagnostics=pathfinder_diagnostics,
-    )
-    preconditioner_chol = _pathfinder_preconditioner_chol_from_state(pathfinder_state)
-    return AuxGibbsPathfinderCache(
-        initial_positions_override=init_positions,
-        parameter_preconditioner_chol=preconditioner_chol,
-        diagnostics={
-            **init_diagnostics,
-            "auto_preconditioner": True,
-            "auto_preconditioner_method": "pathfinder",
-            "auto_preconditioner_device": jax.default_backend(),
-            "auto_preconditioner_n_pathfinder_starts": int(
-                pathfinder_diagnostics["n_pathfinder_starts"]
-            ),
-            "auto_preconditioner_n_pathfinder_starts_finite": int(
-                pathfinder_diagnostics["n_pathfinder_starts_finite"]
-            ),
-            "auto_preconditioner_best_pathfinder_elbo": float(
-                pathfinder_diagnostics["best_pathfinder_elbo"]
-            ),
-            "auto_preconditioner_pathfinder_elbo_spread": float(
-                pathfinder_diagnostics["pathfinder_elbo_spread"]
-            ),
-        },
-    )
-
-
-def fit_aux_gibbs(
+def fit_aux_kalman_mcmc(
     model,
     observations: jnp.ndarray,
     times: jnp.ndarray,
@@ -507,38 +406,38 @@ def fit_aux_gibbs(
     entirely.
 
     Per-parameter init (default ``init_method="pathfinder"``): Pathfinder's
-    Gaussian approximation initialises well-identified flat indices; sites
-    flagged as weakly-identified (e.g. Student-t ``obs_df``) instead inherit
-    the prior-median value plus a small per-chain jitter. The literature-
-    standard "MAP/Pathfinder for well-identified parameters, prior mean for
-    variance/df parameters" pattern, applied at flat-index granularity.
+    Gaussian approximation initialises regular flat indices; prior-released
+    sites such as Student-t ``obs_df`` instead inherit the prior-median value
+    plus a small per-chain jitter. The literature-standard "MAP/Pathfinder for
+    regular parameters, prior mean for variance/df parameters" pattern is
+    applied at flat-index granularity.
     """
     if latent_kernel != "kalman":
         raise ValueError(
-            f"Unsupported aux_gibbs latent kernel {latent_kernel!r}. Supported: 'kalman'."
+            f"Unsupported aux_kalman_mcmc latent kernel {latent_kernel!r}. Supported: 'kalman'."
         )
     if latent_proposal_family not in {"eq8", "eq10_11"}:
         raise ValueError(
-            f"Unsupported aux_gibbs latent proposal family {latent_proposal_family!r}. "
+            f"Unsupported aux_kalman_mcmc latent proposal family {latent_proposal_family!r}. "
             "Supported: 'eq8' or 'eq10_11'."
         )
     if parameter_kernel != "mala":
         raise ValueError(
-            f"Unsupported aux_gibbs parameter kernel {parameter_kernel!r}. Supported: 'mala'."
+            f"Unsupported aux_kalman_mcmc parameter kernel {parameter_kernel!r}. Supported: 'mala'."
         )
     if init_method not in {"random", "pathfinder"}:
         raise ValueError(
-            f"Unsupported aux_gibbs init_method {init_method!r}. "
+            f"Unsupported aux_kalman_mcmc init_method {init_method!r}. "
             "Supported: 'random' or 'pathfinder'."
         )
     if latent_init_method not in {"predictive", "particle_smoother", "ieks"}:
         raise ValueError(
-            f"Unsupported aux_gibbs latent_init_method {latent_init_method!r}. "
+            f"Unsupported aux_kalman_mcmc latent_init_method {latent_init_method!r}. "
             "Supported: 'predictive', 'particle_smoother', or 'ieks'."
         )
     if latent_init_guidance not in {"bootstrap", "bffg"}:
         raise ValueError(
-            f"Unsupported aux_gibbs latent_init_guidance {latent_init_guidance!r}. "
+            f"Unsupported aux_kalman_mcmc latent_init_guidance {latent_init_guidance!r}. "
             "Supported: 'bootstrap' or 'bffg'."
         )
     if latent_delta_profile not in {"scalar", "T_minus_one_third", "informativeness"}:
@@ -556,7 +455,7 @@ def fit_aux_gibbs(
     T_time_log = int(observations.shape[0])
     n_manifest_log = int(observations.shape[1]) if observations.ndim >= 2 else 0
     logger.info(
-        "aux_gibbs entry: chains=%d warmup=%d samples=%d T=%d n_manifest=%d "
+        "aux_kalman_mcmc entry: chains=%d warmup=%d samples=%d T=%d n_manifest=%d "
         "init_method=%s parallel_filter=%s latent_kernel=%s parameter_kernel=%s "
         "auto_preconditioner_method=%s",
         num_chains,
@@ -870,7 +769,7 @@ def fit_aux_gibbs(
         "parallel-Kalman scan + MALA step (this can take 1-5 min on a fresh container) "
         "before any sampling iteration begins...",
     )
-    run_result = run_aux_gibbs(
+    run_result = run_aux_kalman_mcmc(
         bundle,
         latent_kernel=latent_kernel_spec,
         parameter_kernel=parameter_kernel_spec,
@@ -930,7 +829,8 @@ def fit_aux_gibbs(
         name: values.reshape((num_chains, num_samples, *values.shape[1:]))
         for name, values in public_samples.items()
     }
-    mcmc = AuxGibbsMCMCResult(
+    diagnostic_likelihood_backend = model.make_laplace_backend(n_ieks_iters)
+    mcmc = AuxKalmanMCMCResult(
         chain_samples=grouped_public_samples,
         chain_extra_fields=run_result["chain_extra_fields"],
         num_chains=num_chains,
@@ -939,8 +839,8 @@ def fit_aux_gibbs(
     diagnostics = {
         "mcmc": mcmc,
         "public_sites": sorted(bundle["public_sites"]),
-        "likelihood_backend": model.make_likelihood_backend(),
-        "aux_gibbs": {
+        "likelihood_backend": diagnostic_likelihood_backend,
+        "aux_kalman_mcmc": {
             "latent_kernel": latent_kernel,
             "latent_proposal_family": latent_proposal_family,
             "parameter_kernel": parameter_kernel,
@@ -969,7 +869,7 @@ def fit_aux_gibbs(
 
     logger.info(
         "phase 6/6: posterior extraction complete in %.1fs (n_public_sites=%d, "
-        "draws_per_chain=%d). aux_gibbs total: %.1fs",
+        "draws_per_chain=%d). aux_kalman_mcmc total: %.1fs",
         _phase_elapsed(phase_t0),
         len(grouped_public_samples),
         num_samples,
@@ -978,6 +878,6 @@ def fit_aux_gibbs(
 
     return InferenceResult(
         _samples=mcmc.get_samples(),
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         diagnostics=diagnostics,
     )

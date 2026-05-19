@@ -4,11 +4,10 @@ Separates inference from model definition. SSMModel defines the probabilistic
 model; this module provides fit() to run inference with the supported backends.
 
 Available methods:
-- Particle-mGRAD: blocked complete-data updates with PIT dSMC Particle-mGRAD
+- PIT Particle-mGRAD: blocked complete-data updates with PIT dSMC Particle-mGRAD
   latent proposals.
-- Auxiliary Gibbs: blocked complete-data updates with auxiliary Kalman latent proposals.
+- Auxiliary Kalman MCMC: blocked complete-data updates with auxiliary Kalman latent proposals.
 - MAP: L-BFGS mode finding + Laplace Gaussian parameter posterior.
-- SVI: Fast approximate posterior via ELBO optimization.
 """
 
 from __future__ import annotations
@@ -36,13 +35,12 @@ if TYPE_CHECKING:
 # Sentinel for "use AutoReparam with method-appropriate centering".
 _AUTO_REPARAM = object()
 
+
 def _resolve_reparam(reparam, method: InferenceMethod):
     """Resolve _AUTO_REPARAM sentinel to a concrete AutoReparam config."""
+    del method
     if reparam is not _AUTO_REPARAM:
         return reparam
-    # SVI benefits from learnable centering; all other methods use fixed NCP.
-    if method == "svi":
-        return AutoReparam()  # centered=None → learnable via numpyro.param
     return AutoReparam(centered=0.0)  # fully decentered
 
 
@@ -50,7 +48,7 @@ def fit(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    method: InferenceMethod = "aux_gibbs",
+    method: InferenceMethod = "aux_kalman_mcmc",
     reparam=_AUTO_REPARAM,
     **kwargs: Any,
 ) -> InferenceResult:
@@ -60,10 +58,10 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method: "particle_mgrad", "aux_gibbs", "map", or "svi".
+        method: Inference method: "pit_particle_mgrad", "aux_kalman_mcmc", or "map".
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
-              centering (learnable for SVI, fully decentered otherwise).
+              centering.
             - A ``Strategy`` instance (e.g., ``AutoReparam(centered=0.0)``)
             - A dict mapping site names to ``Reparam`` instances
             - None: no reparameterization
@@ -73,27 +71,22 @@ def fit(
         InferenceResult with posterior samples and diagnostics
     """
     reparam = _resolve_reparam(reparam, method)
-    if method == "particle_mgrad":
-        from nof1_causal_lab.models.ssm.inference.methods.particle_mgrad import (
-            fit_particle_mgrad,
+    if method == "pit_particle_mgrad":
+        from nof1_causal_lab.models.ssm.inference.methods.pit_particle_mgrad import (
+            fit_pit_particle_mgrad,
         )
 
-        return fit_particle_mgrad(model, observations, times, reparam=reparam, **kwargs)
-    if method == "aux_gibbs":
-        from nof1_causal_lab.models.ssm.inference.methods.aux_gibbs import fit_aux_gibbs
+        return fit_pit_particle_mgrad(model, observations, times, reparam=reparam, **kwargs)
+    if method == "aux_kalman_mcmc":
+        from nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc import fit_aux_kalman_mcmc
 
-        return fit_aux_gibbs(model, observations, times, reparam=reparam, **kwargs)
-    if method == "svi":
-        from nof1_causal_lab.models.ssm.inference.methods.svi import fit_svi
-
-        return fit_svi(model, observations, times, reparam=reparam, **kwargs)
+        return fit_aux_kalman_mcmc(model, observations, times, reparam=reparam, **kwargs)
     if method == "map":
         from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 
         return fit_map(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
-        "Unknown inference method: "
-        f"{method!r}. Use 'particle_mgrad', 'aux_gibbs', 'map', or 'svi'."
+        f"Unknown inference method: {method!r}. Use 'pit_particle_mgrad', 'aux_kalman_mcmc', or 'map'."
     )
 
 

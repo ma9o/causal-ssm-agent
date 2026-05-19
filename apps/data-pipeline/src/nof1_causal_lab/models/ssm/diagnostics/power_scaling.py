@@ -1,4 +1,4 @@
-"""Post-fit parametric diagnostics for state-space models."""
+"""Post-fit sensitivity diagnostics for state-space models."""
 
 from __future__ import annotations
 

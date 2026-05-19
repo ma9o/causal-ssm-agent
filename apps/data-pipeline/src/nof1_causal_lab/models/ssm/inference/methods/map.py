@@ -1,7 +1,7 @@
 """MAP parameter estimation via L-BFGS + Laplace parameter posterior.
 
 Implements the outer optimization loop for MAP inference:
-1. Build likelihood backend (Kalman or IEKS/Laplace)
+1. Build the IEKS/Laplace likelihood backend
 2. Find the parameter mode via L-BFGS-B
 3. Approximate parameter posterior via Laplace Gaussian or optimizer Hessian inverse
 4. Extract constrained samples from the approximate posterior
@@ -26,7 +26,6 @@ from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
-    LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
 )
@@ -46,7 +45,6 @@ logger = get_prefect_logger(__name__)
 # ---------------------------------------------------------------------------
 
 _SOLVER_KIND_LABELS = {
-    LIKELIHOOD_SOLVER_KIND_KALMAN_EXACT: "kalman_exact",
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS: "point_ieks",
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS: "support_ieks",
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT: "dense_support",
@@ -743,7 +741,7 @@ def fit_map(
     rng_key = random.PRNGKey(seed)
     rng_key, trace_key, init_key, sample_key = random.split(rng_key, 4)
 
-    backend_label = "kalman" if model.likelihood == "kalman" else "laplace_ieks"
+    backend_label = "laplace_ieks"
     logger.info(
         "MAP config: backend=%s maxiter=%s tol=%s n_ieks_iters=%s "
         "n_init_samples=%s num_samples=%s compute_parameter_hessian=%s "
@@ -761,10 +759,7 @@ def fit_map(
     phase_started_at = time.monotonic()
     logger.info("MAP phase start: phase=build_likelihood_backend")
     with jax.profiler.TraceAnnotation("map/build_likelihood_backend"):
-        if model.likelihood == "kalman":
-            backend = model.make_likelihood_backend()
-        else:
-            backend = model.make_laplace_backend(n_ieks_iters)
+        backend = model.make_laplace_backend(n_ieks_iters)
     logger.info(
         "MAP phase complete: phase=build_likelihood_backend elapsed=%.1fs backend=%s",
         _elapsed_seconds(phase_started_at),

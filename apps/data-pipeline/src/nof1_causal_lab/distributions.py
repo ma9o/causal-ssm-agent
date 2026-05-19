@@ -680,17 +680,6 @@ def render_prior_distribution_markdown_table() -> str:
     return "\n".join(lines)
 
 
-def render_prior_constraint_guidance_markdown_table() -> str:
-    """Render a markdown table for constraint-level prior guidance."""
-    lines = [
-        "| Constraint | Domain | Typical prior families |",
-        "|---|---|---|",
-    ]
-    for row in PRIOR_CONSTRAINT_GUIDANCE:
-        lines.append(f"| `{row.constraint}` | `{row.domain}` | {row.typical_families} |")
-    return "\n".join(lines)
-
-
 def render_prior_parameter_guidance_markdown_table() -> str:
     """Render a markdown table for common parameter-level prior defaults."""
     lines = [

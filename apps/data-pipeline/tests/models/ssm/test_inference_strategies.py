@@ -1,12 +1,12 @@
 """Comprehensive tests for SSM inference backends.
 
 Tests cover:
-1. ParticleLikelihood: finite likelihood, determinism, gradient flow
-2. SSMAdapter: observation models (Gaussian, Poisson, Student-t, Gamma)
+1. Laplace likelihood backend: finite likelihood, determinism, gradient flow
+2. Observation kernels: Gaussian, Poisson, Student-t, Gamma
 3. Parameter recovery: simulate → fit() → check credible intervals
 4. Hierarchical likelihood robustness
 5. Edge cases and builder wiring
-6. SVI inference backend
+6. Default inference routing
 
 Test Matrix:
 | Model Class                    | Noise Family         | Test Type          |
@@ -41,7 +41,6 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
     MeasurementParams,
 )
 from nof1_causal_lab.models.ssm.inference.targets.emissions import get_mean_param_log_prob_fn
-from nof1_causal_lab.models.ssm.inference.targets.kalman import KalmanLikelihood
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
     compile_measurement_semantics,
@@ -77,7 +76,6 @@ from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation im
     lift_linear_summary_observation_trajectory,
     row_observation_log_prob,
 )
-from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleLikelihood, SSMAdapter
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     compile_observation_operator,
     expected_observation_mean,
@@ -149,7 +147,7 @@ def test_expected_observation_mean_dispatches_by_summary_operator():
 
 
 # =============================================================================
-# ParticleLikelihood: Core Functionality
+# Marginal likelihood backend functionality
 # =============================================================================
 
 
@@ -471,193 +469,6 @@ class TestLaplaceEMBlockSolver:
             rtol=5e-2,
             atol=5e-2,
         )
-
-
-class TestParticleLikelihoodCore:
-    """Test ParticleLikelihood core functionality."""
-
-    @pytest.fixture
-    def linear_gaussian_params(self):
-        """Standard test parameters for 2D linear-Gaussian model."""
-        return {
-            "ct_params": CTParams(
-                drift=jnp.array([[-0.5, 0.1], [0.2, -0.8]]),
-                diffusion_cov=jnp.array([[0.1, 0.02], [0.02, 0.1]]),
-                cint=jnp.array([0.0, 0.0]),
-            ),
-            "meas_params": MeasurementParams(
-                lambda_mat=jnp.eye(2),
-                manifest_means=jnp.zeros(2),
-                manifest_cov=jnp.eye(2) * 0.1,
-            ),
-            "init_params": InitialStateParams(
-                mean=jnp.zeros(2),
-                cov=jnp.eye(2),
-            ),
-        }
-
-    @pytest.fixture
-    def simple_observations(self):
-        """Simple test observations and time intervals."""
-        T = 15
-        key = random.PRNGKey(42)
-        observations = random.normal(key, (T, 2)) * 0.5
-        time_intervals = jnp.ones(T) * 0.5
-        return observations, time_intervals
-
-    def test_pf_produces_finite_likelihood(self, linear_gaussian_params, simple_observations):
-        """PF log-likelihood should be finite for reasonable parameters."""
-        observations, time_intervals = simple_observations
-
-        backend = ParticleLikelihood(n_latent=2, n_manifest=2, n_particles=200)
-        ll = backend.compute_log_likelihood(
-            linear_gaussian_params["ct_params"],
-            linear_gaussian_params["meas_params"],
-            linear_gaussian_params["init_params"],
-            observations,
-            time_intervals,
-        )
-
-        assert jnp.all(jnp.isfinite(ll)), f"PF produced non-finite: {ll}"
-
-    def test_pf_varies_with_params(self, simple_observations):
-        """PF likelihood should vary with different parameters."""
-        observations, time_intervals = simple_observations
-
-        drift_values = [
-            jnp.array([[-0.3, 0.0], [0.0, -0.3]]),
-            jnp.array([[-0.5, 0.1], [0.1, -0.5]]),
-            jnp.array([[-0.8, 0.0], [0.0, -0.8]]),
-        ]
-
-        likelihoods = []
-        for drift in drift_values:
-            ct_params = CTParams(
-                drift=drift,
-                diffusion_cov=jnp.eye(2) * 0.1,
-                cint=jnp.zeros(2),
-            )
-            meas_params = MeasurementParams(
-                lambda_mat=jnp.eye(2),
-                manifest_means=jnp.zeros(2),
-                manifest_cov=jnp.eye(2) * 0.1,
-            )
-            init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-            backend = ParticleLikelihood(
-                n_latent=2,
-                n_manifest=2,
-                n_particles=200,
-                rng_key=random.PRNGKey(42),
-            )
-            ll = backend.compute_log_likelihood(
-                ct_params,
-                meas_params,
-                init,
-                observations,
-                time_intervals,
-            )
-            likelihoods.append(float(ll[-1]))
-
-        assert all(np.isfinite(ll) for ll in likelihoods)
-        assert len({round(ll, 2) for ll in likelihoods}) > 1
-
-    def test_pf_support_aware_window_average_produces_finite_likelihood(self):
-        """Interval-summary observations should run through the support-aware PF path."""
-        ct_params = CTParams(
-            drift=jnp.array([[-0.4]]),
-            diffusion_cov=jnp.array([[0.1]]),
-            cint=jnp.array([0.0]),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.array([[1.0]]),
-            manifest_means=jnp.array([0.0]),
-            manifest_cov=jnp.array([[0.2]]),
-        )
-        init = InitialStateParams(mean=jnp.array([0.0]), cov=jnp.array([[1.0]]))
-        support = make_observation_support_runtime(
-            anchor_times=np.array([0.0, 1.0, 2.0]),
-            manifest_names=["avg_signal"],
-            support_kinds=["interval"],
-            observation_windows=["2d"],
-            support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_weights=np.array([[0.0], [1.0], [1.0]]),
-        )
-        observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
-        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
-
-        backend = ParticleLikelihood(
-            n_latent=1,
-            n_manifest=1,
-            n_particles=80,
-            rng_key=random.PRNGKey(0),
-            observation_support=support,
-            block_rb=False,
-        )
-        ll = backend.compute_log_likelihood(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-        )
-
-        assert support.requires_interval_summary_handling is True
-        assert jnp.all(jnp.isfinite(ll))
-
-    def test_pf_support_aware_window_average_handles_mixed_diffusion(self):
-        """Support-aware PF should keep mixed diffusion families instead of collapsing them."""
-        ct_params = CTParams(
-            drift=jnp.array([[-0.4, 0.1], [0.0, -0.3]], dtype=jnp.float32),
-            diffusion_cov=jnp.array([[0.1, 0.02], [0.02, 0.15]], dtype=jnp.float32),
-            cint=jnp.zeros(2, dtype=jnp.float32),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.array([[1.0, 0.5]], dtype=jnp.float32),
-            manifest_means=jnp.array([0.0], dtype=jnp.float32),
-            manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
-        )
-        init = InitialStateParams(
-            mean=jnp.zeros(2, dtype=jnp.float32),
-            cov=jnp.eye(2, dtype=jnp.float32),
-        )
-        support = make_observation_support_runtime(
-            anchor_times=np.array([0.0, 1.0, 2.0]),
-            manifest_names=["avg_signal"],
-            support_kinds=["interval"],
-            observation_windows=["2d"],
-            support_start_times=np.array([[np.nan], [np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [np.nan], [2.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_curr_coeffs=np.array([[0.0], [0.5], [0.5]]),
-            interval_weights=np.array([[0.0], [1.0], [1.0]]),
-        )
-        observations = jnp.array([[jnp.nan], [jnp.nan], [0.25]], dtype=jnp.float32)
-        time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
-
-        backend = ParticleLikelihood(
-            n_latent=2,
-            n_manifest=1,
-            n_particles=80,
-            rng_key=random.PRNGKey(1),
-            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-            observation_support=support,
-            block_rb=False,
-        )
-        ll = backend.compute_log_likelihood(
-            ct_params,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-            extra_params={"proc_df": 5.0},
-        )
-
-        assert backend.transition_dispatch_mode == "mixed"
-        assert jnp.all(jnp.isfinite(ll))
 
 
 class TestSupportAwareTrajectoryObservationLogProb:
@@ -2072,30 +1883,29 @@ class TestLaplaceBackendCaching:
         assert jnp.isfinite(ll)
 
 
-class TestParticleMissingData:
-    """Tests for Gaussian observation masking in PF adapter."""
+class TestObservationKernelMissingData:
+    """Tests for Gaussian observation masking in shared emission kernels."""
 
     def test_missing_dimension_not_penalized(self):
         """Missing dims should not incur huge log-det penalties."""
         n_latent, n_manifest = 1, 2
-        adapter = SSMAdapter(
-            n_latent,
-            n_manifest,
-            manifest_dists=[DistributionFamily.GAUSSIAN] * n_manifest,
-            diffusion_dists=[DistributionFamily.GAUSSIAN],
-            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+        kernel = build_observation_kernel(
+            DistributionFamily.GAUSSIAN,
+            LinkFunction.IDENTITY,
+            manifest_cov=jnp.diag(jnp.array([0.5, 0.5])),
         )
-
-        params = {
-            "lambda_mat": jnp.array([[1.0], [1.0]]),
-            "manifest_means": jnp.array([0.0, 0.0]),
-            "manifest_cov": jnp.diag(jnp.array([0.5, 0.5])),
-        }
         x = jnp.array([0.0])
         y = jnp.array([1.0, -2.0])
         obs_mask = jnp.array([True, False])
 
-        ll = adapter.observation_log_prob(y, x, params, obs_mask)
+        ll = kernel.emission_fn(
+            y,
+            x,
+            jnp.ones((n_manifest, n_latent)),
+            jnp.zeros(n_manifest),
+            jnp.diag(jnp.array([0.5, 0.5])),
+            obs_mask,
+        )
 
         # Manual univariate logpdf for observed dimension
         sigma2 = 0.5
@@ -2106,243 +1916,6 @@ class TestParticleMissingData:
         assert jnp.allclose(ll, manual, atol=1e-5), f"{ll} vs {manual}"
 
 
-class TestKalmanMissingData:
-    """Regression tests for missing-data handling in the exact Kalman path."""
-
-    @staticmethod
-    def _simple_params(n_manifest: int) -> tuple[CTParams, MeasurementParams, InitialStateParams]:
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5]]),
-            diffusion_cov=jnp.array([[1e-6]]),
-            cint=jnp.array([0.0]),
-        )
-        measurement_params = MeasurementParams(
-            lambda_mat=jnp.ones((n_manifest, 1)),
-            manifest_means=jnp.zeros(n_manifest),
-            manifest_cov=jnp.eye(n_manifest) * 0.5,
-        )
-        initial_state = InitialStateParams(
-            mean=jnp.array([0.0]),
-            cov=jnp.array([[1.0]]),
-        )
-        return ct_params, measurement_params, initial_state
-
-    def test_fully_missing_timestep_has_zero_increment(self):
-        """A timestep with no observations should add zero log-likelihood."""
-        backend = KalmanLikelihood(n_latent=1, n_manifest=1)
-        ct_params, measurement_params, initial_state = self._simple_params(n_manifest=1)
-
-        lnc = backend.compute_log_likelihood(
-            ct_params,
-            measurement_params,
-            initial_state,
-            jnp.array([[1.0], [jnp.nan]]),
-            jnp.array([1.0, 1.0]),
-        )
-
-        ll_per_timestep = jnp.diff(lnc, prepend=0.0)
-        assert jnp.isclose(ll_per_timestep[1], 0.0, atol=1e-5), ll_per_timestep
-
-    def test_missing_channel_matches_observed_subsystem(self):
-        """Masking out one manifest should match the corresponding 1D Kalman model."""
-        dt = jnp.array([1.0])
-        init_mask = InitialStateParams(mean=jnp.array([0.0]), cov=jnp.array([[1.0]]))
-        ct_mask = CTParams(
-            drift=jnp.array([[-0.5]]), diffusion_cov=jnp.array([[1e-6]]), cint=jnp.array([0.0])
-        )
-
-        masked_backend = KalmanLikelihood(n_latent=1, n_manifest=2)
-        masked_meas = MeasurementParams(
-            lambda_mat=jnp.array([[1.0], [1.0]]),
-            manifest_means=jnp.array([0.0, 0.0]),
-            manifest_cov=jnp.diag(jnp.array([0.5, 0.5])),
-        )
-        ll_from_nan = masked_backend.compute_log_likelihood(
-            ct_mask,
-            masked_meas,
-            init_mask,
-            jnp.array([[1.0, jnp.nan]]),
-            dt,
-        )
-        ll_from_explicit_mask = masked_backend.compute_log_likelihood(
-            ct_mask,
-            masked_meas,
-            init_mask,
-            jnp.array([[1.0, 999.0]]),
-            dt,
-            obs_mask=jnp.array([[True, False]]),
-        )
-
-        single_backend = KalmanLikelihood(n_latent=1, n_manifest=1)
-        single_meas = MeasurementParams(
-            lambda_mat=jnp.array([[1.0]]),
-            manifest_means=jnp.array([0.0]),
-            manifest_cov=jnp.array([[0.5]]),
-        )
-        ll_single = single_backend.compute_log_likelihood(
-            ct_mask,
-            single_meas,
-            init_mask,
-            jnp.array([[1.0]]),
-            dt,
-        )
-
-        assert jnp.allclose(ll_from_nan, ll_from_explicit_mask, atol=1e-4)
-        assert jnp.allclose(ll_from_nan, ll_single, atol=1e-5)
-
-    def test_skipped_empty_tick_matches_explicit_missing_timestep(self):
-        """A fully unobserved clock tick should be equivalent to a longer dt gap."""
-        backend = KalmanLikelihood(n_latent=1, n_manifest=1)
-        ct_params, measurement_params, initial_state = self._simple_params(n_manifest=1)
-
-        ll_skipped_tick = backend.compute_log_likelihood(
-            ct_params,
-            measurement_params,
-            initial_state,
-            jnp.array([[1.0], [2.0]]),
-            jnp.array([1.0, 2.0]),
-        )
-        ll_explicit_missing_tick = backend.compute_log_likelihood(
-            ct_params,
-            measurement_params,
-            initial_state,
-            jnp.array([[1.0], [jnp.nan], [2.0]]),
-            jnp.array([1.0, 1.0, 1.0]),
-        )
-
-        assert jnp.allclose(ll_skipped_tick[-1], ll_explicit_missing_tick[-1], atol=1e-5)
-
-
-class TestEdgeCases:
-    """Test edge cases and robustness with ParticleLikelihood."""
-
-    def test_single_observation(self):
-        """Handle single observation gracefully."""
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
-            diffusion_cov=jnp.eye(2) * 0.1,
-            cint=None,
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(2),
-            manifest_means=jnp.zeros(2),
-            manifest_cov=jnp.eye(2) * 0.1,
-        )
-        init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-        observations = jnp.array([[0.5, -0.3]])
-        time_intervals = jnp.array([1.0])
-
-        backend = ParticleLikelihood(n_latent=2, n_manifest=2, n_particles=100)
-        ll = backend.compute_log_likelihood(
-            ct_params, meas_params, init, observations, time_intervals
-        )
-        assert jnp.all(jnp.isfinite(ll))
-
-    def test_irregular_time_intervals(self):
-        """Handle irregular time intervals."""
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5, 0.1], [0.2, -0.8]]),
-            diffusion_cov=jnp.eye(2) * 0.1,
-            cint=jnp.array([0.1, -0.1]),
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(2),
-            manifest_means=jnp.zeros(2),
-            manifest_cov=jnp.eye(2) * 0.1,
-        )
-        init = InitialStateParams(mean=jnp.zeros(2), cov=jnp.eye(2))
-
-        observations = jnp.array(
-            [
-                [0.1, 0.2],
-                [0.3, 0.1],
-                [0.2, 0.4],
-                [0.5, 0.3],
-                [0.4, 0.5],
-            ]
-        )
-        time_intervals = jnp.array([0.1, 0.5, 0.2, 1.0, 0.3])
-
-        backend = ParticleLikelihood(n_latent=2, n_manifest=2, n_particles=100)
-        ll = backend.compute_log_likelihood(
-            ct_params, meas_params, init, observations, time_intervals
-        )
-        assert jnp.all(jnp.isfinite(ll))
-
-    def test_higher_dimensional_system(self):
-        """Test 4-dimensional latent system."""
-        n_latent = 4
-        n_manifest = 4
-        T = 30
-
-        key = random.PRNGKey(42)
-        observations = random.normal(key, (T, n_manifest)) * 0.5
-        time_intervals = jnp.ones(T) * 0.5
-
-        ct_params = CTParams(
-            drift=jnp.diag(jnp.array([-0.5, -0.6, -0.7, -0.8])),
-            diffusion_cov=jnp.eye(n_latent) * 0.1,
-            cint=None,
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=jnp.eye(n_manifest, n_latent),
-            manifest_means=jnp.zeros(n_manifest),
-            manifest_cov=jnp.eye(n_manifest) * 0.1,
-        )
-        init = InitialStateParams(mean=jnp.zeros(n_latent), cov=jnp.eye(n_latent))
-
-        backend = ParticleLikelihood(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            n_particles=200,
-        )
-        ll = backend.compute_log_likelihood(
-            ct_params, meas_params, init, observations, time_intervals
-        )
-        assert jnp.all(jnp.isfinite(ll))
-
-    def test_non_identity_lambda(self):
-        """Test with non-identity factor loading matrix."""
-        n_latent = 2
-        n_manifest = 3
-        T = 20
-
-        key = random.PRNGKey(42)
-        observations = random.normal(key, (T, n_manifest)) * 0.5
-        time_intervals = jnp.ones(T) * 0.5
-
-        lambda_mat = jnp.array(
-            [
-                [1.0, 0.0],
-                [0.0, 1.0],
-                [0.5, 0.5],
-            ]
-        )
-
-        ct_params = CTParams(
-            drift=jnp.array([[-0.5, 0.1], [0.2, -0.8]]),
-            diffusion_cov=jnp.eye(n_latent) * 0.1,
-            cint=None,
-        )
-        meas_params = MeasurementParams(
-            lambda_mat=lambda_mat,
-            manifest_means=jnp.zeros(n_manifest),
-            manifest_cov=jnp.eye(n_manifest) * 0.1,
-        )
-        init = InitialStateParams(mean=jnp.zeros(n_latent), cov=jnp.eye(n_latent))
-
-        backend = ParticleLikelihood(
-            n_latent=n_latent,
-            n_manifest=n_manifest,
-            n_particles=200,
-        )
-        ll = backend.compute_log_likelihood(
-            ct_params, meas_params, init, observations, time_intervals
-        )
-        assert jnp.all(jnp.isfinite(ll))
-
-
 # =============================================================================
 # fit() Integration Tests
 # =============================================================================
@@ -2350,15 +1923,6 @@ class TestEdgeCases:
 
 class TestInferenceCaching:
     """Low-risk caching behavior for default inference helpers."""
-
-    @staticmethod
-    def _identity_transform():
-        class _IdentityTransform:
-            @staticmethod
-            def inv(value):
-                return value
-
-        return _IdentityTransform()
 
     def test_model_reuses_backend_instances(self):
         spec = make_ssm_spec(
@@ -2406,101 +1970,6 @@ class TestInferenceCaching:
         assert "manifest_var_diag_free" in site_info
 
 
-class TestSVIBackend:
-    """Tests specific to SVI inference backend."""
-
-    def test_svi_rejects_nonfinite_losses(self, monkeypatch):
-        """SVI should fail fast instead of returning a numerically invalid fit."""
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
-        model = SSMModel(spec, likelihood="kalman")
-        observations = jnp.zeros((4, 1), dtype=jnp.float32)
-        times = jnp.arange(4, dtype=jnp.float32)
-
-        class FakeSVI:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            def init(self, *_args, **_kwargs):
-                return 0
-
-            def update(self, state, *_args, **_kwargs):
-                losses = jnp.array([1.0, jnp.nan], dtype=jnp.float32)
-                return state + 1, losses[state]
-
-            def get_params(self, *_args, **_kwargs):
-                return {"loc": jnp.array([0.0], dtype=jnp.float32)}
-
-        monkeypatch.setattr("nof1_causal_lab.models.ssm.inference.methods.svi.SVI", FakeSVI)
-
-        with pytest.raises(FloatingPointError, match="non-finite losses"):
-            fit(
-                model,
-                observations=observations,
-                times=times,
-                method="svi",
-                num_steps=2,
-                num_samples=2,
-            )
-
-    def test_svi_rejects_nonfinite_posterior_samples(self, monkeypatch):
-        """SVI should fail fast when guide predictive samples contain NaNs."""
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
-        model = SSMModel(spec, likelihood="kalman")
-        observations = jnp.zeros((4, 1), dtype=jnp.float32)
-        times = jnp.arange(4, dtype=jnp.float32)
-
-        class FakeSVI:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            def init(self, *_args, **_kwargs):
-                return 0
-
-            def update(self, state, *_args, **_kwargs):
-                losses = jnp.array([1.0, 0.5], dtype=jnp.float32)
-                return state + 1, losses[state]
-
-            def get_params(self, *_args, **_kwargs):
-                return {"loc": jnp.array([0.0], dtype=jnp.float32)}
-
-        class FakePredictive:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            def __call__(self, *_args, **_kwargs):
-                return {"drift": jnp.array([[[jnp.nan]]], dtype=jnp.float32)}
-
-        monkeypatch.setattr("nof1_causal_lab.models.ssm.inference.methods.svi.SVI", FakeSVI)
-        monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm.inference.methods.svi.Predictive", FakePredictive
-        )
-
-        with pytest.raises(FloatingPointError, match="non-finite posterior samples"):
-            fit(
-                model,
-                observations=observations,
-                times=times,
-                method="svi",
-                num_steps=2,
-                num_samples=1,
-            )
-
-
-# =============================================================================
-# SVI Parameter Recovery
-# =============================================================================
-
-
 class TestDefaultMethodRouting:
     """Regression tests for default inference routing."""
 
@@ -2518,8 +1987,8 @@ class TestDefaultMethodRouting:
             interval_weights=np.array([[0.0], [1.0]]),
         )
 
-    def test_default_always_routes_to_aux_gibbs(self):
-        """Default routing resolves to auxiliary Gibbs for all model types."""
+    def test_default_always_routes_to_aux_kalman_mcmc(self):
+        """Default routing resolves to auxiliary Kalman MCMC for all model types."""
         from nof1_causal_lab.models.ssm.inference.structure import plan_inference_structure
 
         spec = make_ssm_spec(
@@ -2529,38 +1998,36 @@ class TestDefaultMethodRouting:
             **diagonal_diffusion_kwargs(1),
         )
 
-        plan_kalman = plan_inference_structure(spec, likelihood="kalman")
-        assert plan_kalman.resolved_method == "aux_gibbs"
+        plan = plan_inference_structure(spec)
+        assert plan.resolved_method == "aux_kalman_mcmc"
+        assert plan.structural_backend == "laplace"
 
-        plan_particle = plan_inference_structure(spec, likelihood="particle")
-        assert plan_particle.resolved_method == "aux_gibbs"
-
-    def test_fit_without_method_dispatches_to_aux_gibbs(self, monkeypatch):
+    def test_fit_without_method_dispatches_to_aux_kalman_mcmc(self, monkeypatch):
         spec = make_ssm_spec(
             n_latent=1,
             n_manifest=1,
             lambda_mat=jnp.eye(1),
             **diagonal_diffusion_kwargs(1),
         )
-        model = SSMModel(spec, likelihood="kalman")
+        model = SSMModel(spec)
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
-        def fake_fit_aux_gibbs(_model, _observations, _times, **kwargs):
+        def fake_fit_aux_kalman_mcmc(_model, _observations, _times, **kwargs):
             return InferenceResult(
                 _samples={"drift_base_decay_free": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method="aux_gibbs",
+                method="aux_kalman_mcmc",
                 diagnostics={"kwargs": kwargs},
             )
 
         monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm.inference.methods.aux_gibbs.fit_aux_gibbs",
-            fake_fit_aux_gibbs,
+            "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc.fit_aux_kalman_mcmc",
+            fake_fit_aux_kalman_mcmc,
         )
 
         result = fit(model, observations=observations, times=times)
 
-        assert result.method == "aux_gibbs"
+        assert result.method == "aux_kalman_mcmc"
 
     def test_non_point_support_allows_map(self, monkeypatch):
         spec = make_ssm_spec(
@@ -2569,7 +2036,7 @@ class TestDefaultMethodRouting:
             lambda_mat=jnp.eye(1),
             **diagonal_diffusion_kwargs(1),
         )
-        model = SSMModel(spec, likelihood="particle")
+        model = SSMModel(spec)
         model.set_observation_support(self._non_point_support())
         observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
@@ -2611,7 +2078,7 @@ def test_map_optimizer_smoke_on_small_kalman_model():
         manifest_chol_diag_mask=np.array([True]),
         **diagonal_diffusion_kwargs(1),
     )
-    model = SSMModel(spec, likelihood="kalman")
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -2641,7 +2108,7 @@ def test_map_optimizer_smoke_on_small_kalman_model():
     assert bool(jnp.isfinite(samples["t0_var_diag_free"]).all())
 
 
-def _make_aux_gibbs_smoke_spec(**overrides):
+def _make_aux_kalman_mcmc_smoke_spec(**overrides):
     kwargs = {
         "n_latent": 1,
         "n_manifest": 1,
@@ -2695,14 +2162,14 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
     ("method", "num_warmup", "num_samples", "seed", "extra_kwargs"),
     [
         (
-            "aux_gibbs",
+            "aux_kalman_mcmc",
             8,
             10,
             0,
             {"latent_delta": 0.2, "param_step_size": 0.03, "init_scale": 0.01},
         ),
         (
-            "particle_mgrad",
+            "pit_particle_mgrad",
             6,
             8,
             17,
@@ -2715,7 +2182,7 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
             },
         ),
     ],
-    ids=["aux-gibbs", "particle-mgrad"],
+    ids=["aux-kalman-mcmc", "pit-particle-mgrad"],
 )
 def test_particle_mcmc_smoke_on_small_kalman_model(
     method,
@@ -2724,8 +2191,8 @@ def test_particle_mcmc_smoke_on_small_kalman_model(
     seed,
     extra_kwargs,
 ):
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
 
     result = fit(
@@ -2744,9 +2211,9 @@ def test_particle_mcmc_smoke_on_small_kalman_model(
     _assert_small_particle_mcmc_result(result, method=method, num_samples=num_samples)
 
 
-def test_aux_gibbs_eq10_11_smoke_on_small_kalman_model():
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+def test_aux_kalman_mcmc_eq10_11_smoke_on_small_kalman_model():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -2754,7 +2221,7 @@ def test_aux_gibbs_eq10_11_smoke_on_small_kalman_model():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         num_warmup=8,
         num_samples=10,
         num_chains=1,
@@ -2766,8 +2233,8 @@ def test_aux_gibbs_eq10_11_smoke_on_small_kalman_model():
         retain_latent_paths=True,
     )
 
-    assert result.method == "aux_gibbs"
-    aux_diag = result.diagnostics["aux_gibbs"]
+    assert result.method == "aux_kalman_mcmc"
+    aux_diag = result.diagnostics["aux_kalman_mcmc"]
     assert aux_diag["latent_proposal_family"] == "eq10_11"
     samples = result.get_samples()
     assert samples["diffusion_diag_free"].shape == (10, 1)
@@ -2785,9 +2252,9 @@ def test_aux_gibbs_eq10_11_smoke_on_small_kalman_model():
     assert latent_paths.shape == (1, 10, 3, 1)
 
 
-def test_aux_gibbs_can_skip_latent_posterior_summary():
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+def test_aux_kalman_mcmc_can_skip_latent_posterior_summary():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -2795,7 +2262,7 @@ def test_aux_gibbs_can_skip_latent_posterior_summary():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         num_warmup=4,
         num_samples=6,
         num_chains=1,
@@ -2818,8 +2285,8 @@ def test_particle_smoother_latent_initializer_smoke_on_small_kalman_model():
         initialize_particle_smoother_latents,
     )
 
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
     bundle = build_auxiliary_kalman_bundle(
         model,
@@ -2847,13 +2314,13 @@ def test_particle_smoother_latent_initializer_smoke_on_small_kalman_model():
     assert len(diagnostics["latent_init_min_ess"]) == 2
 
 
-def test_aux_gibbs_accepts_particle_smoother_latent_init():
+def test_aux_kalman_mcmc_accepts_particle_smoother_latent_init():
     from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
         build_auxiliary_kalman_bundle,
     )
 
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
     bundle = build_auxiliary_kalman_bundle(
         model,
@@ -2867,7 +2334,7 @@ def test_aux_gibbs_accepts_particle_smoother_latent_init():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         num_warmup=4,
         num_samples=5,
         num_chains=1,
@@ -2881,7 +2348,7 @@ def test_aux_gibbs_accepts_particle_smoother_latent_init():
         parameter_preconditioner_chol=jnp.eye(bundle["dim"], dtype=bundle["flat_example"].dtype),
     )
 
-    diag = result.diagnostics["aux_gibbs"]
+    diag = result.diagnostics["aux_kalman_mcmc"]
     assert diag["init_method"] == "random"
     assert diag["latent_init_method"] == "particle_smoother"
     assert diag["latent_init_algorithm"] == "ffbsi"
@@ -2893,14 +2360,14 @@ def test_aux_gibbs_accepts_particle_smoother_latent_init():
     ("method", "extra_kwargs"),
     [
         (
-            "aux_gibbs",
+            "aux_kalman_mcmc",
             {
                 "latent_delta": 0.2,
                 "param_step_size": 0.03,
             },
         ),
         (
-            "particle_mgrad",
+            "pit_particle_mgrad",
             {
                 "latent_delta": 0.2,
                 "latent_target_accept": 0.5,
@@ -2909,13 +2376,13 @@ def test_aux_gibbs_accepts_particle_smoother_latent_init():
             },
         ),
     ],
-    ids=["aux-gibbs", "particle-mgrad"],
+    ids=["aux-kalman-mcmc", "pit-particle-mgrad"],
 )
 def test_particle_mcmc_defaults_to_ieks_latent_init(method, extra_kwargs):
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
-    if method == "aux_gibbs":
+    if method == "aux_kalman_mcmc":
         from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
             build_auxiliary_kalman_bundle,
         )
@@ -2957,9 +2424,9 @@ def test_particle_mcmc_defaults_to_ieks_latent_init(method, extra_kwargs):
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
-def test_aux_gibbs_dual_averaging_smoke_on_small_kalman_model():
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+def test_aux_kalman_mcmc_dual_averaging_smoke_on_small_kalman_model():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -2967,7 +2434,7 @@ def test_aux_gibbs_dual_averaging_smoke_on_small_kalman_model():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         num_warmup=4,
         num_samples=5,
         num_chains=2,
@@ -2978,16 +2445,16 @@ def test_aux_gibbs_dual_averaging_smoke_on_small_kalman_model():
         adaptation_scheme="dual_averaging",
     )
 
-    diag = result.diagnostics["aux_gibbs"]
+    diag = result.diagnostics["aux_kalman_mcmc"]
     assert diag["adaptation_scheme"] == "dual_averaging"
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
-def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypatch):
+def test_aux_kalman_mcmc_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypatch):
     from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import build_auxiliary_kalman_bundle
 
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
     aux_bundle = build_auxiliary_kalman_bundle(
@@ -3022,11 +2489,11 @@ def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypa
         raise AssertionError("fit_map should not run when auto_preconditioner_method='pathfinder'.")
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_gibbs._run_pathfinder_approximation",
+        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc._run_pathfinder_approximation",
         _fake_run_pathfinder_approximations,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_gibbs.fit_map",
+        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc.fit_map",
         _unexpected_fit_map,
     )
 
@@ -3034,7 +2501,7 @@ def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypa
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         num_warmup=4,
         num_samples=5,
         num_chains=2,
@@ -3046,7 +2513,7 @@ def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypa
         pathfinder_preconditioner_low_rank_scale=0.5,
     )
 
-    aux_diag = result.diagnostics["aux_gibbs"]
+    aux_diag = result.diagnostics["aux_kalman_mcmc"]
     assert pathfinder_runs["count"] == 1
     assert aux_diag["init_method"] == "pathfinder"
     assert aux_diag["pathfinder_sampling_mode"] == "pathfinder_gaussian"
@@ -3058,11 +2525,11 @@ def test_aux_gibbs_pathfinder_auto_preconditioner_reuses_pathfinder_run(monkeypa
     assert aux_diag["auto_preconditioner_best_pathfinder_elbo"] == pytest.approx(3.0)
 
 
-def test_aux_gibbs_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
+def test_aux_kalman_mcmc_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
     from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import build_auxiliary_kalman_bundle
 
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
     aux_bundle = build_auxiliary_kalman_bundle(
@@ -3097,11 +2564,11 @@ def test_aux_gibbs_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
         raise AssertionError("fit_map should not run when auto_preconditioner_method='pathfinder'.")
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_gibbs._run_pathfinder_approximation",
+        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc._run_pathfinder_approximation",
         _fake_run_pathfinder_approximations,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_gibbs.fit_map",
+        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc.fit_map",
         _unexpected_fit_map,
     )
 
@@ -3109,7 +2576,7 @@ def test_aux_gibbs_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         num_warmup=4,
         num_samples=5,
         num_chains=4,
@@ -3122,7 +2589,7 @@ def test_aux_gibbs_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
         n_pathfinder_starts=3,
     )
 
-    aux_diag = result.diagnostics["aux_gibbs"]
+    aux_diag = result.diagnostics["aux_kalman_mcmc"]
     assert pathfinder_runs["count"] == 1
     assert aux_diag["pathfinder_sampling_mode"] == "mode_plus_scaled_normal"
     assert aux_diag["pathfinder_init_scale"] == pytest.approx(0.15)
@@ -3134,16 +2601,16 @@ def test_aux_gibbs_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
 
 
 @pytest.mark.parametrize("adaptation_scheme", ["simple", "dual_averaging"])
-def test_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_scheme):
+def test_pit_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_scheme):
     """After warmup, per-t δ_t should differ across t in at least one chain.
 
     This locks in the dispatch through ``latent_kernel['step_fn']``: if
-    particle_mgrad were silently falling back to eq8 aux-Kalman (global
+    pit_particle_mgrad were silently falling back to eq8 aux-Kalman (global
     scalar accept), the per_time_constant init would still produce a (T,)
     vector but all elements would stay locked together.
     """
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3151,7 +2618,7 @@ def test_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_schem
         model,
         observations=observations,
         times=times,
-        method="particle_mgrad",
+        method="pit_particle_mgrad",
         num_warmup=40,
         num_samples=5,
         num_chains=2,
@@ -3164,9 +2631,9 @@ def test_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_schem
         adaptation_scheme=adaptation_scheme,
     )
 
-    final_latent_delta = np.asarray(result.diagnostics["particle_mgrad"]["final_latent_delta"])
-    assert result.diagnostics["particle_mgrad"]["latent_kernel_algorithm"] == "pit_dsmc"
-    assert result.diagnostics["particle_mgrad"]["parallel_time"] is True
+    final_latent_delta = np.asarray(result.diagnostics["pit_particle_mgrad"]["final_latent_delta"])
+    assert result.diagnostics["pit_particle_mgrad"]["latent_kernel_algorithm"] == "pit_dsmc"
+    assert result.diagnostics["pit_particle_mgrad"]["parallel_time"] is True
     assert final_latent_delta.shape == (2, 3)
     assert np.all(np.isfinite(final_latent_delta))
     extra_fields = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
@@ -3182,9 +2649,9 @@ def test_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_schem
     )
 
 
-def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+def test_pit_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
     latent_delta_min = 0.05
@@ -3201,11 +2668,11 @@ def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
         return base + offsets, jnp.zeros((num_samples,), dtype=base.dtype)
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.particle_mgrad.pathfinder.approximate",
+        "nof1_causal_lab.models.ssm.inference.methods.pit_particle_mgrad.pathfinder.approximate",
         _fake_pathfinder_approximate,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.particle_mgrad.pathfinder.sample",
+        "nof1_causal_lab.models.ssm.inference.methods.pit_particle_mgrad.pathfinder.sample",
         _fake_pathfinder_sample,
     )
 
@@ -3213,7 +2680,7 @@ def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
         model,
         observations=observations,
         times=times,
-        method="particle_mgrad",
+        method="pit_particle_mgrad",
         num_warmup=4,
         num_samples=5,
         num_chains=2,
@@ -3229,7 +2696,7 @@ def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
         latent_delta_max=latent_delta_max,
     )
 
-    diag = result.diagnostics["particle_mgrad"]
+    diag = result.diagnostics["pit_particle_mgrad"]
     assert diag["adaptation_scheme"] == "dual_averaging"
     assert diag["init_method"] == "pathfinder"
     final_latent_delta = np.asarray(diag["final_latent_delta"])
@@ -3238,9 +2705,9 @@ def test_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
     assert np.all(final_latent_delta <= latent_delta_max)
 
 
-def test_particle_mgrad_accepts_nuts_parameter_kernel():
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+def test_pit_particle_mgrad_accepts_nuts_parameter_kernel():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3248,7 +2715,7 @@ def test_particle_mgrad_accepts_nuts_parameter_kernel():
         model,
         observations=observations,
         times=times,
-        method="particle_mgrad",
+        method="pit_particle_mgrad",
         num_warmup=2,
         num_samples=3,
         num_chains=1,
@@ -3265,7 +2732,7 @@ def test_particle_mgrad_accepts_nuts_parameter_kernel():
         compute_latent_posterior_summary=False,
     )
 
-    diag = result.diagnostics["particle_mgrad"]
+    diag = result.diagnostics["pit_particle_mgrad"]
     assert diag["parameter_kernel"] == "nuts"
     extra = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
     assert "accept_prob" in extra
@@ -3275,16 +2742,16 @@ def test_particle_mgrad_accepts_nuts_parameter_kernel():
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
-def test_particle_mgrad_accepts_particle_smoother_latent_init():
-    spec = _make_aux_gibbs_smoke_spec()
-    model = SSMModel(spec, likelihood="kalman")
+def test_pit_particle_mgrad_accepts_particle_smoother_latent_init():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
 
     result = fit(
         model,
         observations=observations,
         times=times,
-        method="particle_mgrad",
+        method="pit_particle_mgrad",
         num_warmup=3,
         num_samples=4,
         num_chains=1,
@@ -3299,7 +2766,7 @@ def test_particle_mgrad_accepts_particle_smoother_latent_init():
         latent_init_guidance="bootstrap",
     )
 
-    diag = result.diagnostics["particle_mgrad"]
+    diag = result.diagnostics["pit_particle_mgrad"]
     assert diag["latent_init_method"] == "particle_smoother"
     assert diag["latent_init_algorithm"] == "ffbsi"
     assert diag["latent_init_guidance"] == "bootstrap"
@@ -3309,9 +2776,14 @@ def test_particle_mgrad_accepts_particle_smoother_latent_init():
 @pytest.mark.parametrize(
     ("method", "num_warmup", "seed", "extra_kwargs"),
     [
-        ("aux_gibbs", 6, 1, {"latent_delta": 0.2, "param_step_size": 0.03, "init_scale": 0.01}),
         (
-            "particle_mgrad",
+            "aux_kalman_mcmc",
+            6,
+            1,
+            {"latent_delta": 0.2, "param_step_size": 0.03, "init_scale": 0.01},
+        ),
+        (
+            "pit_particle_mgrad",
             4,
             18,
             {
@@ -3323,10 +2795,10 @@ def test_particle_mgrad_accepts_particle_smoother_latent_init():
             },
         ),
     ],
-    ids=["aux-gibbs", "particle-mgrad"],
+    ids=["aux-kalman-mcmc", "pit-particle-mgrad"],
 )
 def test_particle_mcmc_multi_chain_diagnostics(method, num_warmup, seed, extra_kwargs):
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
+    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3357,9 +2829,9 @@ def test_particle_mcmc_multi_chain_diagnostics(method, num_warmup, seed, extra_k
 @pytest.mark.parametrize(
     ("method", "seed", "extra_kwargs"),
     [
-        ("aux_gibbs", 2, {"latent_delta": 0.15, "param_step_size": 0.03, "init_scale": 0.01}),
+        ("aux_kalman_mcmc", 2, {"latent_delta": 0.15, "param_step_size": 0.03, "init_scale": 0.01}),
         (
-            "particle_mgrad",
+            "pit_particle_mgrad",
             19,
             {
                 "latent_delta": 0.15,
@@ -3370,10 +2842,10 @@ def test_particle_mcmc_multi_chain_diagnostics(method, num_warmup, seed, extra_k
             },
         ),
     ],
-    ids=["aux-gibbs", "particle-mgrad"],
+    ids=["aux-kalman-mcmc", "pit-particle-mgrad"],
 )
 def test_particle_mcmc_support_aware_interval_summary_smoke(method, seed, extra_kwargs):
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="particle")
+    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
     support = make_observation_support_runtime(
         anchor_times=np.array([0.0, 1.0]),
         manifest_names=["y"],
@@ -3408,8 +2880,8 @@ def test_particle_mcmc_support_aware_interval_summary_smoke(method, seed, extra_
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
-def test_aux_gibbs_rejects_nonlinear_interval_summary_support():
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="particle")
+def test_aux_kalman_mcmc_rejects_nonlinear_interval_summary_support():
+    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
     support = make_observation_support_runtime(
         anchor_times=np.array([0.0, 1.0]),
         manifest_names=["y"],
@@ -3431,7 +2903,7 @@ def test_aux_gibbs_rejects_nonlinear_interval_summary_support():
             model,
             observations=observations,
             times=times,
-            method="aux_gibbs",
+            method="aux_kalman_mcmc",
             num_warmup=4,
             num_samples=6,
             num_chains=1,
@@ -3439,8 +2911,8 @@ def test_aux_gibbs_rejects_nonlinear_interval_summary_support():
         )
 
 
-def test_aux_gibbs_heterogeneous_observation_families_smoke():
-    spec = _make_aux_gibbs_smoke_spec(
+def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
+    spec = _make_aux_kalman_mcmc_smoke_spec(
         n_manifest=2,
         lambda_mat=jnp.array([[1.0], [0.7]], dtype=jnp.float32),
         lambda_mask=np.zeros((2, 1), dtype=bool),
@@ -3451,7 +2923,7 @@ def test_aux_gibbs_heterogeneous_observation_families_smoke():
         manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
     )
-    model = SSMModel(spec, likelihood="particle")
+    model = SSMModel(spec)
     observations = jnp.array([[0.1, 0.2], [0.15, -0.1], [0.05, 0.12]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3459,7 +2931,7 @@ def test_aux_gibbs_heterogeneous_observation_families_smoke():
         model,
         observations=observations,
         times=times,
-        method="aux_gibbs",
+        method="aux_kalman_mcmc",
         num_warmup=4,
         num_samples=6,
         num_chains=1,
@@ -3479,9 +2951,9 @@ def test_aux_gibbs_heterogeneous_observation_families_smoke():
 @pytest.mark.parametrize(
     ("method", "seed", "extra_kwargs"),
     [
-        ("aux_gibbs", 4, {"latent_delta": 0.2, "param_step_size": 0.03, "init_scale": 0.01}),
+        ("aux_kalman_mcmc", 4, {"latent_delta": 0.2, "param_step_size": 0.03, "init_scale": 0.01}),
         (
-            "particle_mgrad",
+            "pit_particle_mgrad",
             10,
             {
                 "latent_delta": 0.2,
@@ -3492,10 +2964,10 @@ def test_aux_gibbs_heterogeneous_observation_families_smoke():
             },
         ),
     ],
-    ids=["aux-gibbs", "particle-mgrad"],
+    ids=["aux-kalman-mcmc", "pit-particle-mgrad"],
 )
 def test_particle_mcmc_supports_fixed_centering_autoreparam(method, seed, extra_kwargs):
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
+    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3520,8 +2992,8 @@ def test_particle_mcmc_supports_fixed_centering_autoreparam(method, seed, extra_
     assert all("_decentered" not in name for name in diag_names)
 
 
-def test_aux_gibbs_rejects_unknown_latent_proposal_family():
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
+def test_aux_kalman_mcmc_rejects_unknown_latent_proposal_family():
+    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3530,7 +3002,7 @@ def test_aux_gibbs_rejects_unknown_latent_proposal_family():
             model,
             observations=observations,
             times=times,
-            method="aux_gibbs",
+            method="aux_kalman_mcmc",
             num_warmup=2,
             num_samples=2,
             num_chains=1,
@@ -3539,8 +3011,8 @@ def test_aux_gibbs_rejects_unknown_latent_proposal_family():
         )
 
 
-def test_aux_gibbs_rejects_learnable_centering_autoreparam():
-    model = SSMModel(_make_aux_gibbs_smoke_spec(), likelihood="kalman")
+def test_aux_kalman_mcmc_rejects_learnable_centering_autoreparam():
+    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3549,7 +3021,7 @@ def test_aux_gibbs_rejects_learnable_centering_autoreparam():
             model,
             observations=observations,
             times=times,
-            method="aux_gibbs",
+            method="aux_kalman_mcmc",
             num_warmup=2,
             num_samples=2,
             num_chains=1,
@@ -3560,14 +3032,14 @@ def test_aux_gibbs_rejects_learnable_centering_autoreparam():
 
 @pytest.mark.parametrize(
     ("method", "seed"),
-    [("aux_gibbs", 6), ("particle_mgrad", 11)],
-    ids=["aux-gibbs", "particle-mgrad"],
+    [("aux_kalman_mcmc", 6), ("pit_particle_mgrad", 11)],
+    ids=["aux-kalman-mcmc", "pit-particle-mgrad"],
 )
 def test_particle_mcmc_rejects_student_t_diffusion(method, seed):
-    spec = _make_aux_gibbs_smoke_spec(
+    spec = _make_aux_kalman_mcmc_smoke_spec(
         diffusion_dists=[DistributionFamily.STUDENT_T],
     )
-    model = SSMModel(spec, likelihood="particle")
+    model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
@@ -3612,7 +3084,6 @@ def test_map_support_aware_uses_exact_gradient_outer_optimizer(monkeypatch):
     captured: dict[str, object] = {}
 
     class _FakeModel:
-        likelihood = "particle"
         observation_support = SimpleNamespace(requires_interval_summary_handling=True)
         spec = None
         _structure_runtime = None
@@ -3779,7 +3250,6 @@ def test_map_generic_path_uses_multistart_lbfgsb(monkeypatch):
     captured: dict[str, object] = {}
 
     class _FakeModel:
-        likelihood = "particle"
         observation_support = None
         spec = None
         _structure_runtime = None
@@ -3953,7 +3423,6 @@ def test_map_emits_prefect_progress_logs(monkeypatch, caplog):
     flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
 
     class _FakeModel:
-        likelihood = "particle"
         observation_support = None
         spec = None
         _structure_runtime = None
@@ -4120,7 +3589,6 @@ def test_map_can_skip_parameter_hessian(monkeypatch):
     flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
 
     class _FakeModel:
-        likelihood = "particle"
         observation_support = None
         spec = None
         _structure_runtime = None
@@ -4268,7 +3736,6 @@ def test_map_can_use_optimizer_hess_inv_covariance(monkeypatch):
     flat_example = jnp.array([0.25, -0.5], dtype=jnp.float32)
 
     class _FakeModel:
-        likelihood = "particle"
         observation_support = None
         spec = None
         _structure_runtime = None

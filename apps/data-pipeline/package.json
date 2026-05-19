@@ -6,9 +6,10 @@
     "dev": "uv run uvicorn nof1_causal_lab.tool_server:app --reload --port 8100",
     "test": "uv run pytest tests/ -m 'not slow'",
     "test:all": "uv run pytest tests/",
-    "lint": "uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/ && uv run python scripts/validate_config.py",
+    "lint": "uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/ && uv run python scripts/validate_config.py && bun run vulture",
     "lint:fix": "uv run ruff check --fix src/ tests/ && uv run ruff format src/ tests/",
     "format": "uv run ruff format src/ tests/",
+    "vulture": "uv run python scripts/run_vulture.py",
     "check": "bun run lint && bun run test",
     "type-check": "uv run ty check src/ tests/"
   }

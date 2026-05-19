@@ -245,9 +245,7 @@ class TestStage1bGrounding:
 
         assert output is not None
         assert feedback != "VALID"
-        non_identifiable = output["causal_spec"]["identifiability"][
-            "non_identifiable_treatments"
-        ]
+        non_identifiable = output["causal_spec"]["identifiability"]["non_identifiable_treatments"]
         assert non_identifiable["Sleep"]["confounders"] == ["Chronotype"]
 
     def test_invalid_schema(self, stage1b_simple_latent):

@@ -211,24 +211,6 @@ class SSMStructureRuntime:
         self.t0_base_corr = symmetrize(self.t0_base_corr)
         self.t0_base_corr = self.t0_base_corr.at[jnp.diag_indices(spec.n_latent)].set(1.0)
 
-    def drift_support_mask(self) -> jnp.ndarray:
-        """Return potential nonzero drift support from fixed template and free entries."""
-        fixed_nonzero = jnp.abs(self.drift_template) > 0
-        free = jnp.zeros_like(fixed_nonzero, dtype=bool)
-        for latent_idx in self.drift_base_decay_positions:
-            free = free.at[latent_idx, latent_idx].set(True)
-        for row, col in self.offdiag_positions:
-            free = free.at[row, col].set(True)
-        return fixed_nonzero | free
-
-    def loading_support_mask(self) -> jnp.ndarray:
-        """Return potential nonzero loading support from fixed template and free entries."""
-        fixed_nonzero = jnp.abs(self.lambda_template) > 0
-        free = jnp.zeros_like(fixed_nonzero, dtype=bool)
-        for manifest_idx, latent_idx in self.lambda_free_positions:
-            free = free.at[manifest_idx, latent_idx].set(True)
-        return fixed_nonzero | free
-
     def assemble_drift(
         self,
         drift_base_decay_free: jnp.ndarray | None = None,

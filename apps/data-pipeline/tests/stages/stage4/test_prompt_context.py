@@ -1391,5 +1391,3 @@ class TestStage4Messages:
             "search_literature",
             "elicit_prior_gmm",
         ]
-
-

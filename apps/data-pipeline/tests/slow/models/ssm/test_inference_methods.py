@@ -337,7 +337,7 @@ class TestLaplaceEM:
            wide.
         """
         data = _make_map_recovery_data()
-        model = SSMModel(data["spec"], likelihood="kalman")
+        model = SSMModel(data["spec"])
 
         result = fit(
             model,
@@ -370,14 +370,14 @@ class TestLaplaceEM:
 
     @pytest.mark.slow
     @pytest.mark.timeout(300)
-    def test_map_mixed_support_particle_recovery(self):
-        """MAP recovers a mixed point/interval 10-latent particle model.
+    def test_map_mixed_support_laplace_recovery(self):
+        """MAP recovers a mixed point/interval 10-latent Laplace model.
 
         This is the benchmark that exercises the support-aware Laplace path while
         still requiring useful recovery, not just optimizer termination.
         """
         data = _make_map_mixed_support_recovery_data()
-        model = SSMModel(data["spec"], data["priors"], likelihood="particle")
+        model = SSMModel(data["spec"], data["priors"])
         model.set_observation_support(data["observation_support"])
 
         result = fit(
@@ -415,13 +415,13 @@ class TestLaplaceEM:
         assert summary["obs_df"]["mean_ci_width"] < 20.0
 
 
-class TestAuxGibbs:
-    """Recovery tests for the auxiliary Gibbs trajectory sampler."""
+class TestAuxKalmanMCMC:
+    """Recovery tests for the auxiliary Kalman MCMC trajectory sampler."""
 
     @pytest.mark.slow
     @pytest.mark.timeout(900)
-    def test_aux_gibbs_mixed_support_particle_recovery(self):
-        """Default aux-Gibbs recipe on the mixed-support 10-latent benchmark.
+    def test_aux_kalman_mcmc_mixed_support_laplace_recovery(self):
+        """Default aux-Kalman MCMC recipe on the mixed-support 10-latent benchmark.
 
         Exercises the out-of-the-box configuration: paper-scale
         ``num_warmup=2500`` + ``num_samples=1000``, dual-averaging adaptation,
@@ -431,20 +431,20 @@ class TestAuxGibbs:
         useful posterior-mean recovery.
         """
         data = _make_map_mixed_support_recovery_data()
-        model = SSMModel(data["spec"], data["priors"], likelihood="particle")
+        model = SSMModel(data["spec"], data["priors"])
         model.set_observation_support(data["observation_support"])
 
         result = fit(
             model,
             observations=data["observations"],
             times=data["times"],
-            method="aux_gibbs",
+            method="aux_kalman_mcmc",
             seed=0,
         )
 
         summary = _summarize_family_recovery(result.get_samples(), data)
         extra = result.diagnostics["mcmc"].get_extra_fields()
-        aux_diag = result.diagnostics["aux_gibbs"]
+        aux_diag = result.diagnostics["aux_kalman_mcmc"]
 
         assert data["observation_support"].requires_interval_summary_handling is True
         assert aux_diag["adaptation_scheme"] == "dual_averaging"

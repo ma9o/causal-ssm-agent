@@ -77,7 +77,7 @@ class LaplaceLikelihood:
     """Laplace-approximated likelihood backend.
 
     Computes log p(y|theta) via IEKS + Laplace approximation.
-    Drop-in replacement for KalmanLikelihood / ParticleLikelihood.
+    Implements the default marginal likelihood path.
 
     Accepts per-channel distribution and link lists to support heterogeneous
     observation models (e.g., channel 0 Gaussian, channel 1 Poisson).

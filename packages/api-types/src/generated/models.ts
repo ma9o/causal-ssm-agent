@@ -656,7 +656,6 @@ export interface Stage5BContract {
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
   mcmc_diagnostics?: MCMCDiagnostics | null;
-  svi_diagnostics?: SVIDiagnostics | null;
   smc_diagnostics?: SMCDiagnostics | null;
   loo_diagnostics?: LOODiagnostics | null;
   posterior_marginals?: PosteriorMarginal[] | null;
@@ -790,12 +789,6 @@ export interface EnergyDiagnostics {
 export interface EnergyHistogram {
   bin_centers: number[];
   density: number[];
-}
-/**
- * SVI (variational inference) diagnostics.
- */
-export interface SVIDiagnostics {
-  elbo_losses: number[];
 }
 /**
  * Sequential Monte Carlo diagnostics.

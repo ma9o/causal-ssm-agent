@@ -57,21 +57,21 @@ const traceWithToolCalls: LLMTrace = {
   messages: [
     {
       role: "user",
-      content: "Run the parametric identifiability check on the sleep-cognition model.",
+      content: "Find evidence for the prior on the sleep-to-cognition effect.",
       tool_is_error: false,
     },
     {
       role: "assistant",
-      content: "I'll run the structural identifiability check on your model.",
+      content: "I'll search for longitudinal sleep and cognition evidence.",
       tool_calls: [
         {
           id: "call_1",
           type: "function",
           function: {
-            name: "check_parametric_id",
+            name: "search_literature",
             arguments: JSON.stringify({
-              model_name: "sleep_cognition_ssm",
-              method: "transfer_function",
+              query: "longitudinal sleep quality cognitive performance adults effect size",
+              construct_pair: ["sleep_quality", "cognitive_performance"],
             }),
           },
         },
@@ -81,19 +81,22 @@ const traceWithToolCalls: LLMTrace = {
     {
       role: "tool",
       content: JSON.stringify({
-        status: "identified",
-        globally_identified: ["beta_sleep_cog", "sigma_stress"],
-        locally_identified: ["alpha_stress_sleep"],
-        unidentified: [],
+        status: "ok",
+        sources: [
+          {
+            title: "Sleep quality and next-day cognitive performance",
+            estimate: "small negative association after poor sleep",
+          },
+        ],
       }),
       tool_call_id: "call_1",
-      tool_name: "check_parametric_id",
+      tool_name: "search_literature",
       tool_is_error: false,
     },
     {
       role: "assistant",
       content:
-        "## Parametric Identifiability\n\nAll parameters are identified:\n\n| Parameter | Status |\n|---|---|\n| `beta_sleep_cog` | Globally identified |\n| `sigma_stress` | Globally identified |\n| `alpha_stress_sleep` | Locally identified |\n\nNo unidentified parameters — the model is structurally identifiable.",
+        "## Prior Evidence\n\nThe search supports a weak negative acute effect of poor sleep quality on next-day cognitive performance. I would encode `beta_sleep_cog` with a small-magnitude prior centered away from zero and leave enough variance for patient-specific adaptation.",
       tool_is_error: false,
     },
   ],

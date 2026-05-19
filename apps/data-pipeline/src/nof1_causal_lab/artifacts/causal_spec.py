@@ -150,8 +150,7 @@ class CausalSpec(BaseModel):
             overlapping_inputs = sorted(state_names & known_input_names)
             if overlapping_inputs:
                 raise ValueError(
-                    "Known inputs cannot also be retained latent states: "
-                    f"{overlapping_inputs}"
+                    f"Known inputs cannot also be retained latent states: {overlapping_inputs}"
                 )
 
             unknown_states = state_names - construct_names

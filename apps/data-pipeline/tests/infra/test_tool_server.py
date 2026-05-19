@@ -486,7 +486,7 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
                 },
             }
         },
-        "stage-5b": {"inference_metadata": {"method": "svi"}},
+        "stage-5b": {"inference_metadata": {"method": "map"}},
         "stage-6": {},
         "_prepared_runtime": SimpleNamespace(
             manifest_names=["daily_event_count", "sleep_issue_searches"]

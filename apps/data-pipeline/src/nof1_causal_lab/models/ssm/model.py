@@ -11,7 +11,7 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
@@ -35,7 +35,6 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 )
 from nof1_causal_lab.models.ssm.inference.backend_factory import (
     build_laplace_backend,
-    make_likelihood_backend,
 )
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     CTParams,
@@ -180,12 +179,8 @@ class SSMSpec:
     static_factor_loadings: jnp.ndarray = field(
         default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64)
     )
-    input_effect_mask: np.ndarray = field(
-        default_factory=lambda: np.zeros((0, 0), dtype=bool)
-    )
-    input_effect: jnp.ndarray = field(
-        default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64)
-    )
+    input_effect_mask: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=bool))
+    input_effect: jnp.ndarray = field(default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64))
 
     # Per-variable diffusion noise families.
     diffusion_dists: list[DistributionFamily] = field(default_factory=list)
@@ -201,12 +196,6 @@ class SSMSpec:
     # default link for its observation family.
     manifest_links: list[LinkFunction] | None = None
     manifest_centered: list[bool] | None = None
-
-    # Toggle first-pass (unconditional, model-level) Rao-Blackwellization
-    first_pass_rb: bool = True
-
-    # Toggle second-pass (conditional, sampler-level) Rao-Blackwellization
-    second_pass_rb: bool = True
 
     # Parameter names for interpretability
     latent_names: list[str] | None = None
@@ -258,14 +247,6 @@ class SSMSpec:
     # These get near-zero drift diagonal and near-zero diffusion, so η_i(t) ≈ η_i(0).
     # When None, no latent is treated as quasi-constant.
     time_invariant_mask: np.ndarray | None = None
-
-    def _coerce_drift_diag_mask(self, mask: np.ndarray) -> np.ndarray:
-        mask_array = np.asarray(mask, dtype=bool)
-        if mask_array.shape != (self.n_latent,):
-            raise ValueError(
-                f"drift_diag_mask must have shape ({self.n_latent},), got {mask_array.shape}"
-            )
-        return mask_array
 
     def _coerce_drift_offdiag_mask(self, mask: np.ndarray) -> np.ndarray:
         mask_array = np.asarray(mask, dtype=bool)
@@ -659,7 +640,7 @@ class SSMModel:
 
     Features:
     - Continuous-time dynamics via stochastic differential equations
-    - Multiple likelihood backends (Kalman, particle filter)
+    - IEKS/Laplace marginal likelihood backend
     """
 
     def __init__(
@@ -667,25 +648,15 @@ class SSMModel:
         spec: SSMSpec,
         priors: SSMPriors | None = None,
         prior_runtime_bundle: PriorRuntimeBundle | None = None,
-        n_particles: int = 200,
-        pf_seed: int = 0,
-        likelihood: Literal["particle", "kalman"] = "particle",
     ):
         """Initialize state-space model.
 
         Args:
             spec: Model specification
             priors: Prior distributions (uses defaults if None)
-            n_particles: Number of particles for bootstrap PF
-            pf_seed: Seed for fixed PF random key (deterministic for gradient-based fitting)
-            likelihood: Likelihood backend - "particle" (universal, any noise family)
-                or "kalman" (exact, linear Gaussian only)
         """
         self.spec = spec
         self.priors = priors or SSMPriors()
-        self.n_particles = n_particles
-        self.pf_key = jax.random.PRNGKey(pf_seed)
-        self.likelihood = likelihood
         self._structure_runtime = SSMStructureRuntime(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
@@ -945,22 +916,8 @@ class SSMModel:
         return jnp.asarray(t0_means), jnp.asarray(t0_chol)
 
     def make_likelihood_backend(self):
-        """Construct the default likelihood backend from model configuration.
-
-        Delegates to the standalone ``make_likelihood_backend`` factory.
-        Callers that need a different backend
-        construct it themselves instead of calling this.
-        """
-        return self.get_cached_artifact(
-            ("backend", self.likelihood, self.n_particles),
-            lambda: make_likelihood_backend(
-                self.spec,
-                self.likelihood,
-                self.n_particles,
-                self.pf_key,
-                observation_support=self.observation_support,
-            ),
-        )
+        """Construct or reuse the default Laplace likelihood backend."""
+        return self.make_laplace_backend(n_ieks_iters=6)
 
     def make_laplace_backend(self, n_ieks_iters: int):
         """Construct or reuse the Laplace likelihood backend for this model."""
@@ -1035,7 +992,7 @@ class SSMModel:
                     self._prior_distribution("obs_cat_slopes"),
                 )
 
-        from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import (
+        from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import (
             has_student_t_diffusion,
         )
 
@@ -1058,9 +1015,8 @@ class SSMModel:
         Args:
             observations: (N, n_manifest) observed data
             times: (N,) observation times
-            likelihood_backend: Likelihood backend instance (e.g. ParticleLikelihood,
-                KalmanLikelihood, LaplaceLikelihood). Required — use
-                model.make_likelihood_backend() for the default.
+            likelihood_backend: Laplace likelihood backend instance. Required —
+                use model.make_likelihood_backend() for the default.
         """
         if likelihood_backend is None:
             raise ValueError(

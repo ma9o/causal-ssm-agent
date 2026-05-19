@@ -125,7 +125,7 @@ def build_stage4_megaprompt_system_prompt(
             "## Submission Rules\n\n"
             "Every submission is routed through the same validation pipeline used by "
             "the state-machine mode: Pydantic schema validation, model compilation, "
-            "prior-predictive checks, and output-Jacobian sensitivity. Submissions are "
+            "and prior-predictive checks. Submissions are "
             "accepted incrementally:\n\n"
             "- `submit_model_configuration` and `submit_indicator_choice` feed a draft "
             "ModelSpec. Once the configuration plus every ambiguous indicator has been "

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Stage1aData } from "@nof1-causal-lab/api-types";
-import stage1aFixture from "../../../../../data/DEMO_HEALTH/run/stage-1a.json";
+import stage1aFixture from "../../../../../data/DEMO/run/stage-1a.json";
 import {
   counterfactualResult,
   interventionResult,
@@ -20,17 +20,21 @@ describe("deriveDagAnimationFrame", () => {
     });
 
     expect(frame?.phase).toBe("propagating");
-    expect(frame?.nodePhases.vascular_inflammation).toBe("active");
-    expect(frame?.nodePhases.glycemic_control).toBe("dimmed");
-    expect(frame?.edgeStates["psychosocial_stress→glycemic_control"]).toBe("dimmed");
-    expect(frame?.edgeStates["genetic_predisposition→lipid_burden"]).toBe("cut");
+    expect(frame?.nodePhases.affective_state).toBe("active");
+    expect(frame?.nodePhases.seasonal_load).toBe("dimmed");
+    expect(frame?.edgeStates["seasonal_load→affective_state"]).toBe("dimmed");
+    expect(frame?.edgeStates["cyp2c19_metabolizer_status→serotonergic_exposure"]).toBe("cut");
   });
 
   it("keeps downstream zero-effect nodes visible and animated", () => {
     const result = structuredClone(interventionResult);
     if (result.visualization?.node_effect_trajectories != null) {
-      result.visualization.node_effect_trajectories.vascular_inflammation =
-        result.visualization.node_effect_trajectories.vascular_inflammation.map(() => 0);
+      const affectiveStateEffects = result.visualization.node_effect_trajectories.affective_state;
+      if (affectiveStateEffects) {
+        result.visualization.node_effect_trajectories.affective_state = affectiveStateEffects.map(
+          () => 0,
+        );
+      }
     }
 
     const frame = deriveDagAnimationFrame(0.5, {
@@ -39,9 +43,9 @@ describe("deriveDagAnimationFrame", () => {
       result,
     });
 
-    expect(frame?.nodePhases.vascular_inflammation).toBe("active");
-    expect(frame?.nodePhases.glycemic_control).toBe("dimmed");
-    expect(frame?.edgeStates["lipid_burden→vascular_inflammation"]).toBe("flowing");
+    expect(frame?.nodePhases.affective_state).toBe("active");
+    expect(frame?.nodePhases.seasonal_load).toBe("dimmed");
+    expect(frame?.edgeStates["serotonergic_exposure→affective_state"]).toBe("flowing");
   });
 
   it("uses the same structural dimming rule during rung-3 prediction", () => {
@@ -52,9 +56,9 @@ describe("deriveDagAnimationFrame", () => {
     });
 
     expect(frame?.phase).toBe("prediction");
-    expect(frame?.nodePhases.lipid_burden).toBe("active");
-    expect(frame?.nodePhases.genetic_predisposition).toBe("dimmed");
-    expect(frame?.nodePhases.psychosocial_stress).toBe("dimmed");
-    expect(frame?.edgeStates["genetic_predisposition→lipid_burden"]).toBe("dimmed");
+    expect(frame?.nodePhases.serotonergic_exposure).toBe("active");
+    expect(frame?.nodePhases.cyp2c19_metabolizer_status).toBe("dimmed");
+    expect(frame?.nodePhases.life_events_load).toBe("dimmed");
+    expect(frame?.edgeStates["cyp2c19_metabolizer_status→serotonergic_exposure"]).toBe("dimmed");
   });
 });

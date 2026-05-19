@@ -1,6 +1,5 @@
 "use client";
 
-import { ELBOLossChart } from "@/components/charts/elbo-loss-chart";
 import { EnergyChart } from "@/components/charts/energy-chart";
 import { LOOPITChart } from "@/components/charts/loo-pit-chart";
 import { MCMCDiagnosticsPanel } from "@/components/charts/mcmc-diagnostics-panel";
@@ -27,7 +26,6 @@ import type {
   PosteriorPair,
   PowerScalingResult,
   SMCDiagnostics,
-  SVIDiagnostics,
 } from "@nof1-causal-lab/api-types";
 import { PowerScalingTable } from "./power-scaling-table";
 import { PPCWarningsTable } from "./ppc-warnings-table";
@@ -36,7 +34,6 @@ interface DiagnosticsAccordionProps {
   powerScaling?: PowerScalingResult[] | null;
   ppc?: PPCResult | null;
   mcmcDiagnostics?: MCMCDiagnostics | null;
-  sviDiagnostics?: SVIDiagnostics | null;
   smcDiagnostics?: SMCDiagnostics | null;
   looDiagnostics?: LOODiagnostics | null;
   posteriorMarginals?: PosteriorMarginal[] | null;
@@ -47,7 +44,6 @@ export function DiagnosticsAccordion({
   powerScaling,
   ppc,
   mcmcDiagnostics,
-  sviDiagnostics,
   smcDiagnostics,
   looDiagnostics,
   posteriorMarginals,
@@ -60,7 +56,7 @@ export function DiagnosticsAccordion({
   const hasPowerScaling = powerScaling != null && powerScaling.length > 0;
   const hasPPC = ppc != null && ppc.per_variable_warnings.length > 0;
 
-  const defaultOpen = ["mcmc", "svi", "smc", "ppc", "loo", "power-scaling"];
+  const defaultOpen = ["mcmc", "smc", "ppc", "loo", "power-scaling"];
 
   return (
     <Accordion defaultValue={defaultOpen} multiple>
@@ -83,21 +79,6 @@ export function DiagnosticsAccordion({
               <MCMCDiagnosticsPanel diagnostics={mcmcDiagnostics} />
               {mcmcDiagnostics.energy != null && <EnergyChart energy={mcmcDiagnostics.energy} />}
             </div>
-          </AccordionContent>
-        </AccordionItem>
-      )}
-
-      {/* ── ELBO Convergence (SVI only) ── */}
-      {sviDiagnostics && (
-        <AccordionItem value="svi">
-          <AccordionTrigger className="text-sm">
-            <span className="inline-flex items-center gap-1.5">
-              ELBO Convergence
-              <StatTooltip explanation="Evidence Lower Bound loss over SVI optimization steps. Should decrease and plateau." />
-            </span>
-          </AccordionTrigger>
-          <AccordionContent>
-            <ELBOLossChart diagnostics={sviDiagnostics} />
           </AccordionContent>
         </AccordionItem>
       )}

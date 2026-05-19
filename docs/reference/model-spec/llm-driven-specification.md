@@ -312,8 +312,7 @@ The validation sequence is exact:
 3. if `skip_ppc` is false and observation data are available, run prior-predictive validation using:
    the compiled model,
    `data_for_model`,
-   and per-indicator scale summaries extracted from `indicator_audits`,
-4. if compile and prior-predictive validation both pass, run one Jacobian sensitivity check on the compiled accepted model against the current data fingerprint.
+   and per-indicator scale summaries extracted from `indicator_audits`.
 
 The full prior-predictive layer checks at least these failure families:
 
@@ -324,12 +323,6 @@ The full prior-predictive layer checks at least these failure families:
 | Dynamical stability | Reject prior systems whose implied dynamics are unstable. |
 | Observation-scale plausibility | Compare implied observation scale against Stage 3 empirical scale summaries. |
 
-The final Jacobian-sensitivity layer asks a different question:
-
-"Even if the current prior system is numerically plausible, does the accepted parameterization still contain a weak normalized local direction that the observations cannot distinguish?"
-
-If the weakest normalized direction fails, Stage 4 does not open a new free-form review block. It deterministically maps the dominant eigenvector loadings back to authored Stage 4 parameter owners and routes repair through the existing scope ladder.
-
 If validation succeeds, the accepted state is updated.
 
 If validation fails:
@@ -338,7 +331,7 @@ If validation fails:
 - the validator feedback is preserved,
 - and repair routing decides what must reopen.
 
-This non-overwrite rule is exact and important: rejected compile attempts, rejected prior-predictive attempts, and rejected Jacobian-sensitivity attempts do not become the new accepted state.
+This non-overwrite rule is exact and important: rejected compile attempts and rejected prior-predictive attempts do not become the new accepted state.
 
 ## 13. Repair Routing Uses a Deterministic Scope Ladder
 
@@ -371,8 +364,6 @@ If the failure is not drift-related but Stage 4 can identify the directly respon
 | Scope kind | Scope rank | Meaning |
 |---|---|---|
 | `direct_writer_blocks` | 0 | Reopen the prompt blocks that directly own the failing parameters. |
-
-This is also how Jacobian-sensitivity failures route when their weakest normalized direction is dominated by measurement, observation, or other non-drift parameter owners.
 
 ### 13.4 Global Failures
 
@@ -438,7 +429,7 @@ Operationally, a clean completion also implies:
 
 - the required prior set is complete,
 - no repair campaign remains active,
-- and the last accepted validation is not a compile failure, prior-predictive failure, or Jacobian-sensitivity failure.
+- and the last accepted validation is not a compile failure or prior-predictive failure.
 
 ## 17. Outputs at Completion
 
@@ -465,7 +456,7 @@ When the Prefect wrapper materializes the final Stage 4 artifact, it adds derive
 | `authored_priors` | Final accepted authored prior proposals. |
 | `resolved_priors` | Compiler-resolved prior semantics for downstream runtime use. |
 | `search_queries` | Recorded literature-search queries, if any. |
-| `validation_warnings` | Any non-fatal compile, prior-predictive, or Jacobian-sensitivity warnings. |
+| `validation_warnings` | Any non-fatal compile or prior-predictive warnings. |
 | `prior_predictive_samples` | Per-manifest prior-predictive samples for the web payload when available. |
 | `_compiled_ssm` | Executable compiled state-space artifact for downstream stages. |
 
@@ -482,4 +473,4 @@ The boundary around Stage 4 is exact and deliberate.
 | Posterior fitting and post-fit diagnostics | [Stage 5b](../../pipeline/05b-inference-diagnostics.md) |
 | Intervention ranking and interactive causal analysis | [Stage 6](../../pipeline/06-intervention-analysis.md) |
 
-The exact role of Stage 4 is narrower: it is the controlled functional-specification stage that turns a fixed upstream causal and measurement problem into a locked `ModelSpec`, an accepted prior system, and a compiled executable artifact for downstream fitting, with one final Jacobian-sensitivity gate before acceptance.
+The exact role of Stage 4 is narrower: it is the controlled functional-specification stage that turns a fixed upstream causal and measurement problem into a locked `ModelSpec`, an accepted prior system, and a compiled executable artifact for downstream fitting.

@@ -2152,23 +2152,6 @@
       "title": "SMCDiagnostics",
       "type": "object"
     },
-    "SVIDiagnostics": {
-      "description": "SVI (variational inference) diagnostics.",
-      "properties": {
-        "elbo_losses": {
-          "items": {
-            "type": "number"
-          },
-          "title": "Elbo Losses",
-          "type": "array"
-        }
-      },
-      "required": [
-        "elbo_losses"
-      ],
-      "title": "SVIDiagnostics",
-      "type": "object"
-    },
     "SavedScenarioContract": {
       "additionalProperties": false,
       "properties": {
@@ -2621,17 +2604,6 @@
           "anyOf": [
             {
               "$ref": "#/$defs/MCMCDiagnostics"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "svi_diagnostics": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SVIDiagnostics"
             },
             {
               "type": "null"

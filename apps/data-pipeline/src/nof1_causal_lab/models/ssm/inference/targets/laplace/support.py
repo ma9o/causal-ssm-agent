@@ -32,7 +32,6 @@ from .shared import (
     _block_banded_logdet,
     _build_gaussian_trajectory_prior_terms,
     _build_prior_banded_system,
-    _factor_block_banded_cholesky,
     _factor_block_profile_cholesky,
     _predictive_latent_init,
     _solve_block_profile_from_cholesky,
@@ -1119,14 +1118,6 @@ def _support_aware_ieks_laplace_core(
             "min_chol_diag": min_chol_diag,
         }
         return log_lik, laplace_aux
-
-    def _laplace_from_mode_rev_safe_loglik(mode_params, z_mode):
-        log_lik, _laplace_aux = _laplace_from_mode_core(
-            mode_params,
-            z_mode,
-            factor_block_cholesky_fn=_factor_block_banded_cholesky,
-        )
-        return log_lik
 
     @jax.custom_vjp
     def _laplace_from_mode_eval(mode_params, z_mode):

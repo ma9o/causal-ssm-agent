@@ -17,7 +17,6 @@ export default function Stage5bContent({ workspaceId, data }: { workspaceId: str
         powerScaling={activeData.power_scaling}
         ppc={activeData.ppc}
         mcmcDiagnostics={activeData.mcmc_diagnostics}
-        sviDiagnostics={activeData.svi_diagnostics}
         smcDiagnostics={activeData.smc_diagnostics}
         looDiagnostics={activeData.loo_diagnostics}
         posteriorMarginals={activeData.posterior_marginals}

@@ -217,43 +217,6 @@ def diagonal_diffusion_kwargs(n_latent: int) -> dict[str, Any]:
     }
 
 
-def full_diffusion_kwargs(n_latent: int) -> dict[str, Any]:
-    return {
-        "diffusion_chol": jnp.eye(n_latent),
-        "diffusion_chol_mask": full_cholesky_mask(n_latent),
-    }
-
-
-def diagonal_manifest_var_kwargs(n_manifest: int) -> dict[str, Any]:
-    return {
-        "manifest_chol": jnp.zeros((n_manifest, n_manifest)),
-        "manifest_chol_diag_mask": full_diagonal_mask(n_manifest),
-    }
-
-
-def fixed_manifest_var_kwargs(chol: jnp.ndarray) -> dict[str, Any]:
-    return {
-        "manifest_chol": chol,
-        "manifest_chol_diag_mask": zero_diagonal_mask(int(chol.shape[0])),
-    }
-
-
-def diagonal_t0_var_kwargs(n_latent: int) -> dict[str, Any]:
-    return {
-        "t0_chol": jnp.eye(n_latent),
-        "t0_chol_diag_mask": full_diagonal_mask(n_latent),
-        "t0_correlation_mask": zero_square_mask(n_latent),
-    }
-
-
-def full_t0_var_kwargs(n_latent: int) -> dict[str, Any]:
-    return {
-        "t0_chol": jnp.eye(n_latent),
-        "t0_chol_diag_mask": full_diagonal_mask(n_latent),
-        "t0_correlation_mask": strict_lower_triangle_mask(n_latent),
-    }
-
-
 def assert_recovery_ci(
     samples: jnp.ndarray,
     true_value: float,

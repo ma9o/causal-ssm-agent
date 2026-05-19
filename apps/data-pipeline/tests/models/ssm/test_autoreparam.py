@@ -110,13 +110,6 @@ def plated_model():
         numpyro.sample("x", dist.Normal(mu, sigma))
 
 
-def neals_funnel(dim=10):
-    """Neal's funnel: the canonical test for non-centered parameterization."""
-    y = numpyro.sample("y", dist.Normal(0, 3))
-    with numpyro.plate("D", dim):
-        numpyro.sample("x", dist.Normal(0, jnp.exp(y / 2)))
-
-
 # ---------------------------------------------------------------------------
 # I. Unit tests: helper functions
 # ---------------------------------------------------------------------------
@@ -467,7 +460,7 @@ class TestAutoReparamSSM:
         from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = make_ssm_spec(n_latent=2, n_manifest=2)
-        return SSMModel(spec=spec, likelihood="kalman")
+        return SSMModel(spec=spec)
 
     def test_ssm_site_classification(self):
         """Verify which SSM sites get reparameterized and which don't."""

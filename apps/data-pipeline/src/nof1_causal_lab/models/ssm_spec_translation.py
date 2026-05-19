@@ -110,7 +110,9 @@ def get_estimation_latent_layout(
     return state_order, time_invariant_mask
 
 
-def get_estimation_input_layout(causal_spec: dict | None) -> tuple[
+def get_estimation_input_layout(
+    causal_spec: dict | None,
+) -> tuple[
     list[str],
     list[str],
     list[float],

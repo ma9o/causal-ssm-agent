@@ -15,7 +15,7 @@ Implements two latent auxiliary-Kalman proposals from Corenflos & Sarkka
 
 The parameter block updates the complete log-posterior at fixed ``x`` with
 either MALA or NUTS. Both kernels report their own accept signal so the scale
-adaptation in ``run_aux_gibbs`` can tune each scale against its own target.
+adaptation in ``run_aux_kalman_mcmc`` can tune each scale against its own target.
 """
 
 from __future__ import annotations
@@ -40,7 +40,6 @@ from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     sample_lgssm_trajectory,
 )
 from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
-from nof1_causal_lab.models.ssm.inference.targets.graph_analysis import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     GaussianTrajectoryPriorTerms,
@@ -54,6 +53,7 @@ from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation im
     row_observation_log_prob,
     row_observation_log_probs,
 )
+from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_support_kind_codes,
     trajectory_observation_log_prob,
@@ -208,18 +208,6 @@ def _gaussian_log_prob_isotropic_per_t(
     return -0.5 * (per_time_dim * logvar_per_t + ss_per_t / variance_arr)
 
 
-def _select_tree(accepted: jnp.ndarray, proposal_tree, current_tree):
-    """Elementwise ``where`` over a pytree, tolerating ``None`` leaves."""
-    return jax.tree_util.tree_map(
-        lambda proposal, current: (
-            None if proposal is None else jnp.where(accepted, proposal, current)
-        ),
-        proposal_tree,
-        current_tree,
-        is_leaf=lambda leaf: leaf is None,
-    )
-
-
 def _initial_latent_moments(context: _LatentContext) -> tuple[jnp.ndarray, jnp.ndarray]:
     init_pred_mean = context.Ad[0] @ context.init_mean + context.cd[0]
     init_pred_cov = symmetrize_with_jitter(
@@ -349,7 +337,7 @@ def build_auxiliary_kalman_bundle(
     """Assemble all static helpers needed by the auxiliary Kalman method."""
     if has_student_t_diffusion(model.spec):
         raise ValueError(
-            "aux_gibbs with latent_kernel='kalman' currently requires Gaussian latent diffusion for every state."
+            "aux_kalman_mcmc with latent_kernel='kalman' currently requires Gaussian latent diffusion for every state."
         )
     observation_support = getattr(model, "observation_support", None)
     cache_key = (
@@ -385,7 +373,7 @@ def build_auxiliary_kalman_bundle(
         )
         if sample_resolver is None:
             raise ValueError(
-                "aux_gibbs with latent_kernel='kalman' only supports no reparameterization or "
+                "aux_kalman_mcmc with latent_kernel='kalman' only supports no reparameterization or "
                 "AutoReparam with fixed centering."
             )
 
@@ -409,7 +397,7 @@ def build_auxiliary_kalman_bundle(
         )
         if use_linear_summary_augmentation and linear_summary_plan is None:
             raise ValueError(
-                "aux_gibbs with latent_kernel='kalman' only supports linear interval summaries "
+                "aux_kalman_mcmc with latent_kernel='kalman' only supports linear interval summaries "
                 "(mean/sum with supported Gaussian or Student-t identity-link measurements)."
             )
         public_sites = _trace_public_sites(
@@ -1330,12 +1318,8 @@ def _latent_mh_step_eq10_11_runtime(
         obs_per_t_curr = observation_log_prob_per_t_from_context_runtime_fn(
             context, x_curr, runtime_observations
         )
-        iso_per_t_xprop = _gaussian_log_prob_isotropic_per_t(
-            u, x_prop, half_delta_variance
-        )
-        iso_per_t_xcurr = _gaussian_log_prob_isotropic_per_t(
-            u, x_curr, half_delta_variance
-        )
+        iso_per_t_xprop = _gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
+        iso_per_t_xcurr = _gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
         pseudo_lp_rev_per_t = _gaussian_log_prob_isotropic_per_t(
             pseudo_obs_rev, x_curr, half_delta_variance
         )
@@ -1345,9 +1329,7 @@ def _latent_mh_step_eq10_11_runtime(
         log_alpha_obs_per_t = (obs_per_t_prop - obs_per_t_curr).astype(traj_dtype)
         log_alpha_fwd_minus_rev_per_t = (iso_per_t_xprop - iso_per_t_xcurr).astype(traj_dtype)
         log_alpha_q_per_t = (pseudo_lp_rev_per_t - pseudo_lp_fwd_per_t).astype(traj_dtype)
-        log_alpha_per_t = (
-            log_alpha_obs_per_t + log_alpha_fwd_minus_rev_per_t + log_alpha_q_per_t
-        )
+        log_alpha_per_t = log_alpha_obs_per_t + log_alpha_fwd_minus_rev_per_t + log_alpha_q_per_t
         extras["log_alpha_obs_per_t"] = log_alpha_obs_per_t
         extras["log_alpha_fwd_minus_rev_per_t"] = log_alpha_fwd_minus_rev_per_t
         extras["log_alpha_q_per_t"] = log_alpha_q_per_t

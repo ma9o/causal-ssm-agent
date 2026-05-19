@@ -80,6 +80,6 @@ export const RuntimeFailed: Story = {
     number: "5b",
     title: "Inference & Diagnostics",
     status: "failed",
-    context: "Fits the Bayesian model via MCMC or SVI and runs convergence diagnostics.",
+    context: "Fits the Bayesian model and runs convergence diagnostics.",
   },
 };

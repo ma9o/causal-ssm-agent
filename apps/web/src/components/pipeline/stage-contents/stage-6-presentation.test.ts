@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { UIMessage } from "ai";
 import type { Stage1aData, Stage1bData, Stage4Data, Stage5bData } from "@nof1-causal-lab/api-types";
-import stage1aFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1a.json";
-import stage1bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-1b.json";
-import stage4Fixture from "../../../../../../data/DEMO_HEALTH/run/stage-4.json";
-import stage5bFixture from "../../../../../../data/DEMO_HEALTH/run/stage-5b.json";
+import stage1aFixture from "../../../../../../data/DEMO/run/stage-1a.json";
+import stage1bFixture from "../../../../../../data/DEMO/run/stage-1b.json";
+import stage4Fixture from "../../../../../../data/DEMO/run/stage-4.json";
+import stage5bFixture from "../../../../../../data/DEMO/run/stage-5b.json";
 import {
   counterfactualResult,
   interventionResult,
@@ -63,40 +63,20 @@ describe("buildStage6DagScene", () => {
       expect(scene.simulationResult).toEqual(counterfactualResult);
       expect(scene.requestedHorizonDays).toBe(45);
       expect(scene.edgePosteriors).toMatchObject({
-        "lipid_burden→cardiovascular_risk": {
-          mean: 0.42,
-          ci_lower: 0.24,
-          ci_upper: 0.61,
+        "serotonergic_exposure→affective_state": {
+          mean: 0.058,
+          ci_lower: 0.02416,
+          ci_upper: 0.09184,
         },
-        "lipid_burden→vascular_inflammation": {
-          mean: 0.65,
-          ci_lower: 0.48,
-          ci_upper: 0.82,
+        "sleep_quality→affective_state": {
+          mean: 0.072,
+          ci_lower: 0.0344,
+          ci_upper: 0.1096,
         },
-        "vascular_inflammation→cardiovascular_risk": {
-          mean: 0.58,
-          ci_lower: 0.38,
-          ci_upper: 0.78,
-        },
-        "arterial_pressure→cardiovascular_risk": {
-          mean: 0.35,
-          ci_lower: 0.19,
-          ci_upper: 0.51,
-        },
-        "glycemic_control→cardiovascular_risk": {
-          mean: -0.27,
-          ci_lower: -0.42,
-          ci_upper: -0.12,
-        },
-        "medication_adherence→lipid_burden": {
-          mean: -0.48,
-          ci_lower: -0.68,
-          ci_upper: -0.28,
-        },
-        "medication_adherence→arterial_pressure": {
-          mean: -0.38,
-          ci_lower: -0.58,
-          ci_upper: -0.18,
+        "affective_state→physical_activity": {
+          mean: 0.046,
+          ci_lower: 0.01216,
+          ci_upper: 0.07984,
         },
       });
     }

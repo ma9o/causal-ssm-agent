@@ -4,7 +4,7 @@ This document describes what `SSMModel.model()` computes when the [compilation p
 
 **Reader map:**
 
-- **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how the runtime builds state-side objectives ranging from exact Kalman likelihoods to particle-based or approximate inner targets.
+- **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how the runtime builds state-side objectives using IEKS/Laplace likelihoods.
 - **Section 4** is runtime: the library stack (JAX / NumPyro / cuthbert) and the data flow from compiled artifact through fitting to `InferenceResult`.
 
 ## 1. CT-SDE Formulation
@@ -62,38 +62,22 @@ For a time series with T observations and potentially irregular intervals, the d
 
 ## 3. State-Side Objectives
 
-The marginalization backends implement a shared `compute_log_likelihood()` protocol and inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. The `map` backend can swap in an IEKS/Laplace approximate marginal likelihood, `svi` optimizes a variational guide over the model target, and the blocked MCMC methods update latent trajectories directly. The routing details live in [inference-routing.md](inference-routing.md).
+The marginalization backend implements a shared `compute_log_likelihood()` protocol and injects log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. The `map` backend uses an IEKS/Laplace approximate marginal likelihood, and the blocked MCMC methods update latent trajectories directly. The routing details live in [inference-routing.md](inference-routing.md).
 
-### Default marginalization backends
+### IEKS/Laplace backend
 
-### Kalman backend
+Approximate marginal likelihood for non-Gaussian observation models and support-aware interval summaries. It finds a latent trajectory mode with an Iterated Extended Kalman Smoother, then applies a Laplace correction around that mode.
 
-For linear-Gaussian models. Computes the exact marginal likelihood via the prediction error decomposition[^durbin2012], following the standard Kalman-filter treatment[^sarkka2013]. Uses cuthbert's non-associative moments filter for numerically stable gradients.
+**Applicable when:** The compiled model uses the CT-SDE latent dynamics.
 
-**Applicable when:** Linear dynamics, Gaussian process noise, Gaussian observation noise.
-
-**Complexity:** O(T n^3) -- one Cholesky per timestep, no sampling variance.
-
-### Particle filter backend
-
-Universal sequential Monte Carlo backend for arbitrary noise families and nonlinear dynamics. With a fixed RNG key the PF likelihood is a deterministic function of theta, making it compatible with gradient-based inference.
-
-**Applicable when:** Any model. Fallback when Kalman assumptions fail.
-
-**Complexity:** O(T n P) where P is the particle count.
-
-**Automatic RBPF upgrade:** When dynamics are Gaussian but observations are non-Gaussian, the particle filter automatically delegates to Rao-Blackwell callbacks. Particles carry Kalman sufficient statistics instead of point samples, giving the usual Rao-Blackwellized variance reduction[^doucet2000].
-
-### Composed backend
-
-When first-pass Rao-Blackwellization finds a decoupled linear-Gaussian sub-block, the runtime composes an exact Kalman backend for that sub-block with a particle backend for the remainder. The resulting objective is still a marginal likelihood over theta, but it mixes exact and stochastic state elimination inside one target.
+**Complexity:** O(T n^3) for point observations, with profile-banded solvers for interval-summary support.
 
 ### Method-specific inner objectives
 
 Some methods do not use only the generic `models/likelihoods` package as their inner objective:
 
-- **`map`** uses the Kalman likelihood when available and otherwise an IEKS/Laplace approximate marginal likelihood before local Gaussian parameter sampling.
-- **`aux_gibbs`** and **`particle_mgrad`** update latent trajectories as part of blocked complete-data MCMC rather than sampling only from a marginalized parameter target.
+- **`map`** uses the IEKS/Laplace approximate marginal likelihood before local Gaussian parameter sampling.
+- **`aux_kalman_mcmc`** and **`pit_particle_mgrad`** update latent trajectories as part of blocked complete-data MCMC rather than sampling only from a marginalized parameter target.
 
 ### Missing data handling
 
@@ -105,9 +89,9 @@ The estimation pipeline composes three main libraries:
 
 - **JAX**: Foundation layer. Array operations, matrix exponentials for discretization, vmap for batching, automatic differentiation for gradient-based inference, `lax.scan` for sequential filtering, `checkpoint` for memory-efficient backpropagation through long time series.
 
-- **NumPyro**: Probabilistic programming layer. `sample()` for priors, `factor()` for custom log-likelihoods, `deterministic()` for derived quantities, and SVI with auto-guides for variational inference.
+- **NumPyro**: Probabilistic programming layer. `sample()` for priors, `factor()` for custom log-likelihoods, and `deterministic()` for derived quantities.
 
-- **cuthbert**: Differentiable filtering library. Non-associative Kalman filter (`gaussian.moments`) and bootstrap/Rao-Blackwell particle filter (`smc.particle_filter`), both invoked through `cuthbert.filtering.filter()`.
+- **cuthbert**: Differentiable filtering library used by the auxiliary Kalman trajectory machinery.
 
 ### Data flow
 
@@ -126,5 +110,3 @@ Post-estimation causal effect computation, intervention semantics, and interpret
 
 [^sarkka2019]: Särkkä, S., & Solin, A. (2019). *Applied Stochastic Differential Equations*. Cambridge University Press. [Bibliography entry](bibliography.md)
 [^sarkka2013]: Särkkä, S. (2013). *Bayesian Filtering and Smoothing*. Cambridge University Press. [Bibliography entry](bibliography.md)
-[^durbin2012]: Durbin, J., & Koopman, S. J. (2012). *Time Series Analysis by State Space Methods* (2nd ed.). Oxford University Press. [Bibliography entry](bibliography.md)
-[^doucet2000]: Doucet, A., de Freitas, N., Murphy, K., & Russell, S. (2000). Rao-Blackwellised Particle Filtering for Dynamic Bayesian Networks. *UAI*, 176–183. [Bibliography entry](bibliography.md)

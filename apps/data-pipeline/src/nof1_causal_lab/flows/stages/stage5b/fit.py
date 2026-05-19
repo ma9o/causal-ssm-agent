@@ -120,25 +120,14 @@ def fit_model(
         logger.info("Manifest order: %s", _format_name_preview(runtime.manifest_names, limit=6))
 
         inference_structure = runtime.inference_structure
-        partition = inference_structure.first_pass_partition
         logger.info(
             "Inference route: requested_method=%s resolved_method=%s structural_backend=%s "
-            "method_override=%s first_pass_partition=%s",
+            "method_override=%s",
             (sampler_config or {}).get("method", "config default"),
             inference_structure.resolved_method,
             inference_structure.structural_backend,
             inference_structure.method_override or "none",
-            "active" if partition is not None else "none",
         )
-        if partition is not None:
-            logger.info(
-                "First-pass RB partition: latent_kalman=%d latent_particle=%d "
-                "obs_kalman=%d obs_particle=%d",
-                len(partition.kalman_idx),
-                len(partition.particle_idx),
-                len(partition.obs_kalman_idx),
-                len(runtime.manifest_names) - len(partition.obs_kalman_idx),
-            )
 
         # Fit the model — returns InferenceResult.
         logger.info("Starting inference kernel...")
@@ -152,23 +141,17 @@ def fit_model(
             len(runtime.manifest_names),
         )
 
-        # Extract serializable diagnostics (MCMC, SVI, or SMC)
+        # Extract serializable diagnostics (MCMC or SMC)
         logger.info("Collecting sampler diagnostics...")
         mcmc_diag = result.get_mcmc_diagnostics()
-        svi_diag = result.get_svi_diagnostics()
         smc_diag = result.get_smc_diagnostics()
 
         loo_diag = None
         if compute_loo_diagnostics:
             # LOO diagnostics (needs model function and data).
-            # Use the inference-consistent likelihood backend: Laplace-based
-            # methods store their backend in diagnostics; MCMC methods fall back
-            # to the model's default backend.
             import functools
 
-            loo_backend = result.diagnostics.get(
-                "likelihood_backend", runtime.model.make_likelihood_backend()
-            )
+            loo_backend = result.diagnostics["likelihood_backend"]
             model_fn = functools.partial(
                 runtime.model.model,
                 likelihood_backend=loo_backend,
@@ -208,7 +191,6 @@ def fit_model(
             "runtime": runtime,
             "times": runtime.times,
             "mcmc_diagnostics": mcmc_diag,
-            "svi_diagnostics": svi_diag,
             "smc_diagnostics": smc_diag,
             "loo_diagnostics": loo_diag,
             "posterior_marginals": posterior_marginals,

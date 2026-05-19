@@ -33383,7 +33383,7 @@
     ]
   },
   "inference_metadata": {
-    "method": "particle_mgrad",
+    "method": "pit_particle_mgrad",
     "n_samples": 4000,
     "duration_seconds": 2138.33
   },
@@ -70163,7 +70163,6 @@
       ]
     }
   },
-  "svi_diagnostics": null,
   "smc_diagnostics": null,
   "loo_diagnostics": {
     "elpd_loo": -14313.8,

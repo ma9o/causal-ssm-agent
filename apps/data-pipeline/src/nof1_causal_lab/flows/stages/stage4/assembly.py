@@ -1,6 +1,6 @@
 """Stage 4 Assembly Validation.
 
-Shared compile + prior-predictive + sensitivity validation pipeline used by both
+Shared compile + prior-predictive validation pipeline used by both
 ``stage4_grounding()`` (interactive) and ``stage4_agentic_flow()`` (batch).
 
 The two paths differ only in their failure policy - domain logic is defined
@@ -45,15 +45,10 @@ class AssemblyValidation:
     pp_valid: bool = True
     diagnostics: list[PriorValidationResult] = field(default_factory=list)
     pp_raw_samples: Any = None
-    sensitivity_consulted: bool = False
-    sensitivity_supported: bool = False
-    sensitivity_valid: bool = True
-    sensitivity_payload: dict[str, Any] | None = None
-    sensitivity_warnings: list[str] = field(default_factory=list)
 
     @property
     def is_valid(self) -> bool:
-        return self.compile_ok and self.pp_valid and self.sensitivity_valid
+        return self.compile_ok and self.pp_valid
 
     @property
     def compile_diagnostics(self) -> list[PriorValidationResult]:
@@ -62,12 +57,6 @@ class AssemblyValidation:
     @property
     def prior_predictive_diagnostics(self) -> list[PriorValidationResult]:
         return [d for d in self.diagnostics if d.origin == "prior_predictive"]
-
-    @property
-    def has_sensitivity_failure(self) -> bool:
-        return (
-            self.sensitivity_consulted and self.sensitivity_supported and not self.sensitivity_valid
-        )
 
 
 def validate_assembly(
@@ -79,7 +68,7 @@ def validate_assembly(
     *,
     skip_ppc: bool = False,
 ) -> AssemblyValidation:
-    """Validate stage 4 assembly: compile check + prior predictive + sensitivity.
+    """Validate stage 4 assembly: compile check + prior predictive.
 
     This is the single source of truth for the validation sequence.
     Both ``stage4_grounding()`` and ``stage4_agentic_flow()`` use this.
@@ -88,7 +77,6 @@ def validate_assembly(
         1. Compile check: trial compile (no priors) or real compile (with priors)
         2. Prior predictive validation (only when authored priors + data_for_model present
            and skip_ppc is False)
-        3. Jacobian sensitivity validation (only after compile + PPC succeed)
 
     Returns:
         AssemblyValidation with structured results.
@@ -130,7 +118,7 @@ def validate_assembly(
             causal_spec=causal_spec,
             compiled_ssm=compiled_ssm,
         )
-        validation = AssemblyValidation(
+        return AssemblyValidation(
             normalized_model_spec=candidate,
             compiled_ssm=compiled_ssm,
             pp_checked=True,
@@ -138,12 +126,6 @@ def validate_assembly(
             diagnostics=[*compile_diagnostics, *results],
             pp_raw_samples=raw_samples,
         )
-        _attach_output_sensitivity_validation(
-            validation,
-            compiled_ssm=compiled_ssm,
-            data_for_model=data_for_model,
-        )
-        return validation
 
     return AssemblyValidation(
         normalized_model_spec=candidate,
@@ -203,77 +185,6 @@ def _collect_compile_failure_diagnostics(failure: Any) -> list[PriorValidationRe
                 pending.append(attr_value)
 
     return typed
-
-
-def _attach_output_sensitivity_validation(
-    validation: AssemblyValidation,
-    *,
-    compiled_ssm: dict[str, Any] | None,
-    data_for_model: pl.DataFrame | None,
-) -> None:
-    """Consult Jacobian sensitivity after compile + PPC succeed."""
-    if (
-        compiled_ssm is None
-        or data_for_model is None
-        or not validation.compile_ok
-        or not validation.pp_checked
-        or not validation.pp_valid
-    ):
-        return
-
-    consulted, supported, valid, payload, warnings = run_output_sensitivity_validation(
-        compiled_ssm=compiled_ssm,
-        data_for_model=data_for_model,
-    )
-    validation.sensitivity_consulted = consulted
-    validation.sensitivity_supported = supported
-    validation.sensitivity_valid = valid
-    validation.sensitivity_payload = payload
-    validation.sensitivity_warnings = warnings
-
-
-def run_output_sensitivity_validation(
-    *,
-    compiled_ssm: dict[str, Any],
-    data_for_model: pl.DataFrame,
-) -> tuple[bool, bool, bool, dict[str, Any] | None, list[str]]:
-    """Run the Stage 4 Jacobian sensitivity gate on the compiled accepted model."""
-    from nof1_causal_lab.models.ssm.diagnostics import (
-        OutputSensitivityUnsupportedError,
-        get_diagnostics_sweep_context,
-        output_sensitivity_analysis,
-    )
-    from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
-
-    try:
-        runtime = prepare_model_runtime(data_for_model=data_for_model, compiled_ssm=compiled_ssm)
-        sa_result = output_sensitivity_analysis(
-            runtime.model,
-            runtime.times,
-            observations=runtime.observations,
-            n_draws=8,
-            seed=42,
-            sweep_context=get_diagnostics_sweep_context(runtime.model),
-        )
-        payload = {
-            "singular_values": sa_result.singular_values,
-            "normalized_singular_values": sa_result.normalized_singular_values,
-            "deficiency_count": sa_result.deficiency_count,
-            "weak_directions": sa_result.weak_directions,
-            "per_parameter": sa_result.per_parameter,
-            "n_draws": sa_result.n_draws,
-            "n_observations": sa_result.n_observations,
-            "n_parameters": sa_result.n_parameters,
-        }
-        warnings = _collect_sensitivity_warning_messages(payload)
-        valid = not blocking_sensitivity_fails(payload)
-        return True, True, valid, payload, warnings
-    except OutputSensitivityUnsupportedError as exc:
-        logger.info("Stage 4 Jacobian sensitivity unavailable for this model: %s", exc)
-        return True, False, True, None, [f"Jacobian sensitivity unavailable: {exc}"]
-    except (ValueError, RuntimeError, FloatingPointError, ArithmeticError) as exc:
-        logger.warning("Stage 4 Jacobian sensitivity failed, continuing: %s", exc)
-        return True, False, True, None, [f"Jacobian sensitivity failed: {exc}"]
 
 
 def _prepare_model_spec(model_spec: dict) -> dict[str, Any]:
@@ -452,14 +363,6 @@ def build_validation_payload(
         if not result.is_valid and result.parameter in GLOBAL_FAILURE_SITES
     ]
     warnings = _collect_validation_warning_messages(validation)
-    if validation.has_sensitivity_failure:
-        return {
-            "is_valid": False,
-            "results": all_results,
-            "issues": [_format_sensitivity_failure_feedback(validation)],
-            "warnings": warnings,
-            "prior_predictive_samples": _safe_build_pp_samples(validation, payload_spec),
-        }
     return {
         "is_valid": validation.is_valid,
         "results": all_results,
@@ -571,7 +474,6 @@ def _collect_validation_warning_messages(validation: AssemblyValidation) -> list
         for result in validation.diagnostics
         if result.severity == "warning" and result.issue
     ]
-    messages.extend(validation.sensitivity_warnings)
     return [message for message in messages if isinstance(message, str)]
 
 
@@ -666,191 +568,9 @@ def _format_validation_warnings(validation: AssemblyValidation) -> str:
                 lines.append(f"  Suggested: {warning.suggested_adjustment}")
             parts.append("\n".join(lines))
 
-    for warning in validation.sensitivity_warnings:
-        if warning:
-            parts.append(f"- {warning}")
-
     if not parts:
         return ""
     return "MODELING WARNINGS:\n" + "\n\n".join(parts)
-
-
-_TAU_SITE_NAMES = frozenset({"static_state_sd", "static_state_sd_free"})
-_TAU_DOMINANCE_THRESHOLD = 0.9
-
-
-def _loading_is_tau_family(loading: dict[str, Any]) -> bool:
-    """Return True when a sensitivity loading targets a static-state SD (tau)."""
-    parameter = loading.get("parameter")
-    if isinstance(parameter, str):
-        site = parameter.split("[", 1)[0]
-        if site in _TAU_SITE_NAMES:
-            return True
-    interpretable = loading.get("interpretable_parameter")
-    return isinstance(interpretable, str) and interpretable.startswith("tau_")
-
-
-def _direction_is_tau_dominated(direction: dict[str, Any]) -> bool:
-    """Return True when a fail direction's squared loadings concentrate on tau.
-
-    Static-state SDs are structurally weakly identified in N-of-1 settings —
-    the prior carries them and the agent cannot repair them by re-eliciting.
-    Fail directions dominated by taus surface as warnings rather than blocking
-    acceptance.
-    """
-    loadings = [entry for entry in direction.get("top_loadings", []) if isinstance(entry, dict)]
-    if not loadings:
-        return False
-    total_sq = 0.0
-    tau_sq = 0.0
-    for loading in loadings:
-        try:
-            value = float(loading.get("loading", 0.0))
-        except (TypeError, ValueError):
-            continue
-        sq = value * value
-        total_sq += sq
-        if _loading_is_tau_family(loading):
-            tau_sq += sq
-    if total_sq <= 0.0:
-        return False
-    return tau_sq / total_sq >= _TAU_DOMINANCE_THRESHOLD
-
-
-def blocking_sensitivity_fails(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Return fail directions that should block Stage 4 acceptance.
-
-    Tau-dominated fail directions are demoted to warnings; only mixed or
-    structural-parameter fails block.
-    """
-    if not payload:
-        return []
-    return [
-        direction
-        for direction in payload.get("weak_directions", [])
-        if isinstance(direction, dict)
-        and direction.get("status") == "fail"
-        and not _direction_is_tau_dominated(direction)
-    ]
-
-
-def _demoted_sensitivity_fails(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
-    """Return fail directions demoted to warnings because they are tau-dominated."""
-    if not payload:
-        return []
-    return [
-        direction
-        for direction in payload.get("weak_directions", [])
-        if isinstance(direction, dict)
-        and direction.get("status") == "fail"
-        and _direction_is_tau_dominated(direction)
-    ]
-
-
-def _collect_sensitivity_warning_messages(
-    payload: dict[str, Any] | None,
-) -> list[str]:
-    """Render non-fatal Jacobian-sensitivity warnings for accepted state."""
-    if not payload:
-        return []
-
-    warnings: list[str] = []
-    weak_directions = [
-        direction
-        for direction in payload.get("weak_directions", [])
-        if isinstance(direction, dict) and direction.get("status") == "warn"
-    ]
-    for direction in weak_directions[:2]:
-        warnings.append(_format_sensitivity_direction_message(direction, prefix="Warning"))
-    for direction in _demoted_sensitivity_fails(payload)[:2]:
-        warnings.append(
-            _format_sensitivity_direction_message(
-                direction, prefix="Warning (tau-dominated, unidentifiable by design)"
-            )
-        )
-    return warnings
-
-
-def _format_sensitivity_direction_message(
-    direction: dict[str, Any],
-    *,
-    prefix: str,
-) -> str:
-    """Render one weak normalized sensitivity direction into compact text.
-
-    Includes signed loadings so the agent sees both the relative
-    contribution of each parameter (magnitude) and the sign pattern
-    (which combination is locally unidentified — e.g. ``+a, +b`` vs
-    ``+a, -b``). Loadings are listed in descending absolute magnitude
-    and truncated when the running absolute coverage exceeds 0.95 or
-    after 8 terms, whichever comes first.
-    """
-    index = direction.get("index")
-    normalized_sv = direction.get("normalized_singular_value")
-    try:
-        normalized_sv_text = f"{float(normalized_sv):.3g}"
-    except (TypeError, ValueError):
-        normalized_sv_text = "unknown"
-    loadings = [
-        loading for loading in direction.get("top_loadings", []) if isinstance(loading, dict)
-    ]
-    loadings.sort(key=lambda item: float(item.get("abs_loading") or 0.0), reverse=True)
-    rendered: list[str] = []
-    cumulative_sq = 0.0
-    for loading in loadings:
-        name = str(loading.get("interpretable_parameter") or loading.get("parameter") or "")
-        if not name:
-            continue
-        try:
-            signed = float(loading.get("loading") or 0.0)
-        except (TypeError, ValueError):
-            continue
-        rendered.append(f"{name}={signed:+.2f}")
-        cumulative_sq += signed * signed
-        if len(rendered) >= 8 or cumulative_sq >= 0.95:
-            break
-    loadings_text = ", ".join(rendered) if rendered else "the active parameter surface"
-    return (
-        f"{prefix}: Jacobian sensitivity found weak normalized direction "
-        f"{index} (normalized singular value={normalized_sv_text}); "
-        f"top signed loadings: {loadings_text}."
-    )
-
-
-def _format_sensitivity_failure_feedback(validation: AssemblyValidation) -> str:
-    """Format every failing Jacobian-sensitivity direction for Stage 4 feedback.
-
-    The agent needs to see all fail directions (not just the worst one)
-    because two unrelated unidentified combinations can exist in the same
-    model and fixing only the top direction leaves the second failing on
-    the next round. Each direction is rendered with its signed loadings
-    so the agent can reason about the specific coupled combination.
-    """
-    payload = validation.sensitivity_payload or {}
-    fail_directions = blocking_sensitivity_fails(payload)
-    if not fail_directions:
-        return "JACOBIAN SENSITIVITY FEEDBACK:\n- the current accepted model remains locally weak"
-
-    fail_directions.sort(
-        key=lambda item: (
-            float(item.get("normalized_singular_value", float("inf"))),
-            int(item.get("index", 0)),
-        ),
-    )
-    lines = ["JACOBIAN SENSITIVITY FEEDBACK:"]
-    for direction in fail_directions:
-        message = _format_sensitivity_direction_message(direction, prefix="Failure")
-        lines.append(f"- {message.removeprefix('Failure: ')}")
-    lines.append(
-        "- the accepted parameterization is still locally weak along "
-        f"{'this coupled direction' if len(fail_directions) == 1 else 'these coupled directions'}"
-    )
-    lines.append(
-        "- loadings are the normalized right-singular vector entries; sign "
-        "indicates the combination (co-increase vs anti-correlate) that data "
-        "cannot distinguish at the current priors"
-    )
-    return "\n".join(lines)
 
 
 def compile_model_artifact(
@@ -974,12 +694,6 @@ def format_validation_feedback(
         return f"COMPILE ERROR:\n{validation.compile_error}"
 
     warning_feedback = _format_validation_warnings(validation)
-    if validation.has_sensitivity_failure:
-        details = _format_sensitivity_failure_feedback(validation)
-        if warning_feedback:
-            details = f"{details}\n\n{warning_feedback}"
-        return details
-
     if not validation.pp_checked or validation.pp_valid:
         return warning_feedback or "VALID"
 

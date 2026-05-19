@@ -1,4 +1,4 @@
-"""Blocked Gibbs driver: latent trajectory updates + parameter kernels."""
+"""Blocked MCMC driver: latent trajectory updates + parameter kernels."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.auxiliary_kalman impor
 )
 
 
-class AuxGibbsState(NamedTuple):
+class AuxKalmanMCMCState(NamedTuple):
     position: jnp.ndarray
     latent_context: Any
     latent_trajectory: jnp.ndarray
@@ -36,14 +36,14 @@ class AuxGibbsState(NamedTuple):
 
 
 @dataclass(frozen=True)
-class AuxGibbsMCMCResult:
-    """Minimal MCMC-compatible wrapper for auxiliary Gibbs outputs."""
+class AuxKalmanMCMCResult:
+    """Minimal MCMC-compatible wrapper for auxiliary Kalman MCMC outputs."""
 
     chain_samples: dict[str, jnp.ndarray]
     chain_extra_fields: dict[str, jnp.ndarray]
     num_chains: int
     num_samples: int
-    backend: str = "aux_gibbs"
+    backend: str = "aux_kalman_mcmc"
 
     def get_samples(self, group_by_chain: bool = False) -> dict[str, jnp.ndarray]:
         if group_by_chain:
@@ -206,7 +206,7 @@ _PARAMETER_FIELD_NAMES = (
 
 
 @dataclass(frozen=True)
-class _AuxGibbsRunnerStatic:
+class _AuxKalmanMCMCRunnerStatic:
     project_latent_trajectory_fn: Any
     latent_context_runtime_fn: Any
     initial_latent_from_context_fn: Any
@@ -274,15 +274,15 @@ def _expand_chain_statistic(values: jnp.ndarray, reference: jnp.ndarray) -> jnp.
     return jnp.reshape(values, values.shape + (1,) * (reference.ndim - values.ndim))
 
 
-def _initialize_aux_gibbs_chain_state(
+def _initialize_aux_kalman_mcmc_chain_state(
     init_position: jnp.ndarray,
     initial_latent_scale_value,
     *,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    static: _AuxGibbsRunnerStatic,
+    static: _AuxKalmanMCMCRunnerStatic,
     initial_latent_trajectory: jnp.ndarray | None = None,
-) -> AuxGibbsState:
+) -> AuxKalmanMCMCState:
     init_context = static.latent_context_runtime_fn(init_position, times)
     predictive_latent = static.initial_latent_from_context_fn(init_context)
     if initial_latent_trajectory is None:
@@ -316,7 +316,7 @@ def _initialize_aux_gibbs_chain_state(
     da_param_init, _da_param_update, _ = dual_averaging_adaptation(
         target=float(static.param_target_accept)
     )
-    return AuxGibbsState(
+    return AuxKalmanMCMCState(
         position=init_position,
         latent_context=init_context,
         latent_trajectory=init_latent,
@@ -332,7 +332,7 @@ def _initialize_aux_gibbs_chain_state(
     )
 
 
-def _stack_chain_states(states: list[AuxGibbsState]) -> AuxGibbsState:
+def _stack_chain_states(states: list[AuxKalmanMCMCState]) -> AuxKalmanMCMCState:
     return jax.tree_util.tree_map(lambda *values: jnp.stack(values, axis=0), *states)
 
 
@@ -346,14 +346,14 @@ def _project_public_latent_batch(
 
 
 @functools.partial(jax.jit, static_argnames=("static",))
-def _run_batched_aux_gibbs_latent_step(
-    states: AuxGibbsState,
+def _run_batched_aux_kalman_mcmc_latent_step(
+    states: AuxKalmanMCMCState,
     step_keys: jnp.ndarray,
     observations: jnp.ndarray,
     *,
-    static: _AuxGibbsRunnerStatic,
-) -> tuple[AuxGibbsState, dict[str, jnp.ndarray]]:
-    if static.latent_kernel_name == "particle_mgrad":
+    static: _AuxKalmanMCMCRunnerStatic,
+) -> tuple[AuxKalmanMCMCState, dict[str, jnp.ndarray]]:
+    if static.latent_kernel_name == "pit_particle_mgrad":
         return jax.vmap(static.latent_step_fn)(states, step_keys)
 
     if static.latent_proposal_family == "eq8":
@@ -404,25 +404,25 @@ def _run_batched_aux_gibbs_latent_step(
 
 
 @functools.partial(jax.jit, static_argnames=("static",))
-def _run_batched_aux_gibbs_parameter_step(
-    states: AuxGibbsState,
+def _run_batched_aux_kalman_mcmc_parameter_step(
+    states: AuxKalmanMCMCState,
     step_keys: jnp.ndarray,
     *,
-    static: _AuxGibbsRunnerStatic,
-) -> tuple[AuxGibbsState, dict[str, jnp.ndarray]]:
+    static: _AuxKalmanMCMCRunnerStatic,
+) -> tuple[AuxKalmanMCMCState, dict[str, jnp.ndarray]]:
     return jax.vmap(static.parameter_step_fn)(states, step_keys)
 
 
 def _apply_dual_averaging_update_batched(
-    states: AuxGibbsState,
+    states: AuxKalmanMCMCState,
     latent_accept: jnp.ndarray,
     param_accept: jnp.ndarray,
     *,
-    static: _AuxGibbsRunnerStatic,
+    static: _AuxKalmanMCMCRunnerStatic,
     da_latent_update,
     da_param_update,
     is_final_warmup: bool,
-) -> AuxGibbsState:
+) -> AuxKalmanMCMCState:
     updated_latent_da = jax.vmap(
         lambda da_state, accepted, reference_scale: _clip_dual_averaging_state(
             _normalize_dual_averaging_state_shape(
@@ -453,12 +453,12 @@ def _apply_dual_averaging_update_batched(
 
 
 def _apply_simple_adaptation_update_batched(
-    states: AuxGibbsState,
+    states: AuxKalmanMCMCState,
     latent_accept: jnp.ndarray,
     param_accept: jnp.ndarray,
     *,
-    static: _AuxGibbsRunnerStatic,
-) -> AuxGibbsState:
+    static: _AuxKalmanMCMCRunnerStatic,
+) -> AuxKalmanMCMCState:
     latent_accept_for_scale = _expand_chain_statistic(latent_accept, states.latent_delta)
     return states._replace(
         latent_delta=_adapt_scale(
@@ -491,7 +491,7 @@ def _stack_sample_history(
     return jnp.swapaxes(stacked, 0, 1)
 
 
-def run_aux_gibbs(
+def run_aux_kalman_mcmc(
     bundle: dict[str, Any],
     *,
     latent_kernel: dict[str, Any],
@@ -509,7 +509,7 @@ def run_aux_gibbs(
     emit_per_t_log_alpha: bool = False,
     compute_latent_posterior_summary: bool = True,
 ) -> dict[str, Any]:
-    """Blocked Gibbs: eq-8 aux-Kalman latent step + MALA parameter step.
+    """Blocked MCMC: eq-8 aux-Kalman latent step + MALA parameter step.
 
     Each block has its own accept signal so ``latent_delta`` and
     ``param_step_size`` adapt against their own target acceptances, avoiding
@@ -536,7 +536,7 @@ def run_aux_gibbs(
     """
     total_steps = num_warmup + num_samples
     if total_steps <= 0:
-        raise ValueError("aux_gibbs requires at least one warmup or posterior draw step.")
+        raise ValueError("aux_kalman_mcmc requires at least one warmup or posterior draw step.")
     if adaptation_scheme not in {"simple", "dual_averaging"}:
         raise ValueError(
             f"Unknown adaptation_scheme {adaptation_scheme!r}; expected 'simple' or 'dual_averaging'."
@@ -546,13 +546,13 @@ def run_aux_gibbs(
         _identity_project_latent_trajectory,
     )
     latent_kernel_name = latent_kernel.get("name", "kalman")
-    if latent_kernel_name not in {"kalman", "particle_mgrad"}:
+    if latent_kernel_name not in {"kalman", "pit_particle_mgrad"}:
         raise ValueError(
             f"Unsupported latent kernel name {latent_kernel_name!r}; "
-            "expected 'kalman' or 'particle_mgrad'."
+            "expected 'kalman' or 'pit_particle_mgrad'."
         )
-    if latent_kernel_name == "particle_mgrad" and latent_kernel.get("step_fn") is None:
-        raise ValueError("particle_mgrad latent kernel requires a 'step_fn'.")
+    if latent_kernel_name == "pit_particle_mgrad" and latent_kernel.get("step_fn") is None:
+        raise ValueError("pit_particle_mgrad latent kernel requires a 'step_fn'.")
     latent_target_accept = latent_kernel["target_accept"]
     parameter_kernel_name = parameter_kernel.get("name", "mala")
     if parameter_kernel_name not in {"mala", "nuts"}:
@@ -589,7 +589,7 @@ def run_aux_gibbs(
 
     observations = bundle["observations"]
     times = bundle["times"]
-    static = _AuxGibbsRunnerStatic(
+    static = _AuxKalmanMCMCRunnerStatic(
         project_latent_trajectory_fn=project_latent_trajectory,
         latent_context_runtime_fn=bundle.get(
             "latent_context_runtime_fn",
@@ -690,7 +690,7 @@ def run_aux_gibbs(
 
     states = _stack_chain_states(
         [
-            _initialize_aux_gibbs_chain_state(
+            _initialize_aux_kalman_mcmc_chain_state(
                 chain_init_positions[chain_idx],
                 initial_latent_scale_value,
                 observations=observations,
@@ -722,9 +722,7 @@ def run_aux_gibbs(
 
     position_history: list[jnp.ndarray] = []
     latent_accept_history: list[jnp.ndarray] = []
-    latent_extra_history: dict[str, list[jnp.ndarray]] = {
-        name: [] for name in _LATENT_FIELD_NAMES
-    }
+    latent_extra_history: dict[str, list[jnp.ndarray]] = {name: [] for name in _LATENT_FIELD_NAMES}
     param_accept_history: list[jnp.ndarray] = []
     complete_lp_history: list[jnp.ndarray] = []
     latent_paths_history: list[jnp.ndarray] = []
@@ -736,7 +734,7 @@ def run_aux_gibbs(
     progress_started = time.monotonic()
     progress_every = max(1, min(250, total_steps // 20))
     print(
-        "aux_gibbs progress: "
+        "aux_kalman_mcmc progress: "
         f"chains={num_chains} warmup={num_warmup} samples={num_samples} "
         f"total_steps={total_steps} adaptation={adaptation_scheme} "
         f"latent_kernel={latent_kernel_name} parameter_kernel={parameter_kernel_name} "
@@ -748,13 +746,13 @@ def run_aux_gibbs(
         latent_param_keys = jax.vmap(lambda key: random.split(key, 2))(step_keys[step_idx])
         latent_keys = latent_param_keys[:, 0, :]
         param_keys = latent_param_keys[:, 1, :]
-        states, latent_info = _run_batched_aux_gibbs_latent_step(
+        states, latent_info = _run_batched_aux_kalman_mcmc_latent_step(
             states,
             latent_keys,
             observations,
             static=static,
         )
-        states, param_info = _run_batched_aux_gibbs_parameter_step(
+        states, param_info = _run_batched_aux_kalman_mcmc_parameter_step(
             states,
             param_keys,
             static=static,
@@ -773,7 +771,7 @@ def run_aux_gibbs(
             phase = "warmup" if step_idx < num_warmup else "sample"
             elapsed = time.monotonic() - progress_started
             print(
-                "aux_gibbs progress: "
+                "aux_kalman_mcmc progress: "
                 f"step={step_idx + 1}/{total_steps} phase={phase} elapsed={elapsed:.1f}s "
                 f"latent_accept_now={float(latent_accept_now):.3f} "
                 f"param_accept_now={float(param_accept_now):.3f} "

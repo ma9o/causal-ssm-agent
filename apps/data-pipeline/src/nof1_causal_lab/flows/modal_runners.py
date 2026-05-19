@@ -175,24 +175,6 @@ def modal_stage5b_runner(
     return _run_stage5b.remote(stage4, stage2, inference_method, workspace_id)
 
 
-def modal_stage5b_payload_runner(
-    *,
-    compiled_ssm: dict | None,
-    data_for_model_parquet: bytes,
-    sampler_config: dict,
-    workspace_id: str,
-    compute_loo_diagnostics: bool,
-) -> BaseStageContract:
-    """Invoke stage 5b on Modal with explicit artifacts."""
-    return _run_stage5b_payload.remote(
-        compiled_ssm,
-        data_for_model_parquet,
-        sampler_config,
-        workspace_id,
-        compute_loo_diagnostics,
-    )
-
-
 def spawn_stage4_model_compile_warmup(
     *,
     workspace_id: str,

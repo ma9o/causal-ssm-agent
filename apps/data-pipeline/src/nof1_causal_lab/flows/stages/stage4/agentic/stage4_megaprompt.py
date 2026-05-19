@@ -9,9 +9,9 @@ decisions and priors in any order.
 The action space matches the state-machine mode exactly — the same submit
 tools (``submit_model_configuration``, ``submit_indicator_choice``,
 ``submit_prior_block``, and the optional ``search_literature`` /
-``elicit_prior_gmm``) — and the same validation checks gate every
-submission (schema validation, model compilation, prior-predictive
-checks, output-Jacobian sensitivity). The only thing the megaprompt mode
+    ``elicit_prior_gmm``) — and the same validation checks gate every
+    submission (schema validation, model compilation, prior-predictive
+    checks). The only thing the megaprompt mode
 removes is the reducer's block-cursor: tool calls are dispatched based
 on their payload, not on a current active block.
 """

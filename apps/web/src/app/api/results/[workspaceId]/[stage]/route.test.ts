@@ -3,10 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LLMTrace, Stage3Data, Stage4PersistedData } from "@nof1-causal-lab/api-types";
 
 vi.mock("@/lib/workspace-access", () => ({
-  requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
-    ok: true,
-    workspaceId,
-  })),
+  requireWorkspaceAccess: vi
+    .fn()
+    .mockImplementation(async (_request: Request, workspaceId: string) => ({
+      ok: true,
+      workspaceId,
+    })),
 }));
 
 vi.mock("@/lib/storage", () => ({
@@ -83,17 +85,11 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
   it("hydrates stage 0 from the parquet artifact instead of trusting persisted convenience fields", async () => {
     const [stage0Json, parquetBytes] = await Promise.all([
       readFile(
-        new URL(
-          "../../../../../../../../data/DEMO_HEALTH/run/stage-0.json",
-          import.meta.url,
-        ),
+        new URL("../../../../../../../../data/DEMO/run/stage-0.json", import.meta.url),
         "utf-8",
       ),
       readFile(
-        new URL(
-          "../../../../../../../../data/DEMO_HEALTH/run/stage0-raw-input.parquet",
-          import.meta.url,
-        ),
+        new URL("../../../../../../../../data/DEMO/run/stage0-raw-input.parquet", import.meta.url),
       ),
     ]);
     const persisted = JSON.parse(stage0Json) as {
@@ -124,15 +120,14 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         outcome: "success",
-        n_records: 15,
-        n_columns: 4,
-        date_range: { start: "2021-09-15", end: "2024-12-20" },
+        n_records: 1588,
+        n_columns: 56,
+        date_range: { start: "2022-01-01", end: "2026-05-07" },
         sample: expect.any(Array),
         column_descriptions: expect.arrayContaining([
           expect.objectContaining({
-            name: "datetime",
-            dtype: "Utf8",
-            description: "Timestamp of the medical event",
+            name: "timestamp",
+            dtype: "Datetime(time_unit='us', time_zone=None)",
           }),
         ]),
       }),
@@ -142,17 +137,11 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
   it("hydrates stage 2 from the raw parquet artifact instead of trusting persisted convenience fields", async () => {
     const [stage2Json, parquetBytes] = await Promise.all([
       readFile(
-        new URL(
-          "../../../../../../../../data/DEMO_HEALTH/run/stage-2.json",
-          import.meta.url,
-        ),
+        new URL("../../../../../../../../data/DEMO/run/stage-2.json", import.meta.url),
         "utf-8",
       ),
       readFile(
-        new URL(
-          "../../../../../../../../data/DEMO_HEALTH/run/stage2-model-data.parquet",
-          import.meta.url,
-        ),
+        new URL("../../../../../../../../data/DEMO/run/stage2-model-data.parquet", import.meta.url),
       ),
     ]);
     const persisted = JSON.parse(stage2Json) as {
@@ -210,18 +199,15 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
   it("hydrates stage 4 likelihood diagnostics from stage 3 + full stage 2 observations", async () => {
     const [stage4Json, stage3Json, parquetBytes] = await Promise.all([
       readFile(
-        new URL("../../../../../../../../data/DEMO_HEALTH/run/stage-4.json", import.meta.url),
+        new URL("../../../../../../../../data/DEMO/run/stage-4.json", import.meta.url),
         "utf-8",
       ),
       readFile(
-        new URL("../../../../../../../../data/DEMO_HEALTH/run/stage-3.json", import.meta.url),
+        new URL("../../../../../../../../data/DEMO/run/stage-3.json", import.meta.url),
         "utf-8",
       ),
       readFile(
-        new URL(
-          "../../../../../../../../data/DEMO_HEALTH/run/stage2-model-data.parquet",
-          import.meta.url,
-        ),
+        new URL("../../../../../../../../data/DEMO/run/stage2-model-data.parquet", import.meta.url),
       ),
     ]);
     const persisted = JSON.parse(stage4Json) as Stage4PersistedData;
@@ -243,6 +229,6 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(payload).toEqual(expected);
-    expect(payload.likelihood_diagnostics.ldl_cholesterol.histogram.length).toBeGreaterThan(1);
+    expect(payload.likelihood_diagnostics.total_sleep_hours.histogram.length).toBeGreaterThan(1);
   });
 });

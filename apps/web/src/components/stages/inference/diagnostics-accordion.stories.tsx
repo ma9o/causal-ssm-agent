@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { stage5b, stage5bAuxGibbs } from "@/components/__fixtures__/inference-data";
+import { stage5b, stage5bAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
 import { DiagnosticsAccordion } from "./diagnostics-accordion";
 
 const meta = {
@@ -12,30 +12,22 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const SVIOnly: Story = {
-  args: {
-    sviDiagnostics: stage5b.svi_diagnostics,
-    posteriorMarginals: stage5b.posterior_marginals,
-    posteriorPairs: stage5b.posterior_pairs,
-  },
-};
-
 export const MCMCOnly: Story = {
   args: {
-    mcmcDiagnostics: stage5bAuxGibbs.mcmc_diagnostics,
-    posteriorMarginals: stage5bAuxGibbs.posterior_marginals,
-    posteriorPairs: stage5bAuxGibbs.posterior_pairs,
+    mcmcDiagnostics: stage5bAuxKalmanMCMC.mcmc_diagnostics,
+    posteriorMarginals: stage5bAuxKalmanMCMC.posterior_marginals,
+    posteriorPairs: stage5bAuxKalmanMCMC.posterior_pairs,
   },
 };
 
 export const AllSections: Story = {
   args: {
-    powerScaling: stage5bAuxGibbs.power_scaling,
-    ppc: stage5bAuxGibbs.ppc,
-    mcmcDiagnostics: stage5bAuxGibbs.mcmc_diagnostics,
-    looDiagnostics: stage5bAuxGibbs.loo_diagnostics,
-    posteriorMarginals: stage5bAuxGibbs.posterior_marginals,
-    posteriorPairs: stage5bAuxGibbs.posterior_pairs,
+    powerScaling: stage5bAuxKalmanMCMC.power_scaling,
+    ppc: stage5bAuxKalmanMCMC.ppc,
+    mcmcDiagnostics: stage5bAuxKalmanMCMC.mcmc_diagnostics,
+    looDiagnostics: stage5bAuxKalmanMCMC.loo_diagnostics,
+    posteriorMarginals: stage5bAuxKalmanMCMC.posterior_marginals,
+    posteriorPairs: stage5bAuxKalmanMCMC.posterior_pairs,
   },
 };
 

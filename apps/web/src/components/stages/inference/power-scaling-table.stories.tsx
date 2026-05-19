@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { Stage5bData } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
-import { stage5bAuxGibbs } from "@/components/__fixtures__/inference-data";
+import { stage5bAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
 import { PowerScalingTable } from "./power-scaling-table";
 
 const meta = {
@@ -14,11 +14,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const WithPSIS: Story = {
-  args: { results: stage5bAuxGibbs.power_scaling ?? [] },
+  args: { results: stage5bAuxKalmanMCMC.power_scaling ?? [] },
 };
 
 export const WithoutPSIS: Story = {
   args: {
-    results: (stage5bAuxGibbs.power_scaling ?? []).map(({ psis_k_hat, ...rest }) => rest) as Stage5bData["power_scaling"] & {},
+    results: (stage5bAuxKalmanMCMC.power_scaling ?? []).map(({ psis_k_hat, ...rest }) => rest) as Stage5bData["power_scaling"] & {},
   },
 };

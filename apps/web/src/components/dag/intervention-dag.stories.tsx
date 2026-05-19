@@ -30,8 +30,8 @@ function StoryTracePanel({ trace }: { trace: LLMTrace }) {
           {trace.model}
         </Badge>
         <span className="text-muted-foreground">
-          {formatCompact(trace.usage.input_tokens)} in /{" "}
-          {formatCompact(trace.usage.output_tokens)} out
+          {formatCompact(trace.usage.input_tokens)} in / {formatCompact(trace.usage.output_tokens)}{" "}
+          out
         </span>
         {trace.usage.reasoning_tokens ? (
           <span className="text-muted-foreground">
@@ -63,9 +63,7 @@ function StaticDagWithControls() {
           onCheckedChange={(checked: boolean) => setShowNoise(checked)}
           size="sm"
         />
-        <span className="text-xs text-muted-foreground">
-          Show process noise (σ²)
-        </span>
+        <span className="text-xs text-muted-foreground">Show process noise (σ²)</span>
       </div>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
         <InterventionDag
@@ -102,7 +100,7 @@ export const PosteriorWeighted: StoryObj = {
 };
 
 export const Rung2Intervention: StoryObj = {
-  name: "Rung 2 \u2014 do(lipid_burden)",
+  name: "Rung 2 \u2014 do(serotonergic_exposure)",
   render: () => (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
       <InterventionDag
@@ -122,7 +120,7 @@ export const Rung2Intervention: StoryObj = {
 };
 
 export const Rung3Counterfactual: StoryObj = {
-  name: "Rung 3 \u2014 Counterfactual (medication_adherence)",
+  name: "Rung 3 \u2014 Counterfactual (adherence)",
   render: () => (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
       <InterventionDag

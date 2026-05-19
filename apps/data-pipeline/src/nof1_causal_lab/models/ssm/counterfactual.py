@@ -306,29 +306,6 @@ def forward_simulate_latent_action_from_state(
     return baseline, counterfactual, counterfactual - baseline
 
 
-def forward_simulate_from_state(
-    drift: jnp.ndarray,
-    cint: jnp.ndarray,
-    initial_state: jnp.ndarray,
-    outcome_idx: int,
-    dt: float,
-    horizon_steps: int,
-) -> jnp.ndarray:
-    """Forecast the baseline mean trajectory from an evidence-conditioned state."""
-    n = drift.shape[0]
-    diffusion_cov = jnp.zeros((n, n))
-    Ad, _, cd = discretize_system(drift, diffusion_cov, cint, dt)
-    if cd is None:
-        cd = jnp.zeros(n)
-
-    def _step(eta, _):
-        eta_next = Ad @ eta + cd
-        return eta_next, eta_next[outcome_idx]
-
-    _, trajectory = jax.lax.scan(_step, initial_state, None, length=horizon_steps)
-    return trajectory
-
-
 def forward_simulate_action_from_state(
     drift: jnp.ndarray,
     cint: jnp.ndarray,
@@ -576,7 +553,7 @@ def _kalman_smooth_states(
     """Kalman filter + RTS smoother for linear Gaussian SSM via cuthbert.
 
     Returns smoothed state means (T, D).
-    Handles missing data (NaN) via variance inflation, matching KalmanLikelihood.
+    Handles missing data (NaN) via variance inflation.
     """
     from cuthbert.filtering import filter as cuthbert_filter
     from cuthbert.gaussian.moments import build_filter, build_smoother
@@ -620,7 +597,7 @@ def _kalman_smooth_states(
         "y": _prepend_init(clean_obs.astype(dtype)),
     }
 
-    # Callbacks matching KalmanLikelihood pattern
+    # Moments-filter callbacks for the linear Gaussian smoother.
     def get_init_params(model_inputs: ArrayTreeLike) -> tuple[Array, Array]:
         return model_inputs["m0"], model_inputs["chol_P0"]
 
@@ -687,7 +664,7 @@ def _try_smoother(
         t0_cov = det_values["t0_cov"]
         cint = det_values.get("cint")
 
-        # Get manifest means (prefer SVI estimate over spec default)
+        # Get manifest means from the fit when available, otherwise use the spec default.
         manifest_means_val = det_values.get(
             "manifest_means",
             structure_runtime.manifest_means_template,

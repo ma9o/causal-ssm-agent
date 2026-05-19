@@ -251,5 +251,3 @@ def test_megaprompt_omits_accepted_state_after_seed_turn() -> None:
 
     assert "## Accepted Locked Model Spec" not in prompt
     assert "## Accepted Authored Priors" not in prompt
-
-

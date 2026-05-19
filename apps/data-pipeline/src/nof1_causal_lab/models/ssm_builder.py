@@ -112,7 +112,6 @@ class SSMModelBuilder:
         ssm_priors: SSMPriors | None = None,
         compiled_prior_semantics: dict | None = None,
         prior_runtime_bundle: PriorRuntimeBundle | None = None,
-        model_config: dict | None = None,
         sampler_config: dict | None = None,
         causal_spec: dict | None = None,
         parameter_bindings: list[dict[str, Any]] | None = None,
@@ -124,7 +123,6 @@ class SSMModelBuilder:
             priors: Prior proposals for each parameter
             ssm_spec: Direct SSMSpec (overrides model_spec conversion)
             ssm_priors: Direct SSMPriors paired with ssm_spec
-            model_config: Override model configuration (n_particles, pf_seed)
             sampler_config: Override sampler configuration
             causal_spec: CausalSpec dict with latent model edges and measurement
                 model indicators. When provided, spec translation builds
@@ -136,7 +134,6 @@ class SSMModelBuilder:
         self._ssm_priors = ssm_priors
         self._compiled_prior_semantics = compiled_prior_semantics
         self._prior_runtime_bundle = prior_runtime_bundle
-        self._model_config = model_config or {}
         self._sampler_config = sampler_config or self.get_default_sampler_config()
         self._causal_spec = causal_spec
         self._parameter_bindings = parameter_bindings
@@ -301,9 +298,6 @@ class SSMModelBuilder:
         spec = hydrate_discrete_manifest_metadata(spec, X)
         validate_observation_support(spec, X)
 
-        # Create model with PF config from model_config
-        n_particles = self._model_config.get("n_particles", 200)
-        pf_seed = self._model_config.get("pf_seed", 0)
         prior_runtime_bundle = self._prior_runtime_bundle
         if prior_runtime_bundle is None and self._compiled_prior_semantics is not None:
             prior_runtime_bundle = self._load_prior_runtime_bundle(self._compiled_prior_semantics)
@@ -312,8 +306,6 @@ class SSMModelBuilder:
             spec,
             priors,
             prior_runtime_bundle=prior_runtime_bundle,
-            n_particles=n_particles,
-            pf_seed=pf_seed,
         )
         self._model.parameter_bindings = list(self._parameter_bindings or [])
         self._spec = spec
@@ -354,7 +346,7 @@ class SSMModelBuilder:
             raise ValueError("Model must be built before fitting prepared inputs")
 
         sampler_config = {**self._sampler_config, **kwargs}
-        method = sampler_config.get("method", "aux_gibbs")
+        method = sampler_config.get("method", "aux_kalman_mcmc")
         fit_kwargs = {k: v for k, v in sampler_config.items() if k != "method"}
 
         result = fit(
@@ -422,8 +414,7 @@ class SSMModelBuilder:
         missing_sources = [name for name in source_indicators if name not in X.columns]
         if missing_sources:
             raise ValueError(
-                "Known input source indicators are absent from the model data: "
-                f"{missing_sources}"
+                f"Known input source indicators are absent from the model data: {missing_sources}"
             )
 
         columns: list[jnp.ndarray] = []
@@ -438,9 +429,7 @@ class SSMModelBuilder:
                 filled = X.select(expr.fill_null(0.0).alias(source_indicator))
             elif policy == "forward_fill":
                 filled = X.select(
-                    expr.fill_null(strategy="forward")
-                    .fill_null(0.0)
-                    .alias(source_indicator)
+                    expr.fill_null(strategy="forward").fill_null(0.0).alias(source_indicator)
                 )
             else:
                 raise ValueError(f"Unsupported known-input missing policy: {policy!r}")
@@ -664,10 +653,8 @@ def prepare_wide_model_runtime(
     model_obj.set_observation_support(observation_support)
     model_obj.set_transition_inputs(transition_inputs)
     spec_obj = builder.spec
-    likelihood_name = model_obj.likelihood
     inference_structure = plan_inference_structure(
         spec_obj,
-        likelihood=likelihood_name,
         observation_support=observation_support,
         method_override=(sampler_config or {}).get("method"),
         n_timepoints=int(times.shape[0]),

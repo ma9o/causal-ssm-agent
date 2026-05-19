@@ -66,7 +66,7 @@ def simple_spec():
 
 @pytest.fixture
 def simple_model(simple_spec):
-    return SSMModel(simple_spec, likelihood="kalman")
+    return SSMModel(simple_spec)
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ def dag_spec():
 
 @pytest.fixture
 def dag_model(dag_spec):
-    return SSMModel(dag_spec, likelihood="kalman")
+    return SSMModel(dag_spec)
 
 
 @pytest.fixture
@@ -190,7 +190,7 @@ class TestSiteRegistry:
             manifest_var=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
             manifest_var_mask=np.array([False, True]),
         )
-        model = SSMModel(spec, likelihood="kalman")
+        model = SSMModel(spec)
         registry = build_site_registry(spec)
         backend = model.make_likelihood_backend()
         T = 10
@@ -283,7 +283,7 @@ class TestSiteRegistry:
             n_manifest=1,
             diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         )
-        model = SSMModel(spec, likelihood="particle")
+        model = SSMModel(spec)
 
         with handlers.seed(rng_seed=0):
             trace = handlers.trace(lambda: model._sample_likelihood_extra_params(spec)).get_trace()
@@ -302,7 +302,7 @@ class TestSiteRegistry:
             t0_var_diag_mask=np.zeros(2, dtype=bool),
             t0_correlation_mask=np.zeros((2, 2), dtype=bool),
         )
-        model = SSMModel(spec, likelihood="kalman")
+        model = SSMModel(spec)
 
         registry = build_site_registry(spec)
         site_map = {site.name: site for site in registry}
