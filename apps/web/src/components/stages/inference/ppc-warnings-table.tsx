@@ -217,7 +217,7 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
       meta: {
         severity: (_v: unknown, row: PPCVariableRow) => {
           const warning = row.checks[ct];
-          return warning && !warning.passed ? "fail" : undefined;
+          return warning && !warning.passed ? "warn" : undefined;
         },
       },
     }),
@@ -232,7 +232,7 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
           const stat = row.testStats[sn];
           if (!stat) return undefined;
           const p = pValueForStat(stat);
-          return p < PPC_P_LOWER || p > PPC_P_UPPER ? "fail" : undefined;
+          return p < PPC_P_LOWER || p > PPC_P_UPPER ? "warn" : undefined;
         },
       },
     }),
