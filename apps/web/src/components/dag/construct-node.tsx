@@ -19,7 +19,7 @@ function borderClass(construct: ConstructNodeData): string {
     case "blocking":
       return "border-destructive";
     case "marginalized":
-      return "border-success";
+      return "border-warning";
     default:
       return construct.role === "endogenous" ? "border-foreground/65" : "border-foreground/35";
   }

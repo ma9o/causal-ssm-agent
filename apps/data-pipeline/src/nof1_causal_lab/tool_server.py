@@ -40,10 +40,11 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_submit_priors as _execute_submit_priors,
 )
 from nof1_causal_lab.models.ssm.counterfactual import (
+    CompositeVectorField,
     Intervention,
-    LinearVectorField,
     approximate_abducted_state,
     compute_steady_state,
+    linear_vector_field,
     summarize_draws,
     vmap_simulate_action_from_state,
     vmap_steady_state_effect,
@@ -306,7 +307,7 @@ class Stage6SimulationSetup:
     dt_days: float
     horizon_steps: int
     time_grid: jnp.ndarray
-    vector_field: LinearVectorField
+    vector_field: CompositeVectorField
 
 
 @dataclass(frozen=True)
@@ -371,7 +372,7 @@ def _prepare_stage6_simulation(
         int(query.get("horizon_days") or 30),
     )
     time_grid = jnp.linspace(0.0, dt_days * horizon_steps, horizon_steps + 1)
-    vector_field = LinearVectorField(n_latent=int(drift_draws.shape[-1]))
+    vector_field = linear_vector_field(n_latent=int(drift_draws.shape[-1]))
 
     return (
         Stage6SimulationSetup(
@@ -700,7 +701,7 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
 
     baseline_states = jax.vmap(
         lambda d, c: compute_steady_state(
-            setup.vector_field, {"drift": d, "cint": c}, Intervention.none()
+            setup.vector_field, ({"drift": d, "cint": c},), Intervention.none()
         )
     )(setup.drift_draws, setup.cint_draws)
     baseline_treatment_mean = float(jnp.mean(baseline_states[:, setup.treat_idx]))

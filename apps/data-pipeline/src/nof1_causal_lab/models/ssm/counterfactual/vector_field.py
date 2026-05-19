@@ -1,52 +1,62 @@
-"""Vector field protocol and current linear implementation.
+"""Vector field — single concrete implementation built from drift components.
 
-The vector field abstracts the SSM drift ``f(t, η, args) -> dη/dt``. Both
-the trajectory simulator (Diffrax) and the steady-state root-finder
-(Optimistix) consume this protocol, so adding a non-linear edge primitive
-library later is purely additive: a new ``VectorField`` implementation
-slots in behind the same API with no caller changes.
+``CompositeVectorField`` is the only vector field. It owns a tuple of
+``DriftComponent``s (see ``edges.py``); each component contributes to
+the drift vector. The dense linear case (the existing Stage 5b posterior
+shape) is one component (``DenseLinear``); the non-linear pharmacology
+case is many components (``DiagonalDecay`` + ``Intercept`` + per-edge
+Linear / Hill / Multiplicative).
 
-``LinearVectorField`` is the current regime: ``f(t, η) = A·η + c``. Both
-``A`` and ``c`` are read from a parameter pytree at call time, which keeps
-the field itself stateless (and therefore safe inside ``vmap`` over
-posterior draws). Interventions are applied through the field rather than
-mutating the parameters, so a single set of posterior draws can be reused
-for baseline and counterfactual paths.
+The vector field is responsible for:
+
+- Building the ``(n_target, n_source)`` ``eta_per_edge`` matrix with
+  edge-input overrides applied once.
+- Iterating over components and accumulating their contributions into
+  the drift.
+- Translating ``VariableOverride``s into the right semantics for the
+  simulator (drift component set to ``du/dt``) and the steady-state
+  root finder (residual set to ``eta − u(0)`` so the root pins the
+  intervened latent exactly).
+
+``args.params`` is a tuple matching the components tuple by position;
+each component reads its own slice and never sees others'.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jax import Array
 
 from .intervention import EdgeInputOverride, Intervention, VariableOverride
+
+if TYPE_CHECKING:
+    from jax import Array
+
+    from .edges import DriftComponent
 
 
 class VectorFieldArgs(eqx.Module):
     """Arguments threaded through Diffrax / Optimistix to the field.
 
-    ``params`` carries traced posterior arrays (one pytree leaf per array).
-    ``intervention`` is an ``eqx.Module`` pytree — its array fields are
-    traced, its structure (override count, types, indices) lives in the
-    treedef.
+    ``params`` is a tuple of per-component pytrees (one slice per
+    component, matched by position). ``intervention`` is the
+    ``eqx.Module`` pytree carrying override structure.
     """
 
-    params: dict[str, Array]
+    params: tuple[dict[str, Array], ...]
     intervention: Intervention
 
 
 @runtime_checkable
 class VectorField(Protocol):
-    """Stateless callable producing ``dη/dt`` at a state ``η`` and time ``t``.
+    """Drift callable plus simulator / root-finder companions.
 
-    Implementations must also provide ``initial_condition``, which clamps the
-    initial state to variable overrides at ``t0`` (and may enforce richer
-    invariants for non-linear primitive vocabularies later).
+    Kept as a Protocol so future alternative implementations (e.g., a
+    JAX-jit-cached variant or a structured sparse path) can slot in
+    without changing call sites.
     """
 
     n_latent: int
@@ -57,66 +67,23 @@ class VectorField(Protocol):
 
     def steady_state_residual(self, eta: Array, args: VectorFieldArgs) -> Array: ...
 
+    def linearize(
+        self,
+        x_lin: Array,
+        args: VectorFieldArgs,
+        t: Array | None = None,
+    ) -> tuple[Array, Array]: ...
+
 
 def apply_variable_overrides_to_state(
     eta: Array,
     t: Array,
     intervention: Intervention,
 ) -> Array:
-    """Clamp eta[i] = u_i(t) for each VariableOverride."""
+    """Clamp ``eta[i] = u_i(t)`` for each variable override."""
     for ov in intervention.variable_overrides():
         eta = eta.at[ov.index].set(ov.value_fn(t))
     return eta
-
-
-@dataclass(frozen=True)
-class LinearVectorField:
-    """Linear drift ``f(t, η) = A·η + c``.
-
-    Parameters are read from ``args.params``:
-      - ``params['drift']``: ``(n, n)`` drift matrix A
-      - ``params['cint']``: ``(n,)`` continuous intercept c
-
-    Edge-input overrides substitute the per-target source value before the
-    matrix-vector product. Variable overrides clamp the drift component to
-    ``d(value_fn)/dt`` so that ``eta[index]`` tracks the value function under
-    forward integration (the initial condition is set via
-    ``initial_condition``).
-    """
-
-    n_latent: int
-
-    def __call__(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
-        drift_matrix = args.params["drift"]
-        cint = args.params.get("cint", jnp.zeros(self.n_latent, dtype=eta.dtype))
-
-        eta_eff = jnp.broadcast_to(eta[None, :], (self.n_latent, self.n_latent))
-        eta_eff = _apply_edge_input_overrides(eta_eff, t, args.intervention)
-
-        d_eta = (drift_matrix * eta_eff).sum(axis=1) + cint
-        return _apply_variable_overrides_to_drift(d_eta, t, args.intervention)
-
-    def initial_condition(self, eta0: Array, args: VectorFieldArgs) -> Array:
-        return apply_variable_overrides_to_state(eta0, jnp.asarray(0.0), args.intervention)
-
-    def steady_state_residual(self, eta: Array, args: VectorFieldArgs) -> Array:
-        """Equilibrium residual with variable overrides treated as constraints.
-
-        For unconstrained latents the residual is ``A·η + c`` (zero at the
-        natural equilibrium). For constrained latents the residual is
-        ``eta[i] - u(0)`` so the root pins ``eta[i]`` exactly, instead of
-        relying on the drift component which the simulator-side override
-        forces to ``du/dt``.
-        """
-        drift_matrix = args.params["drift"]
-        cint = args.params.get("cint", jnp.zeros(self.n_latent, dtype=eta.dtype))
-        eta_eff = jnp.broadcast_to(eta[None, :], (self.n_latent, self.n_latent))
-        eta_eff = _apply_edge_input_overrides(eta_eff, jnp.asarray(0.0), args.intervention)
-        residual = (drift_matrix * eta_eff).sum(axis=1) + cint
-        for ov in args.intervention.variable_overrides():
-            target = ov.value_fn(jnp.asarray(0.0))
-            residual = residual.at[ov.index].set(eta[ov.index] - target)
-        return residual
 
 
 def _apply_edge_input_overrides(
@@ -145,3 +112,70 @@ def _apply_variable_overrides_to_drift(
         du_dt = jax.grad(lambda tt, fn=ov.value_fn: jnp.sum(fn(tt)))(t)
         d_eta = d_eta.at[ov.index].set(du_dt)
     return d_eta
+
+
+class CompositeVectorField(eqx.Module):
+    """Drift as a sum of ``DriftComponent`` contributions.
+
+    Equivalent dense-matrix dynamics: a single ``DenseLinear`` component
+    with parameter slice ``{"drift": A, "cint": c}`` reproduces the
+    classic ``f(t, η) = A·η + c`` form exactly (and uses one matmul, not
+    n² scatter-adds).
+
+    Composite primitive dynamics: typically one ``DiagonalDecay`` + one
+    ``Intercept`` + per-edge ``LinearEdge`` / ``HillEdge`` /
+    ``MultiplicativeEdge``. Each component reads its slice of
+    ``args.params`` by position.
+    """
+
+    n_latent: int = eqx.field(static=True)
+    components: tuple[DriftComponent, ...]
+
+    def __call__(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
+        d_eta = self._natural_drift(t, eta, args)
+        return _apply_variable_overrides_to_drift(d_eta, t, args.intervention)
+
+    def initial_condition(self, eta0: Array, args: VectorFieldArgs) -> Array:
+        return apply_variable_overrides_to_state(eta0, jnp.asarray(0.0), args.intervention)
+
+    def steady_state_residual(self, eta: Array, args: VectorFieldArgs) -> Array:
+        residual = self._natural_drift(jnp.asarray(0.0), eta, args)
+        for ov in args.intervention.variable_overrides():
+            target = ov.value_fn(jnp.asarray(0.0))
+            residual = residual.at[ov.index].set(eta[ov.index] - target)
+        return residual
+
+    def _natural_drift(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
+        eta_eff = jnp.broadcast_to(eta[None, :], (self.n_latent, self.n_latent))
+        eta_eff = _apply_edge_input_overrides(eta_eff, t, args.intervention)
+
+        drift = jnp.zeros(self.n_latent, dtype=eta.dtype)
+        for component, slice_params in zip(self.components, args.params, strict=True):
+            drift = component.contribute_to_drift(drift, eta, eta_eff, t, slice_params)
+        return drift
+
+    def linearize(
+        self,
+        x_lin: Array,
+        args: VectorFieldArgs,
+        t: Array | None = None,
+    ) -> tuple[Array, Array]:
+        """Local affine approximation ``f(t, x, args) ≈ A · x + b`` near ``x_lin``.
+
+        ``A`` is the Jacobian ``∂f/∂x`` evaluated at ``x_lin`` via
+        ``jax.jacfwd``; ``b = f(x_lin) - A · x_lin`` is the implied
+        intercept. For a single ``DenseLinear`` component without
+        intervention, ``A`` equals ``params['drift']`` and ``b`` equals
+        ``params['cint']`` exactly. For non-linear components (Hill,
+        Multiplicative, ...) the Jacobian falls out of autodiff.
+
+        This is the seam through which the existing CT→DT expm
+        discretization extends to non-linear drift: discretize the
+        locally-linearized system at the filter's current mean estimate.
+        """
+        if t is None:
+            t = jnp.asarray(0.0)
+        f_at_x = self(t, x_lin, args)
+        jacobian = jax.jacfwd(lambda x: self(t, x, args))(x_lin)
+        intercept = f_at_x - jacobian @ x_lin
+        return jacobian, intercept

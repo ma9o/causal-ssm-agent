@@ -13,7 +13,6 @@ import pytest
 from nof1_causal_lab.models.ssm.counterfactual import (
     EdgeInputOverride,
     Intervention,
-    LinearVectorField,
     SimulationConfig,
     VariableOverride,
     VectorFieldArgs,
@@ -23,6 +22,7 @@ from nof1_causal_lab.models.ssm.counterfactual import (
     compute_steady_state,
     constant_value,
     linear_ramp,
+    linear_vector_field,
     resolve_action_value,
     simulate,
     simulate_pair,
@@ -38,17 +38,17 @@ from nof1_causal_lab.models.ssm.counterfactual import (
 
 class TestLinearVectorField:
     def test_drift_matches_matrix_form(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {"drift": jnp.array([[-1.0, 0.5], [0.0, -2.0]]), "cint": jnp.array([0.3, -0.1])}
+        vf = linear_vector_field(n_latent=2)
+        params = ({"drift": jnp.array([[-1.0, 0.5], [0.0, -2.0]]), "cint": jnp.array([0.3, -0.1])},)
         eta = jnp.array([1.0, 2.0])
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
         out = vf(jnp.asarray(0.0), eta, args)
-        expected = params["drift"] @ eta + params["cint"]
+        expected = params[0]["drift"] @ eta + params[0]["cint"]
         assert jnp.allclose(out, expected, atol=1e-6)
 
     def test_variable_override_forces_zero_drift_for_constant(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {"drift": jnp.array([[-1.0, 0.5], [0.0, -2.0]]), "cint": jnp.zeros(2)}
+        vf = linear_vector_field(n_latent=2)
+        params = ({"drift": jnp.array([[-1.0, 0.5], [0.0, -2.0]]), "cint": jnp.zeros(2)},)
         intervention = Intervention(
             overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(5.0))),)
         )
@@ -57,9 +57,9 @@ class TestLinearVectorField:
         assert jnp.isclose(out[0], 0.0, atol=1e-6)
 
     def test_edge_input_override_changes_target_only(self):
-        vf = LinearVectorField(n_latent=2)
+        vf = linear_vector_field(n_latent=2)
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
-        params = {"drift": A, "cint": jnp.zeros(2)}
+        params = ({"drift": A, "cint": jnp.zeros(2)},)
         eta = jnp.array([1.0, 0.0])
         baseline_args = VectorFieldArgs(params=params, intervention=Intervention.none())
         baseline_drift = vf(jnp.asarray(0.0), eta, baseline_args)
@@ -71,11 +71,11 @@ class TestLinearVectorField:
         assert intervened_drift[1] > baseline_drift[1]
 
     def test_initial_condition_applies_variable_overrides(self):
-        vf = LinearVectorField(n_latent=2)
+        vf = linear_vector_field(n_latent=2)
         intervention = Intervention(
             overrides=(VariableOverride(index=1, value_fn=constant_value(jnp.asarray(3.0))),)
         )
-        args = VectorFieldArgs(params={"drift": -jnp.eye(2), "cint": jnp.zeros(2)}, intervention=intervention)
+        args = VectorFieldArgs(params=({"drift": -jnp.eye(2), "cint": jnp.zeros(2)},), intervention=intervention)
         y0 = vf.initial_condition(jnp.array([1.0, 2.0]), args)
         assert jnp.isclose(y0[0], 1.0)
         assert jnp.isclose(y0[1], 3.0)
@@ -88,24 +88,26 @@ class TestLinearVectorField:
 
 class TestComputeSteadyState:
     def test_matches_inverse_for_diagonal_drift(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])}
+        vf = linear_vector_field(n_latent=2)
+        params = ({"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])},)
         ss = compute_steady_state(vf, params, Intervention.none())
         assert jnp.allclose(ss, jnp.array([1.0, 2.0]), atol=1e-5)
 
     def test_satisfies_residual(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {"drift": jnp.array([[-2.0, 0.5], [0.3, -1.5]]), "cint": jnp.array([1.0, -0.5])}
+        vf = linear_vector_field(n_latent=2)
+        params = ({"drift": jnp.array([[-2.0, 0.5], [0.3, -1.5]]), "cint": jnp.array([1.0, -0.5])},)
         ss = compute_steady_state(vf, params, Intervention.none())
-        residual = params["drift"] @ ss + params["cint"]
+        residual = params[0]["drift"] @ ss + params[0]["cint"]
         assert jnp.allclose(residual, 0.0, atol=1e-4)
 
     def test_intervention_propagates_downstream(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {
-            "drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
-            "cint": jnp.array([2.0, 1.0]),
-        }
+        vf = linear_vector_field(n_latent=2)
+        params = (
+            {
+                "drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
+                "cint": jnp.array([2.0, 1.0]),
+            },
+        )
         baseline = compute_steady_state(vf, params, Intervention.none())
         intervention = Intervention(
             overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(5.0))),)
@@ -122,8 +124,8 @@ class TestComputeSteadyState:
 
 class TestSimulate:
     def test_no_coupling_no_propagation(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])}
+        vf = linear_vector_field(n_latent=2)
+        params = ({"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])},)
         time_grid = jnp.linspace(0.0, 5.0, 11)
         intervention = Intervention(
             overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(0.0))),)
@@ -135,11 +137,13 @@ class TestSimulate:
         assert jnp.all(jnp.abs(effect[:, 1]) < 1e-3)
 
     def test_positive_coupling_yields_positive_effect(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {
-            "drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
-            "cint": jnp.array([1.0, 0.5]),
-        }
+        vf = linear_vector_field(n_latent=2)
+        params = (
+            {
+                "drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
+                "cint": jnp.array([1.0, 0.5]),
+            },
+        )
         baseline = compute_steady_state(vf, params, Intervention.none())
         time_grid = jnp.linspace(0.0, 20.0, 41)
         intervention = Intervention(
@@ -155,8 +159,8 @@ class TestSimulate:
         assert float(effect[-1, 1]) > 0
 
     def test_clamped_state_tracks_constant(self):
-        vf = LinearVectorField(n_latent=2)
-        params = {"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.zeros(2)}
+        vf = linear_vector_field(n_latent=2)
+        params = ({"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.zeros(2)},)
         time_grid = jnp.linspace(0.0, 5.0, 11)
         intervention = Intervention(
             overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(3.0))),)
@@ -384,8 +388,8 @@ class TestNumericalCorrectness:
 
         closed_form = vmap(analytic)(time_grid)
         numerical = simulate(
-            LinearVectorField(n_latent=A.shape[0]),
-            {"drift": A, "cint": c},
+            linear_vector_field(n_latent=A.shape[0]),
+            ({"drift": A, "cint": c},),
             Intervention.none(),
             eta0,
             time_grid,
@@ -409,8 +413,8 @@ class TestNumericalCorrectness:
 
         closed_form = -jla.solve(A, c)
         numerical = compute_steady_state(
-            LinearVectorField(n_latent=3),
-            {"drift": A, "cint": c},
+            linear_vector_field(n_latent=3),
+            ({"drift": A, "cint": c},),
             Intervention.none(),
         )
 
@@ -432,7 +436,7 @@ class TestNumericalCorrectness:
         intervened = jla.solve(A_mod, rhs)
         expected = float(intervened[outcome_idx] - baseline[outcome_idx])
 
-        vf = LinearVectorField(n_latent=A.shape[0])
+        vf = linear_vector_field(n_latent=A.shape[0])
         numerical = float(
             vmap_steady_state_effect(
                 vf,

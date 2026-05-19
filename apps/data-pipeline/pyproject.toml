@@ -100,7 +100,9 @@ ignore = [
     "PERF401",# list/dict comprehension nudges are too noisy for legacy code
     "PERF403",# dict comprehension nudges are too noisy for legacy code
     "SIM108", # use ternary operator (not always clearer)
-    "RUF001", # ambiguous unicode (intentional for display)
+    "RUF001", # ambiguous unicode in strings (intentional for display)
+    "RUF002", # ambiguous unicode in docstrings (intentional for scientific notation)
+    "RUF003", # ambiguous unicode in comments (intentional for scientific notation)
     "RUF022", # __all__ not sorted (comments prevent auto-sort)
 ]
 
