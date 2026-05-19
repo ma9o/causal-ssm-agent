@@ -1,6 +1,6 @@
 import type { StageRunStatus } from "@/lib/hooks/use-run-events";
 import type { StageMeta } from "@nof1-causal-lab/api-types";
-import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import type { Decorator } from "@storybook/nextjs-vite";
 import type { ReactNode } from "react";
 import { StoryStageLogView } from "./stage-story-log-stream";
 import {
@@ -11,7 +11,7 @@ import {
 
 type StoryShellProps = Omit<StageStoryTemplateProps, "stage" | "status" | "children">;
 
-export const stageStoryDecorators: NonNullable<Meta<Record<string, never>>["decorators"]> = [
+export const stageStoryDecorators: Decorator[] = [
   (Story) => (
     <StageStoryLayout>
       <Story />
@@ -25,11 +25,17 @@ function getDefaultStoryLogView(stage: StageMeta, status: StageRunStatus): React
   return <StoryStageLogView storyId={`${stage.id}-${status}`} status={status} />;
 }
 
+type GeneratedStory<TArgs extends object = Record<string, never>> = {
+  args?: TArgs;
+  name?: string;
+  render: ((storyArgs: TArgs) => ReactNode) | (() => ReactNode);
+};
+
 export function createStageStatusStory(
   stage: StageMeta,
   status: StageRunStatus,
   shellProps: StoryShellProps = {},
-): StoryObj {
+): GeneratedStory {
   const { logView = getDefaultStoryLogView(stage, status), ...restShellProps } = shellProps;
   return {
     render: () => (
@@ -53,13 +59,13 @@ export function createCompletedStageStory<TArgs extends object>({
   renderContent,
   renderShellProps,
   ...shellProps
-}: CompletedStageStoryConfig<TArgs>): StoryObj<TArgs> {
+}: CompletedStageStoryConfig<TArgs>): GeneratedStory<TArgs> {
   const { logView = getDefaultStoryLogView(stage, "completed"), ...restShellProps } = shellProps;
   return {
     ...(name ? { name } : {}),
     args,
-    render: (storyArgs) => {
-      const dynamicShellProps = renderShellProps?.(storyArgs as TArgs) ?? {};
+    render: (storyArgs: TArgs) => {
+      const dynamicShellProps = renderShellProps?.(storyArgs) ?? {};
       const resolvedLogView = dynamicShellProps.logView ?? logView;
 
       return (
@@ -70,7 +76,7 @@ export function createCompletedStageStory<TArgs extends object>({
           {...restShellProps}
           {...dynamicShellProps}
         >
-          {renderContent(storyArgs as TArgs)}
+          {renderContent(storyArgs)}
         </StageStoryTemplate>
       );
     },

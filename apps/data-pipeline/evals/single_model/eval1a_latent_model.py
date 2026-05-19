@@ -38,11 +38,7 @@ from nof1_causal_lab.orchestrator.schemas import LatentModel
 from nof1_causal_lab.orchestrator.scoring import _count_rule_points
 from nof1_causal_lab.orchestrator.stage1a import Stage1aResult, run_stage1a
 
-# Load config for models
 _CONFIG = load_eval_config()
-
-# Top-tier models for orchestrator eval
-MODELS = {m["id"]: m["alias"] for m in _CONFIG["orchestrator_models"]}
 
 
 def create_eval_dataset(questions: str | None = None) -> MemoryDataset:

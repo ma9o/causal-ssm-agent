@@ -121,6 +121,7 @@ const PRIOR_DIST_LATEX: Record<PriorDistributionFamily, string> = {
   TruncatedNormal: "\\text{TruncNormal}",
   Exponential: "\\text{Exp}",
   LogNormal: "\\text{LogNormal}",
+  Delta: "\\Delta",
 };
 
 function priorDistributionLatex(prior: PriorProposal): string {

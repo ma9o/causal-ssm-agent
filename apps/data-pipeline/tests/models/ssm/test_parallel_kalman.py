@@ -28,12 +28,22 @@ import jax.scipy.linalg as jla
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.models.ssm import (
+    SSMSpec,
+    full_diagonal_mask,
+    zero_diagonal_mask,
+    zero_loading_mask,
+    zero_square_mask,
+    zero_vector_mask,
+)
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     aux_filter_lgssm,
     filter_lgssm,
     sample_lgssm_trajectory,
 )
+from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 _JITTER = 1e-6
 
@@ -126,6 +136,82 @@ def _make_random_lgssm(key, T, D, Dy, dtype=jnp.float64):
     return init_mean, init_cov, Fs, Qs, bs, Hs, Rs, cs, ys
 
 
+def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
+    """Build a compact mixed point/interval support spec for Kalman augmentation."""
+    n_latent = 4
+    n_manifest = 2 * n_latent
+    times = jnp.arange(n_time, dtype=jnp.float64)
+    manifest_names = [
+        *(f"y{i}_point" for i in range(n_latent)),
+        *(f"y{i}_interval" for i in range(n_latent)),
+    ]
+    support_start = np.full((n_time, n_manifest), np.nan, dtype=np.float64)
+    support_end = np.full((n_time, n_manifest), np.nan, dtype=np.float64)
+    prev_coeffs = np.zeros((n_time, n_manifest, 1), dtype=np.float64)
+    curr_coeffs = np.zeros((n_time, n_manifest, 1), dtype=np.float64)
+    weights = np.zeros((n_time, n_manifest, 1), dtype=np.float64)
+    emission_slots = np.full((n_time, n_manifest), -1, dtype=np.int64)
+    interval_slice = slice(n_latent, n_manifest)
+    times_np = np.asarray(times)
+    for t in range(1, n_time):
+        dt = float(times_np[t] - times_np[t - 1])
+        support_start[t, interval_slice] = times_np[t - 1]
+        support_end[t, interval_slice] = times_np[t]
+        prev_coeffs[t, interval_slice, 0] = 0.5 * dt
+        curr_coeffs[t, interval_slice, 0] = 0.5 * dt
+        weights[t, interval_slice, 0] = dt
+        emission_slots[t, interval_slice] = 0
+
+    observation_support = ObservationSupportRuntime(
+        anchor_times=times_np,
+        manifest_names=manifest_names,
+        support_kinds=["point"] * n_latent + ["interval"] * n_latent,
+        summary_operators=[None] * n_latent + ["mean"] * n_latent,
+        anchor_policies=[None] * n_latent + ["support_end"] * n_latent,
+        observation_windows=[None] * n_latent + ["1mo"] * n_latent,
+        support_start_times=support_start,
+        support_end_times=support_end,
+        interval_prev_coeffs=prev_coeffs,
+        interval_curr_coeffs=curr_coeffs,
+        interval_weights=weights,
+        emission_slot_indices=emission_slots,
+    )
+    lambda_mat = jnp.concatenate(
+        [
+            jnp.eye(n_latent, dtype=jnp.float64),
+            jnp.eye(n_latent, dtype=jnp.float64),
+        ],
+        axis=0,
+    )
+    spec = SSMSpec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_diag_mask=full_diagonal_mask(n_latent),
+        drift_offdiag_mask=zero_square_mask(n_latent),
+        drift=jnp.zeros((n_latent, n_latent), dtype=jnp.float64),
+        cint_mask=zero_vector_mask(n_latent),
+        cint=jnp.zeros(n_latent, dtype=jnp.float64),
+        lambda_mask=zero_loading_mask(n_manifest, n_latent),
+        lambda_mat=lambda_mat,
+        diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+        diffusion_chol=jnp.eye(n_latent, dtype=jnp.float64),
+        manifest_means_mask=zero_vector_mask(n_manifest),
+        manifest_means=jnp.zeros(n_manifest, dtype=jnp.float64),
+        manifest_chol_diag_mask=full_diagonal_mask(n_manifest),
+        manifest_chol=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float64),
+        t0_means_mask=zero_vector_mask(n_latent),
+        t0_means=jnp.zeros(n_latent, dtype=jnp.float64),
+        t0_chol_diag_mask=zero_diagonal_mask(n_latent),
+        t0_correlation_mask=zero_square_mask(n_latent),
+        t0_chol=jnp.eye(n_latent, dtype=jnp.float64),
+        latent_names=[f"x{i}" for i in range(n_latent)],
+        manifest_names=manifest_names,
+        manifest_dists=[DistributionFamily.STUDENT_T] * n_latent
+        + [DistributionFamily.GAUSSIAN] * n_latent,
+    )
+    return {"times": times, "spec": spec, "observation_support": observation_support}
+
+
 @pytest.fixture(autouse=True)
 def _enable_x64():
     """Flip on float64 so the parallel-vs-sequential comparison is tight."""
@@ -163,8 +249,7 @@ def test_filter_matches_sequential_point_in_time():
 
 def test_filter_matches_sequential_interval_summary():
     """Augmented-state LGSSM produced by ``build_linear_summary_augmented_system``."""
-    import sys
-
+    from nof1_causal_lab.artifacts import LinkFunction
     from nof1_causal_lab.models.ssm.constants import MIN_DT
     from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
         _build_linear_summary_accumulator_plan,
@@ -176,15 +261,7 @@ def test_filter_matches_sequential_interval_summary():
         get_support_kind_codes,
     )
 
-    sys.path.insert(
-        0,
-        "/Users/ma9o/Desktop/nof1-causal-lab/trees/main/apps/data-pipeline/scripts",
-    )
-    from run_map_mixed_support_recovery import _make_mixed_support_recovery_data
-
-    from nof1_causal_lab.artifacts import LinkFunction
-
-    data = _make_mixed_support_recovery_data(n_time=12)
+    data = _make_mixed_support_interval_summary_data(n_time=12)
     spec = data["spec"]
     observation_support = data["observation_support"]
     manifest_links = spec.manifest_links or [LinkFunction.IDENTITY] * spec.n_manifest

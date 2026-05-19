@@ -36,7 +36,6 @@ from nof1_causal_lab.workers.prompts.extraction import SYSTEM
 from nof1_causal_lab.workers.schemas import _check_dtype_match, _get_indicator_info
 
 _CONFIG = load_eval_config()
-MODELS = {m["id"]: m["alias"] for m in _CONFIG["worker_models"]}
 
 
 def _get_indicator_dtypes(causal_spec: dict) -> dict[str, str]:

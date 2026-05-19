@@ -1,16 +1,19 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
 
 const PREFECT_BOOT_TIMEOUT_MS = 30_000;
 const DATA_PIPELINE_DIR = join(process.cwd(), "..", "data-pipeline");
 
+type PrefectServerProcess = ChildProcessByStdio<null, Readable, Readable>;
+
 export type PrefectServerHandle = {
   apiBaseUrl: string;
   dbPath: string;
-  process: ChildProcessWithoutNullStreams;
+  process: PrefectServerProcess;
   tempDir: string;
   wsUrl: string;
 };
@@ -42,7 +45,7 @@ async function getFreePort(): Promise<number> {
   });
 }
 
-async function waitForPrefectBoot(apiBaseUrl: string, process: ChildProcessWithoutNullStreams) {
+async function waitForPrefectBoot(apiBaseUrl: string, process: PrefectServerProcess) {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < PREFECT_BOOT_TIMEOUT_MS) {

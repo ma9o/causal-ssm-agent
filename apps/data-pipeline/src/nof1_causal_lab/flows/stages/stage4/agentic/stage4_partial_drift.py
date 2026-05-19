@@ -124,6 +124,7 @@ def _build_partial_drift_state(
         diag_param_index,
         _diffusion_diag_param_index,
         _diffusion_offdiag_param_index,
+        _input_effect_param_index,
         _t0_offdiag_param_index,
         _t0_mean_param_index,
         _t0_sd_param_index,

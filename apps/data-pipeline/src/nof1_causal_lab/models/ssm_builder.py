@@ -145,7 +145,6 @@ class SSMModelBuilder:
         self._prepared_transition_inputs: jnp.ndarray | None = None
         self._prepared_observation_mask: jnp.ndarray | None = None
         self._prepared_observation_support: ObservationSupportRuntime | None = None
-        self._prepared_inference_structure: InferenceStructurePlan | None = None
 
     @property
     def has_model(self) -> bool:
@@ -663,7 +662,6 @@ def prepare_wide_model_runtime(
     builder._prepared_transition_inputs = transition_inputs
     builder._prepared_observation_mask = ~jnp.isnan(observations)
     builder._prepared_observation_support = observation_support
-    builder._prepared_inference_structure = inference_structure
     if observation_support is not None and observation_support.requires_interval_summary_handling:
         interval_summary_desc = ", ".join(
             f"{name} ({operator})"

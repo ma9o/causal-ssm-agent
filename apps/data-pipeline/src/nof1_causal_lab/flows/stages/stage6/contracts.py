@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 from nof1_causal_lab.flows.contracts_base import LLMStageContract, ToolContract
 from nof1_causal_lab.models.ssm.inference.schemas import TemporalEffect  # noqa: TC001
 
-STAGE_ID = "stage-6"
 IS_INTERACTIVE_STAGE = True
 
 

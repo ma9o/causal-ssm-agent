@@ -7,7 +7,6 @@ from nof1_causal_lab.flows.contracts_base import LLMStageContract
 from nof1_causal_lab.flows.stages.stage4.tool_registry import build_stage4_public_tool_contracts
 from nof1_causal_lab.workers.schemas_prior import PriorProposal  # noqa: TC001
 
-STAGE_ID = "stage-4"
 IS_INTERACTIVE_STAGE = True
 STAGE4_TOOL_CONTRACTS = build_stage4_public_tool_contracts()
 

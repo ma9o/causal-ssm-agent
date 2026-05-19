@@ -69,10 +69,8 @@ class FakeProcess:
         self.stdout = FakeStdout(lines)
         self.stderr = FakeStderr(stderr)
         self.returncode = returncode
-        self.waited = False
 
     async def wait(self) -> int:
-        self.waited = True
         return self.returncode
 
     def kill(self) -> None:

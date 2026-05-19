@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { LikelihoodSpec } from "@nof1-causal-lab/api-types";
 
 import { ObsPriorList } from "./obs-model-table";
 
@@ -11,7 +12,7 @@ const gaussianLikelihood = {
   centered: false,
   reasoning: "",
   sources: [],
-} as const;
+} satisfies LikelihoodSpec;
 
 const betaLikelihood = {
   variable: "appointment_attendance",
@@ -20,7 +21,7 @@ const betaLikelihood = {
   centered: false,
   reasoning: "",
   sources: [],
-} as const;
+} satisfies LikelihoodSpec;
 
 describe("ObsPriorList", () => {
   it("marks missing authored observation priors as not authored", () => {

@@ -7,7 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from nof1_causal_lab.artifacts.latent_model import LatentModel  # noqa: TC001
 from nof1_causal_lab.flows.contracts_base import LLMStageContract, ToolContract
 
-STAGE_ID = "stage-1a"
 IS_INTERACTIVE_STAGE = True
 
 
