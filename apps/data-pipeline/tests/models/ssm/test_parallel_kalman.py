@@ -318,7 +318,7 @@ def test_filter_matches_sequential_interval_summary():
     drift = -0.3 * jnp.eye(spec.n_latent, dtype=jnp.float64)
     diffusion_cov = 0.04 * jnp.eye(spec.n_latent, dtype=jnp.float64)
     cint = jnp.zeros(spec.n_latent, dtype=jnp.float64)
-    H = jnp.asarray(spec.assemble_lambda(), dtype=jnp.float64)
+    H = jnp.asarray(spec.lambda_block.assemble(), dtype=jnp.float64)
     d = jnp.zeros(spec.n_manifest, dtype=jnp.float64)
     init_mean = jnp.zeros(spec.n_latent, dtype=jnp.float64)
     init_cov = 0.1 * jnp.eye(spec.n_latent, dtype=jnp.float64)

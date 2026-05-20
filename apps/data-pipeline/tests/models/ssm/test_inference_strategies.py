@@ -31,6 +31,7 @@ from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import AutoReparam, InferenceResult, SSMModel, fit
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.inference.methods.map import (
     _build_map_laplace_bundle,
     fit_map,
@@ -87,11 +88,56 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
 )
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from tests.ssm_test_utils import (
-    diagonal_diffusion_kwargs,
-    make_observation_support_runtime,
-    make_ssm_spec,
+from nof1_causal_lab.models.ssm.structure import (
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
 )
+from tests.ssm_test_utils import (
+    block_ssm_spec,
+    diagonal_diffusion_block,
+    make_observation_support_runtime,
+)
+
+
+def _linear_drift_spec(
+    n_latent: int,
+    *,
+    drift_diag_mask: np.ndarray | None = None,
+    drift_offdiag_mask: np.ndarray | None = None,
+    drift_template: jnp.ndarray | None = None,
+    cint_mask: np.ndarray | None = None,
+    cint_template: jnp.ndarray | None = None,
+):
+    if drift_diag_mask is None:
+        drift_diag_mask = np.ones(n_latent, dtype=bool)
+    if drift_offdiag_mask is None:
+        drift_offdiag_mask = np.ones((n_latent, n_latent), dtype=bool)
+        np.fill_diagonal(drift_offdiag_mask, False)
+    return linear_drift_spec(
+        n_latent=n_latent,
+        drift_diag_mask=drift_diag_mask,
+        drift_offdiag_mask=drift_offdiag_mask,
+        drift_template=(
+            jnp.zeros((n_latent, n_latent), dtype=jnp.float32)
+            if drift_template is None
+            else drift_template
+        ),
+        cint_mask=np.zeros(n_latent, dtype=bool) if cint_mask is None else cint_mask,
+        cint_template=(
+            jnp.zeros(n_latent, dtype=jnp.float32) if cint_template is None else cint_template
+        ),
+    )
+
+
+def _one_dim_block_spec():
+    return block_ssm_spec(
+        n_latent=1,
+        n_manifest=1,
+        drift_spec=_linear_drift_spec(1),
+        diffusion_block=diagonal_diffusion_block(1),
+    )
 
 
 def test_compile_observation_operator_keeps_point_support_without_interval_summary_mode():
@@ -1926,12 +1972,7 @@ class TestInferenceCaching:
     """Low-risk caching behavior for default inference helpers."""
 
     def test_model_reuses_backend_instances(self):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
+        spec = _one_dim_block_spec()
         model = SSMModel(spec)
 
         backend_a = model.make_likelihood_backend()
@@ -1945,12 +1986,7 @@ class TestInferenceCaching:
         assert laplace_a is not laplace_c
 
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
+        spec = _one_dim_block_spec()
         model = SSMModel(spec)
         observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
@@ -1992,24 +2028,14 @@ class TestDefaultMethodRouting:
         """Default routing resolves to auxiliary Kalman MCMC for all model types."""
         from nof1_causal_lab.models.ssm.inference.structure import plan_inference_structure
 
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
+        spec = _one_dim_block_spec()
 
         plan = plan_inference_structure(spec)
         assert plan.resolved_method == "aux_kalman_mcmc"
         assert plan.structural_backend == "laplace"
 
     def test_fit_without_method_dispatches_to_aux_kalman_mcmc(self, monkeypatch):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
+        spec = _one_dim_block_spec()
         model = SSMModel(spec)
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
@@ -2031,12 +2057,7 @@ class TestDefaultMethodRouting:
         assert result.method == "aux_kalman_mcmc"
 
     def test_non_point_support_allows_map(self, monkeypatch):
-        spec = make_ssm_spec(
-            n_latent=1,
-            n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
-        )
+        spec = _one_dim_block_spec()
         model = SSMModel(spec)
         model.set_observation_support(self._non_point_support())
         observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
@@ -2060,24 +2081,49 @@ class TestDefaultMethodRouting:
 
 
 def test_map_optimizer_smoke_on_small_kalman_model():
-    spec = make_ssm_spec(
+    spec = block_ssm_spec(
         n_latent=1,
         n_manifest=1,
-        drift=jnp.array([[-0.4]], dtype=jnp.float32),
-        drift_diag_mask=np.array([False]),
-        drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
-        lambda_mat=jnp.array([[1.0]], dtype=jnp.float32),
-        lambda_mask=np.zeros((1, 1), dtype=bool),
-        manifest_means=jnp.array([0.0], dtype=jnp.float32),
-        manifest_means_mask=np.array([False]),
-        t0_means=jnp.array([0.0], dtype=jnp.float32),
-        t0_means_mask=np.array([False]),
-        t0_chol=jnp.array([[1.0]], dtype=jnp.float32),
-        t0_chol_diag_mask=np.array([True]),
-        t0_correlation_mask=np.zeros((1, 1), dtype=bool),
-        manifest_chol=jnp.array([[0.0]], dtype=jnp.float32),
-        manifest_chol_diag_mask=np.array([True]),
-        **diagonal_diffusion_kwargs(1),
+        drift_spec=_linear_drift_spec(
+            1,
+            drift_diag_mask=np.array([False]),
+            drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
+            drift_template=jnp.array([[-0.4]], dtype=jnp.float32),
+        ),
+        diffusion_block=diagonal_diffusion_block(1),
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=1,
+            n_cols=1,
+            mask=np.zeros((1, 1), dtype=bool),
+            template=jnp.array([[1.0]], dtype=jnp.float32),
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        ),
+        manifest_means_block=SparseVectorBlockSpec(
+            n=1,
+            mask=np.array([False]),
+            template=jnp.array([0.0], dtype=jnp.float32),
+            free_site_name="manifest_means_free",
+            det_site_name="manifest_means",
+        ),
+        manifest_chol_block=ManifestCholBlockSpec(
+            n_manifest=1,
+            diag_mask=np.array([True]),
+            template=jnp.array([[0.0]], dtype=jnp.float32),
+        ),
+        t0_means_block=SparseVectorBlockSpec(
+            n=1,
+            mask=np.array([False]),
+            template=jnp.array([0.0], dtype=jnp.float32),
+            free_site_name="t0_means_free",
+            det_site_name="t0_means",
+        ),
+        t0_chol_block=T0CholBlockSpec(
+            n_latent=1,
+            diag_mask=np.array([True]),
+            correlation_mask=np.zeros((1, 1), dtype=bool),
+            template=jnp.array([[1.0]], dtype=jnp.float32),
+        ),
     )
     model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
@@ -2113,24 +2159,49 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
     kwargs = {
         "n_latent": 1,
         "n_manifest": 1,
-        "drift": jnp.array([[-0.4]], dtype=jnp.float32),
-        "drift_diag_mask": np.array([False]),
-        "drift_offdiag_mask": np.zeros((1, 1), dtype=bool),
-        "lambda_mat": jnp.array([[1.0]], dtype=jnp.float32),
-        "lambda_mask": np.zeros((1, 1), dtype=bool),
-        "manifest_means": jnp.array([0.0], dtype=jnp.float32),
-        "manifest_means_mask": np.array([False]),
-        "t0_means": jnp.array([0.0], dtype=jnp.float32),
-        "t0_means_mask": np.array([False]),
-        "t0_chol": jnp.array([[1.0]], dtype=jnp.float32),
-        "t0_chol_diag_mask": np.array([True]),
-        "t0_correlation_mask": np.zeros((1, 1), dtype=bool),
-        "manifest_chol": jnp.array([[0.0]], dtype=jnp.float32),
-        "manifest_chol_diag_mask": np.array([True]),
-        **diagonal_diffusion_kwargs(1),
+        "drift_spec": _linear_drift_spec(
+            1,
+            drift_diag_mask=np.array([False]),
+            drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
+            drift_template=jnp.array([[-0.4]], dtype=jnp.float32),
+        ),
+        "diffusion_block": diagonal_diffusion_block(1),
+        "lambda_block": SparseMatrixBlockSpec(
+            n_rows=1,
+            n_cols=1,
+            mask=np.zeros((1, 1), dtype=bool),
+            template=jnp.array([[1.0]], dtype=jnp.float32),
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        ),
+        "manifest_means_block": SparseVectorBlockSpec(
+            n=1,
+            mask=np.array([False]),
+            template=jnp.array([0.0], dtype=jnp.float32),
+            free_site_name="manifest_means_free",
+            det_site_name="manifest_means",
+        ),
+        "manifest_chol_block": ManifestCholBlockSpec(
+            n_manifest=1,
+            diag_mask=np.array([True]),
+            template=jnp.array([[0.0]], dtype=jnp.float32),
+        ),
+        "t0_means_block": SparseVectorBlockSpec(
+            n=1,
+            mask=np.array([False]),
+            template=jnp.array([0.0], dtype=jnp.float32),
+            free_site_name="t0_means_free",
+            det_site_name="t0_means",
+        ),
+        "t0_chol_block": T0CholBlockSpec(
+            n_latent=1,
+            diag_mask=np.array([True]),
+            correlation_mask=np.zeros((1, 1), dtype=bool),
+            template=jnp.array([[1.0]], dtype=jnp.float32),
+        ),
     }
     kwargs.update(overrides)
-    return make_ssm_spec(**kwargs)
+    return block_ssm_spec(**kwargs)
 
 
 def _small_kalman_observations_and_times():
@@ -2920,12 +2991,26 @@ def test_aux_kalman_mcmc_rejects_nonlinear_interval_summary_support():
 def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
     spec = _make_aux_kalman_mcmc_smoke_spec(
         n_manifest=2,
-        lambda_mat=jnp.array([[1.0], [0.7]], dtype=jnp.float32),
-        lambda_mask=np.zeros((2, 1), dtype=bool),
-        manifest_means=jnp.array([0.0, 0.0], dtype=jnp.float32),
-        manifest_means_mask=np.array([False, False]),
-        manifest_chol=jnp.zeros((2, 2), dtype=jnp.float32),
-        manifest_chol_diag_mask=np.array([True, True]),
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=2,
+            n_cols=1,
+            mask=np.zeros((2, 1), dtype=bool),
+            template=jnp.array([[1.0], [0.7]], dtype=jnp.float32),
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        ),
+        manifest_means_block=SparseVectorBlockSpec(
+            n=2,
+            mask=np.array([False, False]),
+            template=jnp.array([0.0, 0.0], dtype=jnp.float32),
+            free_site_name="manifest_means_free",
+            det_site_name="manifest_means",
+        ),
+        manifest_chol_block=ManifestCholBlockSpec(
+            n_manifest=2,
+            diag_mask=np.array([True, True]),
+            template=jnp.zeros((2, 2), dtype=jnp.float32),
+        ),
         manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
         manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
     )

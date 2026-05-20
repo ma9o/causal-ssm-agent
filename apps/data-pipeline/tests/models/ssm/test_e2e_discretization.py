@@ -33,7 +33,30 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
 from nof1_causal_lab.models.ssm.compile.inputs import (
     translate_spec as translate_ssm_spec,
 )
-from tests.ssm_test_utils import combined_drift_mask, make_ssm_spec
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from tests.ssm_test_utils import block_ssm_spec
+
+
+def _block_spec_with_drift_offdiag(
+    *,
+    n_latent: int,
+    n_manifest: int,
+    drift_offdiag_mask: np.ndarray,
+    latent_names: list[str] | None = None,
+) -> SSMSpec:
+    return block_ssm_spec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_spec=linear_drift_spec(
+            n_latent=n_latent,
+            drift_diag_mask=np.ones(n_latent, dtype=bool),
+            drift_offdiag_mask=drift_offdiag_mask,
+            drift_template=jnp.zeros((n_latent, n_latent)),
+            cint_mask=np.zeros(n_latent, dtype=bool),
+            cint_template=jnp.zeros(n_latent),
+        ),
+        latent_names=latent_names,
+    )
 
 
 def _with_estimation_projection(causal_spec: dict) -> dict:
@@ -357,11 +380,13 @@ class TestE2ESpecToDiscretization:
         assert spec.latent_names == ["mood", "stress"]
 
         # Drift mask: diagonal (AR) + stress→mood off-diagonal
-        drift_mask = combined_drift_mask(spec)
-        assert drift_mask[0, 0]  # mood AR
-        assert drift_mask[1, 1]  # stress AR
-        assert drift_mask[0, 1]  # stress→mood coupling (effect=mood row, cause=stress col)
-        assert not drift_mask[1, 0]  # no mood→stress edge
+        drift_component, _ = spec.structural_drift_components()
+        assert drift_component.drift_diag_mask[0]  # mood AR
+        assert drift_component.drift_diag_mask[1]  # stress AR
+        assert drift_component.drift_offdiag_mask[
+            0, 1
+        ]  # stress→mood coupling (effect=mood row, cause=stress col)
+        assert not drift_component.drift_offdiag_mask[1, 0]  # no mood→stress edge
 
         # Lambda mask: stress_cortisol has free loading for stress
         assert spec.lambda_block.mask is not None
@@ -784,9 +809,9 @@ class TestE2ESpecToDiscretization:
         builder = build_compiled_ssm_builder(compiled, pivot_to_wide(data_for_model))
         spec = builder.spec
         assert spec.latent_names == ["mood", "stress"]
-        drift_mask = combined_drift_mask(spec)
-        assert drift_mask[0, 1]
-        assert not drift_mask[1, 0]
+        drift_component, _ = spec.structural_drift_components()
+        assert drift_component.drift_offdiag_mask[0, 1]
+        assert not drift_component.drift_offdiag_mask[1, 0]
         assert spec.lambda_block.mask is not None
         assert spec.lambda_block.mask[2, 1]
         runtime = builder.model.get_prior_runtime_bundle()
@@ -1188,12 +1213,12 @@ class TestE2ESpecToDiscretization:
             },
         }
 
-        drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = make_ssm_spec(
+        drift_offdiag_mask = np.array([[False, True], [False, False]])
+        ssm_spec = _block_spec_with_drift_offdiag(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_mask=drift_mask,
+            drift_offdiag_mask=drift_offdiag_mask,
         )
 
         ssm_priors_w, _idx = _compile_priors_for_test(
@@ -1505,12 +1530,12 @@ class TestExactMatrixLogConversion:
             },
         }
 
-        drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = make_ssm_spec(
+        drift_offdiag_mask = np.array([[False, True], [False, False]])
+        ssm_spec = _block_spec_with_drift_offdiag(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_mask=drift_mask,
+            drift_offdiag_mask=drift_offdiag_mask,
         )
 
         ssm_priors, _idx = _compile_priors_for_test(
@@ -1596,12 +1621,12 @@ class TestExactMatrixLogConversion:
                 "params": {"mu": 6.0, "sigma": 1.0},
             },
         }
-        drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = make_ssm_spec(
+        drift_offdiag_mask = np.array([[False, True], [False, False]])
+        ssm_spec = _block_spec_with_drift_offdiag(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_mask=drift_mask,
+            drift_offdiag_mask=drift_offdiag_mask,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
 

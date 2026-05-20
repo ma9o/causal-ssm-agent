@@ -19,8 +19,9 @@ import jax.numpy as jnp
 import jax.random as jr
 from numpyro.handlers import seed
 
+from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
-from nof1_causal_lab.models.ssm.dynamics.serialization import compile_composite_from_dict
+from nof1_causal_lab.models.ssm.dynamics.serialization import composite_spec_from_dict
 from nof1_causal_lab.models.ssm.dynamics.simulator import simulate
 from nof1_causal_lab.models.ssm.dynamics.stability import check_jacobian_stability
 
@@ -480,7 +481,7 @@ def validate_composite_assembly(
 
     Steps:
 
-    1. Compile the spec via ``compile_composite_from_dict``. Compile
+    1. Compile the spec via ``composite_spec_from_dict`` + ``compile_composite``. Compile
        errors are surfaced as ``compile_ok=False`` with the message in
        ``compile_error`` (matching the linear path's failure shape).
     2. Run ``validate_composite_dynamics`` against the compiled spec.
@@ -492,7 +493,7 @@ def validate_composite_assembly(
     diagnostics.
     """
     try:
-        compiled = compile_composite_from_dict(composite_spec_config)
+        compiled = compile_composite(composite_spec_from_dict(composite_spec_config))
     except (ValueError, KeyError) as exc:
         return CompositeAssemblyValidation(
             compile_ok=False, compile_error=str(exc)

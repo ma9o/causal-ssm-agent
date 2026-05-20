@@ -63,10 +63,8 @@ from .runtime import (
     runtime_from_ssm_model,
 )
 from .serialization import (
-    compile_composite_from_dict,
     composite_spec_from_dict,
     composite_spec_to_dict,
-    materialize_prior,
 )
 from .simulator import SimulationConfig, simulate, simulate_pair
 from .stability import StabilityReport, check_jacobian_stability
@@ -105,7 +103,6 @@ __all__ = [
     "VectorFieldArgs",
     "check_jacobian_stability",
     "compile_composite",
-    "compile_composite_from_dict",
     "composite_spec_from_dict",
     "composite_spec_to_dict",
     "compute_steady_state",
@@ -120,7 +117,6 @@ __all__ = [
     "linear_drift_spec",
     "linear_edge_weight_prior",
     "linear_ramp",
-    "materialize_prior",
     "multiplicative_weight_prior",
     "runtime_from_composite",
     "runtime_from_dense_linear",

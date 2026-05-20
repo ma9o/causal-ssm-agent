@@ -32,6 +32,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     VectorFieldArgs,
     compile_composite,
     infer_linearisation,
+    linear_drift_spec,
     runtime_from_composite,
     runtime_from_dense_linear,
     runtime_from_ssm_model,
@@ -205,17 +206,7 @@ class TestCanonicalFromDenseLinear:
 
 
 class TestRuntimeFromSSMModel:
-    """Bridge from ``SSMModel`` (declarative spec + numpyro wrapper) into
-    :class:`RuntimeSSM`. This is the Phase-4 unification seam: composite
-    consumers will eventually take ``SSMModel`` directly and call this
-    factory internally."""
-
-    def _gaussian_kernel_2(self):
-        return build_observation_kernel(
-            DistributionFamily.GAUSSIAN,
-            LinkFunction.IDENTITY,
-            manifest_cov=np.eye(2),
-        )
+    """Bridge from ``SSMModel`` into :class:`RuntimeSSM`."""
 
     def test_composite_spec_pulls_drift_from_drift_spec(self):
         from nof1_causal_lab.models.ssm import SSMModel, SSMSpec
@@ -328,22 +319,25 @@ class TestStructuralLinearSpecs:
             default_t0_chol_block,
             default_t0_means_block,
         )
-        from tests.ssm_test_utils import linear_drift_spec_from_combined_mask
-
         n_latent = 3
-        drift_mask = np.array(
+        drift_offdiag_mask = np.array(
             [
-                [True, True, False],
-                [False, True, True],
-                [True, False, True],
+                [False, True, False],
+                [False, False, True],
+                [True, False, False],
             ],
             dtype=bool,
         )
         spec = SSMSpec(
             n_latent=n_latent,
             n_manifest=1,
-            drift_spec=linear_drift_spec_from_combined_mask(
-                n_latent, drift_mask=drift_mask
+            drift_spec=linear_drift_spec(
+                n_latent=n_latent,
+                drift_diag_mask=np.ones(n_latent, dtype=bool),
+                drift_offdiag_mask=drift_offdiag_mask,
+                drift_template=jnp.zeros((n_latent, n_latent)),
+                cint_mask=np.zeros(n_latent, dtype=bool),
+                cint_template=jnp.zeros(n_latent),
             ),
             diffusion_block=default_diffusion_block(n_latent),
             lambda_block=SparseMatrixBlockSpec(

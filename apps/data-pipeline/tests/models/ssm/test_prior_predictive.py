@@ -26,14 +26,16 @@ from nof1_causal_lab.models.prior_predictive import (
     resolve_scale_target_parameters,
 )
 from nof1_causal_lab.models.ssm.compile.artifact import serialize_edge_lag_days, serialize_ssm_spec
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.model import full_diagonal_mask
 from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
 from nof1_causal_lab.models.ssm.priors import PriorSpec
+from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec, T0CholBlockSpec
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
-from tests.ssm_test_utils import make_ssm_spec, prior_registry
+from tests.ssm_test_utils import block_ssm_spec, diagonal_diffusion_block, prior_registry
 
 
 def _require_result(result: PriorValidationResult | None) -> PriorValidationResult:
@@ -518,11 +520,18 @@ class TestResolveScaleTargetParameters:
 
 class TestCheckLaggedResponsePlausibility:
     def test_infer_dynamics_repair_scope_localizes_unstable_scc(self):
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
+            drift_spec=linear_drift_spec(
+                n_latent=2,
+                drift_diag_mask=np.array([True, True]),
+                drift_offdiag_mask=np.array([[False, False], [True, False]]),
+                drift_template=jnp.zeros((2, 2)),
+                cint_mask=np.zeros(2, dtype=bool),
+                cint_template=jnp.zeros(2),
+            ),
             latent_names=["activity", "sleep"],
-            drift_mask=np.array([[True, False], [True, True]]),
         )
         compiled_ssm = {
             "spec": serialize_ssm_spec(spec),
@@ -556,11 +565,18 @@ class TestCheckLaggedResponsePlausibility:
         assert scope.construct_names == ["sleep"]
 
     def test_near_zero_one_lag_response_yields_warning(self):
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
+            drift_spec=linear_drift_spec(
+                n_latent=2,
+                drift_diag_mask=np.array([True, True]),
+                drift_offdiag_mask=np.array([[False, False], [True, False]]),
+                drift_template=jnp.zeros((2, 2)),
+                cint_mask=np.zeros(2, dtype=bool),
+                cint_template=jnp.zeros(2),
+            ),
             latent_names=["stress", "sleep"],
-            drift_mask=np.array([[True, False], [True, True]]),
         )
         samples = {
             "drift": jnp.asarray(
@@ -822,14 +838,26 @@ class TestComputeDataStats:
 class TestCompiledPriorPredictiveRuntime:
     def test_known_inputs_are_threaded_into_compiled_prior_predictive(self):
         """Input-driven prior predictive simulation uses prepared transition inputs."""
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            lambda_mat=jnp.eye(1, dtype=jnp.float32),
-            diffusion=jnp.eye(1, dtype=jnp.float32),
-            diffusion_mask=np.diag(full_diagonal_mask(1)),
-            input_effect_mask=np.array([[True]]),
-            input_effect=jnp.zeros((1, 1), dtype=jnp.float32),
+            drift_spec=linear_drift_spec(
+                n_latent=1,
+                drift_diag_mask=full_diagonal_mask(1),
+                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
+                drift_template=jnp.zeros((1, 1), dtype=jnp.float32),
+                cint_mask=np.zeros(1, dtype=bool),
+                cint_template=jnp.zeros(1, dtype=jnp.float32),
+            ),
+            diffusion_block=diagonal_diffusion_block(1),
+            input_effect_block=SparseMatrixBlockSpec(
+                n_rows=1,
+                n_cols=1,
+                mask=np.array([[True]]),
+                template=jnp.zeros((1, 1), dtype=jnp.float32),
+                free_site_name="input_effect_free",
+                det_site_name="input_effect",
+            ),
             input_names=["dose"],
             input_source_indicators=["dose_mg"],
             input_scales=[10.0],
@@ -854,12 +882,18 @@ class TestCompiledPriorPredictiveRuntime:
 
     def test_ordered_likelihood_requires_hydrated_level_counts(self):
         """Discrete emissions fail clearly until hydration provides level counts."""
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            lambda_mat=jnp.eye(1, dtype=jnp.float32),
-            diffusion=jnp.eye(1, dtype=jnp.float32),
-            diffusion_mask=np.diag(full_diagonal_mask(1)),
+            drift_spec=linear_drift_spec(
+                n_latent=1,
+                drift_diag_mask=full_diagonal_mask(1),
+                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
+                drift_template=jnp.zeros((1, 1), dtype=jnp.float32),
+                cint_mask=np.zeros(1, dtype=bool),
+                cint_template=jnp.zeros(1, dtype=jnp.float32),
+            ),
+            diffusion_block=diagonal_diffusion_block(1),
             manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
         )
         semantics = compile_prior_semantics(spec)
@@ -879,15 +913,24 @@ class TestCompiledPriorPredictiveRuntime:
         mask[1, 0] = True
         mask[2, 0] = True
         mask[2, 1] = True
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            lambda_mat=jnp.eye(3, dtype=jnp.float32),
-            diffusion=jnp.eye(3, dtype=jnp.float32),
-            diffusion_mask=np.diag(full_diagonal_mask(3)),
-            t0_var=jnp.eye(3, dtype=jnp.float32),
-            t0_var_diag_mask=full_diagonal_mask(3),
-            t0_correlation_mask=mask,
+            drift_spec=linear_drift_spec(
+                n_latent=3,
+                drift_diag_mask=full_diagonal_mask(3),
+                drift_offdiag_mask=np.zeros((3, 3), dtype=bool),
+                drift_template=jnp.zeros((3, 3), dtype=jnp.float32),
+                cint_mask=np.zeros(3, dtype=bool),
+                cint_template=jnp.zeros(3, dtype=jnp.float32),
+            ),
+            diffusion_block=diagonal_diffusion_block(3),
+            t0_chol_block=T0CholBlockSpec(
+                n_latent=3,
+                diag_mask=full_diagonal_mask(3),
+                correlation_mask=mask,
+                template=jnp.eye(3, dtype=jnp.float32),
+            ),
             manifest_dists=[DistributionFamily.GAUSSIAN] * 3,
             manifest_links=[LinkFunction.IDENTITY] * 3,
         )

@@ -557,7 +557,7 @@ def _try_smoother(
 
         manifest_means_val = det_values.get(
             "manifest_means",
-            spec.assemble_manifest_means(),
+            spec.manifest_means_block.assemble(),
         )
 
         time_intervals = jnp.diff(times, prepend=times[0])

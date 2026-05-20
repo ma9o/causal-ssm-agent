@@ -152,13 +152,6 @@ class SiteRuntimeBundle:
     flat_dim: int
     unravel_fn: Any
 
-    def constrain(self, z: jnp.ndarray) -> dict[str, jnp.ndarray]:
-        """Map one unconstrained parameter vector to constrained site values."""
-        unconstrained = self.unravel_fn(z)
-        return {
-            name: jnp.asarray(self.transforms[name](unconstrained[name])) for name in unconstrained
-        }
-
     def constrain_batched(self, z_samples: jnp.ndarray) -> dict[str, jnp.ndarray]:
         """Map a batch of unconstrained draws to constrained site samples."""
         if self.flat_dim == 0:
@@ -211,28 +204,6 @@ class PriorRuntimeBundle:
 
     site_runtime: SiteRuntimeBundle
     prior_state: PriorRuntimeState
-
-    @property
-    def registry(self) -> list[SiteDescriptor]:
-        return self.site_runtime.registry
-
-    @property
-    def transforms(self) -> dict[str, dist.transforms.Transform]:
-        return self.site_runtime.transforms
-
-    @property
-    def flat_dim(self) -> int:
-        return self.site_runtime.flat_dim
-
-    @property
-    def unravel_fn(self) -> Any:
-        return self.site_runtime.unravel_fn
-
-    def constrain(self, z: jnp.ndarray) -> dict[str, jnp.ndarray]:
-        return self.site_runtime.constrain(z)
-
-    def constrain_batched(self, z_samples: jnp.ndarray) -> dict[str, jnp.ndarray]:
-        return self.site_runtime.constrain_batched(z_samples)
 
 
 def _site(
@@ -678,7 +649,7 @@ def _assemble_diag_to_cov(
     """Convert diagonal variance samples to full covariance, or broadcast fixed Cholesky."""
     if site is not None and site.name in samples:
         diag_samples = samples[site.name]
-        chol = jax.vmap(spec.assemble_manifest_chol)(diag_samples)
+        chol = jax.vmap(spec.manifest_chol_block.assemble)(diag_samples)
         return jax.vmap(lambda ch: ch @ ch.T)(chol)
     if isinstance(fixed_chol, jnp.ndarray):
         fixed_cov = fixed_chol @ fixed_chol.T
@@ -824,20 +795,20 @@ def assemble_deterministics_from_registry(
     )
     if diffusion_diag_samples is not None or diffusion_lower_samples is not None:
         if diffusion_diag_samples is not None and diffusion_lower_samples is not None:
-            det["diffusion"] = jax.vmap(spec.assemble_diffusion)(
+            det["diffusion"] = jax.vmap(spec.diffusion_block.assemble)(
                 diffusion_diag_samples,
                 diffusion_lower_samples,
             )
         elif diffusion_diag_samples is not None:
-            det["diffusion"] = jax.vmap(spec.assemble_diffusion)(
+            det["diffusion"] = jax.vmap(spec.diffusion_block.assemble)(
                 diffusion_diag_samples
             )
         else:
             det["diffusion"] = jax.vmap(
-                lambda lower: spec.assemble_diffusion(None, lower)
+                lambda lower: spec.diffusion_block.assemble(None, lower)
             )(diffusion_lower_samples)
     else:
-        det["diffusion"] = _broadcast_fixed(spec.assemble_diffusion(), n_draws)
+        det["diffusion"] = _broadcast_fixed(spec.diffusion_block.assemble(), n_draws)
 
     cint_site = by_kind.get(SiteKind.CINT)
     if cint_site is not None and cint_site.name in samples:
@@ -847,20 +818,20 @@ def assemble_deterministics_from_registry(
 
     input_effect_site = by_kind.get(SiteKind.INPUT_EFFECT)
     if input_effect_site is not None and input_effect_site.name in samples:
-        det["input_effect"] = jax.vmap(spec.assemble_input_effect)(
+        det["input_effect"] = jax.vmap(spec.input_effect_block.assemble)(
             samples[input_effect_site.name]
         )
     else:
-        det["input_effect"] = _broadcast_fixed(spec.assemble_input_effect(), n_draws)
+        det["input_effect"] = _broadcast_fixed(spec.input_effect_block.assemble(), n_draws)
 
     static_state_site = by_kind.get(SiteKind.STATIC_STATE_SD)
     if static_state_site is not None and static_state_site.name in samples:
-        det["static_state_sds"] = jax.vmap(spec.assemble_static_state_sds)(
+        det["static_state_sds"] = jax.vmap(spec.static_state_sd_block.assemble)(
             samples[static_state_site.name]
         )
     else:
         det["static_state_sds"] = _broadcast_fixed(
-            spec.assemble_static_state_sds(),
+            spec.static_state_sd_block.assemble(),
             n_draws,
         )
 
@@ -870,25 +841,28 @@ def assemble_deterministics_from_registry(
         and loading_site.name in samples
         and parameter_layout.n_lambda_free > 0
     ):
-        det["lambda"] = jax.vmap(spec.assemble_lambda)(samples[loading_site.name])
+        det["lambda"] = jax.vmap(spec.lambda_block.assemble)(samples[loading_site.name])
     else:
-        det["lambda"] = jnp.broadcast_to(spec.assemble_lambda(), (n_draws, n_m, n_l))
+        det["lambda"] = jnp.broadcast_to(
+            spec.lambda_block.assemble(),
+            (n_draws, n_m, n_l),
+        )
 
     manifest_means_site = by_kind.get(SiteKind.MANIFEST_MEANS)
     if manifest_means_site is not None and manifest_means_site.name in samples:
-        det["manifest_means"] = jax.vmap(spec.assemble_manifest_means)(
+        det["manifest_means"] = jax.vmap(spec.manifest_means_block.assemble)(
             samples[manifest_means_site.name]
         )
     else:
         det["manifest_means"] = _broadcast_fixed(
-            spec.assemble_manifest_means(),
+            spec.manifest_means_block.assemble(),
             n_draws,
         )
 
     manifest_cov = _assemble_diag_to_cov(
         by_kind.get(SiteKind.MANIFEST_VAR_DIAG),
         samples,
-        spec.assemble_manifest_chol(),
+        spec.manifest_chol_block.assemble(),
         spec,
         n_draws,
         n_m,
@@ -898,9 +872,11 @@ def assemble_deterministics_from_registry(
 
     t0_means_site = by_kind.get(SiteKind.T0_MEANS)
     if t0_means_site is not None and t0_means_site.name in samples:
-        det["t0_means"] = jax.vmap(spec.assemble_t0_means)(samples[t0_means_site.name])
+        det["t0_means"] = jax.vmap(spec.t0_means_block.assemble)(
+            samples[t0_means_site.name]
+        )
     else:
-        det["t0_means"] = _broadcast_fixed(spec.assemble_t0_means(), n_draws)
+        det["t0_means"] = _broadcast_fixed(spec.t0_means_block.assemble(), n_draws)
 
     t0_cov = _assemble_t0_cov(
         by_kind.get(SiteKind.T0_VAR_DIAG),
@@ -1441,7 +1417,7 @@ def compile_prior_semantics(
     bundle = build_prior_runtime_bundle(spec, priors)
     return {
         "schema_version": 5,
-        "site_registry": serialize_site_registry(bundle.registry),
+        "site_registry": serialize_site_registry(bundle.site_runtime.registry),
         "prior_state": serialize_prior_runtime_state(bundle.prior_state),
     }
 

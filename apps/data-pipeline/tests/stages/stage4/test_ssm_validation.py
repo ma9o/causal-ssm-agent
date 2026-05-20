@@ -1,7 +1,10 @@
 """Stage 4 assembly, prior predictive, and SSM compilation tests."""
 
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.dynamics.composite import default_linear_drift_spec
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    default_linear_drift_spec,
+    linear_drift_spec,
+)
 from nof1_causal_lab.models.ssm.structure import (
     default_diffusion_block,
     default_input_effect_block,
@@ -12,7 +15,6 @@ from nof1_causal_lab.models.ssm.structure import (
     default_t0_chol_block,
     default_t0_means_block,
 )
-from tests.ssm_test_utils import linear_drift_spec_from_combined_mask
 from tests.stages.stage4._support import (
     Any,
     GenerateConfig,
@@ -41,11 +43,18 @@ def _default_ssm_spec(
     n_latent: int,
     n_manifest: int,
     latent_names: list[str] | None = None,
-    drift_mask=None,
+    drift_offdiag_mask=None,
 ) -> SSMSpec:
-    """Build a SSMSpec with all default blocks plus optional drift mask + names."""
-    if drift_mask is not None:
-        drift_spec = linear_drift_spec_from_combined_mask(n_latent, drift_mask=drift_mask)
+    """Build a SSMSpec with all default blocks plus optional drift support + names."""
+    if drift_offdiag_mask is not None:
+        drift_spec = linear_drift_spec(
+            n_latent=n_latent,
+            drift_diag_mask=np.ones(n_latent, dtype=bool),
+            drift_offdiag_mask=np.asarray(drift_offdiag_mask, dtype=bool),
+            drift_template=np.zeros((n_latent, n_latent)),
+            cint_mask=np.zeros(n_latent, dtype=bool),
+            cint_template=np.zeros(n_latent),
+        )
     else:
         drift_spec = default_linear_drift_spec(n_latent)
     return SSMSpec(
@@ -1205,13 +1214,13 @@ class TestSSMPriorConversion:
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
             "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.15}},
         }
-        # drift_mask enables off-diagonal at [mood, stress] position
-        drift_mask = np.array([[True, True], [False, True]])
+        # off-diagonal support enables [mood, stress].
+        drift_offdiag_mask = np.array([[False, True], [False, False]])
         ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_mask=drift_mask,
+            drift_offdiag_mask=drift_offdiag_mask,
         )
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
@@ -1273,7 +1282,7 @@ class TestSSMPriorConversion:
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_mask=np.array([[True, True], [False, True]]),
+            drift_offdiag_mask=np.array([[False, True], [False, False]]),
         )
 
         _ssm_priors, _idx, diagnostics = compile_ssm_priors(
@@ -1338,7 +1347,7 @@ class TestSSMPriorConversion:
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
-            drift_mask=np.array([[True, False], [True, True]]),
+            drift_offdiag_mask=np.array([[False, False], [True, False]]),
         )
 
         _priors, _idx, diagnostics = compile_ssm_priors(
@@ -1402,7 +1411,7 @@ class TestSSMPriorConversion:
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
-            drift_mask=np.array([[True, False], [True, True]]),
+            drift_offdiag_mask=np.array([[False, False], [True, False]]),
         )
 
         _priors, _idx, diagnostics = compile_ssm_priors(
@@ -1482,12 +1491,12 @@ class TestSSMPriorConversion:
                 "measurement": {"model_clock": "1h", "indicators": []},
             }
         )
-        drift_mask = np.array([[True, True], [False, True]])
+        drift_offdiag_mask = np.array([[False, True], [False, False]])
         ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["heart_rate", "activity"],
-            drift_mask=drift_mask,
+            drift_offdiag_mask=drift_offdiag_mask,
         )
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,

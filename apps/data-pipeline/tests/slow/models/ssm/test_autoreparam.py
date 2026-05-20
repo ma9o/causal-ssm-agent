@@ -1,9 +1,11 @@
 """Slow AutoReparam integration tests."""
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from tests.ssm_test_utils import make_ssm_spec
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from tests.ssm_test_utils import block_ssm_spec
 
 pytestmark = pytest.mark.slow
 
@@ -11,7 +13,20 @@ pytestmark = pytest.mark.slow
 def _make_simple_ssm():
     from nof1_causal_lab.models.ssm.model import SSMModel
 
-    return SSMModel(spec=make_ssm_spec(n_latent=2, n_manifest=2))
+    return SSMModel(
+        spec=block_ssm_spec(
+            n_latent=2,
+            n_manifest=2,
+            drift_spec=linear_drift_spec(
+                n_latent=2,
+                drift_diag_mask=np.ones(2, dtype=bool),
+                drift_offdiag_mask=np.array([[False, True], [True, False]]),
+                drift_template=jnp.zeros((2, 2)),
+                cint_mask=np.zeros(2, dtype=bool),
+                cint_template=jnp.zeros(2),
+            ),
+        )
+    )
 
 
 class TestAutoReparamSSM:

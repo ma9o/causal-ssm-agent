@@ -241,7 +241,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             time_invariant_mask=_optional_bool_array(block, "time_invariant_mask"),
             diag_prior=block.get("diag_prior"),
             lower_prior=block.get("lower_prior"),
-            bare_site_names=bool(block.get("bare_site_names", True)),
         )
 
     def _sparse_matrix_block(block: dict[str, Any]) -> SparseMatrixBlockSpec:
@@ -253,7 +252,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             free_site_name=str(block["free_site_name"]),
             det_site_name=str(block["det_site_name"]),
             prior=block.get("prior"),
-            bare_site_names=bool(block.get("bare_site_names", True)),
         )
 
     def _sparse_vector_block(block: dict[str, Any]) -> SparseVectorBlockSpec:
@@ -264,7 +262,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             free_site_name=str(block["free_site_name"]),
             det_site_name=str(block["det_site_name"]),
             prior=block.get("prior"),
-            bare_site_names=bool(block.get("bare_site_names", True)),
         )
 
     def _manifest_chol_block(block: dict[str, Any]) -> ManifestCholBlockSpec:
@@ -273,7 +270,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             diag_mask=_bool_array(block, "diag_mask"),
             template=_float_array(block, "template"),
             diag_prior=block.get("diag_prior"),
-            bare_site_names=bool(block.get("bare_site_names", True)),
         )
 
     def _t0_chol_block(block: dict[str, Any]) -> T0CholBlockSpec:
@@ -284,7 +280,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             template=_float_array(block, "template"),
             diag_prior=block.get("diag_prior"),
             correlation_prior=block.get("correlation_prior"),
-            bare_site_names=bool(block.get("bare_site_names", True)),
         )
 
     kwargs: dict[str, Any] = {
@@ -883,8 +878,12 @@ def resolve_prior_proposals(
         raise ValueError("Compiled artifact is missing required 'compiled_prior_semantics'")
 
     bundle = load_prior_runtime_bundle(semantics)
-    site_by_name = {site.name: site for site in bundle.registry}
-    site_by_field = {site.priors_field: site for site in bundle.registry if site.priors_field}
+    site_by_name = {site.name: site for site in bundle.site_runtime.registry}
+    site_by_field = {
+        site.priors_field: site
+        for site in bundle.site_runtime.registry
+        if site.priors_field
+    }
     binding_by_parameter = {
         str(binding["parameter"]): dict(binding)
         for binding in list(compiled_ssm.get("parameter_bindings", []) or [])

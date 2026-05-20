@@ -22,16 +22,24 @@ from nof1_causal_lab.models.ssm import (
     zero_square_mask,
     zero_vector_mask,
 )
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.priors import PriorSpec
-from tests.ssm_test_utils import assert_recovery_ci, make_lgss_data, make_ssm_spec, prior_registry
+from nof1_causal_lab.models.ssm.structure import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+)
+from tests.ssm_test_utils import assert_recovery_ci, block_ssm_spec, make_lgss_data, prior_registry
 
 pytestmark = pytest.mark.slow
 
 
 def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], data: dict) -> None:
     assert_recovery_ci(
-        samples["drift_diag_free"][:, 0],
+        samples["drift_base_decay_free"][:, 0],
         data["true_drift_diag"],
         "Drift",
         transform=lambda s: -jnp.abs(s),
@@ -248,27 +256,55 @@ def _make_map_mixed_support_recovery_data() -> dict:
     observations = _build_mixed_support_observations(point_observations)
     observation_support = _build_mixed_support_runtime(times, manifest_names)
 
-    spec = make_ssm_spec(
+    spec = block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_diag_mask=full_diagonal_mask(n_latent),
-        drift_offdiag_mask=zero_square_mask(n_latent),
-        drift=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
-        cint_mask=zero_vector_mask(n_latent),
-        cint=jnp.zeros(n_latent, dtype=jnp.float32),
-        lambda_mask=zero_loading_mask(n_manifest, n_latent),
-        lambda_mat=lambda_mat,
-        diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
-        diffusion_chol=jnp.eye(n_latent, dtype=jnp.float32),
-        manifest_means_mask=zero_vector_mask(n_manifest),
-        manifest_means=jnp.zeros(n_manifest, dtype=jnp.float32),
-        manifest_chol_diag_mask=full_diagonal_mask(n_manifest),
-        manifest_chol=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float32),
-        t0_means_mask=zero_vector_mask(n_latent),
-        t0_means=jnp.zeros(n_latent, dtype=jnp.float32),
-        t0_chol_diag_mask=zero_diagonal_mask(n_latent),
-        t0_correlation_mask=zero_square_mask(n_latent),
-        t0_chol=jnp.diag(true_t0_sd),
+        drift_spec=linear_drift_spec(
+            n_latent=n_latent,
+            drift_diag_mask=full_diagonal_mask(n_latent),
+            drift_offdiag_mask=zero_square_mask(n_latent),
+            drift_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
+            cint_mask=zero_vector_mask(n_latent),
+            cint_template=jnp.zeros(n_latent, dtype=jnp.float32),
+        ),
+        diffusion_block=DiffusionBlockSpec(
+            n_latent=n_latent,
+            diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+            diffusion_chol_template=jnp.eye(n_latent, dtype=jnp.float32),
+        ),
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=n_manifest,
+            n_cols=n_latent,
+            mask=zero_loading_mask(n_manifest, n_latent),
+            template=lambda_mat,
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        ),
+        manifest_means_block=SparseVectorBlockSpec(
+            n=n_manifest,
+            mask=zero_vector_mask(n_manifest),
+            template=jnp.zeros(n_manifest, dtype=jnp.float32),
+            free_site_name="manifest_means_free",
+            det_site_name="manifest_means",
+        ),
+        manifest_chol_block=ManifestCholBlockSpec(
+            n_manifest=n_manifest,
+            diag_mask=full_diagonal_mask(n_manifest),
+            template=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float32),
+        ),
+        t0_means_block=SparseVectorBlockSpec(
+            n=n_latent,
+            mask=zero_vector_mask(n_latent),
+            template=jnp.zeros(n_latent, dtype=jnp.float32),
+            free_site_name="t0_means_free",
+            det_site_name="t0_means",
+        ),
+        t0_chol_block=T0CholBlockSpec(
+            n_latent=n_latent,
+            diag_mask=zero_diagonal_mask(n_latent),
+            correlation_mask=zero_square_mask(n_latent),
+            template=jnp.diag(true_t0_sd),
+        ),
         latent_names=[f"x{i}" for i in range(n_latent)],
         manifest_names=manifest_names,
         manifest_dists=manifest_dists,
@@ -296,7 +332,7 @@ def _summarize_family_recovery(
 ) -> dict[str, dict[str, float]]:
     """Summarize mean error, interval width, and empirical coverage by parameter family."""
     families = [
-        ("drift", -jnp.abs(samples["drift_diag_free"]), data["true_drift_diag"]),
+        ("drift", -jnp.abs(samples["drift_base_decay_free"]), data["true_drift_diag"]),
         ("diffusion_sd", samples["diffusion_diag_free"], data["true_diff_diag"]),
         ("obs_scale", samples["manifest_var_diag_free"], data["true_obs_scale"]),
         ("obs_df", samples["obs_df"], data["true_obs_df"]),
@@ -359,7 +395,7 @@ class TestMapLaplaceRecovery:
         samples = result.get_samples()
         _assert_lgss_recovery(samples, data)
 
-        drift_mean = float(jnp.mean(-jnp.abs(samples["drift_diag_free"][:, 0])))
+        drift_mean = float(jnp.mean(-jnp.abs(samples["drift_base_decay_free"][:, 0])))
         diff_mean = float(jnp.mean(samples["diffusion_diag_free"][:, 0]))
         obs_mean = float(jnp.mean(samples["manifest_var_diag_free"][:, 0]))
 

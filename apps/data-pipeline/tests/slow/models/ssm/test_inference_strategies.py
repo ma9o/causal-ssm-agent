@@ -14,6 +14,7 @@ from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMModel, fit
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.inference import _eval_model
 from nof1_causal_lab.models.ssm.inference.shared import _apply_reparam
 from nof1_causal_lab.models.ssm.inference.targets.base import (
@@ -32,13 +33,32 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     _dense_support_laplace_log_lik,
 )
 from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
+from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from tests.ssm_test_utils import (
-    diagonal_diffusion_kwargs,
+    block_ssm_spec,
+    diagonal_diffusion_block,
     make_observation_support_runtime,
-    make_ssm_spec,
 )
 
 pytestmark = pytest.mark.slow
+
+
+def _default_linear_spec(n_latent: int, n_manifest: int):
+    offdiag = np.ones((n_latent, n_latent), dtype=bool)
+    np.fill_diagonal(offdiag, False)
+    return block_ssm_spec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_spec=linear_drift_spec(
+            n_latent=n_latent,
+            drift_diag_mask=np.ones(n_latent, dtype=bool),
+            drift_offdiag_mask=offdiag,
+            drift_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
+            cint_mask=np.zeros(n_latent, dtype=bool),
+            cint_template=jnp.zeros(n_latent, dtype=jnp.float32),
+        ),
+        diffusion_block=diagonal_diffusion_block(n_latent),
+    )
 
 
 class TestLaplaceSupportAware:
@@ -193,12 +213,7 @@ class TestParameterRecoveryMAP:
         observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.1
         times = jnp.arange(T, dtype=float) * dt
 
-        spec = make_ssm_spec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            **diagonal_diffusion_kwargs(2),
-        )
+        spec = _default_linear_spec(2, 2)
         model = SSMModel(spec)
 
         result = fit(
@@ -212,7 +227,7 @@ class TestParameterRecoveryMAP:
         )
 
         samples = result.get_samples()
-        drift_diag_samples = samples["drift_diag_free"]
+        drift_diag_samples = -jnp.abs(samples["drift_base_decay_free"])
 
         for i, true_val in enumerate(true_drift_diag):
             posterior_mean = jnp.mean(drift_diag_samples[:, i])
@@ -242,12 +257,7 @@ class TestParameterRecoveryMAP:
         observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.05
         times = jnp.arange(T, dtype=float) * dt
 
-        spec = make_ssm_spec(
-            n_latent=2,
-            n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            **diagonal_diffusion_kwargs(2),
-        )
+        spec = _default_linear_spec(2, 2)
         model = SSMModel(spec)
 
         result = fit(
@@ -276,14 +286,27 @@ class TestPureJaxLikelihoodEvaluator:
 
     @staticmethod
     def _build_poisson_case():
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            lambda_mat=jnp.eye(1),
-            **diagonal_diffusion_kwargs(1),
+            drift_spec=linear_drift_spec(
+                n_latent=1,
+                drift_diag_mask=np.ones(1, dtype=bool),
+                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
+                drift_template=jnp.zeros((1, 1), dtype=jnp.float32),
+                cint_mask=np.zeros(1, dtype=bool),
+                cint_template=jnp.zeros(1, dtype=jnp.float32),
+            ),
+            diffusion_block=diagonal_diffusion_block(1),
+            manifest_means_block=SparseVectorBlockSpec(
+                n=1,
+                mask=np.zeros(1, dtype=bool),
+                template=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
+                free_site_name="manifest_means_free",
+                det_site_name="manifest_means",
+            ),
             manifest_dists=[DistributionFamily.POISSON],
             manifest_links=[LinkFunction.LOG],
-            manifest_means=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
         )
         model = SSMModel(spec)
         observations = jnp.array([[4.0], [3.0], [5.0], [6.0]], dtype=jnp.float32)

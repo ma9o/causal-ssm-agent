@@ -487,31 +487,6 @@ class SSMSpec:
         _, cint_component = self.structural_drift_components()
         return cint_component.assemble_cint(cint_free)
 
-    def assemble_diffusion(
-        self,
-        diag_free: jnp.ndarray | None = None,
-        lower_free: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        return self.diffusion_block.assemble(diag_free, lower_free)
-
-    def assemble_input_effect(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        return self.input_effect_block.assemble(free)
-
-    def assemble_lambda(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        return self.lambda_block.assemble(free)
-
-    def assemble_manifest_means(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        return self.manifest_means_block.assemble(free)
-
-    def assemble_manifest_chol(self, free_diag: jnp.ndarray | None = None) -> jnp.ndarray:
-        return self.manifest_chol_block.assemble(free_diag)
-
-    def assemble_t0_means(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        return self.t0_means_block.assemble(free)
-
-    def assemble_static_state_sds(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        return self.static_state_sd_block.assemble(free)
-
     def assemble_t0_cov(
         self,
         t0_diag_free: jnp.ndarray | None = None,
@@ -519,7 +494,7 @@ class SSMSpec:
         static_state_sd_free: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
         cov = self.t0_chol_block.assemble_cov(t0_diag_free, t0_correlation_free)
-        factor_sds = self.assemble_static_state_sds(static_state_sd_free)
+        factor_sds = self.static_state_sd_block.assemble(static_state_sd_free)
         if factor_sds.size:
             loadings = jnp.asarray(self.static_factor_loadings)
             cov = cov + loadings @ jnp.diag(factor_sds**2) @ loadings.T
@@ -558,7 +533,7 @@ class SSMModel:
         self.parameter_bindings: list[dict[str, Any]] = []
         self._prior_runtime_bundle = prior_runtime_bundle
         self._prior_site_index = (
-            {site.name: site for site in prior_runtime_bundle.registry}
+            {site.name: site for site in prior_runtime_bundle.site_runtime.registry}
             if prior_runtime_bundle is not None
             else None
         )
@@ -616,7 +591,7 @@ class SSMModel:
         if self._prior_runtime_bundle is None:
             self._prior_runtime_bundle = build_prior_runtime_bundle(self.spec, self.priors)
             self._prior_site_index = {
-                site.name: site for site in self._prior_runtime_bundle.registry
+                site.name: site for site in self._prior_runtime_bundle.site_runtime.registry
             }
         return self._prior_runtime_bundle
 
@@ -659,7 +634,7 @@ class SSMModel:
         """Sample diffusion matrix (lower Cholesky) via the diffusion block."""
         layout = self._parameter_layout
         if layout.n_diffusion_diag == 0 and layout.n_diffusion_lower == 0:
-            return self.spec.assemble_diffusion()
+            return self.spec.diffusion_block.assemble()
 
         block = replace(
             self.spec.diffusion_block,
@@ -693,7 +668,7 @@ class SSMModel:
         """Sample known-input transition effects via the input-effect block."""
         layout = self._parameter_layout
         if layout.n_input_effect == 0:
-            return self.spec.assemble_input_effect()
+            return self.spec.input_effect_block.assemble()
 
         block = replace(
             self.spec.input_effect_block,
@@ -705,7 +680,7 @@ class SSMModel:
         """Sample factor loading matrix via the lambda block."""
         layout = self._parameter_layout
         if layout.n_lambda_free == 0:
-            return self.spec.assemble_lambda()
+            return self.spec.lambda_block.assemble()
 
         block = replace(
             self.spec.lambda_block,
@@ -719,7 +694,7 @@ class SSMModel:
 
         # Means
         if layout.n_manifest_means == 0:
-            manifest_means = self.spec.assemble_manifest_means()
+            manifest_means = self.spec.manifest_means_block.assemble()
         else:
             means_block = replace(
                 self.spec.manifest_means_block,
@@ -729,7 +704,7 @@ class SSMModel:
 
         # Variance (diagonal Cholesky)
         if layout.n_manifest_var_diag == 0:
-            manifest_chol = self.spec.assemble_manifest_chol()
+            manifest_chol = self.spec.manifest_chol_block.assemble()
         else:
             chol_block = replace(
                 self.spec.manifest_chol_block,
@@ -755,7 +730,7 @@ class SSMModel:
         # contract).
         layout = self._parameter_layout
         if layout.n_t0_means == 0:
-            t0_means = self.spec.assemble_t0_means()
+            t0_means = self.spec.t0_means_block.assemble()
             numpyro.deterministic("t0_means", t0_means)
         else:
             means_block = replace(
@@ -794,7 +769,7 @@ class SSMModel:
                 )
                 numpyro.deterministic(
                     "static_state_sds",
-                    self.spec.assemble_static_state_sds(static_state_sds),
+                    self.spec.static_state_sd_block.assemble(static_state_sds),
                 )
             t0_cov_raw = self.spec.assemble_t0_cov(var_diag, t0_corr, static_state_sds)
             t0_cov, min_eig = stabilize_covariance_for_cholesky(
