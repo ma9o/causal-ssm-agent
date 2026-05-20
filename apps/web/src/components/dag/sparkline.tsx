@@ -1,5 +1,6 @@
 "use client";
 
+import { formatNumber } from "@/lib/utils/format";
 import { memo } from "react";
 
 interface SparklineProps {
@@ -19,6 +20,9 @@ interface SparklineProps {
   height?: number;
 }
 
+const AXIS_LABEL_WIDTH = 22;
+const AXIS_LABEL_GAP = 3;
+
 function toPoints(
   series: number[],
   count: number,
@@ -32,6 +36,10 @@ function toPoints(
     pts.push(`${xScale(days[i]).toFixed(1)},${yScale(series[i]).toFixed(1)}`);
   }
   return pts.join(" ");
+}
+
+function formatYTick(v: number): string {
+  return v >= 0 ? `+${formatNumber(v, 2)}` : formatNumber(v, 2);
 }
 
 function SparklineInner({
@@ -48,7 +56,8 @@ function SparklineInner({
 
   const px = 2;
   const py = 3;
-  const iw = width - px * 2;
+  const drawX = AXIS_LABEL_WIDTH;
+  const iw = width - AXIS_LABEL_WIDTH - px;
   const ih = height - py * 2;
 
   // Y domain — include all data so both series share the same scale
@@ -68,7 +77,7 @@ function SparklineInner({
   const dayMax = days[days.length - 1];
   const dr = dayMax - dayMin || 1;
 
-  const xScale = (d: number) => px + ((d - dayMin) / dr) * iw;
+  const xScale = (d: number) => drawX + ((d - dayMin) / dr) * iw;
   const yScale = (v: number) => py + (1 - (v - yMin) / (yMax - yMin)) * ih;
 
   const dotIdx = Math.min(visibleCount - 1, series.length - 1);
@@ -80,10 +89,65 @@ function SparklineInner({
       className="overflow-visible"
       aria-hidden="true"
     >
+      {/* Y-axis tick labels */}
+      <text
+        x={AXIS_LABEL_WIDTH - AXIS_LABEL_GAP}
+        y={py}
+        textAnchor="end"
+        dominantBaseline="hanging"
+        fontSize={8}
+        fill="currentColor"
+        opacity={0.55}
+        className="tabular-nums"
+      >
+        {formatYTick(yMax)}
+      </text>
+      <text
+        x={AXIS_LABEL_WIDTH - AXIS_LABEL_GAP}
+        y={height - py}
+        textAnchor="end"
+        dominantBaseline="alphabetic"
+        fontSize={8}
+        fill="currentColor"
+        opacity={0.55}
+        className="tabular-nums"
+      >
+        {formatYTick(yMin)}
+      </text>
+
+      {/* Y-axis spine + ticks */}
+      <line
+        x1={AXIS_LABEL_WIDTH}
+        y1={py}
+        x2={AXIS_LABEL_WIDTH}
+        y2={height - py}
+        stroke="currentColor"
+        strokeWidth={0.5}
+        opacity={0.25}
+      />
+      <line
+        x1={AXIS_LABEL_WIDTH - 1.5}
+        y1={py}
+        x2={AXIS_LABEL_WIDTH}
+        y2={py}
+        stroke="currentColor"
+        strokeWidth={0.5}
+        opacity={0.4}
+      />
+      <line
+        x1={AXIS_LABEL_WIDTH - 1.5}
+        y1={height - py}
+        x2={AXIS_LABEL_WIDTH}
+        y2={height - py}
+        stroke="currentColor"
+        strokeWidth={0.5}
+        opacity={0.4}
+      />
+
       {/* Zero reference line */}
       {showZero && yMin <= 0 && yMax >= 0 && (
         <line
-          x1={px}
+          x1={drawX}
           y1={yScale(0)}
           x2={width - px}
           y2={yScale(0)}

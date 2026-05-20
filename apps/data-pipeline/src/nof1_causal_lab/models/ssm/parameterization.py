@@ -38,8 +38,8 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
     from nof1_causal_lab.models.ssm.priors import SSMPriors
-    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +275,7 @@ def _site(
 
 def build_site_registry(
     spec: SSMSpec,
-    structure_runtime: SSMStructureRuntime | None = None,
+    parameter_layout: SSMParameterLayout | None = None,
 ) -> list[SiteDescriptor]:
     """Enumerate all sample sites deterministically from *spec*.
 
@@ -283,10 +283,10 @@ def build_site_registry(
     (matching JAX pytree dict-key ordering used by ``ravel_pytree``).
     """
     from nof1_causal_lab.artifacts.model_spec import DistributionFamily
-    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 
-    if structure_runtime is None:
-        structure_runtime = SSMStructureRuntime(spec)
+    if parameter_layout is None:
+        parameter_layout = SSMParameterLayout.from_spec(spec)
 
     sites: list[SiteDescriptor] = []
     n_m = spec.n_manifest
@@ -434,7 +434,7 @@ def build_site_registry(
         fixed_spec_field,
         priors_field,
     ) in core_site_specs:
-        count = getattr(structure_runtime, count_attr)
+        count = getattr(parameter_layout, count_attr)
         if count <= 0:
             continue
         sites.append(
@@ -614,10 +614,10 @@ def _build_site_runtime_bundle_from_registry(
 
 def build_site_runtime_bundle(
     spec: SSMSpec,
-    structure_runtime: SSMStructureRuntime | None = None,
+    parameter_layout: SSMParameterLayout | None = None,
 ) -> SiteRuntimeBundle:
     """Build reusable topology-only runtime components from ``spec``."""
-    registry = build_site_registry(spec, structure_runtime)
+    registry = build_site_registry(spec, parameter_layout)
     return _build_site_runtime_bundle_from_registry(registry)
 
 
@@ -669,17 +669,15 @@ def _assemble_diag_to_cov(
     site: SiteDescriptor | None,
     samples: dict[str, jnp.ndarray],
     fixed_chol: jnp.ndarray | None,
-    structure_runtime: SSMStructureRuntime | None,
+    spec: SSMSpec,
     n_draws: int,
     dim: int,
 ) -> jnp.ndarray | None:
     """Convert diagonal variance samples to full covariance, or broadcast fixed Cholesky."""
     if site is not None and site.name in samples:
         diag_samples = samples[site.name]
-        if structure_runtime is not None:
-            chol = jax.vmap(structure_runtime.assemble_manifest_chol)(diag_samples)
-            return jax.vmap(lambda ch: ch @ ch.T)(chol)
-        return jax.vmap(lambda d: jnp.diag(d**2))(diag_samples)
+        chol = jax.vmap(spec.assemble_manifest_chol)(diag_samples)
+        return jax.vmap(lambda ch: ch @ ch.T)(chol)
     if isinstance(fixed_chol, jnp.ndarray):
         fixed_cov = fixed_chol @ fixed_chol.T
         return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
@@ -692,7 +690,7 @@ def _assemble_t0_cov(
     static_state_site: SiteDescriptor | None,
     samples: dict[str, jnp.ndarray],
     _fixed_chol: jnp.ndarray,
-    structure_runtime: SSMStructureRuntime,
+    spec: SSMSpec,
     n_draws: int,
     dim: int,
 ) -> jnp.ndarray | None:
@@ -715,7 +713,7 @@ def _assemble_t0_cov(
             corr_values: jnp.ndarray | None = None,
             static_state_values: jnp.ndarray | None = None,
         ) -> jnp.ndarray:
-            raw_cov = structure_runtime.assemble_t0_cov(
+            raw_cov = spec.assemble_t0_cov(
                 diag_values,
                 corr_values,
                 static_state_values,
@@ -760,7 +758,7 @@ def _assemble_t0_cov(
             static_state_samples
         )
 
-    fixed_cov = structure_runtime.assemble_t0_cov()
+    fixed_cov = spec.assemble_t0_cov()
     return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
 
 
@@ -769,15 +767,15 @@ def assemble_deterministics_from_registry(
     spec: SSMSpec,
     registry: list[SiteDescriptor],
     *,
-    structure_runtime: SSMStructureRuntime | None = None,
+    parameter_layout: SSMParameterLayout | None = None,
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Assemble deterministic matrices using registry metadata as authority."""
-    from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 
     n_draws = _resolve_num_draws(samples, n_draws)
-    if structure_runtime is None:
-        structure_runtime = SSMStructureRuntime(spec)
+    if parameter_layout is None:
+        parameter_layout = SSMParameterLayout.from_spec(spec)
 
     by_kind = {site.site_kind: site for site in registry}
     det: dict[str, jnp.ndarray] = {}
@@ -797,18 +795,18 @@ def assemble_deterministics_from_registry(
     )
     if drift_base_decay_samples is not None or drift_offdiag_samples is not None:
         if drift_base_decay_samples is not None and drift_offdiag_samples is not None:
-            det["drift"] = jax.vmap(structure_runtime.assemble_drift)(
+            det["drift"] = jax.vmap(spec.assemble_drift)(
                 drift_base_decay_samples,
                 drift_offdiag_samples,
             )
         elif drift_base_decay_samples is not None:
-            det["drift"] = jax.vmap(structure_runtime.assemble_drift)(drift_base_decay_samples)
+            det["drift"] = jax.vmap(spec.assemble_drift)(drift_base_decay_samples)
         else:
             det["drift"] = jax.vmap(
-                lambda offdiag: structure_runtime.assemble_drift(None, offdiag)
+                lambda offdiag: spec.assemble_drift(None, offdiag)
             )(drift_offdiag_samples)
     else:
-        det["drift"] = _broadcast_fixed(structure_runtime.drift_template, n_draws)
+        det["drift"] = _broadcast_fixed(spec.assemble_drift(), n_draws)
 
     diffusion_diag_site = by_kind.get(SiteKind.DIFFUSION_DIAG)
     diffusion_lower_site = by_kind.get(SiteKind.DIFFUSION_LOWER)
@@ -824,43 +822,43 @@ def assemble_deterministics_from_registry(
     )
     if diffusion_diag_samples is not None or diffusion_lower_samples is not None:
         if diffusion_diag_samples is not None and diffusion_lower_samples is not None:
-            det["diffusion"] = jax.vmap(structure_runtime.assemble_diffusion)(
+            det["diffusion"] = jax.vmap(spec.assemble_diffusion)(
                 diffusion_diag_samples,
                 diffusion_lower_samples,
             )
         elif diffusion_diag_samples is not None:
-            det["diffusion"] = jax.vmap(structure_runtime.assemble_diffusion)(
+            det["diffusion"] = jax.vmap(spec.assemble_diffusion)(
                 diffusion_diag_samples
             )
         else:
             det["diffusion"] = jax.vmap(
-                lambda lower: structure_runtime.assemble_diffusion(None, lower)
+                lambda lower: spec.assemble_diffusion(None, lower)
             )(diffusion_lower_samples)
     else:
-        det["diffusion"] = _broadcast_fixed(structure_runtime.diffusion_chol_template, n_draws)
+        det["diffusion"] = _broadcast_fixed(spec.assemble_diffusion(), n_draws)
 
     cint_site = by_kind.get(SiteKind.CINT)
     if cint_site is not None and cint_site.name in samples:
-        det["cint"] = jax.vmap(structure_runtime.assemble_cint)(samples[cint_site.name])
+        det["cint"] = jax.vmap(spec.assemble_cint)(samples[cint_site.name])
     else:
-        det["cint"] = _broadcast_fixed(structure_runtime.cint_template, n_draws)
+        det["cint"] = _broadcast_fixed(spec.assemble_cint(), n_draws)
 
     input_effect_site = by_kind.get(SiteKind.INPUT_EFFECT)
     if input_effect_site is not None and input_effect_site.name in samples:
-        det["input_effect"] = jax.vmap(structure_runtime.assemble_input_effect)(
+        det["input_effect"] = jax.vmap(spec.assemble_input_effect)(
             samples[input_effect_site.name]
         )
     else:
-        det["input_effect"] = _broadcast_fixed(structure_runtime.input_effect_template, n_draws)
+        det["input_effect"] = _broadcast_fixed(spec.assemble_input_effect(), n_draws)
 
     static_state_site = by_kind.get(SiteKind.STATIC_STATE_SD)
     if static_state_site is not None and static_state_site.name in samples:
-        det["static_state_sds"] = jax.vmap(structure_runtime.assemble_static_state_sds)(
+        det["static_state_sds"] = jax.vmap(spec.assemble_static_state_sds)(
             samples[static_state_site.name]
         )
     else:
         det["static_state_sds"] = _broadcast_fixed(
-            structure_runtime.static_state_sd_template,
+            spec.assemble_static_state_sds(),
             n_draws,
         )
 
@@ -868,28 +866,28 @@ def assemble_deterministics_from_registry(
     if (
         loading_site is not None
         and loading_site.name in samples
-        and structure_runtime.n_lambda_free > 0
+        and parameter_layout.n_lambda_free > 0
     ):
-        det["lambda"] = jax.vmap(structure_runtime.assemble_lambda)(samples[loading_site.name])
+        det["lambda"] = jax.vmap(spec.assemble_lambda)(samples[loading_site.name])
     else:
-        det["lambda"] = jnp.broadcast_to(structure_runtime.lambda_template, (n_draws, n_m, n_l))
+        det["lambda"] = jnp.broadcast_to(spec.assemble_lambda(), (n_draws, n_m, n_l))
 
     manifest_means_site = by_kind.get(SiteKind.MANIFEST_MEANS)
     if manifest_means_site is not None and manifest_means_site.name in samples:
-        det["manifest_means"] = jax.vmap(structure_runtime.assemble_manifest_means)(
+        det["manifest_means"] = jax.vmap(spec.assemble_manifest_means)(
             samples[manifest_means_site.name]
         )
     else:
         det["manifest_means"] = _broadcast_fixed(
-            structure_runtime.manifest_means_template,
+            spec.assemble_manifest_means(),
             n_draws,
         )
 
     manifest_cov = _assemble_diag_to_cov(
         by_kind.get(SiteKind.MANIFEST_VAR_DIAG),
         samples,
-        structure_runtime.manifest_chol_template,
-        structure_runtime,
+        spec.assemble_manifest_chol(),
+        spec,
         n_draws,
         n_m,
     )
@@ -898,17 +896,17 @@ def assemble_deterministics_from_registry(
 
     t0_means_site = by_kind.get(SiteKind.T0_MEANS)
     if t0_means_site is not None and t0_means_site.name in samples:
-        det["t0_means"] = jax.vmap(structure_runtime.assemble_t0_means)(samples[t0_means_site.name])
+        det["t0_means"] = jax.vmap(spec.assemble_t0_means)(samples[t0_means_site.name])
     else:
-        det["t0_means"] = _broadcast_fixed(structure_runtime.t0_means_template, n_draws)
+        det["t0_means"] = _broadcast_fixed(spec.assemble_t0_means(), n_draws)
 
     t0_cov = _assemble_t0_cov(
         by_kind.get(SiteKind.T0_VAR_DIAG),
         by_kind.get(SiteKind.T0_VAR_LOWER),
         by_kind.get(SiteKind.STATIC_STATE_SD),
         samples,
-        structure_runtime.t0_chol_template,
-        structure_runtime,
+        spec.t0_chol_block.template,
+        spec,
         n_draws,
         n_l,
     )

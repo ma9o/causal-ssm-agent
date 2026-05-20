@@ -921,7 +921,7 @@ def fit_map(
             {},
             model.spec,
             prior_runtime.registry,
-            structure_runtime=model.structure_runtime,
+            parameter_layout=model.parameter_layout,
             n_draws=num_samples,
         )
 

@@ -26,7 +26,6 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.models.ssm import SSMSpec, discretize_system
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
 from nof1_causal_lab.models.ssm_compilation import (
     compile_priors as compile_ssm_priors,
@@ -96,10 +95,9 @@ def _base_decay_means(ssm_priors) -> np.ndarray:
 
 
 def _mean_drift_from_priors(spec: SSMSpec, ssm_priors) -> jnp.ndarray:
-    runtime = SSMStructureRuntime(spec)
     base_decay = jnp.asarray(_base_decay_means(ssm_priors), dtype=jnp.float32)
     offdiag = jnp.asarray(_prior_vector(ssm_priors.drift_offdiag["mu"]), dtype=jnp.float32)
-    return runtime.assemble_drift(base_decay, offdiag)
+    return spec.assemble_drift(base_decay, offdiag)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -359,7 +357,7 @@ class TestE2ESpecToDiscretization:
         assert not drift_mask[1, 0]  # no mood→stress edge
 
         # Lambda mask: stress_cortisol has free loading for stress
-        assert spec.lambda_mask is not None
+        assert spec.lambda_block.mask is not None
         # mood_rating loads on mood (fixed=1.0), stress_self_report loads on stress (fixed=1.0)
         # stress_cortisol loads on stress (free)
         manifest_names = spec.manifest_names
@@ -367,7 +365,7 @@ class TestE2ESpecToDiscretization:
         stress_cortisol_idx = manifest_names.index("stress_cortisol")
         assert spec.latent_names is not None
         stress_latent_idx = spec.latent_names.index("stress")
-        assert spec.lambda_mask[stress_cortisol_idx, stress_latent_idx]
+        assert spec.lambda_block.mask[stress_cortisol_idx, stress_latent_idx]
 
     def test_causal_spec_owns_latent_identity(self):
         """Latent identity comes from causal_spec, not from AR parameter count."""
@@ -490,12 +488,15 @@ class TestE2ESpecToDiscretization:
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
         assert spec.n_latent == 3
-        assert spec.time_invariant_mask is not None
-        np.testing.assert_array_equal(spec.time_invariant_mask, [False, False, True])
-        np.testing.assert_array_equal(spec.drift_diag_mask, [True, True, False])
-        np.testing.assert_array_equal(spec.cint_mask, [False, False, False])
+        drift_component, cint_component = spec.structural_drift_components()
+        assert drift_component.time_invariant_mask is not None
         np.testing.assert_array_equal(
-            spec.diffusion_chol_mask,
+            drift_component.time_invariant_mask, [False, False, True]
+        )
+        np.testing.assert_array_equal(drift_component.drift_diag_mask, [True, True, False])
+        np.testing.assert_array_equal(cint_component.cint_mask, [False, False, False])
+        np.testing.assert_array_equal(
+            spec.diffusion_block.diffusion_chol_mask,
             [
                 [True, False, False],
                 [False, True, False],
@@ -631,14 +632,15 @@ class TestE2ESpecToDiscretization:
         spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
-        np.testing.assert_array_equal(spec.drift_diag_mask, [True, True, False])
-        assert spec.drift_offdiag_mask[0, 1]
-        assert spec.drift_offdiag_mask[0, 2]
-        assert not spec.drift_offdiag_mask[2, 0]
-        assert not spec.drift_offdiag_mask[2, 1]
-        np.testing.assert_array_equal(spec.cint_mask, [False, False, False])
+        drift_component, cint_component = spec.structural_drift_components()
+        np.testing.assert_array_equal(drift_component.drift_diag_mask, [True, True, False])
+        assert drift_component.drift_offdiag_mask[0, 1]
+        assert drift_component.drift_offdiag_mask[0, 2]
+        assert not drift_component.drift_offdiag_mask[2, 0]
+        assert not drift_component.drift_offdiag_mask[2, 1]
+        np.testing.assert_array_equal(cint_component.cint_mask, [False, False, False])
         np.testing.assert_array_equal(
-            spec.diffusion_chol_mask,
+            spec.diffusion_block.diffusion_chol_mask,
             [
                 [True, False, False],
                 [True, True, False],
@@ -778,8 +780,8 @@ class TestE2ESpecToDiscretization:
         drift_mask = combined_drift_mask(spec)
         assert drift_mask[0, 1]
         assert not drift_mask[1, 0]
-        assert spec.lambda_mask is not None
-        assert spec.lambda_mask[2, 1]
+        assert spec.lambda_block.mask is not None
+        assert spec.lambda_block.mask[2, 1]
         runtime = builder.model.get_prior_runtime_bundle()
         assert runtime.prior_state["drift_base_decay_free"]["concentration"].shape == (2,)
         assert builder.model.parameter_bindings == compiled["parameter_bindings"]
@@ -910,9 +912,11 @@ class TestE2ESpecToDiscretization:
 
         base_decay = _base_decay_means(ssm_priors)
         offdiag = _prior_vector(ssm_priors.drift_offdiag["mu"])
+        drift_component, _ = spec.structural_drift_components()
         baseline_ar_mood = 3.0 / 5.0  # Beta(3,2) mean = 0.6
         expected_resolved_mood = math.exp(
-            -(base_decay[0] + abs(offdiag[0]) + spec.stability_margin) * dt_weekly
+            -(base_decay[0] + abs(offdiag[0]) + drift_component.stability_margin)
+            * dt_weekly
         )
         recovered_ar_mood = float(F_weekly[0, 0])
         assert recovered_ar_mood < baseline_ar_mood
@@ -930,7 +934,9 @@ class TestE2ESpecToDiscretization:
 
         # Discretize at dt=1 (daily) for stress resolved persistence.
         F_daily = jla.expm(drift * 1.0)
-        expected_daily_stress = math.exp(-(base_decay[1] + spec.stability_margin))
+        expected_daily_stress = math.exp(
+            -(base_decay[1] + drift_component.stability_margin)
+        )
         recovered_daily_stress = float(F_daily[1, 1])
         assert abs(recovered_daily_stress - expected_daily_stress) < 0.05, (
             f"Daily roundtrip stress AR: got {recovered_daily_stress:.4f}, "

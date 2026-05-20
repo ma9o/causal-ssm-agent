@@ -8,11 +8,7 @@ import type { UIMessage } from "ai";
 import type { EdgePosterior } from "@/components/dag/intervention-dag-types";
 import { parseFixedEffect } from "@/lib/utils/ssm-latex";
 import { extractLatestStage6FollowUpSimulation } from "./stage-6-follow-up";
-import {
-  createStage6BaselineDagScene,
-  createStage6SimulationDagScene,
-  type Stage6DagScene,
-} from "./stage-6-showcase";
+import type { Stage6DagScene } from "./stage-6-showcase";
 
 function normalizeConstructLabel(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_]+/g, " ");
@@ -108,22 +104,16 @@ export function buildStage6DagScene({
     return undefined;
   }
 
-  const sceneBase = {
+  const followUpSimulation = extractLatestStage6FollowUpSimulation(refinementMessages);
+  const edgePosteriors = buildEdgePosteriors({ stage1a, stage4, stage5b });
+
+  return {
     constructs: stage1a.latent_model.constructs,
     edges: stage1a.latent_model.edges,
     indicators: stage1b?.causal_spec.measurement.indicators,
+    edgePosteriors,
+    requestedHorizonDays: followUpSimulation?.input?.query?.horizon_days ?? undefined,
+    simulationResult: followUpSimulation?.output ?? undefined,
     height,
   };
-  const followUpSimulation = extractLatestStage6FollowUpSimulation(refinementMessages);
-  const simulationResult = followUpSimulation?.output ?? null;
-  const edgePosteriors = buildEdgePosteriors({ stage1a, stage4, stage5b });
-
-  return simulationResult
-    ? createStage6SimulationDagScene({
-        ...sceneBase,
-        edgePosteriors,
-        requestedHorizonDays: followUpSimulation?.input?.query?.horizon_days ?? undefined,
-        simulationResult,
-      })
-    : createStage6BaselineDagScene(sceneBase);
 }

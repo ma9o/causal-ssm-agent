@@ -32,7 +32,6 @@ from nof1_causal_lab.models.ssm.prior_predictive_runtime import (
 )
 from nof1_causal_lab.models.ssm_compiler import serialize_edge_lag_days, serialize_ssm_spec
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
-from tests.ssm_test_utils import make_ssm_spec
 
 
 def _require_result(result: PriorValidationResult | None) -> PriorValidationResult:

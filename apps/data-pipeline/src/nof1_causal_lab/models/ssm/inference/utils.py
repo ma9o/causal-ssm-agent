@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import functools
 import time
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
-from jax.flatten_util import ravel_pytree  # noqa: F401 — re-exported for callers
+from jax.flatten_util import ravel_pytree
 from numpyro import handlers
 
 from nof1_causal_lab.models.ssm.autoreparam import fixed_autoreparam_centering
@@ -26,14 +27,16 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
     InitialStateParams,
     MeasurementParams,
 )
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
     build_site_registry,
 )
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
 
@@ -85,18 +88,18 @@ def _assemble_deterministics(
     spec: SSMSpec,
     *,
     registry=None,
-    structure_runtime: SSMStructureRuntime | None = None,
+    parameter_layout: SSMParameterLayout | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Thin wrapper over the registry-driven deterministic assembly path."""
-    if structure_runtime is None:
-        structure_runtime = SSMStructureRuntime(spec)
+    if parameter_layout is None:
+        parameter_layout = SSMParameterLayout.from_spec(spec)
     if registry is None:
-        registry = build_site_registry(spec, structure_runtime)
+        registry = build_site_registry(spec, parameter_layout)
     return assemble_deterministics_from_registry(
         samples,
         spec,
         registry,
-        structure_runtime=structure_runtime,
+        parameter_layout=parameter_layout,
     )
 
 
@@ -181,11 +184,110 @@ def _build_original_sample_resolver(
     return _resolve
 
 
+@dataclass(frozen=True)
+class UnconstrainedSiteTransform:
+    """Shared bijection between dict-keyed NumPyro sample sites and a
+    flat unconstrained vector.
+
+    Both the dense auxiliary-Kalman path (``trajectory_mcmc/auxiliary_kalman.py``)
+    and the composite-spec MH driver (``inference/methods/composite_aux_kalman.py``)
+    need identical machinery: per-site ``biject_to(support)`` bijections, a
+    ravel/unravel pair, and a combined ``log_prior(constrained) +
+    log_abs_det_jacobian`` callable on the flat unconstrained representation.
+
+    Built from a site-info dict where each entry has ``transform``
+    (numpyro Transform), ``value`` (a constrained draw used to fix ravel
+    order), and ``distribution`` (numpyro Distribution for the prior
+    log-prob). Both call sites feed this builder; their model-specific
+    layer (component-tuple shape, sample-resolver) sits on top.
+    """
+
+    flat_init: jnp.ndarray
+    dim: int
+    site_names: tuple[str, ...]
+    constrain_dict: Callable[[jnp.ndarray], dict[str, jnp.ndarray]]
+    unconstrain_dict: Callable[[jnp.ndarray], dict[str, jnp.ndarray]]
+    log_prior_unc: Callable[[jnp.ndarray], jnp.ndarray]
+    log_abs_det_jacobian: Callable[[jnp.ndarray], jnp.ndarray]
+
+
+def build_unconstrained_site_transform(
+    site_info: dict[str, dict[str, Any]],
+) -> UnconstrainedSiteTransform:
+    """Generic builder over a NumPyro-trace-shaped site dict.
+
+    ``site_info[name]`` must contain:
+      - ``"transform"``: a NumPyro ``Transform`` (typically ``biject_to(support)``)
+      - ``"value"``: an initial constrained value (only its shape/dtype matter)
+      - ``"distribution"``: a NumPyro ``Distribution`` for ``log_prob`` evaluation
+
+    Returns a closure-free dataclass; callers can add model-specific glue
+    (component-layout reshaping, sample resolvers) on top without
+    touching the bijection logic.
+    """
+    if not site_info:
+        empty = jnp.zeros((0,), dtype=jnp.float32)
+        return UnconstrainedSiteTransform(
+            flat_init=empty,
+            dim=0,
+            site_names=(),
+            constrain_dict=lambda _z: {},
+            unconstrain_dict=lambda _z: {},
+            log_prior_unc=lambda _z: jnp.asarray(0.0),
+            log_abs_det_jacobian=lambda _z: jnp.asarray(0.0),
+        )
+
+    transforms = {name: info["transform"] for name, info in site_info.items()}
+    distributions = {name: info["distribution"] for name, info in site_info.items()}
+    init_unc = {name: transforms[name].inv(info["value"]) for name, info in site_info.items()}
+    flat_init, unravel_fn = ravel_pytree(init_unc)
+    flat_dtype = flat_init.dtype
+
+    def constrain_dict(z: jnp.ndarray) -> dict[str, jnp.ndarray]:
+        unc = unravel_fn(z)
+        return {name: transforms[name](unc[name]) for name in unc}
+
+    def unconstrain_dict(z: jnp.ndarray) -> dict[str, jnp.ndarray]:
+        return unravel_fn(z)
+
+    def log_abs_det_jacobian(z: jnp.ndarray) -> jnp.ndarray:
+        unc = unravel_fn(z)
+        total = jnp.asarray(0.0, dtype=flat_dtype)
+        for name in unc:
+            con = transforms[name](unc[name])
+            total = total + jnp.sum(
+                transforms[name].log_abs_det_jacobian(unc[name], con)
+            )
+        return total
+
+    def log_prior_unc(z: jnp.ndarray) -> jnp.ndarray:
+        unc = unravel_fn(z)
+        log_prior = jnp.asarray(0.0, dtype=flat_dtype)
+        log_jac = jnp.asarray(0.0, dtype=flat_dtype)
+        for name in unc:
+            con = transforms[name](unc[name])
+            log_prior = log_prior + jnp.sum(distributions[name].log_prob(con))
+            log_jac = log_jac + jnp.sum(
+                transforms[name].log_abs_det_jacobian(unc[name], con)
+            )
+        return log_prior + log_jac
+
+    return UnconstrainedSiteTransform(
+        flat_init=flat_init,
+        dim=int(flat_init.shape[0]),
+        site_names=tuple(site_info.keys()),
+        constrain_dict=constrain_dict,
+        unconstrain_dict=unconstrain_dict,
+        log_prior_unc=log_prior_unc,
+        log_abs_det_jacobian=log_abs_det_jacobian,
+    )
+
+
 def _assemble_single_deterministics(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
     *,
-    structure_runtime: SSMStructureRuntime | None = None,
+    parameter_layout: SSMParameterLayout | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Assemble deterministic sites for a single constrained parameter draw."""
     if not samples:
@@ -193,7 +295,7 @@ def _assemble_single_deterministics(
     det = _assemble_deterministics(
         {name: value[None, ...] for name, value in samples.items()},
         spec,
-        structure_runtime=structure_runtime,
+        parameter_layout=parameter_layout,
     )
     return {name: value[0] for name, value in det.items()}
 
@@ -226,20 +328,20 @@ def _assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
     registry=None,
-    structure_runtime: SSMStructureRuntime | None = None,
+    parameter_layout: SSMParameterLayout | None = None,
 ) -> tuple[CTParams, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
     """Build backend-ready parameter tuples from constrained sample sites."""
-    if structure_runtime is None:
-        structure_runtime = SSMStructureRuntime(spec)
+    if parameter_layout is None:
+        parameter_layout = SSMParameterLayout.from_spec(spec)
     det = _assemble_single_deterministics(
         samples,
         spec,
-        structure_runtime=structure_runtime,
+        parameter_layout=parameter_layout,
     )
     ct_params, measurement_params, initial_state = _deterministics_to_likelihood_inputs(det)
 
     runtime_registry = (
-        registry if registry is not None else build_site_registry(spec, structure_runtime)
+        registry if registry is not None else build_site_registry(spec, parameter_layout)
     )
     extra_params = assemble_extra_params_from_registry(spec, samples, runtime_registry)
 
@@ -313,14 +415,14 @@ def extract_constrained_samples(
         profiling["constrain_batched_seconds"] = time.perf_counter() - constrain_start
 
     if reparam is None:
-        structure_runtime = (
-            model.structure_runtime if model is not None else SSMStructureRuntime(spec)
+        parameter_layout = (
+            model.parameter_layout if model is not None else SSMParameterLayout.from_spec(spec)
         )
         det_start = time.perf_counter()
         det_samples = _assemble_deterministics(
             samples,
             spec,
-            structure_runtime=structure_runtime,
+            parameter_layout=parameter_layout,
         )
         _block_until_ready_tree(det_samples)
         if profiling is not None:
@@ -360,12 +462,12 @@ def extract_constrained_samples(
         profiling["original_sample_resolution_seconds"] = time.perf_counter() - resolve_start
 
     # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
-    structure_runtime = model.structure_runtime if model is not None else SSMStructureRuntime(spec)
+    parameter_layout = model.parameter_layout if model is not None else SSMParameterLayout.from_spec(spec)
     det_start = time.perf_counter()
     det_samples = _assemble_deterministics(
         original_samples,
         spec,
-        structure_runtime=structure_runtime,
+        parameter_layout=parameter_layout,
     )
     _block_until_ready_tree(det_samples)
     if profiling is not None:
@@ -420,8 +522,8 @@ def _build_eval_fns(
         times=times,
         reparam=reparam,
     )
-    structure_runtime = model.structure_runtime
-    runtime_registry = build_site_registry(model.spec, structure_runtime)
+    parameter_layout = model.parameter_layout
+    runtime_registry = build_site_registry(model.spec, parameter_layout)
     bound_transition_inputs = getattr(model, "transition_inputs", None)
 
     def _constrain(z):
@@ -436,7 +538,7 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            structure_runtime=structure_runtime,
+            parameter_layout=parameter_layout,
         )
         time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
         if latent_mode_init is None:
@@ -471,7 +573,7 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            structure_runtime=structure_runtime,
+            parameter_layout=parameter_layout,
         )
         time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
         runtime_transition_inputs = (
@@ -516,7 +618,7 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            structure_runtime=structure_runtime,
+            parameter_layout=parameter_layout,
         )
         time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
         if latent_mode_init is None:
@@ -557,7 +659,7 @@ def _build_eval_fns(
             original_samples,
             model.spec,
             registry=runtime_registry,
-            structure_runtime=structure_runtime,
+            parameter_layout=parameter_layout,
         )
         time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
         runtime_transition_inputs = (

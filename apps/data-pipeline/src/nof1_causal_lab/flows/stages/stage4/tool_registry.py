@@ -75,6 +75,23 @@ class SubmitPriorsInput(BaseModel):
     )
 
 
+class ValidateCompositeSpecInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    composite_spec_json: str = Field(
+        description=(
+            "JSON string containing a composite-spec dict-config "
+            '(``{"n_latent": ..., "components": [{"kind": "...", '
+            '"priors": {...}}]}``). Dry-run validation only; does not '
+            "commit any Stage 4 state."
+        ),
+    )
+    n_draws: int = Field(
+        default=50,
+        description="Prior-predictive draws used for stability checks.",
+    )
+
+
 @dataclass(frozen=True)
 class Stage4SessionToolConfig:
     """Runtime config for reducer-owned Stage 4 tool construction."""
@@ -203,6 +220,55 @@ execute_public_submit_priors = partial(
 )
 
 
+def execute_public_validate_composite_spec(
+    _ctx: dict[str, Any], args: dict[str, Any]
+) -> dict[str, Any]:
+    """Dry-run composite-spec validation. Compiles the dict-config and
+    runs ``validate_composite_assembly`` for stability + finiteness
+    checks. Does not commit any Stage 4 state.
+
+    Returns the diagnostic dict shape (``is_valid``, ``compile_ok``,
+    optional ``compile_error``, optional ``diagnostics``) so the caller
+    can decide whether to proceed with a real submission.
+    """
+    import jax.numpy as _jnp
+
+    composite_spec_json = args.get("composite_spec_json", "")
+    if not composite_spec_json:
+        return {"result": {"is_valid": False, "error": "composite_spec_json is required"}}
+    try:
+        config = json.loads(composite_spec_json)
+    except json.JSONDecodeError as exc:
+        return {"result": {"is_valid": False, "error": f"JSON parse error: {exc}"}}
+
+    from nof1_causal_lab.models.ssm.dynamics import (
+        validate_composite_assembly,
+    )
+
+    n_latent = int(config.get("n_latent", 0))
+    if n_latent <= 0:
+        return {"result": {"is_valid": False, "error": "n_latent must be > 0"}}
+
+    n_draws = int(args.get("n_draws", 50))
+    # Minimal time grid for the dry-run — 5 steps over the unit interval.
+    times = _jnp.linspace(0.0, 1.0, 5)
+    init_mean = _jnp.zeros(n_latent)
+    validation = validate_composite_assembly(
+        config, init_mean, times, n_draws=n_draws
+    )
+    payload: dict[str, Any] = {
+        "is_valid": validation.is_valid,
+        "compile_ok": validation.compile_ok,
+        "pp_checked": validation.pp_checked,
+        "pp_valid": validation.pp_valid,
+    }
+    if validation.compile_error is not None:
+        payload["compile_error"] = validation.compile_error
+    if validation.diagnostics:
+        payload["diagnostics"] = validation.diagnostics
+    return {"result": payload}
+
+
 def _session_tool_factory(factory: Callable[[Stage4Session], Any]) -> Stage4SessionToolFactory:
     """Adapt a session-only Stage 4 tool builder to the shared config signature."""
     return lambda session, _config: factory(session)
@@ -284,6 +350,16 @@ STAGE4_TOOL_SPECS: tuple[Stage4ToolSpec, ...] = (
         description="Submit Stage 4 prior proposals for schema, compile, and prior-predictive validation.",
         input_schema=SubmitPriorsInput,
         public_impl=execute_public_submit_priors,
+    ),
+    Stage4ToolSpec(
+        name="validate_composite_spec",
+        description=(
+            "Dry-run validate a non-linear composite spec (dict-config). "
+            "Returns stability + finiteness diagnostics without "
+            "committing any Stage 4 state."
+        ),
+        input_schema=ValidateCompositeSpecInput,
+        public_impl=execute_public_validate_composite_spec,
     ),
 )
 

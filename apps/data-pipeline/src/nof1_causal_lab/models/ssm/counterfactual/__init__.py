@@ -1,44 +1,35 @@
-"""Counterfactual simulation for the SSM.
+"""Counterfactual API — Pearl rung-2 / rung-3 estimands.
 
-One vector-field class (``CompositeVectorField``) composes drift
-components into the system's dynamics. ``DenseLinear`` recovers the
-existing Stage 5b dense-posterior shape ``f(η) = A·η + c`` in one
-matmul; per-edge primitives (``LinearEdge``, ``HillEdge``,
-``MultiplicativeEdge``) plus ``DiagonalDecay`` and ``Intercept`` are
-how the LLM-elicited non-linear vocabulary plugs in. Either case goes
-through the same Diffrax simulator and Optimistix steady-state
-root-finder.
+This module is a *consumer* of ``models/ssm/dynamics``. It uses the
+vector-field substrate to compute intervention effects (compute_interventions),
+abduct rung-3 latent states from observed history (approximate_abducted_state),
+and summarise effect distributions (summarize_draws,
+summarize_temporal_effect, resolve_action_value, ...).
+
+The dynamics framework itself — vector fields, edges, intervention DSL,
+compilation, discretisation, priors, stability, simulators — lives one
+directory up in ``dynamics/``. Inference consumes from there directly,
+not via this module.
 
 Public API:
 
-- ``CompositeVectorField``, ``VectorFieldArgs``, ``VectorField`` — dynamics
-- ``DriftComponent``, ``DenseLinear``, ``DiagonalDecay``, ``Intercept``,
-  ``LinearEdge``, ``HillEdge``, ``MultiplicativeEdge`` — components
-- ``linear_vector_field`` — factory for the dense-linear case
-- ``Intervention``, ``VariableOverride``, ``EdgeInputOverride``,
-  ``constant_value``, ``linear_ramp`` — intervention DSL
-- ``simulate``, ``simulate_pair``, ``SimulationConfig`` — Diffrax forward
-- ``compute_steady_state`` — Optimistix root-find
-- ``summarize_draws``, ``summarize_temporal_effect``, ``resolve_action_value``,
-  ``build_time_grid``, ``project_to_manifest`` — estimand helpers
 - ``compute_interventions`` — Stage-6 orchestrator
 - ``vmap_steady_state_effect``, ``vmap_simulate_action_from_state`` —
   ``tool_server`` vmapped entry points
+- ``linear_vector_field`` — convenience factory wrapping
+  ``CompositeVectorField`` with one ``DenseLinear`` component
 - ``approximate_abducted_state`` — rung-3 abduction (Kalman smoother)
+- ``summarize_draws``, ``summarize_temporal_effect``, ``build_time_grid``,
+  ``resolve_action_value``, ``project_to_manifest`` — estimand helpers
 """
 
 from __future__ import annotations
 
-from .abduction import approximate_abducted_state
-from .discretization import discretize_at_state
-from .edges import (
-    DenseLinear,
-    DiagonalDecay,
-    DriftComponent,
-    HillEdge,
-    Intercept,
-    LinearEdge,
-    MultiplicativeEdge,
+from .abduction import (
+    approximate_abducted_state,
+    approximate_abducted_state_composite,
+    approximate_abducted_state_composite_eks,
+    approximate_abducted_state_composite_ieks,
 )
 from .estimands import (
     build_time_grid,
@@ -47,56 +38,31 @@ from .estimands import (
     summarize_draws,
     summarize_temporal_effect,
 )
-from .intervention import (
-    EdgeInputOverride,
-    Intervention,
-    Override,
-    ValueFn,
-    VariableOverride,
-    constant_value,
-    linear_ramp,
-)
 from .orchestration import (
     compute_interventions,
+    compute_interventions_composite,
     linear_vector_field,
     vmap_simulate_action_from_state,
+    vmap_simulate_action_from_state_composite,
     vmap_steady_state_effect,
+    vmap_steady_state_effect_composite,
 )
-from .simulator import SimulationConfig, simulate, simulate_pair
-from .steady_state import compute_steady_state
-from .vector_field import CompositeVectorField, VectorField, VectorFieldArgs
 
 __all__ = [
-    "CompositeVectorField",
-    "DenseLinear",
-    "DiagonalDecay",
-    "DriftComponent",
-    "EdgeInputOverride",
-    "HillEdge",
-    "Intercept",
-    "Intervention",
-    "LinearEdge",
-    "MultiplicativeEdge",
-    "Override",
-    "SimulationConfig",
-    "ValueFn",
-    "VariableOverride",
-    "VectorField",
-    "VectorFieldArgs",
     "approximate_abducted_state",
+    "approximate_abducted_state_composite",
+    "approximate_abducted_state_composite_eks",
+    "approximate_abducted_state_composite_ieks",
     "build_time_grid",
     "compute_interventions",
-    "compute_steady_state",
-    "constant_value",
-    "discretize_at_state",
-    "linear_ramp",
+    "compute_interventions_composite",
     "linear_vector_field",
     "project_to_manifest",
     "resolve_action_value",
-    "simulate",
-    "simulate_pair",
     "summarize_draws",
     "summarize_temporal_effect",
     "vmap_simulate_action_from_state",
+    "vmap_simulate_action_from_state_composite",
     "vmap_steady_state_effect",
+    "vmap_steady_state_effect_composite",
 ]

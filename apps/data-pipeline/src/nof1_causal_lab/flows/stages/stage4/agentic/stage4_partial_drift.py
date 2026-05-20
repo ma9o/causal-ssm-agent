@@ -9,7 +9,7 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.model_spec import ParameterRole
 from nof1_causal_lab.flows import get_prefect_logger
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm_compilation import translate_spec
 from nof1_causal_lab.models.ssm_compiler import validate_model_spec_for_compilation
 from nof1_causal_lab.models.ssm_prior_compilation import (
@@ -117,7 +117,7 @@ def _build_partial_drift_state(
         edge_lag_days=edge_lag_days,
         causal_spec=causal_spec,
     )
-    structure_runtime = SSMStructureRuntime(ssm_spec)
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
     (
         _offdiag_param_index,
         _lambda_param_index,
@@ -145,14 +145,14 @@ def _build_partial_drift_state(
         if parameter_name not in diag_param_index:
             continue
         _attr, flat_index = diag_param_index[parameter_name]
-        latent_index = structure_runtime.drift_base_decay_positions[flat_index]
+        latent_index = parameter_layout.drift_base_decay_positions[flat_index]
         diag_present[latent_index] = True
         diag_parameter_by_index[latent_index] = parameter_name
         diag_mu[latent_index] = (
             float(base_decay_mu[flat_index]) if flat_index < base_decay_mu.size else 0.0
         )
 
-    offdiag_positions = list(structure_runtime.offdiag_positions)
+    offdiag_positions = list(parameter_layout.offdiag_positions)
     offdiag_mu = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_present = np.zeros(len(offdiag_positions), dtype=bool)
@@ -185,6 +185,8 @@ def _build_partial_drift_state(
             effect_idx, cause_idx = offdiag_positions[flat_index]
             offdiag_mu[flat_index] = float(diagnostic_drift[effect_idx, cause_idx])
 
+    drift_component, _ = ssm_spec.structural_drift_components()
+
     return _PartialDriftState(
         latent_names=latent_names,
         diag_mu=diag_mu,
@@ -196,7 +198,7 @@ def _build_partial_drift_state(
         offdiag_sigma=offdiag_sigma,
         offdiag_present=offdiag_present,
         offdiag_parameter_by_index=offdiag_parameter_by_index,
-        stability_margin=float(ssm_spec.stability_margin),
+        stability_margin=float(drift_component.stability_margin),
         diagnostic_drift=diagnostic_drift,
     )
 

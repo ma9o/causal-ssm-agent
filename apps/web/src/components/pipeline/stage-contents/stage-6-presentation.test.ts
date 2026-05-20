@@ -36,13 +36,14 @@ const stage4 = stage4Fixture as unknown as Stage4Data;
 const stage5b = stage5bFixture as unknown as Stage5bData;
 
 describe("buildStage6DagScene", () => {
-  it("returns the baseline DAG when no follow-up tool result exists", () => {
+  it("returns a scene with no simulation when no follow-up tool result exists", () => {
     const scene = buildStage6DagScene({ stage1a, stage1b });
 
-    expect(scene?.kind).toBe("baseline");
+    expect(scene?.simulationResult).toBeUndefined();
+    expect(scene?.requestedHorizonDays).toBeUndefined();
   });
 
-  it("returns the latest simulation DAG when a follow-up tool result exists", () => {
+  it("returns the latest simulation when a follow-up tool result exists", () => {
     const scene = buildStage6DagScene({
       stage1a,
       stage1b,
@@ -58,27 +59,24 @@ describe("buildStage6DagScene", () => {
       ],
     });
 
-    expect(scene?.kind).toBe("simulation");
-    if (scene?.kind === "simulation") {
-      expect(scene.simulationResult).toEqual(counterfactualResult);
-      expect(scene.requestedHorizonDays).toBe(45);
-      expect(scene.edgePosteriors).toMatchObject({
-        "serotonergic_exposure→affective_state": {
-          mean: 0.058,
-          ci_lower: 0.02416,
-          ci_upper: 0.09184,
-        },
-        "sleep_quality→affective_state": {
-          mean: 0.072,
-          ci_lower: 0.0344,
-          ci_upper: 0.1096,
-        },
-        "affective_state→physical_activity": {
-          mean: 0.046,
-          ci_lower: 0.01216,
-          ci_upper: 0.07984,
-        },
-      });
-    }
+    expect(scene?.simulationResult).toEqual(counterfactualResult);
+    expect(scene?.requestedHorizonDays).toBe(45);
+    expect(scene?.edgePosteriors).toMatchObject({
+      "serotonergic_exposure→affective_state": {
+        mean: 0.058,
+        ci_lower: 0.02416,
+        ci_upper: 0.09184,
+      },
+      "sleep_quality→affective_state": {
+        mean: 0.072,
+        ci_lower: 0.0344,
+        ci_upper: 0.1096,
+      },
+      "affective_state→physical_activity": {
+        mean: 0.046,
+        ci_lower: 0.01216,
+        ci_upper: 0.07984,
+      },
+    });
   });
 });

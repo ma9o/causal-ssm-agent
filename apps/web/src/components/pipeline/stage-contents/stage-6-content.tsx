@@ -7,8 +7,10 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
 import { StatTooltip } from "@/components/ui/stat-tooltip";
-import type { Stage6Data } from "@nof1-causal-lab/api-types";
+import { formatNumber } from "@/lib/utils/format";
+import type { Stage6Data, TreatmentEffect } from "@nof1-causal-lab/api-types";
 import { Bot } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -21,48 +23,68 @@ function getStage6Narrative(data: Stage6Data): string | null {
   return null;
 }
 
-export default function Stage6Content({
-  data,
-}: {
-  data: Stage6Data;
-}) {
+function getTopEffect(
+  results: TreatmentEffect[],
+): { treatment: string; mean: number } | null {
+  let best: { treatment: string; mean: number } | null = null;
+  for (const result of results) {
+    const draws = result.posterior_draws;
+    if (!draws || draws.length === 0) continue;
+    const mean = draws.reduce((acc, d) => acc + d, 0) / draws.length;
+    if (best === null || Math.abs(mean) > Math.abs(best.mean)) {
+      best = { treatment: result.treatment, mean };
+    }
+  }
+  return best;
+}
+
+export default function Stage6Content({ data }: { data: Stage6Data }) {
   const narrative = getStage6Narrative(data);
+  const topEffect = getTopEffect(data.intervention_results);
 
   return (
+    
     <div className="space-y-4">
-      {data.intervention_results.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-          No treatment effects were estimated. This may happen if no treatments passed
-          identification checks.
-        </div>
-      ) : (
-        <Accordion defaultValue={["baseline-ranking"]} multiple>
-          <AccordionItem value="baseline-ranking">
-            <AccordionTrigger className="text-sm">
-              <span className="inline-flex flex-wrap items-center gap-1.5">
-                Baseline interventional ranking
-                <StatTooltip explanation="Total outcome effects ranked under do(treatment = baseline + 1). These are not direct edge coefficients. Peak timing comes from the forward simulation summary, and indicator details are a measurement projection of the outcome effect." />
-              </span>
-            </AccordionTrigger>
-            <AccordionContent>
-              <TreatmentRankingTable
-                results={data.intervention_results}
-              />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      )}
             {narrative ? (
         <div className="rounded-lg border bg-muted/20 p-4">
           <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <Bot className="h-3.5 w-3.5" />
             Stage Interpretation
           </div>
-          <div className="prose prose-sm max-w-none overflow-y-auto text-sm [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0" style={{ maxHeight: "12.5rem" }}>
+          <div
+            className="prose prose-sm max-w-none overflow-y-auto text-sm [&_p]:my-2 [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0"
+            style={{ maxHeight: "12.5rem" }}
+          >
             <Markdown remarkPlugins={[remarkGfm]}>{narrative}</Markdown>
           </div>
         </div>
       ) : null}
+      {data.intervention_results.length === 0 ? (
+        <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+          No treatment effects were estimated. This may happen if no treatments
+          passed identification checks.
+        </div>
+      ) : (
+        <Accordion multiple>
+          <AccordionItem value="baseline-ranking">
+            <AccordionTrigger className="text-sm">
+              <span className="inline-flex flex-wrap items-center gap-1.5">
+                Baseline interventional ranking
+                <StatTooltip explanation="Total outcome effects ranked under do(treatment = baseline + 1). These are not direct edge coefficients. Peak timing comes from the forward simulation summary, and indicator details are a measurement projection of the outcome effect." />
+                {topEffect ? (
+                  <Badge variant="outline">
+                    τ̂ = {topEffect.mean >= 0 ? "+" : ""}
+                    {formatNumber(topEffect.mean)} ({topEffect.treatment})
+                  </Badge>
+                ) : null}
+              </span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <TreatmentRankingTable results={data.intervention_results} />
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
     </div>
   );
 }

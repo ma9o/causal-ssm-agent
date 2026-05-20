@@ -34,12 +34,12 @@ from nof1_causal_lab.models.ssm.model import (
     zero_square_mask,
     zero_vector_mask,
 )
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 
 __all__ = [
     # Discretization
     "solve_lyapunov",
-    "SSMStructureRuntime",
+    "SSMParameterLayout",
     "compute_asymptotic_diffusion",
     "compute_discrete_diffusion",
     "compute_discrete_cint",

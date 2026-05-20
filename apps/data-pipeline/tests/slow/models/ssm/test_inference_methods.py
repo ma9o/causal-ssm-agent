@@ -14,7 +14,6 @@ from nof1_causal_lab.artifacts.model_spec import DistributionFamily
 from nof1_causal_lab.models.ssm import (
     SSMModel,
     SSMPriors,
-    SSMSpec,
     discretize_system,
     fit,
     full_diagonal_mask,
@@ -24,7 +23,7 @@ from nof1_causal_lab.models.ssm import (
     zero_vector_mask,
 )
 from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
-from tests.ssm_test_utils import assert_recovery_ci, make_lgss_data
+from tests.ssm_test_utils import assert_recovery_ci, make_lgss_data, make_ssm_spec
 
 pytestmark = pytest.mark.slow
 
@@ -248,7 +247,7 @@ def _make_map_mixed_support_recovery_data() -> dict:
     observations = _build_mixed_support_observations(point_observations)
     observation_support = _build_mixed_support_runtime(times, manifest_names)
 
-    spec = SSMSpec(
+    spec = make_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
         drift_diag_mask=full_diagonal_mask(n_latent),

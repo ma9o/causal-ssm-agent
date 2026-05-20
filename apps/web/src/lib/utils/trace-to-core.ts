@@ -21,7 +21,50 @@ export interface RefinementMessageMetadata {
   usage?: RefinementUsage;
 }
 
-export type RefinementUIMessage = UIMessage<RefinementMessageMetadata>;
+export interface SuggestionAction {
+  tool: string;
+  input: Record<string, unknown>;
+}
+
+export interface SuggestionChip {
+  label: string;
+  action: SuggestionAction;
+}
+
+export interface RefinementDataTypes {
+  suggestions: { suggestions: SuggestionChip[] };
+  [key: string]: unknown;
+}
+
+export type RefinementUIMessage = UIMessage<RefinementMessageMetadata, RefinementDataTypes>;
+
+export type SuggestionsDataPart = {
+  type: "data-suggestions";
+  id?: string;
+  data: RefinementDataTypes["suggestions"];
+};
+
+export function isSuggestionsDataPart(part: unknown): part is SuggestionsDataPart {
+  if (typeof part !== "object" || part === null) return false;
+  const candidate = part as { type?: unknown; data?: unknown };
+  if (candidate.type !== "data-suggestions") return false;
+  if (typeof candidate.data !== "object" || candidate.data === null) return false;
+  const list = (candidate.data as { suggestions?: unknown }).suggestions;
+  if (!Array.isArray(list)) return false;
+  return list.every((chip) => {
+    if (typeof chip !== "object" || chip === null) return false;
+    const c = chip as { label?: unknown; action?: unknown };
+    if (typeof c.label !== "string") return false;
+    if (typeof c.action !== "object" || c.action === null) return false;
+    const a = c.action as { tool?: unknown; input?: unknown };
+    return (
+      typeof a.tool === "string" &&
+      typeof a.input === "object" &&
+      a.input !== null &&
+      !Array.isArray(a.input)
+    );
+  });
+}
 
 function stringifyTraceValue(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value, null, 2);

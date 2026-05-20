@@ -39,15 +39,22 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_submit_priors as _execute_submit_priors,
 )
+from nof1_causal_lab.flows.stages.stage4.tool_registry import (
+    execute_public_validate_composite_spec as _execute_validate_composite_spec,
+)
 from nof1_causal_lab.models.ssm.counterfactual import (
+    approximate_abducted_state,
+    approximate_abducted_state_composite,
+    approximate_abducted_state_composite_eks,
+    approximate_abducted_state_composite_ieks,
+    summarize_draws,
+    vmap_simulate_action_from_state_composite,
+    vmap_steady_state_effect_composite,
+)
+from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
     Intervention,
-    approximate_abducted_state,
     compute_steady_state,
-    linear_vector_field,
-    summarize_draws,
-    vmap_simulate_action_from_state,
-    vmap_steady_state_effect,
 )
 from nof1_causal_lab.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from nof1_causal_lab.utils import storage
@@ -308,6 +315,24 @@ class Stage6SimulationSetup:
     horizon_steps: int
     time_grid: jnp.ndarray
     vector_field: CompositeVectorField
+    # ``param_samples`` is the canonical per-draw composite-shape
+    # parameter list. For composite fits it comes from
+    # ``diagnostics["param_samples"]``; for linear fits the dispatcher
+    # adapts the stacked ``(drift, cint)`` arrays via
+    # ``_linear_samples_to_composite_params``. Always populated.
+    param_samples: list[tuple[dict[str, Any], ...]] | None = None
+
+    @property
+    def is_composite(self) -> bool:
+        """True when the *fit method* was composite Gibbs (not when
+        ``param_samples`` happens to be populated — the linear path also
+        populates it after C.5 dispatch normalisation).
+
+        Used only by the abduction dispatch, which is the one place that
+        genuinely needs to pick between linear (Kalman smoother) and
+        composite (EKS/IEKS/trajectory-mean) algorithms.
+        """
+        return self.fitted_artifact.result.method == "composite_aux_kalman"
 
 
 @dataclass(frozen=True)
@@ -335,9 +360,9 @@ def _prepare_stage6_simulation(
 ) -> tuple[Stage6SimulationSetup | None, dict[str, Any] | None]:
     fitted_artifact = ctx["_fitted_artifact"]
     runtime = ctx["_prepared_runtime"]
-    samples = fitted_artifact.result.get_samples() if fitted_artifact.result is not None else None
-    if fitted_artifact.result is None or fitted_artifact.builder is None or not samples:
+    if fitted_artifact.result is None or fitted_artifact.builder is None:
         return None, _tool_error_result("Fitted model artifact is unavailable for simulation.")
+    samples = fitted_artifact.result.get_samples() or {}
 
     action = dict(args.get("action") or {})
     treatment = str(action.get("variable", ""))
@@ -358,13 +383,11 @@ def _prepare_stage6_simulation(
     if treat_idx is None or outcome_idx is None:
         return None, _tool_error_result("Treatment or outcome not present in fitted latent model.")
 
-    drift_draws = samples.get("drift")
-    if drift_draws is None:
-        return None, _tool_error_result("Posterior drift samples are unavailable.")
-    cint_draws = samples.get("cint")
-    if cint_draws is None:
-        cint_draws = jnp.zeros((drift_draws.shape[0], drift_draws.shape[-1]))
-
+    # Dispatch on the InferenceResult method: composite fits expose a
+    # vector field + per-draw param tuples through ``diagnostics``; linear
+    # fits expose the dense ``(drift, cint)`` arrays through ``samples``.
+    method = fitted_artifact.result.method
+    diagnostics = fitted_artifact.result.diagnostics
     query = dict(args.get("query") or {})
     dt_days, horizon_steps = _stage6_time_config(
         causal_spec,
@@ -372,7 +395,39 @@ def _prepare_stage6_simulation(
         int(query.get("horizon_days") or 30),
     )
     time_grid = jnp.linspace(0.0, dt_days * horizon_steps, horizon_steps + 1)
-    vector_field = linear_vector_field(n_latent=int(drift_draws.shape[-1]))
+
+    drift_draws: Any = None
+    cint_draws: Any = None
+    param_samples: list[tuple[dict[str, Any], ...]] | None = None
+
+    if method == "composite_aux_kalman":
+        vector_field = diagnostics.get("vector_field")
+        param_samples = diagnostics.get("param_samples")
+        if vector_field is None or not param_samples:
+            return None, _tool_error_result(
+                "Composite fit is missing vector_field / param_samples in diagnostics."
+            )
+    else:
+        drift_draws = samples.get("drift")
+        if drift_draws is None:
+            return None, _tool_error_result("Posterior drift samples are unavailable.")
+        cint_draws = samples.get("cint")
+        if cint_draws is None:
+            cint_draws = jnp.zeros((drift_draws.shape[0], drift_draws.shape[-1]))
+        # Linear path is normalised to the canonical composite shape:
+        # 2-component ``(DenseLinear + Intercept)`` vector field plus
+        # per-draw param tuples ``({"drift": A}, {"cint": c})``. After
+        # this point downstream Stage 6 dispatch is uniform — the
+        # ``if setup.is_composite`` branches read ``param_samples`` /
+        # ``vector_field`` regardless of inference method.
+        from nof1_causal_lab.models.ssm.counterfactual.orchestration import (
+            _linear_samples_to_composite_params,
+            _two_component_linear_vector_field,
+        )
+
+        n_latent = int(drift_draws.shape[-1])
+        vector_field = _two_component_linear_vector_field(n_latent)
+        param_samples = _linear_samples_to_composite_params(drift_draws, cint_draws)
 
     return (
         Stage6SimulationSetup(
@@ -395,6 +450,7 @@ def _prepare_stage6_simulation(
             horizon_steps=horizon_steps,
             time_grid=time_grid,
             vector_field=vector_field,
+            param_samples=param_samples,
         ),
         None,
     )
@@ -699,19 +755,24 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
         return error
     assert setup is not None
 
+    # Linear/composite dispatch collapsed: ``setup.param_samples`` and
+    # ``setup.vector_field`` are normalised to the canonical composite
+    # shape in ``_prepare_stage6_simulation`` (linear path adapts via
+    # ``_linear_samples_to_composite_params`` + two-component vector
+    # field). The vmap-ified composite consumers handle both paths
+    # with the same vectorisation.
+    assert setup.param_samples is not None
+    _stacked_params = jax.tree.map(lambda *xs: jnp.stack(xs), *setup.param_samples)
     baseline_states = jax.vmap(
-        lambda d, c: compute_steady_state(
-            setup.vector_field, ({"drift": d, "cint": c},), Intervention.none()
-        )
-    )(setup.drift_draws, setup.cint_draws)
+        lambda params: compute_steady_state(setup.vector_field, params, Intervention.none())
+    )(_stacked_params)
     baseline_treatment_mean = float(jnp.mean(baseline_states[:, setup.treat_idx]))
 
     if setup.query.get("estimand", "steady_state") == "trajectory":
         baseline_state_paths, action_state_paths, effect_state_paths = (
-            vmap_simulate_action_from_state(
+            vmap_simulate_action_from_state_composite(
                 setup.vector_field,
-                setup.drift_draws,
-                setup.cint_draws,
+                setup.param_samples,
                 initial_states=baseline_states,
                 treat_idx=setup.treat_idx,
                 mode=str(setup.action["mode"]),
@@ -728,19 +789,16 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
             node_effect_paths=effect_state_paths,
         )
     else:
-        outputs = _build_effect_outputs(
-            setup,
-            effect_draws=vmap_steady_state_effect(
-                setup.vector_field,
-                setup.drift_draws,
-                setup.cint_draws,
-                treat_idx=setup.treat_idx,
-                outcome_idx=setup.outcome_idx,
-                mode=str(setup.action["mode"]),
-                value=setup.action.get("value"),
-                amount=setup.action.get("amount"),
-            ),
+        effect_draws = vmap_steady_state_effect_composite(
+            setup.vector_field,
+            setup.param_samples,
+            treat_idx=setup.treat_idx,
+            outcome_idx=setup.outcome_idx,
+            mode=str(setup.action["mode"]),
+            value=setup.action.get("value"),
+            amount=setup.action.get("amount"),
         )
+        outputs = _build_effect_outputs(setup, effect_draws=effect_draws)
 
     return {
         "result": {
@@ -773,27 +831,75 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
         ctx["_observation_timestamps"],
         evidence,
     )
-    abducted = approximate_abducted_state(
-        setup.samples,
-        setup.fitted_artifact.builder.model,
-        setup.spec,
-        setup.runtime.observations,
-        setup.runtime.times,
-        evidence_start_idx,
-        evidence_end_idx,
-    )
+
+    if setup.is_composite:
+        # Composite rung-3. Three abduction estimators, selectable via
+        # ``query.abduction_method``:
+        #
+        # - ``trajectory_marginal`` (default): mean of composite MCMC
+        #   trajectory samples at evidence_end. Fastest; noisy per-draw.
+        # - ``eks``: per-parameter forward Kalman filter + RTS smoother
+        #   on the linearised LGSSM. Deterministic conditional mean per
+        #   draw; EKF observation update covers Beta/Binomial/Poisson.
+        # - ``ieks``: iterative re-linearisation of EKS until the
+        #   smoothed trajectory converges. Most accurate for non-linear
+        #   systems; slower per draw.
+        assert setup.param_samples is not None
+        abduction_method = str(setup.query.get("abduction_method", "trajectory_marginal"))
+        if abduction_method == "trajectory_marginal":
+            abducted = approximate_abducted_state_composite(
+                setup.fitted_artifact.result,
+                evidence_end_idx,
+            )
+        elif abduction_method in {"eks", "ieks"}:
+            canonical = setup.fitted_artifact.result.diagnostics.get(
+                "canonical_model"
+            )
+            if canonical is None:
+                return _tool_error_result(
+                    "Composite fit is missing diagnostics['canonical_model'] — "
+                    "required for EKS/IEKS abduction. Refit with the current "
+                    "fit_composite_aux_kalman to populate it."
+                )
+            abducter = (
+                approximate_abducted_state_composite_eks
+                if abduction_method == "eks"
+                else approximate_abducted_state_composite_ieks
+            )
+            abducted = abducter(
+                canonical=canonical,
+                param_samples=setup.param_samples,
+                runtime_times=setup.runtime.times,
+                observations=setup.runtime.observations,
+                evidence_end_idx=evidence_end_idx,
+            )
+        else:
+            return _tool_error_result(
+                f"Unknown abduction_method {abduction_method!r}; "
+                f"supported: trajectory_marginal, eks, ieks."
+            )
+    else:
+        abducted = approximate_abducted_state(
+            setup.samples,
+            setup.fitted_artifact.builder.model,
+            setup.spec,
+            setup.runtime.observations,
+            setup.runtime.times,
+            evidence_start_idx,
+            evidence_end_idx,
+        )
     initial_state = abducted["state"]
     abducted_state = _serialize_latent_state(initial_state, setup.latent_names)
     estimand = str(setup.query.get("estimand", "end_state"))
 
-    initial_states = jnp.broadcast_to(
-        initial_state, (setup.drift_draws.shape[0], initial_state.shape[0])
-    )
+    # Linear/composite collapsed — see ``_prepare_stage6_simulation``.
+    assert setup.param_samples is not None
+    n_draws = len(setup.param_samples)
+    initial_states = jnp.broadcast_to(initial_state, (n_draws, initial_state.shape[0]))
     baseline_state_paths, counterfactual_state_paths, effect_state_paths = (
-        vmap_simulate_action_from_state(
+        vmap_simulate_action_from_state_composite(
             setup.vector_field,
-            setup.drift_draws,
-            setup.cint_draws,
+            setup.param_samples,
             initial_states=initial_states,
             treat_idx=setup.treat_idx,
             mode=str(setup.action["mode"]),
@@ -852,6 +958,7 @@ _TOOL_IMPLS: dict[tuple[str, str], Any] = {
     ("stage-2", "validate_extractions"): _execute_validate_extractions,
     ("stage-4", "submit_model_spec"): _execute_submit_model_spec,
     ("stage-4", "submit_priors"): _execute_submit_priors,
+    ("stage-4", "validate_composite_spec"): _execute_validate_composite_spec,
     ("stage-4", "search_literature"): _execute_search_literature,
     ("stage-6", "get_model_info"): _execute_get_model_info,
     ("stage-6", "simulate_intervention"): _execute_simulate_intervention,

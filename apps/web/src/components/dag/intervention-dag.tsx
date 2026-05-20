@@ -158,6 +158,15 @@ function InterventionDagCanvas({
   }, [layoutNodes, showNoiseNodes, processNoise, viewModel.nodeData]);
 
   // ── Edges ───────────────────────────────────────────────────────────
+  const maxAbsPosterior = useMemo(() => {
+    let max = 0;
+    for (const p of Object.values(edgePosteriors)) {
+      const a = Math.abs(p.mean);
+      if (a > max) max = a;
+    }
+    return max;
+  }, [edgePosteriors]);
+
   const enrichedEdges: Edge[] = useMemo(() => {
     return flowEdges.map((e) => {
       const key = `${e.source}\u2192${e.target}`;
@@ -167,13 +176,13 @@ function InterventionDagCanvas({
       return {
         ...e,
         type: "weighted" as const,
-        data: { ...e.data, posterior, animState },
+        data: { ...e.data, posterior, maxAbsPosterior, animState },
         // Arrowheads are rendered inside WeightedEdge with fixed size
         // (markerUnits="userSpaceOnUse") so they don't scale with strokeWidth.
         markerEnd: undefined,
       };
     });
-  }, [flowEdges, edgePosteriors, anim.edgeStates, mode]);
+  }, [flowEdges, edgePosteriors, maxAbsPosterior, anim.edgeStates, mode]);
 
   const fitViewKey = useMemo(
     () =>

@@ -17,8 +17,8 @@ from nof1_causal_lab.distributions import (
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.priors import SSMPriors
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 from nof1_causal_lab.models.ssm_compilation_common import (
     SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
@@ -168,7 +168,7 @@ class PriorCompilationError(AggregatedCompileError):
 
 
 def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
-    return list(SSMStructureRuntime(ssm_spec).offdiag_positions)
+    return list(SSMParameterLayout.from_spec(ssm_spec).offdiag_positions)
 
 
 def _drift_parameter_name(
@@ -176,14 +176,14 @@ def _drift_parameter_name(
     effect_idx: int,
     cause_idx: int,
     *,
-    structure_runtime: SSMStructureRuntime | None = None,
+    parameter_layout: SSMParameterLayout | None = None,
 ) -> tuple[str, str, str]:
     if not ssm_spec.latent_names:
         raise ValueError(
             "SSMSpec.latent_names is empty; cross-lag parameter names require explicit "
             "latent_names on the translated SSMSpec."
         )
-    runtime = structure_runtime or SSMStructureRuntime(ssm_spec)
+    runtime = parameter_layout or SSMParameterLayout.from_spec(ssm_spec)
     flat_idx = runtime.offdiag_index.get((effect_idx, cause_idx))
     if flat_idx is None:
         raise ValueError(f"No drift_offdiag entry at latent pair ({effect_idx}, {cause_idx}).")
@@ -231,7 +231,7 @@ def _resolve_cross_lag_interval_days(
     param_name: str,
     prior_spec: dict[str, Any],
     flat_index: int,
-    structure_runtime: SSMStructureRuntime,
+    parameter_layout: SSMParameterLayout,
     ssm_spec: SSMSpec,
     edge_lag_days: dict[tuple[int, int], float] | None,
     causal_spec: dict | None,
@@ -247,12 +247,12 @@ def _resolve_cross_lag_interval_days(
             )
         return interval_days
 
-    if flat_index >= structure_runtime.n_drift_offdiag:
+    if flat_index >= parameter_layout.n_drift_offdiag:
         raise ValueError(
             f"Cross-lag prior '{param_name}' resolved to invalid flat index {flat_index}."
         )
 
-    effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
+    effect_idx, cause_idx = parameter_layout.offdiag_positions[flat_index]
     lag_days = (edge_lag_days or {}).get((effect_idx, cause_idx))
     if lag_days is not None:
         interval_days = float(lag_days)
@@ -476,7 +476,7 @@ def collect_first_order_approximation_warnings(
     if ssm_spec is None or base_decay_prior is None or offdiag_prior is None:
         return []
 
-    structure_runtime = SSMStructureRuntime(ssm_spec)
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
     base_decay_mu = _positive_prior_mean_values(base_decay_prior)
     offdiag_mu = _prior_values_1d(offdiag_prior.get("mu"))
     if base_decay_mu.size == 0 or offdiag_mu.size == 0:
@@ -484,14 +484,15 @@ def collect_first_order_approximation_warnings(
 
     taylor_drift = _assemble_mean_drift_from_prior_values(
         ssm_spec,
-        structure_runtime,
+        parameter_layout,
         base_decay_mu=base_decay_mu,
         offdiag_mu=offdiag_mu,
     )
     diag_abs = np.abs(np.diag(taylor_drift))
     ti_mask = np.zeros_like(diag_abs, dtype=bool)
-    if ssm_spec.time_invariant_mask is not None:
-        candidate = np.asarray(ssm_spec.time_invariant_mask, dtype=bool)
+    drift_component, _ = ssm_spec.structural_drift_components()
+    if drift_component.time_invariant_mask is not None:
+        candidate = np.asarray(drift_component.time_invariant_mask, dtype=bool)
         if candidate.size == diag_abs.size:
             ti_mask = candidate
     eligible_mask = (diag_abs >= NUMERICAL_EPSILON) & ~ti_mask
@@ -502,11 +503,11 @@ def collect_first_order_approximation_warnings(
     if min_diag < NUMERICAL_EPSILON:
         return []
     min_diag_latent_idx = int(eligible_indices[int(np.argmin(diag_abs[eligible_indices]))])
-    min_diag_flat_idx = structure_runtime.drift_base_decay_index.get(min_diag_latent_idx)
+    min_diag_flat_idx = parameter_layout.drift_base_decay_index.get(min_diag_latent_idx)
 
     min_diag_name = (
         resolve_scalar_parameter_name(
-            ssm_spec, structure_runtime, "drift_base_decay_free", min_diag_flat_idx
+            ssm_spec, parameter_layout, "drift_base_decay_free", min_diag_flat_idx
         )
         if min_diag_flat_idx is not None
         else None
@@ -515,9 +516,9 @@ def collect_first_order_approximation_warnings(
 
     warnings: list[CompileDiagnostic] = []
     for idx, offdiag_value in enumerate(offdiag_mu):
-        if idx >= len(structure_runtime.offdiag_positions):
+        if idx >= len(parameter_layout.offdiag_positions):
             continue
-        effect_idx, cause_idx = structure_runtime.offdiag_positions[idx]
+        effect_idx, cause_idx = parameter_layout.offdiag_positions[idx]
         interval_days = _resolve_offdiag_interval_days(
             idx,
             effect_idx=effect_idx,
@@ -529,7 +530,7 @@ def collect_first_order_approximation_warnings(
             continue
 
         beta_name = resolve_scalar_parameter_name(
-            ssm_spec, structure_runtime, "drift_offdiag_free", idx
+            ssm_spec, parameter_layout, "drift_offdiag_free", idx
         )
         if beta_name is not None:
             latent_names = axis_names_with_fallback(
@@ -666,27 +667,28 @@ def _positive_prior_mean_values(prior: dict[str, Any]) -> np.ndarray:
 
 def _assemble_mean_drift_from_prior_values(
     ssm_spec: SSMSpec,
-    structure_runtime: SSMStructureRuntime,
+    parameter_layout: SSMParameterLayout,
     *,
     base_decay_mu: np.ndarray,
     offdiag_mu: np.ndarray,
 ) -> np.ndarray:
-    drift = np.asarray(ssm_spec.drift, dtype=float).copy()
-    for flat_idx, (effect_idx, cause_idx) in enumerate(structure_runtime.offdiag_positions):
+    drift_component, _ = ssm_spec.structural_drift_components()
+    drift = np.asarray(drift_component.drift_template, dtype=float).copy()
+    for flat_idx, (effect_idx, cause_idx) in enumerate(parameter_layout.offdiag_positions):
         if flat_idx < offdiag_mu.size:
             drift[effect_idx, cause_idx] = float(offdiag_mu[flat_idx])
     offdiag = drift.copy()
     np.fill_diagonal(offdiag, 0.0)
     row_abs = np.sum(np.abs(offdiag), axis=1)
-    for flat_idx, latent_idx in enumerate(structure_runtime.drift_base_decay_positions):
+    for flat_idx, latent_idx in enumerate(parameter_layout.drift_base_decay_positions):
         if flat_idx < base_decay_mu.size:
             drift[latent_idx, latent_idx] = -(
                 float(base_decay_mu[flat_idx])
                 + float(row_abs[latent_idx])
-                + float(ssm_spec.stability_margin)
+                + float(drift_component.stability_margin)
             )
-    if ssm_spec.time_invariant_mask is not None:
-        ti_mask = np.asarray(ssm_spec.time_invariant_mask, dtype=bool)
+    if drift_component.time_invariant_mask is not None:
+        ti_mask = np.asarray(drift_component.time_invariant_mask, dtype=bool)
         if ti_mask.size == drift.shape[0]:
             drift[np.diag_indices(drift.shape[0])] = np.where(
                 ti_mask,
@@ -748,8 +750,9 @@ def matrix_log_diagnostic_drift(
         )
     exact_drift = np.real(log_transition) / interval_days
 
-    if ssm_spec.time_invariant_mask is not None:
-        ti_mask = np.asarray(ssm_spec.time_invariant_mask, dtype=bool)
+    drift_component, _ = ssm_spec.structural_drift_components()
+    if drift_component.time_invariant_mask is not None:
+        ti_mask = np.asarray(drift_component.time_invariant_mask, dtype=bool)
         if ti_mask.size == exact_drift.shape[0]:
             exact_drift[np.diag_indices(exact_drift.shape[0])] = np.where(
                 ti_mask,
@@ -766,7 +769,7 @@ def logm_diagnostic_mean_drift(
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ) -> np.ndarray | None:
     """Return the exact matrix-log mean drift for Stage 4 dynamics diagnostics."""
-    structure_runtime = SSMStructureRuntime(ssm_spec)
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
     base_decay_mu = _positive_prior_mean_values(ssm_priors.drift_base_decay)
     offdiag_mu = _prior_values_1d(ssm_priors.drift_offdiag.get("mu"))
     if base_decay_mu.size == 0 and offdiag_mu.size == 0:
@@ -774,7 +777,7 @@ def logm_diagnostic_mean_drift(
 
     drift = _assemble_mean_drift_from_prior_values(
         ssm_spec,
-        structure_runtime,
+        parameter_layout,
         base_decay_mu=base_decay_mu,
         offdiag_mu=offdiag_mu,
     )
@@ -882,7 +885,7 @@ def compile_priors(
         static_state_sd_param_index,
         observation_site_param_index,
     ) = index_maps
-    structure_runtime = SSMStructureRuntime(ssm_spec) if ssm_spec is not None else None
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec) if ssm_spec is not None else None
     errors: list[str] = []
     offdiag_interval_days: dict[int, float] = {}
 
@@ -961,7 +964,7 @@ def compile_priors(
 
             if param_name in offdiag_param_index:
                 attr, idx = offdiag_param_index[param_name]
-                if structure_runtime is None or ssm_spec is None:
+                if parameter_layout is None or ssm_spec is None:
                     raise ValueError(
                         "Cross-lag prior compilation requires a translated SSMSpec runtime."
                     )
@@ -969,7 +972,7 @@ def compile_priors(
                     param_name=param_name,
                     prior_spec=prior_spec,
                     flat_index=idx,
-                    structure_runtime=structure_runtime,
+                    parameter_layout=parameter_layout,
                     ssm_spec=ssm_spec,
                     edge_lag_days=edge_lag_days,
                     causal_spec=causal_spec,

@@ -11,6 +11,11 @@ import type {
 import type { UIMessage } from "ai";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
+import type {
+  RefinementUIMessage,
+  SuggestionAction,
+  SuggestionChip,
+} from "@/lib/utils/trace-to-core";
 import {
   createCompletedStageStory,
   createStageStatusStory,
@@ -153,7 +158,63 @@ function createUserMessage(id: string, prompt: string): UIMessage {
   };
 }
 
-function createAssistantMessage(id: string, scenario: FollowUpScenario): UIMessage {
+function getFollowUpSuggestions(scenario: FollowUpScenario): SuggestionChip[] {
+  if (scenario === "rung2") {
+    return [
+      {
+        label: "Counterfactual: higher adherence",
+        action: {
+          tool: "simulate_counterfactual",
+          input: {
+            evidence: counterfactualResult.evidence,
+            action: counterfactualResult.action,
+            outcome: counterfactualResult.outcome,
+            query: {
+              estimand: counterfactualResult.estimand,
+              horizon_days: 30,
+              projection: "latent",
+            },
+          },
+        },
+      },
+      {
+        label: "Run the same with a −1 shift",
+        action: {
+          tool: "simulate_intervention",
+          input: {
+            action: { ...interventionResult.action, amount: -1 },
+            outcome: interventionResult.outcome,
+            query: {
+              estimand: interventionResult.estimand,
+              horizon_days: 30,
+              projection: "latent",
+            },
+          },
+        },
+      },
+    ];
+  }
+  return [
+    {
+      label: "Try shifting exposure +1",
+      action: {
+        tool: "simulate_intervention",
+        input: {
+          action: interventionResult.action,
+          outcome: interventionResult.outcome,
+          query: {
+            estimand: interventionResult.estimand,
+            horizon_days: 30,
+            projection: "latent",
+          },
+        },
+      },
+    },
+  ];
+}
+
+function createAssistantMessage(id: string, scenario: FollowUpScenario): RefinementUIMessage {
+  const suggestions = getFollowUpSuggestions(scenario);
   return {
     id,
     role: "assistant",
@@ -166,6 +227,10 @@ function createAssistantMessage(id: string, scenario: FollowUpScenario): UIMessa
         state: "output-available",
         input: getToolInput(scenario),
         output: structuredClone(getSimulationResult(scenario)),
+      },
+      {
+        type: "data-suggestions",
+        data: { suggestions },
       },
     ],
   };
@@ -218,6 +283,7 @@ function Stage6FollowUpPanel({
   isLoading = false,
   onInputChange,
   onSubmit,
+  onSuggestionClick,
 }: {
   refinementMessages: UIMessage[];
   input?: string;
@@ -225,6 +291,7 @@ function Stage6FollowUpPanel({
   isLoading?: boolean;
   onInputChange?: (value: string) => void;
   onSubmit?: (event: FormEvent) => void;
+  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -236,13 +303,16 @@ function Stage6FollowUpPanel({
         input={input}
         onInputChange={onInputChange}
         onSubmit={onSubmit}
+        onSuggestionClick={onSuggestionClick}
       />
     </div>
   );
 }
 
 function InteractiveFollowUpDemoView() {
-  const [refinementMessages, setRefinementMessages] = useState<UIMessage[]>([]);
+  const [refinementMessages, setRefinementMessages] = useState<UIMessage[]>(() =>
+    buildFollowUpMessages("rung2"),
+  );
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const timeoutRef = useRef<number | null>(null);
@@ -306,6 +376,66 @@ function InteractiveFollowUpDemoView() {
     dispatchPrompt(input);
   }
 
+  function dispatchAction(action: SuggestionAction, chip: SuggestionChip) {
+    if (timeoutRef.current != null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
+    const scenario: FollowUpScenario =
+      action.tool === "simulate_counterfactual" ? "rung3" : "rung2";
+    const toolCallId = `chip-${Date.now()}`;
+    const userMessage = createUserMessage(
+      `chip-user-${toolCallId}`,
+      `[Action] ${chip.label}`,
+    );
+    const pendingMessage: UIMessage = {
+      id: `chip-assistant-${toolCallId}`,
+      role: "assistant",
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolCallId,
+          toolName: action.tool,
+          state: "input-available",
+          input: action.input,
+        },
+      ],
+    };
+
+    setRefinementMessages((messages) => [...messages, userMessage, pendingMessage]);
+    setIsLoading(true);
+
+    timeoutRef.current = window.setTimeout(() => {
+      setRefinementMessages((messages) =>
+        messages.map((msg) => {
+          if (msg.id !== pendingMessage.id) return msg;
+          return {
+            ...msg,
+            parts: msg.parts.map((part) => {
+              if (
+                part.type !== "dynamic-tool" ||
+                part.toolCallId !== toolCallId
+              ) {
+                return part;
+              }
+              return {
+                type: "dynamic-tool" as const,
+                toolCallId: part.toolCallId,
+                toolName: part.toolName,
+                state: "output-available" as const,
+                input: part.input,
+                output: structuredClone(getSimulationResult(scenario)),
+              };
+            }),
+          };
+        }),
+      );
+      setIsLoading(false);
+      timeoutRef.current = null;
+    }, 450);
+  }
+
   return (
     <StageStoryTemplate
       stage={stage}
@@ -325,6 +455,7 @@ function InteractiveFollowUpDemoView() {
           isLoading={isLoading}
           onInputChange={setInput}
           onSubmit={handleSubmit}
+          onSuggestionClick={dispatchAction}
         />
       }
     >
@@ -353,16 +484,6 @@ export const Completed = createCompletedStageStory({
     dagScene: baselineDagScene,
   },
   ...completedShellProps,
-  renderContent: (args) => <Stage6Showcase {...args} />,
-});
-
-export const OpenPanel = createCompletedStageStory({
-  stage,
-  args: {
-    data: dataWithTrace,
-    dagScene: baselineDagScene,
-  },
-  ...completedShellProps,
   defaultPanelOpen: true,
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
@@ -377,6 +498,7 @@ export const CompletedAuxKalmanMCMC = createCompletedStageStory({
   outcome: auxKalmanMCMCDataWithTrace.outcome,
   elapsedMs: 8_100,
   trace: storyTrace,
+  defaultPanelOpen: true,
   renderContent: (args) => <Stage6Showcase {...args} />,
 });
 

@@ -29,7 +29,6 @@ import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 from blackjax.mcmc import nuts as blackjax_nuts
-from jax.flatten_util import ravel_pytree
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
@@ -43,10 +42,10 @@ from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     GaussianTrajectoryPriorTerms,
-    _build_gaussian_trajectory_prior_terms,
     _build_linear_summary_accumulator_plan,
     _predictive_latent_init,
-    _trajectory_prior_log_prob_from_terms,
+    build_gaussian_trajectory_prior_terms,
+    trajectory_prior_log_prob_from_terms,
 )
 from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system,
@@ -64,15 +63,16 @@ from nof1_causal_lab.models.ssm.inference.utils import (
     _build_original_sample_resolver,
     _discover_sites,
     _DummyLikelihoodBackend,
+    build_unconstrained_site_transform,
 )
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
 # Match laplace/shared.py's default jitter so the auxiliary-Kalman proposal and
 # the target trajectory log-prob agree on the covariance being evaluated.
-_AUX_JITTER = 1e-6
+AUX_JITTER = 1e-6
 
 
-class _LatentContext(NamedTuple):
+class LatentContext(NamedTuple):
     Ad: jnp.ndarray
     Qd: jnp.ndarray
     cd: jnp.ndarray
@@ -90,7 +90,7 @@ def _shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
     return tuple(array.shape), str(jnp.dtype(array.dtype))
 
 
-def _gaussian_log_prob_isotropic(
+def gaussian_log_prob_isotropic(
     value: jnp.ndarray,
     mean: jnp.ndarray,
     variance: jnp.ndarray,
@@ -103,7 +103,7 @@ def _gaussian_log_prob_isotropic(
     the same total log-probability when ``variance`` is constant.
     """
     if value.ndim == 0:
-        raise ValueError("_gaussian_log_prob_isotropic requires at least 1-D value.")
+        raise ValueError("gaussian_log_prob_isotropic requires at least 1-D value.")
     diff = value - mean
     variance_arr = jnp.asarray(variance, dtype=diff.dtype)
     if variance_arr.ndim == 0:
@@ -143,7 +143,7 @@ def _trajectory_prior_log_prob_per_t_from_terms(
 
     Slot ``t=0`` contains the initial log-density ``log p(z_0)`` and slot
     ``t>0`` contains the transition log-density ``log p(z_t | z_{t-1})``.
-    Summing equals :func:`_trajectory_prior_log_prob_from_terms`. Used by
+    Summing equals :func:`trajectory_prior_log_prob_from_terms`. Used by
     the per-t MH-ratio diagnostic only.
     """
     from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
@@ -177,14 +177,14 @@ def _trajectory_prior_log_prob_per_t_from_terms(
     return jnp.concatenate([jnp.reshape(init_ll, (1,)), transition_ll])
 
 
-def _gaussian_log_prob_isotropic_per_t(
+def gaussian_log_prob_isotropic_per_t(
     value: jnp.ndarray,
     mean: jnp.ndarray,
     variance: jnp.ndarray,
 ) -> jnp.ndarray:
     """Per-timestep ``(T,)`` log-density of ``N(value; mean, variance * I)``.
 
-    Like :func:`_gaussian_log_prob_isotropic` but returns the per-t vector
+    Like :func:`gaussian_log_prob_isotropic` but returns the per-t vector
     whose sum equals the scalar output. Used only by the per-t MH-ratio
     diagnostic; zero cost when the diagnostic flag is off.
     """
@@ -208,17 +208,17 @@ def _gaussian_log_prob_isotropic_per_t(
     return -0.5 * (per_time_dim * logvar_per_t + ss_per_t / variance_arr)
 
 
-def _initial_latent_moments(context: _LatentContext) -> tuple[jnp.ndarray, jnp.ndarray]:
+def _initial_latent_moments(context: LatentContext) -> tuple[jnp.ndarray, jnp.ndarray]:
     init_pred_mean = context.Ad[0] @ context.init_mean + context.cd[0]
     init_pred_cov = symmetrize_with_jitter(
         context.Ad[0] @ context.init_cov @ context.Ad[0].T + context.Qd[0],
-        jitter=_AUX_JITTER,
+        jitter=AUX_JITTER,
     )
     return init_pred_mean, init_pred_cov
 
 
 def _filter_auxiliary_lgssm_lightweight(
-    context: _LatentContext,
+    context: LatentContext,
     pseudo_observations: jnp.ndarray,
     delta: jnp.ndarray,
     *,
@@ -233,7 +233,7 @@ def _filter_auxiliary_lgssm_lightweight(
         bs=context.cd,
         pseudo_observations=pseudo_observations,
         aux_variance=0.5 * delta,
-        jitter=_AUX_JITTER,
+        jitter=AUX_JITTER,
         parallel=parallel,
     )
     return (
@@ -245,7 +245,7 @@ def _filter_auxiliary_lgssm_lightweight(
 
 def _sample_auxiliary_trajectory(
     key: jnp.ndarray,
-    context: _LatentContext,
+    context: LatentContext,
     *,
     filt_means: jnp.ndarray,
     filt_covs: jnp.ndarray,
@@ -258,27 +258,27 @@ def _sample_auxiliary_trajectory(
         Fs=context.Ad[1:],
         Qs=context.Qd[1:],
         bs=context.cd[1:],
-        jitter=_AUX_JITTER,
+        jitter=AUX_JITTER,
         parallel=parallel,
     )
 
 
 def _auxiliary_posterior_log_prob(
     latent_trajectory: jnp.ndarray,
-    context: _LatentContext,
+    context: LatentContext,
     pseudo_observations: jnp.ndarray,
     *,
     delta: jnp.ndarray,
     log_evidence: jnp.ndarray,
     prior_terms: GaussianTrajectoryPriorTerms,
 ) -> jnp.ndarray:
-    prior_lp = _trajectory_prior_log_prob_from_terms(
+    prior_lp = trajectory_prior_log_prob_from_terms(
         latent_trajectory,
         context.Ad,
         context.cd,
         prior_terms,
     )
-    pseudo_lp = _gaussian_log_prob_isotropic(
+    pseudo_lp = gaussian_log_prob_isotropic(
         pseudo_observations,
         latent_trajectory,
         0.5 * delta,
@@ -295,8 +295,8 @@ def _shifted_auxiliary_pseudo_observations(
     return u + half_delta_bcast * grad
 
 
-_TULAC_H = float(os.environ.get("TULAC_H", "0.1"))
-"""Fixed taming threshold for ``_tame_gradient_tulac``.
+TULAC_H = float(os.environ.get("TULAC_H", "0.1"))
+"""Fixed taming threshold for ``tame_gradient_tulac``.
 
 Chosen so that "well-behaved" gradients (``|grad| ≪ 10``) are essentially
 untouched while extreme gradients (``|grad| ≫ 10``) saturate at ``1/h = 10``.
@@ -309,11 +309,11 @@ bound is ``5 * δ`` per coord, which actually scales down with adaptation.
 The env var ``TULAC_H`` overrides the default for sweep experiments."""
 
 
-def _tame_gradient_tulac(grad: jnp.ndarray) -> jnp.ndarray:
+def tame_gradient_tulac(grad: jnp.ndarray) -> jnp.ndarray:
     """Coordinatewise tamed gradient (TULAc, Brosse et al. 2017): ``g_i / (1 + h * |g_i|)``.
 
     Recovers ``grad`` when ``h * |grad| ≪ 1`` and saturates each component at
-    ``sign(g_i) / h`` when ``|g_i|`` is huge. With fixed ``h = _TULAC_H``
+    ``sign(g_i) / h`` when ``|g_i|`` is huge. With fixed ``h = TULAC_H``
     (currently 0.1), the resulting pseudo-observation perturbation
     ``(δ/2) * T(grad)`` is bounded by ``5 * δ`` per coordinate — proportional
     to the step size so adaptation can actually shrink it.
@@ -323,7 +323,7 @@ def _tame_gradient_tulac(grad: jnp.ndarray) -> jnp.ndarray:
     on forward and reverse passes, so the auxiliary-Kalman MH ratio remains
     correct — the proposal kernel is just a different (still valid) kernel.
     """
-    return grad / (1.0 + _TULAC_H * jnp.abs(grad))
+    return grad / (1.0 + TULAC_H * jnp.abs(grad))
 
 
 def build_auxiliary_kalman_bundle(
@@ -357,13 +357,9 @@ def build_auxiliary_kalman_bundle(
             _DummyLikelihoodBackend(),
             reparam=reparam,
         )
-        example_unc = {
-            name: info["transform"].inv(info["value"]) for name, info in site_info.items()
-        }
-        flat_example, unravel_fn = ravel_pytree(example_unc)
-
-        transforms = {name: info["transform"] for name, info in site_info.items()}
-        distributions = {name: info["distribution"] for name, info in site_info.items()}
+        unc_transform = build_unconstrained_site_transform(site_info)
+        flat_example = unc_transform.flat_init
+        unravel_fn = unc_transform.unconstrain_dict
         sample_resolver = _build_original_sample_resolver(
             site_info,
             model=model,
@@ -377,7 +373,7 @@ def build_auxiliary_kalman_bundle(
                 "AutoReparam with fixed centering."
             )
 
-        runtime_registry = build_site_registry(model.spec, model.structure_runtime)
+        runtime_registry = build_site_registry(model.spec, model.parameter_layout)
         manifest_links = model.spec.manifest_links or [
             LinkFunction.IDENTITY for _ in range(model.spec.n_manifest)
         ]
@@ -407,22 +403,11 @@ def build_auxiliary_kalman_bundle(
         )
 
         def _constrain(z: jnp.ndarray) -> tuple[dict[str, jnp.ndarray], dict[str, jnp.ndarray]]:
-            unconstrained = unravel_fn(z)
-            constrained = {name: transforms[name](unconstrained[name]) for name in unconstrained}
-            return constrained, unconstrained
+            return unc_transform.constrain_dict(z), unc_transform.unconstrain_dict(z)
 
-        def log_prior_unc_fn(z: jnp.ndarray) -> jnp.ndarray:
-            constrained, unconstrained = _constrain(z)
-            log_prior = jnp.array(0.0, dtype=flat_example.dtype)
-            log_jacobian = jnp.array(0.0, dtype=flat_example.dtype)
-            for name in unconstrained:
-                log_prior = log_prior + jnp.sum(distributions[name].log_prob(constrained[name]))
-                log_jacobian = log_jacobian + jnp.sum(
-                    transforms[name].log_abs_det_jacobian(unconstrained[name], constrained[name])
-                )
-            return log_prior + log_jacobian
+        log_prior_unc_fn = unc_transform.log_prior_unc
 
-        def latent_context_runtime_fn(z: jnp.ndarray, runtime_times: jnp.ndarray) -> _LatentContext:
+        def latent_context_runtime_fn(z: jnp.ndarray, runtime_times: jnp.ndarray) -> LatentContext:
             constrained, _ = _constrain(z)
             original_samples = sample_resolver(constrained)
             ct_params, measurement_params, initial_state, extra_params = (
@@ -430,7 +415,7 @@ def build_auxiliary_kalman_bundle(
                     original_samples,
                     model.spec,
                     registry=runtime_registry,
-                    structure_runtime=model.structure_runtime,
+                    parameter_layout=model.parameter_layout,
                 )
             )
             time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
@@ -479,7 +464,7 @@ def build_auxiliary_kalman_bundle(
                     init_cov=initial_state.cov,
                     support_kind_codes=support_kind_codes,
                 )
-            return _LatentContext(
+            return LatentContext(
                 Ad=Ad,
                 Qd=Qd,
                 cd=cd_scan,
@@ -493,7 +478,7 @@ def build_auxiliary_kalman_bundle(
                 d_rows=d_rows,
             )
 
-        def _measurement_semantics_from_context(context: _LatentContext):
+        def _measurement_semantics_from_context(context: LatentContext):
             return compile_measurement_semantics(
                 model.spec.manifest_dists,
                 manifest_cov=context.R,
@@ -505,7 +490,7 @@ def build_auxiliary_kalman_bundle(
             )
 
         def observation_log_prob_from_context_runtime_fn(
-            context: _LatentContext,
+            context: LatentContext,
             latent_trajectory: jnp.ndarray,
             runtime_observations: jnp.ndarray,
         ) -> jnp.ndarray:
@@ -538,7 +523,7 @@ def build_auxiliary_kalman_bundle(
             return jnp.asarray(obs_lp, dtype=latent_trajectory.dtype)
 
         def observation_increment_log_prob_from_context_runtime_fn(
-            context: _LatentContext,
+            context: LatentContext,
             latent_state: jnp.ndarray,
             time_idx: jnp.ndarray,
             runtime_observations: jnp.ndarray,
@@ -567,7 +552,7 @@ def build_auxiliary_kalman_bundle(
             return jnp.asarray(obs_lp, dtype=latent_state.dtype)
 
         def observation_log_prob_per_t_from_context_runtime_fn(
-            context: _LatentContext,
+            context: LatentContext,
             latent_trajectory: jnp.ndarray,
             runtime_observations: jnp.ndarray,
         ) -> jnp.ndarray:
@@ -622,25 +607,25 @@ def build_auxiliary_kalman_bundle(
             argnums=1,
         )
 
-        def prior_terms_from_context_fn(context: _LatentContext) -> GaussianTrajectoryPriorTerms:
-            return _build_gaussian_trajectory_prior_terms(
+        def prior_terms_from_context_fn(context: LatentContext) -> GaussianTrajectoryPriorTerms:
+            return build_gaussian_trajectory_prior_terms(
                 context.Ad,
                 context.Qd,
                 context.cd,
                 context.init_mean,
                 context.init_cov,
-                jitter=_AUX_JITTER,
+                jitter=AUX_JITTER,
             )
 
         def trajectory_log_prob_from_context_runtime_fn(
-            context: _LatentContext,
+            context: LatentContext,
             latent_trajectory: jnp.ndarray,
             runtime_observations: jnp.ndarray,
             prior_terms: GaussianTrajectoryPriorTerms | None = None,
         ) -> jnp.ndarray:
             if prior_terms is None:
                 prior_terms = prior_terms_from_context_fn(context)
-            prior_lp = _trajectory_prior_log_prob_from_terms(
+            prior_lp = trajectory_prior_log_prob_from_terms(
                 latent_trajectory,
                 context.Ad,
                 context.cd,
@@ -668,7 +653,7 @@ def build_auxiliary_kalman_bundle(
 
         def complete_log_posterior_from_context_runtime_fn(
             z: jnp.ndarray,
-            context: _LatentContext,
+            context: LatentContext,
             latent_trajectory: jnp.ndarray,
             runtime_observations: jnp.ndarray,
         ) -> tuple[jnp.ndarray, jnp.ndarray]:
@@ -700,7 +685,7 @@ def build_auxiliary_kalman_bundle(
             latent_trajectory: jnp.ndarray,
             runtime_observations: jnp.ndarray,
             runtime_times: jnp.ndarray,
-        ) -> tuple[jnp.ndarray, tuple[jnp.ndarray, _LatentContext]]:
+        ) -> tuple[jnp.ndarray, tuple[jnp.ndarray, LatentContext]]:
             context = latent_context_runtime_fn(z, runtime_times)
             complete_lp, trajectory_lp = complete_log_posterior_from_context_runtime_fn(
                 z,
@@ -710,7 +695,7 @@ def build_auxiliary_kalman_bundle(
             )
             return complete_lp, (trajectory_lp, context)
 
-        def initial_latent_from_context_fn(context: _LatentContext) -> jnp.ndarray:
+        def initial_latent_from_context_fn(context: LatentContext) -> jnp.ndarray:
             return _predictive_latent_init(context.Ad, context.cd, context.init_mean)
 
         def initial_latent_runtime_fn(
@@ -773,11 +758,11 @@ def build_auxiliary_kalman_bundle(
     runtime_observations = jnp.asarray(observations)
     runtime_times = jnp.asarray(times)
 
-    def latent_context_fn(z: jnp.ndarray) -> _LatentContext:
+    def latent_context_fn(z: jnp.ndarray) -> LatentContext:
         return runtime_bundle["latent_context_runtime_fn"](z, runtime_times)
 
     def observation_log_prob_from_context_fn(
-        context: _LatentContext,
+        context: LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> jnp.ndarray:
         return runtime_bundle["observation_log_prob_from_context_runtime_fn"](
@@ -787,7 +772,7 @@ def build_auxiliary_kalman_bundle(
         )
 
     def observation_increment_log_prob_from_context_fn(
-        context: _LatentContext,
+        context: LatentContext,
         latent_state: jnp.ndarray,
         time_idx: jnp.ndarray,
     ) -> jnp.ndarray:
@@ -799,7 +784,7 @@ def build_auxiliary_kalman_bundle(
         )
 
     def observation_log_prob_per_t_from_context_fn(
-        context: _LatentContext,
+        context: LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> jnp.ndarray:
         return runtime_bundle["observation_log_prob_per_t_from_context_runtime_fn"](
@@ -825,7 +810,7 @@ def build_auxiliary_kalman_bundle(
         )
 
     def trajectory_log_prob_from_context_fn(
-        context: _LatentContext,
+        context: LatentContext,
         latent_trajectory: jnp.ndarray,
         prior_terms: GaussianTrajectoryPriorTerms | None = None,
     ) -> jnp.ndarray:
@@ -846,7 +831,7 @@ def build_auxiliary_kalman_bundle(
 
     def complete_log_posterior_from_context_fn(
         z: jnp.ndarray,
-        context: _LatentContext,
+        context: LatentContext,
         latent_trajectory: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         return runtime_bundle["complete_log_posterior_from_context_runtime_fn"](
@@ -870,7 +855,7 @@ def build_auxiliary_kalman_bundle(
     def complete_log_posterior_with_aux_fn(
         z: jnp.ndarray,
         latent_trajectory: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, tuple[jnp.ndarray, _LatentContext]]:
+    ) -> tuple[jnp.ndarray, tuple[jnp.ndarray, LatentContext]]:
         return runtime_bundle["complete_log_posterior_with_aux_runtime_fn"](
             z,
             latent_trajectory,
@@ -1031,10 +1016,10 @@ def _latent_mh_step_eq8_runtime(
         observation_grad_from_context_runtime_fn=observation_grad_from_context_runtime_fn,
     )
 
-    # TULAc coordinatewise gradient taming (fixed h, see _TULAC_H). Prevents
+    # TULAc coordinatewise gradient taming (fixed h, see TULAC_H). Prevents
     # log-link observation gradients from poisoning the MH ratio. Applied to
     # both ``grad_curr`` and (later) ``grad_prop`` with the same threshold.
-    grad_curr = _tame_gradient_tulac(grad_curr)
+    grad_curr = tame_gradient_tulac(grad_curr)
     u = (
         x_curr
         + half_delta_bcast * grad_curr
@@ -1089,8 +1074,8 @@ def _latent_mh_step_eq8_runtime(
     )
     grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
     # TULAc taming on the proposal-side gradient (same fixed h as grad_curr).
-    grad_prop = _tame_gradient_tulac(grad_prop)
-    prior_prop = _trajectory_prior_log_prob_from_terms(
+    grad_prop = tame_gradient_tulac(grad_prop)
+    prior_prop = trajectory_prior_log_prob_from_terms(
         x_prop,
         context.Ad,
         context.cd,
@@ -1099,12 +1084,12 @@ def _latent_mh_step_eq8_runtime(
     traj_prop = jnp.asarray(prior_prop + obs_prop, dtype=traj_dtype)
 
     log_alpha = traj_prop - traj_curr
-    log_alpha = log_alpha + _gaussian_log_prob_isotropic(
+    log_alpha = log_alpha + gaussian_log_prob_isotropic(
         u,
         x_prop + half_delta_bcast * grad_prop,
         half_delta_variance,
     )
-    log_alpha = log_alpha - _gaussian_log_prob_isotropic(
+    log_alpha = log_alpha - gaussian_log_prob_isotropic(
         u,
         x_curr + half_delta_bcast * grad_curr,
         half_delta_variance,
@@ -1136,12 +1121,12 @@ def _latent_mh_step_eq8_runtime(
             runtime_observations,
         )
         traj_per_t = (prior_per_t_prop + obs_per_t_prop) - (prior_per_t_curr + obs_per_t_curr)
-        fwd_prop_per_t = _gaussian_log_prob_isotropic_per_t(
+        fwd_prop_per_t = gaussian_log_prob_isotropic_per_t(
             u,
             x_prop + half_delta_bcast * grad_prop,
             half_delta_variance,
         )
-        fwd_curr_per_t = _gaussian_log_prob_isotropic_per_t(
+        fwd_curr_per_t = gaussian_log_prob_isotropic_per_t(
             u,
             x_curr + half_delta_bcast * grad_curr,
             half_delta_variance,
@@ -1151,13 +1136,13 @@ def _latent_mh_step_eq8_runtime(
             context.Ad,
             context.cd,
             prior_terms,
-        ) + _gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
+        ) + gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
         q_fwd_per_t = _trajectory_prior_log_prob_per_t_from_terms(
             x_prop,
             context.Ad,
             context.cd,
             prior_terms,
-        ) + _gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
+        ) + gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
         log_alpha_per_t = (
             traj_per_t + (fwd_prop_per_t - fwd_curr_per_t) + (q_rev_per_t - q_fwd_per_t)
         )
@@ -1223,11 +1208,11 @@ def _latent_mh_step_eq10_11_runtime(
         x_curr.shape,
         dtype=latent_dtype,
     )
-    # TULAc coordinatewise gradient taming (fixed h, see _TULAC_H). Bounds
+    # TULAc coordinatewise gradient taming (fixed h, see TULAC_H). Bounds
     # the pseudo-observation perturbation per coordinate; prevents log-link
     # observation gradients from poisoning the MH ratio. Applied identically
     # to both forward and reverse passes, so MH remains valid.
-    grad_curr_tamed = _tame_gradient_tulac(grad_curr)
+    grad_curr_tamed = tame_gradient_tulac(grad_curr)
     pseudo_obs_fwd = _shifted_auxiliary_pseudo_observations(u, grad_curr_tamed, half_delta_bcast)
     filt_means_fwd, filt_covs_fwd, loglik_fwd = _filter_auxiliary_lgssm_lightweight(
         context,
@@ -1250,7 +1235,7 @@ def _latent_mh_step_eq10_11_runtime(
         x_prop,
         runtime_observations,
     )
-    prior_prop = _trajectory_prior_log_prob_from_terms(
+    prior_prop = trajectory_prior_log_prob_from_terms(
         x_prop,
         context.Ad,
         context.cd,
@@ -1271,7 +1256,7 @@ def _latent_mh_step_eq10_11_runtime(
     )
 
     grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
-    grad_prop_tamed = _tame_gradient_tulac(grad_prop)
+    grad_prop_tamed = tame_gradient_tulac(grad_prop)
     pseudo_obs_rev = _shifted_auxiliary_pseudo_observations(u, grad_prop_tamed, half_delta_bcast)
     _fm_rev, _fc_rev, loglik_rev = _filter_auxiliary_lgssm_lightweight(
         context,
@@ -1293,8 +1278,8 @@ def _latent_mh_step_eq10_11_runtime(
     )
 
     log_alpha = traj_prop - traj_curr
-    log_alpha = log_alpha + _gaussian_log_prob_isotropic(u, x_prop, half_delta_variance)
-    log_alpha = log_alpha - _gaussian_log_prob_isotropic(u, x_curr, half_delta_variance)
+    log_alpha = log_alpha + gaussian_log_prob_isotropic(u, x_prop, half_delta_variance)
+    log_alpha = log_alpha - gaussian_log_prob_isotropic(u, x_curr, half_delta_variance)
     log_alpha = log_alpha + q_rev - q_fwd
 
     extras: dict[str, jnp.ndarray] = {}
@@ -1318,12 +1303,12 @@ def _latent_mh_step_eq10_11_runtime(
         obs_per_t_curr = observation_log_prob_per_t_from_context_runtime_fn(
             context, x_curr, runtime_observations
         )
-        iso_per_t_xprop = _gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
-        iso_per_t_xcurr = _gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
-        pseudo_lp_rev_per_t = _gaussian_log_prob_isotropic_per_t(
+        iso_per_t_xprop = gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
+        iso_per_t_xcurr = gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
+        pseudo_lp_rev_per_t = gaussian_log_prob_isotropic_per_t(
             pseudo_obs_rev, x_curr, half_delta_variance
         )
-        pseudo_lp_fwd_per_t = _gaussian_log_prob_isotropic_per_t(
+        pseudo_lp_fwd_per_t = gaussian_log_prob_isotropic_per_t(
             pseudo_obs_fwd, x_prop, half_delta_variance
         )
         log_alpha_obs_per_t = (obs_per_t_prop - obs_per_t_curr).astype(traj_dtype)
@@ -1379,13 +1364,13 @@ def _parameter_mala_step_runtime(
         runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
     )
     # T-MALA / MALTA-style coordinatewise truncated drift (Roberts & Stramer
-    # 2002, Atchadé 2006). Same _tame_gradient_tulac used on the latent side.
+    # 2002, Atchadé 2006). Same tame_gradient_tulac used on the latent side.
     # Bounds the parameter-side drift so a single superlinear gradient (e.g.
     # 1/sigma blowing up as sigma -> 0) can't push the proposal into a NaN
     # region. Applied symmetrically on forward (grad_curr) and reverse
     # (grad_prop) drifts, so the MH ratio is exact MCMC under the tamed
     # kernel.
-    grad_curr = _tame_gradient_tulac(grad_curr)
+    grad_curr = tame_gradient_tulac(grad_curr)
     h = state.param_step_size
     noise = random.normal(proposal_key, state.position.shape, dtype=state.position.dtype)
     if precond_chol is None or preconditioner_mat is None:
@@ -1402,12 +1387,12 @@ def _parameter_mala_step_runtime(
         runtime_times,
         runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
     )
-    grad_prop = _tame_gradient_tulac(grad_prop)
+    grad_prop = tame_gradient_tulac(grad_prop)
     if precond_chol is None or preconditioner_mat is None:
         mean_rev = proposal + 0.5 * (h**2) * grad_prop
         log_alpha = complete_prop - complete_curr
-        log_alpha = log_alpha + _gaussian_log_prob_isotropic(state.position, mean_rev, h**2)
-        log_alpha = log_alpha - _gaussian_log_prob_isotropic(proposal, mean_fwd, h**2)
+        log_alpha = log_alpha + gaussian_log_prob_isotropic(state.position, mean_rev, h**2)
+        log_alpha = log_alpha - gaussian_log_prob_isotropic(proposal, mean_fwd, h**2)
     else:
         drift_prop = 0.5 * (h**2) * (preconditioner_mat @ grad_prop)
         mean_rev = proposal + drift_prop
@@ -1656,7 +1641,7 @@ def build_auxiliary_kalman_latent_kernel(
             x_prop,
         )
         grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
-        prior_prop = _trajectory_prior_log_prob_from_terms(
+        prior_prop = trajectory_prior_log_prob_from_terms(
             x_prop,
             context.Ad,
             context.cd,
@@ -1668,10 +1653,10 @@ def build_auxiliary_kalman_latent_kernel(
         )
 
         log_alpha = traj_prop - traj_curr
-        log_alpha = log_alpha + _gaussian_log_prob_isotropic(
+        log_alpha = log_alpha + gaussian_log_prob_isotropic(
             u, x_prop + half_delta_bcast * grad_prop, half_delta_variance
         )
-        log_alpha = log_alpha - _gaussian_log_prob_isotropic(
+        log_alpha = log_alpha - gaussian_log_prob_isotropic(
             u, x_curr + half_delta_bcast * grad_curr, half_delta_variance
         )
         log_alpha = log_alpha + q_rev - q_fwd
@@ -1691,18 +1676,18 @@ def build_auxiliary_kalman_latent_kernel(
             obs_per_t_prop = bundle["observation_log_prob_per_t_from_context_fn"](context, x_prop)
             obs_per_t_curr = bundle["observation_log_prob_per_t_from_context_fn"](context, x_curr)
             traj_per_t = (prior_per_t_prop + obs_per_t_prop) - (prior_per_t_curr + obs_per_t_curr)
-            fwd_prop_per_t = _gaussian_log_prob_isotropic_per_t(
+            fwd_prop_per_t = gaussian_log_prob_isotropic_per_t(
                 u, x_prop + half_delta_bcast * grad_prop, half_delta_variance
             )
-            fwd_curr_per_t = _gaussian_log_prob_isotropic_per_t(
+            fwd_curr_per_t = gaussian_log_prob_isotropic_per_t(
                 u, x_curr + half_delta_bcast * grad_curr, half_delta_variance
             )
             q_rev_per_t = _trajectory_prior_log_prob_per_t_from_terms(
                 x_curr, context.Ad, context.cd, prior_terms
-            ) + _gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
+            ) + gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
             q_fwd_per_t = _trajectory_prior_log_prob_per_t_from_terms(
                 x_prop, context.Ad, context.cd, prior_terms
-            ) + _gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
+            ) + gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
             log_alpha_per_t = (
                 traj_per_t + (fwd_prop_per_t - fwd_curr_per_t) + (q_rev_per_t - q_fwd_per_t)
             )
@@ -1765,7 +1750,7 @@ def build_auxiliary_kalman_latent_kernel(
             context,
             x_prop,
         )
-        prior_prop = _trajectory_prior_log_prob_from_terms(
+        prior_prop = trajectory_prior_log_prob_from_terms(
             x_prop,
             context.Ad,
             context.cd,
@@ -1807,8 +1792,8 @@ def build_auxiliary_kalman_latent_kernel(
         )
 
         log_alpha = traj_prop - traj_curr
-        log_alpha = log_alpha + _gaussian_log_prob_isotropic(u, x_prop, half_delta_variance)
-        log_alpha = log_alpha - _gaussian_log_prob_isotropic(u, x_curr, half_delta_variance)
+        log_alpha = log_alpha + gaussian_log_prob_isotropic(u, x_prop, half_delta_variance)
+        log_alpha = log_alpha - gaussian_log_prob_isotropic(u, x_curr, half_delta_variance)
         log_alpha = log_alpha + q_rev - q_fwd
 
         accept_prob = jnp.exp(jnp.minimum(log_alpha, 0.0))

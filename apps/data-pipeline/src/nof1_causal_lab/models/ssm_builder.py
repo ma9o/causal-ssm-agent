@@ -7,14 +7,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
+import numpy as np
 import polars as pl
 
 from nof1_causal_lab.models.ssm import (
     InferenceResult,
     SSMModel,
+    SSMParameterLayout,
     SSMPriors,
     SSMSpec,
-    SSMStructureRuntime,
     fit,
     full_cholesky_mask,
     full_diagonal_mask,
@@ -23,6 +24,14 @@ from nof1_causal_lab.models.ssm import (
     strict_lower_triangle_mask,
     zero_loading_mask,
     zero_vector_mask,
+)
+from nof1_causal_lab.models.ssm.dynamics import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+    linear_drift_spec,
 )
 from nof1_causal_lab.models.ssm.inference.structure import (
     InferenceStructurePlan,
@@ -48,8 +57,6 @@ from nof1_causal_lab.models.ssm_observation_metadata import (
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
@@ -83,7 +90,7 @@ class PreparedModelRuntime:
     builder: SSMModelBuilder
     model: SSMModel
     spec: SSMSpec
-    structure_runtime: SSMStructureRuntime
+    parameter_layout: SSMParameterLayout
     wide_data: pl.DataFrame
     observation_data: pl.DataFrame | None
     observation_support: ObservationSupportRuntime | None
@@ -261,27 +268,71 @@ class SSMModelBuilder:
                 )
             # Auto-detect from data
             manifest_cols = default_manifest_columns(X)
+            n = len(manifest_cols)
             spec = SSMSpec(
-                n_latent=len(manifest_cols),
-                n_manifest=len(manifest_cols),
-                drift_diag_mask=full_diagonal_mask(len(manifest_cols)),
-                drift_offdiag_mask=full_drift_offdiag_mask(len(manifest_cols)),
-                drift=jnp.zeros((len(manifest_cols), len(manifest_cols))),
-                cint_mask=zero_vector_mask(len(manifest_cols)),
-                cint=jnp.zeros(len(manifest_cols)),
-                lambda_mask=zero_loading_mask(len(manifest_cols), len(manifest_cols)),
-                lambda_mat=jnp.eye(len(manifest_cols)),
-                diffusion_chol_mask=full_cholesky_mask(len(manifest_cols)),
-                diffusion_chol=jnp.eye(len(manifest_cols)),
-                manifest_means_mask=zero_vector_mask(len(manifest_cols)),
-                manifest_means=jnp.zeros(len(manifest_cols)),
-                manifest_chol_diag_mask=full_diagonal_mask(len(manifest_cols)),
-                manifest_chol=jnp.zeros((len(manifest_cols), len(manifest_cols))),
-                t0_means_mask=full_vector_mask(len(manifest_cols)),
-                t0_means=jnp.zeros(len(manifest_cols)),
-                t0_chol_diag_mask=full_diagonal_mask(len(manifest_cols)),
-                t0_correlation_mask=strict_lower_triangle_mask(len(manifest_cols)),
-                t0_chol=jnp.eye(len(manifest_cols)),
+                n_latent=n,
+                n_manifest=n,
+                drift_spec=linear_drift_spec(
+                    n_latent=n,
+                    drift_diag_mask=full_diagonal_mask(n),
+                    drift_offdiag_mask=full_drift_offdiag_mask(n),
+                    drift_template=jnp.zeros((n, n)),
+                    cint_mask=zero_vector_mask(n),
+                    cint_template=jnp.zeros(n),
+                ),
+                diffusion_block=DiffusionBlockSpec(
+                    n_latent=n,
+                    diffusion_chol_mask=full_cholesky_mask(n),
+                    diffusion_chol_template=jnp.eye(n),
+                ),
+                lambda_block=SparseMatrixBlockSpec(
+                    n_rows=n,
+                    n_cols=n,
+                    mask=zero_loading_mask(n, n),
+                    template=jnp.eye(n),
+                    free_site_name="lambda_free",
+                    det_site_name="lambda",
+                ),
+                manifest_means_block=SparseVectorBlockSpec(
+                    n=n,
+                    mask=zero_vector_mask(n),
+                    template=jnp.zeros(n),
+                    free_site_name="manifest_means_free",
+                    det_site_name="manifest_means",
+                ),
+                manifest_chol_block=ManifestCholBlockSpec(
+                    n_manifest=n,
+                    diag_mask=full_diagonal_mask(n),
+                    template=jnp.zeros((n, n)),
+                ),
+                t0_means_block=SparseVectorBlockSpec(
+                    n=n,
+                    mask=full_vector_mask(n),
+                    template=jnp.zeros(n),
+                    free_site_name="t0_means_free",
+                    det_site_name="t0_means",
+                ),
+                t0_chol_block=T0CholBlockSpec(
+                    n_latent=n,
+                    diag_mask=full_diagonal_mask(n),
+                    correlation_mask=strict_lower_triangle_mask(n),
+                    template=jnp.eye(n),
+                ),
+                input_effect_block=SparseMatrixBlockSpec(
+                    n_rows=n,
+                    n_cols=0,
+                    mask=np.zeros((n, 0), dtype=bool),
+                    template=jnp.zeros((n, 0)),
+                    free_site_name="input_effect_free",
+                    det_site_name="input_effect",
+                ),
+                static_state_sd_block=SparseVectorBlockSpec(
+                    n=0,
+                    mask=np.zeros(0, dtype=bool),
+                    template=jnp.zeros(0),
+                    free_site_name="static_state_sd_free",
+                    det_site_name="static_state_sds",
+                ),
             )
             spec, priors, _bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs_from_spec(
                 ssm_spec=spec,
@@ -681,7 +732,7 @@ def prepare_wide_model_runtime(
         builder=builder,
         model=model_obj,
         spec=spec_obj,
-        structure_runtime=model_obj.structure_runtime,
+        parameter_layout=model_obj.parameter_layout,
         wide_data=wide_data,
         observation_data=observation_data,
         observation_support=observation_support,

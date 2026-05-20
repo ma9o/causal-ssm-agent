@@ -17,6 +17,7 @@ from numpy.testing import assert_allclose
 from numpyro import handlers
 from numpyro.infer.reparam import LocScaleReparam, ProjectedNormalReparam
 
+from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.autoreparam import (
     AutoReparam,
     MinimalReparam,
@@ -24,8 +25,18 @@ from nof1_causal_lab.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
+from nof1_causal_lab.models.ssm.dynamics import (
+    default_diffusion_block,
+    default_input_effect_block,
+    default_lambda_block,
+    default_linear_drift_spec,
+    default_manifest_chol_block,
+    default_manifest_means_block,
+    default_static_state_sd_block,
+    default_t0_chol_block,
+    default_t0_means_block,
+)
 from tests.models.ssm._support import simple_normal_model
-from tests.ssm_test_utils import make_ssm_spec
 
 # ---------------------------------------------------------------------------
 # Helpers (ported from NumPyro's test_reparam.py)
@@ -459,7 +470,19 @@ class TestAutoReparamSSM:
     def _make_simple_ssm(self):
         from nof1_causal_lab.models.ssm.model import SSMModel
 
-        spec = make_ssm_spec(n_latent=2, n_manifest=2)
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=2,
+            drift_spec=default_linear_drift_spec(2),
+            diffusion_block=default_diffusion_block(2),
+            lambda_block=default_lambda_block(2, 2),
+            manifest_means_block=default_manifest_means_block(2),
+            manifest_chol_block=default_manifest_chol_block(2),
+            t0_means_block=default_t0_means_block(2),
+            t0_chol_block=default_t0_chol_block(2),
+            input_effect_block=default_input_effect_block(2),
+            static_state_sd_block=default_static_state_sd_block(),
+        )
         return SSMModel(spec=spec)
 
     def test_ssm_site_classification(self):

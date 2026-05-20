@@ -7,7 +7,13 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  isSuggestionsDataPart,
+  type SuggestionAction,
+  type SuggestionChip,
+} from "@/lib/utils/trace-to-core";
 import type { UIMessage } from "ai";
 import { Bot, User, Wrench } from "lucide-react";
 import { memo } from "react";
@@ -200,13 +206,45 @@ function UserMessage({ msg }: { msg: UIMessage }) {
   );
 }
 
+function SuggestionChips({
+  suggestions,
+  onSuggestionClick,
+}: {
+  suggestions: SuggestionChip[];
+  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
+}) {
+  if (suggestions.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {suggestions.map((chip, i) => (
+        <Button
+          key={`${chip.action.tool}-${i}`}
+          type="button"
+          variant="outline"
+          size="xs"
+          disabled={!onSuggestionClick}
+          onClick={() => onSuggestionClick?.(chip.action, chip)}
+        >
+          {chip.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 function AssistantMessage({
   msg,
   streaming = false,
+  onSuggestionClick,
 }: {
   msg: UIMessage;
   streaming?: boolean;
+  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
 }) {
+  const suggestions = msg.parts
+    .filter(isSuggestionsDataPart)
+    .flatMap((part) => part.data.suggestions);
+
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5">
       <div className="mb-1 flex items-center gap-1.5">
@@ -217,6 +255,7 @@ function AssistantMessage({
       </div>
       {msg.parts.map((part, i) => {
         const key = `${part.type}-${i}`;
+        if (isSuggestionsDataPart(part)) return null;
         switch (part.type) {
           case "text":
             return <TextPart key={key} text={part.text} streaming={streaming} />;
@@ -234,6 +273,10 @@ function AssistantMessage({
             ) : null;
         }
       })}
+      <SuggestionChips
+        suggestions={suggestions}
+        onSuggestionClick={onSuggestionClick}
+      />
     </div>
   );
 }
@@ -241,9 +284,11 @@ function AssistantMessage({
 export const ChatMessages = memo(function ChatMessages({
   messages,
   streaming = false,
+  onSuggestionClick,
 }: {
   messages: UIMessage[];
   streaming?: boolean;
+  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -257,7 +302,14 @@ export const ChatMessages = memo(function ChatMessages({
           case "user":
             return <UserMessage key={msg.id} msg={msg} />;
           case "assistant":
-            return <AssistantMessage key={msg.id} msg={msg} streaming={isStreamingMessage} />;
+            return (
+              <AssistantMessage
+                key={msg.id}
+                msg={msg}
+                streaming={isStreamingMessage}
+                onSuggestionClick={onSuggestionClick}
+              />
+            );
           default:
             return null;
         }

@@ -4,7 +4,11 @@ import {
   refinementNeedsActivation,
   useRefinement,
 } from "@/lib/contexts/refinement-context";
-import type { RefinementUIMessage } from "@/lib/utils/trace-to-core";
+import type {
+  RefinementUIMessage,
+  SuggestionAction,
+  SuggestionChip,
+} from "@/lib/utils/trace-to-core";
 import { useChat } from "@ai-sdk/react";
 import type { LLMTrace, StageId } from "@nof1-causal-lab/api-types";
 import { INTERACTIVE_STAGES } from "@nof1-causal-lab/api-types";
@@ -75,6 +79,7 @@ export function LLMTracePanel({
   const {
     messages: refinementMessages,
     sendMessage,
+    setMessages,
     status,
   } = useChat<RefinementUIMessage>({
     messages: initialRefinementMessages,
@@ -137,6 +142,109 @@ export function LLMTracePanel({
     sendMessage({ text });
   }
 
+  async function dispatchAction(action: SuggestionAction, chip: SuggestionChip) {
+    if (!workspaceId || !stageId) return;
+
+    const toolCallId = crypto.randomUUID();
+    const userMessage: RefinementUIMessage = {
+      id: `chip-user-${toolCallId}`,
+      role: "user",
+      parts: [{ type: "text", text: `[Action] ${chip.label}` }],
+    };
+    const pendingMessage: RefinementUIMessage = {
+      id: `chip-assistant-${toolCallId}`,
+      role: "assistant",
+      parts: [
+        {
+          type: "dynamic-tool",
+          toolCallId,
+          toolName: action.tool,
+          state: "input-available",
+          input: action.input,
+        },
+      ],
+    };
+    setMessages((prev) => [...prev, userMessage, pendingMessage]);
+
+    try {
+      const response = await fetch("/api/refine/dispatch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId,
+          stageId,
+          tool: action.tool,
+          input: action.input,
+        }),
+      });
+      const payload = (await response.json()) as
+        | { output: unknown }
+        | { error: string };
+
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== pendingMessage.id) return msg;
+          return {
+            ...msg,
+            parts: msg.parts.map((part) => {
+              if (part.type !== "dynamic-tool" || part.toolCallId !== toolCallId) {
+                return part;
+              }
+              if (!response.ok || "error" in payload) {
+                return {
+                  type: "dynamic-tool" as const,
+                  toolCallId: part.toolCallId,
+                  toolName: part.toolName,
+                  state: "output-error" as const,
+                  input: part.input,
+                  errorText:
+                    "error" in payload
+                      ? payload.error
+                      : `Tool dispatch failed (HTTP ${response.status})`,
+                };
+              }
+              return {
+                type: "dynamic-tool" as const,
+                toolCallId: part.toolCallId,
+                toolName: part.toolName,
+                state: "output-available" as const,
+                input: part.input,
+                output: payload.output,
+              };
+            }),
+          };
+        }),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Tool dispatch failed";
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id !== pendingMessage.id) return msg;
+          return {
+            ...msg,
+            parts: msg.parts.map((part) =>
+              part.type === "dynamic-tool" && part.toolCallId === toolCallId
+                ? {
+                    type: "dynamic-tool" as const,
+                    toolCallId: part.toolCallId,
+                    toolName: part.toolName,
+                    state: "output-error" as const,
+                    input: part.input,
+                    errorText: message,
+                  }
+                : part,
+            ),
+          };
+        }),
+      );
+    }
+  }
+
+  function handleSuggestionClick(action: SuggestionAction, chip: SuggestionChip) {
+    if (isLoading || !canRefine) return;
+    void dispatchAction(action, chip);
+  }
+
   return (
     <LLMTracePanelView
       trace={trace}
@@ -146,6 +254,7 @@ export function LLMTracePanel({
       input={input}
       onInputChange={setInput}
       onSubmit={handleSubmit}
+      onSuggestionClick={canRefine ? handleSuggestionClick : undefined}
     />
   );
 }

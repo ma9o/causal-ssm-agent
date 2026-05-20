@@ -10,10 +10,10 @@ from nof1_causal_lab.distributions import (
     get_prior_family_spec,
     get_real_runtime_family_index,
 )
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameter_names import (
     INITIAL_STATE_CORRELATION_KEYWORDS,
 )
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -129,7 +129,7 @@ def axis_names_with_fallback(
 
 def resolve_scalar_parameter_name(
     spec: SSMSpec,
-    structure_runtime: SSMStructureRuntime,
+    parameter_layout: SSMParameterLayout,
     site_name: str,
     flat_index: int,
 ) -> str | None:
@@ -145,46 +145,46 @@ def resolve_scalar_parameter_name(
         spec.manifest_names, expected=spec.n_manifest, prefix="manifest"
     )
 
-    if site_name == "drift_base_decay_free" and flat_index < structure_runtime.n_drift_base_decay:
-        latent_idx = structure_runtime.drift_base_decay_positions[flat_index]
+    if site_name == "drift_base_decay_free" and flat_index < parameter_layout.n_drift_base_decay:
+        latent_idx = parameter_layout.drift_base_decay_positions[flat_index]
         return f"rho_{latent_names[latent_idx]}"
-    if site_name == "drift_offdiag_free" and flat_index < structure_runtime.n_drift_offdiag:
-        effect_idx, cause_idx = structure_runtime.offdiag_positions[flat_index]
+    if site_name == "drift_offdiag_free" and flat_index < parameter_layout.n_drift_offdiag:
+        effect_idx, cause_idx = parameter_layout.offdiag_positions[flat_index]
         return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
-    if site_name == "input_effect_free" and flat_index < structure_runtime.n_input_effect:
-        effect_idx, input_idx = structure_runtime.input_effect_positions[flat_index]
+    if site_name == "input_effect_free" and flat_index < parameter_layout.n_input_effect:
+        effect_idx, input_idx = parameter_layout.input_effect_positions[flat_index]
         input_names = axis_names_with_fallback(
             spec.input_names,
             expected=len(spec.input_names or []),
             prefix="input",
         )
         return f"beta_{input_names[input_idx]}_{latent_names[effect_idx]}"
-    if site_name == "diffusion_diag_free" and flat_index < structure_runtime.n_diffusion_diag:
-        latent_idx = structure_runtime.diffusion_diag_positions[flat_index]
+    if site_name == "diffusion_diag_free" and flat_index < parameter_layout.n_diffusion_diag:
+        latent_idx = parameter_layout.diffusion_diag_positions[flat_index]
         return f"sigma_{latent_names[latent_idx]}"
-    if site_name == "diffusion_lower_free" and flat_index < structure_runtime.n_diffusion_lower:
-        row, col = structure_runtime.diffusion_lower_positions[flat_index]
+    if site_name == "diffusion_lower_free" and flat_index < parameter_layout.n_diffusion_lower:
+        row, col = parameter_layout.diffusion_lower_positions[flat_index]
         return f"cor_{latent_names[col]}_{latent_names[row]}"
-    if site_name == "cint_free" and flat_index < structure_runtime.n_cint:
-        latent_idx = structure_runtime.cint_free_positions[flat_index]
+    if site_name == "cint_free" and flat_index < parameter_layout.n_cint:
+        latent_idx = parameter_layout.cint_free_positions[flat_index]
         return f"cint_{latent_names[latent_idx]}"
-    if site_name == "lambda_free" and flat_index < structure_runtime.n_lambda_free:
-        manifest_idx, latent_idx = structure_runtime.lambda_free_positions[flat_index]
+    if site_name == "lambda_free" and flat_index < parameter_layout.n_lambda_free:
+        manifest_idx, latent_idx = parameter_layout.lambda_free_positions[flat_index]
         return f"lambda_{manifest_names[manifest_idx]}_{latent_names[latent_idx]}"
-    if site_name == "manifest_means_free" and flat_index < structure_runtime.n_manifest_means:
-        manifest_idx = structure_runtime.manifest_means_free_positions[flat_index]
+    if site_name == "manifest_means_free" and flat_index < parameter_layout.n_manifest_means:
+        manifest_idx = parameter_layout.manifest_means_free_positions[flat_index]
         return f"manifest_mean_{manifest_names[manifest_idx]}"
-    if site_name == "manifest_var_diag_free" and flat_index < structure_runtime.n_manifest_var_diag:
-        manifest_idx = structure_runtime.manifest_var_free_positions[flat_index]
+    if site_name == "manifest_var_diag_free" and flat_index < parameter_layout.n_manifest_var_diag:
+        manifest_idx = parameter_layout.manifest_var_free_positions[flat_index]
         return f"obs_sd_{manifest_names[manifest_idx]}"
-    if site_name == "t0_means_free" and flat_index < structure_runtime.n_t0_means:
-        latent_idx = structure_runtime.t0_means_free_positions[flat_index]
+    if site_name == "t0_means_free" and flat_index < parameter_layout.n_t0_means:
+        latent_idx = parameter_layout.t0_means_free_positions[flat_index]
         return f"t0_mean_{latent_names[latent_idx]}"
-    if site_name == "t0_var_diag_free" and flat_index < structure_runtime.n_t0_diag:
-        latent_idx = structure_runtime.t0_diag_free_positions[flat_index]
+    if site_name == "t0_var_diag_free" and flat_index < parameter_layout.n_t0_diag:
+        latent_idx = parameter_layout.t0_diag_free_positions[flat_index]
         return f"t0_sd_{latent_names[latent_idx]}"
-    if site_name == "t0_var_lower_free" and flat_index < structure_runtime.n_t0_correlation:
-        row, col = structure_runtime.t0_correlation_positions[flat_index]
+    if site_name == "t0_var_lower_free" and flat_index < parameter_layout.n_t0_correlation:
+        row, col = parameter_layout.t0_correlation_positions[flat_index]
         return f"cor0_{latent_names[col]}_{latent_names[row]}"
     return None
 
@@ -278,43 +278,43 @@ def expected_prior_size(attr: str, ssm_spec: SSMSpec | None) -> int | None:
     if ssm_spec is None:
         return None
 
-    structure_runtime = SSMStructureRuntime(ssm_spec)
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
 
     if attr == "drift_base_decay":
-        return structure_runtime.n_drift_base_decay
+        return parameter_layout.n_drift_base_decay
 
     if attr == "diffusion_diag":
-        return structure_runtime.n_diffusion_diag
+        return parameter_layout.n_diffusion_diag
 
     if attr == "drift_offdiag":
-        return structure_runtime.n_drift_offdiag
+        return parameter_layout.n_drift_offdiag
 
     if attr == "input_effect":
-        return structure_runtime.n_input_effect
+        return parameter_layout.n_input_effect
 
     if attr == "cint":
-        return structure_runtime.n_cint
+        return parameter_layout.n_cint
 
     if attr == "static_state_sd":
-        return structure_runtime.n_static_state_sd
+        return parameter_layout.n_static_state_sd
 
     if attr == "manifest_means":
-        return structure_runtime.n_manifest_means
+        return parameter_layout.n_manifest_means
 
     if attr == "lambda_free":
-        return structure_runtime.n_lambda_free
+        return parameter_layout.n_lambda_free
 
     if attr == "manifest_var_diag":
-        return structure_runtime.n_manifest_var_diag
+        return parameter_layout.n_manifest_var_diag
 
     if attr == "diffusion_offdiag":
-        return structure_runtime.n_diffusion_lower
+        return parameter_layout.n_diffusion_lower
 
     if attr == "t0_var_diag":
-        return structure_runtime.n_t0_diag
+        return parameter_layout.n_t0_diag
 
     if attr == "t0_var_offdiag":
-        return structure_runtime.n_t0_correlation
+        return parameter_layout.n_t0_correlation
 
     return None
 

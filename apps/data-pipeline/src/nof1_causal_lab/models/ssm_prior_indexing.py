@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, ModelSpec, ParameterRole
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameter_names import (
     resolve_initial_state_correlation_bindings,
     split_compound_name,
 )
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -66,12 +66,12 @@ def build_prior_index_maps(
     input_name_set = set(input_idx_map)
     strict_structure = causal_spec is not None
     errors: list[str] = []
-    structure_runtime = SSMStructureRuntime(ssm_spec)
-    drift_base_decay_lookup = structure_runtime.drift_base_decay_index
-    diffusion_diag_lookup = structure_runtime.diffusion_diag_index
-    cint_lookup = structure_runtime.cint_free_index
-    t0_mean_lookup = structure_runtime.t0_means_free_index
-    t0_diag_lookup = structure_runtime.t0_diag_free_index
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
+    drift_base_decay_lookup = parameter_layout.drift_base_decay_index
+    diffusion_diag_lookup = parameter_layout.diffusion_diag_index
+    cint_lookup = parameter_layout.cint_free_index
+    t0_mean_lookup = parameter_layout.t0_means_free_index
+    t0_diag_lookup = parameter_layout.t0_diag_free_index
 
     for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.AR_COEFFICIENT:
@@ -188,7 +188,7 @@ def build_prior_index_maps(
         cause_name, effect_name = result
         if cause_name in input_idx_map:
             position = (latent_idx_map[effect_name], input_idx_map[cause_name])
-            flat_idx = structure_runtime.input_effect_index.get(position)
+            flat_idx = parameter_layout.input_effect_index.get(position)
             if flat_idx is not None:
                 input_effect_index[parameter.name] = ("input_effect", flat_idx)
             elif strict_structure:
@@ -198,7 +198,7 @@ def build_prior_index_maps(
                 )
             continue
         position = (latent_idx_map[effect_name], latent_idx_map[cause_name])
-        flat_idx = structure_runtime.offdiag_index.get(position)
+        flat_idx = parameter_layout.offdiag_index.get(position)
         if flat_idx is not None:
             offdiag_index[parameter.name] = ("drift_offdiag", flat_idx)
         elif strict_structure:
@@ -209,7 +209,7 @@ def build_prior_index_maps(
 
     manifest_names = ssm_spec.manifest_names or []
     manifest_idx_map = {name: idx for idx, name in enumerate(manifest_names)}
-    manifest_means_lookup = structure_runtime.manifest_means_free_index
+    manifest_means_lookup = parameter_layout.manifest_means_free_index
     manifest_name_set = set(manifest_idx_map)
 
     for parameter in spec_obj.parameters:
@@ -230,7 +230,7 @@ def build_prior_index_maps(
             continue
         indicator_name, construct_name = result
         position = (manifest_idx_map[indicator_name], latent_idx_map[construct_name])
-        flat_idx = structure_runtime.lambda_free_index.get(position)
+        flat_idx = parameter_layout.lambda_free_index.get(position)
         if flat_idx is not None:
             lambda_index[parameter.name] = ("lambda_free", flat_idx)
         elif strict_structure:
@@ -266,7 +266,7 @@ def build_prior_index_maps(
             continue
         manifest_mean_index[parameter.name] = ("manifest_means", flat_idx)
 
-    if structure_runtime.n_manifest_var_diag > 0:
+    if parameter_layout.n_manifest_var_diag > 0:
         for parameter in spec_obj.parameters:
             if parameter.role != ParameterRole.MEASUREMENT_ERROR_SD:
                 continue
@@ -282,7 +282,7 @@ def build_prior_index_maps(
                     continue
                 logger.warning("%s", message)
                 continue
-            flat_idx = structure_runtime.manifest_var_free_index.get(manifest_idx)
+            flat_idx = parameter_layout.manifest_var_free_index.get(manifest_idx)
             if flat_idx is None:
                 if strict_structure:
                     errors.append(
@@ -295,19 +295,19 @@ def build_prior_index_maps(
     for parameter in spec_obj.parameters:
         if parameter.role != ParameterRole.STATIC_STATE_SD:
             continue
-        factor_idx = structure_runtime.static_factor_name_index.get(parameter.name)
+        factor_idx = parameter_layout.static_factor_name_index.get(parameter.name)
         if factor_idx is None:
             message = (
                 "Could not parse STATIC_STATE_SD parameter "
                 f"{parameter.name!r} into a known compiled baseline factor from "
-                f"{sorted(structure_runtime.static_factor_name_index)}"
+                f"{sorted(parameter_layout.static_factor_name_index)}"
             )
             if strict_structure:
                 errors.append(message)
                 continue
             logger.warning("%s", message)
             continue
-        flat_idx = structure_runtime.static_state_sd_free_index.get(factor_idx)
+        flat_idx = parameter_layout.static_state_sd_free_index.get(factor_idx)
         if flat_idx is None:
             if strict_structure:
                 errors.append(
@@ -353,7 +353,7 @@ def build_prior_index_maps(
                 f"observation site: {parameter.name!r}"
             )
 
-    if structure_runtime.n_diffusion_lower > 0:
+    if parameter_layout.n_diffusion_lower > 0:
         for parameter in spec_obj.parameters:
             if parameter.role != ParameterRole.CORRELATION:
                 continue
@@ -373,7 +373,7 @@ def build_prior_index_maps(
             idx1 = latent_idx_map[state1_name]
             idx2 = latent_idx_map[state2_name]
             position = (max(idx1, idx2), min(idx1, idx2))
-            flat_idx = structure_runtime.diffusion_lower_index.get(position)
+            flat_idx = parameter_layout.diffusion_lower_index.get(position)
             if flat_idx is not None:
                 diffusion_offdiag_index[parameter.name] = ("diffusion_offdiag", flat_idx)
             elif strict_structure:
@@ -382,7 +382,7 @@ def build_prior_index_maps(
                     f"{parameter.name!r}"
                 )
 
-    if structure_runtime.n_t0_correlation > 0:
+    if parameter_layout.n_t0_correlation > 0:
         try:
             bindings = resolve_initial_state_correlation_bindings(latent_names, spec_obj)
         except ValueError as exc:
@@ -394,7 +394,7 @@ def build_prior_index_maps(
         retained_bindings = []
         for binding in bindings:
             position = (binding.row, binding.col)
-            if position in structure_runtime.t0_correlation_index:
+            if position in parameter_layout.t0_correlation_index:
                 retained_bindings.append(binding)
             elif strict_structure:
                 errors.append(
@@ -402,7 +402,7 @@ def build_prior_index_maps(
                     f"initial-state pair: {binding.parameter_name!r}"
                 )
         for binding in retained_bindings:
-            dense_index = structure_runtime.t0_correlation_index[(binding.row, binding.col)]
+            dense_index = parameter_layout.t0_correlation_index[(binding.row, binding.col)]
             t0_offdiag_index[binding.parameter_name] = (
                 "t0_var_offdiag",
                 dense_index,
@@ -458,22 +458,22 @@ def check_backward_closure(
         _observation_site_index,
     ) = index_maps
 
-    sr = SSMStructureRuntime(ssm_spec)
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
 
     families = [
-        ("drift_base_decay", sr.n_drift_base_decay, len(diag_index)),
-        ("drift_offdiag", sr.n_drift_offdiag, len(offdiag_index)),
-        ("diffusion_diag", sr.n_diffusion_diag, len(diffusion_diag_index)),
-        ("diffusion_lower", sr.n_diffusion_lower, len(diffusion_offdiag_index)),
-        ("input_effect", sr.n_input_effect, len(input_effect_index)),
-        ("cint", sr.n_cint, len(cint_index)),
-        ("static_state_sd", sr.n_static_state_sd, len(static_state_sd_index)),
-        ("lambda_free", sr.n_lambda_free, len(lambda_index)),
-        ("manifest_means", sr.n_manifest_means, len(manifest_mean_index)),
-        ("manifest_var_diag", sr.n_manifest_var_diag, len(manifest_var_index)),
-        ("t0_means", sr.n_t0_means, len(t0_mean_index)),
-        ("t0_diag", sr.n_t0_diag, len(t0_sd_index)),
-        ("t0_correlation", sr.n_t0_correlation, len(t0_offdiag_index)),
+        ("drift_base_decay", parameter_layout.n_drift_base_decay, len(diag_index)),
+        ("drift_offdiag", parameter_layout.n_drift_offdiag, len(offdiag_index)),
+        ("diffusion_diag", parameter_layout.n_diffusion_diag, len(diffusion_diag_index)),
+        ("diffusion_lower", parameter_layout.n_diffusion_lower, len(diffusion_offdiag_index)),
+        ("input_effect", parameter_layout.n_input_effect, len(input_effect_index)),
+        ("cint", parameter_layout.n_cint, len(cint_index)),
+        ("static_state_sd", parameter_layout.n_static_state_sd, len(static_state_sd_index)),
+        ("lambda_free", parameter_layout.n_lambda_free, len(lambda_index)),
+        ("manifest_means", parameter_layout.n_manifest_means, len(manifest_mean_index)),
+        ("manifest_var_diag", parameter_layout.n_manifest_var_diag, len(manifest_var_index)),
+        ("t0_means", parameter_layout.n_t0_means, len(t0_mean_index)),
+        ("t0_diag", parameter_layout.n_t0_diag, len(t0_sd_index)),
+        ("t0_correlation", parameter_layout.n_t0_correlation, len(t0_offdiag_index)),
     ]
 
     return [

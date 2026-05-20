@@ -13,10 +13,10 @@ import numpy as np
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
-    _AUX_JITTER,
-    _gaussian_log_prob_isotropic,
+    AUX_JITTER,
     _initial_latent_moments,
-    _tame_gradient_tulac,
+    gaussian_log_prob_isotropic,
+    tame_gradient_tulac,
 )
 
 
@@ -33,7 +33,7 @@ def _gaussian_log_prob_full(
     mean: jnp.ndarray,
     covariance: jnp.ndarray,
 ) -> jnp.ndarray:
-    covariance = symmetrize_with_jitter(covariance, jitter=_AUX_JITTER)
+    covariance = symmetrize_with_jitter(covariance, jitter=AUX_JITTER)
     chol = jnp.linalg.cholesky(covariance)
     diff = value - mean
     whitened = jla.solve_triangular(chol, diff, lower=True)
@@ -215,15 +215,15 @@ def build_pit_particle_mgrad_latent_kernel(
     _raw_obs_increment_grad_fn = jax.grad(obs_increment_fn, argnums=1)
 
     def obs_increment_grad_fn(context, latent_t, time_idx):
-        """TULAc-tamed observation log-prob gradient (fixed h, see _TULAC_H).
+        """TULAc-tamed observation log-prob gradient (fixed h, see TULAC_H).
 
-        Same fix as `_tame_gradient_tulac` used in aux_kalman_mcmc: bounds the
+        Same fix as `tame_gradient_tulac` used in aux_kalman_mcmc: bounds the
         gradient-augmented pseudo-observation perturbation so it can shrink
         with adaptation. Applied identically to every grad call so the MH
         ratio remains valid (proposal kernel just becomes a different but
         still-valid kernel).
         """
-        return _tame_gradient_tulac(_raw_obs_increment_grad_fn(context, latent_t, time_idx))
+        return tame_gradient_tulac(_raw_obs_increment_grad_fn(context, latent_t, time_idx))
 
     ref_particle_index = 0
     num_free_particles = num_particles - 1
@@ -264,7 +264,7 @@ def build_pit_particle_mgrad_latent_kernel(
 
         proposal_log_probs = jax.vmap(
             lambda particles_t, u_t, var_t: jax.vmap(
-                lambda particle: _gaussian_log_prob_isotropic(particle, u_t, var_t)
+                lambda particle: gaussian_log_prob_isotropic(particle, u_t, var_t)
             )(particles_t)
         )(x_particles, u, auxiliary_var)
 
@@ -318,7 +318,7 @@ def build_pit_particle_mgrad_latent_kernel(
                 right_particles
             )
             proposal_lp = jax.vmap(
-                lambda particle: _gaussian_log_prob_isotropic(
+                lambda particle: gaussian_log_prob_isotropic(
                     particle,
                     u[time_idx],
                     auxiliary_var[time_idx],

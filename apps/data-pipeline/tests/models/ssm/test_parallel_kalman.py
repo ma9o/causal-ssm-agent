@@ -38,6 +38,16 @@ from nof1_causal_lab.models.ssm import (
     zero_vector_mask,
 )
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.dynamics import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+    default_input_effect_block,
+    default_static_state_sd_block,
+    linear_drift_spec,
+)
 from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     aux_filter_lgssm,
     filter_lgssm,
@@ -186,24 +196,54 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_diag_mask=full_diagonal_mask(n_latent),
-        drift_offdiag_mask=zero_square_mask(n_latent),
-        drift=jnp.zeros((n_latent, n_latent), dtype=jnp.float64),
-        cint_mask=zero_vector_mask(n_latent),
-        cint=jnp.zeros(n_latent, dtype=jnp.float64),
-        lambda_mask=zero_loading_mask(n_manifest, n_latent),
-        lambda_mat=lambda_mat,
-        diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
-        diffusion_chol=jnp.eye(n_latent, dtype=jnp.float64),
-        manifest_means_mask=zero_vector_mask(n_manifest),
-        manifest_means=jnp.zeros(n_manifest, dtype=jnp.float64),
-        manifest_chol_diag_mask=full_diagonal_mask(n_manifest),
-        manifest_chol=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float64),
-        t0_means_mask=zero_vector_mask(n_latent),
-        t0_means=jnp.zeros(n_latent, dtype=jnp.float64),
-        t0_chol_diag_mask=zero_diagonal_mask(n_latent),
-        t0_correlation_mask=zero_square_mask(n_latent),
-        t0_chol=jnp.eye(n_latent, dtype=jnp.float64),
+        drift_spec=linear_drift_spec(
+            n_latent=n_latent,
+            drift_diag_mask=full_diagonal_mask(n_latent),
+            drift_offdiag_mask=zero_square_mask(n_latent),
+            drift_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float64),
+            cint_mask=zero_vector_mask(n_latent),
+            cint_template=jnp.zeros(n_latent, dtype=jnp.float64),
+        ),
+        diffusion_block=DiffusionBlockSpec(
+            n_latent=n_latent,
+            diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+            diffusion_chol_template=jnp.eye(n_latent, dtype=jnp.float64),
+        ),
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=n_manifest,
+            n_cols=n_latent,
+            mask=zero_loading_mask(n_manifest, n_latent),
+            template=lambda_mat,
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        ),
+        manifest_means_block=SparseVectorBlockSpec(
+            n=n_manifest,
+            mask=zero_vector_mask(n_manifest),
+            template=jnp.zeros(n_manifest, dtype=jnp.float64),
+            free_site_name="manifest_means_free",
+            det_site_name="manifest_means",
+        ),
+        manifest_chol_block=ManifestCholBlockSpec(
+            n_manifest=n_manifest,
+            diag_mask=full_diagonal_mask(n_manifest),
+            template=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float64),
+        ),
+        t0_means_block=SparseVectorBlockSpec(
+            n=n_latent,
+            mask=zero_vector_mask(n_latent),
+            template=jnp.zeros(n_latent, dtype=jnp.float64),
+            free_site_name="t0_means_free",
+            det_site_name="t0_means",
+        ),
+        t0_chol_block=T0CholBlockSpec(
+            n_latent=n_latent,
+            diag_mask=zero_diagonal_mask(n_latent),
+            correlation_mask=zero_square_mask(n_latent),
+            template=jnp.eye(n_latent, dtype=jnp.float64),
+        ),
+        input_effect_block=default_input_effect_block(n_latent),
+        static_state_sd_block=default_static_state_sd_block(),
         latent_names=[f"x{i}" for i in range(n_latent)],
         manifest_names=manifest_names,
         manifest_dists=[DistributionFamily.STUDENT_T] * n_latent
@@ -278,7 +318,7 @@ def test_filter_matches_sequential_interval_summary():
     drift = -0.3 * jnp.eye(spec.n_latent, dtype=jnp.float64)
     diffusion_cov = 0.04 * jnp.eye(spec.n_latent, dtype=jnp.float64)
     cint = jnp.zeros(spec.n_latent, dtype=jnp.float64)
-    H = jnp.asarray(spec.lambda_mat, dtype=jnp.float64)
+    H = jnp.asarray(spec.assemble_lambda(), dtype=jnp.float64)
     d = jnp.zeros(spec.n_manifest, dtype=jnp.float64)
     init_mean = jnp.zeros(spec.n_latent, dtype=jnp.float64)
     init_cov = 0.1 * jnp.eye(spec.n_latent, dtype=jnp.float64)

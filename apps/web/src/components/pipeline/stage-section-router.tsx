@@ -188,6 +188,7 @@ function StageSectionRouterInner({
       }
       invalidated={invalidated}
       logView={logView}
+      defaultPanelOpen={stage.id === "stage-6"}
       panelContent={
         projectedStageData?.llm_trace ? (
           <LLMTracePanel

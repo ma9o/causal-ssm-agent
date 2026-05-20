@@ -38,58 +38,46 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict |
     if causal_spec is None:
         return
 
-    required_structural_masks = (
-        "drift_diag_mask",
-        "drift_offdiag_mask",
-        "cint_mask",
-        "input_effect_mask",
-        "static_state_sd_mask",
-        "lambda_mask",
-        "diffusion_chol_mask",
-        "manifest_means_mask",
-        "manifest_chol_diag_mask",
-        "t0_means_mask",
-        "t0_chol_diag_mask",
-        "t0_correlation_mask",
-    )
-    required_matrix_templates = (
-        "drift",
-        "cint",
-        "input_effect",
-        "static_state_sds",
+    required_block_fields = (
+        "drift_spec",
+        "diffusion_block.diffusion_chol_mask",
+        "diffusion_block.diffusion_chol_template",
+        "lambda_block.mask",
+        "lambda_block.template",
+        "manifest_means_block.mask",
+        "manifest_means_block.template",
+        "manifest_chol_block.diag_mask",
+        "manifest_chol_block.template",
+        "t0_means_block.mask",
+        "t0_means_block.template",
+        "t0_chol_block.diag_mask",
+        "t0_chol_block.correlation_mask",
+        "t0_chol_block.template",
+        "input_effect_block.mask",
+        "input_effect_block.template",
+        "static_state_sd_block.mask",
+        "static_state_sd_block.template",
         "static_factor_loadings",
-        "lambda_mat",
-        "diffusion_chol",
-        "manifest_means",
-        "manifest_chol",
-        "t0_means",
-        "t0_chol",
     )
 
-    missing_masks = [
-        field_name
-        for field_name in required_structural_masks
-        if getattr(ssm_spec, field_name) is None
-    ]
-    missing_templates = [
-        field_name
-        for field_name in required_matrix_templates
-        if getattr(ssm_spec, field_name) is None
+    def _resolve_field(path: str):
+        value = ssm_spec
+        for part in path.split("."):
+            value = getattr(value, part)
+        return value
+
+    missing_fields = [
+        field_name for field_name in required_block_fields if _resolve_field(field_name) is None
     ]
 
-    if not missing_masks and not missing_templates:
+    if not missing_fields:
         return
 
-    rendered_parts: list[str] = []
-    if missing_masks:
-        rendered_parts.append(f"masks: {', '.join(missing_masks)}")
-    if missing_templates:
-        rendered_parts.append(f"templates: {', '.join(missing_templates)}")
     raise ValueError(
         "Causal-spec compilation requires an explicit compiled structure on SSMSpec. "
-        f"Missing {'; '.join(rendered_parts)}. Compile from ModelSpec + CausalSpec so "
+        f"Missing block fields: {', '.join(missing_fields)}. Compile from ModelSpec + CausalSpec so "
         "translate_spec() can derive the full structural payload, or supply an already "
-        "translated SSMSpec with explicit masks and matrix templates."
+        "translated SSMSpec with explicit block masks and templates."
     )
 
 
