@@ -2518,7 +2518,7 @@ class TestStage4FailureRouting:
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm.compile.artifact.resolve_prior_proposals",
             lambda *_args, **_kwargs: [
                 {"parameter": "sigma_activity"},
                 {"parameter": "beta_activity_sleep"},

@@ -383,7 +383,7 @@ def classify_prior_failure_blocks(
             f"{active_block.id!r}"
         )
 
-    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm.compile.common import GLOBAL_FAILURE_SITES
 
     localization = _localize_prior_failure(plan, validation)
     candidates = _build_scope_candidates(plan, localization)

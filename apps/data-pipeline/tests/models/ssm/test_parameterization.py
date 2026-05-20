@@ -14,28 +14,11 @@ from numpyro import handlers
 from nof1_causal_lab.distributions import (
     DistributionFamily,
     PriorDistributionFamily,
-    get_positive_runtime_family_index,
 )
-from nof1_causal_lab.models.ssm.dynamics import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-    default_diffusion_block,
-    default_input_effect_block,
-    default_lambda_block,
-    default_manifest_chol_block,
-    default_manifest_means_block,
-    default_static_state_sd_block,
-    default_t0_chol_block,
-    default_t0_means_block,
-    linear_drift_spec,
-)
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
-    SSMPriors,
     SSMSpec,
     full_cholesky_mask,
     full_diagonal_mask,
@@ -59,7 +42,23 @@ from nof1_causal_lab.models.ssm.parameterization import (
     serialize_site_registry,
     verify_registry_matches_trace,
 )
-from tests.ssm_test_utils import split_drift_mask
+from nof1_causal_lab.models.ssm.priors import PriorSpec
+from nof1_causal_lab.models.ssm.structure import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+    default_diffusion_block,
+    default_input_effect_block,
+    default_lambda_block,
+    default_manifest_chol_block,
+    default_manifest_means_block,
+    default_static_state_sd_block,
+    default_t0_chol_block,
+    default_t0_means_block,
+)
+from tests.ssm_test_utils import prior_registry, split_drift_mask
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -816,13 +815,12 @@ class TestPriorRuntimeState:
                 assert "rate" in params
 
     def test_custom_priors_reflected(self, simple_spec):
-        """Custom SSMPriors values appear in the state."""
-        priors = SSMPriors(
-            drift_base_decay={
-                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                "concentration": 4.0,
-                "rate": 2.0,
-            }
+        """Custom PriorRegistry values appear in the state."""
+        priors = prior_registry(
+            drift_base_decay_free=PriorSpec(
+                PriorDistributionFamily.GAMMA,
+                {"concentration": 4.0, "rate": 2.0},
+            )
         )
         registry = build_site_registry(simple_spec)
         state = build_prior_runtime_state(registry, priors)
@@ -947,22 +945,20 @@ class TestCompileStability:
 
         state1 = build_prior_runtime_state(
             registry,
-            SSMPriors(
-                drift_base_decay={
-                    "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                    "concentration": 2.0,
-                    "rate": 4.0,
-                }
+            prior_registry(
+                drift_base_decay_free=PriorSpec(
+                    PriorDistributionFamily.GAMMA,
+                    {"concentration": 2.0, "rate": 4.0},
+                )
             ),
         )
         state2 = build_prior_runtime_state(
             registry,
-            SSMPriors(
-                drift_base_decay={
-                    "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                    "concentration": 4.0,
-                    "rate": 2.0,
-                }
+            prior_registry(
+                drift_base_decay_free=PriorSpec(
+                    PriorDistributionFamily.GAMMA,
+                    {"concentration": 4.0, "rate": 2.0},
+                )
             ),
         )
 
@@ -1099,13 +1095,12 @@ class TestSerialization:
 
     def test_prior_state_roundtrip_custom_priors(self, simple_spec):
         """Custom priors survive the roundtrip."""
-        priors = SSMPriors(
-            drift_base_decay={
-                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                "concentration": 4.0,
-                "rate": 2.0,
-            },
-            diffusion_diag={"sigma": 0.5},
+        priors = prior_registry(
+            drift_base_decay_free=PriorSpec(
+                PriorDistributionFamily.GAMMA,
+                {"concentration": 4.0, "rate": 2.0},
+            ),
+            diffusion_diag_free=PriorSpec(PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.5}),
         )
         registry = build_site_registry(simple_spec)
         state = build_prior_runtime_state(registry, priors)
@@ -1125,12 +1120,11 @@ class TestSerialization:
 
     def test_compile_prior_semantics_roundtrip(self, simple_spec):
         """compile_prior_semantics → deserialize produces valid state."""
-        priors = SSMPriors(
-            drift_base_decay={
-                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                "concentration": 4.0,
-                "rate": 2.0,
-            }
+        priors = prior_registry(
+            drift_base_decay_free=PriorSpec(
+                PriorDistributionFamily.GAMMA,
+                {"concentration": 4.0, "rate": 2.0},
+            )
         )
         semantics = compile_prior_semantics(simple_spec, priors)
         assert semantics["schema_version"] == 5
@@ -1148,12 +1142,14 @@ class TestCanonicalRuntimePriors:
     def test_loaded_runtime_preserves_per_element_priors(self):
         """Compiled prior semantics preserve vector-valued site parameters exactly."""
         spec = _make_spec(n_latent=3, n_manifest=3)
-        priors = SSMPriors(
-            drift_base_decay={
-                "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                "concentration": [2.0, 3.0, 4.0],
-                "rate": [4.0, 5.0, 6.0],
-            },
+        priors = prior_registry(
+            drift_base_decay_free=PriorSpec(
+                PriorDistributionFamily.GAMMA,
+                {
+                    "concentration": [2.0, 3.0, 4.0],
+                    "rate": [4.0, 5.0, 6.0],
+                },
+            ),
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(spec, priors))
         assert runtime.prior_state["drift_base_decay_free"]["concentration"].shape == (3,)
@@ -1164,7 +1160,12 @@ class TestCanonicalRuntimePriors:
 
     def test_site_distribution_handles_vector_positive_priors(self, simple_spec):
         """Canonical site distributions accept vector-valued positive scales."""
-        priors = SSMPriors(t0_var_diag={"sigma": [1.0, 2.0]})
+        priors = prior_registry(
+            t0_var_diag_free=PriorSpec(
+                PriorDistributionFamily.HALF_NORMAL,
+                {"sigma": [1.0, 2.0]},
+            )
+        )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
         site = next(site for site in runtime.registry if site.name == "t0_var_diag_free")
         prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
@@ -1174,11 +1175,11 @@ class TestCanonicalRuntimePriors:
 
     def test_positive_delta_distribution_samples_fixed_vector(self, simple_spec):
         """Positive Delta priors build NumPyro Delta distributions and preserve shape."""
-        priors = SSMPriors(
-            drift_base_decay={
-                "family": get_positive_runtime_family_index(PriorDistributionFamily.DELTA),
-                "value": [0.25, 0.5],
-            }
+        priors = prior_registry(
+            drift_base_decay_free=PriorSpec(
+                PriorDistributionFamily.DELTA,
+                {"value": [0.25, 0.5]},
+            )
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
         site = next(site for site in runtime.registry if site.name == "drift_base_decay_free")
@@ -1190,11 +1191,11 @@ class TestCanonicalRuntimePriors:
 
     def test_positive_delta_roundtrips_through_serialized_semantics(self, simple_spec):
         """Positive Delta value survives v5 compiled-prior serialization."""
-        priors = SSMPriors(
-            drift_base_decay={
-                "family": get_positive_runtime_family_index(PriorDistributionFamily.DELTA),
-                "value": [0.25, 0.5],
-            }
+        priors = prior_registry(
+            drift_base_decay_free=PriorSpec(
+                PriorDistributionFamily.DELTA,
+                {"value": [0.25, 0.5]},
+            )
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
 
@@ -1235,7 +1236,7 @@ class TestCompiledArtifactIntegration:
 
     def test_artifact_contains_compiled_prior_semantics(self, model_spec_and_priors):
         """compile_ssm_artifact emits semantics and omits legacy priors."""
-        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
         model_spec, priors = model_spec_and_priors
         artifact = compile_ssm_artifact(model_spec, priors)
@@ -1250,7 +1251,7 @@ class TestCompiledArtifactIntegration:
 
     def test_known_input_beta_binds_to_input_effect_site(self):
         """A beta from a known input compiles to B, not the latent drift matrix."""
-        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
         causal_spec = {
             "latent": {
@@ -1370,7 +1371,7 @@ class TestCompiledArtifactIntegration:
 
     def test_builder_from_artifact_uses_semantics(self, model_spec_and_priors):
         """make_builder_from_compiled_artifact reads compiled_prior_semantics."""
-        from nof1_causal_lab.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm.compile.artifact import (
             compile_ssm_artifact,
             make_builder_from_compiled_artifact,
         )
@@ -1378,12 +1379,12 @@ class TestCompiledArtifactIntegration:
         model_spec, priors = model_spec_and_priors
         artifact = compile_ssm_artifact(model_spec, priors)
         builder = make_builder_from_compiled_artifact(artifact)
-        assert builder._ssm_priors is None
+        assert builder._prior_registry is None
         assert builder._prior_runtime_bundle is not None
 
     def test_builder_requires_compiled_prior_semantics(self, model_spec_and_priors):
         """Builder fails clearly when compiled semantics are missing."""
-        from nof1_causal_lab.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm.compile.artifact import (
             compile_ssm_artifact,
             make_builder_from_compiled_artifact,
         )
@@ -1400,8 +1401,8 @@ class TestCompiledArtifactIntegration:
         import numpy as np
         import polars as pl
 
-        from nof1_causal_lab.models.ssm_builder import build_ssm_builder
-        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.builder import build_ssm_builder
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
         from nof1_causal_lab.utils.data import pivot_to_wide
 
         model_spec, priors = model_spec_and_priors
@@ -1423,7 +1424,7 @@ class TestCompiledArtifactIntegration:
 
     def test_compiled_builder_prior_predictive_without_model(self, model_spec_and_priors):
         """Compiled builders can sample prior predictive without building a model."""
-        from nof1_causal_lab.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm.compile.artifact import (
             compile_ssm_artifact,
             make_builder_from_compiled_artifact,
         )
@@ -1440,7 +1441,7 @@ class TestCompiledArtifactIntegration:
         """Compiled builders execute vector-valued positive priors via runtime semantics."""
         import polars as pl
 
-        from nof1_causal_lab.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm.compile.artifact import (
             make_builder_from_compiled_artifact,
             serialize_ssm_spec,
         )
@@ -1453,7 +1454,12 @@ class TestCompiledArtifactIntegration:
             manifest_var_mask=full_diagonal_mask(2),
             manifest_names=["m0", "m1"],
         )
-        priors = SSMPriors(t0_var_diag={"sigma": [1.0, 2.0]})
+        priors = prior_registry(
+            t0_var_diag_free=PriorSpec(
+                PriorDistributionFamily.HALF_NORMAL,
+                {"sigma": [1.0, 2.0]},
+            )
+        )
         artifact = {
             "spec": serialize_ssm_spec(spec),
             "compiled_prior_semantics": compile_prior_semantics(spec, priors),

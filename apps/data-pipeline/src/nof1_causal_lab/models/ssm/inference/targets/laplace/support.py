@@ -43,7 +43,7 @@ from .shared import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
 def _assemble_support_aware_observation_system(

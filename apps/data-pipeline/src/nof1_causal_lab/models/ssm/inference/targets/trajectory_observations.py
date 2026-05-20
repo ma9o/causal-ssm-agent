@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from nof1_causal_lab.models.ssm.inference.targets.kernels import ObservationKernel
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 _POINT_SUPPORT_CODE = 0
 _INTERVAL_SUPPORT_CODE = 1

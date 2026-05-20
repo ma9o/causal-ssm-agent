@@ -8,22 +8,22 @@ import polars as pl
 
 from nof1_causal_lab.flows.stages.stage5b import fit as stage5_inference
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.dynamics import (
+from nof1_causal_lab.models.ssm.builder import PreparedModelRuntime, SSMModelBuilder
+from nof1_causal_lab.models.ssm.dynamics.composite import default_linear_drift_spec
+from nof1_causal_lab.models.ssm.inference import InferenceResult
+from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePlan
+from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.structure import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
-    default_linear_drift_spec,
     default_manifest_chol_block,
     default_manifest_means_block,
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
 )
-from nof1_causal_lab.models.ssm.inference import InferenceResult
-from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePlan
-from nof1_causal_lab.models.ssm.model import SSMModel
-from nof1_causal_lab.models.ssm_builder import PreparedModelRuntime, SSMModelBuilder
-from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 
 class _FakeResult(InferenceResult):

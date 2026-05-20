@@ -195,7 +195,7 @@ def dispatch_stage4_model_compile_warmup(
     if not storage.is_remote():
         return None
 
-    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact_with_default_priors
+    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact_with_default_priors
 
     warmup_artifact = compile_ssm_artifact_with_default_priors(model_spec, causal_spec=causal_spec)
     topology_fingerprint = compiled_ssm_topology_fingerprint(warmup_artifact)
@@ -241,7 +241,7 @@ def warm_stage4_compile_cache_artifact(
     topology_fingerprint: str,
 ) -> dict[str, Any]:
     """Build and persist the Stage 4 compile-cache sidecar on a Modal A100 worker."""
-    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact_with_default_priors
+    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact_with_default_priors
 
     try:
         compiled_ssm = compile_ssm_artifact_with_default_priors(
@@ -283,8 +283,8 @@ def _warm_compiled_ssm_runtime(compiled_ssm: dict[str, Any], data_for_model: Any
     import jax.random as random
     from jax.flatten_util import ravel_pytree
 
+    from nof1_causal_lab.models.ssm.builder import prepare_model_runtime
     from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
-    from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
 
     runtime = prepare_model_runtime(data_for_model=data_for_model, compiled_ssm=compiled_ssm)
     backend = runtime.model.make_likelihood_backend()

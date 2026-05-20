@@ -300,7 +300,7 @@ class InferenceResult:
         shape as the linear LOO path (``elpd_loo``, ``p_loo``, ``se``,
         ``n_data_points``, ``pareto_k``, ``n_bad_k``).
         """
-        from nof1_causal_lab.models.ssm.dynamics.prior_predictive import (
+        from nof1_causal_lab.models.ssm.predictive.composite import (
             composite_per_t_log_likelihood,
         )
 

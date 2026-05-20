@@ -11,9 +11,9 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm import (
     SSMModel,
-    SSMPriors,
     discretize_system,
     fit,
     full_diagonal_mask,
@@ -22,8 +22,9 @@ from nof1_causal_lab.models.ssm import (
     zero_square_mask,
     zero_vector_mask,
 )
-from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
-from tests.ssm_test_utils import assert_recovery_ci, make_lgss_data, make_ssm_spec
+from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.priors import PriorSpec
+from tests.ssm_test_utils import assert_recovery_ci, make_lgss_data, make_ssm_spec, prior_registry
 
 pytestmark = pytest.mark.slow
 
@@ -272,10 +273,9 @@ def _make_map_mixed_support_recovery_data() -> dict:
         manifest_names=manifest_names,
         manifest_dists=manifest_dists,
     )
-    priors = SSMPriors(
-        drift_diag={"mu": -0.35, "sigma": 0.15},
-        diffusion_diag={"sigma": 0.15},
-        manifest_var_diag={"sigma": 0.15},
+    priors = prior_registry(
+        diffusion_diag_free=PriorSpec(PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.15}),
+        manifest_var_diag_free=PriorSpec(PriorDistributionFamily.HALF_NORMAL, {"sigma": 0.15}),
     )
 
     return {

@@ -471,7 +471,7 @@ def _infer_dynamics_repair_scope(
         logger.debug("Skipping dynamics repair-scope attribution (missing inputs)")
         return None
 
-    from nof1_causal_lab.models.ssm_compiler import deserialize_ssm_spec
+    from nof1_causal_lab.models.ssm.compile.artifact import deserialize_ssm_spec
 
     try:
         spec_payload = compiled_ssm.get("spec")
@@ -929,7 +929,7 @@ def _check_lagged_response_plausibility(
         logger.debug("Skipping lagged-response plausibility check (missing inputs)")
         return []
 
-    from nof1_causal_lab.models.ssm_compiler import (
+    from nof1_causal_lab.models.ssm.compile.artifact import (
         deserialize_edge_lag_days,
         deserialize_ssm_spec,
     )
@@ -1075,15 +1075,15 @@ def validate_prior_predictive(
     from nof1_causal_lab.models.predictive_simulation import (
         PredictiveObservationMeanOverflow,
     )
-    from nof1_causal_lab.models.ssm_builder import (
+    from nof1_causal_lab.models.ssm.builder import (
         prepare_model_runtime,
         prepare_wide_model_runtime,
     )
-    from nof1_causal_lab.models.ssm_compilation_common import dump_prior_payloads
-    from nof1_causal_lab.models.ssm_compiler import (
+    from nof1_causal_lab.models.ssm.compile.artifact import (
         compile_ssm_artifact,
         make_builder_from_compiled_artifact,
     )
+    from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
 
     priors_dict = dump_prior_payloads(priors)
 
@@ -1288,7 +1288,7 @@ def format_parameter_feedback(
     Returns:
         Formatted feedback string for inclusion in re-elicitation prompt
     """
-    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm.compile.common import GLOBAL_FAILURE_SITES
 
     # Find results relevant to this parameter
     # Global failures (affect all parameters) are always included
@@ -1391,7 +1391,7 @@ def get_failed_parameters(
     if not failed_results:
         return []
 
-    from nof1_causal_lab.models.ssm_compilation_common import (
+    from nof1_causal_lab.models.ssm.compile.common import (
         GLOBAL_FAILURE_SITES,
         NUISANCE_SITES,
         SITE_TO_KEYWORDS,

@@ -39,7 +39,7 @@ if TYPE_CHECKING:
         PredictiveObservationSampler,
     )
 
-    from .compilation import CompiledComposite
+    from .composite import CompiledComposite
     from .vector_field import CompositeVectorField
 
 
@@ -175,7 +175,7 @@ def runtime_from_ssm_model(
     hyperparams should keep using the linear ``SSMModel`` numpyro
     pipeline directly.
     """
-    from nof1_causal_lab.models.ssm.dynamics import (
+    from nof1_causal_lab.models.ssm.dynamics.composite import (
         compile_composite as _compile_composite,
     )
 
@@ -249,9 +249,9 @@ def runtime_from_dense_linear(
     returns the Delta-distributed parameters so the canonical-shaped
     consumer can treat the linear pair as a single-component tuple.
 
-    This is the minimum-viable translator that does not require
-    introducing the full ``SSMSpec`` / ``SSMPriors`` translator (which
-    needs the ``ssm_compiler`` machinery and is left for Phase B/C).
+    This is the minimum-viable translator for callers that already have
+    concrete posterior draws and do not need the compiled artifact
+    machinery.
     """
     from .vector_field import CompositeVectorField
 

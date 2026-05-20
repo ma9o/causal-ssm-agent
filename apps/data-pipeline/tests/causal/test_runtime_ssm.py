@@ -219,7 +219,7 @@ class TestRuntimeFromSSMModel:
 
     def test_composite_spec_pulls_drift_from_drift_spec(self):
         from nof1_causal_lab.models.ssm import SSMModel, SSMSpec
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.structure import (
             DiffusionBlockSpec,
             ManifestCholBlockSpec,
             SparseMatrixBlockSpec,
@@ -315,9 +315,11 @@ class TestStructuralLinearSpecs:
         from nof1_causal_lab.models.ssm import SSMSpec
         from nof1_causal_lab.models.ssm.dynamics import (
             CompositeSpec,
-            SparseMatrixBlockSpec,
             StructuralDenseLinearSpec,
             compile_composite,
+        )
+        from nof1_causal_lab.models.ssm.structure import (
+            SparseMatrixBlockSpec,
             default_diffusion_block,
             default_input_effect_block,
             default_manifest_chol_block,
@@ -406,9 +408,16 @@ class TestStructuralLinearSpecs:
         from nof1_causal_lab.models.ssm import SSMSpec
         from nof1_causal_lab.models.ssm.dynamics import (
             CompositeSpec,
-            SparseMatrixBlockSpec,
             StructuralDenseLinearSpec,
             compile_composite,
+            linear_drift_spec,
+        )
+        from nof1_causal_lab.models.ssm.model import (
+            zero_diagonal_mask,
+            zero_square_mask,
+        )
+        from nof1_causal_lab.models.ssm.structure import (
+            SparseMatrixBlockSpec,
             default_diffusion_block,
             default_input_effect_block,
             default_manifest_chol_block,
@@ -416,11 +425,6 @@ class TestStructuralLinearSpecs:
             default_static_state_sd_block,
             default_t0_chol_block,
             default_t0_means_block,
-            linear_drift_spec,
-        )
-        from nof1_causal_lab.models.ssm.model import (
-            zero_diagonal_mask,
-            zero_square_mask,
         )
 
         spec = SSMSpec(
@@ -468,9 +472,13 @@ class TestStructuralLinearSpecs:
         from nof1_causal_lab.models.ssm import SSMSpec
         from nof1_causal_lab.models.ssm.dynamics import (
             CompositeSpec,
-            SparseMatrixBlockSpec,
             StructuralInterceptSpec,
             compile_composite,
+            linear_drift_spec,
+        )
+        from nof1_causal_lab.models.ssm.model import full_vector_mask
+        from nof1_causal_lab.models.ssm.structure import (
+            SparseMatrixBlockSpec,
             default_diffusion_block,
             default_input_effect_block,
             default_manifest_chol_block,
@@ -478,9 +486,7 @@ class TestStructuralLinearSpecs:
             default_static_state_sd_block,
             default_t0_chol_block,
             default_t0_means_block,
-            linear_drift_spec,
         )
-        from nof1_causal_lab.models.ssm.model import full_vector_mask
 
         n_latent = 3
         spec = SSMSpec(

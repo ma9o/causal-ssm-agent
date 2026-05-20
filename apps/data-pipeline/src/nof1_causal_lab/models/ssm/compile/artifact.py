@@ -27,7 +27,7 @@ from nof1_causal_lab.artifacts.model_spec import (
 )
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows import get_prefect_logger
-from nof1_causal_lab.models.ssm_compilation_common import dump_prior_payloads
+from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
 
 logger = get_prefect_logger(__name__)
 
@@ -49,7 +49,8 @@ _SPEC_ENUM_LIST_FIELDS = {
 
 
 def _to_jsonable(value: Any) -> Any:
-    from nof1_causal_lab.models.ssm.dynamics import CompositeSpec, composite_spec_to_dict
+    from nof1_causal_lab.models.ssm.dynamics.composite import CompositeSpec
+    from nof1_causal_lab.models.ssm.dynamics.serialization import composite_spec_to_dict
 
     if isinstance(value, Enum):
         return value.value
@@ -80,7 +81,7 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
     serialized artifact has no flat parameter fields; masks and templates
     live under the block that owns them.
     """
-    from nof1_causal_lab.models.ssm.dynamics import composite_spec_to_dict
+    from nof1_causal_lab.models.ssm.dynamics.serialization import composite_spec_to_dict
 
     payload: dict[str, Any] = {
         "n_latent": spec.n_latent,
@@ -156,15 +157,15 @@ def deserialize_edge_lag_days(payload: Any) -> dict[tuple[int, int], float]:
 
 def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     """Restore an SSMSpec from a serialized artifact."""
-    from nof1_causal_lab.models.ssm.dynamics import (
+    from nof1_causal_lab.models.ssm.dynamics.serialization import composite_spec_from_dict
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
         SparseMatrixBlockSpec,
         SparseVectorBlockSpec,
         T0CholBlockSpec,
-        composite_spec_from_dict,
     )
-    from nof1_causal_lab.models.ssm.model import SSMSpec
 
     flat_fields = {
         "drift",
@@ -541,10 +542,10 @@ def _compile_validated_ssm_artifact(
     causal_spec: dict | None = None,
 ) -> CompiledSSMArtifact:
     """Compile an already-validated ``ModelSpec`` into a serialized SSM artifact."""
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model_spec
     from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
-    from nof1_causal_lab.models.ssm_compilation import compile_ssm_inputs_from_model_spec
 
-    spec, ssm_priors, parameter_bindings, compile_diagnostics, edge_lag_days = (
+    spec, prior_registry, parameter_bindings, compile_diagnostics, edge_lag_days = (
         compile_ssm_inputs_from_model_spec(
             validated_model_spec,
             raw_priors,
@@ -556,7 +557,7 @@ def _compile_validated_ssm_artifact(
         "schema_version": 1,
         "spec": serialize_ssm_spec(spec),
         "edge_lag_days": serialize_edge_lag_days(edge_lag_days),
-        "compiled_prior_semantics": compile_prior_semantics(spec, ssm_priors),
+        "compiled_prior_semantics": compile_prior_semantics(spec, prior_registry),
         "parameter_bindings": parameter_bindings,
         "compile_diagnostics": [
             diagnostic.model_dump(mode="json") for diagnostic in compile_diagnostics
@@ -947,8 +948,8 @@ def make_builder_from_compiled_artifact(
     Uses ``compiled_prior_semantics`` as the canonical runtime prior state for
     compiled artifacts.
     """
+    from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
     from nof1_causal_lab.models.ssm.parameterization import load_prior_runtime_bundle
-    from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
 
     spec = deserialize_ssm_spec(compiled_ssm["spec"])
     semantics = compiled_ssm.get("compiled_prior_semantics")

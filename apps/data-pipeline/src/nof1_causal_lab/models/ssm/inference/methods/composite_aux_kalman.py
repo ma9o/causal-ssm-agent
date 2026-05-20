@@ -74,7 +74,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm import SSMModel
     from nof1_causal_lab.models.ssm.dynamics import CompiledComposite, RuntimeSSM
     from nof1_causal_lab.models.ssm.inference.targets.kernels import ObservationKernel
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
 # ---------------------------------------------------------------------------

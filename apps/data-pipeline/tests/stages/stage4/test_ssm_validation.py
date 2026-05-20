@@ -1,11 +1,11 @@
 """Stage 4 assembly, prior predictive, and SSM compilation tests."""
 
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.dynamics import (
+from nof1_causal_lab.models.ssm.dynamics.composite import default_linear_drift_spec
+from nof1_causal_lab.models.ssm.structure import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
-    default_linear_drift_spec,
     default_manifest_chol_block,
     default_manifest_means_block,
     default_static_state_sd_block,
@@ -30,6 +30,10 @@ from tests.stages.stage4._support import (
     pytest,
     validate_prior_predictive,
 )
+
+
+def _prior_params(prior_registry, site_name: str):
+    return prior_registry.priors_by_site[site_name].params
 
 
 def _default_ssm_spec(
@@ -93,7 +97,7 @@ class TestSSMModelBuilder:
 
     def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):
         """Builder creates an SSMModel with correct dimensions."""
-        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
 
         builder = SSMModelBuilder(
             model_spec=simple_model_spec,
@@ -160,7 +164,7 @@ class TestPriorPredictiveValidation:
         # This should still build (builder is tolerant), but let's test
         # with a truly broken spec by patching build_model to raise
         with patch(
-            "nof1_causal_lab.models.ssm_builder.SSMModelBuilder.build_model",
+            "nof1_causal_lab.models.ssm.builder.SSMModelBuilder.build_model",
             side_effect=ValueError("deliberate test failure"),
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -201,7 +205,7 @@ class TestPriorPredictiveValidation:
         }
 
         with patch(
-            "nof1_causal_lab.models.ssm_builder.SSMModelBuilder.sample_prior_predictive",
+            "nof1_causal_lab.models.ssm.builder.SSMModelBuilder.sample_prior_predictive",
             return_value={"drift_base_decay_free": np.ones((2, 1))},
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -255,7 +259,7 @@ class TestPriorPredictiveValidation:
                 },
             ),
             patch(
-                "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
+                "nof1_causal_lab.models.ssm.compile.artifact.resolve_prior_proposals",
                 return_value=[],
             ),
         ):
@@ -289,7 +293,7 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
+                "nof1_causal_lab.models.ssm.compile.artifact.compile_ssm_artifact",
                 return_value=compiled_artifact,
             ) as compile_mock,
             patch(
@@ -325,7 +329,7 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
+                "nof1_causal_lab.models.ssm.compile.artifact.compile_ssm_artifact",
                 return_value=compiled_artifact,
             ),
             patch(
@@ -396,11 +400,11 @@ class TestPriorPredictiveValidation:
 
         with (
             patch(
-                "nof1_causal_lab.models.ssm_compiler.compile_ssm_artifact",
+                "nof1_causal_lab.models.ssm.compile.artifact.compile_ssm_artifact",
                 side_effect=AssertionError("compile should not be called"),
             ),
             patch(
-                "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
+                "nof1_causal_lab.models.ssm.builder.prepare_model_runtime",
                 return_value=runtime,
             ),
         ):
@@ -437,7 +441,7 @@ class TestPriorPredictiveValidation:
         runtime = SimpleNamespace(builder=_OverflowBuilder())
 
         with patch(
-            "nof1_causal_lab.models.ssm_builder.prepare_model_runtime",
+            "nof1_causal_lab.models.ssm.builder.prepare_model_runtime",
             return_value=runtime,
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -460,7 +464,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_reads_compiled_semantics_per_state(self):
         """Implicit initial-state priors should come from compiled semantics."""
-        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
         compiled_ssm = {
             "spec": {"latent_names": ["stress", "sleep"]},
@@ -558,7 +562,7 @@ class TestPriorPredictiveValidation:
         simple_priors,
     ):
         """Resolved public priors should retain authored semantics when compilation is lossy."""
-        from nof1_causal_lab.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm.compile.artifact import (
             compile_ssm_artifact,
             resolve_prior_proposals,
         )
@@ -577,7 +581,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_roundtrips_new_supported_prior_families(self):
         """Compiled semantics should surface LogNormal and bounded real priors."""
-        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
         compiled_ssm = {
             "compiled_prior_semantics": {
@@ -650,7 +654,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_uses_family_over_canonical_bounds(self):
         """Canonical low/high leaves must not force Normal sites to look truncated."""
-        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
         compiled_ssm = {
             "compiled_prior_semantics": {
@@ -701,7 +705,7 @@ class TestPriorPredictiveValidation:
 
     def test_resolve_prior_proposals_roundtrips_correlation_support_sites(self):
         """Compiled correlation-support sites should reconstruct bounded real priors."""
-        from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
+        from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
         compiled_ssm = {
             "compiled_prior_semantics": {
@@ -818,8 +822,9 @@ class TestSSMPriorConversion:
         # Beta(2,2): E[X] = 0.5 → base decay mean = -ln(0.5)/1.0 ≈ 0.693.
         # The compiler stores the positive base-decay prior as a Gamma moment match.
         expected_mu = -math.log(0.5) / 1.0
-        concentration = np.asarray(ssm_priors.drift_base_decay["concentration"], dtype=float)
-        rate = np.asarray(ssm_priors.drift_base_decay["rate"], dtype=float)
+        base_decay_prior = _prior_params(ssm_priors, "drift_base_decay_free")
+        concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
+        rate = np.asarray(base_decay_prior["rate"], dtype=float)
         mu_val = float((concentration / rate).reshape(-1)[0])
         assert abs(mu_val - expected_mu) < 0.01
         sigma_val = float((np.sqrt(concentration) / rate).reshape(-1)[0])
@@ -926,7 +931,7 @@ class TestSSMPriorConversion:
 
     def test_compile_ssm_artifact_aggregates_strict_binding_errors(self):
         """Strict causal-spec binding errors should be reported together."""
-        from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
         causal_spec = _with_positive_indicator_polarity(
             {
@@ -1088,8 +1093,9 @@ class TestSSMPriorConversion:
         )
 
         # Both should produce per-element arrays, not scalars.
-        concentration = np.asarray(ssm_priors.drift_base_decay["concentration"], dtype=float)
-        rate = np.asarray(ssm_priors.drift_base_decay["rate"], dtype=float)
+        base_decay_prior = _prior_params(ssm_priors, "drift_base_decay_free")
+        concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
+        rate = np.asarray(base_decay_prior["rate"], dtype=float)
         base_decay_mean = concentration / rate
         assert base_decay_mean.shape == (2,)
 
@@ -1149,8 +1155,9 @@ class TestSSMPriorConversion:
         # base-decay mean = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
         dt_hourly = 1.0 / 24.0
         expected_mu = -math.log(0.5) / dt_hourly
-        concentration = np.asarray(ssm_priors.drift_base_decay["concentration"], dtype=float)
-        rate = np.asarray(ssm_priors.drift_base_decay["rate"], dtype=float)
+        base_decay_prior = _prior_params(ssm_priors, "drift_base_decay_free")
+        concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
+        rate = np.asarray(base_decay_prior["rate"], dtype=float)
         mu_val = float((concentration / rate).reshape(-1)[0])
         assert abs(mu_val - expected_mu) < 0.1
 
@@ -1214,7 +1221,7 @@ class TestSSMPriorConversion:
         )
 
         # Resolved 1d lag metadata: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
-        mu = ssm_priors.drift_offdiag["mu"]
+        mu = _prior_params(ssm_priors, "drift_offdiag_free")["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - 0.3) < 0.01
 
@@ -1492,7 +1499,7 @@ class TestSSMPriorConversion:
         # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
         dt_hourly = 1.0 / 24.0
         expected_mu = 0.3 / dt_hourly  # 7.2
-        mu = ssm_priors.drift_offdiag["mu"]
+        mu = _prior_params(ssm_priors, "drift_offdiag_free")["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - expected_mu) < 0.5
 
@@ -1625,14 +1632,14 @@ class TestTrialCompile:
 
     def test_valid_spec_returns_none(self, simple_model_spec):
         """A well-formed spec compiles successfully with default priors."""
-        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
 
         result = trial_compile_model_spec(simple_model_spec)
         assert result is None
 
     def test_compile_failure_returns_error(self):
         """When compilation raises, trial_compile returns the error string."""
-        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1653,7 +1660,7 @@ class TestTrialCompile:
             ],
         }
         with patch(
-            "nof1_causal_lab.models.ssm_compiler._compile_validated_ssm_artifact",
+            "nof1_causal_lab.models.ssm.compile.artifact._compile_validated_ssm_artifact",
             side_effect=ValueError("dimension mismatch in drift matrix"),
         ):
             result = trial_compile_model_spec(spec)
@@ -1662,7 +1669,7 @@ class TestTrialCompile:
 
     def test_role_constraint_mismatch_returns_error(self):
         """Compiler should reject parameter-role constraint mismatches."""
-        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1696,7 +1703,7 @@ class TestTrialCompile:
 
     def test_missing_ar_parameters_returns_error(self):
         """Compiler should reject ModelSpecs with no latent dimensionality signal."""
-        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1724,7 +1731,7 @@ class TestTrialCompile:
 
     def test_rank_deficient_structure_returns_error(self):
         """Compiler should reject model specs with fewer manifests than latents."""
-        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
 
         spec = {
             "likelihoods": [
@@ -1791,7 +1798,7 @@ class TestTrialCompile:
 
     def test_trial_compile_aggregates_initial_state_translation_errors(self):
         """Translation should report multiple initial-state correlation errors together."""
-        from nof1_causal_lab.models.ssm_compiler import trial_compile_model_spec
+        from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_model_spec
 
         causal_spec = _with_positive_indicator_polarity(
             {

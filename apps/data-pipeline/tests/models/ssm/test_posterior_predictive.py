@@ -21,7 +21,7 @@ from nof1_causal_lab.models.predictive_simulation import (
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     get_posterior_predictive_switch_index,
 )
-from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from tests.models.ssm._support import (
     make_samples as _make_samples,
 )

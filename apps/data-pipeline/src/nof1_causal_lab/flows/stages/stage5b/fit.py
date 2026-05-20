@@ -9,7 +9,7 @@ from prefect import task
 
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.flows.stage4_compile_cache import restore_stage4_compile_cache
-from nof1_causal_lab.models.ssm_builder import PreparedModelRuntime, prepare_model_runtime
+from nof1_causal_lab.models.ssm.builder import PreparedModelRuntime, prepare_model_runtime
 
 logger = get_prefect_logger(__name__)
 

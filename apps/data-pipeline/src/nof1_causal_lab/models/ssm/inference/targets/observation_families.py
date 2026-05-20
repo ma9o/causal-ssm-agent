@@ -1,6 +1,6 @@
 """ObservationFamilySpec registry — single source of truth for per-family dispatch.
 
-Replaces ~11 if/elif chains across emissions.py, kernels.py, and ssm_builder.py
+Replaces ~11 if/elif chains across emissions.py, kernels.py, and ssm.builder
 with a flat dict keyed by DistributionFamily.
 
 Each entry fully describes one observation family's behavior at every dispatch site:
@@ -8,8 +8,8 @@ Each entry fully describes one observation family's behavior at every dispatch s
 - Score/weight factories for IEKS (emissions.py)
 - Variance and response function factories (kernels.py)
 - Grad/hess strategy tag (kernels.py)
-- Support validation (ssm_builder.py)
-- Discrete level hydration (ssm_builder.py)
+- Support validation (ssm.builder)
+- Discrete level hydration (ssm.builder)
 - Posterior predictive sampling branches (posterior_predictive.py)
 """
 
@@ -58,7 +58,7 @@ class ObservationFamilySpec:
     default_link: LinkFunction
     """Default link used when callers omit an explicit link."""
 
-    # --- ssm_builder.py concerns ---
+    # --- ssm.builder concerns ---
     validate_support: Callable[[np.ndarray], np.ndarray]
     """values -> invalid_mask (bool array). Empty mask means no support constraint."""
     support_description: str
@@ -86,7 +86,7 @@ class ObservationFamilySpec:
 
 
 # ---------------------------------------------------------------------------
-# Support validators (ssm_builder.py)
+# Support validators (ssm.builder)
 # ---------------------------------------------------------------------------
 
 

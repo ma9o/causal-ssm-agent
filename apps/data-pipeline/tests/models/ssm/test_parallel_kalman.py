@@ -38,7 +38,14 @@ from nof1_causal_lab.models.ssm import (
     zero_vector_mask,
 )
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.dynamics import (
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
+    aux_filter_lgssm,
+    filter_lgssm,
+    sample_lgssm_trajectory,
+)
+from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
@@ -46,14 +53,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     T0CholBlockSpec,
     default_input_effect_block,
     default_static_state_sd_block,
-    linear_drift_spec,
 )
-from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
-    aux_filter_lgssm,
-    filter_lgssm,
-    sample_lgssm_trajectory,
-)
-from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 _JITTER = 1e-6
 

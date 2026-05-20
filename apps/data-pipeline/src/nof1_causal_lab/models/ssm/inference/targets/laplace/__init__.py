@@ -70,7 +70,7 @@ if TYPE_CHECKING:
         InitialStateParams,
         MeasurementParams,
     )
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
 class LaplaceLikelihood:

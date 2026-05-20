@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpyro
 
+from nof1_causal_lab.models.ssm.priors import resolve_prior_distribution
+
 from .edges import (
     DenseLinear,
     DiagonalDecay,
@@ -53,25 +55,13 @@ if TYPE_CHECKING:
     from .edges import DriftComponent
 
 
-# A prior may be supplied as a runtime ``numpyro.Distribution`` (research
-# code, tests) or as a JSON-shaped dict-config (Stage 4 LLM emission,
-# serialized artifacts). Materialisation happens lazily at sample time.
-PriorLike = "Distribution | dict | None"
-
-
 def _resolve_prior(prior: Any) -> Distribution | None:
     """Materialise a prior given either a numpyro ``Distribution`` or a
     dict-config like ``{"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0}}``.
 
     Returns ``None`` if ``prior`` is ``None``.
     """
-    if prior is None:
-        return None
-    if isinstance(prior, dict):
-        from .config import materialize_prior
-
-        return materialize_prior(prior)
-    return prior
+    return resolve_prior_distribution(prior)
 
 
 @runtime_checkable
@@ -96,7 +86,7 @@ class DenseLinearSpec:
     optionally ``c`` (``(n,)``).
 
     Priors may be supplied as a ``numpyro.Distribution`` or as a dict-config
-    ``{"family": "...", "params": {...}, "shape": [...]}`` — see ``PriorLike``.
+    ``{"family": "...", "params": {...}, "shape": [...]}``.
     """
 
     drift_prior: Any
@@ -148,7 +138,7 @@ class StructuralDenseLinearSpec:
 
     @property
     def drift_base_decay_positions(self) -> list[int]:
-        from ._structural_assembly import (
+        from nof1_causal_lab.models.ssm.structure.assembly import (
             drift_base_decay_positions as _positions,
         )
 
@@ -156,7 +146,9 @@ class StructuralDenseLinearSpec:
 
     @property
     def offdiag_positions(self) -> list[tuple[int, int]]:
-        from ._structural_assembly import drift_offdiag_positions as _positions
+        from nof1_causal_lab.models.ssm.structure.assembly import (
+            drift_offdiag_positions as _positions,
+        )
 
         return _positions(self.drift_offdiag_mask, self.n_latent)
 
@@ -176,10 +168,12 @@ class StructuralDenseLinearSpec:
         """Stability-by-construction drift assembly.
 
         Delegates to the shared :func:`assemble_dense_linear_drift` in
-        ``_structural_assembly`` — single canonical implementation shared
+        ``structure.assembly`` — single canonical implementation shared
         with :class:`SSMParameterLayout`.
         """
-        from ._structural_assembly import assemble_dense_linear_drift
+        from nof1_causal_lab.models.ssm.structure.assembly import (
+            assemble_dense_linear_drift,
+        )
 
         return assemble_dense_linear_drift(
             drift_template=self.drift_template,
@@ -242,7 +236,9 @@ class StructuralInterceptSpec:
 
     @property
     def cint_free_positions(self) -> list[int]:
-        from ._structural_assembly import cint_free_positions as _positions
+        from nof1_causal_lab.models.ssm.structure.assembly import (
+            cint_free_positions as _positions,
+        )
 
         return _positions(self.cint_mask, self.n_latent)
 
@@ -254,10 +250,10 @@ class StructuralInterceptSpec:
         """Sparse-element cint assembly.
 
         Delegates to the shared :func:`assemble_intercept_cint` in
-        ``_structural_assembly`` — single canonical implementation shared
+        ``structure.assembly`` — single canonical implementation shared
         with :class:`SSMParameterLayout`.
         """
-        from ._structural_assembly import assemble_intercept_cint
+        from nof1_causal_lab.models.ssm.structure.assembly import assemble_intercept_cint
 
         return assemble_intercept_cint(
             cint_template=self.cint_template,
@@ -292,7 +288,7 @@ class StructuralInterceptSpec:
 @dataclass(frozen=True, eq=False)
 class DiagonalDecaySpec:
     """``DiagonalDecay`` component. Prior over ``(n_latent,)`` rate vector
-    (must be positive). Prior is ``PriorLike``."""
+    (must be positive)."""
 
     decay_prior: Any
 
@@ -364,7 +360,7 @@ class HillEdgeSpec:
 
 @dataclass(frozen=True, eq=False)
 class MultiplicativeEdgeSpec:
-    """``MultiplicativeEdge`` component spec. Prior over scalar ``weight`` (PriorLike)."""
+    """``MultiplicativeEdge`` component spec. Prior over scalar ``weight``."""
 
     source_a: int
     source_b: int

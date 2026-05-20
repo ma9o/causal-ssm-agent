@@ -81,7 +81,10 @@ def validate_assembly(
     Returns:
         AssemblyValidation with structured results.
     """
-    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact, trial_compile_model_spec
+    from nof1_causal_lab.models.ssm.compile.artifact import (
+        compile_ssm_artifact,
+        trial_compile_model_spec,
+    )
 
     candidate = _prepare_model_spec(model_spec)
     if authored_priors:
@@ -344,7 +347,7 @@ def build_validation_payload(
     model_spec: dict,
 ) -> dict[str, Any]:
     """Convert ``AssemblyValidation`` into the web-facing validation payload."""
-    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm.compile.common import GLOBAL_FAILURE_SITES
 
     payload_spec = validation.normalized_model_spec or model_spec
     if not validation.compile_ok:
@@ -581,8 +584,8 @@ def compile_model_artifact(
     compiled_ssm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile and verify the executable SSM artifact for Stage 4 output."""
-    from nof1_causal_lab.models.ssm_builder import prepare_model_runtime
-    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact
+    from nof1_causal_lab.models.ssm.builder import prepare_model_runtime
+    from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
 
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
@@ -631,7 +634,7 @@ def materialize_stage4_result(
     search_queries: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Build the full grounded stage-4 result from authored inputs."""
-    from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
+    from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
     validation = validation or validate_assembly(
         model_spec,
@@ -698,7 +701,7 @@ def format_validation_feedback(
         return warning_feedback or "VALID"
 
     from nof1_causal_lab.models.prior_predictive import format_parameter_feedback
-    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm.compile.common import GLOBAL_FAILURE_SITES
 
     # Global failures → single concise summary, not one block per parameter.
     # Always shown regardless of ``focus_parameters`` — they affect the whole

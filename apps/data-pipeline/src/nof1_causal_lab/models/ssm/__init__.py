@@ -22,7 +22,6 @@ from nof1_causal_lab.models.ssm.discretization import (
 from nof1_causal_lab.models.ssm.inference import InferenceMethod, InferenceResult, fit
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
-    SSMPriors,
     SSMSpec,
     full_cholesky_mask,
     full_diagonal_mask,
@@ -35,6 +34,7 @@ from nof1_causal_lab.models.ssm.model import (
     zero_vector_mask,
 )
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
+from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 
 __all__ = [
     # Discretization
@@ -50,8 +50,9 @@ __all__ = [
     "discretize_system_with_inputs_batched",
     # Model
     "SSMModel",
-    "SSMPriors",
     "SSMSpec",
+    "PriorRegistry",
+    "PriorSpec",
     "full_cholesky_mask",
     "full_diagonal_mask",
     "full_drift_offdiag_mask",

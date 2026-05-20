@@ -20,15 +20,15 @@ import numpyro
 import numpyro.distributions as dist
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.dynamics import (
-        CompositeSpec,
+    from nof1_causal_lab.models.ssm.dynamics.composite import CompositeSpec
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
         SparseMatrixBlockSpec,
         SparseVectorBlockSpec,
         T0CholBlockSpec,
     )
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
@@ -57,7 +57,7 @@ from nof1_causal_lab.models.ssm.parameterization import (
     build_prior_runtime_bundle,
     build_site_prior_distribution,
 )
-from nof1_causal_lab.models.ssm.priors import SSMPriors
+from nof1_causal_lab.models.ssm.priors import PriorRegistry, default_prior_registry
 
 
 @jax.custom_vjp
@@ -216,7 +216,7 @@ class SSMSpec:
         def _require_matrix(name: str, value: Any, rows: int, cols: int) -> None:
             _require_shape(name, value, (rows, cols))
 
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.dynamics.composite import (
             StructuralDenseLinearSpec,
             StructuralInterceptSpec,
         )
@@ -457,7 +457,7 @@ class SSMSpec:
         Nonlinear composite drifts use the composite inference drivers and
         should not be coerced into dense-linear sample sites.
         """
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.dynamics.composite import (
             StructuralDenseLinearSpec,
             StructuralInterceptSpec,
         )
@@ -526,33 +526,6 @@ class SSMSpec:
         return symmetrize(cov)
 
 
-def _make_prior_dist(prior: dict) -> dist.Distribution:
-    """Build a numpyro distribution from a legacy SSMPriors dict-config.
-
-    Thin delegation to :func:`materialize_prior` in
-    ``dynamics/config.py`` — the single materialiser that accepts both
-    the legacy flat format used here and the nested ``params`` format
-    used by the composite spec components.
-    """
-    from nof1_causal_lab.models.ssm.dynamics.config import materialize_prior
-
-    return materialize_prior(prior)
-
-
-def _make_prior_batch(prior: dict, n: int) -> dist.Distribution:
-    """Build a batched prior distribution with shape (n,).
-
-    If prior already has array-valued params with length n, use directly.
-    If scalar, expand to batch shape [n].
-    """
-    d = _make_prior_dist(prior)
-    if d.batch_shape == (n,):
-        return d
-    if d.batch_shape == ():
-        return d.expand((n,))
-    raise ValueError(f"Prior batch shape {d.batch_shape} does not match expected ({n},)")
-
-
 class SSMModel:
     """NumPyro state-space model definition.
 
@@ -567,17 +540,17 @@ class SSMModel:
     def __init__(
         self,
         spec: SSMSpec,
-        priors: SSMPriors | None = None,
+        priors: PriorRegistry | None = None,
         prior_runtime_bundle: PriorRuntimeBundle | None = None,
     ):
         """Initialize state-space model.
 
         Args:
             spec: Model specification
-            priors: Prior distributions (uses defaults if None)
+            priors: Prior registry (uses compiler defaults if None)
         """
         self.spec = spec
-        self.priors = priors or SSMPriors()
+        self.priors = priors or default_prior_registry()
         self._parameter_layout = SSMParameterLayout.from_spec(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
@@ -627,7 +600,7 @@ class SSMModel:
         """
 
         def _build():
-            from nof1_causal_lab.models.ssm.dynamics import compile_composite
+            from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
 
             return compile_composite(self.spec.drift_spec).vector_field
 

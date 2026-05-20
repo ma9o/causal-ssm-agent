@@ -14,10 +14,10 @@ from nof1_causal_lab.models.ssm.parameter_names import (
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.compile.common import PriorIndexMaps
     from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm_compilation_common import PriorIndexMaps
 
-logger = get_prefect_logger("nof1_causal_lab.models.ssm_compilation")
+logger = get_prefect_logger("nof1_causal_lab.models.ssm.compile.inputs")
 
 
 class PriorIndexingError(AggregatedCompileError):
@@ -32,7 +32,7 @@ def build_prior_index_maps(
     *,
     causal_spec: dict | None = None,
 ) -> PriorIndexMaps:
-    """Build parameter-name -> (SSMPriors field, flat index) maps."""
+    """Build parameter-name -> (prior binding key, flat index) maps."""
     offdiag_index: dict[str, tuple[str, int]] = {}
     lambda_index: dict[str, tuple[str, int]] = {}
     diag_index: dict[str, tuple[str, int]] = {}

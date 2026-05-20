@@ -37,7 +37,7 @@ def build_stage4_failure_evidence(
     validation: AssemblyValidation,
 ) -> Stage4FailureEvidence:
     """Build the normalized evidence surface for a failed PP validation."""
-    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm.compile.common import GLOBAL_FAILURE_SITES
 
     failed_diagnostics = tuple(
         result for result in validation.prior_predictive_diagnostics if not result.is_valid

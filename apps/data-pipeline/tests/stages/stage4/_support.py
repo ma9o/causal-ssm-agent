@@ -88,10 +88,10 @@ from nof1_causal_lab.models.prior_predictive import (
     get_failed_parameters,
     validate_prior_predictive,
 )
-from nof1_causal_lab.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
-from nof1_causal_lab.models.ssm_compilation import (
+from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_ssm_inputs_from_model_spec,
 )
 from nof1_causal_lab.utils.llm import LLMTrace, make_generate_fn

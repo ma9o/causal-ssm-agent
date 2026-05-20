@@ -9,15 +9,15 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.model_spec import ParameterRole
 from nof1_causal_lab.flows import get_prefect_logger
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
-from nof1_causal_lab.models.ssm_compilation import translate_spec
-from nof1_causal_lab.models.ssm_compiler import validate_model_spec_for_compilation
-from nof1_causal_lab.models.ssm_prior_compilation import (
+from nof1_causal_lab.models.ssm.compile.artifact import validate_model_spec_for_compilation
+from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
+from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     PriorCompilationError,
     _positive_prior_mean_values,
     compile_priors,
     logm_diagnostic_mean_drift,
 )
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
@@ -110,7 +110,7 @@ def _build_partial_drift_state(
         for parameter_name, prior_spec in authored_priors.items()
         if parameter_name in drift_parameter_names
     }
-    ssm_priors, index_maps, _diagnostics = compile_priors(
+    prior_registry, index_maps, _diagnostics = compile_priors(
         drift_priors,
         resolved_model_spec,
         ssm_spec,
@@ -140,7 +140,8 @@ def _build_partial_drift_state(
     diag_sigma = np.zeros(len(latent_names), dtype=float)
     diag_present = np.zeros(len(latent_names), dtype=bool)
     diag_parameter_by_index: dict[int, str] = {}
-    base_decay_mu = _positive_prior_mean_values(ssm_priors.drift_base_decay)
+    base_decay_prior = prior_registry.priors_by_site["drift_base_decay_free"]
+    base_decay_mu = _positive_prior_mean_values(base_decay_prior)
     for parameter_name in drift_priors:
         if parameter_name not in diag_param_index:
             continue
@@ -157,8 +158,9 @@ def _build_partial_drift_state(
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_present = np.zeros(len(offdiag_positions), dtype=bool)
     offdiag_parameter_by_index: dict[int, str] = {}
-    drift_offdiag_mu = np.asarray(ssm_priors.drift_offdiag.get("mu", []), dtype=float)
-    drift_offdiag_sigma = np.asarray(ssm_priors.drift_offdiag.get("sigma", []), dtype=float)
+    drift_offdiag_prior = prior_registry.priors_by_site["drift_offdiag_free"]
+    drift_offdiag_mu = np.asarray(drift_offdiag_prior.params.get("mu", []), dtype=float)
+    drift_offdiag_sigma = np.asarray(drift_offdiag_prior.params.get("sigma", []), dtype=float)
     offdiag_param_index = index_maps[0]
     for parameter_name in drift_priors:
         if parameter_name not in offdiag_param_index:
@@ -174,7 +176,7 @@ def _build_partial_drift_state(
         )
 
     diagnostic_drift = logm_diagnostic_mean_drift(
-        ssm_priors,
+        prior_registry,
         ssm_spec,
         edge_lag_days=edge_lag_days,
     )

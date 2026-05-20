@@ -12,9 +12,9 @@ import polars as pl
 
 from nof1_causal_lab.models.ssm import (
     InferenceResult,
+    PriorRegistry,
     SSMModel,
     SSMParameterLayout,
-    SSMPriors,
     SSMSpec,
     fit,
     full_cholesky_mask,
@@ -25,34 +25,35 @@ from nof1_causal_lab.models.ssm import (
     zero_loading_mask,
     zero_vector_mask,
 )
-from nof1_causal_lab.models.ssm.dynamics import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-    linear_drift_spec,
+from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
+from nof1_causal_lab.models.ssm.compile.inputs import (
+    compile_ssm_inputs_from_model_spec,
+    compile_ssm_inputs_from_spec,
 )
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.inference.structure import (
     InferenceStructurePlan,
     plan_inference_structure,
 )
-from nof1_causal_lab.models.ssm.parameterization import (
-    PriorRuntimeBundle,
-    load_prior_runtime_bundle,
-)
-from nof1_causal_lab.models.ssm_compilation import (
-    compile_ssm_inputs_from_model_spec,
-    compile_ssm_inputs_from_spec,
-)
-from nof1_causal_lab.models.ssm_compilation_common import dump_prior_payloads
-from nof1_causal_lab.models.ssm_observation_metadata import (
+from nof1_causal_lab.models.ssm.observation_support import (
     ObservationSupportRuntime,
     augment_wide_data_with_support_boundaries,
     compile_observation_support_runtime,
     default_manifest_columns,
     hydrate_discrete_manifest_metadata,
     validate_observation_support,
+)
+from nof1_causal_lab.models.ssm.parameterization import (
+    PriorRuntimeBundle,
+    load_prior_runtime_bundle,
+)
+from nof1_causal_lab.models.ssm.priors import default_prior_registry
+from nof1_causal_lab.models.ssm.structure import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
 )
 from nof1_causal_lab.utils.data import pivot_to_wide
 
@@ -116,7 +117,7 @@ class SSMModelBuilder:
         model_spec: ModelSpec | dict | None = None,
         priors: dict[str, PriorProposal] | dict[str, dict] | None = None,
         ssm_spec: SSMSpec | None = None,
-        ssm_priors: SSMPriors | None = None,
+        prior_registry: PriorRegistry | None = None,
         compiled_prior_semantics: dict | None = None,
         prior_runtime_bundle: PriorRuntimeBundle | None = None,
         sampler_config: dict | None = None,
@@ -129,7 +130,7 @@ class SSMModelBuilder:
             model_spec: Model specification from orchestrator (will be converted)
             priors: Prior proposals for each parameter
             ssm_spec: Direct SSMSpec (overrides model_spec conversion)
-            ssm_priors: Direct SSMPriors paired with ssm_spec
+            prior_registry: Direct prior registry paired with ssm_spec
             sampler_config: Override sampler configuration
             causal_spec: CausalSpec dict with latent model edges and measurement
                 model indicators. When provided, spec translation builds
@@ -138,7 +139,7 @@ class SSMModelBuilder:
         self._model_spec = model_spec
         self._priors = priors or {}
         self._ssm_spec = ssm_spec
-        self._ssm_priors = ssm_priors
+        self._prior_registry = prior_registry
         self._compiled_prior_semantics = compiled_prior_semantics
         self._prior_runtime_bundle = prior_runtime_bundle
         self._sampler_config = sampler_config or self.get_default_sampler_config()
@@ -201,10 +202,10 @@ class SSMModelBuilder:
             self._prior_runtime_bundle = load_prior_runtime_bundle(compiled_prior_semantics)
         return self._prior_runtime_bundle
 
-    def compile_inputs(self) -> tuple[SSMSpec, SSMPriors]:
+    def compile_inputs(self) -> tuple[SSMSpec, PriorRegistry]:
         """Compile user-facing specs into executable SSM inputs."""
         if self._model_spec is not None:
-            if self._ssm_spec is not None or self._ssm_priors is not None:
+            if self._ssm_spec is not None or self._prior_registry is not None:
                 raise ValueError(
                     "compile_inputs() accepts either ModelSpec-driven inputs or direct "
                     "SSMSpec inputs, not both."
@@ -220,7 +221,7 @@ class SSMModelBuilder:
             spec, priors, bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs_from_spec(
                 ssm_spec=self._ssm_spec,
                 priors=dump_prior_payloads(self._priors),
-                ssm_priors=self._ssm_priors,
+                prior_registry=self._prior_registry,
                 model_spec=self._model_spec,
                 causal_spec=self._causal_spec,
             )
@@ -341,7 +342,7 @@ class SSMModelBuilder:
             )
         elif self._compiled_prior_semantics is not None and self._ssm_spec is not None:
             spec = self._ssm_spec
-            priors = self._ssm_priors or SSMPriors()
+            priors = self._prior_registry or default_prior_registry()
         else:
             spec, priors = self.compile_inputs()
 
@@ -536,7 +537,7 @@ class SSMModelBuilder:
         from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
             any_family_needs_level_metadata,
         )
-        from nof1_causal_lab.models.ssm.prior_predictive_runtime import (
+        from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
             sample_prior_predictive_from_priors,
             sample_prior_predictive_from_runtime,
         )
@@ -641,7 +642,7 @@ def build_ssm_builder(
         ValueError: If wide_data is empty
     """
     if compiled_ssm is not None:
-        from nof1_causal_lab.models.ssm_compiler import build_compiled_ssm_builder
+        from nof1_causal_lab.models.ssm.compile.artifact import build_compiled_ssm_builder
 
         return build_compiled_ssm_builder(
             compiled_ssm,

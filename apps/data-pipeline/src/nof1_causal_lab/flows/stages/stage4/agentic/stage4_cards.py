@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from nof1_causal_lab.models.ssm_spec_translation import get_construct_dt_days
+from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
 from nof1_causal_lab.utils.causal_spec import (
     build_reference_indicator_lookup,
     get_constructs,

@@ -1,6 +1,6 @@
 """CT→DT discretization for arbitrary vector fields via local linearization.
 
-The existing ``models/ssm/discretization.py`` handles the dense-matrix
+The exact discretization module handles the dense-matrix
 linear case directly. This module extends that to non-linear vector
 fields by:
 
@@ -37,17 +37,16 @@ from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.discretization import discretize_linear_system_exact
-
-from .intervention import Intervention
-from .vector_field import VectorFieldArgs
+from nof1_causal_lab.models.ssm.discretization.exact import discretize_linear_system_exact
+from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
+from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorFieldArgs
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from jax import Array
 
-    from .vector_field import CompositeVectorField
+    from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
 
 
 def discretize_at_state(

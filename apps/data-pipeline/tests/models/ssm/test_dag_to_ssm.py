@@ -16,17 +16,28 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts import LinkFunction
-from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
-    SSMPriors,
     SSMSpec,
-    _make_prior_batch,
-    _make_prior_dist,
     full_vector_mask,
     zero_loading_mask,
 )
-from tests.ssm_test_utils import combined_drift_mask, full_drift_mask, make_ssm_spec
+from nof1_causal_lab.models.ssm.parameterization import (
+    SiteDescriptor,
+    SiteKind,
+    SupportClass,
+    TransformKind,
+    build_prior_runtime_state,
+    build_site_prior_distribution,
+)
+from nof1_causal_lab.models.ssm.priors import PriorSpec
+from tests.ssm_test_utils import (
+    combined_drift_mask,
+    full_drift_mask,
+    make_ssm_spec,
+    prior_registry,
+)
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
@@ -288,32 +299,76 @@ class TestLambdaMask:
 
 
 class TestPerElementPriors:
-    """Test array-valued priors via _make_prior_dist and _make_prior_batch."""
+    """Test array-valued priors through canonical site runtime state."""
+
+    @staticmethod
+    def _real_site(shape: tuple[int, ...]) -> SiteDescriptor:
+        return SiteDescriptor(
+            name="test_site",
+            shape=shape,
+            support=SupportClass.REAL,
+            assembly_group="test",
+            site_kind=SiteKind.DRIFT_OFFDIAG,
+            transform_kind=TransformKind.IDENTITY,
+        )
 
     def test_make_prior_dist_scalar(self):
         """Scalar mu/sigma produces scalar Normal."""
-        d = _make_prior_dist({"mu": 0.0, "sigma": 1.0})
+        site = self._real_site(())
+        priors = prior_registry(
+            test_site=PriorSpec(PriorDistributionFamily.NORMAL, {"mu": 0.0, "sigma": 1.0})
+        )
+        state = build_prior_runtime_state([site], priors)
+        d = build_site_prior_distribution(site, state[site.name])
         assert d.batch_shape == ()
 
     def test_make_prior_dist_array(self):
         """Array mu/sigma produces batched Normal."""
-        d = _make_prior_dist({"mu": [0.1, 0.2, 0.3], "sigma": [1.0, 0.5, 0.3]})
+        site = self._real_site((3,))
+        priors = prior_registry(
+            test_site=PriorSpec(
+                PriorDistributionFamily.NORMAL,
+                {"mu": [0.1, 0.2, 0.3], "sigma": [1.0, 0.5, 0.3]},
+            )
+        )
+        state = build_prior_runtime_state([site], priors)
+        d = build_site_prior_distribution(site, state[site.name])
         assert d.batch_shape == (3,)
 
     def test_make_prior_batch_scalar_expand(self):
         """Scalar prior expanded to batch shape."""
-        d = _make_prior_batch({"mu": 0.0, "sigma": 1.0}, 5)
+        site = self._real_site((5,))
+        priors = prior_registry(
+            test_site=PriorSpec(PriorDistributionFamily.NORMAL, {"mu": 0.0, "sigma": 1.0})
+        )
+        state = build_prior_runtime_state([site], priors)
+        d = build_site_prior_distribution(site, state[site.name])
         assert d.batch_shape == (5,)
 
     def test_make_prior_batch_array_passthrough(self):
         """Array prior with correct shape passes through."""
-        d = _make_prior_batch({"mu": [0.1, 0.2], "sigma": [1.0, 0.5]}, 2)
+        site = self._real_site((2,))
+        priors = prior_registry(
+            test_site=PriorSpec(
+                PriorDistributionFamily.NORMAL,
+                {"mu": [0.1, 0.2], "sigma": [1.0, 0.5]},
+            )
+        )
+        state = build_prior_runtime_state([site], priors)
+        d = build_site_prior_distribution(site, state[site.name])
         assert d.batch_shape == (2,)
 
     def test_make_prior_batch_mismatch_raises(self):
         """Array prior with wrong shape raises."""
-        with pytest.raises(ValueError, match="does not match"):
-            _make_prior_batch({"mu": [0.1, 0.2], "sigma": [1.0, 0.5]}, 3)
+        site = self._real_site((3,))
+        priors = prior_registry(
+            test_site=PriorSpec(
+                PriorDistributionFamily.NORMAL,
+                {"mu": [0.1, 0.2], "sigma": [1.0, 0.5]},
+            )
+        )
+        with pytest.raises(ValueError, match="broadcast"):
+            build_prior_runtime_state([site], priors)
 
     def test_per_element_prior_in_model(self):
         """Per-element drift priors are used in sampling."""
@@ -331,8 +386,11 @@ class TestPerElementPriors:
         )
 
         # Per-element prior: single off-diagonal has mu=2.0
-        priors = SSMPriors(
-            drift_offdiag={"mu": [2.0], "sigma": [0.1]},
+        priors = prior_registry(
+            drift_offdiag_free=PriorSpec(
+                PriorDistributionFamily.NORMAL,
+                {"mu": [2.0], "sigma": [0.1]},
+            )
         )
         model = SSMModel(spec, priors)
 
@@ -358,7 +416,7 @@ class TestBuilderMasks:
 
     def test_build_masks_from_causal_spec(self):
         """Builder constructs drift_mask and lambda_mask from CausalSpec."""
-        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
 
         causal_spec = _make_causal_spec_dict()
 
@@ -393,7 +451,7 @@ class TestBuilderMasks:
 
     def test_no_causal_spec_materializes_explicit_default_masks(self):
         """Without causal_spec, structural defaults are still explicit."""
-        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
 
         drift_mask, input_effect_mask, _lambda_mat, lambda_mask, _edge_lag_days = (
             build_masks_from_causal_spec(None, ["x1"], 1, 1, causal_spec=None)
@@ -404,7 +462,7 @@ class TestBuilderMasks:
 
     def test_known_input_edge_compiles_to_input_effect_mask(self):
         """Known inputs are transition drivers, not latent drift columns."""
-        from nof1_causal_lab.models.ssm_compilation import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
 
         causal_spec = {
             "latent": {
@@ -565,7 +623,7 @@ class TestBuilderMasks:
 
     def test_builder_rejects_direct_ssm_spec_plus_causal_spec(self):
         """Direct specs may not carry a causal graph unless already translated."""
-        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
 
         causal_spec = _make_causal_spec_dict()
         builder = SSMModelBuilder(
@@ -595,7 +653,7 @@ class TestBuilderMasks:
 
     def test_builder_rejects_autodetect_when_causal_spec_present(self):
         """Auto-detected specs may not bypass causal-structure translation."""
-        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
 
         causal_spec = _make_causal_spec_dict()
         builder = SSMModelBuilder(causal_spec=causal_spec)
@@ -625,7 +683,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from nof1_causal_lab.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
         causal_spec = {
             "latent": {
@@ -739,7 +797,7 @@ class TestBuilderMasks:
             LinkFunction,
             ModelSpec,
         )
-        from nof1_causal_lab.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -787,7 +845,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from nof1_causal_lab.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -897,7 +955,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from nof1_causal_lab.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -954,7 +1012,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from nof1_causal_lab.models.ssm_compilation import translate_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 
         causal_spec = _make_causal_spec_dict()
         model_spec = ModelSpec(
@@ -1012,7 +1070,7 @@ class TestBuilderMasks:
             ParameterRole,
             ParameterSpec,
         )
-        from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
 
         def _lik(var: str) -> LikelihoodSpec:
             return LikelihoodSpec(

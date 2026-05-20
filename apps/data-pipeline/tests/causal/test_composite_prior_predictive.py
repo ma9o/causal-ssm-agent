@@ -19,6 +19,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
     DiagonalDecaySpec,
     HillEdgeSpec,
     compile_composite,
+)
+from nof1_causal_lab.models.ssm.predictive import (
     sample_composite_prior_predictive,
     validate_composite_dynamics,
 )
@@ -86,7 +88,7 @@ class TestSampleCompositePriorPredictive:
 
 class TestSampleObservationsFromLatents:
     """The composite path can now emit observations via the ObservationKernel,
-    closing the parity gap with the linear ``prior_predictive_runtime``.
+    closing the parity gap with the linear registry predictive runtime.
     Gaussian is the implemented family; non-Gaussian raises with a clear
     message."""
 
@@ -134,7 +136,7 @@ class TestSampleObservationsFromLatents:
     def test_gaussian_emits_observations_with_correct_shape(self):
         import jax.random as jr
 
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.predictive import (
             sample_observations_from_latents,
         )
 
@@ -152,7 +154,7 @@ class TestSampleObservationsFromLatents:
         ``H @ x + d`` at each timestep."""
         import jax.random as jr
 
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.predictive import (
             sample_observations_from_latents,
         )
 
@@ -184,10 +186,12 @@ class TestSampleObservationsFromLatents:
             DiagonalDecaySpec,
             compile_composite,
             runtime_from_composite,
-            sample_observations_from_latents,
         )
         from nof1_causal_lab.models.ssm.inference.targets.kernels import (
             build_observation_kernel,
+        )
+        from nof1_causal_lab.models.ssm.predictive import (
+            sample_observations_from_latents,
         )
 
         spec = CompositeSpec(
@@ -239,10 +243,12 @@ class TestSampleObservationsFromLatents:
             DiagonalDecaySpec,
             compile_composite,
             runtime_from_composite,
-            sample_observations_from_latents,
         )
         from nof1_causal_lab.models.ssm.inference.targets.kernels import (
             build_observation_kernel,
+        )
+        from nof1_causal_lab.models.ssm.predictive import (
+            sample_observations_from_latents,
         )
 
         spec = CompositeSpec(
@@ -292,10 +298,12 @@ class TestSampleCompositePriorPredictiveFull:
             DiagonalDecaySpec,
             compile_composite,
             runtime_from_composite,
-            sample_composite_prior_predictive_full,
         )
         from nof1_causal_lab.models.ssm.inference.targets.kernels import (
             build_observation_kernel,
+        )
+        from nof1_causal_lab.models.ssm.predictive import (
+            sample_composite_prior_predictive_full,
         )
 
         spec = CompositeSpec(
@@ -340,11 +348,11 @@ class TestValidateCompositeAssembly:
     Drives the bridge end-to-end: a dict-config goes in, an
     AssemblyValidation-shaped object comes out — exactly what a Stage 4
     LLM tool or the agentic repair flow needs to call when handed a
-    composite spec instead of an SSMPriors instance.
+    composite spec instead of the linear prior registry runtime.
     """
 
     def test_valid_dict_config_returns_is_valid_true(self):
-        from nof1_causal_lab.models.ssm.dynamics import validate_composite_assembly
+        from nof1_causal_lab.models.ssm.predictive import validate_composite_assembly
 
         config = {
             "n_latent": 1,
@@ -364,7 +372,7 @@ class TestValidateCompositeAssembly:
         assert result.compiled is not None
 
     def test_malformed_config_surfaces_compile_error(self):
-        from nof1_causal_lab.models.ssm.dynamics import validate_composite_assembly
+        from nof1_causal_lab.models.ssm.predictive import validate_composite_assembly
 
         config = {"n_latent": 1, "components": [{"kind": "Bogus"}]}
         result = validate_composite_assembly(

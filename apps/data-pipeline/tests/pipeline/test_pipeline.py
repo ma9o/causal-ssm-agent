@@ -1886,7 +1886,7 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
 
 
 def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
-    from nof1_causal_lab.models.ssm_builder import SSMModelBuilder
+    from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
     from nof1_causal_lab.utils.data import pivot_to_wide
 
     stub = _AsyncSubflowStub(

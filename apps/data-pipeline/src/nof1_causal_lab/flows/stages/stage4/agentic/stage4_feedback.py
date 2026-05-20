@@ -254,7 +254,7 @@ def _collect_failure_context(
     diagnostics: tuple[PriorValidationResult, ...],
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     """Extract failing, coupled, and global parameter hints from diagnostics."""
-    from nof1_causal_lab.models.ssm_compilation_common import GLOBAL_FAILURE_SITES
+    from nof1_causal_lab.models.ssm.compile.common import GLOBAL_FAILURE_SITES
 
     failing_parameters: set[str] = set()
     coupled_parameters: set[str] = set()

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
         ObservationOperator,
     )
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 # =============================================================================
 # Kernel dataclasses
