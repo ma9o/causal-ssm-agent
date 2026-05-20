@@ -332,7 +332,7 @@ class TestDeriveDeterministicSpec:
 
     def test_stage4_inventory_matches_compiler_public_prior_rows(self):
         """Stage 4 should expose compiler rows plus conditional likelihood extras."""
-        from nof1_causal_lab.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm.compile.artifact import (
             compile_ssm_artifact,
             resolve_prior_proposals,
         )
@@ -418,7 +418,7 @@ class TestDeriveDeterministicSpec:
 
     def test_negative_binomial_candidate_obs_r_is_surfaced_to_stage4(self):
         """Stage 4 should expose the negative-binomial dispersion prior surface."""
-        from nof1_causal_lab.models.ssm_compiler import (
+        from nof1_causal_lab.models.ssm.compile.artifact import (
             compile_ssm_artifact,
             resolve_prior_proposals,
         )

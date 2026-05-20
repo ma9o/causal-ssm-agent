@@ -42,6 +42,7 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_validate_composite_spec as _execute_validate_composite_spec,
 )
+from nof1_causal_lab.models.ssm.builder import SSMModelBuilder, prepare_model_runtime
 from nof1_causal_lab.models.ssm.counterfactual import (
     approximate_abducted_state,
     approximate_abducted_state_composite,
@@ -56,7 +57,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
     compute_steady_state,
 )
-from nof1_causal_lab.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.causal_spec import (
     get_estimable_treatments,

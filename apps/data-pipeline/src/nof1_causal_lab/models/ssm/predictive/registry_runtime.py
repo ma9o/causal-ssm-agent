@@ -1,7 +1,7 @@
 """Compile-stable prior predictive runtime.
 
 Builds prior predictive samples directly from compiled prior semantics or
-``SSMPriors`` without tracing back through ``SSMModel.model()``.
+``PriorRegistry`` without tracing back through ``SSMModel.model()``.
 """
 
 from __future__ import annotations
@@ -26,7 +26,8 @@ from nof1_causal_lab.models.ssm.parameterization import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMPriors, SSMSpec
+    from nof1_causal_lab.models.ssm.model import SSMSpec
+    from nof1_causal_lab.models.ssm.priors import PriorRegistry
 
 
 def _ensure_discrete_metadata(spec: SSMSpec) -> None:
@@ -143,7 +144,7 @@ def sample_prior_predictive_from_compiled_semantics(
 
 def sample_prior_predictive_from_priors(
     spec: SSMSpec,
-    priors: SSMPriors | None,
+    priors: PriorRegistry | None,
     times: jnp.ndarray,
     *,
     observation_support=None,
@@ -152,7 +153,7 @@ def sample_prior_predictive_from_priors(
     num_samples: int = 100,
     seed: int = 0,
 ) -> dict[str, jnp.ndarray]:
-    """Sample prior predictive draws from ``SSMPriors`` directly."""
+    """Sample prior predictive draws from a ``PriorRegistry`` directly."""
     runtime = build_prior_runtime_bundle(spec, priors)
     return sample_prior_predictive_from_runtime(
         spec,

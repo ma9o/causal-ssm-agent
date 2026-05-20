@@ -40,7 +40,7 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 logger = get_prefect_logger(__name__)
 

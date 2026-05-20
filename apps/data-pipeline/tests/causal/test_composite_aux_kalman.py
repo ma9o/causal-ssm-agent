@@ -1184,7 +1184,7 @@ class TestCompositePerTLogLikelihood:
     Closes the LOO-CV parity gap with the linear FittedArtifact."""
 
     def test_per_t_log_likelihood_shape_and_finiteness(self):
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.predictive import (
             composite_per_t_log_likelihood,
         )
 
@@ -1250,7 +1250,7 @@ class TestCompositePerTLogLikelihood:
 
         import pytest
 
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.predictive import (
             composite_per_t_log_likelihood,
         )
 
@@ -1268,7 +1268,7 @@ class TestCompositePosteriorPredictiveCheck:
     coverage, RMSE."""
 
     def test_ppc_shapes_and_coverage_band(self):
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.predictive import (
             composite_posterior_predictive_check,
         )
 
@@ -1312,7 +1312,7 @@ class TestCompositePosteriorPredictiveObservations:
     parity gap with the linear ``FittedArtifact.ppc_result``."""
 
     def test_posterior_predictive_observations_match_data_shape(self):
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.predictive import (
             sample_composite_posterior_predictive_observations,
         )
 
@@ -1344,7 +1344,7 @@ class TestCompositePosteriorPredictiveObservations:
     def test_posterior_predictive_raises_when_trajectory_samples_missing(self):
         import pytest
 
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.predictive import (
             sample_composite_posterior_predictive_observations,
         )
 

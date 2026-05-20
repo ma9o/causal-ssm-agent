@@ -8,12 +8,12 @@ param-bearing fields: there are no flat-field duplicates.
 Each block is a frozen dataclass with:
 
 - Its structural data (masks + templates) — direct fields
-- Its priors — ``Distribution | dict | None`` resolved via
-  ``compilation._resolve_prior`` (single materialisation path)
+- Its priors — ``Distribution | dict | None`` resolved through the
+  canonical prior materialization path
 - A ``sample_params(prefix)`` method that emits the sampled values
   via ``numpyro.sample`` with bare site names so existing autoreparam
   / posterior-analysis tooling keeps working
-- Assembly delegated to ``_structural_assembly`` (single algorithmic
+- Assembly delegated to ``structure.assembly`` (single algorithmic
   source of truth shared with ``SSMParameterLayout``)
 
 At sample time, ``SSMModel._sample_*`` clones the spec's block with
@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpyro
 
-from .compilation import _resolve_prior
+from nof1_causal_lab.models.ssm.priors import resolve_prior_distribution
 
 if TYPE_CHECKING:
     import jax.numpy as jnp
@@ -37,12 +37,12 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
-# Helpers (single source of truth lives in ``_structural_assembly``; the
+# Helpers (single source of truth lives in ``structure.assembly``; the
 # helpers here are thin wrappers that pre-compute positions from masks)
 # ---------------------------------------------------------------------------
 
 
-# Position extractors live in ``_structural_assembly`` — the single
+# Position extractors live in ``structure.assembly`` — the single
 # canonical implementation also used by ``SSMParameterLayout``. The
 # block specs below import them lazily to avoid an eager dependency at
 # module-load time.
@@ -73,13 +73,13 @@ class DiffusionBlockSpec:
 
     @property
     def diffusion_diag_positions(self) -> list[int]:
-        from ._structural_assembly import chol_diag_positions
+        from nof1_causal_lab.models.ssm.structure.assembly import chol_diag_positions
 
         return chol_diag_positions(self.diffusion_chol_mask, self.n_latent)
 
     @property
     def diffusion_lower_positions(self) -> list[tuple[int, int]]:
-        from ._structural_assembly import strict_lower_positions
+        from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
         return strict_lower_positions(self.diffusion_chol_mask, self.n_latent)
 
@@ -96,7 +96,7 @@ class DiffusionBlockSpec:
         diag_free: jnp.ndarray | None = None,
         lower_free: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
-        from ._structural_assembly import assemble_diffusion_chol
+        from nof1_causal_lab.models.ssm.structure.assembly import assemble_diffusion_chol
 
         return assemble_diffusion_chol(
             diffusion_chol_template=self.diffusion_chol_template,
@@ -113,7 +113,7 @@ class DiffusionBlockSpec:
 
         diag_free = None
         if self.n_diffusion_diag > 0:
-            dist = _resolve_prior(self.diag_prior)
+            dist = resolve_prior_distribution(self.diag_prior)
             if dist is None:
                 raise ValueError(
                     "DiffusionBlockSpec requires diag_prior when n_diffusion_diag > 0"
@@ -122,7 +122,7 @@ class DiffusionBlockSpec:
 
         lower_free = None
         if self.n_diffusion_lower > 0:
-            dist = _resolve_prior(self.lower_prior)
+            dist = resolve_prior_distribution(self.lower_prior)
             if dist is None:
                 raise ValueError(
                     "DiffusionBlockSpec requires lower_prior when n_diffusion_lower > 0"
@@ -162,7 +162,7 @@ class SparseVectorBlockSpec:
 
     @property
     def free_positions(self) -> list[int]:
-        from ._structural_assembly import dense_vector_positions
+        from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
         return dense_vector_positions(self.mask, self.n)
 
@@ -171,7 +171,7 @@ class SparseVectorBlockSpec:
         return len(self.free_positions)
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        from ._structural_assembly import assemble_sparse_vector
+        from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_vector
 
         return assemble_sparse_vector(
             template=self.template,
@@ -185,7 +185,7 @@ class SparseVectorBlockSpec:
 
         free = None
         if self.n_free > 0:
-            dist = _resolve_prior(self.prior)
+            dist = resolve_prior_distribution(self.prior)
             if dist is None:
                 raise ValueError(
                     f"SparseVectorBlockSpec({self.free_site_name}) requires prior "
@@ -221,7 +221,7 @@ class SparseMatrixBlockSpec:
 
     @property
     def free_positions(self) -> list[tuple[int, int]]:
-        from ._structural_assembly import rect_matrix_positions
+        from nof1_causal_lab.models.ssm.structure.assembly import rect_matrix_positions
 
         return rect_matrix_positions(self.mask, self.n_rows, self.n_cols)
 
@@ -230,7 +230,7 @@ class SparseMatrixBlockSpec:
         return len(self.free_positions)
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        from ._structural_assembly import assemble_sparse_matrix
+        from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_matrix
 
         return assemble_sparse_matrix(
             template=self.template,
@@ -244,7 +244,7 @@ class SparseMatrixBlockSpec:
 
         free = None
         if self.n_free > 0:
-            dist = _resolve_prior(self.prior)
+            dist = resolve_prior_distribution(self.prior)
             if dist is None:
                 raise ValueError(
                     f"SparseMatrixBlockSpec({self.free_site_name}) requires prior "
@@ -277,7 +277,7 @@ class ManifestCholBlockSpec:
 
     @property
     def free_positions(self) -> list[int]:
-        from ._structural_assembly import dense_vector_positions
+        from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
         return dense_vector_positions(self.diag_mask, self.n_manifest)
 
@@ -286,7 +286,7 @@ class ManifestCholBlockSpec:
         return len(self.free_positions)
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        from ._structural_assembly import assemble_manifest_chol
+        from nof1_causal_lab.models.ssm.structure.assembly import assemble_manifest_chol
 
         return assemble_manifest_chol(
             template=self.template,
@@ -307,7 +307,7 @@ class ManifestCholBlockSpec:
 
         free = None
         if self.n_free > 0:
-            dist = _resolve_prior(self.diag_prior)
+            dist = resolve_prior_distribution(self.diag_prior)
             if dist is None:
                 raise ValueError(
                     "ManifestCholBlockSpec requires diag_prior when n_free > 0"
@@ -349,13 +349,13 @@ class T0CholBlockSpec:
 
     @property
     def diag_positions(self) -> list[int]:
-        from ._structural_assembly import dense_vector_positions
+        from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
         return dense_vector_positions(self.diag_mask, self.n_latent)
 
     @property
     def correlation_positions(self) -> list[tuple[int, int]]:
-        from ._structural_assembly import strict_lower_positions
+        from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
         return strict_lower_positions(self.correlation_mask, self.n_latent)
 
@@ -429,7 +429,7 @@ class T0CholBlockSpec:
 
         diag_free = None
         if self.n_diag_free > 0:
-            dist = _resolve_prior(self.diag_prior)
+            dist = resolve_prior_distribution(self.diag_prior)
             if dist is None:
                 raise ValueError(
                     "T0CholBlockSpec requires diag_prior when n_diag_free > 0"
@@ -438,7 +438,7 @@ class T0CholBlockSpec:
 
         correlation_free = None
         if self.n_correlation_free > 0:
-            dist = _resolve_prior(self.correlation_prior)
+            dist = resolve_prior_distribution(self.correlation_prior)
             if dist is None:
                 raise ValueError(
                     "T0CholBlockSpec requires correlation_prior when n_correlation_free > 0"
@@ -456,7 +456,7 @@ class T0CholBlockSpec:
 # default" shape of each block. Tests that don't care about a particular
 # block's structure call these; tests that do care construct the block
 # inline. Production code uses these only for trivial bootstrap paths
-# (e.g. ``ssm_builder`` auto-detect).
+# (e.g. ``ssm.builder`` auto-detect).
 # ---------------------------------------------------------------------------
 
 

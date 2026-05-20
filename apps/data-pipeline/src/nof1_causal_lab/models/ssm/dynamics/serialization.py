@@ -2,12 +2,10 @@
 dict-config priors and the runtime ``CompositeSpec`` consumed by
 ``compile_composite``.
 
-Closes the integration gap where ``dynamics/priors.py`` returns
-``Distribution`` objects directly while the rest of the framework
-(``SSMPriors``, ``PriorProposal``) speaks dict-config. With this module a
-composite spec round-trips through JSON / pydantic exactly like the
-linear-path priors, so anywhere Stage 4 already emits a prior
-dict-config it can now emit a composite spec instead.
+Composite specs store prior config using the same canonical
+``{"family": ..., "params": {...}}`` shape as the site prior registry,
+so Stage 4 can emit nonlinear dynamics specs that round-trip through
+JSON / pydantic without distribution objects.
 
 Schema
 ------
@@ -42,15 +40,10 @@ from typing import Any
 
 import jax.numpy as jnp
 import numpy as np
-import numpyro.distributions as ndist
 
-from nof1_causal_lab.distributions import (
-    PriorDistributionFamily,
-    get_positive_runtime_kind_from_index,
-    get_real_runtime_kind_from_index,
-)
+from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
 
-from .compilation import (
+from .composite import (
     CompositeSpec,
     DenseLinearSpec,
     DiagonalDecaySpec,
@@ -58,81 +51,10 @@ from .compilation import (
     InterceptSpec,
     LinearEdgeSpec,
     MultiplicativeEdgeSpec,
+    StructuralDenseLinearSpec,
+    StructuralInterceptSpec,
     compile_composite,
 )
-
-
-def _materialize_legacy_prior(prior: dict[str, Any]) -> ndist.Distribution:
-    """Materialise the legacy SSMPriors flat dict-config format.
-
-    Ports the original ``models/ssm/model.py:_make_prior_dist`` logic
-    here so the linear-path priors share a single materialiser with
-    the composite-path priors. Accepts:
-
-    - ``{"mu": ..., "sigma": ...}`` → Normal (or TruncatedNormal if
-      ``lower``/``upper`` present).
-    - ``{"family": <int>, "mu": ..., "sigma": ..., "lower"?, "upper"?}``
-      → real-valued family via ``get_real_runtime_kind_from_index``.
-    - ``{"family": <int>, "concentration": ..., "rate": ...}`` etc.
-      → positive-valued family via ``get_positive_runtime_kind_from_index``.
-    """
-    family = prior.get("family", 0)
-    if isinstance(family, list):
-        unique_families = {int(value) for value in family}
-        if len(unique_families) != 1:
-            raise ValueError("Mixed prior families within a single SSM field are unsupported")
-        family = unique_families.pop()
-    if "mu" in prior or "lower" in prior or "upper" in prior:
-        if "family" in prior:
-            runtime_kind = get_real_runtime_kind_from_index(int(family))
-            if runtime_kind == PriorDistributionFamily.NORMAL:
-                return ndist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
-            if runtime_kind == PriorDistributionFamily.TRUNCATED_NORMAL:
-                return ndist.TruncatedNormal(
-                    loc=jnp.asarray(prior["mu"]),
-                    scale=jnp.asarray(prior["sigma"]),
-                    low=jnp.asarray(prior["lower"]),
-                    high=jnp.asarray(prior["upper"]),
-                )
-            if runtime_kind == PriorDistributionFamily.UNIFORM:
-                return ndist.Uniform(
-                    low=jnp.asarray(prior["lower"]),
-                    high=jnp.asarray(prior["upper"]),
-                )
-            raise ValueError(f"Unsupported serialized real prior runtime kind {runtime_kind!r}")
-        if "lower" in prior and "upper" in prior:
-            return ndist.TruncatedNormal(
-                loc=jnp.asarray(prior["mu"]),
-                scale=jnp.asarray(prior["sigma"]),
-                low=jnp.asarray(prior["lower"]),
-                high=jnp.asarray(prior["upper"]),
-            )
-        return ndist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
-    if "family" in prior:
-        runtime_kind = get_positive_runtime_kind_from_index(int(family))
-        if runtime_kind == PriorDistributionFamily.HALF_NORMAL:
-            return ndist.HalfNormal(jnp.asarray(prior["sigma"]))
-        if runtime_kind == PriorDistributionFamily.GAMMA:
-            return ndist.Gamma(
-                concentration=jnp.asarray(prior.get("concentration", 2.0)),
-                rate=jnp.asarray(prior.get("rate", 1.0)),
-            )
-        if runtime_kind == PriorDistributionFamily.LOG_NORMAL:
-            return ndist.LogNormal(
-                loc=jnp.asarray(prior.get("loc", 0.0)),
-                scale=jnp.asarray(prior.get("sigma", 1.0)),
-            )
-        if runtime_kind == PriorDistributionFamily.EXPONENTIAL:
-            return ndist.Exponential(rate=jnp.asarray(prior.get("rate", 1.0)))
-        if runtime_kind == PriorDistributionFamily.DELTA:
-            return ndist.Delta(jnp.asarray(prior["value"]))
-        raise ValueError(f"Unsupported serialized positive prior runtime kind {runtime_kind!r}")
-    if {"concentration", "rate"} <= set(prior):
-        return ndist.Gamma(
-            concentration=jnp.asarray(prior.get("concentration", 2.0)),
-            rate=jnp.asarray(prior.get("rate", 1.0)),
-        )
-    return ndist.HalfNormal(jnp.asarray(prior["sigma"]))
 
 _COMPONENT_KIND_REGISTRY: dict[str, str] = {
     "DenseLinear": "dense_linear",
@@ -172,7 +94,7 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
     priors. Distribution-typed priors are passed through as-is (callers
     that need JSON serialisation must store priors as dict-configs).
     """
-    from .compilation import (
+    from .composite import (
         DenseLinearSpec,
         DiagonalDecaySpec,
         HillEdgeSpec,
@@ -268,73 +190,15 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
     return {"n_latent": int(spec.n_latent), "components": components}
 
 
-def materialize_prior(prior_cfg: dict[str, Any]) -> ndist.Distribution:
+def materialize_prior(prior_cfg: dict[str, Any]):
     """Materialize a NumPyro ``Distribution`` from a dict-config.
 
-    Accepts both prior-config formats used across the codebase:
-
-    - **New format** (Stage 4 / composite-spec): nested ``params``
-      sub-dict — ``{"family": "Normal", "params": {"mu": 0.0, "sigma":
-      1.0}, "shape": [...]}``. ``family`` is a string family name.
-      ``shape`` controls broadcasting.
-
-    - **Legacy format** (``SSMPriors``): flat dict with no ``params``
-      sub-dict — ``{"mu": 0.0, "sigma": 1.0}`` (assumed Normal) or
-      ``{"family": <int_idx>, "concentration": ..., "rate": ...}``
-      (positive families). ``family`` is the integer index from
-      :mod:`nof1_causal_lab.distributions` runtime registries.
-
-    The two formats coexist for historical reasons (linear-path
-    ``SSMPriors`` predates the composite path's dict-config layer).
-    This unified materialiser dispatches on the presence of ``params``;
-    legacy callers go through here too via :func:`_make_legacy_prior_dist`.
+    The accepted shape is ``{"family": "Normal", "params": {"mu": 0.0,
+    "sigma": 1.0}, "shape": [...]}``. ``family`` is a
+    :class:`PriorDistributionFamily` value and ``shape`` controls
+    broadcasting.
     """
-    if "params" not in prior_cfg and (
-        "mu" in prior_cfg or "lower" in prior_cfg or "upper" in prior_cfg
-        or "concentration" in prior_cfg or ("family" in prior_cfg and isinstance(prior_cfg["family"], int))
-        or "sigma" in prior_cfg
-    ):
-        return _materialize_legacy_prior(prior_cfg)
-
-    family_raw = prior_cfg.get("family", "Normal")
-    family = PriorDistributionFamily(family_raw)
-    params = prior_cfg.get("params", {})
-    shape = tuple(prior_cfg.get("shape", ()))
-
-    def _bcast(scalar: float, shape: tuple[int, ...]):
-        if not shape:
-            return jnp.asarray(scalar)
-        return jnp.broadcast_to(jnp.asarray(scalar), shape)
-
-    if family is PriorDistributionFamily.NORMAL:
-        return ndist.Normal(_bcast(params.get("mu", 0.0), shape),
-                            _bcast(params.get("sigma", 1.0), shape))
-    if family is PriorDistributionFamily.HALF_NORMAL:
-        return ndist.HalfNormal(_bcast(params.get("sigma", 1.0), shape))
-    if family is PriorDistributionFamily.TRUNCATED_NORMAL:
-        return ndist.TruncatedNormal(
-            loc=_bcast(params.get("mu", 0.0), shape),
-            scale=_bcast(params.get("sigma", 1.0), shape),
-            low=params.get("lower", -float("inf")),
-            high=params.get("upper", float("inf")),
-        )
-    if family is PriorDistributionFamily.LOG_NORMAL:
-        return ndist.LogNormal(_bcast(params.get("mu", 0.0), shape),
-                               _bcast(params.get("sigma", 1.0), shape))
-    if family is PriorDistributionFamily.GAMMA:
-        return ndist.Gamma(_bcast(params.get("concentration", 2.0), shape),
-                           _bcast(params.get("rate", 1.0), shape))
-    if family is PriorDistributionFamily.EXPONENTIAL:
-        return ndist.Exponential(_bcast(params.get("rate", 1.0), shape))
-    if family is PriorDistributionFamily.BETA:
-        return ndist.Beta(_bcast(params.get("alpha", 2.0), shape),
-                          _bcast(params.get("beta", 2.0), shape))
-    if family is PriorDistributionFamily.UNIFORM:
-        return ndist.Uniform(_bcast(params.get("lower", 0.0), shape),
-                             _bcast(params.get("upper", 1.0), shape))
-    if family is PriorDistributionFamily.DELTA:
-        return ndist.Delta(_bcast(params.get("value", 0.0), shape))
-    raise ValueError(f"Unsupported prior family for composite: {family_raw!r}")
+    return materialize_prior_distribution(prior_cfg)
 
 
 def _spec_from_component_dict(component: dict[str, Any]) -> Any:
@@ -391,8 +255,6 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             weight_prior=_required("weight"),
         )
     if kind == "StructuralDenseLinear":
-        from .compilation import StructuralDenseLinearSpec
-
         time_inv = component.get("time_invariant_mask")
         return StructuralDenseLinearSpec(
             n_latent=int(component["n_latent"]),
@@ -408,8 +270,6 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             bare_site_names=bool(component.get("bare_site_names", True)),
         )
     if kind == "StructuralIntercept":
-        from .compilation import StructuralInterceptSpec
-
         return StructuralInterceptSpec(
             n_latent=int(component["n_latent"]),
             cint_mask=np.asarray(component["cint_mask"], dtype=bool),

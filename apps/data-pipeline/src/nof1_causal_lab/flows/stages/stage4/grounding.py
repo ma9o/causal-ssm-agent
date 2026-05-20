@@ -39,7 +39,7 @@ def stage4_grounding(
     2. Compile (default priors if none available, real priors otherwise)
     3. Prior predictive (only when real priors + data_for_model present and skip_ppc is False)
     """
-    from nof1_causal_lab.models.ssm_compiler import resolve_prior_proposals
+    from nof1_causal_lab.models.ssm.compile.artifact import resolve_prior_proposals
 
     from .assembly import (
         format_prior_proposal_errors,

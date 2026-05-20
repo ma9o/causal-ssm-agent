@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.dynamics import (
+from nof1_causal_lab.models.ssm.dynamics.composite import (
     StructuralDenseLinearSpec,
     StructuralInterceptSpec,
 )
-from nof1_causal_lab.models.ssm.dynamics._structural_assembly import (
+from nof1_causal_lab.models.ssm.structure.assembly import (
     chol_diag_positions,
     dense_vector_positions,
     drift_base_decay_positions,

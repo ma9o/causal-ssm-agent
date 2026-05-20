@@ -1,17 +1,12 @@
 """Prior-predictive sampling for composite vector fields.
 
-Closes the integration gap between the linear-path
-``prior_predictive_runtime.py`` (which validates ``SSMPriors`` dict-config
-through the Stage 4 prior-predictive pipeline) and the composite path
-introduced for non-linear dynamics. The two cannot share an
-implementation cleanly — they consume different prior representations
-and the linear path is tightly coupled to the dense-linear discretizer
-— but the *surface* matches: a single function that takes a compiled
-spec, draws ``n`` parameter sets, simulates trajectories under each,
-and reports stability + finite-output diagnostics.
+Composite prior predictive validation for nonlinear dynamics. The
+linear registry runtime and this composite runtime both consume
+canonical prior configs at their boundaries, while this module owns the
+vector-field-specific trajectory and stability checks.
 
 This is the validation hook Stage 4 (or the agentic repair flow) calls
-when it has a composite spec instead of an ``SSMPriors`` instance.
+when it has a composite spec.
 """
 
 from __future__ import annotations
@@ -24,16 +19,16 @@ import jax.numpy as jnp
 import jax.random as jr
 from numpyro.handlers import seed
 
-from .config import compile_composite_from_dict
-from .intervention import Intervention
-from .simulator import simulate
-from .stability import check_jacobian_stability
+from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
+from nof1_causal_lab.models.ssm.dynamics.serialization import compile_composite_from_dict
+from nof1_causal_lab.models.ssm.dynamics.simulator import simulate
+from nof1_causal_lab.models.ssm.dynamics.stability import check_jacobian_stability
 
 if TYPE_CHECKING:
     from jax import Array
 
-    from .canonical import RuntimeSSM
-    from .compilation import CompiledComposite
+    from nof1_causal_lab.models.ssm.dynamics.composite import CompiledComposite
+    from nof1_causal_lab.models.ssm.dynamics.runtime import RuntimeSSM
 
 
 @dataclass(frozen=True)
@@ -195,7 +190,7 @@ def sample_composite_prior_predictive_full(
     :func:`sample_composite_prior_predictive` and
     :func:`sample_observations_from_latents` in one call, mirroring the
     return shape of the linear-path
-    ``prior_predictive_runtime.sample_prior_predictive_from_priors`` —
+    ``predictive.registry_runtime.sample_prior_predictive_from_priors`` —
     with the addition that ``observations`` populates the returned
     :class:`CompositePriorPredictive`.
 
@@ -204,7 +199,7 @@ def sample_composite_prior_predictive_full(
     :func:`sample_composite_prior_predictive` is still appropriate when
     the observation operator is unknown or not the focus of validation.
     """
-    from .compilation import CompiledComposite
+    from nof1_causal_lab.models.ssm.dynamics.composite import CompiledComposite
 
     compiled = CompiledComposite(
         vector_field=canonical.vector_field,
@@ -395,7 +390,7 @@ def sample_observations_from_latents(
 ) -> Array:
     """Emit observations ``y = obs_model(H · x + d)`` from latent trajectories.
 
-    Closes the parity gap with the linear-path ``prior_predictive_runtime``:
+    Closes the parity gap with the linear registry predictive runtime:
     composite prior-predictive sampling can now produce observations,
     not just latents.
 

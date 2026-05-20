@@ -5,31 +5,31 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
-from nof1_causal_lab.models.ssm_compilation_common import (
+from nof1_causal_lab.models.ssm.compile.common import (
     PriorIndexMaps,
     empty_prior_index_maps,
     normalize_prior_params,
 )
-from nof1_causal_lab.models.ssm_prior_compilation import (
+from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     bind_parameters,
     collect_compile_diagnostics,
     compile_priors,
 )
-from nof1_causal_lab.models.ssm_prior_indexing import (
+from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     build_prior_index_maps,
     check_backward_closure,
 )
-from nof1_causal_lab.models.ssm_spec_translation import (
+from nof1_causal_lab.models.ssm.compile.spec_translation import (
     build_masks_from_causal_spec,
     get_construct_dt_days,
     get_estimation_latent_layout,
     translate_spec,
 )
+from nof1_causal_lab.models.ssm.parameter_names import split_compound_name
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm.priors import SSMPriors
+    from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 
@@ -116,7 +116,7 @@ def compile_ssm_inputs_from_model_spec(
     causal_spec: dict | None = None,
 ) -> tuple[
     SSMSpec,
-    SSMPriors,
+    PriorRegistry,
     list[dict[str, object]],
     list[PriorValidationResult],
     dict[tuple[int, int], float],
@@ -131,7 +131,7 @@ def compile_ssm_inputs_from_model_spec(
     ssm_spec, edge_lag_days = translate_spec(resolved_model_spec, causal_spec)
     _require_explicit_causal_structure(ssm_spec, causal_spec=causal_spec)
 
-    ssm_priors, index_maps, diagnostics = compile_priors(
+    prior_registry, index_maps, diagnostics = compile_priors(
         priors or {},
         resolved_model_spec,
         ssm_spec,
@@ -142,32 +142,32 @@ def compile_ssm_inputs_from_model_spec(
     if causal_spec is not None:
         backward_gaps = check_backward_closure(ssm_spec, index_maps)
         if backward_gaps:
-            from nof1_causal_lab.models.ssm_prior_indexing import PriorIndexingError
+            from nof1_causal_lab.models.ssm.compile.prior_indexing import PriorIndexingError
 
             raise PriorIndexingError(backward_gaps)
 
     bindings = bind_parameters(index_maps)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-    return ssm_spec, ssm_priors, bindings, diagnostics, edge_lag_days
+    return ssm_spec, prior_registry, bindings, diagnostics, edge_lag_days
 
 
 def compile_ssm_inputs_from_spec(
     ssm_spec: SSMSpec,
     *,
     priors: dict[str, dict] | None = None,
-    ssm_priors: SSMPriors | None = None,
+    prior_registry: PriorRegistry | None = None,
     model_spec: ModelSpec | dict | None = None,
     causal_spec: dict | None = None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ) -> tuple[
     SSMSpec,
-    SSMPriors,
+    PriorRegistry,
     list[dict[str, object]],
     list[PriorValidationResult],
     dict[tuple[int, int], float],
 ]:
     """Finalize executable SSM inputs from an explicit translated SSMSpec surface."""
-    from nof1_causal_lab.models.ssm.priors import SSMPriors
+    from nof1_causal_lab.models.ssm.priors import default_prior_registry
 
     resolved_model_spec = (
         ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
@@ -183,20 +183,20 @@ def compile_ssm_inputs_from_spec(
                 "compile_ssm_inputs_from_spec() requires model_spec to compile semantic prior "
                 "proposals from a direct SSMSpec."
             )
-        resolved_ssm_priors = ssm_priors or SSMPriors()
+        resolved_prior_registry = prior_registry or default_prior_registry()
         index_maps = empty_prior_index_maps()
         diagnostics = collect_compile_diagnostics(
             ssm_spec,
             edge_lag_days=resolved_edge_lag_days,
             raw_priors=raw_priors,
-            ssm_priors=resolved_ssm_priors,
+            prior_registry=resolved_prior_registry,
         )
         bindings: list[dict[str, object]] = []
         diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-        return ssm_spec, resolved_ssm_priors, bindings, diagnostics, resolved_edge_lag_days
+        return ssm_spec, resolved_prior_registry, bindings, diagnostics, resolved_edge_lag_days
 
-    if ssm_priors is None:
-        ssm_priors, index_maps, diagnostics = compile_priors(
+    if prior_registry is None:
+        prior_registry, index_maps, diagnostics = compile_priors(
             raw_priors,
             resolved_model_spec,
             ssm_spec,
@@ -213,19 +213,19 @@ def compile_ssm_inputs_from_spec(
             ssm_spec,
             edge_lag_days=resolved_edge_lag_days,
             raw_priors=raw_priors,
-            ssm_priors=ssm_priors,
+            prior_registry=prior_registry,
         )
 
     if causal_spec is not None:
         backward_gaps = check_backward_closure(ssm_spec, index_maps)
         if backward_gaps:
-            from nof1_causal_lab.models.ssm_prior_indexing import PriorIndexingError
+            from nof1_causal_lab.models.ssm.compile.prior_indexing import PriorIndexingError
 
             raise PriorIndexingError(backward_gaps)
 
     bindings = bind_parameters(index_maps)
     diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-    return ssm_spec, ssm_priors, bindings, diagnostics, resolved_edge_lag_days
+    return ssm_spec, prior_registry, bindings, diagnostics, resolved_edge_lag_days
 
 
 __all__ = [

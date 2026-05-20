@@ -241,7 +241,7 @@ def execute_public_validate_composite_spec(
     except json.JSONDecodeError as exc:
         return {"result": {"is_valid": False, "error": f"JSON parse error: {exc}"}}
 
-    from nof1_causal_lab.models.ssm.dynamics import (
+    from nof1_causal_lab.models.ssm.predictive.composite import (
         validate_composite_assembly,
     )
 

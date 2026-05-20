@@ -1,7 +1,7 @@
 """Round-trip tests for the dict-config bridge to ``CompositeSpec``.
 
 Stage 4's LLM tools emit prior dict-configs (``{"family": "LogNormal",
-"params": {...}}``). The bridge in ``models.ssm.dynamics.config`` lets
+"params": {...}}``). The bridge in ``models.ssm.dynamics.serialization`` lets
 the same dict-config materialise into a runtime ``CompositeSpec`` ready
 for inference. These tests pin the bridge:
 
@@ -224,17 +224,9 @@ class TestBlockSpecEquivalence:
         from nof1_causal_lab.models.ssm import SSMSpec
         from nof1_causal_lab.models.ssm.dynamics import (
             CompositeSpec,
-            DiffusionBlockSpec,
-            SparseMatrixBlockSpec,
             StructuralDenseLinearSpec,
             StructuralInterceptSpec,
             compile_composite,
-            default_input_effect_block,
-            default_manifest_chol_block,
-            default_manifest_means_block,
-            default_static_state_sd_block,
-            default_t0_chol_block,
-            default_t0_means_block,
             linear_drift_spec,
         )
         from nof1_causal_lab.models.ssm.model import (
@@ -242,6 +234,16 @@ class TestBlockSpecEquivalence:
             zero_diagonal_mask,
             zero_square_mask,
             zero_vector_mask,
+        )
+        from nof1_causal_lab.models.ssm.structure import (
+            DiffusionBlockSpec,
+            SparseMatrixBlockSpec,
+            default_input_effect_block,
+            default_manifest_chol_block,
+            default_manifest_means_block,
+            default_static_state_sd_block,
+            default_t0_chol_block,
+            default_t0_means_block,
         )
 
         spec = SSMSpec(
@@ -313,18 +315,18 @@ class TestBlockSpecEquivalence:
         from numpyro.handlers import condition, seed
 
         from nof1_causal_lab.models.ssm import SSMSpec
-        from nof1_causal_lab.models.ssm.dynamics import (
+        from nof1_causal_lab.models.ssm.dynamics import default_linear_drift_spec
+        from nof1_causal_lab.models.ssm.model import full_vector_mask
+        from nof1_causal_lab.models.ssm.structure import (
             SparseMatrixBlockSpec,
             SparseVectorBlockSpec,
             default_diffusion_block,
             default_input_effect_block,
-            default_linear_drift_spec,
             default_manifest_chol_block,
             default_manifest_means_block,
             default_static_state_sd_block,
             default_t0_chol_block,
         )
-        from nof1_causal_lab.models.ssm.model import full_vector_mask
 
         spec = SSMSpec(
             n_latent=3,
@@ -505,9 +507,15 @@ class TestCompositeSpecRoundTrip:
         import jax.numpy as jnp
 
         from nof1_causal_lab.models.ssm import SSMSpec
+        from nof1_causal_lab.models.ssm.compile.artifact import (
+            deserialize_ssm_spec,
+            serialize_ssm_spec,
+        )
         from nof1_causal_lab.models.ssm.dynamics import (
             CompositeSpec,
             DiagonalDecaySpec,
+        )
+        from nof1_causal_lab.models.ssm.structure import (
             SparseMatrixBlockSpec,
             default_diffusion_block,
             default_input_effect_block,
@@ -516,10 +524,6 @@ class TestCompositeSpecRoundTrip:
             default_static_state_sd_block,
             default_t0_chol_block,
             default_t0_means_block,
-        )
-        from nof1_causal_lab.models.ssm_compiler import (
-            deserialize_ssm_spec,
-            serialize_ssm_spec,
         )
 
         drift_spec = CompositeSpec(

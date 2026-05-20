@@ -16,14 +16,7 @@ from nof1_causal_lab.artifacts.model_spec import (
 )
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
-from nof1_causal_lab.models.ssm.dynamics import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-    linear_drift_spec,
-)
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
 )
@@ -38,6 +31,13 @@ from nof1_causal_lab.models.ssm.model import (
     zero_vector_mask,
 )
 from nof1_causal_lab.models.ssm.parameter_names import build_initial_state_correlation_mask
+from nof1_causal_lab.models.ssm.structure import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+)
 from nof1_causal_lab.utils.causal_spec import (
     build_reference_indicator_lookup,
     get_constructs,
@@ -553,9 +553,8 @@ def translate_spec(
 ) -> tuple[SSMSpec, dict[tuple[int, int], float]]:
     """Translate ``ModelSpec`` into ``SSMSpec`` with explicit edge-lag metadata.
 
-    Assumes the caller has already validated ``model_spec`` (e.g. via
-    ``ssm_compiler.validate_model_spec_for_compilation``).  This function is
-    a pure translation stage — it does not re-validate.
+    Assumes the caller has already validated ``model_spec``. This function
+    is a pure translation stage — it does not re-validate.
     """
     if isinstance(model_spec, dict):
         model_spec = ModelSpec.model_validate(model_spec)

@@ -472,7 +472,7 @@ class TestStage4GroundingCompileOwnership:
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm.compile.artifact.resolve_prior_proposals",
             lambda *_args, **_kwargs: [],
         )
 
@@ -789,7 +789,7 @@ class TestStage4GroundingBatches:
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm.compile.artifact.resolve_prior_proposals",
             lambda *_args, **_kwargs: [
                 {"parameter": "rho_mood"},
                 {"parameter": "sigma_mood"},
@@ -876,7 +876,7 @@ class TestStage4GroundingBatches:
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm_compiler.resolve_prior_proposals",
+            "nof1_causal_lab.models.ssm.compile.artifact.resolve_prior_proposals",
             lambda *_args, **_kwargs: [
                 {"parameter": "rho_mood"},
                 {"parameter": "sigma_mood"},

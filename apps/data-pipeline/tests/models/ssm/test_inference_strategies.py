@@ -86,7 +86,7 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
     trajectory_observation_log_probs,
 )
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
-from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from tests.ssm_test_utils import (
     diagonal_diffusion_kwargs,
     make_observation_support_runtime,

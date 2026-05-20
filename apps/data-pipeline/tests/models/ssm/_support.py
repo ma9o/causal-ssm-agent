@@ -17,7 +17,8 @@ import numpyro.distributions as dist
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.dynamics import (
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
@@ -25,7 +26,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
     T0CholBlockSpec,
     default_input_effect_block,
     default_static_state_sd_block,
-    linear_drift_spec,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -328,5 +328,4 @@ def complex_mixed_runtime_spec() -> SSMSpec:
             "focus_cont",
         ],
     )
-
 

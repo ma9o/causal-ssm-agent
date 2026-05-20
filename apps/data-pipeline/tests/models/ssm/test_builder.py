@@ -10,7 +10,22 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nof1_causal_lab.models.ssm.dynamics import (
+from nof1_causal_lab.models.ssm.builder import SSMModelBuilder, prepare_model_runtime
+from nof1_causal_lab.models.ssm.compile.inputs import (
+    compile_priors,
+    compile_ssm_inputs_from_spec,
+    normalize_prior_params,
+    split_compound_name,
+)
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    default_linear_drift_spec,
+    linear_drift_spec,
+)
+from nof1_causal_lab.models.ssm.model import (
+    SSMSpec,
+    full_diagonal_mask,
+)
+from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
@@ -19,25 +34,11 @@ from nof1_causal_lab.models.ssm.dynamics import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
-    default_linear_drift_spec,
     default_manifest_chol_block,
     default_manifest_means_block,
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
-    linear_drift_spec,
-)
-from nof1_causal_lab.models.ssm.model import (
-    SSMPriors,
-    SSMSpec,
-    full_diagonal_mask,
-)
-from nof1_causal_lab.models.ssm_builder import SSMModelBuilder, prepare_model_runtime
-from nof1_causal_lab.models.ssm_compilation import (
-    compile_priors,
-    compile_ssm_inputs_from_spec,
-    normalize_prior_params,
-    split_compound_name,
 )
 from tests.ssm_test_utils import split_drift_mask
 
@@ -554,16 +555,17 @@ class TestBuilderPriorConversion:
             t0_correlation_mask=t0_mask,
         )
 
-        ssm_priors, _index_maps, _diagnostics = compile_priors(
+        prior_registry, _index_maps, _diagnostics = compile_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
         )
+        t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
 
-        assert ssm_priors.t0_var_offdiag["mu"] == [0.2]
-        assert ssm_priors.t0_var_offdiag["sigma"] == [0.8]
-        assert ssm_priors.t0_var_offdiag["lower"] == [-1.0]
-        assert ssm_priors.t0_var_offdiag["upper"] == [1.0]
+        assert t0_corr_prior.params["mu"] == [0.2]
+        assert t0_corr_prior.params["sigma"] == [0.8]
+        assert t0_corr_prior.params["lower"] == [-1.0]
+        assert t0_corr_prior.params["upper"] == [1.0]
 
     def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
         """Authored initial-state priors should compile to the t0 mean/diag sites."""
@@ -637,11 +639,15 @@ class TestBuilderPriorConversion:
             t0_correlation_mask=np.zeros((2, 2), dtype=bool),
         )
 
-        ssm_priors, index_maps, _diagnostics = compile_priors(priors, model_spec, ssm_spec=ssm_spec)
+        prior_registry, index_maps, _diagnostics = compile_priors(
+            priors, model_spec, ssm_spec=ssm_spec
+        )
+        t0_mean_prior = prior_registry.priors_by_site["t0_means_free"]
+        t0_diag_prior = prior_registry.priors_by_site["t0_var_diag_free"]
 
-        assert ssm_priors.t0_means["mu"] == [0.1, -0.3]
-        assert ssm_priors.t0_means["sigma"] == [0.2, 0.4]
-        assert ssm_priors.t0_var_diag["sigma"] == [0.7, 0.9]
+        assert t0_mean_prior.params["mu"] == [0.1, -0.3]
+        assert t0_mean_prior.params["sigma"] == [0.2, 0.4]
+        assert t0_diag_prior.params["sigma"] == [0.7, 0.9]
         assert index_maps[7]["t0_mean_mood"] == ("t0_means", 0)
         assert index_maps[7]["t0_mean_sleep"] == ("t0_means", 1)
         assert index_maps[8]["t0_sd_mood"] == ("t0_var_diag", 0)
@@ -703,17 +709,18 @@ class TestBuilderPriorConversion:
             t0_correlation_mask=t0_mask,
         )
 
-        ssm_priors, index_maps, _diagnostics = compile_priors(
+        prior_registry, index_maps, _diagnostics = compile_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
         )
+        t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
 
         assert index_maps[6]["cor0_C_B"] == ("t0_var_offdiag", 0)
-        assert ssm_priors.t0_var_offdiag["mu"] == [0.1]
-        assert ssm_priors.t0_var_offdiag["sigma"] == [0.2]
-        assert ssm_priors.t0_var_offdiag["lower"] == [-1.0]
-        assert ssm_priors.t0_var_offdiag["upper"] == [1.0]
+        assert t0_corr_prior.params["mu"] == [0.1]
+        assert t0_corr_prior.params["sigma"] == [0.2]
+        assert t0_corr_prior.params["lower"] == [-1.0]
+        assert t0_corr_prior.params["upper"] == [1.0]
 
     def test_cross_lag_prior_requires_resolved_interval_metadata(self):
         """Cross-lag priors should fail instead of silently defaulting to 1 day."""
@@ -1071,7 +1078,6 @@ class TestPrepareModelRuntime:
                 diffusion_mask=np.diag(full_diagonal_mask(1)),
                 manifest_names=["stress_score"],
             ),
-            ssm_priors=SSMPriors(),
         )
         runtime = prepare_model_runtime(data_for_model, builder=builder)
 

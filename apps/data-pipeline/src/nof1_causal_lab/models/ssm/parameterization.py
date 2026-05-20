@@ -3,7 +3,7 @@
 Provides:
 - SiteDescriptor: metadata for each sample site, derived deterministically from SSMSpec
 - build_site_registry: enumerate all sample sites without model tracing
-- build_prior_runtime_state: create fixed-structure JAX pytree from SSMPriors
+- build_prior_runtime_state: create fixed-structure JAX pytree from PriorRegistry
 - log_prior_unconstrained: pure-JAX prior log-density with vectorized family dispatch
 - sample_prior_unconstrained: pure-JAX prior sampling
 
@@ -28,7 +28,9 @@ from jax.flatten_util import ravel_pytree
 
 from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
+    get_positive_runtime_family_index,
     get_positive_runtime_kind_from_index,
+    get_real_runtime_family_index,
     get_real_runtime_kind_from_index,
 )
 from nof1_causal_lab.models.ssm.covariance_utils import (
@@ -39,7 +41,7 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
-    from nof1_causal_lab.models.ssm.priors import SSMPriors
+    from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +118,7 @@ class SiteDescriptor:
         deterministic_name: Output name assembled from this site, if any.
         fixed_spec_field: Spec field to broadcast when this site is absent
             because the parameter is fixed.
-        priors_field: ``SSMPriors`` field name when this site is directly
+        priors_field: legacy compile binding key when this site is directly
             controlled by user priors.
     """
 
@@ -1181,21 +1183,6 @@ def sample_prior_unconstrained(
 # Prior state construction
 # ---------------------------------------------------------------------------
 
-# Hardcoded defaults for likelihood extra-parameter sites.
-# These sites have no SSMPriors field — their priors are baked into
-# SSMModel._sample_likelihood_extra_params.
-_LIKELIHOOD_EXTRA_DEFAULTS: dict[str, dict] = {
-    "obs_df": {"family": 1, "concentration": 5.0, "rate": 1.0},
-    "obs_shape": {"family": 1, "concentration": 2.0, "rate": 1.0},
-    "obs_r": {"family": 1, "concentration": 2.0, "rate": 0.5},
-    "obs_concentration": {"family": 1, "concentration": 5.0, "rate": 0.5},
-    "obs_ordered_base": {"family": 0, "loc": 0.0, "scale": 1.0},
-    "obs_ordered_gaps": {"family": 0, "scale": 1.0},  # HalfNormal
-    "obs_cat_intercepts": {"family": 0, "loc": 0.0, "scale": 1.0},
-    "obs_cat_slopes": {"family": 0, "loc": 0.0, "scale": 1.0},
-    "proc_df": {"family": 1, "concentration": 5.0, "rate": 1.0},
-}
-
 _DEFAULT_REAL_LOW = -1e6
 _DEFAULT_REAL_HIGH = 1e6
 
@@ -1246,85 +1233,77 @@ def _make_real_params(
 
 def build_prior_runtime_state(
     registry: list[SiteDescriptor],
-    priors: SSMPriors | None = None,
+    priors: PriorRegistry | None = None,
 ) -> PriorRuntimeState:
-    """Build a ``PriorRuntimeState`` from the registry and optional SSMPriors.
+    """Build a ``PriorRuntimeState`` from the registry and optional PriorRegistry.
 
     The returned dict has fixed structure per topology — only leaf values
     change when priors change.
     """
-    from nof1_causal_lab.models.ssm.priors import SSMPriors as SSMPriorsClass
+    from nof1_causal_lab.models.ssm.priors import default_prior_for_site, default_prior_registry
 
     if priors is None:
-        priors = SSMPriorsClass()
+        priors = default_prior_registry()
 
     state: PriorRuntimeState = {}
 
     for site in registry:
-        priors_field = site.priors_field
-
-        if priors_field is not None:
-            # Core parameter site — read from SSMPriors
-            prior_dict = getattr(priors, priors_field)
-            state[site.name] = _params_from_prior_dict(site, prior_dict)
-
-        elif site.name in _LIKELIHOOD_EXTRA_DEFAULTS:
-            # Likelihood extra site — use hardcoded defaults
-            defaults = _LIKELIHOOD_EXTRA_DEFAULTS[site.name]
-            if site.support == SupportClass.POSITIVE:
-                state[site.name] = _make_positive_params(
-                    site.shape,
-                    family=defaults.get("family", 0),
-                    scale=defaults.get("scale", 1.0),
-                    concentration=defaults.get("concentration", 1.0),
-                    rate=defaults.get("rate", 1.0),
-                )
-            else:
-                state[site.name] = _make_real_params(
-                    site.shape,
-                    family=defaults.get("family", 0),
-                    loc=defaults.get("loc", 0.0),
-                    scale=defaults.get("scale", 1.0),
-                )
-
-        else:
-            # Fallback: sensible defaults
-            if site.support == SupportClass.POSITIVE:
-                state[site.name] = _make_positive_params(site.shape)
-            elif site.support == SupportClass.CORRELATION:
-                state[site.name] = _make_real_params(site.shape, low=-1.0, high=1.0)
-            else:
-                state[site.name] = _make_real_params(site.shape)
+        prior = priors.get(site.name) or default_prior_for_site(site.name)
+        state[site.name] = _params_from_prior_spec(site, prior)
 
     return state
 
 
-def _params_from_prior_dict(
+def _params_from_prior_spec(
     site: SiteDescriptor,
-    prior_dict: dict,
+    prior: PriorSpec,
 ) -> dict[str, jnp.ndarray]:
-    """Convert an SSMPriors prior dict to canonical params for a site."""
+    """Convert a canonical prior spec to runtime prior-state params."""
+    params = prior.params
     if site.support in {SupportClass.REAL, SupportClass.CORRELATION}:
-        has_bounds = "lower" in prior_dict and "upper" in prior_dict
+        if prior.family not in {
+            PriorDistributionFamily.NORMAL,
+            PriorDistributionFamily.TRUNCATED_NORMAL,
+            PriorDistributionFamily.UNIFORM,
+        }:
+            raise ValueError(
+                f"Prior family {prior.family.value!r} is incompatible with "
+                f"{site.support.value} site {site.name!r}"
+            )
+        has_bounds = "lower" in params and "upper" in params
         return _make_real_params(
             site.shape,
-            family=prior_dict.get(
-                "family", 1 if has_bounds or site.support == SupportClass.CORRELATION else 0
+            family=get_real_runtime_family_index(
+                PriorDistributionFamily.TRUNCATED_NORMAL
+                if prior.family == PriorDistributionFamily.NORMAL
+                and (has_bounds or site.support == SupportClass.CORRELATION)
+                else prior.family
             ),
-            loc=prior_dict.get("mu", 0.0),
-            scale=prior_dict.get("sigma", 1.0),
-            low=prior_dict.get("lower", -1.0 if site.support == SupportClass.CORRELATION else None),
-            high=prior_dict.get("upper", 1.0 if site.support == SupportClass.CORRELATION else None),
+            loc=params.get("mu", 0.0),
+            scale=params.get("sigma", 1.0),
+            low=params.get("lower", -1.0 if site.support == SupportClass.CORRELATION else None),
+            high=params.get("upper", 1.0 if site.support == SupportClass.CORRELATION else None),
         )
     if site.support == SupportClass.POSITIVE:
+        if prior.family not in {
+            PriorDistributionFamily.HALF_NORMAL,
+            PriorDistributionFamily.GAMMA,
+            PriorDistributionFamily.LOG_NORMAL,
+            PriorDistributionFamily.EXPONENTIAL,
+            PriorDistributionFamily.DELTA,
+        }:
+            raise ValueError(
+                f"Prior family {prior.family.value!r} is incompatible with "
+                f"positive site {site.name!r}"
+            )
         return _make_positive_params(
             site.shape,
-            family=prior_dict.get("family", 0),
-            loc=prior_dict.get("loc", 0.0),
-            scale=prior_dict.get("sigma", 1.0),
-            concentration=prior_dict.get("concentration", 1.0),
-            rate=prior_dict.get("rate", 1.0),
-            value=prior_dict.get("value", 1.0),
+            family=get_positive_runtime_family_index(prior.family),
+            loc=params.get("mu", params.get("loc", 0.0)),
+            scale=params.get("sigma", 1.0),
+            concentration=params.get("concentration", 1.0),
+            rate=params.get("rate", 1.0),
+            value=params.get("value", 1.0),
         )
     raise ValueError(f"Unknown support class: {site.support}")
 
@@ -1450,7 +1429,7 @@ def deserialize_prior_runtime_state(
 
 def compile_prior_semantics(
     spec: SSMSpec,
-    priors: SSMPriors | None = None,
+    priors: PriorRegistry | None = None,
 ) -> dict:
     """Build the ``compiled_prior_semantics`` block for a compiled artifact.
 
@@ -1469,7 +1448,7 @@ def compile_prior_semantics(
 
 def build_prior_runtime_bundle(
     spec: SSMSpec,
-    priors: SSMPriors | None = None,
+    priors: PriorRegistry | None = None,
 ) -> PriorRuntimeBundle:
     """Build reusable runtime components directly from ``spec`` and ``priors``."""
     site_runtime = build_site_runtime_bundle(spec)

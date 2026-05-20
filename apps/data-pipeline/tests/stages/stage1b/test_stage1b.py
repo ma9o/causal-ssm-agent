@@ -17,7 +17,7 @@ from nof1_causal_lab.flows.stages.stage1b.run import (
     Stage1bResult,
     run_stage1b,
 )
-from nof1_causal_lab.models.ssm_compiler import trial_compile_measurement_model
+from nof1_causal_lab.models.ssm.compile.artifact import trial_compile_measurement_model
 from nof1_causal_lab.utils.causal_spec import get_outcome_name
 from tests.helpers import make_mock_session_factory
 

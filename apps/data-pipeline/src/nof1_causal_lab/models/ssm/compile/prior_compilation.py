@@ -13,13 +13,11 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec, ParameterRole
 from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_family_index,
+    get_real_runtime_family_index,
 )
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
-from nof1_causal_lab.models.ssm.priors import SSMPriors
-from nof1_causal_lab.models.ssm_compilation_common import (
+from nof1_causal_lab.models.ssm.compile.common import (
     SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
     axis_names_with_fallback,
@@ -28,17 +26,30 @@ from nof1_causal_lab.models.ssm_compilation_common import (
     normalize_prior_params,
     resolve_scalar_parameter_name,
 )
-from nof1_causal_lab.models.ssm_prior_indexing import build_prior_index_maps
-from nof1_causal_lab.models.ssm_spec_translation import get_construct_dt_days
+from nof1_causal_lab.models.ssm.compile.prior_indexing import build_prior_index_maps
+from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
+from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
+from nof1_causal_lab.models.ssm.parameterization import SupportClass, build_site_registry
+from nof1_causal_lab.models.ssm.priors import (
+    SITE_NAME_FOR_PRIOR_FIELD,
+    PriorRegistry,
+    PriorSpec,
+    default_prior_registry,
+    prior_spec_from_normalized_params,
+    prior_spec_to_normalized_params,
+)
 from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
-logger = get_prefect_logger("nof1_causal_lab.models.ssm_compilation")
+logger = get_prefect_logger("nof1_causal_lab.models.ssm.compile.inputs")
 CompileDiagnostic = PriorValidationResult
 PriorFailureStage = Literal[
     "compiled_parameters",
@@ -437,7 +448,7 @@ def collect_compile_diagnostics(
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, dict] | None = None,
-    ssm_priors: SSMPriors | None = None,
+    prior_registry: PriorRegistry | None = None,
     offdiag_interval_days: dict[int, float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect structured compiler diagnostics for downstream consumers."""
@@ -446,10 +457,10 @@ def collect_compile_diagnostics(
         edge_lag_days=edge_lag_days,
         raw_priors=raw_priors,
     )
-    if ssm_priors is not None:
+    if prior_registry is not None:
         diagnostics.extend(
             collect_first_order_approximation_warnings(
-                ssm_priors,
+                prior_registry,
                 ssm_spec=ssm_spec,
                 edge_lag_days=edge_lag_days,
                 offdiag_interval_days=offdiag_interval_days,
@@ -464,21 +475,21 @@ def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
 
 
 def collect_first_order_approximation_warnings(
-    ssm_priors: SSMPriors,
+    prior_registry: PriorRegistry,
     *,
     ssm_spec: SSMSpec | None = None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     offdiag_interval_days: dict[int, float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
-    base_decay_prior = ssm_priors.drift_base_decay
-    offdiag_prior = ssm_priors.drift_offdiag
+    base_decay_prior = _prior_for_site(prior_registry, "drift_base_decay_free")
+    offdiag_prior = _prior_for_site(prior_registry, "drift_offdiag_free")
     if ssm_spec is None or base_decay_prior is None or offdiag_prior is None:
         return []
 
     parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
     base_decay_mu = _positive_prior_mean_values(base_decay_prior)
-    offdiag_mu = _prior_values_1d(offdiag_prior.get("mu"))
+    offdiag_mu = _prior_values_1d(offdiag_prior.params.get("mu"))
     if base_decay_mu.size == 0 or offdiag_mu.size == 0:
         return []
 
@@ -615,8 +626,8 @@ def _prior_values_1d(value: Any) -> np.ndarray:
     return array.reshape(-1)
 
 
-def _prior_param_values(prior: dict[str, Any], key: str, *, n: int, default: float) -> np.ndarray:
-    values = _prior_values_1d(prior.get(key))
+def _prior_param_values(params: Mapping[str, Any], key: str, *, n: int, default: float) -> np.ndarray:
+    values = _prior_values_1d(params.get(key))
     if values.size == 0:
         return np.full(n, default, dtype=float)
     if values.size == 1:
@@ -626,42 +637,37 @@ def _prior_param_values(prior: dict[str, Any], key: str, *, n: int, default: flo
     return values.astype(float)
 
 
-def _positive_prior_mean_values(prior: dict[str, Any]) -> np.ndarray:
+def _positive_prior_mean_values(prior: PriorSpec) -> np.ndarray:
+    params = prior.params
     sizes = [
-        _prior_values_1d(prior.get(key)).size
-        for key in ("family", "sigma", "loc", "concentration", "rate", "value")
+        _prior_values_1d(params.get(key)).size
+        for key in ("sigma", "mu", "loc", "concentration", "rate", "value")
     ]
     n = max(sizes, default=0)
     if n == 0:
         return np.asarray([], dtype=float)
 
-    family = _prior_param_values(prior, "family", n=n, default=0).astype(int)
-    scale = _prior_param_values(prior, "sigma", n=n, default=1.0)
-    loc = _prior_param_values(prior, "loc", n=n, default=0.0)
-    concentration = _prior_param_values(prior, "concentration", n=n, default=1.0)
-    rate = _prior_param_values(prior, "rate", n=n, default=1.0)
-    value = _prior_param_values(prior, "value", n=n, default=1.0)
-
-    half_normal_idx = get_positive_runtime_family_index(PriorDistributionFamily.HALF_NORMAL)
-    gamma_idx = get_positive_runtime_family_index(PriorDistributionFamily.GAMMA)
-    log_normal_idx = get_positive_runtime_family_index(PriorDistributionFamily.LOG_NORMAL)
-    exponential_idx = get_positive_runtime_family_index(PriorDistributionFamily.EXPONENTIAL)
-    delta_idx = get_positive_runtime_family_index(PriorDistributionFamily.DELTA)
+    scale = _prior_param_values(params, "sigma", n=n, default=1.0)
+    loc_key = "mu" if "mu" in params else "loc"
+    loc = _prior_param_values(params, loc_key, n=n, default=0.0)
+    concentration = _prior_param_values(params, "concentration", n=n, default=1.0)
+    rate = _prior_param_values(params, "rate", n=n, default=1.0)
+    value = _prior_param_values(params, "value", n=n, default=1.0)
 
     means = np.empty(n, dtype=float)
-    for idx, family_idx in enumerate(family):
-        if family_idx == half_normal_idx:
+    for idx in range(n):
+        if prior.family == PriorDistributionFamily.HALF_NORMAL:
             means[idx] = scale[idx] * math.sqrt(2.0 / math.pi)
-        elif family_idx == gamma_idx:
+        elif prior.family == PriorDistributionFamily.GAMMA:
             means[idx] = concentration[idx] / rate[idx]
-        elif family_idx == log_normal_idx:
+        elif prior.family == PriorDistributionFamily.LOG_NORMAL:
             means[idx] = math.exp(loc[idx] + 0.5 * scale[idx] ** 2)
-        elif family_idx == exponential_idx:
+        elif prior.family == PriorDistributionFamily.EXPONENTIAL:
             means[idx] = 1.0 / rate[idx]
-        elif family_idx == delta_idx:
+        elif prior.family == PriorDistributionFamily.DELTA:
             means[idx] = value[idx]
         else:
-            raise ValueError(f"Unsupported positive prior family index {family_idx}.")
+            raise ValueError(f"Unsupported positive prior family {prior.family.value!r}.")
     return means
 
 
@@ -763,15 +769,19 @@ def matrix_log_diagnostic_drift(
 
 
 def logm_diagnostic_mean_drift(
-    ssm_priors: SSMPriors,
+    prior_registry: PriorRegistry,
     ssm_spec: SSMSpec,
     *,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ) -> np.ndarray | None:
     """Return the exact matrix-log mean drift for Stage 4 dynamics diagnostics."""
     parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
-    base_decay_mu = _positive_prior_mean_values(ssm_priors.drift_base_decay)
-    offdiag_mu = _prior_values_1d(ssm_priors.drift_offdiag.get("mu"))
+    base_decay_prior = _prior_for_site(prior_registry, "drift_base_decay_free")
+    offdiag_prior = _prior_for_site(prior_registry, "drift_offdiag_free")
+    if base_decay_prior is None or offdiag_prior is None:
+        return None
+    base_decay_mu = _positive_prior_mean_values(base_decay_prior)
+    offdiag_mu = _prior_values_1d(offdiag_prior.params.get("mu"))
     if base_decay_mu.size == 0 and offdiag_mu.size == 0:
         return None
 
@@ -824,6 +834,40 @@ def _append_structured_prior(
     per_element.setdefault(attr, []).append((idx, normalized))
 
 
+def _support_name(support: SupportClass) -> str:
+    if support == SupportClass.POSITIVE:
+        return "positive"
+    if support == SupportClass.CORRELATION:
+        return "correlation"
+    return "real"
+
+
+def _normalized_params_for_site_prior(support: SupportClass, prior: PriorSpec):
+    normalized = prior_spec_to_normalized_params(prior)
+    if support == SupportClass.POSITIVE:
+        if prior.family != PriorDistributionFamily.HALF_NORMAL:
+            normalized["family"] = get_positive_runtime_family_index(prior.family)
+        return normalized
+    if prior.family != PriorDistributionFamily.NORMAL:
+        normalized["family"] = get_real_runtime_family_index(prior.family)
+    elif support == SupportClass.CORRELATION:
+        normalized["family"] = get_real_runtime_family_index(
+            PriorDistributionFamily.TRUNCATED_NORMAL
+        )
+    return normalized
+
+
+def _site_prior_from_normalized(
+    support: SupportClass,
+    normalized: dict[str, Any],
+) -> PriorSpec:
+    return prior_spec_from_normalized_params(normalized, support=_support_name(support))
+
+
+def _prior_for_site(registry: PriorRegistry, site_name: str) -> PriorSpec | None:
+    return registry.priors_by_site.get(site_name)
+
+
 def _coerce_initial_state_correlation_prior(
     normalized: dict[str, float | int],
 ) -> dict[str, float | int]:
@@ -847,9 +891,14 @@ def compile_priors(
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     causal_spec: dict | None = None,
-) -> tuple[SSMPriors, PriorIndexMaps, list[CompileDiagnostic]]:
-    """Compile prior proposals into ``SSMPriors`` with explicit index maps."""
-    ssm_priors = SSMPriors()
+) -> tuple[PriorRegistry, PriorIndexMaps, list[CompileDiagnostic]]:
+    """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
+    prior_entries: dict[str, PriorSpec] = dict(default_prior_registry().priors_by_site)
+    site_by_name = (
+        {site.name: site for site in build_site_registry(ssm_spec)}
+        if ssm_spec is not None
+        else {}
+    )
     role_by_name = _collect_role_lookup(model_spec)
     per_element: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
     has_model_spec = model_spec is not None and (
@@ -1072,7 +1121,10 @@ def compile_priors(
 
             if param_name in observation_site_param_index:
                 attr, _idx = observation_site_param_index[param_name]
-                setattr(ssm_priors, attr, dict(normalized))
+                site = site_by_name.get(attr)
+                if site is None:
+                    raise ValueError(f"Observation prior {param_name!r} maps to inactive site {attr!r}.")
+                prior_entries[attr] = _site_prior_from_normalized(site.support, dict(normalized))
                 continue
 
             role = role_by_name.get(param_name)
@@ -1095,9 +1147,16 @@ def compile_priors(
         raise PriorCompilationError(errors)
 
     for attr, entries in per_element.items():
-        current = getattr(ssm_priors, attr)
+        site_name = SITE_NAME_FOR_PRIOR_FIELD[attr]
+        site = site_by_name.get(site_name)
+        if site is None:
+            raise ValueError(f"Prior field {attr!r} maps to inactive site {site_name!r}.")
+        current_prior = prior_entries[site_name]
+        current = _normalized_params_for_site_prior(site.support, current_prior)
         result = build_array_prior_payload(attr, entries, current, ssm_spec)
-        setattr(ssm_priors, attr, result)
+        prior_entries[site_name] = _site_prior_from_normalized(site.support, result)
+
+    prior_registry = PriorRegistry(prior_entries)
 
     diagnostics: list[CompileDiagnostic] = []
     if ssm_spec is not None:
@@ -1105,12 +1164,12 @@ def compile_priors(
             ssm_spec,
             edge_lag_days=edge_lag_days,
             raw_priors=raw_priors,
-            ssm_priors=ssm_priors,
+            prior_registry=prior_registry,
             offdiag_interval_days=offdiag_interval_days,
         )
         _log_compile_diagnostics(diagnostics)
 
-    return ssm_priors, index_maps, diagnostics
+    return prior_registry, index_maps, diagnostics
 
 
 def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:

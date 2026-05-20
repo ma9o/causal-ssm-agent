@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 StructuralBackend = Literal["laplace"]
 RequestedMethod = Literal[

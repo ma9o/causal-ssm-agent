@@ -304,7 +304,10 @@ def _compiler_authoritative_stage4_inventory(
     retained_construct_names: set[str],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Return the compiler-authoritative public Stage 4 prior inventory."""
-    from nof1_causal_lab.models.ssm_compiler import compile_ssm_artifact, resolve_prior_proposals
+    from nof1_causal_lab.models.ssm.compile.artifact import (
+        compile_ssm_artifact,
+        resolve_prior_proposals,
+    )
 
     seed_by_name = {
         parameter["name"]: dict(parameter) for parameter in [*seed_parameters, *seed_loading_params]

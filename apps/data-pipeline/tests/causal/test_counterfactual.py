@@ -480,8 +480,11 @@ class TestApproximateAbductedState:
         class DummySpec:
             n_manifest = 1
             n_latent = 1
-            manifest_means = jnp.zeros(1)
-            lambda_mat = None
+
+            class ManifestMeansBlock:
+                template = jnp.zeros(1)
+
+            manifest_means_block = ManifestMeansBlock()
 
         observations = jnp.array([[1.0], [2.0], [3.0], [4.0]])
         times = jnp.array([0.0, 1.0, 2.0, 3.0])

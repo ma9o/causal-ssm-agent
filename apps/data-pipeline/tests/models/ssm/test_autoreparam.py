@@ -25,11 +25,11 @@ from nof1_causal_lab.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
-from nof1_causal_lab.models.ssm.dynamics import (
+from nof1_causal_lab.models.ssm.dynamics.composite import default_linear_drift_spec
+from nof1_causal_lab.models.ssm.structure import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
-    default_linear_drift_spec,
     default_manifest_chol_block,
     default_manifest_means_block,
     default_static_state_sd_block,

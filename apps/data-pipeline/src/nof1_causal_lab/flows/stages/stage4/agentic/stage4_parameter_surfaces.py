@@ -11,7 +11,7 @@ from nof1_causal_lab.artifacts.model_spec import (
     ObservationInterceptPolicy,
 )
 from nof1_causal_lab.models.model_semantics import indicator_requires_observation_intercept
-from nof1_causal_lab.models.ssm_spec_translation import get_construct_dt_days
+from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
 from nof1_causal_lab.utils.causal_spec import get_estimation_edges
 
 if TYPE_CHECKING:

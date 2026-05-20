@@ -18,7 +18,7 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 _DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM = 160
 

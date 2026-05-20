@@ -11,7 +11,7 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts import LinkFunction
-from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
 from nof1_causal_lab.models.prior_predictive import (
     _check_constraint_violations,
     _check_extreme_values,
@@ -25,13 +25,15 @@ from nof1_causal_lab.models.prior_predictive import (
     get_failed_parameters,
     resolve_scale_target_parameters,
 )
-from nof1_causal_lab.models.ssm.model import SSMPriors, full_diagonal_mask
+from nof1_causal_lab.models.ssm.compile.artifact import serialize_edge_lag_days, serialize_ssm_spec
+from nof1_causal_lab.models.ssm.model import full_diagonal_mask
 from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
-from nof1_causal_lab.models.ssm.prior_predictive_runtime import (
+from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_compiled_semantics,
 )
-from nof1_causal_lab.models.ssm_compiler import serialize_edge_lag_days, serialize_ssm_spec
+from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
+from tests.ssm_test_utils import make_ssm_spec, prior_registry
 
 
 def _require_result(result: PriorValidationResult | None) -> PriorValidationResult:
@@ -835,7 +837,7 @@ class TestCompiledPriorPredictiveRuntime:
             manifest_dists=[DistributionFamily.GAUSSIAN],
             manifest_links=[LinkFunction.IDENTITY],
         )
-        semantics = compile_prior_semantics(spec, SSMPriors())
+        semantics = compile_prior_semantics(spec)
 
         samples = sample_prior_predictive_from_compiled_semantics(
             spec,
@@ -860,7 +862,7 @@ class TestCompiledPriorPredictiveRuntime:
             diffusion_mask=np.diag(full_diagonal_mask(1)),
             manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
         )
-        semantics = compile_prior_semantics(spec, SSMPriors())
+        semantics = compile_prior_semantics(spec)
 
         with pytest.raises(ValueError, match="manifest_level_counts"):
             sample_prior_predictive_from_compiled_semantics(
@@ -889,8 +891,11 @@ class TestCompiledPriorPredictiveRuntime:
             manifest_dists=[DistributionFamily.GAUSSIAN] * 3,
             manifest_links=[LinkFunction.IDENTITY] * 3,
         )
-        priors = SSMPriors(
-            t0_var_offdiag={"mu": 0.8, "sigma": 0.1, "lower": -1.0, "upper": 1.0, "family": 1}
+        priors = prior_registry(
+            t0_var_lower_free=PriorSpec(
+                PriorDistributionFamily.TRUNCATED_NORMAL,
+                {"mu": 0.8, "sigma": 0.1, "lower": -1.0, "upper": 1.0},
+            )
         )
         semantics = compile_prior_semantics(spec, priors)
 

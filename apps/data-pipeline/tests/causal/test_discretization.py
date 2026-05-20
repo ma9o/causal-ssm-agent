@@ -21,7 +21,10 @@ import jax.scipy.linalg as jla
 import pytest
 
 from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
-from nof1_causal_lab.models.ssm.discretization import discretize_linear_system_exact
+from nof1_causal_lab.models.ssm.discretization import (
+    discretize_at_state,
+    discretize_linear_system_exact,
+)
 from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
     DenseLinear,
@@ -32,7 +35,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
     LinearEdge,
     MultiplicativeEdge,
     VectorFieldArgs,
-    discretize_at_state,
     simulate,
 )
 
@@ -286,7 +288,7 @@ def _run_moments_filter_via_callback(
     from cuthbert.filtering import filter as cuthbert_filter
     from cuthbert.gaussian.moments import build_filter
 
-    from nof1_causal_lab.models.ssm.dynamics import make_filter_dynamics_callback
+    from nof1_causal_lab.models.ssm.discretization import make_filter_dynamics_callback
 
     T = ys.shape[0]
     n = init_mean.shape[0]

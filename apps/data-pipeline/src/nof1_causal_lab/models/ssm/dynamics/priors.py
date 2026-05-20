@@ -10,9 +10,9 @@ The factories are *callables*, not module-level constants, because
 NumPyro distributions cache JAX arrays internally and constructing them
 at import time can interact badly with JAX initialisation order.
 
-For the dense-linear inference path the existing dict-based
-``SSMPriors`` in ``priors.py`` (one directory up) is unchanged. This
-module is specific to the composite vocabulary.
+The dense-linear and nonlinear paths both bind priors through the
+site-keyed registry in ``ssm.priors``; this module only provides
+distribution factories for hand-built composite specs.
 """
 
 from __future__ import annotations

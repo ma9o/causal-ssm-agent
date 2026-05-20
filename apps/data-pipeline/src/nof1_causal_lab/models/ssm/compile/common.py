@@ -14,6 +14,7 @@ from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameter_names import (
     INITIAL_STATE_CORRELATION_KEYWORDS,
 )
+from nof1_causal_lab.models.ssm.priors import SITE_NAME_FOR_PRIOR_FIELD
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -41,29 +42,7 @@ def empty_prior_index_maps() -> PriorIndexMaps:
     return ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
 
 
-SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = {
-    "drift_base_decay": "drift_base_decay_free",
-    "drift_offdiag": "drift_offdiag_free",
-    "input_effect": "input_effect_free",
-    "diffusion_diag": "diffusion_diag_free",
-    "diffusion_offdiag": "diffusion_lower_free",
-    "cint": "cint_free",
-    "static_state_sd": "static_state_sd_free",
-    "lambda_free": "lambda_free",
-    "manifest_means": "manifest_means_free",
-    "manifest_var_diag": "manifest_var_diag_free",
-    "t0_means": "t0_means_free",
-    "t0_var_diag": "t0_var_diag_free",
-    "t0_var_offdiag": "t0_var_lower_free",
-    "obs_df": "obs_df",
-    "obs_shape": "obs_shape",
-    "obs_r": "obs_r",
-    "obs_concentration": "obs_concentration",
-    "obs_ordered_base": "obs_ordered_base",
-    "obs_ordered_gaps": "obs_ordered_gaps",
-    "obs_cat_intercepts": "obs_cat_intercepts",
-    "obs_cat_slopes": "obs_cat_slopes",
-}
+SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = SITE_NAME_FOR_PRIOR_FIELD
 
 SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "drift_base_decay": ["rho", "ar"],
@@ -193,7 +172,7 @@ def normalize_prior_params(
     distribution: PriorDistributionFamily | str,
     params: dict,
 ) -> dict[str, float | int]:
-    """Convert a typed prior distribution into the SSMPriors parameter shape."""
+    """Convert a typed prior distribution into compiler-normalized parameter params."""
     try:
         spec = get_prior_family_spec(distribution)
     except ValueError as exc:
@@ -325,7 +304,7 @@ def build_array_prior_payload(
     current: dict[str, float | int],
     ssm_spec: SSMSpec | None,
 ) -> dict[str, list[float] | list[int]]:
-    """Build the array-valued SSMPriors payload for a structured parameter family."""
+    """Build the array-valued prior payload for a structured parameter family."""
     if not entries:
         raise ValueError(
             f"build_array_prior_payload({attr!r}) called with no entries; "
@@ -355,14 +334,14 @@ def build_array_prior_payload(
     if include_lower and "lower" not in current and lower_indices != all_indices:
         raise ValueError(
             f"build_array_prior_payload({attr!r}): some entries specify 'lower' but no "
-            "baseline was provided in the SSMPriors default — refusing to silently fill "
+            "baseline was provided in the prior default — refusing to silently fill "
             "with ±1e6. Provide a default 'lower' in current, or ensure every entry "
             "specifies one."
         )
     if include_upper and "upper" not in current and upper_indices != all_indices:
         raise ValueError(
             f"build_array_prior_payload({attr!r}): some entries specify 'upper' but no "
-            "baseline was provided in the SSMPriors default — refusing to silently fill "
+            "baseline was provided in the prior default — refusing to silently fill "
             "with ±1e6."
         )
 
