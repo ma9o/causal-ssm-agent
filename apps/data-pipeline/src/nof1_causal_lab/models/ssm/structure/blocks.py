@@ -69,7 +69,6 @@ class DiffusionBlockSpec:
     time_invariant_mask: np.ndarray | None = None
     diag_prior: Any = None
     lower_prior: Any = None
-    bare_site_names: bool = True
 
     @property
     def diffusion_diag_positions(self) -> list[int]:
@@ -107,10 +106,7 @@ class DiffusionBlockSpec:
             time_invariant_mask=self.time_invariant_mask,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:
-        def _name(bare: str) -> str:
-            return bare if self.bare_site_names else f"{prefix}_{bare}"
-
+    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         diag_free = None
         if self.n_diffusion_diag > 0:
             dist = resolve_prior_distribution(self.diag_prior)
@@ -118,7 +114,7 @@ class DiffusionBlockSpec:
                 raise ValueError(
                     "DiffusionBlockSpec requires diag_prior when n_diffusion_diag > 0"
                 )
-            diag_free = numpyro.sample(_name("diffusion_diag_free"), dist)
+            diag_free = numpyro.sample("diffusion_diag_free", dist)
 
         lower_free = None
         if self.n_diffusion_lower > 0:
@@ -127,10 +123,10 @@ class DiffusionBlockSpec:
                 raise ValueError(
                     "DiffusionBlockSpec requires lower_prior when n_diffusion_lower > 0"
                 )
-            lower_free = numpyro.sample(_name("diffusion_lower_free"), dist)
+            lower_free = numpyro.sample("diffusion_lower_free", dist)
 
         diffusion = self.assemble(diag_free, lower_free)
-        numpyro.deterministic(_name("diffusion"), diffusion)
+        numpyro.deterministic("diffusion", diffusion)
         return {"diffusion": diffusion}
 
 
@@ -158,7 +154,6 @@ class SparseVectorBlockSpec:
     free_site_name: str
     det_site_name: str
     prior: Any = None
-    bare_site_names: bool = True
 
     @property
     def free_positions(self) -> list[int]:
@@ -179,10 +174,7 @@ class SparseVectorBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:
-        def _name(bare: str) -> str:
-            return bare if self.bare_site_names else f"{prefix}_{bare}"
-
+    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         free = None
         if self.n_free > 0:
             dist = resolve_prior_distribution(self.prior)
@@ -191,10 +183,10 @@ class SparseVectorBlockSpec:
                     f"SparseVectorBlockSpec({self.free_site_name}) requires prior "
                     f"when n_free={self.n_free} > 0"
                 )
-            free = numpyro.sample(_name(self.free_site_name), dist)
+            free = numpyro.sample(self.free_site_name, dist)
 
         assembled = self.assemble(free)
-        numpyro.deterministic(_name(self.det_site_name), assembled)
+        numpyro.deterministic(self.det_site_name, assembled)
         return {self.det_site_name: assembled}
 
 
@@ -217,7 +209,6 @@ class SparseMatrixBlockSpec:
     free_site_name: str
     det_site_name: str
     prior: Any = None
-    bare_site_names: bool = True
 
     @property
     def free_positions(self) -> list[tuple[int, int]]:
@@ -238,10 +229,7 @@ class SparseMatrixBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:
-        def _name(bare: str) -> str:
-            return bare if self.bare_site_names else f"{prefix}_{bare}"
-
+    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         free = None
         if self.n_free > 0:
             dist = resolve_prior_distribution(self.prior)
@@ -250,10 +238,10 @@ class SparseMatrixBlockSpec:
                     f"SparseMatrixBlockSpec({self.free_site_name}) requires prior "
                     f"when n_free={self.n_free} > 0"
                 )
-            free = numpyro.sample(_name(self.free_site_name), dist)
+            free = numpyro.sample(self.free_site_name, dist)
 
         assembled = self.assemble(free)
-        numpyro.deterministic(_name(self.det_site_name), assembled)
+        numpyro.deterministic(self.det_site_name, assembled)
         return {self.det_site_name: assembled}
 
 
@@ -273,7 +261,6 @@ class ManifestCholBlockSpec:
     diag_mask: np.ndarray
     template: jnp.ndarray
     diag_prior: Any = None
-    bare_site_names: bool = True
 
     @property
     def free_positions(self) -> list[int]:
@@ -294,16 +281,13 @@ class ManifestCholBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:
+    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         """Sample the diagonal free entries and assemble the Cholesky.
 
         Does NOT emit a ``manifest_cov`` deterministic — that's the
         caller's responsibility; ``SSMModel._sample_manifest_params``
         emits it once after combining the means and Cholesky blocks.
         """
-
-        def _name(bare: str) -> str:
-            return bare if self.bare_site_names else f"{prefix}_{bare}"
 
         free = None
         if self.n_free > 0:
@@ -312,7 +296,7 @@ class ManifestCholBlockSpec:
                 raise ValueError(
                     "ManifestCholBlockSpec requires diag_prior when n_free > 0"
                 )
-            free = numpyro.sample(_name("manifest_var_diag_free"), dist)
+            free = numpyro.sample("manifest_var_diag_free", dist)
 
         chol = self.assemble(free)
         return {"manifest_chol": chol}
@@ -345,7 +329,6 @@ class T0CholBlockSpec:
     template: jnp.ndarray  # (n_latent, n_latent) lower-Cholesky factor
     diag_prior: Any = None
     correlation_prior: Any = None
-    bare_site_names: bool = True
 
     @property
     def diag_positions(self) -> list[int]:
@@ -416,16 +399,13 @@ class T0CholBlockSpec:
         cov = corr * (std[:, None] * std[None, :])
         return 0.5 * (cov + cov.T)
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:
+    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         """Sample free diagonal SDs and free off-diagonal correlations.
 
         Returns a dict with ``diag_free`` and ``correlation_free`` entries
         (may be ``None`` for empty masks). The caller assembles the final
         covariance (possibly composing with a static-factor contribution).
         """
-
-        def _name(bare: str) -> str:
-            return bare if self.bare_site_names else f"{prefix}_{bare}"
 
         diag_free = None
         if self.n_diag_free > 0:
@@ -434,7 +414,7 @@ class T0CholBlockSpec:
                 raise ValueError(
                     "T0CholBlockSpec requires diag_prior when n_diag_free > 0"
                 )
-            diag_free = numpyro.sample(_name("t0_var_diag_free"), dist)
+            diag_free = numpyro.sample("t0_var_diag_free", dist)
 
         correlation_free = None
         if self.n_correlation_free > 0:
@@ -443,7 +423,7 @@ class T0CholBlockSpec:
                 raise ValueError(
                     "T0CholBlockSpec requires correlation_prior when n_correlation_free > 0"
                 )
-            correlation_free = numpyro.sample(_name("t0_var_lower_free"), dist)
+            correlation_free = numpyro.sample("t0_var_lower_free", dist)
 
         return {
             "diag_free": diag_free,

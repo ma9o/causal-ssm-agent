@@ -41,8 +41,6 @@ from typing import Any
 import jax.numpy as jnp
 import numpy as np
 
-from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
-
 from .composite import (
     CompositeSpec,
     DenseLinearSpec,
@@ -53,7 +51,6 @@ from .composite import (
     MultiplicativeEdgeSpec,
     StructuralDenseLinearSpec,
     StructuralInterceptSpec,
-    compile_composite,
 )
 
 _COMPONENT_KIND_REGISTRY: dict[str, str] = {
@@ -163,7 +160,6 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
                     if component.time_invariant_mask is not None
                     else None
                 ),
-                "bare_site_names": bool(component.bare_site_names),
                 "priors": {},
             }
             if component.base_decay_prior is not None:
@@ -176,7 +172,6 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
                 "n_latent": int(component.n_latent),
                 "cint_mask": np.asarray(component.cint_mask).tolist(),
                 "cint_template": np.asarray(component.cint_template).tolist(),
-                "bare_site_names": bool(component.bare_site_names),
                 "priors": {},
             }
             if component.cint_prior is not None:
@@ -188,17 +183,6 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
             )
         components.append(entry)
     return {"n_latent": int(spec.n_latent), "components": components}
-
-
-def materialize_prior(prior_cfg: dict[str, Any]):
-    """Materialize a NumPyro ``Distribution`` from a dict-config.
-
-    The accepted shape is ``{"family": "Normal", "params": {"mu": 0.0,
-    "sigma": 1.0}, "shape": [...]}``. ``family`` is a
-    :class:`PriorDistributionFamily` value and ``shape`` controls
-    broadcasting.
-    """
-    return materialize_prior_distribution(prior_cfg)
 
 
 def _spec_from_component_dict(component: dict[str, Any]) -> Any:
@@ -267,7 +251,6 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             ),
             base_decay_prior=_optional("base_decay"),
             offdiag_prior=_optional("offdiag"),
-            bare_site_names=bool(component.get("bare_site_names", True)),
         )
     if kind == "StructuralIntercept":
         return StructuralInterceptSpec(
@@ -275,7 +258,6 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             cint_mask=np.asarray(component["cint_mask"], dtype=bool),
             cint_template=jnp.asarray(component["cint_template"]),
             cint_prior=_optional("cint"),
-            bare_site_names=bool(component.get("bare_site_names", True)),
         )
     raise ValueError(
         f"Unknown composite component kind {kind!r}; "
@@ -291,16 +273,3 @@ def composite_spec_from_dict(config: dict[str, Any]) -> CompositeSpec:
         _spec_from_component_dict(c) for c in config.get("components", ())
     )
     return CompositeSpec(n_latent=int(config["n_latent"]), components=components)
-
-
-def compile_composite_from_dict(
-    config: dict[str, Any], *, prefix: str = "vf"
-):
-    """One-shot: dict-config → ``CompiledComposite`` ready for inference.
-
-    Convenience wrapper around ``composite_spec_from_dict`` +
-    ``compile_composite``. Stage 4 emits the dict; inference consumes
-    the compiled object.
-    """
-    spec = composite_spec_from_dict(config)
-    return compile_composite(spec, prefix=prefix)

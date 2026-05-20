@@ -347,7 +347,7 @@ class TestCuthbertCallbackIntegration:
     return finite log-likelihoods, and the linear case must match a
     hand-computed reference within numerical tolerance."""
 
-    def _generate_linear_obs(self, key, A, c, GG_cov, init_mean, H, R, dts):
+    def _generate_linear_obs(self, key, A, c, init_mean, H, R, dts):
         """Forward-simulate a linear-Gaussian SSM and return noisy obs."""
         import jax.random as jr
 
@@ -377,7 +377,7 @@ class TestCuthbertCallbackIntegration:
 
         import jax.random as jr
 
-        ys = self._generate_linear_obs(jr.PRNGKey(0), A, c, GG, init_mean, H, R, dts)
+        ys = self._generate_linear_obs(jr.PRNGKey(0), A, c, init_mean, H, R, dts)
 
         ll = _run_moments_filter_via_callback(
             linear_vector_field(n_latent=2),
@@ -452,7 +452,7 @@ class TestCuthbertCallbackIntegration:
         R = jnp.array([[0.1]])
         T = 6
         dts = jnp.full(T, 0.4)
-        ys = self._generate_linear_obs(jr.PRNGKey(2), A, c, GG, init_mean, H, R, dts)
+        ys = self._generate_linear_obs(jr.PRNGKey(2), A, c, init_mean, H, R, dts)
 
         # Reference: build cuthbert filter directly with pre-discretized matrices
         from nof1_causal_lab.models.ssm.discretization import (

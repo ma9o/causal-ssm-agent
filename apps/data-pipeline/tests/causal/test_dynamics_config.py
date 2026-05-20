@@ -23,25 +23,29 @@ from nof1_causal_lab.models.ssm.dynamics import (
     DenseLinear,
     Intervention,
     VectorFieldArgs,
-    compile_composite_from_dict,
+    compile_composite,
     composite_spec_from_dict,
-    materialize_prior,
 )
+from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
 
 
 class TestMaterializePrior:
     def test_normal(self):
-        d = materialize_prior({"family": "Normal", "params": {"mu": 0.3, "sigma": 0.5}})
+        d = materialize_prior_distribution(
+            {"family": "Normal", "params": {"mu": 0.3, "sigma": 0.5}}
+        )
         assert isinstance(d, ndist.Normal)
         assert float(d.loc) == 0.3
         assert float(d.scale) == 0.5
 
     def test_log_normal(self):
-        d = materialize_prior({"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.7}})
+        d = materialize_prior_distribution(
+            {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.7}}
+        )
         assert isinstance(d, ndist.LogNormal)
 
     def test_gamma(self):
-        d = materialize_prior(
+        d = materialize_prior_distribution(
             {"family": "Gamma", "params": {"concentration": 2.0, "rate": 4.0}}
         )
         assert isinstance(d, ndist.Gamma)
@@ -49,10 +53,12 @@ class TestMaterializePrior:
         assert float(d.rate) == 4.0
 
     def test_truncated_normal_with_bounds(self):
-        d = materialize_prior({
-            "family": "TruncatedNormal",
-            "params": {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
-        })
+        d = materialize_prior_distribution(
+            {
+                "family": "TruncatedNormal",
+                "params": {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
+            }
+        )
         # NumPyro's TruncatedNormal is a factory; verify behaviour via samples
         import jax.random as jr
 
@@ -62,11 +68,13 @@ class TestMaterializePrior:
 
     def test_shape_broadcasts(self):
         """A matrix-shape Normal prior must broadcast its scalar mu/sigma."""
-        d = materialize_prior({
-            "family": "Normal",
-            "params": {"mu": 0.0, "sigma": 1.0},
-            "shape": [3, 3],
-        })
+        d = materialize_prior_distribution(
+            {
+                "family": "Normal",
+                "params": {"mu": 0.0, "sigma": 1.0},
+                "shape": [3, 3],
+            }
+        )
         assert d.batch_shape + d.event_shape == (3, 3)
 
 
@@ -90,7 +98,7 @@ class TestCompositeSpecFromDict:
         assert isinstance(spec, CompositeSpec)
         assert spec.n_latent == 2
 
-        compiled = compile_composite_from_dict(config)
+        compiled = compile_composite(composite_spec_from_dict(config))
         assert isinstance(compiled.vector_field.components[0], DenseLinear)
         with seed(rng_seed=0):
             params = compiled.sample_params()
@@ -145,7 +153,7 @@ class TestCompositeSpecFromDict:
                 },
             ],
         }
-        compiled = compile_composite_from_dict(config)
+        compiled = compile_composite(composite_spec_from_dict(config))
         kinds = [type(c).__name__ for c in compiled.vector_field.components]
         assert kinds == [
             "DiagonalDecay", "Intercept", "MultiplicativeEdge",
@@ -177,7 +185,7 @@ class TestEndToEndDriftFromDict:
                                        "params": {"value": 0.3}}}},
             ],
         }
-        compiled = compile_composite_from_dict(config)
+        compiled = compile_composite(composite_spec_from_dict(config))
         params = compiled.sample_params()
         eta = jnp.array([2.0, 1.0])
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
@@ -276,7 +284,7 @@ class TestBlockSpecEquivalence:
             static_state_sd_block=default_static_state_sd_block(),
         )
         diag_vals = jnp.array([0.4, 0.6])
-        expected = spec.assemble_diffusion(diag_vals, None)
+        expected = spec.diffusion_block.assemble(diag_vals, None)
 
         block = DiffusionBlockSpec(
             n_latent=2,
@@ -352,7 +360,7 @@ class TestBlockSpecEquivalence:
             static_state_sd_block=default_static_state_sd_block(),
         )
         free = jnp.array([0.1, -0.2, 0.3])
-        expected = spec.assemble_t0_means(free)
+        expected = spec.t0_means_block.assemble(free)
 
         block = SparseVectorBlockSpec(
             n=3,

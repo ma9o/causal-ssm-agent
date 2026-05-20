@@ -8,9 +8,9 @@ and a constant-vs-trajectory linearisation hint.
 
 Constructed via :func:`runtime_from_ssm_model` (the canonical bridge
 from an :class:`SSMModel` with a populated ``drift_spec``) or
-:func:`runtime_from_composite` (test helper from a pre-compiled
-``CompiledComposite``) or :func:`runtime_from_dense_linear` (test helper
-from raw ``(A, c)`` arrays).
+:func:`runtime_from_composite` when the caller already has a compiled
+``CompiledComposite``. :func:`runtime_from_dense_linear` remains the
+small adapter for code that already has concrete ``(A, c)`` draws.
 
 The ``linearisation`` field is a fast-path hint: ``"constant"`` when
 every drift component has a state-independent Jacobian (``DenseLinear``,
@@ -66,6 +66,28 @@ def infer_linearisation(vector_field: CompositeVectorField) -> Linearisation:
         "constant"
         if all(isinstance(c, _CONSTANT_JACOBIAN_COMPONENTS) for c in vector_field.components)
         else "trajectory"
+    )
+
+
+def _build_predictive_sampler(
+    manifest_dists: tuple,
+    R: Array,
+    *,
+    manifest_links: tuple = (),
+    obs_extra_params: dict | None = None,
+) -> PredictiveObservationSampler | None:
+    if not manifest_dists:
+        return None
+
+    from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import (
+        build_predictive_observation_sampler,
+    )
+
+    return build_predictive_observation_sampler(
+        manifest_dists,
+        R,
+        manifest_links=manifest_links or None,
+        extra_params=obs_extra_params,
     )
 
 
@@ -125,19 +147,6 @@ def runtime_from_composite(
     existing family registry rather than re-implementing per-family
     samplers.
     """
-    predictive_sampler = None
-    if manifest_dists:
-        from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import (
-            build_predictive_observation_sampler,
-        )
-
-        predictive_sampler = build_predictive_observation_sampler(
-            manifest_dists,
-            R,
-            manifest_links=manifest_links or None,
-            extra_params=obs_extra_params,
-        )
-
     return RuntimeSSM(
         vector_field=compiled.vector_field,
         sample_params=compiled.sample_params,
@@ -150,7 +159,12 @@ def runtime_from_composite(
         obs_kernel=obs_kernel,
         linearisation=infer_linearisation(compiled.vector_field),
         site_prefix=site_prefix,
-        predictive_sampler=predictive_sampler,
+        predictive_sampler=_build_predictive_sampler(
+            manifest_dists,
+            R,
+            manifest_links=manifest_links,
+            obs_extra_params=obs_extra_params,
+        ),
     )
 
 
@@ -164,9 +178,8 @@ def runtime_from_ssm_model(
 
     Pulls vector field, initial-state moments, diffusion covariance, and
     observation operator from the spec's template values. For composite
-    specs (``spec.drift_spec`` set) the sample callable comes from the
-    compiled composite; for legacy linear specs it delta-resolves to
-    the structural drift_spec components.
+    specs the sample callable comes from the compiled composite drift
+    spec; linear SSMs are represented as structural composite specs too.
 
     The spec's template fields are treated as fixed runtime values — this
     factory is the right shape for composite-style Gibbs MCMC where the
@@ -175,22 +188,10 @@ def runtime_from_ssm_model(
     hyperparams should keep using the linear ``SSMModel`` numpyro
     pipeline directly.
     """
-    from nof1_causal_lab.models.ssm.dynamics.composite import (
-        compile_composite as _compile_composite,
-    )
+    from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
 
     spec = model.spec
-    vector_field = model.vector_field
-
-    # SSMSpec.__post_init__ guarantees drift_spec is populated. The
-    # composite consumer (Gibbs MCMC, MAP, prior predictive) requires
-    # sample_params to draw fresh parameter values per call, so the
-    # drift_spec components must carry priors. The structural-only
-    # auto-built spec (priors=None) is the linear path's NumPyro-managed
-    # representation and cannot be packaged for composite consumption —
-    # construct an explicit drift_spec with priors instead.
-    compiled = _compile_composite(spec.drift_spec)
-    sample_params = compiled.sample_params
+    compiled = compile_composite(spec.drift_spec)
 
     diffusion_chol = jnp.asarray(spec.diffusion_block.diffusion_chol_template)
     diffusion_cov = diffusion_chol @ diffusion_chol.T
@@ -201,22 +202,8 @@ def runtime_from_ssm_model(
     manifest_chol = jnp.asarray(spec.manifest_chol_block.template)
     R = manifest_chol @ manifest_chol.T
 
-    predictive_sampler = None
-    if spec.manifest_dists:
-        from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import (
-            build_predictive_observation_sampler,
-        )
-
-        predictive_sampler = build_predictive_observation_sampler(
-            tuple(spec.manifest_dists),
-            R,
-            manifest_links=tuple(spec.manifest_links) if spec.manifest_links else None,
-            extra_params=obs_extra_params,
-        )
-
-    return RuntimeSSM(
-        vector_field=vector_field,
-        sample_params=sample_params,
+    return runtime_from_composite(
+        compiled,
         init_mean=jnp.asarray(spec.t0_means_block.template),
         init_cov=init_cov,
         diffusion_cov=diffusion_cov,
@@ -224,8 +211,9 @@ def runtime_from_ssm_model(
         d_meas=jnp.asarray(spec.manifest_means_block.template),
         R=R,
         obs_kernel=obs_kernel,
-        linearisation=infer_linearisation(vector_field),
-        predictive_sampler=predictive_sampler,
+        manifest_dists=tuple(spec.manifest_dists or ()),
+        manifest_links=tuple(spec.manifest_links or ()),
+        obs_extra_params=obs_extra_params,
     )
 
 

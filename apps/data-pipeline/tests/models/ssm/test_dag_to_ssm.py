@@ -17,6 +17,7 @@ import pytest
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
+from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
     SSMSpec,
@@ -32,10 +33,9 @@ from nof1_causal_lab.models.ssm.parameterization import (
     build_site_prior_distribution,
 )
 from nof1_causal_lab.models.ssm.priors import PriorSpec
+from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
 from tests.ssm_test_utils import (
-    combined_drift_mask,
-    full_drift_mask,
-    make_ssm_spec,
+    block_ssm_spec,
     prior_registry,
 )
 
@@ -45,20 +45,35 @@ from tests.ssm_test_utils import (
 
 
 def _make_3latent_spec(
-    drift_mask: np.ndarray | None = None,
-    lambda_mask: np.ndarray | None = None,
-    lambda_mat: jnp.ndarray | None = None,
+    drift_offdiag_mask: np.ndarray | None = None,
+    lambda_block: SparseMatrixBlockSpec | None = None,
 ) -> SSMSpec:
     """3 latent, 4 manifest spec with optional masks."""
     n_l, n_m = 3, 4
-    if lambda_mat is None:
-        lambda_mat = jnp.eye(n_m, n_l)
-    return make_ssm_spec(
+    if drift_offdiag_mask is None:
+        drift_offdiag_mask = np.ones((n_l, n_l), dtype=bool)
+        np.fill_diagonal(drift_offdiag_mask, False)
+    if lambda_block is None:
+        lambda_block = SparseMatrixBlockSpec(
+            n_rows=n_m,
+            n_cols=n_l,
+            mask=zero_loading_mask(n_m, n_l),
+            template=jnp.eye(n_m, n_l),
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        )
+    return block_ssm_spec(
         n_latent=n_l,
         n_manifest=n_m,
-        drift_mask=drift_mask if drift_mask is not None else full_drift_mask(n_l),
-        lambda_mask=lambda_mask if lambda_mask is not None else zero_loading_mask(n_m, n_l),
-        lambda_mat=lambda_mat,
+        drift_spec=linear_drift_spec(
+            n_latent=n_l,
+            drift_diag_mask=np.ones(n_l, dtype=bool),
+            drift_offdiag_mask=drift_offdiag_mask,
+            drift_template=jnp.zeros((n_l, n_l)),
+            cint_mask=np.zeros(n_l, dtype=bool),
+            cint_template=jnp.zeros(n_l),
+        ),
+        lambda_block=lambda_block,
         latent_names=["X", "Y", "Z"],
         manifest_names=["x1", "x2", "y1", "z1"],
     )
@@ -172,11 +187,11 @@ class TestDriftMask:
 
     def test_drift_mask_zeros_non_edges(self):
         """Drift entries where mask is False should be zero."""
-        mask = np.eye(3, dtype=bool)
-        mask[1, 0] = True  # X→Y
-        mask[2, 1] = True  # Y→Z
+        offdiag_mask = np.zeros((3, 3), dtype=bool)
+        offdiag_mask[1, 0] = True  # X→Y
+        offdiag_mask[2, 1] = True  # Y→Z
 
-        spec = _make_3latent_spec(drift_mask=mask)
+        spec = _make_3latent_spec(drift_offdiag_mask=offdiag_mask)
         model = SSMModel(spec)
 
         rng = random.PRNGKey(42)
@@ -214,13 +229,17 @@ class TestDriftMask:
 
     def test_drift_mask_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
-        mask = np.eye(1, dtype=bool)
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            lambda_mask=zero_loading_mask(1, 1),
-            drift_mask=mask,
-            lambda_mat=jnp.eye(1),
+            drift_spec=linear_drift_spec(
+                n_latent=1,
+                drift_diag_mask=np.ones(1, dtype=bool),
+                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
+                drift_template=jnp.zeros((1, 1)),
+                cint_mask=np.zeros(1, dtype=bool),
+                cint_template=jnp.zeros(1),
+            ),
         )
         model = SSMModel(spec)
 
@@ -254,7 +273,16 @@ class TestLambdaMask:
         lambda_mask = np.zeros((4, 3), dtype=bool)
         lambda_mask[1, 0] = True  # x2→X (free)
 
-        spec = _make_3latent_spec(lambda_mat=lambda_mat, lambda_mask=lambda_mask)
+        spec = _make_3latent_spec(
+            lambda_block=SparseMatrixBlockSpec(
+                n_rows=4,
+                n_cols=3,
+                mask=lambda_mask,
+                template=lambda_mat,
+                free_site_name="lambda_free",
+                det_site_name="lambda",
+            )
+        )
         model = SSMModel(spec)
 
         rng = random.PRNGKey(0)
@@ -277,7 +305,16 @@ class TestLambdaMask:
     def test_lambda_no_mask_returns_fixed(self):
         """Array lambda_mat with default zero free-mask is returned as-is."""
         lambda_mat = jnp.eye(4, 3)
-        spec = _make_3latent_spec(lambda_mat=lambda_mat)
+        spec = _make_3latent_spec(
+            lambda_block=SparseMatrixBlockSpec(
+                n_rows=4,
+                n_cols=3,
+                mask=zero_loading_mask(4, 3),
+                template=lambda_mat,
+                free_site_name="lambda_free",
+                det_site_name="lambda",
+            )
+        )
         model = SSMModel(spec)
 
         rng = random.PRNGKey(0)
@@ -372,15 +409,20 @@ class TestPerElementPriors:
 
     def test_per_element_prior_in_model(self):
         """Per-element drift priors are used in sampling."""
-        mask = np.eye(2, dtype=bool)
-        mask[1, 0] = True  # X→Y
+        offdiag_mask = np.zeros((2, 2), dtype=bool)
+        offdiag_mask[1, 0] = True  # X→Y
 
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            lambda_mask=zero_loading_mask(2, 2),
-            drift_mask=mask,
-            lambda_mat=jnp.eye(2),
+            drift_spec=linear_drift_spec(
+                n_latent=2,
+                drift_diag_mask=np.ones(2, dtype=bool),
+                drift_offdiag_mask=offdiag_mask,
+                drift_template=jnp.zeros((2, 2)),
+                cint_mask=np.zeros(2, dtype=bool),
+                cint_template=jnp.zeros(2),
+            ),
             latent_names=["X", "Y"],
             manifest_names=["x1", "y1"],
         )
@@ -552,22 +594,44 @@ class TestBuilderMasks:
         ("override", "error_pattern"),
         [
             pytest.param(
-                {"drift_mask": None},
-                "drift_diag_mask must have shape",
-                id="drift_mask_none",
+                {
+                    "drift_spec": linear_drift_spec(
+                        n_latent=3,
+                        drift_diag_mask=np.ones(2, dtype=bool),
+                        drift_offdiag_mask=np.ones((3, 3), dtype=bool),
+                        drift_template=jnp.zeros((3, 3)),
+                        cint_mask=np.zeros(3, dtype=bool),
+                        cint_template=jnp.zeros(3),
+                    )
+                },
+                r"drift_diag_mask must have shape \(3\)",
+                id="drift_diag_wrong_shape",
             ),
             pytest.param(
-                {"lambda_mask": None},
+                {
+                    "lambda_block": SparseMatrixBlockSpec(
+                        n_rows=4,
+                        n_cols=3,
+                        mask=None,
+                        template=jnp.eye(4, 3),
+                        free_site_name="lambda_free",
+                        det_site_name="lambda",
+                    )
+                },
                 "lambda_mask must have shape",
                 id="lambda_mask_none",
             ),
             pytest.param(
-                {"drift_mask": np.ones((2, 2), dtype=bool)},
-                r"drift_mask must have shape \(3, 3\)",
-                id="drift_mask_wrong_shape",
-            ),
-            pytest.param(
-                {"lambda_mask": np.ones((4, 4), dtype=bool)},
+                {
+                    "lambda_block": SparseMatrixBlockSpec(
+                        n_rows=4,
+                        n_cols=3,
+                        mask=np.ones((4, 4), dtype=bool),
+                        template=jnp.eye(4, 3),
+                        free_site_name="lambda_free",
+                        det_site_name="lambda",
+                    )
+                },
                 r"lambda_mask must have shape \(4, 3\)",
                 id="lambda_mask_wrong_shape",
             ),
@@ -601,24 +665,50 @@ class TestBuilderMasks:
         base = {
             "n_latent": 3,
             "n_manifest": 4,
-            "lambda_mat": jnp.eye(4, 3),
-            "drift_mask": full_drift_mask(3),
-            "lambda_mask": zero_loading_mask(4, 3),
+            "drift_spec": linear_drift_spec(
+                n_latent=3,
+                drift_diag_mask=np.ones(3, dtype=bool),
+                drift_offdiag_mask=np.ones((3, 3), dtype=bool),
+                drift_template=jnp.zeros((3, 3)),
+                cint_mask=np.zeros(3, dtype=bool),
+                cint_template=jnp.zeros(3),
+            ),
+            "lambda_block": SparseMatrixBlockSpec(
+                n_rows=4,
+                n_cols=3,
+                mask=zero_loading_mask(4, 3),
+                template=jnp.eye(4, 3),
+                free_site_name="lambda_free",
+                det_site_name="lambda",
+            ),
             "latent_names": ["X", "Y", "Z"],
             "manifest_names": ["x1", "x2", "y1", "z1"],
         }
         with pytest.raises(ValueError, match=error_pattern):
-            make_ssm_spec(**{**base, **override})
+            block_ssm_spec(**{**base, **override})
 
     def test_ssm_spec_rejects_string_lambda_mat(self):
         """Loading structure must be expressed as template + mask, not a string mode."""
-        with pytest.raises(ValueError, match="explicit loading template array"):
-            make_ssm_spec(
+        with pytest.raises(ValueError, match="lambda_mat must have shape"):
+            block_ssm_spec(
                 n_latent=2,
                 n_manifest=2,
-                drift_mask=full_drift_mask(2),
-                lambda_mask=zero_loading_mask(2, 2),
-                lambda_mat="free",
+                drift_spec=linear_drift_spec(
+                    n_latent=2,
+                    drift_diag_mask=np.ones(2, dtype=bool),
+                    drift_offdiag_mask=np.ones((2, 2), dtype=bool),
+                    drift_template=jnp.zeros((2, 2)),
+                    cint_mask=np.zeros(2, dtype=bool),
+                    cint_template=jnp.zeros(2),
+                ),
+                lambda_block=SparseMatrixBlockSpec(
+                    n_rows=2,
+                    n_cols=2,
+                    mask=zero_loading_mask(2, 2),
+                    template="free",
+                    free_site_name="lambda_free",
+                    det_site_name="lambda",
+                ),
             )
 
     def test_builder_rejects_direct_ssm_spec_plus_causal_spec(self):
@@ -627,15 +717,7 @@ class TestBuilderMasks:
 
         causal_spec = _make_causal_spec_dict()
         builder = SSMModelBuilder(
-            ssm_spec=make_ssm_spec(
-                n_latent=3,
-                n_manifest=4,
-                drift_mask=full_drift_mask(3),
-                lambda_mask=zero_loading_mask(4, 3),
-                lambda_mat=jnp.eye(4, 3),
-                latent_names=["X", "Y", "Z"],
-                manifest_names=["x1", "x2", "y1", "z1"],
-            ),
+            ssm_spec=_make_3latent_spec(),
             causal_spec=causal_spec,
         )
         X = pl.DataFrame(
@@ -1175,10 +1257,10 @@ class TestBuilderMasks:
         spec = builder.spec
 
         # Verify masks were built
-        drift_mask = combined_drift_mask(spec)
-        assert drift_mask[0, 0]
-        assert drift_mask[1, 1]
-        assert drift_mask[2, 2]
+        drift_component, _ = spec.structural_drift_components()
+        assert drift_component.drift_diag_mask[0]
+        assert drift_component.drift_diag_mask[1]
+        assert drift_component.drift_diag_mask[2]
         assert spec.lambda_block.mask is not None
         assert spec.n_latent == 3
         assert spec.n_manifest == 4
@@ -1197,18 +1279,21 @@ class TestSiteRegistryMasks:
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
         # 3 latent, X→Y and Y→Z = 2 off-diagonal entries
-        mask = np.eye(3, dtype=bool)
-        mask[1, 0] = True
-        mask[2, 1] = True
+        offdiag_mask = np.zeros((3, 3), dtype=bool)
+        offdiag_mask[1, 0] = True
+        offdiag_mask[2, 1] = True
 
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            lambda_mask=zero_loading_mask(3, 3),
-            drift_mask=mask,
-            lambda_mat=jnp.eye(3),
-            cint_mask=full_vector_mask(3),
-            cint=jnp.zeros(3),
+            drift_spec=linear_drift_spec(
+                n_latent=3,
+                drift_diag_mask=np.ones(3, dtype=bool),
+                drift_offdiag_mask=offdiag_mask,
+                drift_template=jnp.zeros((3, 3)),
+                cint_mask=full_vector_mask(3),
+                cint_template=jnp.zeros(3),
+            ),
         )
 
         registry = {site.name: site for site in build_site_registry(spec)}
@@ -1224,12 +1309,25 @@ class TestSiteRegistryMasks:
         lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
         lambda_mask = np.array([[False, False], [False, False], [True, False]])
 
-        spec = make_ssm_spec(
+        spec = block_ssm_spec(
             n_latent=2,
             n_manifest=3,
-            drift_mask=full_drift_mask(2),
-            lambda_mat=lambda_mat,
-            lambda_mask=lambda_mask,
+            drift_spec=linear_drift_spec(
+                n_latent=2,
+                drift_diag_mask=np.ones(2, dtype=bool),
+                drift_offdiag_mask=np.ones((2, 2), dtype=bool),
+                drift_template=jnp.zeros((2, 2)),
+                cint_mask=np.zeros(2, dtype=bool),
+                cint_template=jnp.zeros(2),
+            ),
+            lambda_block=SparseMatrixBlockSpec(
+                n_rows=3,
+                n_cols=2,
+                mask=lambda_mask,
+                template=lambda_mat,
+                free_site_name="lambda_free",
+                det_site_name="lambda",
+            ),
         )
 
         registry = {site.name: site for site in build_site_registry(spec)}
@@ -1246,9 +1344,9 @@ class TestTraceVerification:
 
     def test_masked_model_trace(self):
         """Full model trace with masks: verify drift_offdiag_free shape."""
-        mask = np.eye(3, dtype=bool)
-        mask[1, 0] = True  # X→Y
-        mask[2, 1] = True  # Y→Z
+        offdiag_mask = np.zeros((3, 3), dtype=bool)
+        offdiag_mask[1, 0] = True  # X→Y
+        offdiag_mask[2, 1] = True  # Y→Z
 
         lambda_mat = jnp.zeros((4, 3))
         lambda_mat = lambda_mat.at[0, 0].set(1.0)
@@ -1259,9 +1357,15 @@ class TestTraceVerification:
         lambda_mask[1, 0] = True
 
         spec = _make_3latent_spec(
-            drift_mask=mask,
-            lambda_mat=lambda_mat,
-            lambda_mask=lambda_mask,
+            drift_offdiag_mask=offdiag_mask,
+            lambda_block=SparseMatrixBlockSpec(
+                n_rows=4,
+                n_cols=3,
+                mask=lambda_mask,
+                template=lambda_mat,
+                free_site_name="lambda_free",
+                det_site_name="lambda",
+            ),
         )
         model = SSMModel(spec)
 

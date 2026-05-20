@@ -48,14 +48,15 @@ def _assemble_extra_params_batched(
     n_draws: int,
 ) -> dict[str, jnp.ndarray]:
     """Assemble per-draw observation/process hyperparameters."""
-    if not any(site.assembly_group == "likelihood" for site in runtime.registry):
+    registry = runtime.site_runtime.registry
+    if not any(site.assembly_group == "likelihood" for site in registry):
         return {}
 
     def _assemble_one(draw_idx):
         sampled_values = {
             site_name: values[draw_idx] for site_name, values in constrained_samples.items()
         }
-        return assemble_extra_params_from_registry(spec, sampled_values, runtime.registry)
+        return assemble_extra_params_from_registry(spec, sampled_values, registry)
 
     return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int64))
 
@@ -76,15 +77,15 @@ def sample_prior_predictive_from_runtime(
 
     z_samples, _rng_key = sample_prior_unconstrained(
         random.PRNGKey(seed),
-        runtime.registry,
+        runtime.site_runtime.registry,
         runtime.prior_state,
         n_samples=num_samples,
     )
-    constrained_samples = runtime.constrain_batched(z_samples)
+    constrained_samples = runtime.site_runtime.constrain_batched(z_samples)
     deterministic_samples = assemble_deterministics_from_registry(
         constrained_samples,
         spec,
-        runtime.registry,
+        runtime.site_runtime.registry,
         n_draws=num_samples,
     )
     extra_params = _assemble_extra_params_batched(

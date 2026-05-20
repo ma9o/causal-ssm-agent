@@ -12,8 +12,6 @@ from typing import TYPE_CHECKING, Literal
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from jax import Array
 
 
@@ -102,11 +100,3 @@ def project_to_manifest(
     """
     loadings = lambda_mat[:, outcome_latent_idx]
     return loadings * latent_effects[outcome_latent_idx]
-
-
-def per_draw_effect_summary(
-    effect_draws: Array,
-) -> Callable[[], dict[str, float]]:
-    """Compatibility shim — kept as a function so callers can lazily call
-    on demand without pre-computing a dict at trace time."""
-    return lambda: summarize_draws(effect_draws)

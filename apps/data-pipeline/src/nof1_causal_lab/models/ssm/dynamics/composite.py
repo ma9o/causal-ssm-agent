@@ -119,11 +119,6 @@ class StructuralDenseLinearSpec:
     single-component composite. Pair with
     :class:`StructuralInterceptSpec` when a constant intercept is needed.
 
-    Site naming: when ``bare_site_names=True`` (the default for the
-    linear-equivalent case) the sampled NumPyro sites use the bare
-    names (``drift_base_decay_free``, ``drift_offdiag_free``) so existing
-    autoreparam / prior-name resolution / posterior-analysis tooling keeps
-    working unchanged.
     """
 
     n_latent: int
@@ -134,7 +129,6 @@ class StructuralDenseLinearSpec:
     time_invariant_mask: np.ndarray | None = None
     base_decay_prior: Any = None
     offdiag_prior: Any = None
-    bare_site_names: bool = True
 
     @property
     def drift_base_decay_positions(self) -> list[int]:
@@ -188,10 +182,7 @@ class StructuralDenseLinearSpec:
     def build(self) -> DenseLinear:
         return DenseLinear()
 
-    def sample_params(self, prefix: str) -> dict[str, Array]:
-        def _name(bare: str) -> str:
-            return bare if self.bare_site_names else f"{prefix}_{bare}"
-
+    def sample_params(self, prefix: str) -> dict[str, Array]:  # noqa: ARG002
         if self.n_drift_base_decay > 0:
             base_decay_dist = _resolve_prior(self.base_decay_prior)
             if base_decay_dist is None:
@@ -199,7 +190,7 @@ class StructuralDenseLinearSpec:
                     "StructuralDenseLinearSpec requires base_decay_prior when "
                     f"n_drift_base_decay={self.n_drift_base_decay} > 0."
                 )
-            base_decay_free = numpyro.sample(_name("drift_base_decay_free"), base_decay_dist)
+            base_decay_free = numpyro.sample("drift_base_decay_free", base_decay_dist)
         else:
             base_decay_free = None
 
@@ -210,12 +201,12 @@ class StructuralDenseLinearSpec:
                     "StructuralDenseLinearSpec requires offdiag_prior when "
                     f"n_drift_offdiag={self.n_drift_offdiag} > 0."
                 )
-            offdiag_free = numpyro.sample(_name("drift_offdiag_free"), offdiag_dist)
+            offdiag_free = numpyro.sample("drift_offdiag_free", offdiag_dist)
         else:
             offdiag_free = None
 
         drift = self.assemble_drift(base_decay_free, offdiag_free)
-        numpyro.deterministic(_name("drift"), drift)
+        numpyro.deterministic("drift", drift)
 
         return {"drift": drift}
 
@@ -232,7 +223,6 @@ class StructuralInterceptSpec:
     cint_mask: np.ndarray
     cint_template: jnp.ndarray
     cint_prior: Any = None
-    bare_site_names: bool = True
 
     @property
     def cint_free_positions(self) -> list[int]:
@@ -264,10 +254,7 @@ class StructuralInterceptSpec:
     def build(self) -> Intercept:
         return Intercept()
 
-    def sample_params(self, prefix: str) -> dict[str, Array]:
-        def _name(bare: str) -> str:
-            return bare if self.bare_site_names else f"{prefix}_{bare}"
-
+    def sample_params(self, prefix: str) -> dict[str, Array]:  # noqa: ARG002
         if self.n_cint > 0:
             cint_dist = _resolve_prior(self.cint_prior)
             if cint_dist is None:
@@ -275,12 +262,12 @@ class StructuralInterceptSpec:
                     "StructuralInterceptSpec requires cint_prior when "
                     f"n_cint={self.n_cint} > 0."
                 )
-            cint_free = numpyro.sample(_name("cint_free"), cint_dist)
+            cint_free = numpyro.sample("cint_free", cint_dist)
         else:
             cint_free = None
 
         cint = self.assemble_cint(cint_free)
-        numpyro.deterministic(_name("cint"), cint)
+        numpyro.deterministic("cint", cint)
 
         return {"cint": cint}
 

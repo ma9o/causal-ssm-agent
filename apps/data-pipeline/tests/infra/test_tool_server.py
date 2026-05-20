@@ -143,7 +143,7 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
     ctx = tool_server._build_stage6_context("user-123")
 
     assert isinstance(captured["builder"], tool_server.SSMModelBuilder)
-    assert captured["builder"]._ssm_spec is spec
+    assert captured["builder"].spec is spec
     assert ctx["_fitted_artifact"].builder is rebuilt_builder
     assert ctx["_fitted_artifact"].observation_support == "support-runtime"
     assert ctx["_prepared_runtime"] is rebuilt_runtime

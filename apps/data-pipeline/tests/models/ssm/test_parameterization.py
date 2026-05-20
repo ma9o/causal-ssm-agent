@@ -15,7 +15,10 @@ from nof1_causal_lab.distributions import (
     DistributionFamily,
     PriorDistributionFamily,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    default_linear_drift_spec,
+    linear_drift_spec,
+)
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
@@ -58,261 +61,162 @@ from nof1_causal_lab.models.ssm.structure import (
     default_t0_chol_block,
     default_t0_means_block,
 )
-from tests.ssm_test_utils import prior_registry, split_drift_mask
+from tests.ssm_test_utils import prior_registry
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-def _make_spec(**kwargs) -> SSMSpec:
-    """Build an SSMSpec, accepting the old flat-kwarg shape and translating
-    to canonical block-spec construction.
-    """
-    n_latent = kwargs.pop("n_latent", 2)
-    n_manifest = kwargs.pop("n_manifest", 2)
-
-    # Drift
-    drift_mask = kwargs.pop("drift_mask", None)
-    drift_diag_mask = kwargs.pop("drift_diag_mask", None)
-    drift_offdiag_mask = kwargs.pop("drift_offdiag_mask", None)
-    drift_template = kwargs.pop("drift", None)
-    cint_mask = kwargs.pop("cint_mask", None)
-    cint_template = kwargs.pop("cint", None)
-    has_drift_kwargs = any(
-        v is not None
-        for v in (
-            drift_mask,
-            drift_diag_mask,
-            drift_offdiag_mask,
-            drift_template,
-            cint_mask,
-            cint_template,
-        )
-    )
-    if has_drift_kwargs:
-        if drift_mask is not None:
-            diag_from_combined, offdiag_from_combined = split_drift_mask(drift_mask, n_latent)
-            if drift_diag_mask is None:
-                drift_diag_mask = diag_from_combined
-            if drift_offdiag_mask is None:
-                drift_offdiag_mask = offdiag_from_combined
-        if drift_template is not None and drift_diag_mask is None and drift_offdiag_mask is None:
-            # Old semantics: drift fixed when only ``drift`` was passed.
-            drift_diag_mask = np.zeros(n_latent, dtype=bool)
-            drift_offdiag_mask = np.zeros((n_latent, n_latent), dtype=bool)
-        if drift_diag_mask is None:
-            drift_diag_mask = full_diagonal_mask(n_latent)
-        if drift_offdiag_mask is None:
-            offdiag = np.ones((n_latent, n_latent), dtype=bool)
-            np.fill_diagonal(offdiag, False)
-            drift_offdiag_mask = offdiag
-        if drift_template is None:
-            drift_template = jnp.zeros((n_latent, n_latent))
-        if cint_mask is None:
-            cint_mask = np.zeros(n_latent, dtype=bool)
-        if cint_template is None:
-            cint_template = jnp.zeros(n_latent)
-        drift_spec = linear_drift_spec(
-            n_latent=n_latent,
-            drift_diag_mask=drift_diag_mask,
-            drift_offdiag_mask=drift_offdiag_mask,
-            drift_template=jnp.asarray(drift_template),
-            cint_mask=cint_mask,
-            cint_template=jnp.asarray(cint_template),
-        )
-    else:
-        from nof1_causal_lab.models.ssm.dynamics import default_linear_drift_spec
-
+def _make_spec(
+    *,
+    n_latent: int = 2,
+    n_manifest: int = 2,
+    drift_spec=None,
+    diffusion_block=None,
+    lambda_block=None,
+    manifest_means_block=None,
+    manifest_chol_block=None,
+    t0_means_block=None,
+    t0_chol_block=None,
+    input_effect_block=None,
+    static_state_sd_block=None,
+    **kwargs,
+) -> SSMSpec:
+    """Build an SSMSpec from explicit block specs for tests."""
+    if drift_spec is None:
         drift_spec = default_linear_drift_spec(n_latent)
-
-    # Diffusion
-    diffusion_chol_mask = kwargs.pop("diffusion_chol_mask", None)
-    if diffusion_chol_mask is None:
-        diffusion_chol_mask = kwargs.pop("diffusion_mask", None)
-    else:
-        kwargs.pop("diffusion_mask", None)
-    diffusion_chol = kwargs.pop("diffusion_chol", None)
-    if diffusion_chol is None:
-        diffusion_chol = kwargs.pop("diffusion", None)
-    else:
-        kwargs.pop("diffusion", None)
-    if diffusion_chol_mask is not None or diffusion_chol is not None:
-        if diffusion_chol_mask is None:
-            diffusion_chol_mask = np.tri(n_latent, dtype=bool)
-        if diffusion_chol is None:
-            diffusion_chol = jnp.eye(n_latent)
-        diffusion_block = DiffusionBlockSpec(
-            n_latent=n_latent,
-            diffusion_chol_mask=diffusion_chol_mask,
-            diffusion_chol_template=jnp.asarray(diffusion_chol),
-        )
-    else:
-        diffusion_block = default_diffusion_block(n_latent)
-
-    # Lambda
-    lambda_mask = kwargs.pop("lambda_mask", None)
-    lambda_mat = kwargs.pop("lambda_mat", None)
-    if lambda_mask is not None or lambda_mat is not None:
-        if lambda_mask is None:
-            lambda_mask = np.zeros((n_manifest, n_latent), dtype=bool)
-        if lambda_mat is None:
-            lambda_mat = jnp.eye(n_manifest, n_latent)
-        lambda_block = SparseMatrixBlockSpec(
-            n_rows=n_manifest,
-            n_cols=n_latent,
-            mask=lambda_mask,
-            template=jnp.asarray(lambda_mat),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-        )
-    else:
-        lambda_block = default_lambda_block(n_manifest, n_latent)
-
-    # Manifest means
-    manifest_means_mask = kwargs.pop("manifest_means_mask", None)
-    manifest_means = kwargs.pop("manifest_means", None)
-    if manifest_means_mask is not None or manifest_means is not None:
-        if manifest_means_mask is None:
-            manifest_means_mask = np.zeros(n_manifest, dtype=bool)
-        if manifest_means is None:
-            manifest_means = jnp.zeros(n_manifest)
-        manifest_means_block = SparseVectorBlockSpec(
-            n=n_manifest,
-            mask=manifest_means_mask,
-            template=jnp.asarray(manifest_means),
-            free_site_name="manifest_means_free",
-            det_site_name="manifest_means",
-        )
-    else:
-        manifest_means_block = default_manifest_means_block(n_manifest)
-
-    # Manifest chol
-    manifest_chol_diag_mask = kwargs.pop("manifest_chol_diag_mask", None)
-    if manifest_chol_diag_mask is None:
-        manifest_chol_diag_mask = kwargs.pop("manifest_var_mask", None)
-    else:
-        kwargs.pop("manifest_var_mask", None)
-    manifest_chol = kwargs.pop("manifest_chol", None)
-    if manifest_chol is None:
-        manifest_chol = kwargs.pop("manifest_var", None)
-    else:
-        kwargs.pop("manifest_var", None)
-    if manifest_chol_diag_mask is not None or manifest_chol is not None:
-        if manifest_chol_diag_mask is None:
-            manifest_chol_diag_mask = full_diagonal_mask(n_manifest)
-        if manifest_chol is None:
-            manifest_chol = jnp.zeros((n_manifest, n_manifest))
-        manifest_chol_block = ManifestCholBlockSpec(
-            n_manifest=n_manifest,
-            diag_mask=manifest_chol_diag_mask,
-            template=jnp.asarray(manifest_chol),
-        )
-    else:
-        manifest_chol_block = default_manifest_chol_block(n_manifest)
-
-    # T0 means
-    t0_means_mask = kwargs.pop("t0_means_mask", None)
-    t0_means = kwargs.pop("t0_means", None)
-    if t0_means_mask is not None or t0_means is not None:
-        if t0_means_mask is None:
-            t0_means_mask = np.ones(n_latent, dtype=bool)
-        if t0_means is None:
-            t0_means = jnp.zeros(n_latent)
-        t0_means_block = SparseVectorBlockSpec(
-            n=n_latent,
-            mask=t0_means_mask,
-            template=jnp.asarray(t0_means),
-            free_site_name="t0_means_free",
-            det_site_name="t0_means",
-        )
-    else:
-        t0_means_block = default_t0_means_block(n_latent)
-
-    # T0 chol
-    t0_chol_diag_mask = kwargs.pop("t0_chol_diag_mask", None)
-    if t0_chol_diag_mask is None:
-        t0_chol_diag_mask = kwargs.pop("t0_var_diag_mask", None)
-    else:
-        kwargs.pop("t0_var_diag_mask", None)
-    t0_correlation_mask = kwargs.pop("t0_correlation_mask", None)
-    t0_chol = kwargs.pop("t0_chol", None)
-    if t0_chol is None:
-        t0_chol = kwargs.pop("t0_var", None)
-    else:
-        kwargs.pop("t0_var", None)
-    if (
-        t0_chol_diag_mask is not None
-        or t0_correlation_mask is not None
-        or t0_chol is not None
-    ):
-        if t0_chol_diag_mask is None:
-            t0_chol_diag_mask = full_diagonal_mask(n_latent)
-        if t0_correlation_mask is None:
-            t0_correlation_mask = np.tri(n_latent, k=-1, dtype=bool)
-        if t0_chol is None:
-            t0_chol = jnp.eye(n_latent)
-        t0_chol_block = T0CholBlockSpec(
-            n_latent=n_latent,
-            diag_mask=t0_chol_diag_mask,
-            correlation_mask=t0_correlation_mask,
-            template=jnp.asarray(t0_chol),
-        )
-    else:
-        t0_chol_block = default_t0_chol_block(n_latent)
-
-    # Input effect
-    input_effect_mask = kwargs.pop("input_effect_mask", None)
-    input_effect = kwargs.pop("input_effect", None)
-    if input_effect_mask is not None or input_effect is not None:
-        if input_effect_mask is None:
-            input_effect_mask = np.zeros((n_latent, 0), dtype=bool)
-        if input_effect is None:
-            input_effect = jnp.zeros(input_effect_mask.shape)
-        n_inputs = int(input_effect_mask.shape[1])
-        input_effect_block = SparseMatrixBlockSpec(
-            n_rows=n_latent,
-            n_cols=n_inputs,
-            mask=input_effect_mask,
-            template=jnp.asarray(input_effect),
-            free_site_name="input_effect_free",
-            det_site_name="input_effect",
-        )
-    else:
-        input_effect_block = default_input_effect_block(n_latent)
-
-    # Static state sd
-    static_state_sd_mask = kwargs.pop("static_state_sd_mask", None)
-    static_state_sds = kwargs.pop("static_state_sds", None)
-    if static_state_sd_mask is not None or static_state_sds is not None:
-        if static_state_sd_mask is None:
-            static_state_sd_mask = np.zeros(0, dtype=bool)
-        if static_state_sds is None:
-            static_state_sds = jnp.zeros(static_state_sd_mask.shape[0])
-        n_static = int(static_state_sd_mask.shape[0])
-        static_state_sd_block = SparseVectorBlockSpec(
-            n=n_static,
-            mask=static_state_sd_mask,
-            template=jnp.asarray(static_state_sds),
-            free_site_name="static_state_sd_free",
-            det_site_name="static_state_sds",
-        )
-    else:
-        static_state_sd_block = default_static_state_sd_block()
-
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
         drift_spec=drift_spec,
-        diffusion_block=diffusion_block,
-        lambda_block=lambda_block,
-        manifest_means_block=manifest_means_block,
-        manifest_chol_block=manifest_chol_block,
-        t0_means_block=t0_means_block,
-        t0_chol_block=t0_chol_block,
-        input_effect_block=input_effect_block,
-        static_state_sd_block=static_state_sd_block,
+        diffusion_block=diffusion_block or default_diffusion_block(n_latent),
+        lambda_block=lambda_block or default_lambda_block(n_manifest, n_latent),
+        manifest_means_block=manifest_means_block or default_manifest_means_block(n_manifest),
+        manifest_chol_block=manifest_chol_block or default_manifest_chol_block(n_manifest),
+        t0_means_block=t0_means_block or default_t0_means_block(n_latent),
+        t0_chol_block=t0_chol_block or default_t0_chol_block(n_latent),
+        input_effect_block=input_effect_block or default_input_effect_block(n_latent),
+        static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
         **kwargs,
+    )
+
+
+def _linear_drift(
+    n_latent: int,
+    *,
+    drift_diag_mask: np.ndarray | None = None,
+    drift_offdiag_mask: np.ndarray | None = None,
+    drift_template=None,
+    cint_mask: np.ndarray | None = None,
+    cint_template=None,
+):
+    if drift_diag_mask is None:
+        drift_diag_mask = full_diagonal_mask(n_latent)
+    if drift_offdiag_mask is None:
+        drift_offdiag_mask = np.zeros((n_latent, n_latent), dtype=bool)
+    if drift_template is None:
+        drift_template = jnp.zeros((n_latent, n_latent), dtype=jnp.float32)
+    if cint_mask is None:
+        cint_mask = np.zeros(n_latent, dtype=bool)
+    if cint_template is None:
+        cint_template = jnp.zeros(n_latent, dtype=jnp.float32)
+    return linear_drift_spec(
+        n_latent=n_latent,
+        drift_diag_mask=drift_diag_mask,
+        drift_offdiag_mask=drift_offdiag_mask,
+        drift_template=jnp.asarray(drift_template),
+        cint_mask=cint_mask,
+        cint_template=jnp.asarray(cint_template),
+    )
+
+
+def _fixed_linear_drift(drift_template):
+    drift_template = jnp.asarray(drift_template)
+    n_latent = int(drift_template.shape[0])
+    return _linear_drift(
+        n_latent,
+        drift_diag_mask=np.zeros(n_latent, dtype=bool),
+        drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
+        drift_template=drift_template,
+    )
+
+
+def _diffusion_block(n_latent: int, *, mask=None, template=None) -> DiffusionBlockSpec:
+    if mask is None:
+        mask = np.tri(n_latent, dtype=bool)
+    if template is None:
+        template = jnp.eye(n_latent)
+    return DiffusionBlockSpec(
+        n_latent=n_latent,
+        diffusion_chol_mask=mask,
+        diffusion_chol_template=jnp.asarray(template),
+    )
+
+
+def _lambda_block(n_manifest: int, n_latent: int, *, mask=None, template=None):
+    if mask is None:
+        mask = np.zeros((n_manifest, n_latent), dtype=bool)
+    if template is None:
+        template = jnp.eye(n_manifest, n_latent)
+    return SparseMatrixBlockSpec(
+        n_rows=n_manifest,
+        n_cols=n_latent,
+        mask=mask,
+        template=jnp.asarray(template),
+        free_site_name="lambda_free",
+        det_site_name="lambda",
+    )
+
+
+def _manifest_chol_block(n_manifest: int, *, diag_mask=None, template=None):
+    if diag_mask is None:
+        diag_mask = full_diagonal_mask(n_manifest)
+    if template is None:
+        template = jnp.zeros((n_manifest, n_manifest))
+    return ManifestCholBlockSpec(
+        n_manifest=n_manifest,
+        diag_mask=diag_mask,
+        template=jnp.asarray(template),
+    )
+
+
+def _t0_means_block(n_latent: int, *, mask=None, template=None):
+    if mask is None:
+        mask = np.ones(n_latent, dtype=bool)
+    if template is None:
+        template = jnp.zeros(n_latent)
+    return SparseVectorBlockSpec(
+        n=n_latent,
+        mask=mask,
+        template=jnp.asarray(template),
+        free_site_name="t0_means_free",
+        det_site_name="t0_means",
+    )
+
+
+def _t0_chol_block(n_latent: int, *, diag_mask=None, correlation_mask=None, template=None):
+    if diag_mask is None:
+        diag_mask = full_diagonal_mask(n_latent)
+    if correlation_mask is None:
+        correlation_mask = np.tri(n_latent, k=-1, dtype=bool)
+    if template is None:
+        template = jnp.eye(n_latent)
+    return T0CholBlockSpec(
+        n_latent=n_latent,
+        diag_mask=diag_mask,
+        correlation_mask=correlation_mask,
+        template=jnp.asarray(template),
+    )
+
+
+def _static_state_sd_block(mask, template):
+    return SparseVectorBlockSpec(
+        n=int(np.asarray(mask).shape[0]),
+        mask=np.asarray(mask, dtype=bool),
+        template=jnp.asarray(template),
+        free_site_name="static_state_sd_free",
+        det_site_name="static_state_sds",
     )
 
 
@@ -332,17 +236,23 @@ def dag_spec():
     """DAG-constrained spec with drift mask and lambda mask."""
     import numpy as np
 
-    drift_mask = np.array([[True, False], [True, True]])  # (0,1) edge blocked
+    drift_offdiag_mask = np.array([[False, False], [True, False]])
     lambda_mask = np.array([[True, False], [False, True]])
     lambda_template = jnp.array([[1.0, 0.0], [0.0, 1.0]])
     return _make_spec(
         n_latent=2,
         n_manifest=2,
-        drift_mask=drift_mask,
-        lambda_mat=lambda_template,
-        lambda_mask=lambda_mask,
-        cint_mask=full_vector_mask(2),
-        cint=jnp.zeros(2),
+        drift_spec=_linear_drift(
+            2,
+            drift_offdiag_mask=drift_offdiag_mask,
+            cint_mask=full_vector_mask(2),
+        ),
+        lambda_block=_lambda_block(
+            2,
+            2,
+            mask=lambda_mask,
+            template=lambda_template,
+        ),
     )
 
 
@@ -445,8 +355,11 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            manifest_var=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
-            manifest_var_mask=np.array([False, True]),
+            manifest_chol_block=_manifest_chol_block(
+                2,
+                diag_mask=np.array([False, True]),
+                template=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
+            ),
         )
         model = SSMModel(spec)
         registry = build_site_registry(spec)
@@ -465,7 +378,9 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            drift=jnp.array([[-0.5, 0.0], [0.0, -0.5]]),
+            drift_spec=_fixed_linear_drift(
+                jnp.array([[-0.5, 0.0], [0.0, -0.5]], dtype=jnp.float32)
+            ),
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
@@ -477,8 +392,11 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            diffusion=jnp.eye(2),
-            diffusion_mask=np.diag(full_diagonal_mask(2)),
+            diffusion_block=_diffusion_block(
+                2,
+                mask=np.diag(full_diagonal_mask(2)),
+                template=jnp.eye(2),
+            ),
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
@@ -490,8 +408,11 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            diffusion=jnp.eye(2),
-            diffusion_mask=full_cholesky_mask(2),
+            diffusion_block=_diffusion_block(
+                2,
+                mask=full_cholesky_mask(2),
+                template=jnp.eye(2),
+            ),
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
@@ -505,9 +426,12 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=3,
             n_manifest=2,
-            t0_var=jnp.eye(3),
-            t0_var_diag_mask=full_diagonal_mask(3),
-            t0_correlation_mask=mask,
+            t0_chol_block=_t0_chol_block(
+                3,
+                diag_mask=full_diagonal_mask(3),
+                correlation_mask=mask,
+                template=jnp.eye(3),
+            ),
         )
         registry = build_site_registry(spec)
         site_map = {site.name: site for site in registry}
@@ -553,12 +477,17 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=2,
             n_manifest=1,
-            static_state_sd_mask=np.array([True]),
-            static_state_sds=jnp.zeros(1),
+            static_state_sd_block=_static_state_sd_block(
+                np.array([True]),
+                jnp.zeros(1),
+            ),
             static_factor_loadings=jnp.array([[1.0], [1.0]]),
-            t0_var=jnp.eye(2),
-            t0_var_diag_mask=np.zeros(2, dtype=bool),
-            t0_correlation_mask=np.zeros((2, 2), dtype=bool),
+            t0_chol_block=_t0_chol_block(
+                2,
+                diag_mask=np.zeros(2, dtype=bool),
+                correlation_mask=np.zeros((2, 2), dtype=bool),
+                template=jnp.eye(2),
+            ),
         )
         model = SSMModel(spec)
 
@@ -581,12 +510,17 @@ class TestSpecBlockAssembly:
         spec = _make_spec(
             n_latent=2,
             n_manifest=1,
-            static_state_sd_mask=np.array([True]),
-            static_state_sds=jnp.zeros(1),
+            static_state_sd_block=_static_state_sd_block(
+                np.array([True]),
+                jnp.zeros(1),
+            ),
             static_factor_loadings=jnp.array([[1.0], [1.0]]),
-            t0_var=jnp.eye(2),
-            t0_var_diag_mask=np.zeros(2, dtype=bool),
-            t0_correlation_mask=np.zeros((2, 2), dtype=bool),
+            t0_chol_block=_t0_chol_block(
+                2,
+                diag_mask=np.zeros(2, dtype=bool),
+                correlation_mask=np.zeros((2, 2), dtype=bool),
+                template=jnp.eye(2),
+            ),
         )
         cov = spec.assemble_t0_cov(static_state_sd_free=jnp.array([2.0]))
 
@@ -674,12 +608,35 @@ class TestDeterministicAssembly:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            drift=jnp.array([[-0.4, 0.1], [0.0, -0.2]], dtype=jnp.float32),
-            diffusion=jnp.array([[0.3, 0.0], [0.1, 0.5]], dtype=jnp.float32),
-            lambda_mat=jnp.array([[1.0, 0.0], [0.2, 1.0]], dtype=jnp.float32),
-            manifest_var=jnp.array([[0.4, 0.0], [0.0, 0.6]], dtype=jnp.float32),
-            t0_means=jnp.array([0.5, -0.5], dtype=jnp.float32),
-            t0_var=jnp.array([[0.7, 0.0], [0.0, 0.8]], dtype=jnp.float32),
+            drift_spec=_fixed_linear_drift(
+                jnp.array([[-0.4, 0.1], [0.0, -0.2]], dtype=jnp.float32)
+            ),
+            diffusion_block=_diffusion_block(
+                2,
+                mask=np.zeros((2, 2), dtype=bool),
+                template=jnp.array([[0.3, 0.0], [0.1, 0.5]], dtype=jnp.float32),
+            ),
+            lambda_block=_lambda_block(
+                2,
+                2,
+                template=jnp.array([[1.0, 0.0], [0.2, 1.0]], dtype=jnp.float32),
+            ),
+            manifest_chol_block=_manifest_chol_block(
+                2,
+                diag_mask=np.zeros(2, dtype=bool),
+                template=jnp.array([[0.4, 0.0], [0.0, 0.6]], dtype=jnp.float32),
+            ),
+            t0_means_block=_t0_means_block(
+                2,
+                mask=np.zeros(2, dtype=bool),
+                template=jnp.array([0.5, -0.5], dtype=jnp.float32),
+            ),
+            t0_chol_block=_t0_chol_block(
+                2,
+                diag_mask=np.zeros(2, dtype=bool),
+                correlation_mask=np.zeros((2, 2), dtype=bool),
+                template=jnp.array([[0.7, 0.0], [0.0, 0.8]], dtype=jnp.float32),
+            ),
         )
         registry = build_site_registry(spec)
 
@@ -688,14 +645,20 @@ class TestDeterministicAssembly:
         assert jnp.allclose(det["drift"], jnp.broadcast_to(spec.assemble_drift(), (3, 2, 2)))
         assert jnp.allclose(
             det["diffusion"],
-            jnp.broadcast_to(spec.assemble_diffusion(), (3, 2, 2)),
+            jnp.broadcast_to(spec.diffusion_block.assemble(), (3, 2, 2)),
         )
-        assert jnp.allclose(det["lambda"], jnp.broadcast_to(spec.assemble_lambda(), (3, 2, 2)))
-        manifest_chol = spec.assemble_manifest_chol()
+        assert jnp.allclose(
+            det["lambda"],
+            jnp.broadcast_to(spec.lambda_block.assemble(), (3, 2, 2)),
+        )
+        manifest_chol = spec.manifest_chol_block.assemble()
         expected_manifest_cov = manifest_chol @ manifest_chol.T
         assert jnp.allclose(det["manifest_cov"], jnp.broadcast_to(expected_manifest_cov, (3, 2, 2)))
-        assert isinstance(spec.assemble_t0_means(), jnp.ndarray)
-        assert jnp.allclose(det["t0_means"], jnp.broadcast_to(spec.assemble_t0_means(), (3, 2)))
+        assert isinstance(spec.t0_means_block.assemble(), jnp.ndarray)
+        assert jnp.allclose(
+            det["t0_means"],
+            jnp.broadcast_to(spec.t0_means_block.assemble(), (3, 2)),
+        )
         expected_t0_cov = spec.assemble_t0_cov()
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
 
@@ -704,8 +667,11 @@ class TestDeterministicAssembly:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            manifest_var=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
-            manifest_var_mask=np.array([False, True]),
+            manifest_chol_block=_manifest_chol_block(
+                2,
+                diag_mask=np.array([False, True]),
+                template=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
+            ),
         )
         registry = build_site_registry(spec)
         samples = {
@@ -729,9 +695,12 @@ class TestDeterministicAssembly:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            t0_var=jnp.eye(2),
-            t0_var_diag_mask=full_diagonal_mask(2),
-            t0_correlation_mask=mask,
+            t0_chol_block=_t0_chol_block(
+                2,
+                diag_mask=full_diagonal_mask(2),
+                correlation_mask=mask,
+                template=jnp.eye(2),
+            ),
         )
         registry = build_site_registry(spec)
         samples = {
@@ -762,9 +731,12 @@ class TestDeterministicAssembly:
         spec = _make_spec(
             n_latent=3,
             n_manifest=3,
-            t0_var=jnp.eye(3),
-            t0_var_diag_mask=full_diagonal_mask(3),
-            t0_correlation_mask=mask,
+            t0_chol_block=_t0_chol_block(
+                3,
+                diag_mask=full_diagonal_mask(3),
+                correlation_mask=mask,
+                template=jnp.eye(3),
+            ),
         )
         registry = build_site_registry(spec)
         samples = {
@@ -1167,7 +1139,11 @@ class TestCanonicalRuntimePriors:
             )
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        site = next(site for site in runtime.registry if site.name == "t0_var_diag_free")
+        site = next(
+            site
+            for site in runtime.site_runtime.registry
+            if site.name == "t0_var_diag_free"
+        )
         prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
         assert isinstance(prior_dist, dist.HalfNormal)
         assert prior_dist.batch_shape == (2,)
@@ -1182,7 +1158,11 @@ class TestCanonicalRuntimePriors:
             )
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        site = next(site for site in runtime.registry if site.name == "drift_base_decay_free")
+        site = next(
+            site
+            for site in runtime.site_runtime.registry
+            if site.name == "drift_base_decay_free"
+        )
         prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
 
         assert isinstance(prior_dist, dist.Delta)
@@ -1449,9 +1429,12 @@ class TestCompiledArtifactIntegration:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            lambda_mat=jnp.eye(2),
-            manifest_var=jnp.zeros((2, 2)),
-            manifest_var_mask=full_diagonal_mask(2),
+            lambda_block=_lambda_block(2, 2, template=jnp.eye(2)),
+            manifest_chol_block=_manifest_chol_block(
+                2,
+                diag_mask=full_diagonal_mask(2),
+                template=jnp.zeros((2, 2)),
+            ),
             manifest_names=["m0", "m1"],
         )
         priors = prior_registry(

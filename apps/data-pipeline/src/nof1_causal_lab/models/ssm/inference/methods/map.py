@@ -920,7 +920,7 @@ def fit_map(
         samples = assemble_deterministics_from_registry(
             {},
             model.spec,
-            prior_runtime.registry,
+            prior_runtime.site_runtime.registry,
             parameter_layout=model.parameter_layout,
             n_draws=num_samples,
         )

@@ -47,7 +47,6 @@ from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     load_prior_runtime_bundle,
 )
-from nof1_causal_lab.models.ssm.priors import default_prior_registry
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
@@ -136,9 +135,14 @@ class SSMModelBuilder:
                 model indicators. When provided, spec translation builds
                 drift_mask and lambda_mask from the DAG structure.
         """
+        if model_spec is not None and (ssm_spec is not None or prior_registry is not None):
+            raise ValueError(
+                "SSMModelBuilder accepts either ModelSpec-driven inputs or direct "
+                "SSMSpec inputs, not both."
+            )
         self._model_spec = model_spec
         self._priors = priors or {}
-        self._ssm_spec = ssm_spec
+        self._spec: SSMSpec | None = ssm_spec
         self._prior_registry = prior_registry
         self._compiled_prior_semantics = compiled_prior_semantics
         self._prior_runtime_bundle = prior_runtime_bundle
@@ -147,7 +151,6 @@ class SSMModelBuilder:
         self._parameter_bindings = parameter_bindings
 
         self._model: SSMModel | None = None
-        self._spec: SSMSpec | None = None
         self._result: InferenceResult | None = None
         self._prepared_times: jnp.ndarray | None = None
         self._prepared_transition_inputs: jnp.ndarray | None = None
@@ -178,8 +181,6 @@ class SSMModelBuilder:
             return self._spec
         if self._model is not None:
             return self._model.spec
-        if self._ssm_spec is not None:
-            return self._ssm_spec
         raise ValueError("SSMModelBuilder has no compiled SSMSpec")
 
     def attach_runtime_artifacts(
@@ -205,11 +206,6 @@ class SSMModelBuilder:
     def compile_inputs(self) -> tuple[SSMSpec, PriorRegistry]:
         """Compile user-facing specs into executable SSM inputs."""
         if self._model_spec is not None:
-            if self._ssm_spec is not None or self._prior_registry is not None:
-                raise ValueError(
-                    "compile_inputs() accepts either ModelSpec-driven inputs or direct "
-                    "SSMSpec inputs, not both."
-                )
             spec, priors, bindings, _diagnostics, _edge_lag_days = (
                 compile_ssm_inputs_from_model_spec(
                     model_spec=self._model_spec,
@@ -217,9 +213,9 @@ class SSMModelBuilder:
                     causal_spec=self._causal_spec,
                 )
             )
-        elif self._ssm_spec is not None:
+        elif self._spec is not None:
             spec, priors, bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs_from_spec(
-                ssm_spec=self._ssm_spec,
+                ssm_spec=self._spec,
                 priors=dump_prior_payloads(self._priors),
                 prior_registry=self._prior_registry,
                 model_spec=self._model_spec,
@@ -229,6 +225,7 @@ class SSMModelBuilder:
             raise ValueError("compile_inputs() requires either model_spec or ssm_spec")
         if self._parameter_bindings is None:
             self._parameter_bindings = bindings
+        self._spec = spec
         return spec, priors
 
     @staticmethod
@@ -254,13 +251,13 @@ class SSMModelBuilder:
             The constructed SSMModel
         """
         # Determine specification
-        if self._ssm_spec is not None and self._causal_spec is not None:
+        if self._model_spec is None and self._spec is not None and self._causal_spec is not None:
             raise ValueError(
                 "Do not pass causal_spec alongside a direct SSMSpec. "
                 "Compile from ModelSpec + CausalSpec or use a compiled artifact so "
                 "the causal structure is encoded explicitly in the spec masks."
             )
-        if self._ssm_spec is None and self._model_spec is None:
+        if self._spec is None and self._model_spec is None:
             if self._causal_spec is not None:
                 raise ValueError(
                     "Cannot auto-detect an SSMSpec when causal_spec is provided. "
@@ -340,9 +337,6 @@ class SSMModelBuilder:
                 priors=dump_prior_payloads(self._priors),
                 causal_spec=self._causal_spec,
             )
-        elif self._compiled_prior_semantics is not None and self._ssm_spec is not None:
-            spec = self._ssm_spec
-            priors = self._prior_registry or default_prior_registry()
         else:
             spec, priors = self.compile_inputs()
 
