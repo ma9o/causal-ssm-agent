@@ -10,7 +10,7 @@ Supports:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import jax
@@ -20,18 +20,22 @@ import numpyro
 import numpyro.distributions as dist
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.dynamics import (
+        CompositeSpec,
+        DiffusionBlockSpec,
+        ManifestCholBlockSpec,
+        SparseMatrixBlockSpec,
+        SparseVectorBlockSpec,
+        T0CholBlockSpec,
+    )
     from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
-from nof1_causal_lab.distributions import (
-    PriorDistributionFamily,
-    get_positive_runtime_kind_from_index,
-    get_real_runtime_kind_from_index,
-)
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stabilize_covariance_for_cholesky,
+    symmetrize,
 )
 from nof1_causal_lab.models.ssm.inference.backend_factory import (
     build_laplace_backend,
@@ -47,13 +51,13 @@ from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
 from nof1_causal_lab.models.ssm.likelihood_extra_params import (
     assemble_sampled_extra_params,
 )
+from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     build_prior_runtime_bundle,
     build_site_prior_distribution,
 )
 from nof1_causal_lab.models.ssm.priors import SSMPriors
-from nof1_causal_lab.models.ssm.structure_runtime import SSMStructureRuntime
 
 
 @jax.custom_vjp
@@ -154,50 +158,34 @@ class SSMSpec:
     Emission:    yᵢ(t) ~ Fᵢ(mᵢ(t); hᵢ, (L_R L_Rᵀ)ᵢᵢ)
     """
 
+    # Structural shape metadata (required)
     n_latent: int
     n_manifest: int
-    drift_diag_mask: np.ndarray
-    drift_offdiag_mask: np.ndarray
-    drift: jnp.ndarray
-    cint_mask: np.ndarray
-    cint: jnp.ndarray
-    lambda_mask: np.ndarray
-    lambda_mat: jnp.ndarray
-    diffusion_chol_mask: np.ndarray
-    diffusion_chol: jnp.ndarray
-    manifest_means_mask: np.ndarray
-    manifest_means: jnp.ndarray
-    manifest_chol_diag_mask: np.ndarray
-    manifest_chol: jnp.ndarray
-    t0_means_mask: np.ndarray
-    t0_means: jnp.ndarray
-    t0_chol_diag_mask: np.ndarray
-    t0_correlation_mask: np.ndarray
-    t0_chol: jnp.ndarray
-    static_state_sd_mask: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=bool))
-    static_state_sds: jnp.ndarray = field(default_factory=lambda: jnp.zeros(0, dtype=jnp.float64))
+
+    # Canonical block-spec params (required). Each block owns its
+    # structural masks, template, and per-prior settings; the SSMSpec
+    # itself stores no flat-field duplicates. Priors are typically
+    # left None at construction time and attached at sample time from
+    # the runtime PriorRuntimeBundle.
+    drift_spec: CompositeSpec
+    diffusion_block: DiffusionBlockSpec
+    lambda_block: SparseMatrixBlockSpec
+    manifest_means_block: SparseVectorBlockSpec
+    manifest_chol_block: ManifestCholBlockSpec
+    t0_means_block: SparseVectorBlockSpec
+    t0_chol_block: T0CholBlockSpec
+    input_effect_block: SparseMatrixBlockSpec
+    static_state_sd_block: SparseVectorBlockSpec
+
+    # Pure structural metadata (no sampled params).
     static_factor_loadings: jnp.ndarray = field(
         default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64)
     )
-    input_effect_mask: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=bool))
-    input_effect: jnp.ndarray = field(default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64))
-
-    # Per-variable diffusion noise families.
     diffusion_dists: list[DistributionFamily] = field(default_factory=list)
-
-    # Per-channel observation noise families.
     manifest_dists: list[DistributionFamily] = field(default_factory=list)
-
-    # Per-channel number of encoded levels for discrete emissions.
-    # Non-discrete channels use 0.
     manifest_level_counts: list[int] | None = None
-
-    # Per-channel link functions. When omitted, each channel uses the
-    # default link for its observation family.
     manifest_links: list[LinkFunction] | None = None
     manifest_centered: list[bool] | None = None
-
-    # Parameter names for interpretability
     latent_names: list[str] | None = None
     manifest_names: list[str] | None = None
     input_names: list[str] | None = None
@@ -207,173 +195,174 @@ class SSMSpec:
     static_factor_names: list[str] | None = None
     initialization_policy: str = "stationary"
     observation_intercept_policy: str = "free"
-    stability_margin: float = 0.05
-
-    # drift_diag_mask: (n_latent,) bool — True where the baseline self-decay
-    # remains free to sample. The realised drift diagonal is derived from this
-    # base decay, off-diagonal row mass, and stability_margin.
-
-    # drift_offdiag_mask: (n_latent, n_latent) bool — True on off-diagonal
-    # structural couplings that remain free to sample.
-
-    # diffusion_chol_mask: (n_latent, n_latent) bool — True on lower-Cholesky
-    # entries that remain free to sample.
-
-    # cint_mask: (n_latent,) bool — True where the continuous intercept
-    # remains free to sample.
-
-    # static_state_sd_mask: (n_static_factor,) bool — True where compiled
-    # baseline-factor SDs remain free to sample.
-
-    # input_effect_mask: (n_latent, n_input) bool — True where known inputs
-    # have free continuous-time effects on retained latent-state dynamics.
-
-    # manifest_means_mask: (n_manifest,) bool — True where manifest
-    # intercepts remain free to sample.
-
-    # t0_means_mask: (n_latent,) bool — True where initial-state means
-    # remain free to sample.
-
-    # manifest_chol_diag_mask: (n_manifest,) bool — True where the diagonal
-    # manifest-noise standard deviation remains free to sample.
-
-    # t0_chol_diag_mask: (n_latent,) bool — True where initial-state standard
-    # deviations remain free to sample.
-
-    # t0_correlation_mask: (n_latent, n_latent) bool — True on strict lower
-    # positions where initial-state correlations remain free to sample.
-
-    # Time-invariant latent mask: (n_latent,) bool — True for quasi-constant latents.
-    # These get near-zero drift diagonal and near-zero diffusion, so η_i(t) ≈ η_i(0).
-    # When None, no latent is treated as quasi-constant.
-    time_invariant_mask: np.ndarray | None = None
-
-    def _coerce_drift_offdiag_mask(self, mask: np.ndarray) -> np.ndarray:
-        mask_array = np.asarray(mask, dtype=bool)
-        if mask_array.shape != (self.n_latent, self.n_latent):
-            raise ValueError(
-                "drift_offdiag_mask must have shape "
-                f"({self.n_latent}, {self.n_latent}), got {mask_array.shape}"
-            )
-        if bool(np.diag(mask_array).any()):
-            raise ValueError("drift_offdiag_mask must have a zero diagonal.")
-        return mask_array
-
-    def _coerce_lambda_mask(self, mask: np.ndarray) -> np.ndarray:
-        mask_array = np.asarray(mask, dtype=bool)
-        if mask_array.shape != (self.n_manifest, self.n_latent):
-            raise ValueError(
-                "lambda_mask must have shape "
-                f"({self.n_manifest}, {self.n_latent}), got {mask_array.shape}"
-            )
-        return mask_array
-
-    def _coerce_lambda_mat(self, lambda_mat: jnp.ndarray) -> jnp.ndarray:
-        if isinstance(lambda_mat, str):
-            raise ValueError(
-                "lambda_mat must be an explicit loading template array. "
-                "Use lambda_mask to mark free loadings."
-            )
-        lambda_array = jnp.asarray(lambda_mat)
-        if lambda_array.shape != (self.n_manifest, self.n_latent):
-            raise ValueError(
-                "lambda_mat must have shape "
-                f"({self.n_manifest}, {self.n_latent}), got {lambda_array.shape}"
-            )
-        return lambda_array
-
-    def _coerce_vector_template(self, name: str, value: jnp.ndarray, dim: int) -> jnp.ndarray:
-        if isinstance(value, str):
-            raise ValueError(f"{name} must be an explicit vector template array.")
-        value_array = jnp.asarray(value)
-        if value_array.shape != (dim,):
-            raise ValueError(f"{name} must have shape ({dim},), got {value_array.shape}")
-        return value_array
-
-    def _coerce_factor_loadings(self, value: jnp.ndarray) -> jnp.ndarray:
-        value_array = jnp.asarray(value)
-        if value_array.ndim != 2:
-            raise ValueError("static_factor_loadings must be a rank-2 array.")
-        if value_array.shape[0] not in {0, self.n_latent}:
-            raise ValueError(
-                "static_factor_loadings must have shape "
-                f"({self.n_latent}, n_factor), got {value_array.shape}"
-            )
-        if value_array.shape[0] == 0 and value_array.shape[1] == 0:
-            return jnp.zeros((self.n_latent, 0), dtype=jnp.float64)
-        if value_array.shape[0] != self.n_latent:
-            raise ValueError(
-                "static_factor_loadings must have shape "
-                f"({self.n_latent}, n_factor), got {value_array.shape}"
-            )
-        return value_array
-
-    def _resolve_n_input(self) -> int:
-        if self.input_names is not None:
-            return len(self.input_names)
-        mask_array = np.asarray(self.input_effect_mask)
-        if mask_array.ndim == 2 and mask_array.shape[0] in {0, self.n_latent}:
-            return int(mask_array.shape[1])
-        effect_array = jnp.asarray(self.input_effect)
-        if effect_array.ndim == 2 and effect_array.shape[0] in {0, self.n_latent}:
-            return int(effect_array.shape[1])
-        return 0
-
-    def _coerce_input_effect_mask(self, mask: np.ndarray, n_input: int) -> np.ndarray:
-        mask_array = np.asarray(mask, dtype=bool)
-        if mask_array.size == 0 and n_input == 0:
-            return np.zeros((self.n_latent, 0), dtype=bool)
-        if mask_array.shape != (self.n_latent, n_input):
-            raise ValueError(
-                "input_effect_mask must have shape "
-                f"({self.n_latent}, {n_input}), got {mask_array.shape}"
-            )
-        return mask_array
-
-    def _coerce_input_effect(self, value: jnp.ndarray, n_input: int) -> jnp.ndarray:
-        value_array = jnp.asarray(value)
-        if value_array.size == 0 and n_input == 0:
-            return jnp.zeros((self.n_latent, 0), dtype=jnp.float64)
-        if value_array.shape != (self.n_latent, n_input):
-            raise ValueError(
-                "input_effect must have shape "
-                f"({self.n_latent}, {n_input}), got {value_array.shape}"
-            )
-        return value_array
-
-    def _coerce_square_template(self, name: str, value: jnp.ndarray, dim: int) -> jnp.ndarray:
-        if isinstance(value, str):
-            raise ValueError(f"{name} must be an explicit matrix template array.")
-        value_array = jnp.asarray(value)
-        if value_array.shape != (dim, dim):
-            raise ValueError(f"{name} must have shape ({dim}, {dim}), got {value_array.shape}")
-        return value_array
-
-    def _coerce_diagonal_mask(self, name: str, mask: np.ndarray, dim: int) -> np.ndarray:
-        mask_array = np.asarray(mask, dtype=bool)
-        if mask_array.shape != (dim,):
-            raise ValueError(f"{name} must have shape ({dim},), got {mask_array.shape}")
-        return mask_array
-
-    def _coerce_cholesky_mask(self, name: str, mask: np.ndarray, dim: int) -> np.ndarray:
-        mask_array = np.asarray(mask, dtype=bool)
-        if mask_array.shape != (dim, dim):
-            raise ValueError(f"{name} must have shape ({dim}, {dim}), got {mask_array.shape}")
-        if bool(np.triu(mask_array, k=1).any()):
-            raise ValueError(f"{name} must only mark lower-Cholesky entries.")
-        return mask_array
-
-    def _coerce_strict_lower_mask(self, name: str, mask: np.ndarray, dim: int) -> np.ndarray:
-        mask_array = np.asarray(mask, dtype=bool)
-        if mask_array.shape != (dim, dim):
-            raise ValueError(f"{name} must have shape ({dim}, {dim}), got {mask_array.shape}")
-        if bool(np.triu(mask_array, k=0).any()):
-            raise ValueError(f"{name} must only mark strict lower-triangle entries.")
-        return mask_array
 
     def __post_init__(self) -> None:
-        """Validate structural masks and canonicalize per-channel family metadata."""
-        n_input = self._resolve_n_input()
+        """Validate block-spec shape agreement and canonicalize metadata."""
+        def _shape_tuple(shape: tuple[int, ...]) -> str:
+            return "(" + ", ".join(str(dim) for dim in shape) + ")"
+
+        def _require_shape(name: str, value: Any, shape: tuple[int, ...]) -> None:
+            if value is None:
+                raise ValueError(f"{name} must have shape {_shape_tuple(shape)}, got None.")
+            actual = np.asarray(value).shape
+            if actual != shape:
+                raise ValueError(
+                    f"{name} must have shape {_shape_tuple(shape)}, got {actual}."
+                )
+
+        def _require_vector(name: str, value: Any, n: int) -> None:
+            _require_shape(name, value, (n,))
+
+        def _require_matrix(name: str, value: Any, rows: int, cols: int) -> None:
+            _require_shape(name, value, (rows, cols))
+
+        from nof1_causal_lab.models.ssm.dynamics import (
+            StructuralDenseLinearSpec,
+            StructuralInterceptSpec,
+        )
+
+        # Static factor loadings shape: (n_latent, n_factor)
+        loadings = jnp.asarray(self.static_factor_loadings)
+        if loadings.ndim != 2:
+            raise ValueError("static_factor_loadings must be a rank-2 array.")
+        if loadings.shape[0] == 0 and loadings.shape[1] == 0:
+            loadings = jnp.zeros((self.n_latent, 0), dtype=jnp.float64)
+        elif loadings.shape[0] != self.n_latent:
+            raise ValueError(
+                "static_factor_loadings must have shape "
+                f"({self.n_latent}, n_factor), got {loadings.shape}"
+            )
+        self.static_factor_loadings = loadings
+        n_static_factor = int(loadings.shape[1])
+
+        # Cross-check block shapes against n_latent / n_manifest.
+        if self.drift_spec.n_latent != self.n_latent:
+            raise ValueError(
+                f"drift_spec.n_latent ({self.drift_spec.n_latent}) "
+                f"!= SSMSpec.n_latent ({self.n_latent})"
+            )
+        for component in self.drift_spec.components:
+            if isinstance(component, StructuralDenseLinearSpec):
+                _require_vector("drift_diag_mask", component.drift_diag_mask, self.n_latent)
+                _require_matrix(
+                    "drift_offdiag_mask",
+                    component.drift_offdiag_mask,
+                    self.n_latent,
+                    self.n_latent,
+                )
+                _require_matrix(
+                    "drift",
+                    component.drift_template,
+                    self.n_latent,
+                    self.n_latent,
+                )
+            if isinstance(component, StructuralInterceptSpec):
+                _require_vector("cint_mask", component.cint_mask, self.n_latent)
+                _require_vector("cint", component.cint_template, self.n_latent)
+        if self.diffusion_block.n_latent != self.n_latent:
+            raise ValueError(
+                f"diffusion_block.n_latent ({self.diffusion_block.n_latent}) "
+                f"!= SSMSpec.n_latent ({self.n_latent})"
+            )
+        _require_matrix(
+            "diffusion_chol_mask",
+            self.diffusion_block.diffusion_chol_mask,
+            self.n_latent,
+            self.n_latent,
+        )
+        _require_matrix(
+            "diffusion_chol",
+            self.diffusion_block.diffusion_chol_template,
+            self.n_latent,
+            self.n_latent,
+        )
+        if (
+            self.lambda_block.n_rows != self.n_manifest
+            or self.lambda_block.n_cols != self.n_latent
+        ):
+            raise ValueError(
+                f"lambda_block shape ({self.lambda_block.n_rows}, "
+                f"{self.lambda_block.n_cols}) != "
+                f"({self.n_manifest}, {self.n_latent})"
+            )
+        _require_matrix("lambda_mask", self.lambda_block.mask, self.n_manifest, self.n_latent)
+        _require_matrix("lambda_mat", self.lambda_block.template, self.n_manifest, self.n_latent)
+        if self.manifest_means_block.n != self.n_manifest:
+            raise ValueError(
+                f"manifest_means_block.n ({self.manifest_means_block.n}) "
+                f"!= n_manifest ({self.n_manifest})"
+            )
+        _require_vector("manifest_means_mask", self.manifest_means_block.mask, self.n_manifest)
+        _require_vector("manifest_means", self.manifest_means_block.template, self.n_manifest)
+        if self.manifest_chol_block.n_manifest != self.n_manifest:
+            raise ValueError(
+                f"manifest_chol_block.n_manifest "
+                f"({self.manifest_chol_block.n_manifest}) "
+                f"!= n_manifest ({self.n_manifest})"
+            )
+        _require_vector(
+            "manifest_chol_diag_mask",
+            self.manifest_chol_block.diag_mask,
+            self.n_manifest,
+        )
+        _require_matrix(
+            "manifest_chol",
+            self.manifest_chol_block.template,
+            self.n_manifest,
+            self.n_manifest,
+        )
+        if self.t0_means_block.n != self.n_latent:
+            raise ValueError(
+                f"t0_means_block.n ({self.t0_means_block.n}) "
+                f"!= n_latent ({self.n_latent})"
+            )
+        _require_vector("t0_means_mask", self.t0_means_block.mask, self.n_latent)
+        _require_vector("t0_means", self.t0_means_block.template, self.n_latent)
+        if self.t0_chol_block.n_latent != self.n_latent:
+            raise ValueError(
+                f"t0_chol_block.n_latent ({self.t0_chol_block.n_latent}) "
+                f"!= n_latent ({self.n_latent})"
+            )
+        _require_vector("t0_chol_diag_mask", self.t0_chol_block.diag_mask, self.n_latent)
+        _require_matrix(
+            "t0_correlation_mask",
+            self.t0_chol_block.correlation_mask,
+            self.n_latent,
+            self.n_latent,
+        )
+        _require_matrix(
+            "t0_chol",
+            self.t0_chol_block.template,
+            self.n_latent,
+            self.n_latent,
+        )
+        if self.input_effect_block.n_rows not in {0, self.n_latent}:
+            raise ValueError(
+                f"input_effect_block.n_rows ({self.input_effect_block.n_rows}) "
+                f"!= n_latent ({self.n_latent}) or 0"
+            )
+        _require_matrix(
+            "input_effect_mask",
+            self.input_effect_block.mask,
+            self.input_effect_block.n_rows,
+            self.input_effect_block.n_cols,
+        )
+        _require_matrix(
+            "input_effect",
+            self.input_effect_block.template,
+            self.input_effect_block.n_rows,
+            self.input_effect_block.n_cols,
+        )
+        if self.static_state_sd_block.n != n_static_factor:
+            raise ValueError(
+                f"static_state_sd_block.n ({self.static_state_sd_block.n}) "
+                f"!= n_static_factor ({n_static_factor})"
+            )
+        _require_vector("static_state_sd_mask", self.static_state_sd_block.mask, n_static_factor)
+        _require_vector("static_state_sds", self.static_state_sd_block.template, n_static_factor)
+
+        # Resolve n_input from input_effect_block, then canonicalize names.
+        n_input = self.input_effect_block.n_cols
         if self.input_names is None:
             self.input_names = [f"input_{idx}" for idx in range(n_input)]
         elif len(self.input_names) != n_input:
@@ -412,92 +401,9 @@ class SSMSpec:
         if invalid_policies:
             raise ValueError(f"Unsupported input_missing_policies: {invalid_policies}")
 
-        self.drift_diag_mask = self._coerce_diagonal_mask(
-            "drift_diag_mask",
-            self.drift_diag_mask,
-            self.n_latent,
-        )
-        self.drift_offdiag_mask = self._coerce_drift_offdiag_mask(self.drift_offdiag_mask)
-        self.drift = self._coerce_square_template("drift", self.drift, self.n_latent)
-        self.cint_mask = self._coerce_diagonal_mask("cint_mask", self.cint_mask, self.n_latent)
-        self.cint = self._coerce_vector_template("cint", self.cint, self.n_latent)
-        self.static_factor_loadings = self._coerce_factor_loadings(self.static_factor_loadings)
-        n_static_factor = self.static_factor_loadings.shape[1]
-        self.static_state_sd_mask = self._coerce_diagonal_mask(
-            "static_state_sd_mask",
-            (
-                self.static_state_sd_mask
-                if np.asarray(self.static_state_sd_mask).size
-                else np.zeros(n_static_factor)
-            ),
-            n_static_factor,
-        )
-        self.static_state_sds = self._coerce_vector_template(
-            "static_state_sds",
-            (
-                self.static_state_sds
-                if jnp.asarray(self.static_state_sds).size
-                else jnp.zeros(n_static_factor)
-            ),
-            n_static_factor,
-        )
-        self.input_effect_mask = self._coerce_input_effect_mask(
-            self.input_effect_mask,
-            n_input,
-        )
-        self.input_effect = self._coerce_input_effect(self.input_effect, n_input)
-        self.lambda_mask = self._coerce_lambda_mask(self.lambda_mask)
-        self.lambda_mat = self._coerce_lambda_mat(self.lambda_mat)
-        self.diffusion_chol_mask = self._coerce_cholesky_mask(
-            "diffusion_chol_mask",
-            self.diffusion_chol_mask,
-            self.n_latent,
-        )
-        self.diffusion_chol = self._coerce_square_template(
-            "diffusion_chol",
-            self.diffusion_chol,
-            self.n_latent,
-        )
-        self.manifest_means_mask = self._coerce_diagonal_mask(
-            "manifest_means_mask",
-            self.manifest_means_mask,
-            self.n_manifest,
-        )
-        self.manifest_means = self._coerce_vector_template(
-            "manifest_means",
-            self.manifest_means,
-            self.n_manifest,
-        )
-        self.manifest_chol_diag_mask = self._coerce_diagonal_mask(
-            "manifest_chol_diag_mask",
-            self.manifest_chol_diag_mask,
-            self.n_manifest,
-        )
-        self.manifest_chol = self._coerce_square_template(
-            "manifest_chol",
-            self.manifest_chol,
-            self.n_manifest,
-        )
-        self.t0_means_mask = self._coerce_diagonal_mask(
-            "t0_means_mask",
-            self.t0_means_mask,
-            self.n_latent,
-        )
-        self.t0_means = self._coerce_vector_template("t0_means", self.t0_means, self.n_latent)
-        self.t0_chol_diag_mask = self._coerce_diagonal_mask(
-            "t0_chol_diag_mask",
-            self.t0_chol_diag_mask,
-            self.n_latent,
-        )
-        self.t0_correlation_mask = self._coerce_strict_lower_mask(
-            "t0_correlation_mask",
-            self.t0_correlation_mask,
-            self.n_latent,
-        )
-        self.t0_chol = self._coerce_square_template("t0_chol", self.t0_chol, self.n_latent)
-
+        # Canonicalize per-channel family + link enums.
         if self.diffusion_dists:
-            self.diffusion_dists = [DistributionFamily(dist) for dist in self.diffusion_dists]
+            self.diffusion_dists = [DistributionFamily(d) for d in self.diffusion_dists]
         else:
             self.diffusion_dists = [DistributionFamily.GAUSSIAN] * self.n_latent
         if len(self.diffusion_dists) != self.n_latent:
@@ -505,9 +411,8 @@ class SSMSpec:
                 "diffusion_dists length must match n_latent: "
                 f"{len(self.diffusion_dists)} vs {self.n_latent}"
             )
-
         if self.manifest_dists:
-            self.manifest_dists = [DistributionFamily(dist) for dist in self.manifest_dists]
+            self.manifest_dists = [DistributionFamily(d) for d in self.manifest_dists]
         else:
             self.manifest_dists = [DistributionFamily.GAUSSIAN] * self.n_manifest
         if len(self.manifest_dists) != self.n_manifest:
@@ -515,7 +420,6 @@ class SSMSpec:
                 "manifest_dists length must match n_manifest: "
                 f"{len(self.manifest_dists)} vs {self.n_manifest}"
             )
-
         if self.manifest_links is not None:
             self.manifest_links = [LinkFunction(link) for link in self.manifest_links]
             if len(self.manifest_links) != self.n_manifest:
@@ -523,7 +427,6 @@ class SSMSpec:
                     "manifest_links length must match n_manifest: "
                     f"{len(self.manifest_links)} vs {self.n_manifest}"
                 )
-
         if (
             self.manifest_level_counts is not None
             and len(self.manifest_level_counts) != self.n_manifest
@@ -539,7 +442,6 @@ class SSMSpec:
                 "manifest_centered length must match n_manifest: "
                 f"{len(self.manifest_centered)} vs {self.n_manifest}"
             )
-
         if self.static_factor_names is None:
             self.static_factor_names = [f"tau_{idx}" for idx in range(n_static_factor)]
         elif len(self.static_factor_names) != n_static_factor:
@@ -548,74 +450,93 @@ class SSMSpec:
                 f"{len(self.static_factor_names)} vs {n_static_factor}"
             )
 
+    def structural_drift_components(self):
+        """Return the structural dense-linear drift components.
+
+        The NumPyro ``SSMModel.model`` path is the dense-linear SSM path.
+        Nonlinear composite drifts use the composite inference drivers and
+        should not be coerced into dense-linear sample sites.
+        """
+        from nof1_causal_lab.models.ssm.dynamics import (
+            StructuralDenseLinearSpec,
+            StructuralInterceptSpec,
+        )
+
+        components = self.drift_spec.components
+        if (
+            len(components) >= 2
+            and isinstance(components[0], StructuralDenseLinearSpec)
+            and isinstance(components[1], StructuralInterceptSpec)
+        ):
+            return components[0], components[1]
+        raise TypeError(
+            "Dense-linear SSM assembly requires drift_spec components "
+            "(StructuralDenseLinearSpec, StructuralInterceptSpec). "
+            "Use the composite inference path for nonlinear drift specs."
+        )
+
+    def assemble_drift(
+        self,
+        base_decay_free: jnp.ndarray | None = None,
+        offdiag_free: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        drift_component, _ = self.structural_drift_components()
+        return drift_component.assemble_drift(base_decay_free, offdiag_free)
+
+    def assemble_cint(self, cint_free: jnp.ndarray | None = None) -> jnp.ndarray:
+        _, cint_component = self.structural_drift_components()
+        return cint_component.assemble_cint(cint_free)
+
+    def assemble_diffusion(
+        self,
+        diag_free: jnp.ndarray | None = None,
+        lower_free: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        return self.diffusion_block.assemble(diag_free, lower_free)
+
+    def assemble_input_effect(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
+        return self.input_effect_block.assemble(free)
+
+    def assemble_lambda(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
+        return self.lambda_block.assemble(free)
+
+    def assemble_manifest_means(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
+        return self.manifest_means_block.assemble(free)
+
+    def assemble_manifest_chol(self, free_diag: jnp.ndarray | None = None) -> jnp.ndarray:
+        return self.manifest_chol_block.assemble(free_diag)
+
+    def assemble_t0_means(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
+        return self.t0_means_block.assemble(free)
+
+    def assemble_static_state_sds(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
+        return self.static_state_sd_block.assemble(free)
+
+    def assemble_t0_cov(
+        self,
+        t0_diag_free: jnp.ndarray | None = None,
+        t0_correlation_free: jnp.ndarray | None = None,
+        static_state_sd_free: jnp.ndarray | None = None,
+    ) -> jnp.ndarray:
+        cov = self.t0_chol_block.assemble_cov(t0_diag_free, t0_correlation_free)
+        factor_sds = self.assemble_static_state_sds(static_state_sd_free)
+        if factor_sds.size:
+            loadings = jnp.asarray(self.static_factor_loadings)
+            cov = cov + loadings @ jnp.diag(factor_sds**2) @ loadings.T
+        return symmetrize(cov)
+
 
 def _make_prior_dist(prior: dict) -> dist.Distribution:
-    """Build the appropriate numpyro distribution from a prior dict.
+    """Build a numpyro distribution from a legacy SSMPriors dict-config.
 
-    If `lower`/`upper` bounds are present, uses TruncatedNormal to respect
-    hard parameter bounds. Otherwise dispatches via serialized executable
-    prior metadata or falls back to Normal.
-    depending on the serialized prior semantics.
-
-    Supports array-valued mu/sigma for per-element priors.
+    Thin delegation to :func:`materialize_prior` in
+    ``dynamics/config.py`` — the single materialiser that accepts both
+    the legacy flat format used here and the nested ``params`` format
+    used by the composite spec components.
     """
-    family = prior.get("family", 0)
-    if isinstance(family, list):
-        unique_families = {int(value) for value in family}
-        if len(unique_families) != 1:
-            raise ValueError("Mixed prior families within a single SSM field are unsupported")
-        family = unique_families.pop()
-    if "mu" in prior or "lower" in prior or "upper" in prior:
-        if "family" in prior:
-            runtime_kind = get_real_runtime_kind_from_index(int(family))
-            if runtime_kind == PriorDistributionFamily.NORMAL:
-                return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
-            if runtime_kind == PriorDistributionFamily.TRUNCATED_NORMAL:
-                return dist.TruncatedNormal(
-                    loc=jnp.asarray(prior["mu"]),
-                    scale=jnp.asarray(prior["sigma"]),
-                    low=jnp.asarray(prior["lower"]),
-                    high=jnp.asarray(prior["upper"]),
-                )
-            if runtime_kind == PriorDistributionFamily.UNIFORM:
-                return dist.Uniform(
-                    low=jnp.asarray(prior["lower"]),
-                    high=jnp.asarray(prior["upper"]),
-                )
-            raise ValueError(f"Unsupported serialized real prior runtime kind {runtime_kind!r}")
-        if "lower" in prior and "upper" in prior:
-            return dist.TruncatedNormal(
-                loc=jnp.asarray(prior["mu"]),
-                scale=jnp.asarray(prior["sigma"]),
-                low=jnp.asarray(prior["lower"]),
-                high=jnp.asarray(prior["upper"]),
-            )
-        return dist.Normal(jnp.asarray(prior["mu"]), jnp.asarray(prior["sigma"]))
-    if "family" in prior:
-        runtime_kind = get_positive_runtime_kind_from_index(int(family))
-        if runtime_kind == PriorDistributionFamily.HALF_NORMAL:
-            return dist.HalfNormal(jnp.asarray(prior["sigma"]))
-        if runtime_kind == PriorDistributionFamily.GAMMA:
-            return dist.Gamma(
-                concentration=jnp.asarray(prior.get("concentration", 2.0)),
-                rate=jnp.asarray(prior.get("rate", 1.0)),
-            )
-        if runtime_kind == PriorDistributionFamily.LOG_NORMAL:
-            return dist.LogNormal(
-                loc=jnp.asarray(prior.get("loc", 0.0)),
-                scale=jnp.asarray(prior.get("sigma", 1.0)),
-            )
-        if runtime_kind == PriorDistributionFamily.EXPONENTIAL:
-            return dist.Exponential(rate=jnp.asarray(prior.get("rate", 1.0)))
-        if runtime_kind == PriorDistributionFamily.DELTA:
-            return dist.Delta(jnp.asarray(prior["value"]))
-        raise ValueError(f"Unsupported serialized positive prior runtime kind {runtime_kind!r}")
-    if {"concentration", "rate"} <= set(prior):
-        return dist.Gamma(
-            concentration=jnp.asarray(prior.get("concentration", 2.0)),
-            rate=jnp.asarray(prior.get("rate", 1.0)),
-        )
-    return dist.HalfNormal(jnp.asarray(prior["sigma"]))
+    from nof1_causal_lab.models.ssm.dynamics.config import materialize_prior
+
+    return materialize_prior(prior)
 
 
 def _make_prior_batch(prior: dict, n: int) -> dist.Distribution:
@@ -657,7 +578,7 @@ class SSMModel:
         """
         self.spec = spec
         self.priors = priors or SSMPriors()
-        self._structure_runtime = SSMStructureRuntime(spec)
+        self._parameter_layout = SSMParameterLayout.from_spec(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
         self.transition_inputs: jnp.ndarray | None = None
@@ -691,9 +612,31 @@ class SSMModel:
         self.transition_inputs = transition_inputs
 
     @property
-    def structure_runtime(self) -> SSMStructureRuntime:
-        """Return the compiled structural runtime for this built model."""
-        return self._structure_runtime
+    def vector_field(self):
+        """Unified drift representation as a :class:`CompositeVectorField`.
+
+        After :class:`SSMSpec` auto-builds ``drift_spec`` in
+        ``__post_init__``, every spec has a populated ``drift_spec`` — the
+        linear path becomes a 2-component composite
+        (``StructuralDenseLinear`` + ``StructuralIntercept``), the composite
+        path stays whatever the user / Stage 4 declared. The compiled
+        vector field is what downstream consumers
+        (``compute_steady_state``, ``simulate``,
+        ``check_jacobian_stability``, the per-step linearisation in the
+        auxiliary Kalman MH, …) all consume uniformly.
+        """
+
+        def _build():
+            from nof1_causal_lab.models.ssm.dynamics import compile_composite
+
+            return compile_composite(self.spec.drift_spec).vector_field
+
+        return self.get_cached_artifact(("vector_field",), _build)
+
+    @property
+    def parameter_layout(self) -> SSMParameterLayout:
+        """Return the derived parameter layout for this model."""
+        return self._parameter_layout
 
     def get_prior_runtime_bundle(self) -> PriorRuntimeBundle:
         """Return canonical prior runtime state for this model instance."""
@@ -714,163 +657,147 @@ class SSMModel:
         return build_site_prior_distribution(site, runtime.prior_state[site_name])
 
     def _sample_drift(self) -> jnp.ndarray:
-        """Sample drift matrix with hard-sparsity stability by construction."""
-        structure_runtime = self._structure_runtime
-        n_base_decay = structure_runtime.n_drift_base_decay
-        n_offdiag = structure_runtime.n_drift_offdiag
+        """Sample drift matrix via the structural dense-linear component.
 
-        if n_base_decay == 0 and n_offdiag == 0:
-            return structure_runtime.drift_template
+        Reads the structural component directly from ``spec.drift_spec``;
+        attaches runtime priors via ``dataclasses.replace``.
+        """
+        layout = self._parameter_layout
+        if layout.n_drift_base_decay == 0 and layout.n_drift_offdiag == 0:
+            return self.spec.assemble_drift()
 
-        if n_base_decay > 0:
-            drift_base_decay_free = _sample_prior_array(
-                "drift_base_decay_free",
-                self._prior_distribution("drift_base_decay_free"),
-            )
-        else:
-            drift_base_decay_free = None
-
-        if n_offdiag > 0:
-            drift_offdiag_free = _sample_prior_array(
-                "drift_offdiag_free",
-                self._prior_distribution("drift_offdiag_free"),
-            )
-        else:
-            drift_offdiag_free = None
-
-        drift = structure_runtime.assemble_drift(drift_base_decay_free, drift_offdiag_free)
-
-        numpyro.deterministic("drift", drift)
-        return drift
+        drift_component, _ = self.spec.structural_drift_components()
+        component_spec = replace(
+            drift_component,
+            base_decay_prior=(
+                self._prior_distribution("drift_base_decay_free")
+                if layout.n_drift_base_decay > 0
+                else None
+            ),
+            offdiag_prior=(
+                self._prior_distribution("drift_offdiag_free")
+                if layout.n_drift_offdiag > 0
+                else None
+            ),
+        )
+        return component_spec.sample_params(prefix="")["drift"]
 
     def _sample_diffusion(self, _spec: SSMSpec) -> jnp.ndarray:
-        """Sample diffusion matrix (lower Cholesky)."""
-        structure_runtime = self._structure_runtime
-        n_diag = structure_runtime.n_diffusion_diag
-        n_lower = structure_runtime.n_diffusion_lower
-        if n_diag == 0 and n_lower == 0:
-            return structure_runtime.diffusion_chol_template
+        """Sample diffusion matrix (lower Cholesky) via the diffusion block."""
+        layout = self._parameter_layout
+        if layout.n_diffusion_diag == 0 and layout.n_diffusion_lower == 0:
+            return self.spec.assemble_diffusion()
 
-        diff_diag_free = None
-        if n_diag > 0:
-            diff_diag_free = _sample_prior_array(
-                "diffusion_diag_free",
-                self._prior_distribution("diffusion_diag_free"),
-            )
-
-        diff_lower_free = None
-        if n_lower > 0:
-            diff_lower_free = _sample_prior_array(
-                "diffusion_lower_free",
-                self._prior_distribution("diffusion_lower_free"),
-            )
-
-        diffusion = structure_runtime.assemble_diffusion(diff_diag_free, diff_lower_free)
-
-        numpyro.deterministic("diffusion", diffusion)
-        return diffusion
+        block = replace(
+            self.spec.diffusion_block,
+            diag_prior=(
+                self._prior_distribution("diffusion_diag_free")
+                if layout.n_diffusion_diag > 0
+                else None
+            ),
+            lower_prior=(
+                self._prior_distribution("diffusion_lower_free")
+                if layout.n_diffusion_lower > 0
+                else None
+            ),
+        )
+        return block.sample_params(prefix="")["diffusion"]
 
     def _sample_cint(self, _spec: SSMSpec) -> jnp.ndarray | None:
-        """Sample continuous intercept."""
-        n_free = self._structure_runtime.n_cint
-        if n_free == 0:
-            return self._structure_runtime.cint_template
+        """Sample continuous intercept via the structural intercept component."""
+        layout = self._parameter_layout
+        if layout.n_cint == 0:
+            return self.spec.assemble_cint()
 
-        cint_free = _sample_prior_array(
-            "cint_free",
-            self._prior_distribution("cint_free"),
+        _, cint_component = self.spec.structural_drift_components()
+        component_spec = replace(
+            cint_component,
+            cint_prior=self._prior_distribution("cint_free"),
         )
-        cint = self._structure_runtime.assemble_cint(cint_free)
-
-        numpyro.deterministic("cint", cint)
-        return cint
+        return component_spec.sample_params(prefix="")["cint"]
 
     def _sample_input_effect(self, _spec: SSMSpec) -> jnp.ndarray:
-        """Sample known-input transition effects."""
-        n_free = self._structure_runtime.n_input_effect
-        if n_free == 0:
-            return self._structure_runtime.input_effect_template
+        """Sample known-input transition effects via the input-effect block."""
+        layout = self._parameter_layout
+        if layout.n_input_effect == 0:
+            return self.spec.assemble_input_effect()
 
-        input_effect_free = _sample_prior_array(
-            "input_effect_free",
-            self._prior_distribution("input_effect_free"),
+        block = replace(
+            self.spec.input_effect_block,
+            prior=self._prior_distribution("input_effect_free"),
         )
-        input_effect = self._structure_runtime.assemble_input_effect(input_effect_free)
-        numpyro.deterministic("input_effect", input_effect)
-        return input_effect
+        return block.sample_params(prefix="")["input_effect"]
 
     def _sample_lambda(self, _spec: SSMSpec) -> jnp.ndarray:
-        """Sample factor loading matrix for the fitted subject/model.
+        """Sample factor loading matrix via the lambda block."""
+        layout = self._parameter_layout
+        if layout.n_lambda_free == 0:
+            return self.spec.assemble_lambda()
 
-        Two modes (determined by SSMStructureRuntime from spec):
-        1. Template+mask: sample free loadings at masked positions.
-        2. Fixed: return template as-is (no sampling).
-        """
-        # Fully fixed (array with no free-loading positions): return as-is
-        structure_runtime = self._structure_runtime
-        if structure_runtime.n_lambda_free == 0:
-            return structure_runtime.lambda_template
-        n_free = structure_runtime.n_lambda_free
-
-        free_loadings = None
-        if n_free > 0:
-            free_loadings = _sample_prior_array(
-                "lambda_free",
-                self._prior_distribution("lambda_free"),
-            )
-
-        lambda_mat = structure_runtime.assemble_lambda(free_loadings)
-        numpyro.deterministic("lambda", lambda_mat)
-        return lambda_mat
+        block = replace(
+            self.spec.lambda_block,
+            prior=self._prior_distribution("lambda_free"),
+        )
+        return block.sample_params(prefix="")["lambda"]
 
     def _sample_manifest_params(self, _spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Sample manifest means and variance for the fitted subject/model."""
-        # Means
-        n_means_free = self._structure_runtime.n_manifest_means
-        if n_means_free == 0:
-            manifest_means = self._structure_runtime.manifest_means_template
-        else:
-            manifest_means_free = _sample_prior_array(
-                "manifest_means_free",
-                self._prior_distribution("manifest_means_free"),
-            )
-            manifest_means = self._structure_runtime.assemble_manifest_means(manifest_means_free)
+        """Sample manifest means + Cholesky and emit the composed manifest_cov."""
+        layout = self._parameter_layout
 
-        # Variance (Cholesky)
-        n_free = self._structure_runtime.n_manifest_var_diag
-        if n_free == 0:
-            manifest_chol = self._structure_runtime.manifest_chol_template
+        # Means
+        if layout.n_manifest_means == 0:
+            manifest_means = self.spec.assemble_manifest_means()
         else:
-            var_diag = _sample_prior_array(
-                "manifest_var_diag_free",
-                self._prior_distribution("manifest_var_diag_free"),
+            means_block = replace(
+                self.spec.manifest_means_block,
+                prior=self._prior_distribution("manifest_means_free"),
             )
-            manifest_chol = self._structure_runtime.assemble_manifest_chol(var_diag)
+            manifest_means = means_block.sample_params(prefix="")["manifest_means"]
+
+        # Variance (diagonal Cholesky)
+        if layout.n_manifest_var_diag == 0:
+            manifest_chol = self.spec.assemble_manifest_chol()
+        else:
+            chol_block = replace(
+                self.spec.manifest_chol_block,
+                diag_prior=self._prior_distribution("manifest_var_diag_free"),
+            )
+            manifest_chol = chol_block.sample_params(prefix="")["manifest_chol"]
 
         numpyro.deterministic("manifest_cov", manifest_chol @ manifest_chol.T)
         return jnp.asarray(manifest_means), jnp.asarray(manifest_chol)
 
     def _sample_t0_params(self, _spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Sample initial state parameters."""
-        # Means
-        n_means_free = self._structure_runtime.n_t0_means
-        if n_means_free == 0:
-            t0_means = self._structure_runtime.t0_means_template
+        """Sample initial state parameters.
+
+        Means delegate to the t0_means block. The covariance assembly
+        (free diagonal SDs + free correlation entries + static factor SDs
+        combined via factor loadings) stays inline because the composed
+        structure is genuinely multi-block — block-spec just owns the
+        masks/templates; assembly is at the model layer.
+        """
+        # Means via block-spec. The block emits the ``t0_means``
+        # deterministic when sampled; for the no-free case we emit it
+        # explicitly below so the site is always present (legacy
+        # contract).
+        layout = self._parameter_layout
+        if layout.n_t0_means == 0:
+            t0_means = self.spec.assemble_t0_means()
+            numpyro.deterministic("t0_means", t0_means)
         else:
-            t0_means_free = _sample_prior_array(
-                "t0_means_free",
-                self._prior_distribution("t0_means_free"),
+            means_block = replace(
+                self.spec.t0_means_block,
+                prior=self._prior_distribution("t0_means_free"),
             )
-            t0_means = self._structure_runtime.assemble_t0_means(t0_means_free)
+            t0_means = means_block.sample_params(prefix="")["t0_means"]
 
         # Variance (Cholesky)
-        structure_runtime = self._structure_runtime
-        n_diag = structure_runtime.n_t0_diag
-        n_corr = structure_runtime.n_t0_correlation
-        n_static = structure_runtime.n_static_state_sd
+        n_diag = layout.n_t0_diag
+        n_corr = layout.n_t0_correlation
+        n_static = layout.n_static_state_sd
         if n_diag == 0 and n_corr == 0 and n_static == 0:
             t0_cov, _min_eig = stabilize_covariance_for_cholesky(
-                structure_runtime.assemble_t0_cov(),
+                self.spec.assemble_t0_cov(),
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
             )
         else:
@@ -894,9 +821,9 @@ class SSMModel:
                 )
                 numpyro.deterministic(
                     "static_state_sds",
-                    structure_runtime.assemble_static_state_sds(static_state_sds),
+                    self.spec.assemble_static_state_sds(static_state_sds),
                 )
-            t0_cov_raw = structure_runtime.assemble_t0_cov(var_diag, t0_corr, static_state_sds)
+            t0_cov_raw = self.spec.assemble_t0_cov(var_diag, t0_corr, static_state_sds)
             t0_cov, min_eig = stabilize_covariance_for_cholesky(
                 t0_cov_raw,
                 min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -911,7 +838,10 @@ class SSMModel:
             )
         t0_chol = jnp.linalg.cholesky(t0_cov)
 
-        numpyro.deterministic("t0_means", t0_means)
+        # ``t0_means`` deterministic is emitted either inside the
+        # SparseVectorBlockSpec (sampled branch) or by the explicit
+        # ``numpyro.deterministic`` call in the no-free branch above —
+        # always exactly once.
         numpyro.deterministic("t0_cov", t0_cov)
         return jnp.asarray(t0_means), jnp.asarray(t0_chol)
 

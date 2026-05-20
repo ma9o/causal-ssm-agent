@@ -306,7 +306,7 @@ def _gaussian_log_prob_from_cholesky(
     return -0.5 * (dim_term + logdet + whitened @ whitened)
 
 
-def _build_gaussian_trajectory_prior_terms(
+def build_gaussian_trajectory_prior_terms(
     Ad: jnp.ndarray,
     Qd: jnp.ndarray,
     cd: jnp.ndarray,
@@ -349,7 +349,7 @@ def _build_gaussian_trajectory_prior_terms(
     )
 
 
-def _trajectory_prior_log_prob_from_terms(
+def trajectory_prior_log_prob_from_terms(
     latent_trajectory: jnp.ndarray,
     Ad: jnp.ndarray,
     cd: jnp.ndarray,

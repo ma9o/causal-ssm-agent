@@ -2,6 +2,10 @@
 
 import { Badge } from "@/components/ui/badge";
 import { formatCompact } from "@/lib/utils/format";
+import type {
+  SuggestionAction,
+  SuggestionChip,
+} from "@/lib/utils/trace-to-core";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
@@ -45,6 +49,7 @@ export function LLMTracePanelView({
   input = "",
   onInputChange,
   onSubmit,
+  onSuggestionClick,
 }: {
   trace: LLMTrace;
   refinementMessages?: UIMessage[];
@@ -53,6 +58,7 @@ export function LLMTracePanelView({
   input?: string;
   onInputChange?: (value: string) => void;
   onSubmit?: (e: FormEvent) => void;
+  onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
 }) {
   const traceMessages = useMemo(() => traceToUIMessages(trace), [trace]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -125,7 +131,13 @@ export function LLMTracePanelView({
         )}
 
         {/* Refinement messages — interactive */}
-        {hasRefinement && <ChatMessages messages={refinementMessages} streaming={isLoading} />}
+        {hasRefinement && (
+          <ChatMessages
+            messages={refinementMessages}
+            streaming={isLoading}
+            onSuggestionClick={onSuggestionClick}
+          />
+        )}
       </div>
 
       {/* Refinement input */}

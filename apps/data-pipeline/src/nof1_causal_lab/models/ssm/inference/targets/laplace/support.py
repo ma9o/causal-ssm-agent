@@ -30,14 +30,14 @@ from .shared import (
     GaussianTrajectoryPriorTerms,
     SupportObservationWindowBatch,
     _block_banded_logdet,
-    _build_gaussian_trajectory_prior_terms,
     _build_prior_banded_system,
     _factor_block_profile_cholesky,
     _predictive_latent_init,
     _solve_block_profile_from_cholesky,
     _step_halving_search,
-    _trajectory_prior_log_prob_from_terms,
     block_profile_logdet_packed_cotangent,
+    build_gaussian_trajectory_prior_terms,
+    trajectory_prior_log_prob_from_terms,
 )
 
 if TYPE_CHECKING:
@@ -309,7 +309,7 @@ def _support_aware_joint_log_prob(
     observation_support: ObservationSupportRuntime,
 ) -> jnp.ndarray:
     """Exact latent joint log-density used for support-aware step acceptance."""
-    return _trajectory_prior_log_prob_from_terms(z_est, Ad, cd, prior_terms) + (
+    return trajectory_prior_log_prob_from_terms(z_est, Ad, cd, prior_terms) + (
         trajectory_observation_log_prob(
             z_est,
             observations,
@@ -523,7 +523,7 @@ def _support_aware_ieks_mode(
         init_cov,
         bandwidth,
     )
-    prior_terms = _build_gaussian_trajectory_prior_terms(
+    prior_terms = build_gaussian_trajectory_prior_terms(
         Ad,
         Qd,
         cd,
@@ -846,7 +846,7 @@ def _support_aware_laplace_terms_from_mode(
     factor_block_cholesky_fn=_factor_block_profile_cholesky,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Evaluate the Laplace log-likelihood terms at a fixed latent mode."""
-    prior_terms = _build_gaussian_trajectory_prior_terms(
+    prior_terms = build_gaussian_trajectory_prior_terms(
         Ad,
         Qd,
         cd,
@@ -1171,7 +1171,7 @@ def _support_aware_ieks_laplace_core(
                 R_inner,
                 extra_params_inner,
             )
-            prior_terms_inner = _build_gaussian_trajectory_prior_terms(
+            prior_terms_inner = build_gaussian_trajectory_prior_terms(
                 Ad_inner,
                 Qd_inner,
                 cd_inner,

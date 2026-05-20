@@ -4,15 +4,20 @@ Uses Pearl's do-calculus via y0 to check if causal effects are identifiable
 given observed/unobserved constructs. This properly handles:
 - Backdoor criterion
 - Front-door criterion
-- Instrumental variables (under linearity assumption)
+- Instrumental variables (under linearity assumption; gated by ``iv_allowed``)
 - Other identification strategies from Shpitser & Pearl
 
 Design principle: Users specify DAGs with explicit latent confounders. We convert
 to ADMG internally using y0's from_latent_variable_dag() for identification.
 
 Note on IV: y0's nonparametric do-calculus cannot identify effects via IV alone.
-However, our framework uses linear SEMs where IV identification is valid. We detect IV
-structures separately and mark them as identifiable (with linearity assumption).
+For the linear-SEM regime, IV identification is valid and ``check_identifiability``
+falls back to ``find_instruments`` (default: ``iv_allowed=True``). For the composite
+non-linear regime (Hill, multiplicative, effect-compartment edges), IV identification
+is **not** generally valid — parametric identification depends on the functional
+form. Callers fitting a composite spec should pass ``iv_allowed=False`` to drop the
+IV fallback; the resulting non-identifiable set is the conservative one that holds
+for any continuous monotone functional form.
 """
 
 import re
@@ -36,6 +41,8 @@ logger = get_prefect_logger(__name__)
 def check_identifiability(
     latent_model: dict,
     measurement_model: dict,
+    *,
+    iv_allowed: bool = True,
 ) -> dict[str, Any]:
     """Check which treatment effects are identifiable using y0's ID algorithm.
 
@@ -46,6 +53,13 @@ def check_identifiability(
     Args:
         latent_model: Dict with 'constructs' and 'edges'
         measurement_model: Dict with 'indicators' mapping constructs to measures
+        iv_allowed: When True (default) and y0's nonparametric check fails,
+            fall back to IV identification via ``find_instruments`` (valid
+            under linear SEM assumptions). When False (composite non-linear
+            spec), the IV fallback is skipped — IV identification requires
+            functional-form assumptions that don't generally hold for Hill,
+            multiplicative, or effect-compartment dynamics. Set to False
+            for composite specs to get the conservative identifiable set.
 
     Returns:
         Dict with:
@@ -58,6 +72,7 @@ def check_identifiability(
                 * confounders: Unobserved constructs blocking identification
                 * notes: Optional explanation when confounders cannot be enumerated
             - graph_info: Debug info about the graph structure
+                * iv_allowed: Whether IV fallback was used
     """
     outcome = get_outcome_name(latent_model)
     if not outcome:
@@ -126,10 +141,13 @@ def check_identifiability(
                     "marginalized_confounders": sorted(unobserved_confounders),
                 }
             else:
-                # y0's nonparametric check failed - try IV identification
-                # IV works under linearity (which our framework assumes)
-                instruments = find_instruments(
-                    latent_model, observed_constructs, treatment, outcome
+                # y0's nonparametric check failed - try IV identification.
+                # IV works under linearity; for composite non-linear specs the
+                # caller passes iv_allowed=False to suppress this fallback.
+                instruments = (
+                    find_instruments(latent_model, observed_constructs, treatment, outcome)
+                    if iv_allowed
+                    else []
                 )
                 if instruments:
                     # IV identification available under linearity
@@ -170,6 +188,7 @@ def check_identifiability(
             "total_constructs": len(latent_model["constructs"]),
             "unobserved_confounders": sorted(unobserved_confounders),
             "n_directed_edges": len(list(admg.directed.edges())),
+            "iv_allowed": iv_allowed,
         },
     }
 

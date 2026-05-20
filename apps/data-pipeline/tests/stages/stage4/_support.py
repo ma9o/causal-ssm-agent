@@ -101,7 +101,6 @@ from nof1_causal_lab.workers.schemas_prior import (
     PriorRepairScope,
     PriorValidationResult,
 )
-from tests.ssm_test_utils import make_ssm_spec
 
 
 def _make_plan(

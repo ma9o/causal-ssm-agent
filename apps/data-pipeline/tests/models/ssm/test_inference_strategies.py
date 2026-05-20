@@ -3093,7 +3093,7 @@ def test_map_support_aware_uses_exact_gradient_outer_optimizer(monkeypatch):
     class _FakeModel:
         observation_support = SimpleNamespace(requires_interval_summary_handling=True)
         spec = None
-        _structure_runtime = None
+        _parameter_layout = None
 
         def make_laplace_backend(self, _n_ieks_iters):
             return SimpleNamespace()
@@ -3259,7 +3259,7 @@ def test_map_generic_path_uses_multistart_lbfgsb(monkeypatch):
     class _FakeModel:
         observation_support = None
         spec = None
-        _structure_runtime = None
+        _parameter_layout = None
 
         def make_laplace_backend(self, _n_ieks_iters):
             return SimpleNamespace()
@@ -3432,7 +3432,7 @@ def test_map_emits_prefect_progress_logs(monkeypatch, caplog):
     class _FakeModel:
         observation_support = None
         spec = None
-        _structure_runtime = None
+        _parameter_layout = None
 
         def make_laplace_backend(self, _n_ieks_iters):
             return SimpleNamespace()
@@ -3598,7 +3598,7 @@ def test_map_can_skip_parameter_hessian(monkeypatch):
     class _FakeModel:
         observation_support = None
         spec = None
-        _structure_runtime = None
+        _parameter_layout = None
 
         def make_laplace_backend(self, _n_ieks_iters):
             return SimpleNamespace()
@@ -3745,7 +3745,7 @@ def test_map_can_use_optimizer_hess_inv_covariance(monkeypatch):
     class _FakeModel:
         observation_support = None
         spec = None
-        _structure_runtime = None
+        _parameter_layout = None
 
         def make_laplace_backend(self, _n_ieks_iters):
             return SimpleNamespace()

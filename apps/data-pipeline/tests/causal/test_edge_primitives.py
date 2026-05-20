@@ -18,7 +18,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 import pytest
 
-from nof1_causal_lab.models.ssm.counterfactual import (
+from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
+from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
     DenseLinear,
     DiagonalDecay,
@@ -32,7 +33,6 @@ from nof1_causal_lab.models.ssm.counterfactual import (
     VectorFieldArgs,
     compute_steady_state,
     constant_value,
-    linear_vector_field,
     simulate,
 )
 

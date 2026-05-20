@@ -715,16 +715,21 @@ class TestBuilderMasks:
 
         spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
 
-        np.testing.assert_array_equal(spec.static_state_sd_mask, np.array([True]))
-        np.testing.assert_allclose(np.asarray(spec.static_state_sds), np.zeros(1))
+        np.testing.assert_array_equal(spec.static_state_sd_block.mask, np.array([True]))
+        np.testing.assert_allclose(
+            np.asarray(spec.static_state_sd_block.template), np.zeros(1)
+        )
         np.testing.assert_allclose(
             np.asarray(spec.static_factor_loadings),
             np.array([[1.0], [1.0]]),
         )
         assert spec.static_factor_names == ["tau_u_shared"]
-        np.testing.assert_array_equal(spec.t0_correlation_mask, np.zeros((2, 2), dtype=bool))
-        np.testing.assert_array_equal(spec.t0_means_mask, np.array([False, False]))
-        np.testing.assert_array_equal(spec.t0_chol_diag_mask, np.array([False, False]))
+        np.testing.assert_array_equal(
+            spec.t0_chol_block.correlation_mask,
+            np.zeros((2, 2), dtype=bool),
+        )
+        np.testing.assert_array_equal(spec.t0_means_block.mask, np.array([False, False]))
+        np.testing.assert_array_equal(spec.t0_chol_block.diag_mask, np.array([False, False]))
 
     def test_translate_spec_marks_centerable_gaussian_mean_indicators(self):
         """Gaussian identity indicators with interval means should be auto-centered."""
@@ -872,12 +877,14 @@ class TestBuilderMasks:
 
         spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
 
-        assert isinstance(spec.manifest_chol, jnp.ndarray)
+        assert isinstance(spec.manifest_chol_block.template, jnp.ndarray)
         np.testing.assert_array_equal(
-            spec.manifest_chol_diag_mask,
+            spec.manifest_chol_block.diag_mask,
             np.array([True, True, False, False]),
         )
-        np.testing.assert_allclose(np.asarray(spec.manifest_chol), np.zeros((4, 4)))
+        np.testing.assert_allclose(
+            np.asarray(spec.manifest_chol_block.template), np.zeros((4, 4))
+        )
 
     def test_translate_spec_rejects_initial_state_correlation_parameters_with_causal_spec(self):
         """Causal-spec compilation no longer accepts pairwise cor0 parameters."""
@@ -1114,7 +1121,7 @@ class TestBuilderMasks:
         assert drift_mask[0, 0]
         assert drift_mask[1, 1]
         assert drift_mask[2, 2]
-        assert spec.lambda_mask is not None
+        assert spec.lambda_block.mask is not None
         assert spec.n_latent == 3
         assert spec.n_manifest == 4
 

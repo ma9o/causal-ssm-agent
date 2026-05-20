@@ -14,13 +14,21 @@ interface WeightedEdgeData {
   description: string;
   lagged: boolean;
   posterior?: EdgePosterior;
+  /** Max |posterior.mean| across all edges in the scene — sets the saturation point. */
+  maxAbsPosterior?: number;
   animState?: EdgeAnimState;
 }
 
-/** Map |mean effect| to stroke width (1–12 px) — quadratic scaling. */
-function effectToWidth(mean: number): number {
-  const abs = Math.abs(mean);
-  return Math.max(1, Math.min(12, 1 + abs * abs * 26));
+/**
+ * Map |mean effect| to stroke width (1–12 px), scaled so the strongest
+ * edge in the scene renders at the cap and weaker edges scale linearly
+ * against it. Robust to absolute data scale (works for |β|≈0.05 ILD
+ * regression betas and |β|≈0.5 standardized contrasts alike).
+ */
+function effectToWidth(mean: number, maxAbs: number): number {
+  if (maxAbs <= 0) return 2;
+  const ratio = Math.abs(mean) / maxAbs;
+  return Math.max(1, Math.min(12, 1 + ratio * 11));
 }
 
 /** Positive → teal, negative → rose. */
@@ -59,6 +67,7 @@ export function WeightedEdge({
 }: EdgeProps) {
   const d = data as unknown as WeightedEdgeData;
   const posterior = d?.posterior;
+  const maxAbsPosterior = d?.maxAbsPosterior ?? 0;
   const animState = d?.animState ?? "normal";
   const isLagged = d?.lagged;
 
@@ -74,7 +83,7 @@ export function WeightedEdge({
     ? getBezierPath(pathParams)
     : getSmoothStepPath({ ...pathParams, borderRadius: 8 });
 
-  const strokeWidth = posterior ? effectToWidth(posterior.mean) : 2;
+  const strokeWidth = posterior ? effectToWidth(posterior.mean, maxAbsPosterior) : 2;
   const stroke = posterior
     ? effectToColor(posterior.mean)
     : isLagged

@@ -12,7 +12,7 @@ import jax.scipy.special as jsp_special
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
-    _AUX_JITTER,
+    AUX_JITTER,
     _initial_latent_moments,
 )
 
@@ -63,7 +63,7 @@ def _gaussian_log_prob_full(
     mean: jnp.ndarray,
     covariance: jnp.ndarray,
 ) -> jnp.ndarray:
-    covariance = symmetrize_with_jitter(covariance, jitter=_AUX_JITTER)
+    covariance = symmetrize_with_jitter(covariance, jitter=AUX_JITTER)
     chol = jnp.linalg.cholesky(covariance)
     diff = value - mean
     whitened = jla.solve_triangular(chol, diff, lower=True)
@@ -110,13 +110,13 @@ def _integrate_linear_gaussian_guide(
     transition_offset = jnp.reshape(transition_offset, (transition_matrix.shape[0],))
     transition_covariance = symmetrize_with_jitter(
         transition_covariance,
-        jitter=_AUX_JITTER,
+        jitter=AUX_JITTER,
     )
     cov_chol = jnp.linalg.cholesky(transition_covariance)
     identity = jnp.eye(transition_covariance.shape[0], dtype=transition_covariance.dtype)
     cov_inv = jla.cho_solve((cov_chol, True), identity)
     guide_precision = cov_inv + next_precision
-    guide_precision = symmetrize_with_jitter(guide_precision, jitter=_AUX_JITTER)
+    guide_precision = symmetrize_with_jitter(guide_precision, jitter=AUX_JITTER)
     guide_chol = jnp.linalg.cholesky(guide_precision)
     guide_covariance = jla.cho_solve((guide_chol, True), identity)
     logdet_cov = 2.0 * jnp.sum(jnp.log(jnp.diag(cov_chol)))
@@ -198,12 +198,12 @@ def _guided_gaussian_proposal(
     guide_information: jnp.ndarray,
     guide_log_constant: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    prior_covariance = symmetrize_with_jitter(prior_covariance, jitter=_AUX_JITTER)
+    prior_covariance = symmetrize_with_jitter(prior_covariance, jitter=AUX_JITTER)
     prior_chol = jnp.linalg.cholesky(prior_covariance)
     identity = jnp.eye(prior_covariance.shape[0], dtype=prior_covariance.dtype)
     prior_precision = jla.cho_solve((prior_chol, True), identity)
     proposal_precision = prior_precision + guide_precision
-    proposal_precision = symmetrize_with_jitter(proposal_precision, jitter=_AUX_JITTER)
+    proposal_precision = symmetrize_with_jitter(proposal_precision, jitter=AUX_JITTER)
     proposal_chol = jnp.linalg.cholesky(proposal_precision)
     proposal_covariance = jla.cho_solve(
         (proposal_chol, True),
@@ -221,7 +221,7 @@ def _guided_gaussian_proposal(
     )
     return (
         proposal_mean,
-        symmetrize_with_jitter(proposal_covariance, jitter=_AUX_JITTER),
+        symmetrize_with_jitter(proposal_covariance, jitter=AUX_JITTER),
         log_normalizer,
     )
 
@@ -348,7 +348,7 @@ def initialize_particle_smoother_latents(
             else:
                 proposal_means = pred_means
                 proposal_covariances = jnp.broadcast_to(
-                    symmetrize_with_jitter(context.Qd[time_idx], jitter=_AUX_JITTER),
+                    symmetrize_with_jitter(context.Qd[time_idx], jitter=AUX_JITTER),
                     (num_particles, context.Qd.shape[-2], context.Qd.shape[-1]),
                 )
                 guide_log = jnp.zeros((num_particles,), dtype=prev_logw.dtype)

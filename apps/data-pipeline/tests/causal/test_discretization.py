@@ -20,7 +20,9 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import pytest
 
-from nof1_causal_lab.models.ssm.counterfactual import (
+from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
+from nof1_causal_lab.models.ssm.discretization import discretize_linear_system_exact
+from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
     DenseLinear,
     DiagonalDecay,
@@ -31,10 +33,8 @@ from nof1_causal_lab.models.ssm.counterfactual import (
     MultiplicativeEdge,
     VectorFieldArgs,
     discretize_at_state,
-    linear_vector_field,
     simulate,
 )
-from nof1_causal_lab.models.ssm.discretization import discretize_linear_system_exact
 
 # =============================================================================
 # Per-primitive linearization checks
@@ -268,3 +268,263 @@ class TestSSRIChainLinearization:
         next_state_diffrax = traj[-1]
 
         assert jnp.allclose(next_state_discrete, next_state_diffrax, atol=1e-4)
+
+
+# =============================================================================
+# Cuthbert moments-filter callback: end-to-end run
+# =============================================================================
+
+
+def _run_moments_filter_via_callback(
+    vf, vf_params, diffusion_cov, init_mean, init_cov, H, R, ys, dts, jitter=1e-6
+):
+    """Run cuthbert.gaussian.moments.build_filter via make_filter_dynamics_callback.
+
+    Returns the cumulative log-normalizing-constant at the final step
+    (i.e., marginal log-likelihood of the observations under the model).
+    """
+    from cuthbert.filtering import filter as cuthbert_filter
+    from cuthbert.gaussian.moments import build_filter
+
+    from nof1_causal_lab.models.ssm.dynamics import make_filter_dynamics_callback
+
+    T = ys.shape[0]
+    n = init_mean.shape[0]
+    n_m = ys.shape[-1]
+    dtype = init_mean.dtype
+
+    chol_P0 = jnp.linalg.cholesky(init_cov + jitter * jnp.eye(n, dtype=dtype))
+    chol_R = jnp.linalg.cholesky(R + jitter * jnp.eye(n_m, dtype=dtype))
+
+    def _prepend_init(steps):
+        head = jnp.zeros((1, *steps.shape[1:]), dtype=steps.dtype)
+        return jnp.concatenate([head, steps], axis=0)
+
+    model_inputs = {
+        "m0": jnp.broadcast_to(init_mean, (T + 1, n)),
+        "chol_P0": jnp.broadcast_to(chol_P0, (T + 1, n, n)),
+        "dt": _prepend_init(jnp.asarray(dts, dtype=dtype)[:, None]).squeeze(-1),
+        "H": _prepend_init(jnp.broadcast_to(H, (T, n_m, n))),
+        "d": _prepend_init(jnp.zeros((T, n_m), dtype=dtype)),
+        "chol_R": _prepend_init(jnp.broadcast_to(chol_R, (T, n_m, n_m))),
+        "y": _prepend_init(jnp.asarray(ys, dtype=dtype)),
+    }
+
+    def get_init_params(model_inputs):
+        return model_inputs["m0"], model_inputs["chol_P0"]
+
+    get_dynamics_params = make_filter_dynamics_callback(
+        vf, vf_params, diffusion_cov=diffusion_cov, jitter=jitter
+    )
+
+    def get_observation_params(state, model_inputs):
+        H_t = model_inputs["H"]
+        d_t = model_inputs["d"]
+        chol_R_t = model_inputs["chol_R"]
+        y_t = model_inputs["y"]
+
+        def obs_fn(x):
+            return H_t @ x + d_t, chol_R_t
+
+        return obs_fn, state.mean, y_t
+
+    filter_obj = build_filter(
+        get_init_params=get_init_params,
+        get_dynamics_params=get_dynamics_params,
+        get_observation_params=get_observation_params,
+        associative=False,
+    )
+    filter_states = cuthbert_filter(filter_obj, model_inputs)
+    return float(filter_states.log_normalizing_constant[-1])
+
+
+class TestCuthbertCallbackIntegration:
+    """End-to-end: run cuthbert's moments-based filter with our callback
+    on a linear system (where the linearization is exact) and a
+    non-linear system (where it's the EKF approximation). Both must
+    return finite log-likelihoods, and the linear case must match a
+    hand-computed reference within numerical tolerance."""
+
+    def _generate_linear_obs(self, key, A, c, GG_cov, init_mean, H, R, dts):
+        """Forward-simulate a linear-Gaussian SSM and return noisy obs."""
+        import jax.random as jr
+
+        from nof1_causal_lab.models.ssm.dynamics import (
+            Intervention,
+            simulate,
+        )
+
+        vf = linear_vector_field(n_latent=A.shape[0])
+        params = ({"drift": A, "cint": c},)
+        time_grid = jnp.concatenate([jnp.zeros(1), jnp.cumsum(dts)])
+        traj = simulate(vf, params, Intervention.none(), init_mean, time_grid)
+        signal = traj[1:] @ H.T
+        noise = jr.normal(key, signal.shape, dtype=signal.dtype) * jnp.sqrt(R[0, 0])
+        return signal + noise
+
+    def test_filter_runs_and_returns_finite_loglik_linear(self):
+        A = jnp.array([[-1.0, 0.0], [0.5, -1.5]])
+        c = jnp.zeros(2)
+        GG = jnp.eye(2) * 0.05
+        init_mean = jnp.array([0.0, 0.0])
+        init_cov = jnp.eye(2) * 0.5
+        H = jnp.array([[1.0, 0.0]])
+        R = jnp.array([[0.1]])
+        T = 8
+        dts = jnp.full(T, 0.5)
+
+        import jax.random as jr
+
+        ys = self._generate_linear_obs(jr.PRNGKey(0), A, c, GG, init_mean, H, R, dts)
+
+        ll = _run_moments_filter_via_callback(
+            linear_vector_field(n_latent=2),
+            ({"drift": A, "cint": c},),
+            GG,
+            init_mean,
+            init_cov,
+            H,
+            R,
+            ys,
+            dts,
+        )
+        assert jnp.isfinite(ll), f"linear filter log-likelihood is not finite: {ll}"
+
+    def test_filter_runs_and_returns_finite_loglik_hill(self):
+        """Non-linear (HillEdge) system: filter must complete and produce
+        a finite log-likelihood, proving the callback path handles state-
+        dependent linearization correctly inside cuthbert's scan."""
+        from nof1_causal_lab.models.ssm.dynamics import (
+            CompositeVectorField,
+            DiagonalDecay,
+            HillEdge,
+        )
+
+        vf = CompositeVectorField(
+            n_latent=2,
+            components=(DiagonalDecay(), HillEdge(source=0, target=1)),
+        )
+        vf_params = (
+            {"decay": jnp.array([0.5, 0.5])},
+            {
+                "Emax": jnp.asarray(2.0),
+                "EC50": jnp.asarray(1.0),
+                "n": jnp.asarray(2.0),
+            },
+        )
+        GG = jnp.eye(2) * 0.05
+        init_mean = jnp.array([1.0, 0.5])
+        init_cov = jnp.eye(2) * 0.5
+        H = jnp.array([[0.0, 1.0]])  # observe the Hill target
+        R = jnp.array([[0.05]])
+        T = 6
+        dts = jnp.full(T, 0.5)
+
+        import jax.random as jr
+
+        ys = (
+            jnp.array([0.6, 0.55, 0.5, 0.45, 0.42, 0.4])[:, None]
+            + jr.normal(jr.PRNGKey(1), (T, 1)) * 0.05
+        )
+
+        ll = _run_moments_filter_via_callback(
+            vf, vf_params, GG, init_mean, init_cov, H, R, ys, dts
+        )
+        assert jnp.isfinite(ll), f"Hill filter log-likelihood is not finite: {ll}"
+
+    def test_filter_matches_dense_path_for_linear(self):
+        """For a linear DenseLinear system the callback's per-step
+        linearization recovers A exactly; the marginal log-likelihood
+        must match a reference filter built directly from the
+        pre-discretized matrices."""
+        import jax.random as jr
+        from cuthbert.filtering import filter as cuthbert_filter
+        from cuthbert.gaussian.moments import build_filter
+
+        A = jnp.array([[-1.0, 0.0], [0.5, -1.5]])
+        c = jnp.zeros(2)
+        GG = jnp.eye(2) * 0.05
+        init_mean = jnp.array([0.0, 0.0])
+        init_cov = jnp.eye(2) * 0.5
+        H = jnp.array([[1.0, 0.0]])
+        R = jnp.array([[0.1]])
+        T = 6
+        dts = jnp.full(T, 0.4)
+        ys = self._generate_linear_obs(jr.PRNGKey(2), A, c, GG, init_mean, H, R, dts)
+
+        # Reference: build cuthbert filter directly with pre-discretized matrices
+        from nof1_causal_lab.models.ssm.discretization import (
+            discretize_linear_system_exact,
+        )
+
+        jitter = 1e-6
+        n = 2
+        chol_P0 = jnp.linalg.cholesky(init_cov + jitter * jnp.eye(n))
+        chol_R = jnp.linalg.cholesky(R + jitter * jnp.eye(1))
+
+        # Discretize once (time-invariant)
+        A_d, Q_d, b_d = discretize_linear_system_exact(A, GG, c, dts[0])
+        chol_Q = jnp.linalg.cholesky(Q_d + jitter * jnp.eye(n))
+
+        def _prepend_init(steps):
+            head = jnp.zeros((1, *steps.shape[1:]), dtype=steps.dtype)
+            return jnp.concatenate([head, steps], axis=0)
+
+        ref_inputs = {
+            "m0": jnp.broadcast_to(init_mean, (T + 1, n)),
+            "chol_P0": jnp.broadcast_to(chol_P0, (T + 1, n, n)),
+            "F": _prepend_init(jnp.broadcast_to(A_d, (T, n, n))),
+            "c": _prepend_init(jnp.broadcast_to(b_d, (T, n))),
+            "chol_Q": _prepend_init(jnp.broadcast_to(chol_Q, (T, n, n))),
+            "H": _prepend_init(jnp.broadcast_to(H, (T, 1, n))),
+            "d": _prepend_init(jnp.zeros((T, 1))),
+            "chol_R": _prepend_init(jnp.broadcast_to(chol_R, (T, 1, 1))),
+            "y": _prepend_init(ys),
+        }
+
+        def ref_init(mi):
+            return mi["m0"], mi["chol_P0"]
+
+        def ref_dynamics(state, mi):
+            F_t, c_t, chol_Q_t = mi["F"], mi["c"], mi["chol_Q"]
+
+            def dynamics_fn(x):
+                return F_t @ x + c_t, chol_Q_t
+
+            return dynamics_fn, state.mean
+
+        def ref_obs(state, mi):
+            H_t, d_t, chol_R_t, y_t = mi["H"], mi["d"], mi["chol_R"], mi["y"]
+
+            def obs_fn(x):
+                return H_t @ x + d_t, chol_R_t
+
+            return obs_fn, state.mean, y_t
+
+        ref_filter = build_filter(
+            get_init_params=ref_init,
+            get_dynamics_params=ref_dynamics,
+            get_observation_params=ref_obs,
+            associative=False,
+        )
+        ref_states = cuthbert_filter(ref_filter, ref_inputs)
+        ref_ll = float(ref_states.log_normalizing_constant[-1])
+
+        # New: via callback
+        new_ll = _run_moments_filter_via_callback(
+            linear_vector_field(n_latent=2),
+            ({"drift": A, "cint": c},),
+            GG,
+            init_mean,
+            init_cov,
+            H,
+            R,
+            ys,
+            dts,
+        )
+
+        assert jnp.isfinite(ref_ll), f"reference log-likelihood not finite: {ref_ll}"
+        assert jnp.isfinite(new_ll), f"callback log-likelihood not finite: {new_ll}"
+        assert new_ll == pytest.approx(ref_ll, abs=1e-4), (
+            f"callback log-likelihood {new_ll} != reference {ref_ll}"
+        )

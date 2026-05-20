@@ -35,7 +35,6 @@ from .shared import (
     GaussianTrajectoryPriorTerms,
     LinearSummaryAccumulatorPlan,
     _block_banded_logdet,
-    _build_gaussian_trajectory_prior_terms,
     _build_ieks_system_from_prior,
     _build_prior_tridiagonal_system,
     _compute_profile_lower_bandwidths,
@@ -44,8 +43,9 @@ from .shared import (
     _solve_block_banded_from_cholesky,
     _solve_block_tridiagonal,
     _step_halving_search,
-    _trajectory_prior_log_prob_from_terms,
     block_profile_logdet_packed_cotangent,
+    build_gaussian_trajectory_prior_terms,
+    trajectory_prior_log_prob_from_terms,
 )
 
 
@@ -63,7 +63,7 @@ def _row_joint_log_prob(
     obs_kernel,
 ) -> jnp.ndarray:
     """Exact latent joint log-density for per-row observation operators."""
-    return _trajectory_prior_log_prob_from_terms(latent_trajectory, Ad, cd, prior_terms) + (
+    return trajectory_prior_log_prob_from_terms(latent_trajectory, Ad, cd, prior_terms) + (
         _row_observation_log_prob(
             latent_trajectory,
             observations,
@@ -274,7 +274,7 @@ def _point_ieks_mode(
         init_mean,
         init_cov,
     )
-    prior_terms = _build_gaussian_trajectory_prior_terms(
+    prior_terms = build_gaussian_trajectory_prior_terms(
         Ad,
         Qd,
         cd_scan,
@@ -453,7 +453,7 @@ def _point_laplace_terms_from_mode(
     """Evaluate the point-observation Laplace terms at a fixed latent mode."""
     T, D = z_mode.shape
     cd_scan = cd if cd is not None else jnp.zeros((T, D), dtype=z_mode.dtype)
-    prior_terms = _build_gaussian_trajectory_prior_terms(
+    prior_terms = build_gaussian_trajectory_prior_terms(
         Ad,
         Qd,
         cd_scan,
@@ -823,7 +823,7 @@ def _point_ieks_laplace_core(
                 if cd_inner is not None
                 else jnp.zeros((z_inner.shape[0], z_inner.shape[1]), dtype=z_inner.dtype)
             )
-            prior_terms_inner = _build_gaussian_trajectory_prior_terms(
+            prior_terms_inner = build_gaussian_trajectory_prior_terms(
                 Ad_inner,
                 Qd_inner,
                 cd_scan_inner,
@@ -1098,7 +1098,7 @@ def _dense_support_laplace_log_lik(
 
     with jax.named_scope("map/dense_support_init"):
         z_init = _predictive_latent_init(Ad, cd, init_mean)
-        prior_terms = _build_gaussian_trajectory_prior_terms(
+        prior_terms = build_gaussian_trajectory_prior_terms(
             Ad,
             Qd,
             cd,
@@ -1108,7 +1108,7 @@ def _dense_support_laplace_log_lik(
 
     def _joint_log_prob(z_flat):
         z = z_flat.reshape(T, D)
-        prior_ll = _trajectory_prior_log_prob_from_terms(z, Ad, cd, prior_terms)
+        prior_ll = trajectory_prior_log_prob_from_terms(z, Ad, cd, prior_terms)
         obs_ll = trajectory_observation_log_prob(
             z,
             observations,

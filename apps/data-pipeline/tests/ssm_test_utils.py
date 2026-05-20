@@ -2,27 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
-from nof1_causal_lab.models.ssm import discretize_system
-from nof1_causal_lab.models.ssm.model import (
-    SSMSpec,
-    full_cholesky_mask,
-    full_diagonal_mask,
-    full_drift_offdiag_mask,
-    full_vector_mask,
-    strict_lower_triangle_mask,
-    zero_diagonal_mask,
-    zero_loading_mask,
-    zero_square_mask,
-    zero_vector_mask,
+from nof1_causal_lab.models.ssm import SSMModel, SSMSpec, discretize_system
+from nof1_causal_lab.models.ssm.dynamics import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+    default_input_effect_block,
+    default_manifest_chol_block,
+    default_manifest_means_block,
+    default_static_state_sd_block,
+    linear_drift_spec,
 )
 from nof1_causal_lab.models.ssm_observation_metadata import ObservationSupportRuntime
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.dynamics import CompositeSpec
 
 
 def make_lgss_data(
@@ -37,9 +40,9 @@ def make_lgss_data(
     """Build 1D linear-Gaussian SSM data plus a free-parameter SSMSpec.
 
     Returns a dict with ``observations``, ``times``, ``spec``, the true
-    parameter values (``true_drift_diag``, ``true_diff_diag``, ``true_obs_sd``),
-    and ``n_latent`` for convenience. Used by recovery checks that fit the
-    same canonical 1D model with different inference methods.
+    parameter values, and ``n_latent`` for convenience. Used by recovery
+    checks that fit the same canonical 1D model with different inference
+    methods.
     """
     n_latent, n_manifest = 1, 1
 
@@ -65,24 +68,44 @@ def make_lgss_data(
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_diag_mask=full_diagonal_mask(n_latent),
-        drift_offdiag_mask=full_drift_offdiag_mask(n_latent),
-        drift=jnp.zeros((n_latent, n_latent)),
-        cint_mask=zero_vector_mask(n_latent),
-        cint=jnp.zeros(n_latent),
-        lambda_mask=zero_loading_mask(n_manifest, n_latent),
-        lambda_mat=jnp.eye(n_manifest, n_latent),
-        diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
-        diffusion_chol=jnp.eye(n_latent),
-        manifest_means_mask=zero_vector_mask(n_manifest),
-        manifest_means=jnp.zeros(n_manifest),
-        manifest_chol_diag_mask=full_diagonal_mask(n_manifest),
-        manifest_chol=jnp.zeros((n_manifest, n_manifest)),
-        t0_means_mask=zero_vector_mask(n_latent),
-        t0_means=jnp.zeros(n_latent),
-        t0_chol_diag_mask=zero_diagonal_mask(n_latent),
-        t0_correlation_mask=zero_square_mask(n_latent),
-        t0_chol=jnp.eye(n_latent),
+        drift_spec=linear_drift_spec(
+            n_latent=n_latent,
+            drift_diag_mask=np.ones(n_latent, dtype=bool),
+            drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
+            drift_template=jnp.zeros((n_latent, n_latent)),
+            cint_mask=np.zeros(n_latent, dtype=bool),
+            cint_template=jnp.zeros(n_latent),
+        ),
+        diffusion_block=DiffusionBlockSpec(
+            n_latent=n_latent,
+            diffusion_chol_mask=np.diag(np.ones(n_latent, dtype=bool)),
+            diffusion_chol_template=jnp.eye(n_latent),
+        ),
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=n_manifest,
+            n_cols=n_latent,
+            mask=np.zeros((n_manifest, n_latent), dtype=bool),
+            template=jnp.eye(n_manifest, n_latent),
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        ),
+        manifest_means_block=default_manifest_means_block(n_manifest),
+        manifest_chol_block=default_manifest_chol_block(n_manifest),
+        t0_means_block=SparseVectorBlockSpec(
+            n=n_latent,
+            mask=np.zeros(n_latent, dtype=bool),
+            template=jnp.zeros(n_latent),
+            free_site_name="t0_means_free",
+            det_site_name="t0_means",
+        ),
+        t0_chol_block=T0CholBlockSpec(
+            n_latent=n_latent,
+            diag_mask=np.zeros(n_latent, dtype=bool),
+            correlation_mask=np.zeros((n_latent, n_latent), dtype=bool),
+            template=jnp.eye(n_latent),
+        ),
+        input_effect_block=default_input_effect_block(n_latent),
+        static_state_sd_block=default_static_state_sd_block(),
     )
 
     return {
@@ -98,7 +121,7 @@ def make_lgss_data(
 
 def full_drift_mask(n_latent: int) -> np.ndarray:
     """Return the fully free combined drift support mask used by tests."""
-    return np.eye(n_latent, dtype=bool) | full_drift_offdiag_mask(n_latent)
+    return np.ones((n_latent, n_latent), dtype=bool)
 
 
 def split_drift_mask(drift_mask: np.ndarray, n_latent: int) -> tuple[np.ndarray, np.ndarray]:
@@ -114,68 +137,143 @@ def split_drift_mask(drift_mask: np.ndarray, n_latent: int) -> tuple[np.ndarray,
 
 def combined_drift_mask(spec: SSMSpec) -> np.ndarray:
     """Recover the combined drift support matrix from a compiled spec."""
-    mask = np.asarray(spec.drift_offdiag_mask, dtype=bool).copy()
-    np.fill_diagonal(mask, np.asarray(spec.drift_diag_mask, dtype=bool))
+    drift_component, _ = spec.structural_drift_components()
+    mask = np.asarray(drift_component.drift_offdiag_mask, dtype=bool).copy()
+    np.fill_diagonal(mask, np.asarray(drift_component.drift_diag_mask, dtype=bool))
     return mask
 
 
-def make_ssm_spec(**kwargs: Any) -> SSMSpec:
-    """Build an SSMSpec with explicit default structural masks."""
-    kwargs = dict(kwargs)
-    n_latent = kwargs["n_latent"]
-    n_manifest = kwargs["n_manifest"]
-    drift_mask_present = "drift_mask" in kwargs
-    drift_mask = kwargs.pop("drift_mask", None)
-    if drift_mask_present and drift_mask is None:
-        kwargs.setdefault("drift_diag_mask", None)
-        kwargs.setdefault("drift_offdiag_mask", None)
-    elif drift_mask is not None:
-        drift_diag_mask, drift_offdiag_mask = split_drift_mask(drift_mask, n_latent)
-        kwargs.setdefault("drift_diag_mask", drift_diag_mask)
-        kwargs.setdefault("drift_offdiag_mask", drift_offdiag_mask)
-    elif "drift_diag_mask" not in kwargs and "drift_offdiag_mask" not in kwargs:
-        if "drift" in kwargs:
-            kwargs.setdefault("drift_diag_mask", zero_diagonal_mask(n_latent))
-            kwargs.setdefault("drift_offdiag_mask", zero_square_mask(n_latent))
-        else:
-            kwargs.setdefault("drift_diag_mask", full_diagonal_mask(n_latent))
-            kwargs.setdefault("drift_offdiag_mask", full_drift_offdiag_mask(n_latent))
-    if "drift" not in kwargs:
-        kwargs.setdefault("drift", jnp.zeros((n_latent, n_latent)))
-    kwargs.setdefault("cint_mask", zero_vector_mask(n_latent))
-    kwargs.setdefault("cint", jnp.zeros(n_latent))
-    kwargs.setdefault("lambda_mask", zero_loading_mask(n_manifest, n_latent))
-    kwargs.setdefault("lambda_mat", jnp.eye(n_manifest, n_latent))
-    if "diffusion_mask" in kwargs:
-        diffusion_mask = kwargs.pop("diffusion_mask")
-        kwargs.setdefault("diffusion_chol_mask", diffusion_mask)
-    kwargs.setdefault("diffusion_chol_mask", full_cholesky_mask(n_latent))
-    if "diffusion" in kwargs:
-        diffusion = kwargs.pop("diffusion")
-        kwargs.setdefault("diffusion_chol", diffusion)
-    kwargs.setdefault("diffusion_chol", jnp.eye(n_latent))
-    kwargs.setdefault("manifest_means_mask", zero_vector_mask(n_manifest))
-    kwargs.setdefault("manifest_means", jnp.zeros(n_manifest))
-    if "manifest_var_mask" in kwargs:
-        manifest_var_mask = kwargs.pop("manifest_var_mask")
-        kwargs.setdefault("manifest_chol_diag_mask", manifest_var_mask)
-    kwargs.setdefault("manifest_chol_diag_mask", full_diagonal_mask(n_manifest))
-    if "manifest_var" in kwargs:
-        manifest_var = kwargs.pop("manifest_var")
-        kwargs.setdefault("manifest_chol", manifest_var)
-    kwargs.setdefault("manifest_chol", jnp.zeros((n_manifest, n_manifest)))
-    kwargs.setdefault("t0_means_mask", full_vector_mask(n_latent))
-    kwargs.setdefault("t0_means", jnp.zeros(n_latent))
-    if "t0_var_diag_mask" in kwargs:
-        t0_var_diag_mask = kwargs.pop("t0_var_diag_mask")
-        kwargs.setdefault("t0_chol_diag_mask", t0_var_diag_mask)
-    kwargs.setdefault("t0_chol_diag_mask", full_diagonal_mask(n_latent))
-    kwargs.setdefault("t0_correlation_mask", strict_lower_triangle_mask(n_latent))
-    if "t0_var" in kwargs:
-        t0_var = kwargs.pop("t0_var")
-        kwargs.setdefault("t0_chol", t0_var)
-    kwargs.setdefault("t0_chol", jnp.eye(n_latent))
-    return SSMSpec(**kwargs)
+def linear_drift_spec_from_combined_mask(
+    n_latent: int,
+    *,
+    drift_mask: np.ndarray | None = None,
+    drift_template: jnp.ndarray | None = None,
+    cint_mask: np.ndarray | None = None,
+    cint_template: jnp.ndarray | None = None,
+    time_invariant_mask: np.ndarray | None = None,
+    stability_margin: float = 0.05,
+) -> CompositeSpec:
+    """Build linear_drift_spec from a single combined drift mask.
+
+    Tests that historically used ``drift_mask`` (combined diag+offdiag matrix)
+    call this directly. ``drift_mask=None`` defaults to fully free.
+    """
+    if drift_mask is None:
+        drift_mask = full_drift_mask(n_latent)
+    drift_diag, drift_offdiag = split_drift_mask(drift_mask, n_latent)
+    return linear_drift_spec(
+        n_latent=n_latent,
+        drift_diag_mask=drift_diag,
+        drift_offdiag_mask=drift_offdiag,
+        drift_template=(
+            jnp.asarray(drift_template)
+            if drift_template is not None
+            else jnp.zeros((n_latent, n_latent))
+        ),
+        cint_mask=(
+            np.asarray(cint_mask, dtype=bool)
+            if cint_mask is not None
+            else np.zeros(n_latent, dtype=bool)
+        ),
+        cint_template=(
+            jnp.asarray(cint_template) if cint_template is not None else jnp.zeros(n_latent)
+        ),
+        time_invariant_mask=time_invariant_mask,
+        stability_margin=stability_margin,
+    )
+
+
+def diagonal_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
+    """Diagonal-only diffusion: only diagonal entries free, identity template."""
+    return DiffusionBlockSpec(
+        n_latent=n_latent,
+        diffusion_chol_mask=np.diag(np.ones(n_latent, dtype=bool)),
+        diffusion_chol_template=jnp.eye(n_latent),
+    )
+
+
+def make_composite_ssm_model(
+    drift_spec: CompositeSpec,
+    *,
+    n_latent: int,
+    n_manifest: int,
+    H: jnp.ndarray,
+    d_meas: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    diffusion_cov: jnp.ndarray,
+    R: jnp.ndarray,
+    manifest_dists: list | None = None,
+    manifest_links: list | None = None,
+) -> SSMModel:
+    """Wrap a ``CompositeSpec`` plus runtime hyperparams into an ``SSMModel``.
+
+    Cholesky-factors the covariance arrays into the templates the
+    corresponding block-specs require. The non-drift blocks are fully
+    fixed (zero masks) since this helper exists for composite tests
+    that condition on these values rather than sample them.
+    """
+    init_cov = jnp.asarray(init_cov)
+    diffusion_cov = jnp.asarray(diffusion_cov)
+    R = jnp.asarray(R)
+
+    t0_chol = jnp.linalg.cholesky(init_cov)
+    diffusion_chol = jnp.linalg.cholesky(diffusion_cov)
+    manifest_chol = jnp.linalg.cholesky(R)
+
+    extra: dict[str, Any] = {}
+    if manifest_dists is not None:
+        extra["manifest_dists"] = manifest_dists
+    if manifest_links is not None:
+        extra["manifest_links"] = manifest_links
+
+    spec = SSMSpec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_spec=drift_spec,
+        diffusion_block=DiffusionBlockSpec(
+            n_latent=n_latent,
+            diffusion_chol_mask=np.tri(n_latent, dtype=bool),
+            diffusion_chol_template=diffusion_chol,
+        ),
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=n_manifest,
+            n_cols=n_latent,
+            mask=np.zeros((n_manifest, n_latent), dtype=bool),
+            template=jnp.asarray(H),
+            free_site_name="lambda_free",
+            det_site_name="lambda",
+        ),
+        manifest_means_block=SparseVectorBlockSpec(
+            n=n_manifest,
+            mask=np.zeros(n_manifest, dtype=bool),
+            template=jnp.asarray(d_meas),
+            free_site_name="manifest_means_free",
+            det_site_name="manifest_means",
+        ),
+        manifest_chol_block=ManifestCholBlockSpec(
+            n_manifest=n_manifest,
+            diag_mask=np.ones(n_manifest, dtype=bool),
+            template=manifest_chol,
+        ),
+        t0_means_block=SparseVectorBlockSpec(
+            n=n_latent,
+            mask=np.ones(n_latent, dtype=bool),
+            template=jnp.asarray(init_mean),
+            free_site_name="t0_means_free",
+            det_site_name="t0_means",
+        ),
+        t0_chol_block=T0CholBlockSpec(
+            n_latent=n_latent,
+            diag_mask=np.ones(n_latent, dtype=bool),
+            correlation_mask=np.tri(n_latent, k=-1, dtype=bool),
+            template=t0_chol,
+        ),
+        input_effect_block=default_input_effect_block(n_latent),
+        static_state_sd_block=default_static_state_sd_block(),
+        **extra,
+    )
+    return SSMModel(spec)
 
 
 def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime:
@@ -208,13 +306,6 @@ def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime
         emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
     kwargs["emission_slot_indices"] = emission_slots
     return ObservationSupportRuntime(**kwargs)
-
-
-def diagonal_diffusion_kwargs(n_latent: int) -> dict[str, Any]:
-    return {
-        "diffusion_chol": jnp.eye(n_latent),
-        "diffusion_chol_mask": np.diag(full_diagonal_mask(n_latent)),
-    }
 
 
 def assert_recovery_ci(

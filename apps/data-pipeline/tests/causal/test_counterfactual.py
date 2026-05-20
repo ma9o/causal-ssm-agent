@@ -11,24 +11,26 @@ import jax.numpy as jnp
 import pytest
 
 from nof1_causal_lab.models.ssm.counterfactual import (
+    approximate_abducted_state,
+    build_time_grid,
+    compute_interventions,
+    linear_vector_field,
+    resolve_action_value,
+    summarize_draws,
+    summarize_temporal_effect,
+    vmap_steady_state_effect,
+)
+from nof1_causal_lab.models.ssm.dynamics import (
     EdgeInputOverride,
     Intervention,
     SimulationConfig,
     VariableOverride,
     VectorFieldArgs,
-    approximate_abducted_state,
-    build_time_grid,
-    compute_interventions,
     compute_steady_state,
     constant_value,
     linear_ramp,
-    linear_vector_field,
-    resolve_action_value,
     simulate,
     simulate_pair,
-    summarize_draws,
-    summarize_temporal_effect,
-    vmap_steady_state_effect,
 )
 
 # =============================================================================

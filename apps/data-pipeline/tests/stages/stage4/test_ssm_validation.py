@@ -1,5 +1,18 @@
 """Stage 4 assembly, prior predictive, and SSM compilation tests."""
 
+from nof1_causal_lab.models.ssm import SSMSpec
+from nof1_causal_lab.models.ssm.dynamics import (
+    default_diffusion_block,
+    default_input_effect_block,
+    default_lambda_block,
+    default_linear_drift_spec,
+    default_manifest_chol_block,
+    default_manifest_means_block,
+    default_static_state_sd_block,
+    default_t0_chol_block,
+    default_t0_means_block,
+)
+from tests.ssm_test_utils import linear_drift_spec_from_combined_mask
 from tests.stages.stage4._support import (
     Any,
     GenerateConfig,
@@ -12,12 +25,39 @@ from tests.stages.stage4._support import (
     compile_ssm_inputs_from_model_spec,
     compile_ssm_priors,
     get_failed_parameters,
-    make_ssm_spec,
     np,
     patch,
     pytest,
     validate_prior_predictive,
 )
+
+
+def _default_ssm_spec(
+    *,
+    n_latent: int,
+    n_manifest: int,
+    latent_names: list[str] | None = None,
+    drift_mask=None,
+) -> SSMSpec:
+    """Build a SSMSpec with all default blocks plus optional drift mask + names."""
+    if drift_mask is not None:
+        drift_spec = linear_drift_spec_from_combined_mask(n_latent, drift_mask=drift_mask)
+    else:
+        drift_spec = default_linear_drift_spec(n_latent)
+    return SSMSpec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_spec=drift_spec,
+        diffusion_block=default_diffusion_block(n_latent),
+        lambda_block=default_lambda_block(n_manifest, n_latent),
+        manifest_means_block=default_manifest_means_block(n_manifest),
+        manifest_chol_block=default_manifest_chol_block(n_manifest),
+        t0_means_block=default_t0_means_block(n_latent),
+        t0_chol_block=default_t0_chol_block(n_latent),
+        input_effect_block=default_input_effect_block(n_latent),
+        static_state_sd_block=default_static_state_sd_block(),
+        latent_names=latent_names,
+    )
 
 
 def _require_text(value: str | None) -> str:
@@ -63,7 +103,10 @@ class TestSSMModelBuilder:
         assert model.spec.n_manifest == 1  # mood_score only
         assert model.spec.n_latent >= 1
         # Lambda should map latent to manifest
-        assert model.spec.lambda_mat.shape == (model.spec.n_manifest, model.spec.n_latent)
+        assert model.spec.lambda_block.template.shape == (
+            model.spec.n_manifest,
+            model.spec.n_latent,
+        )
 
 
 # --- Prior Predictive Validation Tests ---
@@ -765,7 +808,7 @@ class TestSSMPriorConversion:
                 "reasoning": "test",
             },
         }
-        ssm_spec = make_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
+        ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             simple_model_spec,
@@ -870,7 +913,7 @@ class TestSSMPriorConversion:
                 "params": {"mu": 0.0, "sigma": 1.0},
             },
         }
-        ssm_spec = make_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
+        ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
 
         with pytest.raises(ValueError, match="Prior compilation failed") as exc_info:
             compile_ssm_priors(priors, model_spec, ssm_spec=ssm_spec)
@@ -1035,7 +1078,9 @@ class TestSSMPriorConversion:
             "rho_mood": {"distribution": "Beta", "params": {"alpha": 5.0, "beta": 2.0}},
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 5.0}},
         }
-        ssm_spec = make_ssm_spec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
+        ssm_spec = _default_ssm_spec(
+            n_latent=2, n_manifest=2, latent_names=["mood", "stress"]
+        )
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
@@ -1090,7 +1135,9 @@ class TestSSMPriorConversion:
                 "measurement": {"model_clock": "1h", "indicators": []},
             }
         )
-        ssm_spec = make_ssm_spec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
+        ssm_spec = _default_ssm_spec(
+            n_latent=1, n_manifest=1, latent_names=["heart_rate"]
+        )
         ssm_priors, _idx, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
@@ -1153,7 +1200,7 @@ class TestSSMPriorConversion:
         }
         # drift_mask enables off-diagonal at [mood, stress] position
         drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = make_ssm_spec(
+        ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
@@ -1215,7 +1262,7 @@ class TestSSMPriorConversion:
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
             "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.15}},
         }
-        ssm_spec = make_ssm_spec(
+        ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
@@ -1280,7 +1327,7 @@ class TestSSMPriorConversion:
                 ],
             },
         }
-        ssm_spec = make_ssm_spec(
+        ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
@@ -1344,7 +1391,7 @@ class TestSSMPriorConversion:
                 ],
             },
         }
-        ssm_spec = make_ssm_spec(
+        ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
@@ -1429,7 +1476,7 @@ class TestSSMPriorConversion:
             }
         )
         drift_mask = np.array([[True, True], [False, True]])
-        ssm_spec = make_ssm_spec(
+        ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["heart_rate", "activity"],

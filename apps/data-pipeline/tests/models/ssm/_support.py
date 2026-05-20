@@ -8,19 +8,25 @@ Imported from both fast (``tests/models/ssm/``) and slow
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import jax.numpy as jnp
 import jax.random as random
+import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from tests.ssm_test_utils import make_ssm_spec
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMSpec
+from nof1_causal_lab.models.ssm import SSMSpec
+from nof1_causal_lab.models.ssm.dynamics import (
+    DiffusionBlockSpec,
+    ManifestCholBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+    default_input_effect_block,
+    default_static_state_sd_block,
+    linear_drift_spec,
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTOREPARAM
@@ -191,45 +197,98 @@ def make_complex_mixed_samples(
 
 
 def complex_mixed_runtime_spec() -> SSMSpec:
-    return make_ssm_spec(
-        n_latent=4,
-        n_manifest=10,
-        drift=jnp.array(
-            [
-                [-0.45, 0.0, 0.0, 0.0],
-                [0.08, -0.35, 0.0, 0.0],
-                [0.02, 0.06, -0.4, 0.0],
-                [0.0, 0.03, 0.05, -0.3],
-            ],
+    n_latent = 4
+    n_manifest = 10
+    drift_template = jnp.array(
+        [
+            [-0.45, 0.0, 0.0, 0.0],
+            [0.08, -0.35, 0.0, 0.0],
+            [0.02, 0.06, -0.4, 0.0],
+            [0.0, 0.03, 0.05, -0.3],
+        ],
+        dtype=jnp.float32,
+    )
+    lambda_template = jnp.array(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.3, 0.4, 0.0, 0.0],
+            [0.0, 0.8, 0.0, 0.0],
+            [0.2, 0.6, 0.0, 0.0],
+            [0.0, 0.0, 0.9, 0.0],
+            [0.0, 0.0, 0.5, 0.3],
+            [0.0, 0.0, 0.7, 0.0],
+            [0.0, 0.2, 0.5, 0.0],
+            [0.0, 0.0, 0.0, 0.9],
+            [0.1, 0.0, 0.2, 0.8],
+        ],
+        dtype=jnp.float32,
+    )
+    manifest_means_template = jnp.array(
+        [0.0, -0.3, 0.4, 0.0, -0.2, 0.0, 0.0, 0.1, 0.2, -0.1],
+        dtype=jnp.float32,
+    )
+    manifest_chol_template = jnp.diag(
+        jnp.array(
+            [0.12, 0.08, 0.1, 0.18, 0.1, 0.05, 0.08, 0.08, 0.11, 0.12],
             dtype=jnp.float32,
+        )
+        ** 2
+    )
+    t0_chol_template = jnp.eye(n_latent, dtype=jnp.float32) * 0.25
+    diffusion_template = jnp.diag(
+        jnp.array([0.2, 0.18, 0.16, 0.14], dtype=jnp.float32)
+    )
+    return SSMSpec(
+        n_latent=n_latent,
+        n_manifest=n_manifest,
+        drift_spec=linear_drift_spec(
+            n_latent=n_latent,
+            drift_diag_mask=np.zeros(n_latent, dtype=bool),
+            drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
+            drift_template=drift_template,
+            cint_mask=np.zeros(n_latent, dtype=bool),
+            cint_template=jnp.zeros(n_latent, dtype=jnp.float32),
         ),
-        diffusion=jnp.diag(jnp.array([0.2, 0.18, 0.16, 0.14], dtype=jnp.float32)),
-        cint=jnp.zeros(4, dtype=jnp.float32),
-        lambda_mat=jnp.array(
-            [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.3, 0.4, 0.0, 0.0],
-                [0.0, 0.8, 0.0, 0.0],
-                [0.2, 0.6, 0.0, 0.0],
-                [0.0, 0.0, 0.9, 0.0],
-                [0.0, 0.0, 0.5, 0.3],
-                [0.0, 0.0, 0.7, 0.0],
-                [0.0, 0.2, 0.5, 0.0],
-                [0.0, 0.0, 0.0, 0.9],
-                [0.1, 0.0, 0.2, 0.8],
-            ],
-            dtype=jnp.float32,
+        diffusion_block=DiffusionBlockSpec(
+            n_latent=n_latent,
+            diffusion_chol_mask=np.tri(n_latent, dtype=bool),
+            diffusion_chol_template=diffusion_template,
         ),
-        manifest_means=jnp.array(
-            [0.0, -0.3, 0.4, 0.0, -0.2, 0.0, 0.0, 0.1, 0.2, -0.1],
-            dtype=jnp.float32,
+        lambda_block=SparseMatrixBlockSpec(
+            n_rows=n_manifest,
+            n_cols=n_latent,
+            mask=np.zeros((n_manifest, n_latent), dtype=bool),
+            template=lambda_template,
+            free_site_name="lambda_free",
+            det_site_name="lambda",
         ),
-        manifest_var=jnp.diag(
-            jnp.array([0.12, 0.08, 0.1, 0.18, 0.1, 0.05, 0.08, 0.08, 0.11, 0.12], dtype=jnp.float32)
-            ** 2
+        manifest_means_block=SparseVectorBlockSpec(
+            n=n_manifest,
+            mask=np.zeros(n_manifest, dtype=bool),
+            template=manifest_means_template,
+            free_site_name="manifest_means_free",
+            det_site_name="manifest_means",
         ),
-        t0_means=jnp.zeros(4, dtype=jnp.float32),
-        t0_var=jnp.eye(4, dtype=jnp.float32) * 0.25,
+        manifest_chol_block=ManifestCholBlockSpec(
+            n_manifest=n_manifest,
+            diag_mask=np.ones(n_manifest, dtype=bool),
+            template=manifest_chol_template,
+        ),
+        t0_means_block=SparseVectorBlockSpec(
+            n=n_latent,
+            mask=np.ones(n_latent, dtype=bool),
+            template=jnp.zeros(n_latent, dtype=jnp.float32),
+            free_site_name="t0_means_free",
+            det_site_name="t0_means",
+        ),
+        t0_chol_block=T0CholBlockSpec(
+            n_latent=n_latent,
+            diag_mask=np.ones(n_latent, dtype=bool),
+            correlation_mask=np.tri(n_latent, k=-1, dtype=bool),
+            template=t0_chol_template,
+        ),
+        input_effect_block=default_input_effect_block(n_latent),
+        static_state_sd_block=default_static_state_sd_block(),
         manifest_dists=[
             DistributionFamily.GAUSSIAN,
             DistributionFamily.BERNOULLI,
