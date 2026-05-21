@@ -12,11 +12,6 @@ from nof1_causal_lab.models.ssm.discretization import (
     discretize_at_states_batched,
     discretize_system_with_inputs_batched,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    CompositeSpec,
-    DiagonalDecaySpec,
-    HillEdgeSpec,
-)
 from nof1_causal_lab.models.ssm.dynamics.edges import (
     DenseLinear,
     DiagonalDecay,
@@ -27,14 +22,20 @@ from nof1_causal_lab.models.ssm.dynamics.edges import (
     StateIntercept,
 )
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
+from nof1_causal_lab.models.ssm.dynamics.spec import (
+    DiagonalDecaySpec,
+    DynamicsSpec,
+    HillEdgeSpec,
+)
 from nof1_causal_lab.models.ssm.dynamics.vector_field import (
-    CompositeVectorField,
+    VectorField,
     VectorFieldArgs,
 )
 from nof1_causal_lab.models.ssm.inference.methods.map import _build_map_laplace_bundle
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
+    LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
     InitialStateParams,
     MeasurementParams,
     RuntimeDynamics,
@@ -70,7 +71,7 @@ def _constant_runtime_dynamics(
     )
     cint = jnp.array([0.03, -0.04, 0.02], dtype=jnp.float32)
     return RuntimeDynamics(
-        vector_field=CompositeVectorField(
+        vector_field=VectorField(
             n_latent=3,
             components=(
                 DenseLinear(),
@@ -96,7 +97,7 @@ def _constant_runtime_dynamics(
 
 def _trajectory_runtime_dynamics() -> RuntimeDynamics:
     return RuntimeDynamics(
-        vector_field=CompositeVectorField(
+        vector_field=VectorField(
             n_latent=2,
             components=(
                 DiagonalDecay(),
@@ -132,34 +133,61 @@ def _interval_mean_support_runtime() -> ObservationSupportRuntime:
     )
 
 
+def _long_interval_mean_support_runtime(n_time: int) -> ObservationSupportRuntime:
+    anchor_times = np.arange(n_time, dtype=np.float64)
+    support_start = np.full((n_time, 1), np.nan, dtype=np.float64)
+    support_end = np.full((n_time, 1), np.nan, dtype=np.float64)
+    interval_prev = np.zeros((n_time, 1, 1), dtype=np.float64)
+    interval_curr = np.zeros((n_time, 1, 1), dtype=np.float64)
+    interval_weights = np.zeros((n_time, 1, 1), dtype=np.float64)
+    emission_slots = np.full((n_time, 1), -1, dtype=np.int64)
+    support_start[1:, 0] = anchor_times[:-1]
+    support_end[1:, 0] = anchor_times[1:]
+    interval_prev[1:, 0, 0] = 0.5
+    interval_curr[1:, 0, 0] = 0.5
+    interval_weights[1:, 0, 0] = 1.0
+    emission_slots[1:, 0] = 0
+    return ObservationSupportRuntime(
+        anchor_times=anchor_times,
+        manifest_names=["mean_signal"],
+        support_kinds=["interval"],
+        summary_operators=["mean"],
+        anchor_policies=["support_end"],
+        observation_windows=["previous_interval"],
+        support_start_times=support_start,
+        support_end_times=support_end,
+        interval_prev_coeffs=interval_prev,
+        interval_curr_coeffs=interval_curr,
+        interval_weights=interval_weights,
+        emission_slot_indices=emission_slots,
+    )
+
+
 def _nonlinear_point_ssm_spec() -> SSMSpec:
     n_latent = 2
     n_manifest = 1
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=CompositeSpec(
+        dynamics_spec=DynamicsSpec(
             n_latent=n_latent,
             components=(
-                DiagonalDecaySpec(decay_prior=None),
+                DiagonalDecaySpec(),
                 HillEdgeSpec(
                     source=0,
                     target=1,
-                    emax_prior=None,
-                    ec50_prior=None,
-                    n_prior=None,
                 ),
             ),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
-            diffusion_chol_mask=np.zeros((n_latent, n_latent), dtype=bool),
+            diffusion_chol_support=np.zeros((n_latent, n_latent), dtype=bool),
             diffusion_chol_template=jnp.diag(jnp.array([0.22, 0.26], dtype=jnp.float32)),
         ),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=n_manifest,
             n_cols=n_latent,
-            mask=np.zeros((n_manifest, n_latent), dtype=bool),
+            free_support=np.zeros((n_manifest, n_latent), dtype=bool),
             template=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -171,7 +199,7 @@ def _nonlinear_point_ssm_spec() -> SSMSpec:
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
-            mask=np.zeros(n_manifest, dtype=bool),
+            free_support=np.zeros(n_manifest, dtype=bool),
             template=jnp.array([0.05], dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -183,12 +211,12 @@ def _nonlinear_point_ssm_spec() -> SSMSpec:
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
-            diag_mask=np.zeros(n_manifest, dtype=bool),
+            diag_support=np.zeros(n_manifest, dtype=bool),
             template=jnp.array([[0.45]], dtype=jnp.float32),
         ),
         t0_means_block=SparseVectorBlockSpec(
             n=n_latent,
-            mask=np.zeros(n_latent, dtype=bool),
+            free_support=np.zeros(n_latent, dtype=bool),
             template=jnp.array([0.20, -0.10], dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -200,14 +228,14 @@ def _nonlinear_point_ssm_spec() -> SSMSpec:
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
-            diag_mask=np.zeros(n_latent, dtype=bool),
-            correlation_mask=np.zeros((n_latent, n_latent), dtype=bool),
+            diag_support=np.zeros(n_latent, dtype=bool),
+            correlation_support=np.zeros((n_latent, n_latent), dtype=bool),
             template=jnp.diag(jnp.array([0.55, 0.65], dtype=jnp.float32)),
         ),
         input_effect_block=SparseMatrixBlockSpec(
             n_rows=n_latent,
             n_cols=0,
-            mask=np.zeros((n_latent, 0), dtype=bool),
+            free_support=np.zeros((n_latent, 0), dtype=bool),
             template=jnp.zeros((n_latent, 0), dtype=jnp.float32),
             free_site_name="input_effect_free",
             det_site_name="input_effect",
@@ -219,7 +247,7 @@ def _nonlinear_point_ssm_spec() -> SSMSpec:
         ),
         static_state_sd_block=SparseVectorBlockSpec(
             n=0,
-            mask=np.zeros(0, dtype=bool),
+            free_support=np.zeros(0, dtype=bool),
             template=jnp.zeros(0, dtype=jnp.float32),
             free_site_name="static_state_sd_free",
             det_site_name="static_state_sds",
@@ -529,6 +557,58 @@ def test_laplace_interval_support_differentiates_trajectory_dependent_dynamics_d
     grad = jax.grad(_objective)(jnp.array(0.80, dtype=jnp.float32))
 
     assert bool(jnp.isfinite(grad))
+
+
+def test_laplace_interval_support_uses_banded_dynamic_path_for_large_problem():
+    base_dynamics = _trajectory_runtime_dynamics()
+    n_time = 81
+    backend = LaplaceLikelihood(
+        n_latent=2,
+        n_manifest=1,
+        manifest_dists=[DistributionFamily.GAUSSIAN],
+        manifest_links=[LinkFunction.IDENTITY],
+        n_ieks_iters=1,
+        observation_support=_long_interval_mean_support_runtime(n_time),
+    )
+    measurement_params = MeasurementParams(
+        lambda_mat=jnp.array([[1.0, 0.25]], dtype=jnp.float32),
+        manifest_means=jnp.array([0.05], dtype=jnp.float32),
+        manifest_cov=jnp.array([[0.20]], dtype=jnp.float32),
+    )
+    initial_state = InitialStateParams(
+        mean=jnp.array([0.20, -0.10], dtype=jnp.float32),
+        cov=jnp.diag(jnp.array([0.30, 0.40], dtype=jnp.float32)),
+    )
+    observations = jnp.linspace(0.05, 0.25, n_time, dtype=jnp.float32)[:, None]
+    observations = observations.at[0, 0].set(jnp.nan)
+    time_intervals = jnp.ones((n_time,), dtype=jnp.float32).at[0].set(0.01)
+
+    log_lik, aux = backend.compute_log_likelihood_with_aux(
+        base_dynamics,
+        measurement_params,
+        initial_state,
+        observations,
+        time_intervals,
+    )
+
+    def _objective(emax: jnp.ndarray) -> jnp.ndarray:
+        hill_params = dict(base_dynamics.vf_params[1])
+        hill_params["Emax"] = emax
+        dynamics = base_dynamics._replace(vf_params=(base_dynamics.vf_params[0], hill_params))
+        return backend.compute_log_likelihood(
+            dynamics,
+            measurement_params,
+            initial_state,
+            observations,
+            time_intervals,
+        )
+
+    grad = jax.grad(_objective)(jnp.array(0.80, dtype=jnp.float32))
+
+    assert bool(jnp.isfinite(log_lik))
+    assert bool(jnp.isfinite(grad))
+    assert aux["latent_mode"].shape == (n_time, 2)
+    assert int(aux["solver_kind"]) == LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS
 
 
 def test_ssm_model_laplace_path_accepts_nonlinear_point_dynamics():

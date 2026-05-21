@@ -26,9 +26,8 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stabilize_covariance_for_cholesky,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    compile_composite,
-    pack_component_params_from_samples,
+from nof1_causal_lab.models.ssm.dynamics.runtime import (
+    build_vector_field_runtime_from_samples,
 )
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     InitialStateParams,
@@ -345,12 +344,11 @@ def _deterministics_to_likelihood_inputs(
 ) -> tuple[RuntimeDynamics, MeasurementParams, InitialStateParams]:
     """Convert one deterministic draw into backend parameter dataclasses."""
     diffusion_chol = det["diffusion"]
-    compiled = compile_composite(spec.dynamics_spec)
-    vf_params = pack_component_params_from_samples(spec.dynamics_spec, samples, det)
+    vf_runtime = build_vector_field_runtime_from_samples(spec, samples, det)
     return (
         RuntimeDynamics(
-            vector_field=compiled.vector_field,
-            vf_params=vf_params,
+            vector_field=vf_runtime.vector_field,
+            vf_params=vf_runtime.vf_params,
             diffusion_cov=diffusion_chol @ diffusion_chol.T,
             input_effect=det.get("input_effect"),
         ),

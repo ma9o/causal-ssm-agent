@@ -25,6 +25,7 @@ class AuxKalmanMCMCState(NamedTuple):
     position: jnp.ndarray
     latent_context: Any
     latent_trajectory: jnp.ndarray
+    observation_auxiliary: Any
     trajectory_log_prob: jnp.ndarray
     complete_log_posterior: jnp.ndarray
     latent_delta: jnp.ndarray
@@ -210,6 +211,8 @@ class _AuxKalmanMCMCRunnerStatic:
     project_latent_trajectory_fn: Any
     latent_context_runtime_fn: Any
     initial_latent_from_context_fn: Any
+    initial_observation_auxiliary_from_context_runtime_fn: Any
+    refresh_observation_auxiliary_from_context_runtime_fn: Any
     complete_log_posterior_from_context_runtime_fn: Any
     log_prior_unc_fn: Any
     prior_terms_from_context_fn: Any
@@ -294,10 +297,16 @@ def _initialize_aux_kalman_mcmc_chain_state(
                 "initial_latent_trajectory shape must match the model latent trajectory; "
                 f"got {init_latent.shape}, expected {predictive_latent.shape}."
             )
+    init_observation_auxiliary = static.initial_observation_auxiliary_from_context_runtime_fn(
+        init_context,
+        init_latent,
+        observations,
+    )
     init_complete, init_traj = static.complete_log_posterior_from_context_runtime_fn(
         init_position,
         init_context,
         init_latent,
+        init_observation_auxiliary,
         observations,
     )
     scale_dtype = init_latent.dtype
@@ -320,6 +329,7 @@ def _initialize_aux_kalman_mcmc_chain_state(
         position=init_position,
         latent_context=init_context,
         latent_trajectory=init_latent,
+        observation_auxiliary=init_observation_auxiliary,
         trajectory_log_prob=init_traj,
         complete_log_posterior=init_complete,
         latent_delta=init_latent_delta,
@@ -343,6 +353,39 @@ def _project_public_latent_batch(
     project_latent_trajectory_fn,
 ) -> jnp.ndarray:
     return jax.vmap(project_latent_trajectory_fn)(latent_trajectories)
+
+
+@functools.partial(jax.jit, static_argnames=("static",))
+def _run_batched_observation_auxiliary_step(
+    states: AuxKalmanMCMCState,
+    step_keys: jnp.ndarray,
+    observations: jnp.ndarray,
+    *,
+    static: _AuxKalmanMCMCRunnerStatic,
+) -> tuple[AuxKalmanMCMCState, dict[str, jnp.ndarray]]:
+    def step_fn(state, key):
+        observation_auxiliary = static.refresh_observation_auxiliary_from_context_runtime_fn(
+            state.latent_context,
+            state.latent_trajectory,
+            state.observation_auxiliary,
+            observations,
+            key,
+        )
+        trajectory_lp = static.trajectory_log_prob_from_context_runtime_fn(
+            state.latent_context,
+            state.latent_trajectory,
+            observation_auxiliary,
+            observations,
+        )
+        complete_lp = static.log_prior_unc_fn(state.position) + trajectory_lp
+        next_state = state._replace(
+            observation_auxiliary=observation_auxiliary,
+            trajectory_log_prob=trajectory_lp,
+            complete_log_posterior=complete_lp,
+        )
+        return next_state, {"refreshed": jnp.asarray(1.0, dtype=state.position.dtype)}
+
+    return jax.vmap(step_fn)(states, step_keys)
 
 
 @functools.partial(jax.jit, static_argnames=("static",))
@@ -596,44 +639,30 @@ def run_aux_kalman_mcmc(
             lambda z, _runtime_times: bundle["latent_context_fn"](z),
         ),
         initial_latent_from_context_fn=bundle["initial_latent_from_context_fn"],
-        complete_log_posterior_from_context_runtime_fn=bundle.get(
-            "complete_log_posterior_from_context_runtime_fn",
-            lambda z, context, latent_trajectory, _runtime_observations: bundle[
-                "complete_log_posterior_from_context_fn"
-            ](z, context, latent_trajectory),
-        ),
+        initial_observation_auxiliary_from_context_runtime_fn=bundle[
+            "initial_observation_auxiliary_from_context_runtime_fn"
+        ],
+        refresh_observation_auxiliary_from_context_runtime_fn=bundle[
+            "refresh_observation_auxiliary_from_context_runtime_fn"
+        ],
+        complete_log_posterior_from_context_runtime_fn=bundle[
+            "complete_log_posterior_conditioned_from_context_runtime_fn"
+        ],
         log_prior_unc_fn=bundle["log_prior_unc_fn"],
         prior_terms_from_context_fn=bundle["prior_terms_from_context_fn"],
-        observation_grad_from_context_runtime_fn=bundle.get(
-            "observation_grad_from_context_runtime_fn",
-            lambda context, latent_trajectory, _runtime_observations: bundle[
-                "observation_grad_from_context_fn"
-            ](context, latent_trajectory),
-        ),
-        observation_log_prob_and_grad_from_context_runtime_fn=bundle.get(
-            "observation_log_prob_and_grad_from_context_runtime_fn",
-            lambda context, latent_trajectory, _runtime_observations: bundle[
-                "observation_log_prob_and_grad_from_context_fn"
-            ](context, latent_trajectory),
-        ),
-        observation_log_prob_per_t_from_context_runtime_fn=bundle.get(
-            "observation_log_prob_per_t_from_context_runtime_fn",
-            lambda context, latent_trajectory, _runtime_observations: bundle[
-                "observation_log_prob_per_t_from_context_fn"
-            ](context, latent_trajectory),
-        ),
-        trajectory_log_prob_from_context_runtime_fn=bundle.get(
-            "trajectory_log_prob_from_context_runtime_fn",
-            lambda context, latent_trajectory, _runtime_observations, prior_terms=None: bundle[
-                "trajectory_log_prob_from_context_fn"
-            ](context, latent_trajectory, prior_terms=prior_terms),
-        ),
-        complete_log_posterior_runtime_fn=bundle.get(
-            "complete_log_posterior_runtime_fn",
-            lambda z, latent_trajectory, _runtime_observations, _runtime_times: bundle[
-                "complete_log_posterior_fn"
-            ](z, latent_trajectory),
-        ),
+        observation_grad_from_context_runtime_fn=bundle[
+            "observation_grad_conditioned_from_context_runtime_fn"
+        ],
+        observation_log_prob_and_grad_from_context_runtime_fn=bundle[
+            "observation_log_prob_and_grad_conditioned_from_context_runtime_fn"
+        ],
+        observation_log_prob_per_t_from_context_runtime_fn=bundle[
+            "observation_log_prob_per_t_conditioned_from_context_runtime_fn"
+        ],
+        trajectory_log_prob_from_context_runtime_fn=bundle[
+            "trajectory_log_prob_conditioned_from_context_runtime_fn"
+        ],
+        complete_log_posterior_runtime_fn=bundle["complete_log_posterior_conditioned_runtime_fn"],
         dim=int(bundle["flat_example"].shape[0]),
         latent_kernel_name=latent_kernel_name,
         latent_step_fn=latent_kernel.get("step_fn"),
@@ -743,9 +772,16 @@ def run_aux_kalman_mcmc(
     )
 
     for step_idx in range(total_steps):
-        latent_param_keys = jax.vmap(lambda key: random.split(key, 2))(step_keys[step_idx])
-        latent_keys = latent_param_keys[:, 0, :]
-        param_keys = latent_param_keys[:, 1, :]
+        aux_latent_param_keys = jax.vmap(lambda key: random.split(key, 3))(step_keys[step_idx])
+        obs_aux_keys = aux_latent_param_keys[:, 0, :]
+        latent_keys = aux_latent_param_keys[:, 1, :]
+        param_keys = aux_latent_param_keys[:, 2, :]
+        states, _obs_aux_info = _run_batched_observation_auxiliary_step(
+            states,
+            obs_aux_keys,
+            observations,
+            static=static,
+        )
         states, latent_info = _run_batched_aux_kalman_mcmc_latent_step(
             states,
             latent_keys,

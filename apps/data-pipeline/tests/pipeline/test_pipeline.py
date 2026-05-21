@@ -1277,7 +1277,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
         manifest_names=["screen_time_obs"],
     )
     result = InferenceResult(
-        _samples={"drift": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
+        _samples={"dynamics": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
         method="aux_kalman_mcmc",
         diagnostics={"likelihood_backend": _Unpicklable()},
     )
@@ -1295,8 +1295,8 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     assert restored.result is not None
     assert restored.result.method == "aux_kalman_mcmc"
     np.testing.assert_allclose(
-        np.asarray(restored.result.get_samples()["drift"]),
-        np.asarray(result.get_samples()["drift"]),
+        np.asarray(restored.result.get_samples()["dynamics"]),
+        np.asarray(result.get_samples()["dynamics"]),
     )
     assert restored.spec is not None
     assert restored.spec.latent_names == ["screen_time", "sleep_quality"]

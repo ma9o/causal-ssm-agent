@@ -28,7 +28,7 @@ from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     default_input_effect_block,
     default_static_state_sd_block,
-    structural_dense_drift_spec,
+    dense_matrix_dynamics_spec,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -52,7 +52,7 @@ def make_samples(
     n_latent: int = 2,
     n_manifest: int = 3,
     seed: int = 0,
-    drift_diag: float = -0.3,
+    decay_diag: float = -0.3,
     diff_sd: float = 0.3,
     obs_sd: float = 0.5,
     with_cint: bool = False,
@@ -61,12 +61,12 @@ def make_samples(
     key = random.PRNGKey(seed)
 
     k1, *_ = random.split(key, 6)
-    drift_base = jnp.eye(n_latent) * drift_diag
+    dynamics_base = jnp.eye(n_latent) * decay_diag
     offdiag = random.normal(k1, (n_draws, n_latent, n_latent)) * 0.01
-    drift_draws = jnp.broadcast_to(drift_base, (n_draws, n_latent, n_latent)) + offdiag
+    dynamics_draws = jnp.broadcast_to(dynamics_base, (n_draws, n_latent, n_latent)) + offdiag
     diag_idx = jnp.arange(n_latent)
-    drift_draws = drift_draws.at[:, diag_idx, diag_idx].set(
-        -jnp.abs(drift_draws[:, diag_idx, diag_idx])
+    dynamics_draws = dynamics_draws.at[:, diag_idx, diag_idx].set(
+        -jnp.abs(dynamics_draws[:, diag_idx, diag_idx])
     )
 
     diff_chol = jnp.eye(n_latent) * diff_sd
@@ -79,7 +79,7 @@ def make_samples(
         lambda_mat = lambda_mat.at[i, 0].set(0.5)
 
     samples = {
-        "drift": drift_draws,
+        "dynamics": dynamics_draws,
         "diffusion": diffusion_draws,
         "lambda": lambda_mat,
         "manifest_cov": jnp.eye(n_manifest) * obs_sd**2,
@@ -145,7 +145,7 @@ def make_complex_mixed_samples(
         n_latent=n_latent,
         n_manifest=10,
         seed=seed,
-        drift_diag=-0.35,
+        decay_diag=-0.35,
         diff_sd=0.2,
         obs_sd=0.15,
         with_cint=True,
@@ -202,7 +202,7 @@ def make_complex_mixed_samples(
 def complex_mixed_runtime_spec() -> SSMSpec:
     n_latent = 4
     n_manifest = 10
-    drift_template = jnp.array(
+    coupling_template = jnp.array(
         [
             [-0.45, 0.0, 0.0, 0.0],
             [0.08, -0.35, 0.0, 0.0],
@@ -242,23 +242,23 @@ def complex_mixed_runtime_spec() -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=structural_dense_drift_spec(
+        dynamics_spec=dense_matrix_dynamics_spec(
             n_latent=n_latent,
-            drift_diag_mask=np.zeros(n_latent, dtype=bool),
-            drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
-            drift_template=drift_template,
-            cint_mask=np.zeros(n_latent, dtype=bool),
+            decay_support=np.zeros(n_latent, dtype=bool),
+            edge_support=np.zeros((n_latent, n_latent), dtype=bool),
+            coupling_template=coupling_template,
+            intercept_support=np.zeros(n_latent, dtype=bool),
             cint_template=jnp.zeros(n_latent, dtype=jnp.float32),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
-            diffusion_chol_mask=np.tri(n_latent, dtype=bool),
+            diffusion_chol_support=np.tri(n_latent, dtype=bool),
             diffusion_chol_template=diffusion_template,
         ),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=n_manifest,
             n_cols=n_latent,
-            mask=np.zeros((n_manifest, n_latent), dtype=bool),
+            free_support=np.zeros((n_manifest, n_latent), dtype=bool),
             template=lambda_template,
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -270,7 +270,7 @@ def complex_mixed_runtime_spec() -> SSMSpec:
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
-            mask=np.zeros(n_manifest, dtype=bool),
+            free_support=np.zeros(n_manifest, dtype=bool),
             template=manifest_means_template,
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -282,12 +282,12 @@ def complex_mixed_runtime_spec() -> SSMSpec:
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
-            diag_mask=np.ones(n_manifest, dtype=bool),
+            diag_support=np.ones(n_manifest, dtype=bool),
             template=manifest_chol_template,
         ),
         t0_means_block=SparseVectorBlockSpec(
             n=n_latent,
-            mask=np.ones(n_latent, dtype=bool),
+            free_support=np.ones(n_latent, dtype=bool),
             template=jnp.zeros(n_latent, dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -299,8 +299,8 @@ def complex_mixed_runtime_spec() -> SSMSpec:
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
-            diag_mask=np.ones(n_latent, dtype=bool),
-            correlation_mask=np.tri(n_latent, k=-1, dtype=bool),
+            diag_support=np.ones(n_latent, dtype=bool),
+            correlation_support=np.tri(n_latent, k=-1, dtype=bool),
             template=t0_chol_template,
         ),
         input_effect_block=default_input_effect_block(n_latent),

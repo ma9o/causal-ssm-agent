@@ -21,12 +21,12 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stable_cholesky,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    compile_composite,
-    pack_component_params_from_samples,
-)
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
+from nof1_causal_lab.models.ssm.dynamics.runtime import pack_vector_field_params_from_samples
 from nof1_causal_lab.models.ssm.dynamics.simulator import simulate
+from nof1_causal_lab.models.ssm.dynamics.spec import (
+    compile_dynamics,
+)
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
 )
@@ -169,7 +169,7 @@ def _simulate_vector_field_predictive_latents(
     seed: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     _ensure_gaussian_process_diffusion(spec)
-    compiled = compile_composite(spec.dynamics_spec)
+    compiled = compile_dynamics(spec.dynamics_spec)
     n_draws = int(next(iter(samples.values())).shape[0])
     draw_keys = random.split(random.PRNGKey(seed), n_draws)
     latents = []
@@ -178,7 +178,7 @@ def _simulate_vector_field_predictive_latents(
     for draw_idx in range(n_draws):
         key_init, key_latent = random.split(draw_keys[draw_idx])
         draw = {name: values[draw_idx] for name, values in samples.items()}
-        vf_params = pack_component_params_from_samples(spec.dynamics_spec, draw, draw)
+        vf_params = pack_vector_field_params_from_samples(spec, draw, draw)
         t0_chol = stable_cholesky(
             draw["t0_cov"],
             min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,

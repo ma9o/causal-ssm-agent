@@ -50,8 +50,8 @@ _SPEC_ENUM_LIST_FIELDS = {
 
 
 def _to_jsonable(value: Any) -> Any:
-    from nof1_causal_lab.models.ssm.dynamics.composite import CompositeSpec
-    from nof1_causal_lab.models.ssm.dynamics.serialization import composite_spec_to_dict
+    from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 
     if isinstance(value, Enum):
         return value.value
@@ -59,8 +59,8 @@ def _to_jsonable(value: Any) -> Any:
         return value.tolist()
     if isinstance(value, jax.Array):
         return np.asarray(value).tolist()
-    if isinstance(value, CompositeSpec):
-        return _to_jsonable(composite_spec_to_dict(value))
+    if isinstance(value, DynamicsSpec):
+        return _to_jsonable(dynamics_spec_to_dict(value))
     if is_dataclass(value) and not isinstance(value, type):
         return {field.name: _to_jsonable(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, list):
@@ -76,15 +76,15 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
     """Convert an SSMSpec into a JSON-serializable payload.
 
     Emits the same block-spec shape used by ``SSMSpec`` in memory. The
-    serialized artifact has no flat parameter fields; masks and templates
+    serialized artifact has no flat parameter fields; supports and templates
     live under the block that owns them.
     """
-    from nof1_causal_lab.models.ssm.dynamics.serialization import composite_spec_to_dict
+    from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 
     payload: dict[str, Any] = {
         "n_latent": spec.n_latent,
         "n_manifest": spec.n_manifest,
-        "dynamics_spec": _to_jsonable(composite_spec_to_dict(spec.dynamics_spec)),
+        "dynamics_spec": _to_jsonable(dynamics_spec_to_dict(spec.dynamics_spec)),
         "diffusion_block": _to_jsonable(spec.diffusion_block),
         "lambda_block": _to_jsonable(spec.lambda_block),
         "manifest_means_block": _to_jsonable(spec.manifest_means_block),
@@ -126,6 +126,41 @@ def serialize_edge_lag_days(
     ]
 
 
+def compile_runtime_conditioning_metadata(spec: SSMSpec) -> dict[str, Any]:
+    """Describe runtime observation/path conditioning owned by compiled artifacts."""
+    manifest_links = spec.manifest_links or [LinkFunction.IDENTITY] * spec.n_manifest
+    manifest_names = spec.manifest_names or [f"manifest_{idx}" for idx in range(spec.n_manifest)]
+    pg_channels = [
+        {
+            "index": idx,
+            "name": manifest_names[idx],
+            "distribution": dist.value,
+            "link": link.value,
+        }
+        for idx, (dist, link) in enumerate(zip(spec.manifest_dists, manifest_links, strict=True))
+        if (dist == DistributionFamily.BERNOULLI and link == LinkFunction.LOGIT)
+        or (dist == DistributionFamily.NEGATIVE_BINOMIAL and link == LinkFunction.LOG)
+    ]
+    return {
+        "polya_gamma": {
+            "channels": pg_channels,
+            "consumed_observation_family": "bernoulli_logit_or_negative_binomial_log",
+            "default_sampler": "truncated_sum",
+            "supported_samplers": ["truncated_sum", "devroye"],
+        },
+        "rbpf": {
+            "active": False,
+            "mode": "none",
+            "structure": "none",
+            "supported_modes": ["none", "independent", "conditional"],
+            "supported_structures": ["independent", "conditional"],
+            "carried_latent_indices": list(range(spec.n_latent)),
+            "marginalized_latent_indices": [],
+            "consumed_observation_family": ("gaussian_identity_or_pg_conditioned_affine_logit"),
+        },
+    }
+
+
 def deserialize_edge_lag_days(payload: Any) -> dict[tuple[int, int], float]:
     """Restore serialized edge-lag metadata from a compiled artifact payload."""
     if not isinstance(payload, list):
@@ -155,7 +190,7 @@ def deserialize_edge_lag_days(payload: Any) -> dict[tuple[int, int], float]:
 
 def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     """Restore an SSMSpec from a serialized artifact."""
-    from nof1_causal_lab.models.ssm.dynamics.serialization import composite_spec_from_dict
+    from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_from_dict
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
@@ -164,34 +199,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         SparseVectorBlockSpec,
         T0CholBlockSpec,
     )
-
-    flat_fields = {
-        "diffusion_chol",
-        "diffusion_chol_mask",
-        "lambda_mat",
-        "lambda_mask",
-        "manifest_means",
-        "manifest_means_mask",
-        "manifest_chol",
-        "manifest_chol_diag_mask",
-        "t0_means",
-        "t0_means_mask",
-        "t0_chol",
-        "t0_chol_diag_mask",
-        "t0_correlation_mask",
-        "input_effect",
-        "input_effect_mask",
-        "static_state_sds",
-        "static_state_sd_mask",
-        "diffusion_dist",
-        "manifest_dist",
-    }
-    present_flat_fields = sorted(flat_fields & set(payload))
-    if present_flat_fields:
-        raise ValueError(
-            "Serialized SSMSpec payload contains removed flat fields: "
-            f"{', '.join(present_flat_fields)}. Regenerate the compiled SSM artifact."
-        )
 
     required_fields = {
         "n_latent",
@@ -227,18 +234,16 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     def _diffusion_block(block: dict[str, Any]) -> DiffusionBlockSpec:
         return DiffusionBlockSpec(
             n_latent=int(block["n_latent"]),
-            diffusion_chol_mask=_bool_array(block, "diffusion_chol_mask"),
+            diffusion_chol_support=_bool_array(block, "diffusion_chol_support"),
             diffusion_chol_template=_float_array(block, "diffusion_chol_template"),
             time_invariant_mask=_optional_bool_array(block, "time_invariant_mask"),
-            diag_prior=block.get("diag_prior"),
-            lower_prior=block.get("lower_prior"),
         )
 
     def _sparse_matrix_block(block: dict[str, Any]) -> SparseMatrixBlockSpec:
         return SparseMatrixBlockSpec(
             n_rows=int(block["n_rows"]),
             n_cols=int(block["n_cols"]),
-            mask=_bool_array(block, "mask"),
+            free_support=_bool_array(block, "free_support"),
             template=_float_array(block, "template"),
             free_site_name=str(block["free_site_name"]),
             det_site_name=str(block["det_site_name"]),
@@ -247,13 +252,12 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             assembly_group=str(block["assembly_group"]),
             fixed_spec_field=str(block["fixed_spec_field"]),
             priors_field=str(block["priors_field"]),
-            prior=block.get("prior"),
         )
 
     def _sparse_vector_block(block: dict[str, Any]) -> SparseVectorBlockSpec:
         return SparseVectorBlockSpec(
             n=int(block["n"]),
-            mask=_bool_array(block, "mask"),
+            free_support=_bool_array(block, "free_support"),
             template=_float_array(block, "template"),
             free_site_name=str(block["free_site_name"]),
             det_site_name=str(block["det_site_name"]),
@@ -262,31 +266,27 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             assembly_group=str(block["assembly_group"]),
             fixed_spec_field=str(block["fixed_spec_field"]),
             priors_field=str(block["priors_field"]),
-            prior=block.get("prior"),
         )
 
     def _manifest_chol_block(block: dict[str, Any]) -> ManifestCholBlockSpec:
         return ManifestCholBlockSpec(
             n_manifest=int(block["n_manifest"]),
-            diag_mask=_bool_array(block, "diag_mask"),
+            diag_support=_bool_array(block, "diag_support"),
             template=_float_array(block, "template"),
-            diag_prior=block.get("diag_prior"),
         )
 
     def _t0_chol_block(block: dict[str, Any]) -> T0CholBlockSpec:
         return T0CholBlockSpec(
             n_latent=int(block["n_latent"]),
-            diag_mask=_bool_array(block, "diag_mask"),
-            correlation_mask=_bool_array(block, "correlation_mask"),
+            diag_support=_bool_array(block, "diag_support"),
+            correlation_support=_bool_array(block, "correlation_support"),
             template=_float_array(block, "template"),
-            diag_prior=block.get("diag_prior"),
-            correlation_prior=block.get("correlation_prior"),
         )
 
     kwargs: dict[str, Any] = {
         "n_latent": int(payload["n_latent"]),
         "n_manifest": int(payload["n_manifest"]),
-        "dynamics_spec": composite_spec_from_dict(payload["dynamics_spec"]),
+        "dynamics_spec": dynamics_spec_from_dict(payload["dynamics_spec"]),
         "diffusion_block": _diffusion_block(payload["diffusion_block"]),
         "lambda_block": _sparse_matrix_block(payload["lambda_block"]),
         "manifest_means_block": _sparse_vector_block(payload["manifest_means_block"]),
@@ -553,6 +553,7 @@ def _compile_validated_ssm_artifact(
         "schema_version": 1,
         "spec": serialize_ssm_spec(spec),
         "edge_lag_days": serialize_edge_lag_days(edge_lag_days),
+        "runtime_conditioning": compile_runtime_conditioning_metadata(spec),
         "compiled_prior_semantics": compile_prior_semantics(spec, prior_registry),
         "parameter_bindings": parameter_bindings,
         "compile_diagnostics": [

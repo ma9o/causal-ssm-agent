@@ -1,14 +1,14 @@
-"""Round-trip tests for the dict-config bridge to ``CompositeSpec``.
+"""Round-trip tests for the dict-config bridge to ``DynamicsSpec``.
 
-Stage 4's LLM tools emit prior dict-configs (``{"family": "LogNormal",
-"params": {...}}``). The bridge in ``models.ssm.dynamics.serialization`` lets
-the same dict-config materialise into a runtime ``CompositeSpec`` ready
-for inference. These tests pin the bridge:
+The bridge in ``models.ssm.dynamics.serialization`` materialises a
+structure-only runtime ``DynamicsSpec``. Priors are bound separately through
+the canonical site-prior registry. These tests pin the bridge:
 
 - Every supported family materialises into the right ``ndist`` class.
 - Every component kind (``StateDecay``, ``DiagonalDecay``, ``StateIntercept``,
   ``Intercept``, ``LinearEdge``, ``HillEdge``, ``MultiplicativeEdge``) compiles
-  end-to-end from a dict and produces working ``sample_params`` + vector field.
+  end-to-end from a dict and produces working vector-field params when supplied
+  a site-prior resolver.
 """
 
 from __future__ import annotations
@@ -19,13 +19,13 @@ import numpyro.distributions as ndist
 from numpyro.handlers import seed
 
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeSpec,
+    DynamicsSpec,
     Intervention,
     StateDecay,
     StateIntercept,
     VectorFieldArgs,
-    compile_composite,
-    composite_spec_from_dict,
+    compile_dynamics,
+    dynamics_spec_from_dict,
 )
 from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
@@ -38,6 +38,17 @@ from tests.ssm_test_utils import (
     default_t0_chol_block,
     default_t0_means_block,
 )
+
+
+def _delta_prior_fn(compiled, values: dict[str, object] | None = None):
+    values = values or {}
+    shapes = {site.name: site.shape for site in compiled.site_registry}
+
+    def _prior(site_name: str):
+        value = values.get(site_name, 1.0)
+        return ndist.Delta(jnp.broadcast_to(jnp.asarray(value), shapes[site_name]))
+
+    return _prior
 
 
 class TestMaterializePrior:
@@ -89,34 +100,24 @@ class TestMaterializePrior:
         assert d.batch_shape + d.event_shape == (3, 3)
 
 
-class TestCompositeSpecFromDict:
+class TestDynamicsSpecFromDict:
     def test_scalar_background_components_compile(self):
         config = {
             "n_latent": 2,
             "components": [
-                {
-                    "kind": "StateDecay",
-                    "target": 0,
-                    "priors": {
-                        "decay": {"family": "Gamma", "params": {"concentration": 2.0, "rate": 4.0}}
-                    },
-                },
-                {
-                    "kind": "StateIntercept",
-                    "target": 1,
-                    "priors": {"cint": {"family": "Normal", "params": {"mu": 0.0, "sigma": 0.5}}},
-                },
+                {"kind": "StateDecay", "target": 0},
+                {"kind": "StateIntercept", "target": 1},
             ],
         }
-        spec = composite_spec_from_dict(config)
-        assert isinstance(spec, CompositeSpec)
+        spec = dynamics_spec_from_dict(config)
+        assert isinstance(spec, DynamicsSpec)
         assert spec.n_latent == 2
 
-        compiled = compile_composite(composite_spec_from_dict(config))
+        compiled = compile_dynamics(dynamics_spec_from_dict(config))
         assert isinstance(compiled.vector_field.components[0], StateDecay)
         assert isinstance(compiled.vector_field.components[1], StateIntercept)
         with seed(rng_seed=0):
-            params = compiled.sample_params()
+            params = compiled.sample_params(_delta_prior_fn(compiled))
         assert params[0]["decay"].shape == ()
         assert params[1]["cint"].shape == ()
 
@@ -127,57 +128,19 @@ class TestCompositeSpecFromDict:
         config = {
             "n_latent": 5,
             "components": [
-                {
-                    "kind": "DiagonalDecay",
-                    "priors": {
-                        "decay": {
-                            "family": "Gamma",
-                            "params": {"concentration": 2.0, "rate": 4.0},
-                            "shape": [5],
-                        },
-                    },
-                },
-                {
-                    "kind": "Intercept",
-                    "priors": {
-                        "cint": {
-                            "family": "Normal",
-                            "params": {"mu": 0.0, "sigma": 1.0},
-                            "shape": [5],
-                        }
-                    },
-                },
+                {"kind": "DiagonalDecay"},
+                {"kind": "Intercept"},
                 {
                     "kind": "MultiplicativeEdge",
                     "source_a": DOSE,
                     "source_b": ADHERENCE,
                     "target": C_P,
-                    "priors": {"weight": {"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0}}},
                 },
-                {
-                    "kind": "LinearEdge",
-                    "source": C_P,
-                    "target": C_E,
-                    "priors": {
-                        "weight": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}}
-                    },
-                },
-                {
-                    "kind": "HillEdge",
-                    "source": C_E,
-                    "target": AFFECTIVE,
-                    "priors": {
-                        "Emax": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}},
-                        "EC50": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}},
-                        "n": {
-                            "family": "TruncatedNormal",
-                            "params": {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
-                        },
-                    },
-                },
+                {"kind": "LinearEdge", "source": C_P, "target": C_E},
+                {"kind": "HillEdge", "source": C_E, "target": AFFECTIVE},
             ],
         }
-        compiled = compile_composite(composite_spec_from_dict(config))
+        compiled = compile_dynamics(dynamics_spec_from_dict(config))
         kinds = [type(c).__name__ for c in compiled.vector_field.components]
         assert kinds == [
             "DiagonalDecay",
@@ -195,29 +158,21 @@ class TestCompositeSpecFromDict:
         assert (hill.source, hill.target) == (C_E, AFFECTIVE)
 
 
-class TestEndToEndDriftFromDict:
+class TestEndToEndDynamicsFromDict:
     def test_dict_compiled_vector_field_matches_hand_built(self):
         """Sample params from a dict-compiled spec, plug into the vector
         field, and verify the output is numerically sensible."""
         config = {
             "n_latent": 2,
             "components": [
-                {
-                    "kind": "DiagonalDecay",
-                    "priors": {
-                        "decay": {"family": "Delta", "params": {"value": 1.0}, "shape": [2]}
-                    },
-                },
-                {
-                    "kind": "LinearEdge",
-                    "source": 0,
-                    "target": 1,
-                    "priors": {"weight": {"family": "Delta", "params": {"value": 0.3}}},
-                },
+                {"kind": "DiagonalDecay"},
+                {"kind": "LinearEdge", "source": 0, "target": 1},
             ],
         }
-        compiled = compile_composite(composite_spec_from_dict(config))
-        params = compiled.sample_params()
+        compiled = compile_dynamics(dynamics_spec_from_dict(config))
+        params = compiled.sample_params(
+            _delta_prior_fn(compiled, {"vf_0_decay": jnp.array([1.0, 1.0]), "vf_1_weight": 0.3})
+        )
         eta = jnp.array([2.0, 1.0])
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
         dynamics = compiled.vector_field(jnp.asarray(0.0), eta, args)
@@ -231,26 +186,7 @@ class TestErrorPaths:
 
         config = {"n_latent": 1, "components": [{"kind": "Bogus"}]}
         with pytest.raises(ValueError, match="Bogus"):
-            composite_spec_from_dict(config)
-
-    def test_missing_required_prior_raises(self):
-        import pytest
-
-        config = {
-            "n_latent": 2,
-            "components": [
-                {
-                    "kind": "HillEdge",
-                    "source": 0,
-                    "target": 1,
-                    "priors": {
-                        "Emax": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}}
-                    },
-                },
-            ],
-        }
-        with pytest.raises(ValueError, match=r"EC50|missing required prior 'n'"):
-            composite_spec_from_dict(config)
+            dynamics_spec_from_dict(config)
 
 
 class TestBlockSpecEquivalence:
@@ -265,26 +201,26 @@ class TestBlockSpecEquivalence:
         from numpyro.handlers import condition, seed
 
         from nof1_causal_lab.models.ssm import SSMSpec
-        from nof1_causal_lab.models.ssm.dynamics import CompositeSpec
+        from nof1_causal_lab.models.ssm.dynamics import DynamicsSpec
         from nof1_causal_lab.models.ssm.structure import (
             DiffusionBlockSpec,
             SparseMatrixBlockSpec,
         )
-        from tests.ssm_test_utils import full_diagonal_mask
+        from tests.ssm_test_utils import full_diagonal_support
 
         spec = SSMSpec(
             n_latent=2,
             n_manifest=1,
-            dynamics_spec=CompositeSpec(n_latent=2),
+            dynamics_spec=DynamicsSpec(n_latent=2),
             diffusion_block=DiffusionBlockSpec(
                 n_latent=2,
-                diffusion_chol_mask=np.diag(full_diagonal_mask(2)),
+                diffusion_chol_support=np.diag(full_diagonal_support(2)),
                 diffusion_chol_template=jnp.eye(2),
             ),
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=1,
                 n_cols=2,
-                mask=np.zeros((1, 2), dtype=bool),
+                free_support=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
                 free_site_name="lambda_free",
                 det_site_name="lambda",
@@ -306,14 +242,13 @@ class TestBlockSpecEquivalence:
 
         block = DiffusionBlockSpec(
             n_latent=2,
-            diffusion_chol_mask=spec.diffusion_block.diffusion_chol_mask,
+            diffusion_chol_support=spec.diffusion_block.diffusion_chol_support,
             diffusion_chol_template=jnp.asarray(spec.diffusion_block.diffusion_chol_template),
             time_invariant_mask=spec.diffusion_block.time_invariant_mask,
-            diag_prior=ndist.LogNormal(0.0, 1.0),
         )
 
         with seed(rng_seed=0), condition(data={"diffusion_diag_free": diag_vals}):
-            block_assembled = block.sample_params(prefix="")["diffusion"]
+            block_assembled = block.sample_params(lambda _: ndist.LogNormal(0.0, 1.0))["diffusion"]
 
         np.testing.assert_allclose(block_assembled, expected, atol=1e-12)
 
@@ -325,17 +260,17 @@ class TestBlockSpecEquivalence:
             SparseMatrixBlockSpec,
             SparseVectorBlockSpec,
         )
-        from tests.ssm_test_utils import full_vector_mask
+        from tests.ssm_test_utils import full_vector_support
 
         spec = SSMSpec(
             n_latent=3,
             n_manifest=1,
-            dynamics_spec=CompositeSpec(n_latent=3),
+            dynamics_spec=DynamicsSpec(n_latent=3),
             diffusion_block=default_diffusion_block(3),
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=1,
                 n_cols=3,
-                mask=np.zeros((1, 3), dtype=bool),
+                free_support=np.zeros((1, 3), dtype=bool),
                 template=jnp.array([[0.0, 1.0, 0.0]]),
                 free_site_name="lambda_free",
                 det_site_name="lambda",
@@ -349,7 +284,7 @@ class TestBlockSpecEquivalence:
             manifest_chol_block=default_manifest_chol_block(1),
             t0_means_block=SparseVectorBlockSpec(
                 n=3,
-                mask=full_vector_mask(3),
+                free_support=full_vector_support(3),
                 template=jnp.zeros(3),
                 free_site_name="t0_means_free",
                 det_site_name="t0_means",
@@ -368,7 +303,7 @@ class TestBlockSpecEquivalence:
 
         block = SparseVectorBlockSpec(
             n=3,
-            mask=spec.t0_means_block.mask,
+            free_support=spec.t0_means_block.free_support,
             template=jnp.asarray(spec.t0_means_block.template),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -377,121 +312,61 @@ class TestBlockSpecEquivalence:
             assembly_group="t0",
             fixed_spec_field="t0_means",
             priors_field="t0_means",
-            prior=ndist.Normal(jnp.zeros(3), 1.0),
         )
         with seed(rng_seed=0), condition(data={"t0_means_free": free}):
-            assembled = block.sample_params(prefix="")["t0_means"]
+            assembled = block.sample_params(lambda _: ndist.Normal(jnp.zeros(3), 1.0))["t0_means"]
         np.testing.assert_allclose(assembled, expected, atol=1e-12)
 
 
-class TestCompositeSpecRoundTrip:
-    """``composite_spec_to_dict`` is the inverse of
-    ``composite_spec_from_dict``. Round-trip must preserve the structural
-    info and dict-config priors so persistence works end-to-end —
-    Stage 4 can emit a composite spec, persist it as JSON, and downstream
-    deserialise + materialise via the same chain.
+class TestDynamicsSpecRoundTrip:
+    """``dynamics_spec_to_dict`` is the inverse of
+    ``dynamics_spec_from_dict``. Round-trip must preserve the structural
+    info so persistence works end-to-end.
     """
 
     def test_ssri_chain_round_trips(self):
-        from nof1_causal_lab.models.ssm.dynamics import composite_spec_to_dict
+        from nof1_causal_lab.models.ssm.dynamics import dynamics_spec_to_dict
 
         DOSE, ADHERENCE, C_P, C_E, AFFECTIVE = 0, 1, 2, 3, 4
         config = {
             "n_latent": 5,
             "components": [
-                {
-                    "kind": "DiagonalDecay",
-                    "priors": {
-                        "decay": {
-                            "family": "Gamma",
-                            "params": {"concentration": 2.0, "rate": 4.0},
-                            "shape": [5],
-                        },
-                    },
-                },
-                {
-                    "kind": "Intercept",
-                    "priors": {
-                        "cint": {
-                            "family": "Normal",
-                            "params": {"mu": 0.0, "sigma": 1.0},
-                            "shape": [5],
-                        }
-                    },
-                },
+                {"kind": "DiagonalDecay"},
+                {"kind": "Intercept"},
                 {
                     "kind": "MultiplicativeEdge",
                     "source_a": DOSE,
                     "source_b": ADHERENCE,
                     "target": C_P,
-                    "priors": {"weight": {"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0}}},
                 },
-                {
-                    "kind": "LinearEdge",
-                    "source": C_P,
-                    "target": C_E,
-                    "priors": {
-                        "weight": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}}
-                    },
-                },
-                {
-                    "kind": "HillEdge",
-                    "source": C_E,
-                    "target": AFFECTIVE,
-                    "priors": {
-                        "Emax": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}},
-                        "EC50": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}},
-                        "n": {
-                            "family": "TruncatedNormal",
-                            "params": {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
-                        },
-                    },
-                },
+                {"kind": "LinearEdge", "source": C_P, "target": C_E},
+                {"kind": "HillEdge", "source": C_E, "target": AFFECTIVE},
             ],
         }
-        spec = composite_spec_from_dict(config)
-        round_tripped = composite_spec_to_dict(spec)
+        spec = dynamics_spec_from_dict(config)
+        round_tripped = dynamics_spec_to_dict(spec)
         assert round_tripped == config
 
     def test_component_dynamics_round_trips(self):
         from nof1_causal_lab.models.ssm.dynamics import (
-            CompositeSpec,
+            DynamicsSpec,
             LinearEdgeSpec,
             StateDecaySpec,
             StateInterceptSpec,
-            composite_spec_from_dict,
-            composite_spec_to_dict,
+            dynamics_spec_from_dict,
+            dynamics_spec_to_dict,
         )
 
-        spec = CompositeSpec(
+        spec = DynamicsSpec(
             n_latent=2,
             components=(
-                StateDecaySpec(
-                    target=0,
-                    decay_prior={
-                        "family": "Gamma",
-                        "params": {"concentration": 2.0, "rate": 4.0},
-                    },
-                ),
-                LinearEdgeSpec(
-                    source=0,
-                    target=1,
-                    weight_prior={
-                        "family": "Normal",
-                        "params": {"mu": 0.0, "sigma": 0.5},
-                    },
-                ),
-                StateInterceptSpec(
-                    target=1,
-                    cint_prior={
-                        "family": "Normal",
-                        "params": {"mu": 0.0, "sigma": 1.0},
-                    },
-                ),
+                StateDecaySpec(target=0),
+                LinearEdgeSpec(source=0, target=1),
+                StateInterceptSpec(target=1),
             ),
         )
-        payload = composite_spec_to_dict(spec)
-        restored = composite_spec_from_dict(payload)
+        payload = dynamics_spec_to_dict(spec)
+        restored = dynamics_spec_from_dict(payload)
 
         c0 = restored.components[0]
         assert c0.target == 0
@@ -500,7 +375,7 @@ class TestCompositeSpecRoundTrip:
         c2 = restored.components[2]
         assert c2.target == 1
 
-        assert composite_spec_to_dict(restored) == payload
+        assert dynamics_spec_to_dict(restored) == payload
 
     def test_ssm_compiler_serializes_dynamics_spec(self):
         """``serialize_ssm_spec`` / ``deserialize_ssm_spec`` round-trip a
@@ -513,24 +388,16 @@ class TestCompositeSpecRoundTrip:
             serialize_ssm_spec,
         )
         from nof1_causal_lab.models.ssm.dynamics import (
-            CompositeSpec,
             DiagonalDecaySpec,
+            DynamicsSpec,
         )
         from nof1_causal_lab.models.ssm.structure import (
             SparseMatrixBlockSpec,
         )
 
-        dynamics_spec = CompositeSpec(
+        dynamics_spec = DynamicsSpec(
             n_latent=2,
-            components=(
-                DiagonalDecaySpec(
-                    decay_prior={
-                        "family": "Gamma",
-                        "params": {"concentration": 2.0, "rate": 4.0},
-                        "shape": [2],
-                    }
-                ),
-            ),
+            components=(DiagonalDecaySpec(),),
         )
         spec = SSMSpec(
             n_latent=2,
@@ -540,7 +407,7 @@ class TestCompositeSpecRoundTrip:
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=1,
                 n_cols=2,
-                mask=np.zeros((1, 2), dtype=bool),
+                free_support=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
                 free_site_name="lambda_free",
                 det_site_name="lambda",

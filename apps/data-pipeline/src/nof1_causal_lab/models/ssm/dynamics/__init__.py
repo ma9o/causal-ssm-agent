@@ -1,9 +1,8 @@
 """Continuous-time vector-field dynamics for SSMs.
 
 This package owns the dynamics vocabulary:
-vector-field components, composite component specs, interventions,
-stability checks, steady states, simulation, and composite-spec
-serialization.
+vector-field components, dynamics specs, interventions, stability checks,
+steady states, simulation, and dynamics-spec serialization.
 
 Block-level SSM parameter structure lives in ``ssm.structure``.
 CT-to-DT matrix discretization lives in ``ssm.discretization``.
@@ -12,20 +11,6 @@ Prior/predictive validation lives in ``ssm.predictive``.
 
 from __future__ import annotations
 
-from .composite import (
-    CompiledComposite,
-    ComponentSpec,
-    CompositeSpec,
-    DiagonalDecaySpec,
-    HillEdgeSpec,
-    InterceptSpec,
-    LinearEdgeSpec,
-    MultiplicativeEdgeSpec,
-    StateDecaySpec,
-    StateInterceptSpec,
-    compile_composite,
-    iter_component_semantic_bindings,
-)
 from .edges import (
     DiagonalDecay,
     HillEdge,
@@ -52,29 +37,39 @@ from .posterior import (
     posterior_dynamics_from_result,
     posterior_dynamics_from_samples,
 )
-from .priors import (
-    diagonal_decay_prior,
-    effect_compartment_rate_prior,
-    hill_ec50_prior,
-    hill_emax_prior,
-    hill_n_prior,
-    linear_edge_weight_prior,
-    multiplicative_weight_prior,
+from .runtime import (
+    VectorFieldRuntime,
+    build_vector_field_runtime_from_samples,
+    pack_vector_field_params_from_samples,
+    sample_vector_field_runtime,
 )
 from .serialization import (
-    composite_spec_from_dict,
-    composite_spec_to_dict,
+    dynamics_spec_from_dict,
+    dynamics_spec_to_dict,
 )
 from .simulator import SimulationConfig, simulate, simulate_pair
+from .spec import (
+    CompiledDynamics,
+    ComponentSpec,
+    DiagonalDecaySpec,
+    DynamicsSpec,
+    HillEdgeSpec,
+    InterceptSpec,
+    LinearEdgeSpec,
+    MultiplicativeEdgeSpec,
+    StateDecaySpec,
+    StateInterceptSpec,
+    compile_dynamics,
+    iter_dynamics_semantic_bindings,
+)
 from .stability import StabilityReport, check_jacobian_stability
 from .steady_state import compute_steady_state
-from .vector_field import CompositeVectorField, VectorField, VectorFieldArgs
+from .vector_field import VectorField, VectorFieldArgs
 
 __all__ = [
-    "CompiledComposite",
+    "CompiledDynamics",
     "ComponentSpec",
-    "CompositeSpec",
-    "CompositeVectorField",
+    "DynamicsSpec",
     "DiagonalDecay",
     "DiagonalDecaySpec",
     "VectorFieldComponent",
@@ -101,25 +96,22 @@ __all__ = [
     "VariableOverride",
     "VectorField",
     "VectorFieldArgs",
+    "VectorFieldRuntime",
+    "build_vector_field_runtime_from_samples",
     "check_jacobian_stability",
-    "compile_composite",
-    "composite_spec_from_dict",
-    "composite_spec_to_dict",
+    "compile_dynamics",
+    "dynamics_spec_from_dict",
+    "dynamics_spec_to_dict",
     "component_param_samples_from_site_samples",
     "compute_steady_state",
     "constant_value",
-    "diagonal_decay_prior",
-    "effect_compartment_rate_prior",
-    "hill_ec50_prior",
-    "hill_emax_prior",
-    "hill_n_prior",
     "infer_linearisation",
-    "iter_component_semantic_bindings",
-    "linear_edge_weight_prior",
+    "iter_dynamics_semantic_bindings",
     "linear_ramp",
-    "multiplicative_weight_prior",
+    "pack_vector_field_params_from_samples",
     "posterior_dynamics_from_result",
     "posterior_dynamics_from_samples",
     "simulate",
     "simulate_pair",
+    "sample_vector_field_runtime",
 ]

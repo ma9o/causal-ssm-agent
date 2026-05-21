@@ -26,9 +26,9 @@ from nof1_causal_lab.models.prior_predictive import (
     resolve_scale_target_parameters,
 )
 from nof1_causal_lab.models.ssm.compile.artifact import serialize_edge_lag_days, serialize_ssm_spec
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    CompositeSpec,
+from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
+    DynamicsSpec,
     HillEdgeSpec,
 )
 from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
@@ -41,10 +41,10 @@ from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 from tests.ssm_test_utils import (
     block_ssm_spec,
+    dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
-    full_diagonal_mask,
+    full_diagonal_support,
     prior_registry,
-    structural_dense_drift_spec,
 )
 
 
@@ -65,14 +65,14 @@ def _require_text(value: str | None) -> str:
 
 class TestCheckNanInf:
     def test_clean_samples_no_issue(self):
-        samples = {"vf_0_base_decay": jnp.array([1.0, 2.0, 3.0])}
+        samples = {"vf_0_decay": jnp.array([1.0, 2.0, 3.0])}
         assert _check_nan_inf(samples) is None
 
     def test_nan_detected(self):
-        samples = {"vf_0_base_decay": jnp.array([1.0, float("nan"), 3.0])}
+        samples = {"vf_0_decay": jnp.array([1.0, float("nan"), 3.0])}
         result = _require_result(_check_nan_inf(samples))
         assert not result.is_valid
-        assert "vf_0_base_decay" in _require_text(result.issue)
+        assert "vf_0_decay" in _require_text(result.issue)
 
     def test_inf_detected(self):
         samples = {"x": jnp.array([float("inf")])}
@@ -94,7 +94,7 @@ class TestCheckNanInf:
         samples = {
             "ll_per_timestep": jnp.array([float("-inf")]),
             "log_likelihood": jnp.array([float("nan")]),
-            "vf_0_base_decay": jnp.array([0.1, 0.2]),
+            "vf_0_decay": jnp.array([0.1, 0.2]),
         }
         assert _check_nan_inf(samples) is None
 
@@ -172,7 +172,7 @@ class TestCheckConstraintViolations:
         assert results == []
 
     def test_non_positive_site_ignored(self):
-        samples = {"vf_0_offdiag": jnp.array([-1.0, -2.0])}
+        samples = {"vf_1_weight": jnp.array([-1.0, -2.0])}
         results = _check_constraint_violations(samples)
         assert results == []
 
@@ -194,13 +194,13 @@ class TestCheckConstraintViolations:
 
 class TestCheckExtremeValues:
     def test_normal_values_no_issue(self):
-        samples = {"vf_0_base_decay": jnp.array([0.5, 0.3, 1.0])}
+        samples = {"vf_0_decay": jnp.array([0.5, 0.3, 1.0])}
         results = _check_extreme_values(samples)
         assert results == []
 
     def test_extreme_values_detected(self):
         # All extreme
-        samples = {"vf_0_base_decay": jnp.array([1e7, 1e8, 1e9])}
+        samples = {"vf_0_decay": jnp.array([1e7, 1e8, 1e9])}
         results = _check_extreme_values(samples)
         assert len(results) == 1
         assert "extreme" in _require_text(results[0].issue).lower()
@@ -208,13 +208,13 @@ class TestCheckExtremeValues:
     def test_below_threshold_no_issue(self):
         # Only 1 out of 100 extreme → 1% < 10% threshold
         values = jnp.concatenate([jnp.array([1e7]), jnp.ones(99)])
-        samples = {"vf_0_base_decay": values}
+        samples = {"vf_0_decay": values}
         results = _check_extreme_values(samples)
         assert results == []
 
     def test_non_param_site_ignored(self):
         # Sites not matching param patterns are skipped
-        samples = {"drift": jnp.array([1e7, 1e8])}
+        samples = {"dynamics": jnp.array([1e7, 1e8])}
         results = _check_extreme_values(samples)
         assert results == []
 
@@ -233,7 +233,7 @@ class TestFormatValidationReport:
     def test_failed_report_includes_each_issue_and_parameter(self):
         results = [
             PriorValidationResult(
-                parameter="vf_0_base_decay",
+                parameter="vf_0_decay",
                 is_valid=False,
                 issue="Too extreme",
                 suggested_adjustment="Fix it",
@@ -247,7 +247,7 @@ class TestFormatValidationReport:
         ]
         report = format_validation_report(False, results)
         assert "FAILED" in report
-        assert "vf_0_base_decay" in report
+        assert "vf_0_decay" in report
         assert "Too extreme" in report
         assert "diffusion_diag_free" in report
         assert "Negative values" in report
@@ -276,7 +276,7 @@ class TestFormatParameterFeedback:
                 suggested_adjustment="Fix priors",
             )
         ]
-        feedback = format_parameter_feedback("drift", results)
+        feedback = format_parameter_feedback("dynamics", results)
         assert "NaN detected" in feedback
         assert "Fix priors" in feedback
 
@@ -289,7 +289,7 @@ class TestFormatParameterFeedback:
             )
         ]
         feedback = format_parameter_feedback(
-            "drift",
+            "dynamics",
             results,
             prior={"distribution": "Normal", "params": {"mu": 0.0, "sigma": 1.0}},
         )
@@ -330,7 +330,7 @@ class TestFormatParameterFeedback:
                 parameter="scale_monthly_eveningness_activity_timing",
                 is_valid=False,
                 issue="Scale mismatch for monthly_eveningness_activity_timing",
-                suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+                suggested_adjustment="Adjust diffusion/dynamics priors to match data scale",
             )
         ]
 
@@ -533,12 +533,12 @@ class TestCheckLaggedResponsePlausibility:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=2,
-                drift_diag_mask=np.array([True, True]),
-                drift_offdiag_mask=np.array([[False, False], [True, False]]),
-                drift_template=jnp.zeros((2, 2)),
-                cint_mask=np.zeros(2, dtype=bool),
+                decay_support=np.array([True, True]),
+                edge_support=np.array([[False, False], [True, False]]),
+                coupling_template=jnp.zeros((2, 2)),
+                intercept_support=np.zeros(2, dtype=bool),
                 cint_template=jnp.zeros(2),
             ),
             latent_names=["activity", "sleep"],
@@ -555,7 +555,7 @@ class TestCheckLaggedResponsePlausibility:
                 "edges": [{"cause": "activity", "effect": "sleep", "lagged": True}],
             },
         }
-        drift_samples = np.asarray(
+        dynamics_samples = np.asarray(
             [
                 [[-0.5, 0.0], [0.05, 0.1]],
                 [[-0.4, 0.0], [0.03, 0.2]],
@@ -564,7 +564,7 @@ class TestCheckLaggedResponsePlausibility:
         )
 
         scope = _infer_dynamics_repair_scope(
-            drift_samples,
+            dynamics_samples,
             [0, 1],
             compiled_ssm=compiled_ssm,
             causal_spec=causal_spec,
@@ -578,12 +578,12 @@ class TestCheckLaggedResponsePlausibility:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=2,
-                drift_diag_mask=np.array([True, True]),
-                drift_offdiag_mask=np.array([[False, False], [True, False]]),
-                drift_template=jnp.zeros((2, 2)),
-                cint_mask=np.zeros(2, dtype=bool),
+                decay_support=np.array([True, True]),
+                edge_support=np.array([[False, False], [True, False]]),
+                coupling_template=jnp.zeros((2, 2)),
+                intercept_support=np.zeros(2, dtype=bool),
                 cint_template=jnp.zeros(2),
             ),
             latent_names=["stress", "sleep"],
@@ -851,19 +851,19 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=1,
-                drift_diag_mask=full_diagonal_mask(1),
-                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
-                drift_template=jnp.zeros((1, 1), dtype=jnp.float32),
-                cint_mask=np.zeros(1, dtype=bool),
+                decay_support=full_diagonal_support(1),
+                edge_support=np.zeros((1, 1), dtype=bool),
+                coupling_template=jnp.zeros((1, 1), dtype=jnp.float32),
+                intercept_support=np.zeros(1, dtype=bool),
                 cint_template=jnp.zeros(1, dtype=jnp.float32),
             ),
             diffusion_block=diagonal_diffusion_block(1),
             input_effect_block=SparseMatrixBlockSpec(
                 n_rows=1,
                 n_cols=1,
-                mask=np.array([[True]]),
+                free_support=np.array([[True]]),
                 template=jnp.zeros((1, 1), dtype=jnp.float32),
                 free_site_name="input_effect_free",
                 det_site_name="input_effect",
@@ -895,18 +895,16 @@ class TestCompiledPriorPredictiveRuntime:
         assert samples["observations"].shape == (3, 3, 1)
         assert bool(jnp.isfinite(samples["observations"]).all())
 
-    def test_nonlinear_drift_uses_compiled_prior_predictive_runtime(self):
-        """Component drift specs should sample prior predictive without an affine view."""
+    def test_nonlinear_dynamics_uses_compiled_prior_predictive_runtime(self):
+        """Component dynamics specs should sample prior predictive without an affine view."""
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            dynamics_spec=CompositeSpec(
+            dynamics_spec=DynamicsSpec(
                 n_latent=2,
                 components=(
-                    DiagonalDecaySpec(decay_prior=None),
-                    HillEdgeSpec(
-                        source=0, target=1, emax_prior=None, ec50_prior=None, n_prior=None
-                    ),
+                    DiagonalDecaySpec(),
+                    HillEdgeSpec(source=0, target=1),
                 ),
             ),
             diffusion_block=diagonal_diffusion_block(2),
@@ -935,12 +933,12 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=1,
-                drift_diag_mask=full_diagonal_mask(1),
-                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
-                drift_template=jnp.zeros((1, 1), dtype=jnp.float32),
-                cint_mask=np.zeros(1, dtype=bool),
+                decay_support=full_diagonal_support(1),
+                edge_support=np.zeros((1, 1), dtype=bool),
+                coupling_template=jnp.zeros((1, 1), dtype=jnp.float32),
+                intercept_support=np.zeros(1, dtype=bool),
                 cint_template=jnp.zeros(1, dtype=jnp.float32),
             ),
             diffusion_block=diagonal_diffusion_block(1),
@@ -966,19 +964,19 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=3,
-                drift_diag_mask=full_diagonal_mask(3),
-                drift_offdiag_mask=np.zeros((3, 3), dtype=bool),
-                drift_template=jnp.zeros((3, 3), dtype=jnp.float32),
-                cint_mask=np.zeros(3, dtype=bool),
+                decay_support=full_diagonal_support(3),
+                edge_support=np.zeros((3, 3), dtype=bool),
+                coupling_template=jnp.zeros((3, 3), dtype=jnp.float32),
+                intercept_support=np.zeros(3, dtype=bool),
                 cint_template=jnp.zeros(3, dtype=jnp.float32),
             ),
             diffusion_block=diagonal_diffusion_block(3),
             t0_chol_block=T0CholBlockSpec(
                 n_latent=3,
-                diag_mask=full_diagonal_mask(3),
-                correlation_mask=mask,
+                diag_support=full_diagonal_support(3),
+                correlation_support=mask,
                 template=jnp.eye(3, dtype=jnp.float32),
             ),
             manifest_dists=[DistributionFamily.GAUSSIAN] * 3,

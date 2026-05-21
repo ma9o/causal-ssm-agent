@@ -8,15 +8,15 @@ import numpyro.distributions as ndist
 
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeSpec,
     DiagonalDecaySpec,
+    DynamicsSpec,
     HillEdgeSpec,
     Intervention,
     LinearEdgeSpec,
     StateDecaySpec,
     StateInterceptSpec,
     VectorFieldArgs,
-    compile_composite,
+    compile_dynamics,
     infer_linearisation,
 )
 from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
@@ -41,49 +41,46 @@ def _decay_prior_registry(values) -> PriorRegistry:
 
 class TestInferLinearisation:
     def test_state_decay_only_is_constant(self):
-        spec = CompositeSpec(
+        spec = DynamicsSpec(
             n_latent=2,
             components=(
-                StateDecaySpec(target=0, decay_prior=ndist.LogNormal(0.0, 0.5)),
-                StateDecaySpec(target=1, decay_prior=ndist.LogNormal(0.0, 0.5)),
+                StateDecaySpec(target=0),
+                StateDecaySpec(target=1),
             ),
         )
-        compiled = compile_composite(spec)
+        compiled = compile_dynamics(spec)
         assert infer_linearisation(compiled.vector_field) == "constant"
 
     def test_diagonal_decay_plus_linear_edge_is_constant(self):
-        spec = CompositeSpec(
+        spec = DynamicsSpec(
             n_latent=2,
             components=(
-                DiagonalDecaySpec(decay_prior=ndist.LogNormal(0.0, 0.5)),
-                LinearEdgeSpec(source=0, target=1, weight_prior=ndist.Normal(0.0, 1.0)),
+                DiagonalDecaySpec(),
+                LinearEdgeSpec(source=0, target=1),
             ),
         )
-        compiled = compile_composite(spec)
+        compiled = compile_dynamics(spec)
         assert infer_linearisation(compiled.vector_field) == "constant"
 
     def test_hill_makes_it_trajectory(self):
-        spec = CompositeSpec(
+        spec = DynamicsSpec(
             n_latent=2,
             components=(
-                DiagonalDecaySpec(decay_prior=ndist.LogNormal(0.0, 0.5)),
+                DiagonalDecaySpec(),
                 HillEdgeSpec(
                     source=0,
                     target=1,
-                    emax_prior=ndist.LogNormal(0.0, 0.5),
-                    ec50_prior=ndist.LogNormal(0.0, 0.5),
-                    n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.5, low=1.0, high=4.0),
                 ),
             ),
         )
-        compiled = compile_composite(spec)
+        compiled = compile_dynamics(spec)
         assert infer_linearisation(compiled.vector_field) == "trajectory"
 
 
-class TestSSMModelCompositeDispatch:
-    """The NumPyro model samples nonlinear dynamics and delegates at backend boundary."""
+class TestSSMModelDynamicsDispatch:
+    """The NumPyro model samples dynamics and delegates at the backend boundary."""
 
-    def test_nonlinear_drift_uses_vector_field_backend_method(self):
+    def test_nonlinear_dynamics_uses_vector_field_backend_method(self):
         import numpyro
         from numpyro import handlers
 
@@ -97,7 +94,7 @@ class TestSSMModelCompositeDispatch:
             T0CholBlockSpec,
         )
 
-        class CompositeAwareBackend:
+        class DynamicsAwareBackend:
             checkpoint_loglik = False
 
             def compute_log_likelihood(
@@ -120,19 +117,19 @@ class TestSSMModelCompositeDispatch:
         spec = SSMSpec(
             n_latent=2,
             n_manifest=1,
-            dynamics_spec=CompositeSpec(
+            dynamics_spec=DynamicsSpec(
                 n_latent=2,
-                components=(DiagonalDecaySpec(decay_prior=ndist.Delta(jnp.array([0.3, 0.5]))),),
+                components=(DiagonalDecaySpec(),),
             ),
             diffusion_block=DiffusionBlockSpec(
                 n_latent=2,
-                diffusion_chol_mask=np.zeros((2, 2), dtype=bool),
+                diffusion_chol_support=np.zeros((2, 2), dtype=bool),
                 diffusion_chol_template=jnp.eye(2) * 0.1,
             ),
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=1,
                 n_cols=2,
-                mask=np.zeros((1, 2), dtype=bool),
+                free_support=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[1.0, 0.0]]),
                 free_site_name="lambda_free",
                 det_site_name="lambda",
@@ -145,12 +142,12 @@ class TestSSMModelCompositeDispatch:
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=ManifestCholBlockSpec(
                 n_manifest=1,
-                diag_mask=np.zeros(1, dtype=bool),
+                diag_support=np.zeros(1, dtype=bool),
                 template=jnp.array([[0.2]]),
             ),
             t0_means_block=SparseVectorBlockSpec(
                 n=2,
-                mask=np.zeros(2, dtype=bool),
+                free_support=np.zeros(2, dtype=bool),
                 template=jnp.zeros(2),
                 free_site_name="t0_means_free",
                 det_site_name="t0_means",
@@ -162,8 +159,8 @@ class TestSSMModelCompositeDispatch:
             ),
             t0_chol_block=T0CholBlockSpec(
                 n_latent=2,
-                diag_mask=np.zeros(2, dtype=bool),
-                correlation_mask=np.zeros((2, 2), dtype=bool),
+                diag_support=np.zeros(2, dtype=bool),
+                correlation_support=np.zeros((2, 2), dtype=bool),
                 template=jnp.eye(2) * 0.3,
             ),
             input_effect_block=default_input_effect_block(2),
@@ -173,7 +170,7 @@ class TestSSMModelCompositeDispatch:
         tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations=jnp.zeros((4, 1)),
             times=jnp.arange(4, dtype=jnp.float64),
-            likelihood_backend=CompositeAwareBackend(),
+            likelihood_backend=DynamicsAwareBackend(),
         )
 
         assert "vf_0_decay" in tr
@@ -190,32 +187,31 @@ class TestComponentNativeLinearDynamics:
     def test_state_decay_and_edges_match_expected_vector_field(self):
         from numpyro.handlers import condition, seed
 
-        spec = CompositeSpec(
+        spec = DynamicsSpec(
             n_latent=3,
             components=(
-                StateDecaySpec(target=0, decay_prior=ndist.LogNormal(0.0, 1.0)),
-                StateDecaySpec(target=1, decay_prior=ndist.LogNormal(0.0, 1.0)),
-                StateDecaySpec(target=2, decay_prior=ndist.LogNormal(0.0, 1.0)),
-                LinearEdgeSpec(source=1, target=0, weight_prior=ndist.Normal(0.0, 1.0)),
-                LinearEdgeSpec(source=2, target=1, weight_prior=ndist.Normal(0.0, 1.0)),
-                LinearEdgeSpec(source=0, target=2, weight_prior=ndist.Normal(0.0, 1.0)),
+                StateDecaySpec(target=0),
+                StateDecaySpec(target=1),
+                StateDecaySpec(target=2),
+                LinearEdgeSpec(source=1, target=0),
+                LinearEdgeSpec(source=2, target=1),
+                LinearEdgeSpec(source=0, target=2),
             ),
         )
-        compiled = compile_composite(spec)
+        compiled = compile_dynamics(spec)
+        sample_values = {
+            "vf_0_decay": jnp.asarray(0.3),
+            "vf_1_decay": jnp.asarray(0.5),
+            "vf_2_decay": jnp.asarray(0.7),
+            "vf_3_weight": jnp.asarray(0.2),
+            "vf_4_weight": jnp.asarray(-0.1),
+            "vf_5_weight": jnp.asarray(0.4),
+        }
         with (
             seed(rng_seed=0),
-            condition(
-                data={
-                    "vf_0_decay": jnp.asarray(0.3),
-                    "vf_1_decay": jnp.asarray(0.5),
-                    "vf_2_decay": jnp.asarray(0.7),
-                    "vf_3_weight": jnp.asarray(0.2),
-                    "vf_4_weight": jnp.asarray(-0.1),
-                    "vf_5_weight": jnp.asarray(0.4),
-                }
-            ),
+            condition(data=sample_values),
         ):
-            params = compiled.sample_params()
+            params = compiled.sample_params(lambda site_name: ndist.Delta(sample_values[site_name]))
 
         eta = jnp.array([1.0, 2.0, 3.0])
         actual = compiled.vector_field(
@@ -235,13 +231,13 @@ class TestComponentNativeLinearDynamics:
     def test_delta_state_decay_samples_component_param(self):
         from numpyro.handlers import seed
 
-        spec = CompositeSpec(
+        spec = DynamicsSpec(
             n_latent=2,
-            components=(StateDecaySpec(target=1, decay_prior=ndist.Delta(jnp.asarray(0.4))),),
+            components=(StateDecaySpec(target=1),),
         )
-        compiled = compile_composite(spec)
+        compiled = compile_dynamics(spec)
         with seed(rng_seed=0):
-            params = compiled.sample_params()
+            params = compiled.sample_params(lambda _: ndist.Delta(jnp.asarray(0.4)))
 
         assert params[0]["decay"].shape == ()
         np.testing.assert_allclose(params[0]["decay"], 0.4, atol=1e-12)
@@ -249,24 +245,23 @@ class TestComponentNativeLinearDynamics:
     def test_state_intercepts_add_to_selected_targets(self):
         from numpyro.handlers import condition, seed
 
-        spec = CompositeSpec(
+        spec = DynamicsSpec(
             n_latent=3,
             components=(
-                StateInterceptSpec(target=0, cint_prior=ndist.Normal(0.0, 1.0)),
-                StateInterceptSpec(target=2, cint_prior=ndist.Normal(0.0, 1.0)),
+                StateInterceptSpec(target=0),
+                StateInterceptSpec(target=2),
             ),
         )
-        compiled = compile_composite(spec)
+        compiled = compile_dynamics(spec)
+        sample_values = {
+            "vf_0_cint": jnp.asarray(0.1),
+            "vf_1_cint": jnp.asarray(-0.2),
+        }
         with (
             seed(rng_seed=0),
-            condition(
-                data={
-                    "vf_0_cint": jnp.asarray(0.1),
-                    "vf_1_cint": jnp.asarray(-0.2),
-                }
-            ),
+            condition(data=sample_values),
         ):
-            params = compiled.sample_params()
+            params = compiled.sample_params(lambda site_name: ndist.Delta(sample_values[site_name]))
 
         actual = compiled.vector_field(
             jnp.asarray(0.0),

@@ -635,7 +635,7 @@ def _correlation_log_abs_det_jacobian(z: jnp.ndarray) -> jnp.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Composite prior log-density
+# Joint prior log-density
 # ---------------------------------------------------------------------------
 
 # Type alias: the prior state is a plain nested dict (valid JAX pytree).

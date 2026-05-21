@@ -127,16 +127,16 @@ def resolve_initial_state_correlation_bindings(
     ]
 
 
-def build_initial_state_correlation_mask(
+def build_initial_state_correlation_support(
     latent_names: Sequence[str],
     model_spec: ModelSpec | dict,
 ) -> np.ndarray | None:
-    """Build a sparse lower-triangle mask for authored initial-state correlations."""
+    """Build sparse lower-triangle support for authored initial-state correlations."""
     bindings = resolve_initial_state_correlation_bindings(latent_names, model_spec)
     if not bindings:
         return None
 
-    mask = np.zeros((len(latent_names), len(latent_names)), dtype=bool)
+    support = np.zeros((len(latent_names), len(latent_names)), dtype=bool)
     for binding in bindings:
-        mask[binding.row, binding.col] = True
-    return mask
+        support[binding.row, binding.col] = True
+    return support

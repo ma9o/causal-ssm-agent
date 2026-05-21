@@ -210,7 +210,7 @@ class TestDeriveDeterministicSpec:
         sigma_params = [p for p in skeleton.parameters if p["role"] == "residual_sd"]
         assert len(sigma_params) == 2
 
-    def test_time_invariant_targets_do_not_expose_drift_surfaces(self):
+    def test_time_invariant_targets_do_not_expose_dynamics_surfaces(self):
         """Static states should not expose fixed-effect or diffusion surfaces."""
         spec = _make_causal_spec(
             constructs=[

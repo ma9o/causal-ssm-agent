@@ -4,20 +4,16 @@ Uses Pearl's do-calculus via y0 to check if causal effects are identifiable
 given observed/unobserved constructs. This properly handles:
 - Backdoor criterion
 - Front-door criterion
-- Instrumental variables (under linearity assumption; gated by ``iv_allowed``)
+- Instrumental variables (under a parametric linearity assumption; gated by ``iv_allowed``)
 - Other identification strategies from Shpitser & Pearl
 
 Design principle: Users specify DAGs with explicit latent confounders. We convert
 to ADMG internally using y0's from_latent_variable_dag() for identification.
 
 Note on IV: y0's nonparametric do-calculus cannot identify effects via IV alone.
-For the linear-SEM regime, IV identification is valid and ``check_identifiability``
-falls back to ``find_instruments`` (default: ``iv_allowed=True``). For the composite
-non-linear regime (Hill, multiplicative, effect-compartment edges), IV identification
-is **not** generally valid — parametric identification depends on the functional
-form. Callers fitting a composite spec should pass ``iv_allowed=False`` to drop the
-IV fallback; the resulting non-identifiable set is the conservative one that holds
-for any continuous monotone functional form.
+``check_identifiability`` can additionally report graph-theoretic IV candidates
+when the caller allows the parametric linearity assumption. Set ``iv_allowed=False``
+to return only nonparametric do-calculus identifications.
 """
 
 import re
@@ -54,12 +50,9 @@ def check_identifiability(
         latent_model: Dict with 'constructs' and 'edges'
         measurement_model: Dict with 'indicators' mapping constructs to measures
         iv_allowed: When True (default) and y0's nonparametric check fails,
-            fall back to IV identification via ``find_instruments`` (valid
-            under linear SEM assumptions). When False (composite non-linear
-            spec), the IV fallback is skipped — IV identification requires
-            functional-form assumptions that don't generally hold for Hill,
-            multiplicative, or effect-compartment dynamics. Set to False
-            for composite specs to get the conservative identifiable set.
+            report IV identification via ``find_instruments`` under the
+            caller's parametric linearity assumption. When False, only
+            nonparametric do-calculus identifications are returned.
 
     Returns:
         Dict with:
@@ -141,16 +134,15 @@ def check_identifiability(
                     "marginalized_confounders": sorted(unobserved_confounders),
                 }
             else:
-                # y0's nonparametric check failed - try IV identification.
-                # IV works under linearity; for composite non-linear specs the
-                # caller passes iv_allowed=False to suppress this fallback.
+                # y0's nonparametric check failed; optionally report IV
+                # identification under the caller's parametric assumption.
                 instruments = (
                     find_instruments(latent_model, observed_constructs, treatment, outcome)
                     if iv_allowed
                     else []
                 )
                 if instruments:
-                    # IV identification available under linearity
+                    # IV identification available under the caller's linearity assumption.
                     iv_list = ", ".join(instruments)
                     identifiable_treatments[treatment] = {
                         "method": "instrumental_variable",

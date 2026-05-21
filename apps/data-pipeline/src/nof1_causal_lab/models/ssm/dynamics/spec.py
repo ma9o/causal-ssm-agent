@@ -1,8 +1,8 @@
-"""Spec → ``CompositeVectorField`` compiler.
+"""Spec → ``VectorField`` compiler.
 
 Bridges between a *declarative* description of the SSM dynamics (the
 kind of structure Stage 4 will eventually emit from the LLM) and the
-runtime ``CompositeVectorField`` + ``args.params`` tuple that the
+runtime ``VectorField`` + ``args.params`` tuple that the
 simulator, root-finder, and (eventually) Corenflos auxiliary samplers
 consume.
 
@@ -10,9 +10,10 @@ Design:
 
 - ``ComponentSpec`` is a Protocol. Each concrete spec carries
   *structure* (source / target indices, latent dimensionality
-  expectation) and the *priors* on its parameters.
-- ``compile_composite(spec)`` walks the components, builds the
-  ``CompositeVectorField``, and returns a ``CompiledComposite`` whose
+  expectation). Priors are resolved from canonical site-prior metadata
+  at sampling time.
+- ``compile_dynamics(spec)`` walks the components, builds the
+  ``VectorField``, and returns a ``CompiledDynamics`` whose
   ``sample_params`` is a NumPyro-callable function: invoked inside a
   ``numpyro`` model context, it draws every parameter and packs them
   into the per-component tuple shape that the vector field expects in
@@ -28,12 +29,11 @@ plus a new ``ComponentSpec`` here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpyro
 
-from nof1_causal_lab.models.ssm.priors import resolve_prior_distribution
 from nof1_causal_lab.models.ssm.structure.sites import (
     PriorAuthoringTransform,
     SemanticBinding,
@@ -51,21 +51,24 @@ from .edges import (
     StateDecay,
     StateIntercept,
 )
-from .vector_field import CompositeVectorField
+from .vector_field import VectorField
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    import numpyro.distributions as dist
     from jax import Array
 
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
     from .edges import VectorFieldComponent
 
+    PriorFn = Callable[[str], dist.Distribution]
+
 
 @runtime_checkable
 class ComponentSpec(Protocol):
-    """Declarative description of one vector-field component plus its priors."""
+    """Declarative description of one vector-field component."""
 
     def build(self) -> VectorFieldComponent: ...
 
@@ -83,11 +86,7 @@ class ComponentSpec(Protocol):
         """Yield component-owned semantic bindings for prior compilation."""
         ...
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str):
-        """Return this component with site-keyed runtime priors bound."""
-        ...
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         """Call inside a NumPyro model; returns this component's param slice."""
         ...
 
@@ -108,7 +107,6 @@ class StateDecaySpec:
     """Single-latent relaxation component with one positive decay parameter."""
 
     target: int
-    decay_prior: Any
 
     def build(self) -> StateDecay:
         return StateDecay(target=self.target)
@@ -162,14 +160,11 @@ class StateDecaySpec:
             component_index=component_index,
         )
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StateDecaySpec:
-        return replace(self, decay_prior=prior_fn(self.decay_site_name(prefix)))
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
             "decay": numpyro.sample(
                 self.decay_site_name(prefix),
-                resolve_prior_distribution(self.decay_prior),
+                prior_fn(self.decay_site_name(prefix)),
             )
         }
 
@@ -179,7 +174,6 @@ class StateInterceptSpec:
     """Single-latent constant intercept component."""
 
     target: int
-    cint_prior: Any
 
     def build(self) -> StateIntercept:
         return StateIntercept(target=self.target)
@@ -221,14 +215,11 @@ class StateInterceptSpec:
             component_index=component_index,
         )
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StateInterceptSpec:
-        return replace(self, cint_prior=prior_fn(self.cint_site_name(prefix)))
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
             "cint": numpyro.sample(
                 self.cint_site_name(prefix),
-                resolve_prior_distribution(self.cint_prior),
+                prior_fn(self.cint_site_name(prefix)),
             )
         }
 
@@ -242,8 +233,6 @@ class StateInterceptSpec:
 class DiagonalDecaySpec:
     """``DiagonalDecay`` component. Prior over ``(n_latent,)`` rate vector
     (must be positive)."""
-
-    decay_prior: Any
 
     def build(self) -> DiagonalDecay:
         return DiagonalDecay()
@@ -297,14 +286,11 @@ class DiagonalDecaySpec:
                 component_index=component_index,
             )
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> DiagonalDecaySpec:
-        return replace(self, decay_prior=prior_fn(self.decay_site_name(prefix)))
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
             "decay": numpyro.sample(
                 self.decay_site_name(prefix),
-                resolve_prior_distribution(self.decay_prior),
+                prior_fn(self.decay_site_name(prefix)),
             )
         }
 
@@ -312,8 +298,6 @@ class DiagonalDecaySpec:
 @dataclass(frozen=True, eq=False)
 class InterceptSpec:
     """``Intercept`` component. Prior over ``(n_latent,)`` intercept vector."""
-
-    cint_prior: Any
 
     def build(self) -> Intercept:
         return Intercept()
@@ -356,14 +340,11 @@ class InterceptSpec:
                 component_index=component_index,
             )
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> InterceptSpec:
-        return replace(self, cint_prior=prior_fn(self.cint_site_name(prefix)))
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
             "cint": numpyro.sample(
                 self.cint_site_name(prefix),
-                resolve_prior_distribution(self.cint_prior),
+                prior_fn(self.cint_site_name(prefix)),
             )
         }
 
@@ -379,7 +360,6 @@ class LinearEdgeSpec:
 
     source: int
     target: int
-    weight_prior: Any
 
     def build(self) -> LinearEdge:
         return LinearEdge(source=self.source, target=self.target)
@@ -437,14 +417,11 @@ class LinearEdgeSpec:
             cause_idx=self.source,
         )
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> LinearEdgeSpec:
-        return replace(self, weight_prior=prior_fn(self.weight_site_name(prefix)))
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
             "weight": numpyro.sample(
                 self.weight_site_name(prefix),
-                resolve_prior_distribution(self.weight_prior),
+                prior_fn(self.weight_site_name(prefix)),
             )
         }
 
@@ -460,9 +437,6 @@ class HillEdgeSpec:
 
     source: int
     target: int
-    emax_prior: Any
-    ec50_prior: Any
-    n_prior: Any
 
     def build(self) -> HillEdge:
         return HillEdge(source=self.source, target=self.target)
@@ -553,27 +527,19 @@ class HillEdgeSpec:
                 cause_idx=self.source,
             )
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> HillEdgeSpec:
-        return replace(
-            self,
-            emax_prior=prior_fn(self.emax_site_name(prefix)),
-            ec50_prior=prior_fn(self.ec50_site_name(prefix)),
-            n_prior=prior_fn(self.n_site_name(prefix)),
-        )
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
             "Emax": numpyro.sample(
                 self.emax_site_name(prefix),
-                resolve_prior_distribution(self.emax_prior),
+                prior_fn(self.emax_site_name(prefix)),
             ),
             "EC50": numpyro.sample(
                 self.ec50_site_name(prefix),
-                resolve_prior_distribution(self.ec50_prior),
+                prior_fn(self.ec50_site_name(prefix)),
             ),
             "n": numpyro.sample(
                 self.n_site_name(prefix),
-                resolve_prior_distribution(self.n_prior),
+                prior_fn(self.n_site_name(prefix)),
             ),
         }
 
@@ -585,7 +551,6 @@ class MultiplicativeEdgeSpec:
     source_a: int
     source_b: int
     target: int
-    weight_prior: Any
 
     def build(self) -> MultiplicativeEdge:
         return MultiplicativeEdge(
@@ -633,25 +598,22 @@ class MultiplicativeEdgeSpec:
             cause_idx=self.source_a,
         )
 
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> MultiplicativeEdgeSpec:
-        return replace(self, weight_prior=prior_fn(self.weight_site_name(prefix)))
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
             "weight": numpyro.sample(
                 self.weight_site_name(prefix),
-                resolve_prior_distribution(self.weight_prior),
+                prior_fn(self.weight_site_name(prefix)),
             )
         }
 
 
 # ---------------------------------------------------------------------------
-# Composite spec + compiler
+# Dynamics spec + compiler
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, eq=False)
-class CompositeSpec:
+class DynamicsSpec:
     """Declarative SSM dynamics: latent dimension + tuple of component specs."""
 
     n_latent: int
@@ -659,26 +621,26 @@ class CompositeSpec:
 
 
 @dataclass(frozen=True, eq=False)
-class CompiledComposite:
-    """Output of ``compile_composite``: ready-to-fit vector field plus a
+class CompiledDynamics:
+    """Output of ``compile_dynamics``: ready-to-fit vector field plus a
     NumPyro-callable that produces the matching ``args.params`` tuple."""
 
-    spec: CompositeSpec
-    vector_field: CompositeVectorField
-    sample_params: Callable[[], tuple[dict[str, Array], ...]]
+    spec: DynamicsSpec
+    vector_field: VectorField
+    sample_params: Callable[[PriorFn], tuple[dict[str, Array], ...]]
     site_registry: tuple[SiteDescriptor, ...]
     site_prefix: str = "vf"
 
 
-def compile_composite(spec: CompositeSpec, *, prefix: str = "vf") -> CompiledComposite:
-    """Compile a ``CompositeSpec`` into a ``CompositeVectorField`` and a
+def compile_dynamics(spec: DynamicsSpec, *, prefix: str = "vf") -> CompiledDynamics:
+    """Compile a ``DynamicsSpec`` into a ``VectorField`` and a
     NumPyro-callable parameter sampler.
 
     The ``prefix`` is prepended to every NumPyro sample site name so
     nested compositions or multiple SSMs in one model stay disambiguated.
     """
     components = tuple(component_spec.build() for component_spec in spec.components)
-    vector_field = CompositeVectorField(n_latent=spec.n_latent, components=components)
+    vector_field = VectorField(n_latent=spec.n_latent, components=components)
     component_specs = spec.components
     site_registry = tuple(
         site
@@ -689,13 +651,13 @@ def compile_composite(spec: CompositeSpec, *, prefix: str = "vf") -> CompiledCom
         )
     )
 
-    def _sample_all_params() -> tuple[dict[str, Array], ...]:
+    def _sample_all_params(prior_fn: PriorFn) -> tuple[dict[str, Array], ...]:
         return tuple(
-            component_spec.sample_params(prefix=f"{prefix}_{i}")
+            component_spec.sample_params(prefix=f"{prefix}_{i}", prior_fn=prior_fn)
             for i, component_spec in enumerate(component_specs)
         )
 
-    return CompiledComposite(
+    return CompiledDynamics(
         spec=spec,
         vector_field=vector_field,
         sample_params=_sample_all_params,
@@ -704,8 +666,8 @@ def compile_composite(spec: CompositeSpec, *, prefix: str = "vf") -> CompiledCom
     )
 
 
-def iter_component_semantic_bindings(
-    spec: CompositeSpec,
+def iter_dynamics_semantic_bindings(
+    spec: DynamicsSpec,
     *,
     latent_names: tuple[str, ...],
     prefix: str = "vf",
@@ -720,7 +682,7 @@ def iter_component_semantic_bindings(
 
 
 def pack_component_params_from_samples(
-    spec: CompositeSpec,
+    spec: DynamicsSpec,
     samples: dict[str, Array],
     deterministics: dict[str, Array],  # noqa: ARG001 - retained for call-site uniformity
     *,
@@ -728,7 +690,7 @@ def pack_component_params_from_samples(
 ) -> tuple[dict[str, Array], ...]:
     """Pack flat sample-site values into the vector-field param tuple.
 
-    This mirrors ``CompiledComposite.sample_params`` without entering a NumPyro
+    This mirrors ``CompiledDynamics.sample_params`` without entering a NumPyro
     sampling context, so post-fit likelihood evaluators can rebuild the same
     runtime dynamics object from constrained parameter draws.
     """

@@ -80,7 +80,7 @@ class TestForwardSimulation:
     def test_forward_simulate_support_aware_window_average_respects_emission_schedule(self):
         """Interval-summary PPC emits only on anchor rows and uses aggregated means."""
         samples = {
-            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
+            "dynamics": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
             "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
             "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
             "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
@@ -108,7 +108,7 @@ class TestForwardSimulation:
     def test_forward_simulate_uses_t0_for_first_observation(self, monkeypatch):
         """The first observation is emitted from the initial state, not a fake transition."""
         samples = {
-            "drift": jnp.array([[[-0.1]]]),
+            "dynamics": jnp.array([[[-0.1]]]),
             "diffusion": jnp.zeros((1, 1, 1)),
             "lambda": jnp.array([[[1.0]]]),
             "manifest_cov": jnp.array([[[0.0]]]),
@@ -118,14 +118,14 @@ class TestForwardSimulation:
         times = jnp.array([0.0, 1.0, 2.0])
 
         def fake_discretize_system_with_inputs_batched(
-            drift,
+            dynamics,
             diffusion_cov,
             cint,
             input_effect,
             interval_inputs,
             dt_array,
         ):
-            del drift, diffusion_cov, cint
+            del dynamics, diffusion_cov, cint
             assert input_effect is None
             assert interval_inputs is None
             assert dt_array.shape == (2,)
@@ -163,14 +163,14 @@ class TestForwardSimulation:
         times = jnp.array([0.0, 1.0, 2.0])
 
         def fake_discretize_system_with_inputs_batched(
-            drift,
+            dynamics,
             diffusion_cov,
             cint,
             input_effect,
             interval_inputs,
             dt_array,
         ):
-            del drift, diffusion_cov, cint
+            del dynamics, diffusion_cov, cint
             assert input_effect is None
             assert interval_inputs is None
             assert dt_array.shape == (2,)
@@ -263,7 +263,7 @@ class TestForwardSimulation:
     def test_forward_simulate_raises_on_log_link_mean_overflow(self):
         """Overflowing log-link means fail before observation sampling."""
         samples = {
-            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
+            "dynamics": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
             "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
             "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
             "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
@@ -353,7 +353,7 @@ class TestDiagnosticChecks:
 
         # Simulate from one model
         samples_true = _make_samples(
-            n_draws=100, n_latent=2, n_manifest=n_manifest, drift_diag=-0.3
+            n_draws=100, n_latent=2, n_manifest=n_manifest, decay_diag=-0.3
         )
         times = jnp.arange(T, dtype=float)
         y_sim_true, _ = simulate_predictive_observations(

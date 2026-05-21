@@ -6,7 +6,7 @@ the mathematical roundtrip is consistent.
 
 Phase 1 tests:
 - reference_interval_days precedence chain for DT→CT conversion
-- SSMSpec structure (drift_mask, lambda_mask) from DAG
+- SSMSpec structure (dynamics_support, lambda_support) from DAG
 - First-order DT→CT→DT roundtrip consistency
 - Prior predictive produces finite, stable samples
 
@@ -32,32 +32,32 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
 from nof1_causal_lab.models.ssm.compile.inputs import (
     translate_spec as translate_ssm_spec,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import (
+from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
     LinearEdgeSpec,
     StateDecaySpec,
     StateInterceptSpec,
 )
 from nof1_causal_lab.models.ssm.runtime import build_ssm_model
-from tests.ssm_test_utils import block_ssm_spec, structural_dense_drift_spec
+from tests.ssm_test_utils import block_ssm_spec, dense_matrix_dynamics_spec
 
 
-def _block_spec_with_drift_offdiag(
+def _block_spec_with_edge_support(
     *,
     n_latent: int,
     n_manifest: int,
-    drift_offdiag_mask: np.ndarray,
+    edge_support: np.ndarray,
     latent_names: list[str] | None = None,
 ) -> SSMSpec:
     return block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=structural_dense_drift_spec(
+        dynamics_spec=dense_matrix_dynamics_spec(
             n_latent=n_latent,
-            drift_diag_mask=np.ones(n_latent, dtype=bool),
-            drift_offdiag_mask=drift_offdiag_mask,
-            drift_template=jnp.zeros((n_latent, n_latent)),
-            cint_mask=np.zeros(n_latent, dtype=bool),
+            decay_support=np.ones(n_latent, dtype=bool),
+            edge_support=edge_support,
+            coupling_template=jnp.zeros((n_latent, n_latent)),
+            intercept_support=np.zeros(n_latent, dtype=bool),
             cint_template=jnp.zeros(n_latent),
         ),
         latent_names=latent_names,
@@ -170,12 +170,14 @@ def _linear_edge_weight(
             and component.source == source
             and component.target == target
         ):
-            prior = _prior_params(prior_registry, component.weight_site_name(f"vf_{component_index}"))
+            prior = _prior_params(
+                prior_registry, component.weight_site_name(f"vf_{component_index}")
+            )
             return _real_prior_mean(prior)
     raise AssertionError(f"No LinearEdgeSpec for source={source}, target={target}")
 
 
-def _decay_mask(spec: SSMSpec) -> np.ndarray:
+def _decay_support(spec: SSMSpec) -> np.ndarray:
     mask = np.zeros(spec.n_latent, dtype=bool)
     for component in spec.dynamics_spec.components:
         if isinstance(component, DiagonalDecaySpec):
@@ -185,7 +187,7 @@ def _decay_mask(spec: SSMSpec) -> np.ndarray:
     return mask
 
 
-def _linear_edge_mask(spec: SSMSpec) -> np.ndarray:
+def _linear_edge_support(spec: SSMSpec) -> np.ndarray:
     mask = np.zeros((spec.n_latent, spec.n_latent), dtype=bool)
     for component in spec.dynamics_spec.components:
         if isinstance(component, LinearEdgeSpec):
@@ -201,8 +203,8 @@ def _state_intercept_mask(spec: SSMSpec) -> np.ndarray:
     return mask
 
 
-def _mean_drift_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
-    drift = np.zeros((spec.n_latent, spec.n_latent), dtype=float)
+def _mean_dynamics_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
+    dynamics = np.zeros((spec.n_latent, spec.n_latent), dtype=float)
     for component_index, component in enumerate(spec.dynamics_spec.components):
         prefix = f"vf_{component_index}"
         if isinstance(component, DiagonalDecaySpec):
@@ -211,14 +213,14 @@ def _mean_drift_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
                 [_positive_prior_mean(prior, idx) for idx in range(spec.n_latent)],
                 dtype=float,
             )
-            drift[np.arange(spec.n_latent), np.arange(spec.n_latent)] -= decay
+            dynamics[np.arange(spec.n_latent), np.arange(spec.n_latent)] -= decay
         elif isinstance(component, StateDecaySpec):
             prior = _prior_params(prior_registry, component.decay_site_name(prefix))
-            drift[component.target, component.target] -= _positive_prior_mean(prior)
+            dynamics[component.target, component.target] -= _positive_prior_mean(prior)
         elif isinstance(component, LinearEdgeSpec):
             prior = _prior_params(prior_registry, component.weight_site_name(prefix))
-            drift[component.target, component.source] += _real_prior_mean(prior)
-    return jnp.asarray(drift, dtype=jnp.float32)
+            dynamics[component.target, component.source] += _real_prior_mean(prior)
+    return jnp.asarray(dynamics, dtype=jnp.float32)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -471,13 +473,13 @@ class TestE2ESpecToDiscretization:
         assert spec.latent_names == ["mood", "stress"]
 
         # Dynamics support: diagonal decay (AR) + stress→mood linear edge.
-        np.testing.assert_array_equal(_decay_mask(spec), [True, True])
-        edge_mask = _linear_edge_mask(spec)
-        assert edge_mask[0, 1]  # stress→mood coupling (effect=mood row, cause=stress col)
-        assert not edge_mask[1, 0]  # no mood→stress edge
+        np.testing.assert_array_equal(_decay_support(spec), [True, True])
+        edge_support = _linear_edge_support(spec)
+        assert edge_support[0, 1]  # stress→mood coupling (effect=mood row, cause=stress col)
+        assert not edge_support[1, 0]  # no mood→stress edge
 
         # Lambda mask: stress_cortisol has free loading for stress
-        assert spec.lambda_block.mask is not None
+        assert spec.lambda_block.free_support is not None
         # mood_rating loads on mood (fixed=1.0), stress_self_report loads on stress (fixed=1.0)
         # stress_cortisol loads on stress (free)
         manifest_names = spec.manifest_names
@@ -485,7 +487,7 @@ class TestE2ESpecToDiscretization:
         stress_cortisol_idx = manifest_names.index("stress_cortisol")
         assert spec.latent_names is not None
         stress_latent_idx = spec.latent_names.index("stress")
-        assert spec.lambda_block.mask[stress_cortisol_idx, stress_latent_idx]
+        assert spec.lambda_block.free_support[stress_cortisol_idx, stress_latent_idx]
 
     def test_causal_spec_owns_latent_identity(self):
         """Latent identity comes from causal_spec, not from AR parameter count."""
@@ -608,10 +610,10 @@ class TestE2ESpecToDiscretization:
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
         assert spec.n_latent == 3
-        np.testing.assert_array_equal(_decay_mask(spec), [True, True, False])
+        np.testing.assert_array_equal(_decay_support(spec), [True, True, False])
         np.testing.assert_array_equal(_state_intercept_mask(spec), [False, False, False])
         np.testing.assert_array_equal(
-            spec.diffusion_block.diffusion_chol_mask,
+            spec.diffusion_block.diffusion_chol_support,
             [
                 [True, False, False],
                 [False, True, False],
@@ -620,8 +622,8 @@ class TestE2ESpecToDiscretization:
         )
         assert _decay_means(spec, ssm_priors).shape == (3,)
 
-    def test_time_invariant_states_drop_static_target_drift_and_diffusion_support(self):
-        """Time-invariant states should not expose drift, diffusion, or cint support."""
+    def test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support(self):
+        """Time-invariant states should not expose dynamics, diffusion, or cint support."""
         causal_spec = _with_estimation_projection(
             {
                 "latent": {
@@ -747,15 +749,15 @@ class TestE2ESpecToDiscretization:
         spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
-        np.testing.assert_array_equal(_decay_mask(spec), [True, True, False])
-        edge_mask = _linear_edge_mask(spec)
-        assert edge_mask[0, 1]
-        assert edge_mask[0, 2]
-        assert not edge_mask[2, 0]
-        assert not edge_mask[2, 1]
+        np.testing.assert_array_equal(_decay_support(spec), [True, True, False])
+        edge_support = _linear_edge_support(spec)
+        assert edge_support[0, 1]
+        assert edge_support[0, 2]
+        assert not edge_support[2, 0]
+        assert not edge_support[2, 1]
         np.testing.assert_array_equal(_state_intercept_mask(spec), [False, False, False])
         np.testing.assert_array_equal(
-            spec.diffusion_block.diffusion_chol_mask,
+            spec.diffusion_block.diffusion_chol_support,
             [
                 [True, False, False],
                 [True, True, False],
@@ -900,11 +902,11 @@ class TestE2ESpecToDiscretization:
         model = build_model_from_compiled_artifact(compiled, pivot_to_wide(data_for_model))
         spec = model.spec
         assert spec.latent_names == ["mood", "stress"]
-        edge_mask = _linear_edge_mask(spec)
-        assert edge_mask[0, 1]
-        assert not edge_mask[1, 0]
-        assert spec.lambda_block.mask is not None
-        assert spec.lambda_block.mask[2, 1]
+        edge_support = _linear_edge_support(spec)
+        assert edge_support[0, 1]
+        assert not edge_support[1, 0]
+        assert spec.lambda_block.free_support is not None
+        assert spec.lambda_block.free_support[2, 1]
         runtime = model.get_prior_runtime_bundle()
         assert runtime.prior_state["vf_0_decay"]["concentration"].shape == ()
         assert runtime.prior_state["vf_1_decay"]["concentration"].shape == ()
@@ -962,21 +964,21 @@ class TestE2ESpecToDiscretization:
         # --- rho_mood: Beta(3,2) → E=0.6, reference_interval_days=7 ---
         # dynamics decay for mood = -ln(0.6) / 7 ≈ 0.073
         mu_ar_mood = 3.0 / 5.0  # E[Beta(3,2)] = 0.6
-        expected_drift_mood = -math.log(mu_ar_mood) / 7.0
-        mu_drift = _decay_means(spec, ssm_priors)
-        mu_mood = mu_drift[0]
-        assert abs(mu_mood - expected_drift_mood) < 0.01, (
-            f"mood drift: got {mu_mood}, expected {expected_drift_mood} "
+        expected_dynamics_mood = -math.log(mu_ar_mood) / 7.0
+        mu_dynamics = _decay_means(spec, ssm_priors)
+        mu_mood = mu_dynamics[0]
+        assert abs(mu_mood - expected_dynamics_mood) < 0.01, (
+            f"mood dynamics: got {mu_mood}, expected {expected_dynamics_mood} "
             f"(using reference_interval_days=7)"
         )
 
         # --- rho_stress: Beta(2,2) → E=0.5, no reference_interval_days → daily dt=1 ---
         # dynamics decay for stress = -ln(0.5) / 1.0 ≈ 0.693
         mu_ar_stress = 0.5
-        expected_drift_stress = -math.log(mu_ar_stress) / 1.0
-        mu_stress = mu_drift[1]
-        assert abs(mu_stress - expected_drift_stress) < 0.01, (
-            f"stress drift: got {mu_stress}, expected {expected_drift_stress} "
+        expected_dynamics_stress = -math.log(mu_ar_stress) / 1.0
+        mu_stress = mu_dynamics[1]
+        assert abs(mu_stress - expected_dynamics_stress) < 0.01, (
+            f"stress dynamics: got {mu_stress}, expected {expected_dynamics_stress} "
             f"(fallback to daily dt=1)"
         )
 
@@ -985,14 +987,14 @@ class TestE2ESpecToDiscretization:
         expected_offdiag = 0.3 / 7.0
         mu_offdiag_val = _linear_edge_weight(spec, ssm_priors, source=1, target=0)
         assert abs(mu_offdiag_val - expected_offdiag) < 0.01, (
-            f"stress→mood drift: got {mu_offdiag_val}, expected {expected_offdiag} "
+            f"stress→mood dynamics: got {mu_offdiag_val}, expected {expected_offdiag} "
             f"(using reference_interval_days=7)"
         )
 
-    def test_ct_drift_is_stable(
+    def test_ct_dynamics_is_stable(
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
     ):
-        """The CT drift matrix from converted priors has all eigenvalues with Re < 0."""
+        """The CT dynamics matrix from converted priors has all eigenvalues with Re < 0."""
         spec, _elags = _translate_spec_for_test(
             two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
@@ -1004,12 +1006,12 @@ class TestE2ESpecToDiscretization:
             causal_spec=two_construct_causal_spec,
         )
 
-        drift = np.asarray(_mean_drift_from_priors(spec, ssm_priors))
+        dynamics = np.asarray(_mean_dynamics_from_priors(spec, ssm_priors))
 
         # All eigenvalues must have negative real parts (stability)
-        eigenvalues = np.linalg.eigvals(drift)
+        eigenvalues = np.linalg.eigvals(dynamics)
         max_real = np.max(np.real(eigenvalues))
-        assert max_real < 0, f"Drift matrix is unstable: max Re(eigenvalue) = {max_real}"
+        assert max_real < 0, f"Dynamics matrix is unstable: max Re(eigenvalue) = {max_real}"
 
     def test_first_order_roundtrip_ar(
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
@@ -1026,16 +1028,16 @@ class TestE2ESpecToDiscretization:
             causal_spec=two_construct_causal_spec,
         )
 
-        drift = _mean_drift_from_priors(spec, ssm_priors)
+        dynamics = _mean_dynamics_from_priors(spec, ssm_priors)
 
         # Discretize at dt=7 (weekly). The mood prior was authored on the
         # weekly interval, so its diagonal transition recovers that persistence.
         dt_weekly = 7.0
-        F_weekly = jla.expm(drift * dt_weekly)
+        F_weekly = jla.expm(dynamics * dt_weekly)
 
-        base_decay = _decay_means(spec, ssm_priors)
+        decay_rate = _decay_means(spec, ssm_priors)
         baseline_ar_mood = 3.0 / 5.0  # Beta(3,2) mean = 0.6
-        expected_resolved_mood = math.exp(-base_decay[0] * dt_weekly)
+        expected_resolved_mood = math.exp(-decay_rate[0] * dt_weekly)
         recovered_ar_mood = float(F_weekly[0, 0])
         assert recovered_ar_mood == pytest.approx(baseline_ar_mood, abs=0.05)
         assert abs(recovered_ar_mood - expected_resolved_mood) < 0.05, (
@@ -1051,8 +1053,8 @@ class TestE2ESpecToDiscretization:
         )
 
         # Discretize at dt=1 (daily) for stress resolved persistence.
-        F_daily = jla.expm(drift * 1.0)
-        expected_daily_stress = math.exp(-base_decay[1])
+        F_daily = jla.expm(dynamics * 1.0)
+        expected_daily_stress = math.exp(-decay_rate[1])
         recovered_daily_stress = float(F_daily[1, 1])
         assert abs(recovered_daily_stress - expected_daily_stress) < 0.05, (
             f"Daily roundtrip stress AR: got {recovered_daily_stress:.4f}, "
@@ -1079,12 +1081,12 @@ class TestE2ESpecToDiscretization:
             causal_spec=two_construct_causal_spec,
         )
 
-        # Build drift matrix
-        drift = _mean_drift_from_priors(spec, ssm_priors)
+        # Build dynamics matrix
+        dynamics = _mean_dynamics_from_priors(spec, ssm_priors)
 
         # Discretize at weekly interval
         dt_weekly = 7.0
-        F_weekly = jla.expm(drift * dt_weekly)
+        F_weekly = jla.expm(dynamics * dt_weekly)
 
         # NOTE: F[0,1] ≠ β_DT because the matrix exponential mixes terms:
         #   F[0,1] = A[0,1] * (exp(A[0,0]*dt) - exp(A[1,1]*dt)) / (A[1,1] - A[0,0])
@@ -1103,7 +1105,7 @@ class TestE2ESpecToDiscretization:
         from scipy.linalg import logm
 
         A_recovered = logm(np.array(F_weekly)).real / dt_weekly
-        ct_rate = float(drift[0, 1])  # the CT rate we set
+        ct_rate = float(dynamics[0, 1])  # the CT rate we set
         assert abs(A_recovered[0, 1] - ct_rate) < 1e-6, (
             f"Exact logm roundtrip: got {A_recovered[0, 1]:.6f}, expected {ct_rate:.6f}"
         )
@@ -1123,9 +1125,9 @@ class TestE2ESpecToDiscretization:
             causal_spec=two_construct_causal_spec,
         )
 
-        # Build drift and diffusion at prior means
+        # Build dynamics and diffusion at prior means
         n = spec.n_latent
-        drift = _mean_drift_from_priors(spec, ssm_priors)
+        dynamics = _mean_dynamics_from_priors(spec, ssm_priors)
 
         # Simple diagonal diffusion
         diff_sd = _prior_params(ssm_priors, "diffusion_diag_free").get("sigma", 1.0)
@@ -1136,7 +1138,7 @@ class TestE2ESpecToDiscretization:
         cint = jnp.zeros(n)
 
         # Discretize at dt=1 (daily)
-        F, Q, c = discretize_system(drift, diffusion_cov, cint, dt=1.0)
+        F, Q, c = discretize_system(dynamics, diffusion_cov, cint, dt=1.0)
 
         # F should be a valid transition matrix (all eigenvalues < 1 in abs)
         eigs_F = jnp.linalg.eigvals(F)
@@ -1194,11 +1196,9 @@ class TestE2ESpecToDiscretization:
             diff_samples = samples["diffusion"]
             assert jnp.all(jnp.isfinite(diff_samples)), "diffusion samples contain NaN/Inf"
 
-        # Drift diag should be negative (stability)
-        if drift_samples.ndim == 3:  # (n_samples, n_latent, n_latent)
-            for i in range(drift_samples.shape[0]):
-                diag = jnp.diag(drift_samples[i])
-                assert jnp.all(diag < 0), f"Sample {i} has non-negative drift diagonal: {diag}"
+        # Decay rates should stay on positive support, giving negative diagonal dynamics terms.
+        for key in [name for name in dynamics_keys if name.endswith("_decay")]:
+            assert jnp.all(samples[key] > 0), f"{key} has non-positive decay draws"
 
     def test_different_intervals_produce_different_rates(self, two_construct_model_spec):
         """Same DT beta at different study intervals → different CT rates.
@@ -1296,12 +1296,12 @@ class TestE2ESpecToDiscretization:
             },
         }
 
-        drift_offdiag_mask = np.array([[False, True], [False, False]])
-        ssm_spec = _block_spec_with_drift_offdiag(
+        edge_support = np.array([[False, True], [False, False]])
+        ssm_spec = _block_spec_with_edge_support(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_offdiag_mask=drift_offdiag_mask,
+            edge_support=edge_support,
         )
 
         ssm_priors_w, _idx = _compile_priors_for_test(
@@ -1346,37 +1346,37 @@ class TestExactMatrixLogConversion:
     """
 
     def test_scalar_logm_matches_first_order(self):
-        """For a 1D system, logm(Phi)/dt gives the same drift magnitude.
+        """For a 1D system, logm(Phi)/dt gives the same dynamics magnitude.
 
         logm([[rho]]) = [[ln(rho)]] (negative for rho < 1).
         Our pipeline stores baseline decay as a positive magnitude. So:
-          base_decay_mu = -ln(rho)/dt  (positive)
-          actual_drift  = -base_decay_mu = ln(rho)/dt  (negative without coupling)
-          logm(Phi)/dt  = ln(rho)/dt  (negative, matches actual_drift)
+          decay_rate_mu = -ln(rho)/dt  (positive)
+          actual_dynamics  = -decay_rate_mu = ln(rho)/dt  (negative without coupling)
+          logm(Phi)/dt  = ln(rho)/dt  (negative, matches actual_dynamics)
         """
         rho = 0.7
         dt = 1.0
         Phi = np.array([[rho]])
 
         # Pipeline convention: positive magnitude (gets negated by model)
-        drift_mag = -math.log(rho) / dt  # positive
+        dynamics_mag = -math.log(rho) / dt  # positive
 
-        # Exact (logm): gives the actual (negative) drift
+        # Exact (logm): gives the actual (negative) dynamics
         from scipy.linalg import logm
 
         A_exact = logm(Phi).real / dt
 
-        # logm gives ln(rho)/dt which equals -drift_mag
-        assert abs(A_exact[0, 0] - (-drift_mag)) < 1e-10
+        # logm gives ln(rho)/dt which equals -dynamics_mag
+        assert abs(A_exact[0, 0] - (-dynamics_mag)) < 1e-10
 
     def test_exact_roundtrip_2d_system(self):
         """Exact logm roundtrip: A → Φ = exp(A*dt) → logm(Φ)/dt → A.
 
-        Build a known 2D CT drift, discretize, then recover via logm.
+        Build a known 2D CT dynamics, discretize, then recover via logm.
         """
         from scipy.linalg import expm, logm
 
-        # Known stable drift
+        # Known stable dynamics
         A = np.array(
             [
                 [-0.5, 0.1],
@@ -1460,7 +1460,7 @@ class TestExactMatrixLogConversion:
         A_good = logm(Phi_good).real
         # Recovered A should be stable (negative diagonal)
         assert np.all(np.diag(A_good) < 0), (
-            f"Recovered drift should be stable, got diagonal: {np.diag(A_good)}"
+            f"Recovered dynamics should be stable, got diagonal: {np.diag(A_good)}"
         )
 
         # Non-embeddable: negative eigenvalue
@@ -1490,8 +1490,8 @@ class TestExactMatrixLogConversion:
         # True CT system: stress → mood with moderate coupling
         A_true = np.array(
             [
-                [-0.3, 0.15],  # mood: AR drift -0.3, stress coupling 0.15
-                [0.0, -0.5],  # stress: AR drift -0.5, no reverse coupling
+                [-0.3, 0.15],  # mood: AR dynamics -0.3, stress coupling 0.15
+                [0.0, -0.5],  # stress: AR dynamics -0.5, no reverse coupling
             ]
         )
         dt = 7.0  # weekly observation interval
@@ -1519,13 +1519,13 @@ class TestExactMatrixLogConversion:
         assert error_exact < 1e-8, f"logm error unexpectedly large: {error_exact}"
 
     def test_discretize_at_multiple_intervals(self):
-        """Discretizing at different intervals from the same CT drift
+        """Discretizing at different intervals from the same CT dynamics
         produces different but consistent DT parameters.
 
         Key property: F(dt1) * F(dt2) == F(dt1 + dt2) (semi-group property).
         """
-        # Stable 2D drift
-        drift = jnp.array(
+        # Stable 2D dynamics
+        dynamics = jnp.array(
             [
                 [-0.3, 0.05],
                 [-0.1, -0.5],
@@ -1534,8 +1534,8 @@ class TestExactMatrixLogConversion:
         diffusion_cov = jnp.eye(2) * 0.1
 
         # Discretize at dt=1 and dt=2
-        F1, _Q1, _ = discretize_system(drift, diffusion_cov, None, dt=1.0)
-        F2, _Q2, _ = discretize_system(drift, diffusion_cov, None, dt=2.0)
+        F1, _Q1, _ = discretize_system(dynamics, diffusion_cov, None, dt=1.0)
+        F2, _Q2, _ = discretize_system(dynamics, diffusion_cov, None, dt=2.0)
 
         # Semi-group property: F(2) == F(1) @ F(1)
         F1_squared = F1 @ F1
@@ -1611,12 +1611,12 @@ class TestExactMatrixLogConversion:
             },
         }
 
-        drift_offdiag_mask = np.array([[False, True], [False, False]])
-        ssm_spec = _block_spec_with_drift_offdiag(
+        edge_support = np.array([[False, True], [False, False]])
+        ssm_spec = _block_spec_with_edge_support(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_offdiag_mask=drift_offdiag_mask,
+            edge_support=edge_support,
         )
 
         ssm_priors, _idx = _compile_priors_for_test(
@@ -1626,11 +1626,11 @@ class TestExactMatrixLogConversion:
             causal_spec=two_construct_causal_spec,
         )
 
-        drift_base_decay = _decay_means(ssm_spec, ssm_priors)
+        dynamics_decay = _decay_means(ssm_spec, ssm_priors)
         linear_edge_weight = _linear_edge_weight(ssm_spec, ssm_priors, source=1, target=0)
 
-        assert abs(drift_base_decay[0] - (-math.log(0.6) / 7.0)) < 0.01
-        assert abs(drift_base_decay[1] - (-math.log(0.5) / 7.0)) < 0.01
+        assert abs(dynamics_decay[0] - (-math.log(0.6) / 7.0)) < 0.01
+        assert abs(dynamics_decay[1] - (-math.log(0.5) / 7.0)) < 0.01
         assert abs(linear_edge_weight - (0.3 / 7.0)) < 0.01
 
     def test_edge_lag_days_populated(self, two_construct_causal_spec):
@@ -1653,8 +1653,8 @@ class TestExactMatrixLogConversion:
         assert (0, 1) in edge_lag_days
         assert abs(edge_lag_days[(0, 1)] - 1.0) < 0.01
 
-    def test_drift_lag_consistency_warns(self, two_construct_causal_spec, caplog):
-        """Compilation warns when CT drift implies timescale far from edge lag."""
+    def test_dynamics_lag_consistency_warns(self, two_construct_causal_spec, caplog):
+        """Compilation warns when CT dynamics implies timescale far from edge lag."""
         import logging
 
         model_spec = {
@@ -1703,12 +1703,12 @@ class TestExactMatrixLogConversion:
                 "params": {"mu": 6.0, "sigma": 1.0},
             },
         }
-        drift_offdiag_mask = np.array([[False, True], [False, False]])
-        ssm_spec = _block_spec_with_drift_offdiag(
+        edge_support = np.array([[False, True], [False, False]])
+        ssm_spec = _block_spec_with_edge_support(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_offdiag_mask=drift_offdiag_mask,
+            edge_support=edge_support,
         )
         from nof1_causal_lab.models.ssm.compile.inputs import (
             build_structural_support_from_causal_spec,

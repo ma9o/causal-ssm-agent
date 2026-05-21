@@ -16,8 +16,8 @@ from nof1_causal_lab.artifacts.model_spec import (
 )
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    CompositeSpec,
+from nof1_causal_lab.models.ssm.dynamics.spec import (
+    DynamicsSpec,
     LinearEdgeSpec,
     StateDecaySpec,
     StateInterceptSpec,
@@ -27,7 +27,7 @@ from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
 )
 from nof1_causal_lab.models.ssm.model import SSMSpec
 from nof1_causal_lab.models.ssm.parameter_names import (
-    build_initial_state_correlation_mask,
+    build_initial_state_correlation_support,
     split_compound_name,
 )
 from nof1_causal_lab.models.ssm.structure import (
@@ -55,9 +55,6 @@ class SpecTranslationError(AggregatedCompileError):
     """Aggregate independent ``ModelSpec`` -> ``SSMSpec`` translation errors."""
 
     header = "Spec translation failed"
-
-
-DEFAULT_STABILITY_MARGIN_PER_DAY = 0.05
 
 
 def _zero_loading_support(n_manifest: int, n_latent: int) -> np.ndarray:
@@ -251,7 +248,7 @@ def build_structural_support_from_causal_spec(
     )
     input_idx = {name: idx for idx, name in enumerate(input_names)}
     state_dynamics_support = np.zeros((n_latent, n_latent), dtype=bool)
-    input_effect_mask = np.zeros((n_latent, len(input_names)), dtype=bool)
+    input_effect_support = np.zeros((n_latent, len(input_names)), dtype=bool)
     for latent_name, latent_idx_value in latent_idx.items():
         construct = latent_construct_lookup.get(latent_name) or {}
         if construct.get("temporal_status") != "time_invariant":
@@ -268,7 +265,7 @@ def build_structural_support_from_causal_spec(
             continue
         effect_idx = latent_idx[effect]
         if cause in input_idx:
-            input_effect_mask[effect_idx, input_idx[cause]] = True
+            input_effect_support[effect_idx, input_idx[cause]] = True
             continue
         if cause not in latent_idx:
             continue
@@ -282,7 +279,7 @@ def build_structural_support_from_causal_spec(
 
     manifest_idx = {name: idx for idx, name in enumerate(manifest_cols)}
     lambda_mat_np = np.zeros((n_manifest, n_latent), dtype=np.float64)
-    lambda_mask = np.zeros((n_manifest, n_latent), dtype=bool)
+    lambda_support = np.zeros((n_manifest, n_latent), dtype=bool)
     reference_indicator_lookup = build_reference_indicator_lookup(indicators)
     matched_manifests: set[str] = set()
     invalid_construct_manifests: set[str] = set()
@@ -313,7 +310,7 @@ def build_structural_support_from_causal_spec(
                 1.0 if get_indicator_polarity(indicator) == "positive" else -1.0
             )
         else:
-            lambda_mask[manifest_idx_value, latent_idx_value] = True
+            lambda_support[manifest_idx_value, latent_idx_value] = True
 
     lambda_mat = jnp.array(lambda_mat_np)
 
@@ -332,7 +329,7 @@ def build_structural_support_from_causal_spec(
     if errors:
         raise SpecTranslationError(errors)
 
-    return state_dynamics_support, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days
+    return state_dynamics_support, input_effect_support, lambda_mat, lambda_support, edge_lag_days
 
 
 def build_manifest_variance_from_causal_spec(
@@ -636,7 +633,7 @@ def translate_spec(
     manifest_links: list[LinkFunction] = [likelihood.link for likelihood in model_spec.likelihoods]
 
     try:
-        state_dynamics_support, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
+        state_dynamics_support, input_effect_support, lambda_mat, lambda_support, edge_lag_days = (
             build_structural_support_from_causal_spec(
                 latent_names,
                 manifest_cols,
@@ -648,9 +645,9 @@ def translate_spec(
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
         state_dynamics_support = np.eye(n_latent, dtype=bool)
-        input_effect_mask = np.zeros((n_latent, 0), dtype=bool)
+        input_effect_support = np.zeros((n_latent, 0), dtype=bool)
         lambda_mat = jnp.eye(n_manifest, n_latent)
-        lambda_mask = _zero_loading_support(n_manifest, n_latent)
+        lambda_support = _zero_loading_support(n_manifest, n_latent)
         edge_lag_days = {}
 
     if causal_spec is None:
@@ -678,7 +675,7 @@ def translate_spec(
         time_invariant_mask,
     )
 
-    manifest_chol, manifest_chol_diag_mask = build_manifest_variance_from_causal_spec(
+    manifest_chol, manifest_chol_diag_support = build_manifest_variance_from_causal_spec(
         latent_names,
         manifest_cols,
         manifest_dists,
@@ -707,60 +704,62 @@ def translate_spec(
         )
     try:
         if causal_spec is None:
-            t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
+            t0_correlation_support = build_initial_state_correlation_support(
+                latent_names, model_spec
+            )
         else:
-            t0_correlation_mask = _zero_square_support(n_latent)
+            t0_correlation_support = _zero_square_support(n_latent)
     except ValueError as exc:
         errors.append(str(exc))
-        t0_correlation_mask = _zero_square_support(n_latent)
-    diffusion_chol_mask = (
+        t0_correlation_support = _zero_square_support(n_latent)
+    diffusion_chol_support = (
         _full_cholesky_support(n_latent)
         if has_innovation_correlation
         else np.diag(_full_diagonal_support(n_latent))
     )
-    diffusion_chol_mask = _mask_time_invariant_diffusion_support(
-        diffusion_chol_mask,
+    diffusion_chol_support = _mask_time_invariant_diffusion_support(
+        diffusion_chol_support,
         time_invariant_mask,
     )
-    if t0_correlation_mask is None:
-        t0_correlation_mask = _zero_square_support(n_latent)
+    if t0_correlation_support is None:
+        t0_correlation_support = _zero_square_support(n_latent)
     initialization_policy = InitializationPolicy(model_spec.initialization_policy)
     if initialization_policy == InitializationPolicy.FREE:
-        t0_means_mask = _full_vector_support(n_latent)
-        t0_chol_diag_mask = _full_diagonal_support(n_latent)
+        t0_means_support = _full_vector_support(n_latent)
+        t0_chol_diag_support = _full_diagonal_support(n_latent)
     else:
         dynamic_mask = (
             np.ones(n_latent, dtype=bool)
             if time_invariant_mask is None
             else ~np.asarray(time_invariant_mask, dtype=bool)
         )
-        t0_means_mask = np.zeros(n_latent, dtype=bool)
-        t0_means_mask[~dynamic_mask] = True
-        t0_chol_diag_mask = np.zeros(n_latent, dtype=bool)
-        t0_chol_diag_mask[~dynamic_mask] = True
+        t0_means_support = np.zeros(n_latent, dtype=bool)
+        t0_means_support[~dynamic_mask] = True
+        t0_chol_diag_support = np.zeros(n_latent, dtype=bool)
+        t0_chol_diag_support[~dynamic_mask] = True
 
     observation_intercept_policy = ObservationInterceptPolicy(
         model_spec.observation_intercept_policy
     )
     if observation_intercept_policy == ObservationInterceptPolicy.FIXED:
-        manifest_means_mask = _zero_vector_support(n_manifest)
+        manifest_means_support = _zero_vector_support(n_manifest)
     else:
-        manifest_means_mask = _build_role_index_lookup(
+        manifest_means_support = _build_role_index_lookup(
             model_spec,
             role=ParameterRole.OBSERVATION_INTERCEPT,
             prefix="manifest_mean_",
             names=manifest_cols,
         )
     if model_spec.equilibrium_forcing:
-        cint_mask = _build_role_index_lookup(
+        state_intercept_support = _build_role_index_lookup(
             model_spec,
             role=ParameterRole.STATE_INTERCEPT,
             prefix="cint_",
             names=latent_names,
         )
     else:
-        cint_mask = _zero_vector_support(n_latent)
-    static_state_sd_mask, static_state_sds, static_factor_loadings, static_factor_names = (
+        state_intercept_support = _zero_vector_support(n_latent)
+    static_state_sd_support, static_state_sds, static_factor_loadings, static_factor_names = (
         _build_static_factor_structure(
             model_spec,
             latent_names,
@@ -782,36 +781,35 @@ def translate_spec(
     dynamics_components = []
     for latent_idx, enabled in enumerate(decay_support):
         if bool(enabled):
-            dynamics_components.append(StateDecaySpec(target=latent_idx, decay_prior=None))
+            dynamics_components.append(StateDecaySpec(target=latent_idx))
     for effect_idx, cause_idx in zip(*np.where(linear_edge_support), strict=False):
         dynamics_components.append(
             LinearEdgeSpec(
                 source=int(cause_idx),
                 target=int(effect_idx),
-                weight_prior=None,
             )
         )
-    for latent_idx, enabled in enumerate(cint_mask):
+    for latent_idx, enabled in enumerate(state_intercept_support):
         if bool(enabled):
-            dynamics_components.append(StateInterceptSpec(target=latent_idx, cint_prior=None))
+            dynamics_components.append(StateInterceptSpec(target=latent_idx))
 
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=CompositeSpec(
+        dynamics_spec=DynamicsSpec(
             n_latent=n_latent,
             components=tuple(dynamics_components),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
-            diffusion_chol_mask=diffusion_chol_mask,
+            diffusion_chol_support=diffusion_chol_support,
             diffusion_chol_template=jnp.eye(n_latent),
             time_invariant_mask=time_invariant_mask,
         ),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=n_manifest,
             n_cols=n_latent,
-            mask=lambda_mask,
+            free_support=lambda_support,
             template=lambda_mat,
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -823,7 +821,7 @@ def translate_spec(
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
-            mask=manifest_means_mask,
+            free_support=manifest_means_support,
             template=jnp.zeros(n_manifest),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -835,12 +833,12 @@ def translate_spec(
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
-            diag_mask=manifest_chol_diag_mask,
+            diag_support=manifest_chol_diag_support,
             template=manifest_chol,
         ),
         t0_means_block=SparseVectorBlockSpec(
             n=n_latent,
-            mask=t0_means_mask,
+            free_support=t0_means_support,
             template=jnp.zeros(n_latent),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -852,14 +850,14 @@ def translate_spec(
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
-            diag_mask=t0_chol_diag_mask,
-            correlation_mask=t0_correlation_mask,
+            diag_support=t0_chol_diag_support,
+            correlation_support=t0_correlation_support,
             template=jnp.eye(n_latent),
         ),
         input_effect_block=SparseMatrixBlockSpec(
             n_rows=n_latent,
             n_cols=len(input_names),
-            mask=input_effect_mask,
+            free_support=input_effect_support,
             template=jnp.zeros((n_latent, len(input_names))),
             free_site_name="input_effect_free",
             det_site_name="input_effect",
@@ -871,7 +869,7 @@ def translate_spec(
         ),
         static_state_sd_block=SparseVectorBlockSpec(
             n=int(jnp.asarray(static_factor_loadings).shape[1]),
-            mask=static_state_sd_mask,
+            free_support=static_state_sd_support,
             template=static_state_sds,
             free_site_name="static_state_sd_free",
             det_site_name="static_state_sds",

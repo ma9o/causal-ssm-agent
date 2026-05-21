@@ -22,7 +22,7 @@ def run_interventions(
     causal_spec: dict | None = None,
 ) -> list[dict]:
     """Run do-operator interventions and rank treatments by effect size."""
-    from nof1_causal_lab.models.ssm.counterfactual import compute_interventions_composite
+    from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
     from nof1_causal_lab.models.ssm.dynamics import posterior_dynamics_from_result
 
     logger.info(
@@ -50,7 +50,7 @@ def run_interventions(
     lambda_mean = None
     if lambda_draws is not None:
         lambda_mean = lambda_draws.mean(axis=0) if lambda_draws.ndim == 3 else lambda_draws
-    results = compute_interventions_composite(
+    results = compute_interventions(
         param_samples=posterior_dynamics.param_samples,
         vector_field=posterior_dynamics.vector_field,
         treatments=treatments,

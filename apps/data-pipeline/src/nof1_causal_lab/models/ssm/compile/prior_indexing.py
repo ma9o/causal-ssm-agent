@@ -140,8 +140,8 @@ def _component_binding_candidates(
     active_sites: list[SiteDescriptor],
 ) -> dict[str, SemanticBinding]:
     """Build component-owned semantic binding candidates for dynamics sites."""
-    from nof1_causal_lab.models.ssm.dynamics.composite import (
-        iter_component_semantic_bindings,
+    from nof1_causal_lab.models.ssm.dynamics.spec import (
+        iter_dynamics_semantic_bindings,
     )
 
     sites_by_name = {site.name: site for site in active_sites}
@@ -157,7 +157,7 @@ def _component_binding_candidates(
             raise ValueError(f"Component semantic parameter name {name!r} is ambiguous.")
         candidates[name] = binding
 
-    for binding in iter_component_semantic_bindings(
+    for binding in iter_dynamics_semantic_bindings(
         ssm_spec.dynamics_spec,
         latent_names=tuple(latent_names),
     ):

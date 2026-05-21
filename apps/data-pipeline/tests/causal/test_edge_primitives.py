@@ -1,13 +1,13 @@
-"""Tests for vector-field component primitives and CompositeVectorField.
+"""Tests for vector-field component primitives and VectorField.
 
 Three layers:
 
 1. Individual primitives (LinearEdge, HillEdge, MultiplicativeEdge,
    DenseLinear, DiagonalDecay, Intercept) — each in isolation, checking
-   their per-component contribution to the drift.
-2. CompositeVectorField equivalence — a single ``DenseLinear`` component
+   their per-component contribution to the dynamics.
+2. VectorField equivalence — a single ``DenseLinear`` component
    reproduces ``f(t, η) = A·η + c`` exactly (proves the unified path
-   subsumes the previous ``LinearVectorField`` regime).
+   subsumes the previous ``dense-linear VectorField`` regime).
 3. SSRI chain integration: ``dose × adherence → C_p → C_e → Hill →
    affective`` exercises MultiplicativeEdge, LinearEdge-as-effect-
    compartment, HillEdge, plus DiagonalDecay and Intercept components.
@@ -19,7 +19,6 @@ import jax.numpy as jnp
 import pytest
 
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeVectorField,
     DiagonalDecay,
     EdgeInputOverride,
     HillEdge,
@@ -28,6 +27,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     LinearEdge,
     MultiplicativeEdge,
     VariableOverride,
+    VectorField,
     VectorFieldArgs,
     compute_steady_state,
     constant_value,
@@ -36,8 +36,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 
-def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
-    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+def _dense_matrix_vector_field(n_latent: int) -> VectorField:
+    return VectorField(n_latent=n_latent, components=(DenseLinear(),))
 
 
 # =============================================================================
@@ -48,10 +48,10 @@ def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
 class TestLinearEdge:
     def test_adds_weighted_source_at_target(self):
         edge = LinearEdge(source=0, target=1)
-        drift = jnp.zeros(2)
+        dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[1.0, 2.0], [3.0, 4.0]])  # eta_per_edge[1, 0] = 3.0
         out = edge.contribute(
-            drift,
+            dynamics,
             jnp.zeros(2),
             eta_per_edge,
             jnp.asarray(0.0),
@@ -64,41 +64,41 @@ class TestLinearEdge:
 class TestHillEdge:
     def test_zero_at_zero(self):
         edge = HillEdge(source=0, target=1)
-        drift = jnp.zeros(2)
+        dynamics = jnp.zeros(2)
         eta_per_edge = jnp.zeros((2, 2))
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
     def test_half_emax_at_ec50(self):
         edge = HillEdge(source=0, target=1)
-        drift = jnp.zeros(2)
+        dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1.0, 0.0]])  # source-as-seen-by-1 == EC50
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(1.0, abs=1e-6)
 
     def test_saturates_at_emax(self):
         edge = HillEdge(source=0, target=1)
-        drift = jnp.zeros(2)
+        dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1000.0, 0.0]])
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(2.0, abs=1e-4)
 
     def test_clamps_negative_source(self):
         edge = HillEdge(source=0, target=1)
-        drift = jnp.zeros(2)
+        dynamics = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [-5.0, 0.0]])
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(dynamics, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
 
 class TestMultiplicativeEdge:
     def test_product_of_two_sources(self):
         edge = MultiplicativeEdge(source_a=0, source_b=1, target=2)
-        drift = jnp.zeros(3)
+        dynamics = jnp.zeros(3)
         eta_per_edge = jnp.array(
             [
                 [0.0, 0.0, 0.0],
@@ -107,7 +107,7 @@ class TestMultiplicativeEdge:
             ]
         )
         params = {"weight": jnp.asarray(0.5)}
-        out = edge.contribute(drift, jnp.zeros(3), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(dynamics, jnp.zeros(3), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[2]) == pytest.approx(6.0)
 
 
@@ -143,38 +143,38 @@ class TestInterceptComponent:
 
 
 # =============================================================================
-# CompositeVectorField — structural equivalence + intervention semantics
+# VectorField — structural equivalence + intervention semantics
 # =============================================================================
 
 
-class TestCompositeEquivalence:
+class TestVectorFieldEquivalence:
     """A single ``DenseLinear`` component reproduces ``f(t, η) = A·η + c``
     exactly, proving the unified path subsumes the previous
-    ``LinearVectorField`` regime."""
+    ``dense-linear VectorField`` regime."""
 
     def test_dense_linear_matches_explicit_factory(self):
         A = jnp.array([[-1.0, 0.5], [0.3, -2.0]])
         cint = jnp.array([0.1, -0.2])
         eta = jnp.array([1.5, 0.8])
 
-        dense_vf = CompositeVectorField(n_latent=2, components=(DenseLinear(),))
-        factory_vf = _dense_linear_vector_field(n_latent=2)
+        dense_vf = VectorField(n_latent=2, components=(DenseLinear(),))
+        factory_vf = _dense_matrix_vector_field(n_latent=2)
 
         params = ({"drift": A, "cint": cint},)
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
-        dense_drift = dense_vf(jnp.asarray(0.0), eta, args)
-        factory_drift = factory_vf(jnp.asarray(0.0), eta, args)
+        linear_dynamics = dense_vf(jnp.asarray(0.0), eta, args)
+        factory_dynamics = factory_vf(jnp.asarray(0.0), eta, args)
         expected = A @ eta + cint
 
-        assert jnp.allclose(dense_drift, expected, atol=1e-6)
-        assert jnp.allclose(factory_drift, expected, atol=1e-6)
+        assert jnp.allclose(linear_dynamics, expected, atol=1e-6)
+        assert jnp.allclose(factory_dynamics, expected, atol=1e-6)
 
 
-class TestCompositeInterventions:
-    """Override semantics on the composite path."""
+class TestVectorFieldInterventions:
+    """Override semantics on vector fields."""
 
     def test_variable_override_pins_state(self):
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=2,
             components=(
                 DiagonalDecay(),
@@ -196,7 +196,7 @@ class TestCompositeInterventions:
         assert float(steady[1]) == pytest.approx(2.5, abs=1e-4)
 
     def test_edge_input_override_changes_target_only(self):
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=2,
             components=(
                 DiagonalDecay(),
@@ -211,21 +211,21 @@ class TestCompositeInterventions:
         )
         eta = jnp.array([2.0, 1.0])
         baseline_args = VectorFieldArgs(params=params, intervention=Intervention.none())
-        baseline_drift = vf(jnp.asarray(0.0), eta, baseline_args)
+        baseline_dynamics = vf(jnp.asarray(0.0), eta, baseline_args)
 
-        # Replace the source-as-seen-by-target-1 with 10 → drift[1] += 0.5*(10-2)
+        # Replace the source-as-seen-by-target-1 with 10 → dynamics[1] += 0.5*(10-2)
         intervention = Intervention(
             overrides=(
                 EdgeInputOverride(source=0, target=1, value_fn=constant_value(jnp.asarray(10.0))),
             )
         )
-        intervened_drift = vf(
+        intervened_dynamics = vf(
             jnp.asarray(0.0),
             eta,
             VectorFieldArgs(params=params, intervention=intervention),
         )
-        assert jnp.isclose(intervened_drift[0], baseline_drift[0], atol=1e-6)
-        assert intervened_drift[1] > baseline_drift[1]
+        assert jnp.isclose(intervened_dynamics[0], baseline_dynamics[0], atol=1e-6)
+        assert intervened_dynamics[1] > baseline_dynamics[1]
 
 
 # =============================================================================
@@ -240,7 +240,7 @@ class TestEffectCompartment:
 
     def test_steady_state_matches_input(self):
         # Latents: 0 = C_p (pinned via intervention), 1 = C_e
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=2,
             components=(
                 DiagonalDecay(),
@@ -260,7 +260,7 @@ class TestEffectCompartment:
         assert float(steady[1]) == pytest.approx(3.0, abs=1e-4)
 
     def test_transient_half_life(self):
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=2,
             components=(
                 DiagonalDecay(),
@@ -299,7 +299,7 @@ class TestSSRIChain:
     AFFECTIVE = 4
 
     def _build(self):
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=5,
             components=(
                 DiagonalDecay(),

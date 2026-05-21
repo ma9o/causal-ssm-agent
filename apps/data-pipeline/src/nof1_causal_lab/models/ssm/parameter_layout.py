@@ -1,8 +1,8 @@
 """Parameter layout for block-based SSM specs.
 
-``SSMParameterLayout`` is a thin index over the block-owned sample-site
+``SSMParameterLayout`` is an index over the block-owned sample-site
 descriptors produced by ``SSMSpec.iter_sample_sites()``. It does not
-recompute positions from masks (the blocks already do that). It does
+recompute positions from supports (the blocks already do that). It does
 not own templates and it does not assemble matrices. Assembly belongs
 to the block that owns the parameter.
 

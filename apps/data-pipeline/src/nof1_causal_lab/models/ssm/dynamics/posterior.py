@@ -7,21 +7,22 @@ from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 
-from .composite import compile_composite, pack_component_params_from_samples
+from .runtime import pack_vector_field_params_from_samples
+from .spec import compile_dynamics
 
 if TYPE_CHECKING:
     from jax import Array
 
     from nof1_causal_lab.models.ssm.model import SSMSpec
 
-    from .vector_field import CompositeVectorField
+    from .vector_field import VectorField
 
 
 @dataclass(frozen=True)
 class PosteriorDynamicsSamples:
     """Vector-field posterior draws reconstructed from canonical sites."""
 
-    vector_field: CompositeVectorField
+    vector_field: VectorField
     param_samples: list[tuple[dict[str, Array], ...]]
 
 
@@ -49,14 +50,7 @@ def component_param_samples_from_site_samples(
             for name, values in samples.items()
             if hasattr(values, "shape") and len(values.shape) > 0
         }
-        param_samples.append(
-            pack_component_params_from_samples(
-                spec.dynamics_spec,
-                draw,
-                draw,
-                prefix=prefix,
-            )
-        )
+        param_samples.append(pack_vector_field_params_from_samples(spec, draw, draw, prefix=prefix))
     return param_samples
 
 
@@ -67,7 +61,7 @@ def posterior_dynamics_from_samples(
     prefix: str = "vf",
 ) -> PosteriorDynamicsSamples:
     """Rebuild posterior vector-field draws from an ``SSMSpec`` and samples."""
-    compiled = compile_composite(spec.dynamics_spec, prefix=prefix)
+    compiled = compile_dynamics(spec.dynamics_spec, prefix=prefix)
     return PosteriorDynamicsSamples(
         vector_field=compiled.vector_field,
         param_samples=component_param_samples_from_site_samples(

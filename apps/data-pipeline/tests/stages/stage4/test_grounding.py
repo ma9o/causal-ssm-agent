@@ -312,7 +312,7 @@ class TestStage4GroundingCompileOwnership:
             return AssemblyValidation(
                 normalized_model_spec=model_spec,
                 compile_ok=False,
-                compile_error="dimension mismatch in drift matrix",
+                compile_error="dimension mismatch in dynamics matrix",
             )
 
         monkeypatch.setattr(

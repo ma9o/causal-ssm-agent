@@ -222,6 +222,11 @@ def _fit_particle_latent_mcmc(
     n_pathfinder_starts: int,
     pathfinder_init_scale: float | None,
     initial_positions_override: jnp.ndarray | None,
+    enable_polya_gamma: bool,
+    polya_gamma_num_terms: int,
+    polya_gamma_sampler: str,
+    rbpf_mode: str,
+    rbpf_marginalized_latent_indices: tuple[int, ...] | list[int] | None,
     reparam,
 ) -> InferenceResult:
     if parameter_kernel not in {"mala", "nuts"}:
@@ -274,6 +279,11 @@ def _fit_particle_latent_mcmc(
         times,
         trace_key=trace_key,
         reparam=reparam,
+        polya_gamma_num_terms=polya_gamma_num_terms,
+        polya_gamma_sampler=polya_gamma_sampler,
+        enable_polya_gamma=enable_polya_gamma,
+        rbpf_mode=rbpf_mode,
+        rbpf_marginalized_latent_indices=rbpf_marginalized_latent_indices,
     )
     logger.info(
         "phase 1/5: bundle ready in %.1fs (dim=%d, public_sites=%d)",
@@ -492,13 +502,35 @@ def _fit_particle_latent_mcmc(
         num_samples=num_samples,
         backend=method_name,
     )
+    polya_gamma_plan = bundle["polya_gamma_plan"]
+    rbpf_partition = bundle["rbpf_partition"]
+    rbpf_observation_plan = bundle["rbpf_observation_plan"]
     kernel_diagnostics = {
         "latent_kernel": "pit_particle_mgrad",
-        "latent_kernel_algorithm": "pit_dsmc",
-        "parallel_time": True,
+        "latent_kernel_algorithm": "conditional_rbpf_csmc"
+        if bundle["rbpf_structure"] == "conditional"
+        else "pit_dsmc",
+        "parallel_time": bundle["rbpf_structure"] != "conditional",
         "parameter_kernel": parameter_kernel,
         particle_count_diagnostic_key: num_particles,
         "adaptation_scheme": adaptation_scheme,
+        "polya_gamma_enabled": bool(bundle["polya_gamma_enabled"]),
+        "polya_gamma_sampler": str(bundle["polya_gamma_sampler"]),
+        "polya_gamma_channels": int(jnp.sum(polya_gamma_plan.channel_mask)),
+        "polya_gamma_num_terms": int(polya_gamma_plan.num_terms),
+        "rbpf_enabled": bool(bundle["rbpf_enabled"]),
+        "rbpf_requested": bool(bundle["rbpf_requested"]),
+        "rbpf_mode": str(bundle["rbpf_mode"]),
+        "rbpf_structure": str(bundle["rbpf_structure"]),
+        "rbpf_carried_latent_indices": list(rbpf_partition.carried_latent_indices),
+        "rbpf_marginalized_latent_indices": list(rbpf_partition.marginalized_latent_indices),
+        "rbpf_observation_channels": int(jnp.sum(rbpf_observation_plan.channel_mask)),
+        "rbpf_gaussian_observation_channels": int(
+            jnp.sum(rbpf_observation_plan.gaussian_channel_mask)
+        ),
+        "rbpf_polya_gamma_observation_channels": int(
+            jnp.sum(rbpf_observation_plan.polya_gamma_channel_mask)
+        ),
         "latent_update_fraction": float(
             jnp.mean(run_result["chain_extra_fields"]["latent_accept_prob"])
         ),
@@ -585,6 +617,11 @@ def fit_pit_particle_mgrad(
     n_pathfinder_starts: int = 4,
     pathfinder_init_scale: float | None = 0.1,
     initial_positions_override: jnp.ndarray | None = None,
+    enable_polya_gamma: bool = True,
+    polya_gamma_num_terms: int = 64,
+    polya_gamma_sampler: str = "truncated_sum",
+    rbpf_mode: str = "none",
+    rbpf_marginalized_latent_indices: tuple[int, ...] | list[int] | None = None,
     reparam=None,
     **_kwargs,
 ) -> InferenceResult:
@@ -625,5 +662,10 @@ def fit_pit_particle_mgrad(
         n_pathfinder_starts=n_pathfinder_starts,
         pathfinder_init_scale=pathfinder_init_scale,
         initial_positions_override=initial_positions_override,
+        enable_polya_gamma=enable_polya_gamma,
+        polya_gamma_num_terms=polya_gamma_num_terms,
+        polya_gamma_sampler=polya_gamma_sampler,
+        rbpf_mode=rbpf_mode,
+        rbpf_marginalized_latent_indices=rbpf_marginalized_latent_indices,
         reparam=reparam,
     )

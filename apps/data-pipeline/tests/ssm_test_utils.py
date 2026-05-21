@@ -9,11 +9,10 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
-from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm import SSMSpec, discretize_system
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    CompositeSpec,
+from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
+    DynamicsSpec,
     LinearEdgeSpec,
     StateDecaySpec,
     StateInterceptSpec,
@@ -30,38 +29,38 @@ from nof1_causal_lab.models.ssm.structure import (
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 
-def zero_loading_mask(n_manifest: int, n_latent: int) -> np.ndarray:
+def zero_loading_support(n_manifest: int, n_latent: int) -> np.ndarray:
     return np.zeros((n_manifest, n_latent), dtype=bool)
 
 
-def full_vector_mask(n: int) -> np.ndarray:
+def full_vector_support(n: int) -> np.ndarray:
     return np.ones(n, dtype=bool)
 
 
-def zero_vector_mask(n: int) -> np.ndarray:
+def zero_vector_support(n: int) -> np.ndarray:
     return np.zeros(n, dtype=bool)
 
 
-def full_diagonal_mask(n: int) -> np.ndarray:
+def full_diagonal_support(n: int) -> np.ndarray:
     return np.ones(n, dtype=bool)
 
 
-def zero_diagonal_mask(n: int) -> np.ndarray:
+def zero_diagonal_support(n: int) -> np.ndarray:
     return np.zeros(n, dtype=bool)
 
 
-def full_cholesky_mask(n: int) -> np.ndarray:
+def full_cholesky_support(n: int) -> np.ndarray:
     return np.tri(n, dtype=bool)
 
 
-def zero_square_mask(n: int) -> np.ndarray:
+def zero_square_support(n: int) -> np.ndarray:
     return np.zeros((n, n), dtype=bool)
 
 
 def default_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
     return DiffusionBlockSpec(
         n_latent=n_latent,
-        diffusion_chol_mask=np.tri(n_latent, dtype=bool),
+        diffusion_chol_support=np.tri(n_latent, dtype=bool),
         diffusion_chol_template=jnp.eye(n_latent),
     )
 
@@ -70,7 +69,7 @@ def default_lambda_block(n_manifest: int, n_latent: int) -> SparseMatrixBlockSpe
     return SparseMatrixBlockSpec(
         n_rows=n_manifest,
         n_cols=n_latent,
-        mask=np.zeros((n_manifest, n_latent), dtype=bool),
+        free_support=np.zeros((n_manifest, n_latent), dtype=bool),
         template=jnp.eye(n_manifest, n_latent),
         free_site_name="lambda_free",
         det_site_name="lambda",
@@ -85,7 +84,7 @@ def default_lambda_block(n_manifest: int, n_latent: int) -> SparseMatrixBlockSpe
 def default_manifest_means_block(n_manifest: int) -> SparseVectorBlockSpec:
     return SparseVectorBlockSpec(
         n=n_manifest,
-        mask=np.zeros(n_manifest, dtype=bool),
+        free_support=np.zeros(n_manifest, dtype=bool),
         template=jnp.zeros(n_manifest),
         free_site_name="manifest_means_free",
         det_site_name="manifest_means",
@@ -100,7 +99,7 @@ def default_manifest_means_block(n_manifest: int) -> SparseVectorBlockSpec:
 def default_manifest_chol_block(n_manifest: int) -> ManifestCholBlockSpec:
     return ManifestCholBlockSpec(
         n_manifest=n_manifest,
-        diag_mask=np.ones(n_manifest, dtype=bool),
+        diag_support=np.ones(n_manifest, dtype=bool),
         template=jnp.zeros((n_manifest, n_manifest)),
     )
 
@@ -108,7 +107,7 @@ def default_manifest_chol_block(n_manifest: int) -> ManifestCholBlockSpec:
 def default_t0_means_block(n_latent: int) -> SparseVectorBlockSpec:
     return SparseVectorBlockSpec(
         n=n_latent,
-        mask=np.ones(n_latent, dtype=bool),
+        free_support=np.ones(n_latent, dtype=bool),
         template=jnp.zeros(n_latent),
         free_site_name="t0_means_free",
         det_site_name="t0_means",
@@ -123,8 +122,8 @@ def default_t0_means_block(n_latent: int) -> SparseVectorBlockSpec:
 def default_t0_chol_block(n_latent: int) -> T0CholBlockSpec:
     return T0CholBlockSpec(
         n_latent=n_latent,
-        diag_mask=np.ones(n_latent, dtype=bool),
-        correlation_mask=np.tri(n_latent, k=-1, dtype=bool),
+        diag_support=np.ones(n_latent, dtype=bool),
+        correlation_support=np.tri(n_latent, k=-1, dtype=bool),
         template=jnp.eye(n_latent),
     )
 
@@ -133,7 +132,7 @@ def default_input_effect_block(n_latent: int) -> SparseMatrixBlockSpec:
     return SparseMatrixBlockSpec(
         n_rows=n_latent,
         n_cols=0,
-        mask=np.zeros((n_latent, 0), dtype=bool),
+        free_support=np.zeros((n_latent, 0), dtype=bool),
         template=jnp.zeros((n_latent, 0)),
         free_site_name="input_effect_free",
         det_site_name="input_effect",
@@ -148,7 +147,7 @@ def default_input_effect_block(n_latent: int) -> SparseMatrixBlockSpec:
 def default_static_state_sd_block() -> SparseVectorBlockSpec:
     return SparseVectorBlockSpec(
         n=0,
-        mask=np.zeros(0, dtype=bool),
+        free_support=np.zeros(0, dtype=bool),
         template=jnp.zeros(0),
         free_site_name="static_state_sd_free",
         det_site_name="static_state_sds",
@@ -160,33 +159,24 @@ def default_static_state_sd_block() -> SparseVectorBlockSpec:
     )
 
 
-def structural_dense_drift_spec(
+def dense_matrix_dynamics_spec(
     *,
     n_latent: int,
-    drift_diag_mask: np.ndarray,
-    drift_offdiag_mask: np.ndarray,
-    drift_template: jnp.ndarray,
-    cint_mask: np.ndarray,
+    decay_support: np.ndarray,
+    edge_support: np.ndarray,
+    coupling_template: jnp.ndarray,
+    intercept_support: np.ndarray,
     cint_template: jnp.ndarray,
     time_invariant_mask: np.ndarray | None = None,
     stability_margin: float = 0.05,
-    base_decay_prior: Any = None,
-    offdiag_prior: Any = None,
-    cint_prior: Any = None,
-) -> CompositeSpec:
-    """Build a component-native linear dynamics fixture for tests."""
+) -> DynamicsSpec:
+    """Build a component-native dense-matrix dynamics fixture for tests."""
     del stability_margin
 
-    def _delta_prior(value: float) -> dict[str, Any]:
-        return {
-            "family": PriorDistributionFamily.DELTA,
-            "params": {"value": float(value)},
-        }
-
     components: list[Any] = []
-    diag_mask = np.asarray(drift_diag_mask, dtype=bool)
-    edge_mask = np.asarray(drift_offdiag_mask, dtype=bool)
-    drift_template_array = np.asarray(drift_template, dtype=float)
+    diag_support = np.asarray(decay_support, dtype=bool)
+    edge_support = np.asarray(edge_support, dtype=bool)
+    coupling_template_array = np.asarray(coupling_template, dtype=float)
     ti_mask = (
         np.asarray(time_invariant_mask, dtype=bool)
         if time_invariant_mask is not None
@@ -194,30 +184,25 @@ def structural_dense_drift_spec(
     )
 
     can_use_vector_decay = (
-        bool(np.all(diag_mask))
+        bool(np.all(diag_support))
         and not bool(np.any(ti_mask))
-        and bool(np.allclose(np.diag(drift_template_array), 0.0))
+        and bool(np.allclose(np.diag(coupling_template_array), 0.0))
     )
     if can_use_vector_decay:
-        components.append(DiagonalDecaySpec(decay_prior=base_decay_prior))
+        components.append(DiagonalDecaySpec())
     else:
         for target in range(n_latent):
             if bool(ti_mask[target]):
-                components.append(StateDecaySpec(target=target, decay_prior=_delta_prior(1e-6)))
+                components.append(StateDecaySpec(target=target))
                 continue
-            fixed_diag = float(drift_template_array[target, target])
-            if bool(diag_mask[target]):
-                components.append(StateDecaySpec(target=target, decay_prior=base_decay_prior))
-            elif fixed_diag < 0.0:
-                components.append(
-                    StateDecaySpec(target=target, decay_prior=_delta_prior(-fixed_diag))
-                )
+            fixed_diag = float(coupling_template_array[target, target])
+            if bool(diag_support[target]) or fixed_diag < 0.0:
+                components.append(StateDecaySpec(target=target))
             elif fixed_diag > 0.0:
                 components.append(
                     LinearEdgeSpec(
                         source=target,
                         target=target,
-                        weight_prior=_delta_prior(fixed_diag),
                     )
                 )
 
@@ -225,48 +210,41 @@ def structural_dense_drift_spec(
         for cause in range(n_latent):
             if effect == cause:
                 continue
-            if bool(edge_mask[effect, cause]):
+            if bool(edge_support[effect, cause]):
                 components.append(
                     LinearEdgeSpec(
                         source=cause,
                         target=effect,
-                        weight_prior=offdiag_prior,
                     )
                 )
                 continue
-            fixed_weight = float(drift_template_array[effect, cause])
+            fixed_weight = float(coupling_template_array[effect, cause])
             if fixed_weight != 0.0:
                 components.append(
                     LinearEdgeSpec(
                         source=cause,
                         target=effect,
-                        weight_prior=_delta_prior(fixed_weight),
                     )
                 )
 
-    cint_mask_array = np.asarray(cint_mask, dtype=bool)
+    intercept_support_array = np.asarray(intercept_support, dtype=bool)
     cint_template_array = np.asarray(cint_template, dtype=float)
     for target in range(n_latent):
         fixed_cint = float(cint_template_array[target])
-        if bool(cint_mask_array[target]):
-            components.append(StateInterceptSpec(target=target, cint_prior=cint_prior))
-        elif fixed_cint != 0.0:
-            components.append(
-                StateInterceptSpec(target=target, cint_prior=_delta_prior(fixed_cint))
-            )
+        if bool(intercept_support_array[target]) or fixed_cint != 0.0:
+            components.append(StateInterceptSpec(target=target))
 
-    return CompositeSpec(n_latent=n_latent, components=tuple(components))
+    return DynamicsSpec(n_latent=n_latent, components=tuple(components))
 
 
-def full_structural_dense_drift_spec(n_latent: int) -> CompositeSpec:
-    """Build a full-free structural dense drift fixture for tests."""
-    return structural_dense_drift_spec(
+def full_dense_matrix_dynamics_spec(n_latent: int) -> DynamicsSpec:
+    """Build a full-free structural dense dynamics fixture for tests."""
+    return dense_matrix_dynamics_spec(
         n_latent=n_latent,
-        drift_diag_mask=np.ones(n_latent, dtype=bool),
-        drift_offdiag_mask=np.ones((n_latent, n_latent), dtype=bool)
-        & ~np.eye(n_latent, dtype=bool),
-        drift_template=jnp.zeros((n_latent, n_latent)),
-        cint_mask=np.zeros(n_latent, dtype=bool),
+        decay_support=np.ones(n_latent, dtype=bool),
+        edge_support=np.ones((n_latent, n_latent), dtype=bool) & ~np.eye(n_latent, dtype=bool),
+        coupling_template=jnp.zeros((n_latent, n_latent)),
+        intercept_support=np.zeros(n_latent, dtype=bool),
         cint_template=jnp.zeros(n_latent),
     )
 
@@ -275,7 +253,7 @@ def make_lgss_data(
     *,
     T: int = 100,
     dt: float = 1.0,
-    drift_diag: float = -0.3,
+    decay_diag: float = -0.3,
     diff_sd: float = 0.3,
     obs_sd: float = 0.5,
     seed: int = 42,
@@ -289,11 +267,11 @@ def make_lgss_data(
     """
     n_latent, n_manifest = 1, 1
 
-    true_drift = jnp.array([[drift_diag]])
+    true_dynamics = jnp.array([[decay_diag]])
     true_diff_cov = jnp.array([[diff_sd**2]])
     true_obs_var = jnp.array([[obs_sd**2]])
 
-    Ad, Qd, _ = discretize_system(true_drift, true_diff_cov, None, dt)
+    Ad, Qd, _ = discretize_system(true_dynamics, true_diff_cov, None, dt)
     Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
     R_chol = jla.cholesky(true_obs_var, lower=True)
 
@@ -311,23 +289,23 @@ def make_lgss_data(
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=structural_dense_drift_spec(
+        dynamics_spec=dense_matrix_dynamics_spec(
             n_latent=n_latent,
-            drift_diag_mask=np.ones(n_latent, dtype=bool),
-            drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
-            drift_template=jnp.zeros((n_latent, n_latent)),
-            cint_mask=np.zeros(n_latent, dtype=bool),
+            decay_support=np.ones(n_latent, dtype=bool),
+            edge_support=np.zeros((n_latent, n_latent), dtype=bool),
+            coupling_template=jnp.zeros((n_latent, n_latent)),
+            intercept_support=np.zeros(n_latent, dtype=bool),
             cint_template=jnp.zeros(n_latent),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
-            diffusion_chol_mask=np.diag(np.ones(n_latent, dtype=bool)),
+            diffusion_chol_support=np.diag(np.ones(n_latent, dtype=bool)),
             diffusion_chol_template=jnp.eye(n_latent),
         ),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=n_manifest,
             n_cols=n_latent,
-            mask=np.zeros((n_manifest, n_latent), dtype=bool),
+            free_support=np.zeros((n_manifest, n_latent), dtype=bool),
             template=jnp.eye(n_manifest, n_latent),
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -341,7 +319,7 @@ def make_lgss_data(
         manifest_chol_block=default_manifest_chol_block(n_manifest),
         t0_means_block=SparseVectorBlockSpec(
             n=n_latent,
-            mask=np.zeros(n_latent, dtype=bool),
+            free_support=np.zeros(n_latent, dtype=bool),
             template=jnp.zeros(n_latent),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -353,8 +331,8 @@ def make_lgss_data(
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
-            diag_mask=np.zeros(n_latent, dtype=bool),
-            correlation_mask=np.zeros((n_latent, n_latent), dtype=bool),
+            diag_support=np.zeros(n_latent, dtype=bool),
+            correlation_support=np.zeros((n_latent, n_latent), dtype=bool),
             template=jnp.eye(n_latent),
         ),
         input_effect_block=default_input_effect_block(n_latent),
@@ -365,7 +343,7 @@ def make_lgss_data(
         "observations": observations,
         "times": times,
         "spec": spec,
-        "true_drift_diag": drift_diag,
+        "true_decay_diag": decay_diag,
         "true_diff_diag": diff_sd,
         "true_obs_sd": obs_sd,
         "n_latent": n_latent,
@@ -380,7 +358,7 @@ def prior_registry(**priors_by_site: PriorSpec) -> PriorRegistry:
 def block_ssm_spec(
     *,
     n_latent: int,
-    dynamics_spec: CompositeSpec,
+    dynamics_spec: DynamicsSpec,
     n_manifest: int | None = None,
     diffusion_block: DiffusionBlockSpec | None = None,
     lambda_block: SparseMatrixBlockSpec | None = None,
@@ -418,7 +396,7 @@ def diagonal_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
     """Diagonal-only diffusion: only diagonal entries free, identity template."""
     return DiffusionBlockSpec(
         n_latent=n_latent,
-        diffusion_chol_mask=np.diag(np.ones(n_latent, dtype=bool)),
+        diffusion_chol_support=np.diag(np.ones(n_latent, dtype=bool)),
         diffusion_chol_template=jnp.eye(n_latent),
     )
 

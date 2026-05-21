@@ -46,11 +46,11 @@ if TYPE_CHECKING:
 
     from jax import Array
 
-    from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
+    from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
 
 
 def discretize_at_state(
-    vector_field: CompositeVectorField,
+    vector_field: VectorField,
     x_lin: Array,
     args: VectorFieldArgs,
     diffusion_cov: Array,
@@ -66,7 +66,7 @@ def discretize_at_state(
         Cov[x_{t+dt} | x_t] ≈ Q_d
 
     Args:
-        vector_field: The composite drift; ``linearize`` is called on it.
+        vector_field: The vector-field drift; ``linearize`` is called on it.
         x_lin: Linearisation point (``(n_latent,)``). For EKF-style use
             this is the current mean estimate at the start of the interval.
         args: ``VectorFieldArgs`` threaded to the field — its
@@ -88,7 +88,7 @@ def discretize_at_state(
 
 
 def discretize_at_states_batched(
-    vector_field: CompositeVectorField,
+    vector_field: VectorField,
     x_lin_batch: Array,
     args: VectorFieldArgs,
     diffusion_cov: Array,
@@ -119,7 +119,7 @@ def discretize_at_states_batched(
 
 
 def make_filter_dynamics_callback(
-    vector_field: CompositeVectorField,
+    vector_field: VectorField,
     vf_params: tuple[dict[str, Array], ...],
     intervention: Intervention | None = None,
     *,
@@ -167,9 +167,7 @@ def make_filter_dynamics_callback(
     def get_dynamics_params(state, model_inputs):
         dt = model_inputs["dt"]
         x_lin = state.mean
-        A_d, Q_d, b_d = discretize_at_state(
-            vector_field, x_lin, args, diffusion_cov, dt
-        )
+        A_d, Q_d, b_d = discretize_at_state(vector_field, x_lin, args, diffusion_cov, dt)
         chol_Q = jnp.linalg.cholesky(Q_d + jitter * jnp.eye(n, dtype=Q_d.dtype))
 
         def dynamics_fn(x: Array) -> tuple[Array, Array]:

@@ -7,28 +7,21 @@ param-bearing fields: there are no flat-field duplicates.
 
 Each block is a frozen dataclass with:
 
-- Its structural data (masks + templates) — direct fields
-- Its priors — ``Distribution | dict | None`` resolved through the
-  canonical prior materialization path
-- A ``sample_params(prefix)`` method that emits the sampled values
+- Its structural data (free supports + templates) — direct fields
+- A ``sample_params(prior_fn)`` method that emits the sampled values
   via ``numpyro.sample`` with bare site names so existing autoreparam
   / posterior-analysis tooling keeps working
 - Assembly delegated to ``structure.assembly`` (single algorithmic
   source of truth shared with ``SSMParameterLayout``)
-
-At sample time, ``SSMModel._sample_*`` clones the spec's block with
-runtime priors attached (via ``dataclasses.replace``) and calls
-``sample_params``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpyro
 
-from nof1_causal_lab.models.ssm.priors import resolve_prior_distribution
 from nof1_causal_lab.models.ssm.structure.sites import (
     SiteKind,
     SupportClass,
@@ -48,12 +41,6 @@ if TYPE_CHECKING:
     PriorFn = Callable[[str], dist.Distribution]
 
 
-# ---------------------------------------------------------------------------
-# Helpers (single source of truth lives in ``structure.assembly``; the
-# helpers here are thin wrappers that pre-compute positions from masks)
-# ---------------------------------------------------------------------------
-
-
 # Position extractors live in ``structure.assembly`` — the single
 # canonical implementation also used by ``SSMParameterLayout``. The
 # block specs below import them lazily to avoid an eager dependency at
@@ -69,30 +56,27 @@ if TYPE_CHECKING:
 class DiffusionBlockSpec:
     """Process-noise Cholesky factor ``L_Q`` block.
 
-    Free entries on the lower-Cholesky mask are sampled from
-    ``diag_prior`` (diagonal entries) and ``lower_prior`` (strict-lower
-    entries). Time-invariant latents have their diagonal forced toward
-    a tiny epsilon so their diffusion is effectively zero.
+    Free entries on the lower-Cholesky support are sampled from the canonical
+    site-prior registry. Time-invariant latents have their diagonal forced
+    toward a tiny epsilon so their diffusion is effectively zero.
     """
 
     n_latent: int
-    diffusion_chol_mask: np.ndarray
+    diffusion_chol_support: np.ndarray
     diffusion_chol_template: jnp.ndarray
     time_invariant_mask: np.ndarray | None = None
-    diag_prior: Any = None
-    lower_prior: Any = None
 
     @property
     def diffusion_diag_positions(self) -> list[int]:
         from nof1_causal_lab.models.ssm.structure.assembly import chol_diag_positions
 
-        return chol_diag_positions(self.diffusion_chol_mask, self.n_latent)
+        return chol_diag_positions(self.diffusion_chol_support, self.n_latent)
 
     @property
     def diffusion_lower_positions(self) -> list[tuple[int, int]]:
         from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
-        return strict_lower_positions(self.diffusion_chol_mask, self.n_latent)
+        return strict_lower_positions(self.diffusion_chol_support, self.n_latent)
 
     @property
     def n_diffusion_diag(self) -> int:
@@ -128,17 +112,6 @@ class DiffusionBlockSpec:
                 priors_field="diffusion_offdiag",
             )
 
-    def with_runtime_priors(self, prior_fn: PriorFn) -> DiffusionBlockSpec:
-        return replace(
-            self,
-            diag_prior=prior_fn("diffusion_diag_free")
-            if self.n_diffusion_diag > 0
-            else self.diag_prior,
-            lower_prior=prior_fn("diffusion_lower_free")
-            if self.n_diffusion_lower > 0
-            else self.lower_prior,
-        )
-
     def assemble(
         self,
         diag_free: jnp.ndarray | None = None,
@@ -155,22 +128,14 @@ class DiffusionBlockSpec:
             time_invariant_mask=self.time_invariant_mask,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         diag_free = None
         if self.n_diffusion_diag > 0:
-            dist = resolve_prior_distribution(self.diag_prior)
-            if dist is None:
-                raise ValueError("DiffusionBlockSpec requires diag_prior when n_diffusion_diag > 0")
-            diag_free = numpyro.sample("diffusion_diag_free", dist)
+            diag_free = numpyro.sample("diffusion_diag_free", prior_fn("diffusion_diag_free"))
 
         lower_free = None
         if self.n_diffusion_lower > 0:
-            dist = resolve_prior_distribution(self.lower_prior)
-            if dist is None:
-                raise ValueError(
-                    "DiffusionBlockSpec requires lower_prior when n_diffusion_lower > 0"
-                )
-            lower_free = numpyro.sample("diffusion_lower_free", dist)
+            lower_free = numpyro.sample("diffusion_lower_free", prior_fn("diffusion_lower_free"))
 
         diffusion = self.assemble(diag_free, lower_free)
         numpyro.deterministic("diffusion", diffusion)
@@ -184,7 +149,7 @@ class DiffusionBlockSpec:
 
 @dataclass(frozen=True, eq=False)
 class SparseVectorBlockSpec:
-    """Generic sparse-vector block: free entries on a 1-D mask substituted
+    """Generic sparse-vector block: free entries on a 1-D support substituted
     into a template. Used for ``t0_means``, ``manifest_means``, and
     any other length-``n`` parameter sampled element-wise.
 
@@ -195,7 +160,7 @@ class SparseVectorBlockSpec:
     """
 
     n: int
-    mask: np.ndarray
+    free_support: np.ndarray
     template: jnp.ndarray
     free_site_name: str
     det_site_name: str
@@ -204,13 +169,12 @@ class SparseVectorBlockSpec:
     assembly_group: str
     fixed_spec_field: str
     priors_field: str
-    prior: Any = None
 
     @property
     def free_positions(self) -> list[int]:
         from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
-        return dense_vector_positions(self.mask, self.n)
+        return dense_vector_positions(self.free_support, self.n)
 
     @property
     def n_free(self) -> int:
@@ -230,12 +194,6 @@ class SparseVectorBlockSpec:
                 priors_field=self.priors_field,
             )
 
-    def with_runtime_priors(self, prior_fn: PriorFn) -> SparseVectorBlockSpec:
-        return replace(
-            self,
-            prior=prior_fn(self.free_site_name) if self.n_free > 0 else self.prior,
-        )
-
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_vector
 
@@ -245,16 +203,10 @@ class SparseVectorBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         free = None
         if self.n_free > 0:
-            dist = resolve_prior_distribution(self.prior)
-            if dist is None:
-                raise ValueError(
-                    f"SparseVectorBlockSpec({self.free_site_name}) requires prior "
-                    f"when n_free={self.n_free} > 0"
-                )
-            free = numpyro.sample(self.free_site_name, dist)
+            free = numpyro.sample(self.free_site_name, prior_fn(self.free_site_name))
 
         assembled = self.assemble(free)
         # Empty blocks (n=0) skip the deterministic emit: size-0 sites
@@ -271,14 +223,14 @@ class SparseVectorBlockSpec:
 
 @dataclass(frozen=True, eq=False)
 class SparseMatrixBlockSpec:
-    """Generic sparse-matrix block: free entries on a 2-D rectangular mask
+    """Generic sparse-matrix block: free entries on a 2-D rectangular support
     substituted into a template. Used for ``lambda_mat`` (loading
     matrix) and ``input_effect``.
     """
 
     n_rows: int
     n_cols: int
-    mask: np.ndarray
+    free_support: np.ndarray
     template: jnp.ndarray
     free_site_name: str
     det_site_name: str
@@ -287,13 +239,12 @@ class SparseMatrixBlockSpec:
     assembly_group: str
     fixed_spec_field: str
     priors_field: str
-    prior: Any = None
 
     @property
     def free_positions(self) -> list[tuple[int, int]]:
         from nof1_causal_lab.models.ssm.structure.assembly import rect_matrix_positions
 
-        return rect_matrix_positions(self.mask, self.n_rows, self.n_cols)
+        return rect_matrix_positions(self.free_support, self.n_rows, self.n_cols)
 
     @property
     def n_free(self) -> int:
@@ -313,12 +264,6 @@ class SparseMatrixBlockSpec:
                 priors_field=self.priors_field,
             )
 
-    def with_runtime_priors(self, prior_fn: PriorFn) -> SparseMatrixBlockSpec:
-        return replace(
-            self,
-            prior=prior_fn(self.free_site_name) if self.n_free > 0 else self.prior,
-        )
-
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_matrix
 
@@ -328,16 +273,10 @@ class SparseMatrixBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         free = None
         if self.n_free > 0:
-            dist = resolve_prior_distribution(self.prior)
-            if dist is None:
-                raise ValueError(
-                    f"SparseMatrixBlockSpec({self.free_site_name}) requires prior "
-                    f"when n_free={self.n_free} > 0"
-                )
-            free = numpyro.sample(self.free_site_name, dist)
+            free = numpyro.sample(self.free_site_name, prior_fn(self.free_site_name))
 
         assembled = self.assemble(free)
         # Empty blocks (n_rows=0 or n_cols=0) skip the deterministic emit:
@@ -360,15 +299,14 @@ class ManifestCholBlockSpec:
     """
 
     n_manifest: int
-    diag_mask: np.ndarray
+    diag_support: np.ndarray
     template: jnp.ndarray
-    diag_prior: Any = None
 
     @property
     def free_positions(self) -> list[int]:
         from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
-        return dense_vector_positions(self.diag_mask, self.n_manifest)
+        return dense_vector_positions(self.diag_support, self.n_manifest)
 
     @property
     def n_free(self) -> int:
@@ -388,12 +326,6 @@ class ManifestCholBlockSpec:
                 priors_field="manifest_var_diag",
             )
 
-    def with_runtime_priors(self, prior_fn: PriorFn) -> ManifestCholBlockSpec:
-        return replace(
-            self,
-            diag_prior=prior_fn("manifest_var_diag_free") if self.n_free > 0 else self.diag_prior,
-        )
-
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_manifest_chol
 
@@ -403,7 +335,7 @@ class ManifestCholBlockSpec:
             free=free,
         )
 
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         """Sample the diagonal free entries and assemble the Cholesky.
 
         Does NOT emit a ``manifest_cov`` deterministic — that's the
@@ -413,10 +345,7 @@ class ManifestCholBlockSpec:
 
         free = None
         if self.n_free > 0:
-            dist = resolve_prior_distribution(self.diag_prior)
-            if dist is None:
-                raise ValueError("ManifestCholBlockSpec requires diag_prior when n_free > 0")
-            free = numpyro.sample("manifest_var_diag_free", dist)
+            free = numpyro.sample("manifest_var_diag_free", prior_fn("manifest_var_diag_free"))
 
         chol = self.assemble(free)
         return {"manifest_chol": chol}
@@ -434,8 +363,8 @@ class T0CholBlockSpec:
     The template is a Cholesky factor ``L`` such that ``L L^T`` is the
     base covariance. The factor is internally decomposed into base SDs
     (``sqrt(diag(LL^T))``) and base correlations
-    (``LL^T / (std outer std)``). Free entries on ``diag_mask`` replace
-    base SDs; free entries on ``correlation_mask`` (strict lower) replace
+    (``LL^T / (std outer std)``). Free entries on ``diag_support`` replace
+    base SDs; free entries on ``correlation_support`` (strict lower) replace
     base correlations symmetrically.
 
     The block assembles the LATENT-only covariance. Any static-factor
@@ -444,23 +373,21 @@ class T0CholBlockSpec:
     """
 
     n_latent: int
-    diag_mask: np.ndarray  # (n_latent,) bool
-    correlation_mask: np.ndarray  # (n_latent, n_latent) strict lower bool
+    diag_support: np.ndarray  # (n_latent,) bool
+    correlation_support: np.ndarray  # (n_latent, n_latent) strict lower bool
     template: jnp.ndarray  # (n_latent, n_latent) lower-Cholesky factor
-    diag_prior: Any = None
-    correlation_prior: Any = None
 
     @property
     def diag_positions(self) -> list[int]:
         from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
-        return dense_vector_positions(self.diag_mask, self.n_latent)
+        return dense_vector_positions(self.diag_support, self.n_latent)
 
     @property
     def correlation_positions(self) -> list[tuple[int, int]]:
         from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
-        return strict_lower_positions(self.correlation_mask, self.n_latent)
+        return strict_lower_positions(self.correlation_support, self.n_latent)
 
     @property
     def n_diag_free(self) -> int:
@@ -545,39 +472,22 @@ class T0CholBlockSpec:
         cov = corr * (std[:, None] * std[None, :])
         return 0.5 * (cov + cov.T)
 
-    def with_runtime_priors(self, prior_fn: PriorFn) -> T0CholBlockSpec:
-        return replace(
-            self,
-            diag_prior=prior_fn("t0_var_diag_free") if self.n_diag_free > 0 else self.diag_prior,
-            correlation_prior=prior_fn("t0_var_lower_free")
-            if self.n_correlation_free > 0
-            else self.correlation_prior,
-        )
-
-    def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         """Sample free diagonal SDs and free off-diagonal correlations.
 
         Returns a dict keyed by sample-site name; values may be ``None``
-        for empty masks. The composition step
+        for empty supports. The composition step
         (``_compose_t0_cov``) assembles the final covariance from
         these raw samples plus the static-factor contribution.
         """
 
         diag_free = None
         if self.n_diag_free > 0:
-            dist = resolve_prior_distribution(self.diag_prior)
-            if dist is None:
-                raise ValueError("T0CholBlockSpec requires diag_prior when n_diag_free > 0")
-            diag_free = numpyro.sample("t0_var_diag_free", dist)
+            diag_free = numpyro.sample("t0_var_diag_free", prior_fn("t0_var_diag_free"))
 
         correlation_free = None
         if self.n_correlation_free > 0:
-            dist = resolve_prior_distribution(self.correlation_prior)
-            if dist is None:
-                raise ValueError(
-                    "T0CholBlockSpec requires correlation_prior when n_correlation_free > 0"
-                )
-            correlation_free = numpyro.sample("t0_var_lower_free", dist)
+            correlation_free = numpyro.sample("t0_var_lower_free", prior_fn("t0_var_lower_free"))
 
         return {
             "t0_var_diag_free": diag_free,

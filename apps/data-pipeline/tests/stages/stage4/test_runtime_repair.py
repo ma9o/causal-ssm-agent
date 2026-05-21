@@ -192,7 +192,7 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
                     code="scale_mismatch",
                     origin="prior_predictive",
                     issue="Scale mismatch for monthly_eveningness_activity_timing",
-                    suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+                    suggested_adjustment="Adjust diffusion/dynamics priors to match data scale",
                 )
             ],
         ),
@@ -207,7 +207,7 @@ def test_scale_mismatch_for_single_indicator_construct_routes_to_dynamics_block(
     assert (
         repair_plan.scope.reason
         == "Scale mismatch for monthly_eveningness_activity_timing Suggested fix: "
-        "Adjust diffusion/drift priors to match data scale"
+        "Adjust diffusion/dynamics priors to match data scale"
     )
 
 
@@ -302,7 +302,7 @@ def test_scale_mismatch_for_sparse_model_spec_routes_to_dynamics_block():
                     code="scale_mismatch",
                     origin="prior_predictive",
                     issue="Scale mismatch for monthly_eveningness_activity_timing",
-                    suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+                    suggested_adjustment="Adjust diffusion/dynamics priors to match data scale",
                 )
             ],
         ),
@@ -397,7 +397,7 @@ def test_scale_mismatch_escalates_to_global_prior_review_after_local_scope_exhau
                 code="scale_mismatch",
                 origin="prior_predictive",
                 issue="Scale mismatch for monthly_eveningness_activity_timing",
-                suggested_adjustment="Adjust diffusion/drift priors to match data scale",
+                suggested_adjustment="Adjust diffusion/dynamics priors to match data scale",
             )
         ],
     )
@@ -464,4 +464,3 @@ def test_prior_failure_classification_raises_without_concrete_reason():
             ),
             runtime,
         )
-

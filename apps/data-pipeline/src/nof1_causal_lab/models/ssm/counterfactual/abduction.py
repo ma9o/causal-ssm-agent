@@ -214,9 +214,8 @@ def _try_smoother(
     n_l = spec.n_latent
 
     try:
-        from nof1_causal_lab.models.ssm.dynamics.composite import (
-            compile_composite,
-            pack_component_params_from_samples,
+        from nof1_causal_lab.models.ssm.dynamics.runtime import (
+            build_vector_field_runtime_from_samples,
         )
         from nof1_causal_lab.models.ssm.inference.targets.affine import (
             derive_affine_dynamics,
@@ -225,16 +224,11 @@ def _try_smoother(
 
         diffusion_chol = det_values["diffusion"]
         diffusion_cov = diffusion_chol @ diffusion_chol.T
-        compiled = compile_composite(spec.dynamics_spec)
-        vf_params = pack_component_params_from_samples(
-            spec.dynamics_spec,
-            site_values,
-            det_values,
-        )
+        vf_runtime = build_vector_field_runtime_from_samples(spec, site_values, det_values)
         affine = derive_affine_dynamics(
             RuntimeDynamics(
-                vector_field=compiled.vector_field,
-                vf_params=vf_params,
+                vector_field=vf_runtime.vector_field,
+                vf_params=vf_runtime.vf_params,
                 diffusion_cov=diffusion_cov,
                 input_effect=det_values.get("input_effect"),
             )

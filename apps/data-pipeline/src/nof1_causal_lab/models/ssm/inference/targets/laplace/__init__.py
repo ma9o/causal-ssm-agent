@@ -65,6 +65,7 @@ from .support import (
     _support_aware_ieks_mode,
     _support_aware_laplace_from_mode,
     _support_aware_step_halving_search,
+    _support_dynamic_transition_ieks_laplace,
 )
 
 if TYPE_CHECKING:
@@ -269,16 +270,42 @@ class LaplaceLikelihood:
                     and self._support_mode_cache.shape == (clean_obs.shape[0], self.n_latent)
                 ):
                     support_mode_init = self._support_mode_cache
-                if not _should_use_dense_support_laplace(
+                if _should_use_dense_support_laplace(
                     n_time=clean_obs.shape[0],
                     n_latent=self.n_latent,
                 ):
-                    raise NotImplementedError(
-                        "Trajectory-dependent interval-support dynamics are currently "
-                        "supported only by the dense support Laplace backend."
+                    with jax.named_scope("map/dense_dynamic_support_backend"):
+                        log_lik, inner_eval_aux = _dense_dynamic_support_laplace_log_lik(
+                            clean_obs,
+                            obs_mask,
+                            dynamics,
+                            time_intervals,
+                            measurement_params.lambda_mat,
+                            measurement_params.manifest_means,
+                            measurement_params.manifest_cov,
+                            initial_state.mean,
+                            initial_state.cov,
+                            obs_kernel,
+                            measurement_semantics.mean_log_prob_fn,
+                            self.observation_support,
+                            self.n_ieks_iters,
+                            transition_inputs=transition_inputs,
+                            z_init=support_mode_init,
+                        )
+                        if can_reuse_support_mode:
+                            self._support_mode_cache = jax.device_get(inner_eval_aux["latent_mode"])
+                    return log_lik, inner_eval_aux if include_aux else None
+
+                can_cache_window_derivatives = allow_stateful_cache and not _tree_contains_tracer(
+                    (measurement_params.manifest_cov, extra_params)
+                )
+                with jax.named_scope("map/support_dynamic_backend"):
+                    window_derivatives = self._get_support_window_derivatives(
+                        measurement_semantics,
+                        extra_params,
+                        allow_cache=can_cache_window_derivatives,
                     )
-                with jax.named_scope("map/dense_dynamic_support_backend"):
-                    log_lik, inner_eval_aux = _dense_dynamic_support_laplace_log_lik(
+                    log_lik, z_mode, inner_eval_aux = _support_dynamic_transition_ieks_laplace(
                         clean_obs,
                         obs_mask,
                         dynamics,
@@ -291,12 +318,17 @@ class LaplaceLikelihood:
                         obs_kernel,
                         measurement_semantics.mean_log_prob_fn,
                         self.observation_support,
+                        self._support_window_batches,
+                        self._support_bandwidth,
+                        self._support_row_upper_bandwidths,
+                        self._support_row_lower_bandwidths,
+                        window_derivatives,
                         self.n_ieks_iters,
                         transition_inputs=transition_inputs,
                         z_init=support_mode_init,
                     )
                     if can_reuse_support_mode:
-                        self._support_mode_cache = jax.device_get(inner_eval_aux["latent_mode"])
+                        self._support_mode_cache = jax.device_get(z_mode)
                 return log_lik, inner_eval_aux if include_aux else None
 
             affine_dynamics = derive_affine_dynamics(dynamics)

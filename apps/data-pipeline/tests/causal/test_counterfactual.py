@@ -1,6 +1,6 @@
 """Tests for the Diffrax/Optimistix counterfactual API.
 
-Covers: LinearVectorField + Intervention DSL, simulate / simulate_pair,
+Covers: dense-linear VectorField + Intervention DSL, simulate / simulate_pair,
 compute_steady_state, summarize_draws / summarize_temporal_effect /
 resolve_action_value, compute_interventions, approximate_abducted_state.
 """
@@ -17,14 +17,14 @@ from nof1_causal_lab.models.ssm.counterfactual import (
     resolve_action_value,
     summarize_draws,
     summarize_temporal_effect,
-    vmap_steady_state_effect_composite,
+    vmap_steady_state_effect_dynamics,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeVectorField,
     EdgeInputOverride,
     Intervention,
     SimulationConfig,
     VariableOverride,
+    VectorField,
     VectorFieldArgs,
     compute_steady_state,
     constant_value,
@@ -35,18 +35,18 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 
-def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
-    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+def _dense_matrix_vector_field(n_latent: int) -> VectorField:
+    return VectorField(n_latent=n_latent, components=(DenseLinear(),))
 
 
 # =============================================================================
-# LinearVectorField + Intervention DSL
+# dense-linear VectorField + Intervention DSL
 # =============================================================================
 
 
-class TestLinearVectorField:
-    def test_drift_matches_matrix_form(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+class TestDenseLinearRuntime:
+    def test_dynamics_matches_matrix_form(self):
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = ({"drift": jnp.array([[-1.0, 0.5], [0.0, -2.0]]), "cint": jnp.array([0.3, -0.1])},)
         eta = jnp.array([1.0, 2.0])
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
@@ -54,8 +54,8 @@ class TestLinearVectorField:
         expected = params[0]["drift"] @ eta + params[0]["cint"]
         assert jnp.allclose(out, expected, atol=1e-6)
 
-    def test_variable_override_forces_zero_drift_for_constant(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+    def test_variable_override_forces_zero_dynamics_for_constant(self):
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = ({"drift": jnp.array([[-1.0, 0.5], [0.0, -2.0]]), "cint": jnp.zeros(2)},)
         intervention = Intervention(
             overrides=(VariableOverride(index=0, value_fn=constant_value(jnp.asarray(5.0))),)
@@ -65,25 +65,25 @@ class TestLinearVectorField:
         assert jnp.isclose(out[0], 0.0, atol=1e-6)
 
     def test_edge_input_override_changes_target_only(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
         params = ({"drift": A, "cint": jnp.zeros(2)},)
         eta = jnp.array([1.0, 0.0])
         baseline_args = VectorFieldArgs(params=params, intervention=Intervention.none())
-        baseline_drift = vf(jnp.asarray(0.0), eta, baseline_args)
+        baseline_dynamics = vf(jnp.asarray(0.0), eta, baseline_args)
         intervention = Intervention(
             overrides=(
                 EdgeInputOverride(source=0, target=1, value_fn=constant_value(jnp.asarray(10.0))),
             )
         )
-        intervened_drift = vf(
+        intervened_dynamics = vf(
             jnp.asarray(0.0), eta, VectorFieldArgs(params=params, intervention=intervention)
         )
-        assert jnp.isclose(intervened_drift[0], baseline_drift[0], atol=1e-6)
-        assert intervened_drift[1] > baseline_drift[1]
+        assert jnp.isclose(intervened_dynamics[0], baseline_dynamics[0], atol=1e-6)
+        assert intervened_dynamics[1] > baseline_dynamics[1]
 
     def test_initial_condition_applies_variable_overrides(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         intervention = Intervention(
             overrides=(VariableOverride(index=1, value_fn=constant_value(jnp.asarray(3.0))),)
         )
@@ -101,21 +101,21 @@ class TestLinearVectorField:
 
 
 class TestComputeSteadyState:
-    def test_matches_inverse_for_diagonal_drift(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+    def test_matches_inverse_for_diagonal_dynamics(self):
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = ({"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])},)
         ss = compute_steady_state(vf, params, Intervention.none())
         assert jnp.allclose(ss, jnp.array([1.0, 2.0]), atol=1e-5)
 
     def test_satisfies_residual(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = ({"drift": jnp.array([[-2.0, 0.5], [0.3, -1.5]]), "cint": jnp.array([1.0, -0.5])},)
         ss = compute_steady_state(vf, params, Intervention.none())
         residual = params[0]["drift"] @ ss + params[0]["cint"]
         assert jnp.allclose(residual, 0.0, atol=1e-4)
 
     def test_intervention_propagates_downstream(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = (
             {
                 "drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
@@ -138,7 +138,7 @@ class TestComputeSteadyState:
 
 class TestSimulate:
     def test_no_coupling_no_propagation(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = ({"drift": -jnp.eye(2), "cint": jnp.array([1.0, 2.0])},)
         time_grid = jnp.linspace(0.0, 5.0, 11)
         intervention = Intervention(
@@ -151,7 +151,7 @@ class TestSimulate:
         assert jnp.all(jnp.abs(effect[:, 1]) < 1e-3)
 
     def test_positive_coupling_yields_positive_effect(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = (
             {
                 "drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
@@ -171,7 +171,7 @@ class TestSimulate:
         assert float(effect[-1, 1]) > 0
 
     def test_clamped_state_tracks_constant(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         params = ({"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.zeros(2)},)
         time_grid = jnp.linspace(0.0, 5.0, 11)
         intervention = Intervention(
@@ -257,15 +257,15 @@ class TestBuildTimeGrid:
 
 class TestComputeInterventions:
     def _make_samples(self, n_draws=4, n_latent=3):
-        drift = jnp.broadcast_to(-jnp.eye(n_latent), (n_draws, n_latent, n_latent))
+        dynamics = jnp.broadcast_to(-jnp.eye(n_latent), (n_draws, n_latent, n_latent))
         cint = jnp.broadcast_to(jnp.ones(n_latent), (n_draws, n_latent))
-        return [({"drift": d, "cint": c},) for d, c in zip(drift, cint, strict=True)]
+        return [({"drift": d, "cint": c},) for d, c in zip(dynamics, cint, strict=True)]
 
-    def test_diagonal_drift_yields_zero_effects(self):
+    def test_diagonal_dynamics_yields_zero_effects(self):
         samples = self._make_samples()
         results = compute_interventions(
             samples,
-            _dense_linear_vector_field(n_latent=3),
+            _dense_matrix_vector_field(n_latent=3),
             treatments=["A", "B"],
             outcome="C",
             latent_names=["A", "B", "C"],
@@ -276,14 +276,14 @@ class TestComputeInterventions:
             assert r["posterior_draws"] is not None
             mean_effect = sum(r["posterior_draws"]) / len(r["posterior_draws"])
             assert abs(mean_effect) < 1e-3, (
-                f"{r['treatment']} should have ~zero effect with diagonal drift"
+                f"{r['treatment']} should have ~zero effect with diagonal dynamics"
             )
 
     def test_outcome_not_in_latent_names(self):
         samples = self._make_samples()
         results = compute_interventions(
             samples,
-            _dense_linear_vector_field(n_latent=3),
+            _dense_matrix_vector_field(n_latent=3),
             treatments=["A"],
             outcome="MISSING",
             latent_names=["A", "B", "C"],
@@ -295,17 +295,17 @@ class TestComputeInterventions:
         samples = self._make_samples()
         results = compute_interventions(
             samples,
-            _dense_linear_vector_field(n_latent=3),
+            _dense_matrix_vector_field(n_latent=3),
             treatments=["UNKNOWN"],
             outcome="C",
             latent_names=["A", "B", "C"],
         )
         assert results[0].get("posterior_draws") is None
 
-    def test_no_drift_samples(self):
+    def test_no_dynamics_samples(self):
         results = compute_interventions(
             [],
-            _dense_linear_vector_field(n_latent=3),
+            _dense_matrix_vector_field(n_latent=3),
             treatments=["A"],
             outcome="C",
             latent_names=["A", "B", "C"],
@@ -318,7 +318,7 @@ class TestComputeInterventions:
         samples = [({"drift": A, "cint": jnp.ones(3)},) for _ in range(n)]
         results = compute_interventions(
             samples,
-            _dense_linear_vector_field(n_latent=3),
+            _dense_matrix_vector_field(n_latent=3),
             treatments=["A", "B"],
             outcome="C",
             latent_names=["A", "B", "C"],
@@ -333,7 +333,7 @@ class TestComputeInterventions:
     def test_parameter_samples_are_required(self):
         results = compute_interventions(
             [],
-            _dense_linear_vector_field(n_latent=2),
+            _dense_matrix_vector_field(n_latent=2),
             treatments=["A"],
             outcome="B",
             latent_names=["A", "B"],
@@ -342,7 +342,7 @@ class TestComputeInterventions:
 
     def test_manifest_effects_include_interval_supported_outcome_indicators(self):
         n = 3
-        drift = jnp.broadcast_to(
+        dynamics = jnp.broadcast_to(
             jnp.array([[-1.0, 0.0], [0.5, -1.0]]),
             (n, 2, 2),
         )
@@ -352,8 +352,8 @@ class TestComputeInterventions:
             (n, 1, 2),
         )
         results = compute_interventions(
-            [({"drift": d, "cint": c},) for d, c in zip(drift, cint, strict=True)],
-            _dense_linear_vector_field(n_latent=2),
+            [({"drift": d, "cint": c},) for d, c in zip(dynamics, cint, strict=True)],
+            _dense_matrix_vector_field(n_latent=2),
             treatments=["A"],
             outcome="B",
             latent_names=["A", "B"],
@@ -379,8 +379,7 @@ class TestComputeInterventions:
 class TestNumericalCorrectness:
     """Regression tests pinning the numerical Diffrax+Optimistix paths to the
     closed-form linear math they replace. Catches solver-tolerance or step-size
-    regressions in the linear path before they get blamed on non-linear
-    primitives in Phase 2."""
+    regressions against a dense-matrix closed form."""
 
     def test_trajectory_matches_closed_form(self):
         """``simulate`` vs ``exp(A·t)·η₀ + A⁻¹·(exp(A·t) - I)·c``."""
@@ -399,7 +398,7 @@ class TestNumericalCorrectness:
 
         closed_form = vmap(analytic)(time_grid)
         numerical = simulate(
-            _dense_linear_vector_field(n_latent=A.shape[0]),
+            _dense_matrix_vector_field(n_latent=A.shape[0]),
             ({"drift": A, "cint": c},),
             Intervention.none(),
             eta0,
@@ -424,7 +423,7 @@ class TestNumericalCorrectness:
 
         closed_form = -jla.solve(A, c)
         numerical = compute_steady_state(
-            _dense_linear_vector_field(n_latent=3),
+            _dense_matrix_vector_field(n_latent=3),
             ({"drift": A, "cint": c},),
             Intervention.none(),
         )
@@ -432,7 +431,7 @@ class TestNumericalCorrectness:
         assert jnp.allclose(numerical, closed_form, atol=1e-6)
 
     def test_treatment_effect_matches_closed_form_do(self):
-        """Composite vmap helper vs hand-computed ``do(η_j=v) - baseline``."""
+        """Dynamics vmap helper vs hand-computed ``do(η_j=v) - baseline``."""
         import jax.scipy.linalg as jla
 
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
@@ -447,9 +446,9 @@ class TestNumericalCorrectness:
         intervened = jla.solve(A_mod, rhs)
         expected = float(intervened[outcome_idx] - baseline[outcome_idx])
 
-        vf = _dense_linear_vector_field(n_latent=A.shape[0])
+        vf = _dense_matrix_vector_field(n_latent=A.shape[0])
         numerical = float(
-            vmap_steady_state_effect_composite(
+            vmap_steady_state_effect_dynamics(
                 vf,
                 [({"drift": A, "cint": c},)],
                 treat_idx=treat_idx,

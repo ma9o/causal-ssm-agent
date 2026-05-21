@@ -235,15 +235,6 @@ def materialize_prior_distribution(prior_cfg: Mapping[str, Any]) -> ndist.Distri
     raise ValueError(f"Unsupported prior family for SSM: {family.value!r}")
 
 
-def resolve_prior_distribution(prior: Any) -> ndist.Distribution | None:
-    """Resolve a runtime prior from a distribution object or canonical config."""
-    if prior is None:
-        return None
-    if isinstance(prior, dict):
-        return materialize_prior_distribution(prior)
-    return prior
-
-
 def prior_spec_from_normalized_params(
     normalized: Mapping[str, Any],
     *,

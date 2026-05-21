@@ -183,7 +183,7 @@ class PriorCompilationError(AggregatedCompileError):
 
 
 def _component_semantic_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
-    from nof1_causal_lab.models.ssm.dynamics.composite import iter_component_semantic_bindings
+    from nof1_causal_lab.models.ssm.dynamics.spec import iter_dynamics_semantic_bindings
 
     latent_names = axis_names_with_fallback(
         ssm_spec.latent_names,
@@ -193,7 +193,7 @@ def _component_semantic_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ..
     active_site_names = {site.name for site in build_site_registry(ssm_spec)}
     return tuple(
         binding
-        for binding in iter_component_semantic_bindings(
+        for binding in iter_dynamics_semantic_bindings(
             ssm_spec.dynamics_spec,
             latent_names=tuple(latent_names),
         )
@@ -764,8 +764,8 @@ def _transition_from_elementwise_dt_terms(
     for idx in range(drift.shape[0]):
         transition[idx, idx] = math.exp(float(drift[idx, idx]) * interval_days)
 
-    offdiag_mask = ~np.eye(drift.shape[0], dtype=bool)
-    transition[offdiag_mask] = drift[offdiag_mask] * interval_days
+    offdiag_support = ~np.eye(drift.shape[0], dtype=bool)
+    transition[offdiag_support] = drift[offdiag_support] * interval_days
     return transition
 
 

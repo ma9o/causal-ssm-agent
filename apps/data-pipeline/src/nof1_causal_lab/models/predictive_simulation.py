@@ -19,7 +19,7 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 )
 from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
-    build_composite_observation_kernel,
+    build_heterogeneous_observation_kernel,
     build_observation_kernel,
     build_transition_kernel,
     compile_transition_semantics,
@@ -160,7 +160,7 @@ def _build_response_kernel(
     )
     if len(set(zip(dists, links, strict=True))) == 1:
         return build_observation_kernel(dists[0], links[0], extra_params)
-    return build_composite_observation_kernel(dists, links, extra_params)
+    return build_heterogeneous_observation_kernel(dists, links, extra_params)
 
 
 def _slice_extra_params_for_indices(
