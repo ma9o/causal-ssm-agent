@@ -197,7 +197,7 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=full_diagonal_mask(n_latent),
             drift_offdiag_mask=zero_square_mask(n_latent),

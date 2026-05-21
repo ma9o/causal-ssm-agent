@@ -88,19 +88,22 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
     }
 
 
-def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch):
+def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch):
     import nof1_causal_lab.flows.run_store as run_store
+    from tests.ssm_test_utils import block_ssm_spec, full_structural_dense_drift_spec
 
-    spec = SimpleNamespace(
-        latent_names=["screen_time", "sleep_quality"], manifest_names=["sleep_obs"]
+    spec = block_ssm_spec(
+        n_latent=2,
+        n_manifest=1,
+        dynamics_spec=full_structural_dense_drift_spec(2),
+        latent_names=["screen_time", "sleep_quality"],
+        manifest_names=["sleep_obs"],
     )
     fitted_artifact = SimpleNamespace(
-        builder=SimpleNamespace(spec=spec),
+        spec=spec,
         observation_support=None,
     )
-    rebuilt_builder = SimpleNamespace(spec=spec, model=object())
     rebuilt_runtime = SimpleNamespace(
-        builder=rebuilt_builder,
         observation_support="support-runtime",
         observation_data=None,
     )
@@ -132,19 +135,18 @@ def test_build_stage6_context_rehydrates_builder_from_persisted_spec(monkeypatch
     monkeypatch.setattr(tool_server, "get_estimable_treatments", lambda _spec: ["screen_time"])
 
     def fake_prepare_model_runtime(
-        *, data_for_model, builder, compiled_ssm=None, sampler_config=None
+        *, data_for_model, model, compiled_ssm=None, sampler_config=None
     ):
         del data_for_model, compiled_ssm, sampler_config
-        captured["builder"] = builder
+        captured["model"] = model
         return rebuilt_runtime
 
     monkeypatch.setattr(tool_server, "prepare_model_runtime", fake_prepare_model_runtime)
 
     ctx = tool_server._build_stage6_context("user-123")
 
-    assert isinstance(captured["builder"], tool_server.SSMModelBuilder)
-    assert captured["builder"].spec is spec
-    assert ctx["_fitted_artifact"].builder is rebuilt_builder
+    assert isinstance(captured["model"], tool_server.SSMModel)
+    assert captured["model"].spec is spec
     assert ctx["_fitted_artifact"].observation_support == "support-runtime"
     assert ctx["_prepared_runtime"] is rebuilt_runtime
 
@@ -300,13 +302,10 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     ctx = {
         "_fitted_artifact": SimpleNamespace(
             result=FakeResult(samples),
-            builder=SimpleNamespace(
-                spec=SimpleNamespace(
-                    drift_spec=spec,
-                    latent_names=["treat", "outcome"],
-                    manifest_names=[],
-                ),
-                model=object(),
+            spec=SimpleNamespace(
+                dynamics_spec=spec,
+                latent_names=["treat", "outcome"],
+                manifest_names=[],
             ),
             observation_support=None,
         ),
@@ -438,13 +437,10 @@ def test_simulate_intervention_dispatches_to_composite_path():
     ctx = {
         "_fitted_artifact": SimpleNamespace(
             result=fake_result,
-            builder=SimpleNamespace(
-                spec=SimpleNamespace(
-                    drift_spec=spec,
-                    latent_names=["src", "tgt"],
-                    manifest_names=[],
-                ),
-                model=object(),
+            spec=SimpleNamespace(
+                dynamics_spec=spec,
+                latent_names=["src", "tgt"],
+                manifest_names=[],
             ),
             observation_support=None,
         ),
@@ -521,13 +517,10 @@ def test_simulate_counterfactual_dispatches_to_composite_path():
     ctx = {
         "_fitted_artifact": SimpleNamespace(
             result=fake_result,
-            builder=SimpleNamespace(
-                spec=SimpleNamespace(
-                    drift_spec=spec,
-                    latent_names=["src", "tgt"],
-                    manifest_names=[],
-                ),
-                model=object(),
+            spec=SimpleNamespace(
+                dynamics_spec=spec,
+                latent_names=["src", "tgt"],
+                manifest_names=[],
             ),
             observation_support=None,
         ),
@@ -723,7 +716,7 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
             manifest_names=["daily_event_count", "sleep_issue_searches"]
         ),
         "_fitted_artifact": SimpleNamespace(
-            builder=SimpleNamespace(spec=SimpleNamespace(latent_names=["screen_time", "sleep"]))
+            spec=SimpleNamespace(latent_names=["screen_time", "sleep"])
         ),
         "_identifiable_treatments": ["screen_time"],
         "_outcome_name": "sleep",

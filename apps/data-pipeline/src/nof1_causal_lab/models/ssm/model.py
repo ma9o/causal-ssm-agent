@@ -88,7 +88,7 @@ class SSMSpec:
     """Specification for a state-space model.
 
     Blocks:
-    - drift_spec: component-owned continuous-time latent vector field
+    - dynamics_spec: component-owned continuous-time latent vector field
     - diffusion_chol (L_Q): n_latent x n_latent process noise Cholesky factor
     - cint (c): n_latent x 1 continuous intercept
     - lambda_mat (Λ): n_manifest x n_latent factor loadings
@@ -120,7 +120,7 @@ class SSMSpec:
     # itself stores no flat-field duplicates. Priors are typically
     # left None at construction time and attached at sample time from
     # the runtime PriorRuntimeBundle.
-    drift_spec: CompositeSpec
+    dynamics_spec: CompositeSpec
     diffusion_block: DiffusionBlockSpec
     lambda_block: SparseMatrixBlockSpec
     manifest_means_block: SparseVectorBlockSpec
@@ -168,11 +168,6 @@ class SSMSpec:
         def _require_matrix(name: str, value: Any, rows: int, cols: int) -> None:
             _require_shape(name, value, (rows, cols))
 
-        from nof1_causal_lab.models.ssm.dynamics.composite import (
-            StructuralDenseLinearSpec,
-            StructuralInterceptSpec,
-        )
-
         # Static factor loadings shape: (n_latent, n_factor)
         loadings = jnp.asarray(self.static_factor_loadings)
         if loadings.ndim != 2:
@@ -188,29 +183,11 @@ class SSMSpec:
         n_static_factor = int(loadings.shape[1])
 
         # Cross-check block shapes against n_latent / n_manifest.
-        if self.drift_spec.n_latent != self.n_latent:
+        if self.dynamics_spec.n_latent != self.n_latent:
             raise ValueError(
-                f"drift_spec.n_latent ({self.drift_spec.n_latent}) "
+                f"dynamics_spec.n_latent ({self.dynamics_spec.n_latent}) "
                 f"!= SSMSpec.n_latent ({self.n_latent})"
             )
-        for component in self.drift_spec.components:
-            if isinstance(component, StructuralDenseLinearSpec):
-                _require_vector("drift_diag_mask", component.drift_diag_mask, self.n_latent)
-                _require_matrix(
-                    "drift_offdiag_mask",
-                    component.drift_offdiag_mask,
-                    self.n_latent,
-                    self.n_latent,
-                )
-                _require_matrix(
-                    "drift",
-                    component.drift_template,
-                    self.n_latent,
-                    self.n_latent,
-                )
-            if isinstance(component, StructuralInterceptSpec):
-                _require_vector("cint_mask", component.cint_mask, self.n_latent)
-                _require_vector("cint", component.cint_template, self.n_latent)
         if self.diffusion_block.n_latent != self.n_latent:
             raise ValueError(
                 f"diffusion_block.n_latent ({self.diffusion_block.n_latent}) "
@@ -405,7 +382,7 @@ class SSMSpec:
         so their sample sites match ``compile_composite(prefix="vf")``.
         Blocks with no free parameters yield nothing.
         """
-        for idx, component in enumerate(self.drift_spec.components):
+        for idx, component in enumerate(self.dynamics_spec.components):
             yield from component.iter_sites(
                 prefix=f"vf_{idx}",
                 n_latent=self.n_latent,
@@ -496,9 +473,9 @@ class SSMModel:
 
     @property
     def vector_field(self):
-        """Unified drift representation as a :class:`CompositeVectorField`.
+        """Unified dynamics representation as a :class:`CompositeVectorField`.
 
-        Every spec carries a populated ``drift_spec``. The compiled vector
+        Every spec carries a populated ``dynamics_spec``. The compiled vector
         field is what downstream consumers
         (``compute_steady_state``, ``simulate``,
         ``check_jacobian_stability``, the per-step linearisation in the
@@ -508,7 +485,7 @@ class SSMModel:
         def _build():
             from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
 
-            return compile_composite(self.spec.drift_spec).vector_field
+            return compile_composite(self.spec.dynamics_spec).vector_field
 
         return self.get_cached_artifact(("vector_field",), _build)
 
@@ -537,7 +514,7 @@ class SSMModel:
 
     # Per-block sampling now lives in the unified ``_run_block_sampling``
     # loop below — each block's ``with_runtime_priors`` + ``sample_params``
-    # pair handles drift, diffusion, cint, input_effect, lambda, manifest,
+    # pair handles dynamics, diffusion, cint, input_effect, lambda, manifest,
     # and t0 in one declarative pass.
 
     def make_likelihood_backend(self):
@@ -630,14 +607,14 @@ class SSMModel:
         return assemble_sampled_extra_params(spec, sampled_values)
 
     def _run_block_sampling(self) -> dict[str, jnp.ndarray]:
-        """Sample every non-drift block-owned parameter once.
+        """Sample every non-dynamics block-owned parameter once.
 
         Returns a flat dict mapping deterministic names (diffusion, lambda,
         input_effect, manifest_means, manifest_chol, t0_means,
         static_state_sds) and raw free-site names (t0_var_diag_free,
         t0_var_lower_free) to their sampled values.
 
-        Drift parameters are always sampled through ``compile_composite`` so
+        Dynamics parameters are always sampled through ``compile_composite`` so
         all dynamics components share one vector-field runtime path.
         """
         sampled: dict[str, jnp.ndarray] = {}
@@ -658,23 +635,23 @@ class SSMModel:
             sampled.update(with_priors(self._prior_distribution).sample_params())
         return sampled
 
-    def _drift_spec_with_runtime_priors(self):
+    def _dynamics_spec_with_runtime_priors(self):
         """Bind runtime prior distributions to component-owned sample sites."""
         components = tuple(
             component.with_runtime_priors(self._prior_distribution, prefix=f"vf_{idx}")
-            for idx, component in enumerate(self.spec.drift_spec.components)
+            for idx, component in enumerate(self.spec.dynamics_spec.components)
         )
-        return replace(self.spec.drift_spec, components=components)
+        return replace(self.spec.dynamics_spec, components=components)
 
     def _sample_runtime_dynamics(
         self,
         diffusion_cov: jnp.ndarray,
         input_effect: jnp.ndarray,
     ) -> RuntimeDynamics:
-        """Sample vector-field drift parameters inside the NumPyro trace."""
+        """Sample vector-field parameters inside the NumPyro trace."""
         from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
 
-        compiled = compile_composite(self._drift_spec_with_runtime_priors())
+        compiled = compile_composite(self._dynamics_spec_with_runtime_priors())
         vf_params = compiled.sample_params()
         return RuntimeDynamics(
             vector_field=compiled.vector_field,

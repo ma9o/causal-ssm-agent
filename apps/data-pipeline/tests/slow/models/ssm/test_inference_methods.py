@@ -266,7 +266,7 @@ def _make_map_mixed_support_recovery_data() -> dict:
     spec = block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=full_diagonal_mask(n_latent),
             drift_offdiag_mask=zero_square_mask(n_latent),

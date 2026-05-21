@@ -20,14 +20,12 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import pytest
 
-from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
 from nof1_causal_lab.models.ssm.discretization import (
     discretize_at_state,
     discretize_linear_system_exact,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
-    DenseLinear,
     DiagonalDecay,
     HillEdge,
     Intercept,
@@ -37,6 +35,12 @@ from nof1_causal_lab.models.ssm.dynamics import (
     VectorFieldArgs,
     simulate,
 )
+from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+
+
+def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
+    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+
 
 # =============================================================================
 # Per-primitive linearization checks
@@ -49,10 +53,8 @@ class TestLinearizePrimitives:
         ``(A, c)`` exactly — autodiff through ``A @ x + c`` reproduces ``A``."""
         A = jnp.array([[-1.0, 0.5], [0.3, -2.0]])
         c = jnp.array([0.1, -0.2])
-        vf = linear_vector_field(n_latent=2)
-        args = VectorFieldArgs(
-            params=({"drift": A, "cint": c},), intervention=Intervention.none()
-        )
+        vf = _dense_linear_vector_field(n_latent=2)
+        args = VectorFieldArgs(params=({"drift": A, "cint": c},), intervention=Intervention.none())
         x_lin = jnp.array([0.7, -0.4])
         A_loc, b_loc = vf.linearize(x_lin, args)
         assert jnp.allclose(A_loc, A, atol=1e-6)
@@ -128,10 +130,8 @@ class TestDiscretizeDenseLinearParity:
 
         A_d_ref, Q_d_ref, c_d_ref = discretize_linear_system_exact(A, diffusion_cov, c, dt)
 
-        vf = linear_vector_field(n_latent=3)
-        args = VectorFieldArgs(
-            params=({"drift": A, "cint": c},), intervention=Intervention.none()
-        )
+        vf = _dense_linear_vector_field(n_latent=3)
+        args = VectorFieldArgs(params=({"drift": A, "cint": c},), intervention=Intervention.none())
         # x_lin is irrelevant for a linear field — pick something non-trivial
         x_lin = jnp.array([1.7, -0.3, 0.5])
         A_d, Q_d, c_d = discretize_at_state(vf, x_lin, args, diffusion_cov, dt)
@@ -143,7 +143,7 @@ class TestDiscretizeDenseLinearParity:
     def test_zero_intercept(self):
         A = -jnp.eye(2)
         diffusion_cov = jnp.eye(2) * 0.05
-        vf = linear_vector_field(n_latent=2)
+        vf = _dense_linear_vector_field(n_latent=2)
         args = VectorFieldArgs(
             params=({"drift": A, "cint": jnp.zeros(2)},),
             intervention=Intervention.none(),
@@ -182,9 +182,7 @@ class TestSSRIChainLinearization:
             components=(
                 DiagonalDecay(),
                 Intercept(),
-                MultiplicativeEdge(
-                    source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P
-                ),
+                MultiplicativeEdge(source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P),
                 LinearEdge(source=self.C_P, target=self.C_E),
                 HillEdge(source=self.C_E, target=self.AFFECTIVE),
             ),
@@ -356,7 +354,7 @@ class TestCuthbertCallbackIntegration:
             simulate,
         )
 
-        vf = linear_vector_field(n_latent=A.shape[0])
+        vf = _dense_linear_vector_field(n_latent=A.shape[0])
         params = ({"drift": A, "cint": c},)
         time_grid = jnp.concatenate([jnp.zeros(1), jnp.cumsum(dts)])
         traj = simulate(vf, params, Intervention.none(), init_mean, time_grid)
@@ -380,7 +378,7 @@ class TestCuthbertCallbackIntegration:
         ys = self._generate_linear_obs(jr.PRNGKey(0), A, c, init_mean, H, R, dts)
 
         ll = _run_moments_filter_via_callback(
-            linear_vector_field(n_latent=2),
+            _dense_linear_vector_field(n_latent=2),
             ({"drift": A, "cint": c},),
             GG,
             init_mean,
@@ -429,9 +427,7 @@ class TestCuthbertCallbackIntegration:
             + jr.normal(jr.PRNGKey(1), (T, 1)) * 0.05
         )
 
-        ll = _run_moments_filter_via_callback(
-            vf, vf_params, GG, init_mean, init_cov, H, R, ys, dts
-        )
+        ll = _run_moments_filter_via_callback(vf, vf_params, GG, init_mean, init_cov, H, R, ys, dts)
         assert jnp.isfinite(ll), f"Hill filter log-likelihood is not finite: {ll}"
 
     def test_filter_matches_dense_path_for_linear(self):
@@ -514,7 +510,7 @@ class TestCuthbertCallbackIntegration:
 
         # New: via callback
         new_ll = _run_moments_filter_via_callback(
-            linear_vector_field(n_latent=2),
+            _dense_linear_vector_field(n_latent=2),
             ({"drift": A, "cint": c},),
             GG,
             init_mean,

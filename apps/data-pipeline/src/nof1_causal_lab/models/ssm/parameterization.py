@@ -87,7 +87,7 @@ class SiteRuntimeBundle:
 
     @property
     def scalar_names(self) -> list[str]:
-        """Flat list of per-element names (e.g. ``vf_0_base_decay[0]``)."""
+        """Flat list of per-element names (e.g. ``vf_0_decay[0]``)."""
         names: list[str] = []
         for site in self.registry:
             size = _site_size(site.shape)
@@ -439,29 +439,6 @@ def assemble_deterministics_from_registry(
     """
     n_draws = _resolve_num_draws(samples, n_draws)
     det: dict[str, jnp.ndarray] = {}
-
-    from nof1_causal_lab.models.ssm.dynamics.composite import (
-        StructuralDenseLinearSpec,
-        StructuralInterceptSpec,
-    )
-
-    for idx, component in enumerate(spec.drift_spec.components):
-        prefix = f"vf_{idx}"
-        if isinstance(component, StructuralDenseLinearSpec):
-            det[component.drift_deterministic_name(prefix)] = _maybe_vmap_assemble(
-                lambda base_decay=None, offdiag=None, component=component: component.assemble_drift(
-                    base_decay, offdiag
-                ),
-                samples.get(component.base_decay_site_name(prefix)),
-                samples.get(component.offdiag_site_name(prefix)),
-                n_draws=n_draws,
-            )
-        elif isinstance(component, StructuralInterceptSpec):
-            det[component.cint_deterministic_name(prefix)] = _maybe_vmap_assemble(
-                lambda cint=None, component=component: component.assemble_cint(cint),
-                samples.get(component.cint_site_name(prefix)),
-                n_draws=n_draws,
-            )
 
     # Diffusion Cholesky
     det["diffusion"] = _maybe_vmap_assemble(
@@ -1041,7 +1018,7 @@ def compile_prior_semantics(
     """Build the ``compiled_prior_semantics`` block for a compiled artifact.
 
     This is the single cross-stage source of truth for prior/runtime
-    semantics.  Downstream readers (``make_builder_from_compiled_artifact``,
+    semantics.  Downstream readers (compiled-artifact model construction,
     pre-fit diagnostics, prior predictive) should use this as the only
     supported serialized prior/runtime representation.
     """

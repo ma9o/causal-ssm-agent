@@ -9,7 +9,11 @@ from prefect import task
 
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.flows.stage4_compile_cache import restore_stage4_compile_cache
-from nof1_causal_lab.models.ssm.builder import PreparedModelRuntime, prepare_model_runtime
+from nof1_causal_lab.models.ssm.runtime import (
+    PreparedModelRuntime,
+    fit_prepared_model,
+    prepare_model_runtime,
+)
 
 logger = get_prefect_logger(__name__)
 
@@ -57,7 +61,7 @@ def fit_model(
     compiled_ssm: dict | None,
     data_for_model: pl.DataFrame,
     sampler_config: dict | None = None,
-    builder: Any = None,
+    model: Any = None,
     workspace_id: str | None = None,
     wait_for_compile_cache: bool = False,
     compute_loo_diagnostics: bool = True,
@@ -68,7 +72,7 @@ def fit_model(
         compiled_ssm: Serialized executable SSM artifact from stage 4
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         sampler_config: Override sampler configuration (None uses config defaults)
-        builder: Pre-built SSMModelBuilder (avoids rebuilding)
+        model: Optional pre-built SSMModel
 
     Returns:
         Fitted model results
@@ -76,11 +80,11 @@ def fit_model(
     NOTE: Uses NumPyro SSM implementation.
     """
     logger.info(
-        "Fitting model: rows=%d indicators=%d sampler=%s builder_reused=%s",
+        "Fitting model: rows=%d indicators=%d sampler=%s model_provided=%s",
         len(data_for_model),
         data_for_model["indicator"].n_unique() if "indicator" in data_for_model.columns else 0,
         (sampler_config or {}).get("method", "config default"),
-        builder is not None,
+        model is not None,
     )
     t0 = time.monotonic()
 
@@ -102,7 +106,7 @@ def fit_model(
             data_for_model=data_for_model,
             compiled_ssm=compiled_ssm,
             sampler_config=sampler_config,
-            builder=builder,
+            model=model,
         )
         observed_cells, total_cells = _observed_cell_counts(runtime.observations)
         logger.info(
@@ -132,7 +136,7 @@ def fit_model(
         # Fit the model — returns InferenceResult.
         logger.info("Starting inference kernel...")
         fit_t0 = time.monotonic()
-        result = runtime.builder.fit_prepared(runtime.observations, runtime.times)
+        result = fit_prepared_model(runtime)
         logger.info(
             "Inference kernel complete in %.1fs: method=%s wide_rows=%d manifest_vars=%d",
             _elapsed_seconds(fit_t0),
@@ -187,7 +191,7 @@ def fit_model(
             "n_samples": n_samples,
             "duration_seconds": _elapsed_seconds(t0),
             "result": result,
-            "builder": runtime.builder,
+            "spec": runtime.spec,
             "runtime": runtime,
             "times": runtime.times,
             "mcmc_diagnostics": mcmc_diag,

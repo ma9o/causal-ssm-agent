@@ -54,7 +54,7 @@ def _default_linear_spec(n_latent: int, n_manifest: int):
     return block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=offdiag,
@@ -313,7 +313,7 @@ class TestPureJaxLikelihoodEvaluator:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=np.ones(1, dtype=bool),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),

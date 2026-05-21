@@ -1,7 +1,7 @@
 """Continuous-time vector-field dynamics for SSMs.
 
 This package owns the dynamics vocabulary:
-vector-field components, composite drift specs, interventions,
+vector-field components, composite component specs, interventions,
 stability checks, steady states, simulation, and composite-spec
 serialization.
 
@@ -16,25 +16,25 @@ from .composite import (
     CompiledComposite,
     ComponentSpec,
     CompositeSpec,
-    DenseLinearSpec,
     DiagonalDecaySpec,
     HillEdgeSpec,
     InterceptSpec,
     LinearEdgeSpec,
     MultiplicativeEdgeSpec,
-    StructuralDenseLinearSpec,
-    StructuralInterceptSpec,
+    StateDecaySpec,
+    StateInterceptSpec,
     compile_composite,
     iter_component_semantic_bindings,
 )
 from .edges import (
-    DenseLinear,
     DiagonalDecay,
-    DriftComponent,
     HillEdge,
     Intercept,
     LinearEdge,
     MultiplicativeEdge,
+    StateDecay,
+    StateIntercept,
+    VectorFieldComponent,
 )
 from .intervention import (
     EdgeInputOverride,
@@ -75,11 +75,9 @@ __all__ = [
     "ComponentSpec",
     "CompositeSpec",
     "CompositeVectorField",
-    "DenseLinear",
-    "DenseLinearSpec",
     "DiagonalDecay",
     "DiagonalDecaySpec",
-    "DriftComponent",
+    "VectorFieldComponent",
     "EdgeInputOverride",
     "HillEdge",
     "HillEdgeSpec",
@@ -95,8 +93,10 @@ __all__ = [
     "PosteriorDynamicsSamples",
     "SimulationConfig",
     "StabilityReport",
-    "StructuralDenseLinearSpec",
-    "StructuralInterceptSpec",
+    "StateDecay",
+    "StateDecaySpec",
+    "StateIntercept",
+    "StateInterceptSpec",
     "ValueFn",
     "VariableOverride",
     "VectorField",

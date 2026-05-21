@@ -533,7 +533,7 @@ class TestCheckLaggedResponsePlausibility:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.array([True, True]),
                 drift_offdiag_mask=np.array([[False, False], [True, False]]),
@@ -578,7 +578,7 @@ class TestCheckLaggedResponsePlausibility:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.array([True, True]),
                 drift_offdiag_mask=np.array([[False, False], [True, False]]),
@@ -758,14 +758,14 @@ class TestScalePlausibilityDiagnostics:
     def test_keyword_matching(self):
         results = [
             PriorValidationResult(
-                parameter="vf_0_base_decay",
+                parameter="vf_0_decay",
                 is_valid=False,
                 issue="constraint",
             )
         ]
         params = ["rho_X", "beta_X_Y", "sigma_X"]
         failed = get_failed_parameters(results, params)
-        # drift_base_decay → keywords ["rho", "ar"]
+        # dynamics decay sites → keywords ["rho", "ar"]
         assert "rho_X" in failed
         assert "beta_X_Y" not in failed
 
@@ -851,7 +851,7 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=full_diagonal_mask(1),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -900,7 +900,7 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=CompositeSpec(
+            dynamics_spec=CompositeSpec(
                 n_latent=2,
                 components=(
                     DiagonalDecaySpec(decay_prior=None),
@@ -935,7 +935,7 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=full_diagonal_mask(1),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -966,7 +966,7 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=3,
                 drift_diag_mask=full_diagonal_mask(3),
                 drift_offdiag_mask=np.zeros((3, 3), dtype=bool),

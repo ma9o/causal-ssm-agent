@@ -1,7 +1,7 @@
-"""Drift components — edges and full-vector terms.
+"""Vector-field components — edges and full-vector terms.
 
-A ``DriftComponent`` is anything that contributes to ``dη/dt``. Components
-are composed by ``CompositeVectorField`` into the system's drift. Two
+A ``VectorFieldComponent`` is anything that contributes to ``dη/dt``. Components
+are composed by ``CompositeVectorField`` into the system vector field. Two
 broad kinds live here:
 
 - **Single-target edges** with explicit source / target indices:
@@ -13,10 +13,11 @@ broad kinds live here:
 - **Full-vector terms** that contribute to several latents at once:
   ``DenseLinear`` wraps a posterior-shaped ``A @ η + c`` in one XLA op
   (the fast path for the existing dense-matrix Stage 5b posterior);
-  ``DiagonalDecay`` and ``Intercept`` are the per-latent background
-  dynamics the composite primitive case uses.
+  ``DiagonalDecay`` and ``Intercept`` are full-vector background terms;
+  ``StateDecay`` and ``StateIntercept`` are scalar, target-owned versions
+  used by compiler-produced component specs.
 
-Every component implements the same ``contribute_to_drift`` signature, so
+Every component implements the same ``contribute`` signature, so
 ``CompositeVectorField`` is a single uniform loop. Each component reads
 its own slice of ``args.params`` (matched by position in the components
 tuple), which keeps parameter shapes scoped to the component that owns
@@ -35,10 +36,10 @@ if TYPE_CHECKING:
 
 
 @runtime_checkable
-class DriftComponent(Protocol):
+class VectorFieldComponent(Protocol):
     """Anything that contributes to ``dη/dt``.
 
-    ``contribute_to_drift`` returns the updated drift vector. ``eta`` is
+    ``contribute`` returns the updated vector-field value. ``eta`` is
     the raw state; ``eta_per_edge`` is the ``(n_target, n_source)``
     matrix with edge-input overrides already applied (single-target
     edges read one entry; full-vector terms typically use one or the
@@ -46,9 +47,9 @@ class DriftComponent(Protocol):
     overrides).
     """
 
-    def contribute_to_drift(
+    def contribute(
         self,
-        drift: Array,
+        accumulator: Array,
         eta: Array,
         eta_per_edge: Array,
         t: Array,
@@ -73,17 +74,17 @@ class DenseLinear(eqx.Module):
     specific ``j → i`` couplings.
     """
 
-    def contribute_to_drift(
+    def contribute(
         self,
-        drift: Array,
+        accumulator: Array,
         _eta: Array,
         eta_per_edge: Array,
         _t: Array,
         params: dict[str, Array],
     ) -> Array:
         A = params["drift"]
-        cint = params.get("cint", jnp.zeros(A.shape[0], dtype=drift.dtype))
-        return drift + (A * eta_per_edge).sum(axis=1) + cint
+        cint = params.get("cint", jnp.zeros(A.shape[0], dtype=accumulator.dtype))
+        return accumulator + (A * eta_per_edge).sum(axis=1) + cint
 
 
 class DiagonalDecay(eqx.Module):
@@ -96,29 +97,61 @@ class DiagonalDecay(eqx.Module):
     ``dC_e/dt = k_e0 · (C_p − C_e)``.
     """
 
-    def contribute_to_drift(
+    def contribute(
         self,
-        drift: Array,
+        accumulator: Array,
         eta: Array,
         _eta_per_edge: Array,
         _t: Array,
         params: dict[str, Array],
     ) -> Array:
-        return drift + (-params["decay"] * eta)
+        return accumulator + (-params["decay"] * eta)
+
+
+class StateDecay(eqx.Module):
+    """Single-latent relaxation term ``-decay * eta[target]``."""
+
+    target: int = eqx.field(static=True)
+
+    def contribute(
+        self,
+        accumulator: Array,
+        eta: Array,
+        _eta_per_edge: Array,
+        _t: Array,
+        params: dict[str, Array],
+    ) -> Array:
+        return accumulator.at[self.target].add(-params["decay"] * eta[self.target])
 
 
 class Intercept(eqx.Module):
     """Per-latent constant intercept ``c``."""
 
-    def contribute_to_drift(
+    def contribute(
         self,
-        drift: Array,
+        accumulator: Array,
         _eta: Array,
         _eta_per_edge: Array,
         _t: Array,
         params: dict[str, Array],
     ) -> Array:
-        return drift + params["cint"]
+        return accumulator + params["cint"]
+
+
+class StateIntercept(eqx.Module):
+    """Single-latent constant intercept contribution."""
+
+    target: int = eqx.field(static=True)
+
+    def contribute(
+        self,
+        accumulator: Array,
+        _eta: Array,
+        _eta_per_edge: Array,
+        _t: Array,
+        params: dict[str, Array],
+    ) -> Array:
+        return accumulator.at[self.target].add(params["cint"])
 
 
 # ---------------------------------------------------------------------------
@@ -137,16 +170,16 @@ class LinearEdge(eqx.Module):
     source: int = eqx.field(static=True)
     target: int = eqx.field(static=True)
 
-    def contribute_to_drift(
+    def contribute(
         self,
-        drift: Array,
+        accumulator: Array,
         _eta: Array,
         eta_per_edge: Array,
         _t: Array,
         params: dict[str, Array],
     ) -> Array:
         contribution = params["weight"] * eta_per_edge[self.target, self.source]
-        return drift.at[self.target].add(contribution)
+        return accumulator.at[self.target].add(contribution)
 
 
 class HillEdge(eqx.Module):
@@ -160,9 +193,9 @@ class HillEdge(eqx.Module):
     source: int = eqx.field(static=True)
     target: int = eqx.field(static=True)
 
-    def contribute_to_drift(
+    def contribute(
         self,
-        drift: Array,
+        accumulator: Array,
         _eta: Array,
         eta_per_edge: Array,
         _t: Array,
@@ -172,7 +205,7 @@ class HillEdge(eqx.Module):
         x_n = x ** params["n"]
         ec50_n = params["EC50"] ** params["n"]
         contribution = params["Emax"] * x_n / (ec50_n + x_n + 1e-12)
-        return drift.at[self.target].add(contribution)
+        return accumulator.at[self.target].add(contribution)
 
 
 class MultiplicativeEdge(eqx.Module):
@@ -185,9 +218,9 @@ class MultiplicativeEdge(eqx.Module):
     source_b: int = eqx.field(static=True)
     target: int = eqx.field(static=True)
 
-    def contribute_to_drift(
+    def contribute(
         self,
-        drift: Array,
+        accumulator: Array,
         _eta: Array,
         eta_per_edge: Array,
         _t: Array,
@@ -195,4 +228,4 @@ class MultiplicativeEdge(eqx.Module):
     ) -> Array:
         a = eta_per_edge[self.target, self.source_a]
         b = eta_per_edge[self.target, self.source_b]
-        return drift.at[self.target].add(params["weight"] * a * b)
+        return accumulator.at[self.target].add(params["weight"] * a * b)

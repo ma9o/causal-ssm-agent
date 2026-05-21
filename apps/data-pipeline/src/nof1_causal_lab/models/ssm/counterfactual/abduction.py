@@ -225,9 +225,9 @@ def _try_smoother(
 
         diffusion_chol = det_values["diffusion"]
         diffusion_cov = diffusion_chol @ diffusion_chol.T
-        compiled = compile_composite(spec.drift_spec)
+        compiled = compile_composite(spec.dynamics_spec)
         vf_params = pack_component_params_from_samples(
-            spec.drift_spec,
+            spec.dynamics_spec,
             site_values,
             det_values,
         )

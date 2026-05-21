@@ -9,11 +9,14 @@ import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
+from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm import SSMSpec, discretize_system
 from nof1_causal_lab.models.ssm.dynamics.composite import (
     CompositeSpec,
-    StructuralDenseLinearSpec,
-    StructuralInterceptSpec,
+    DiagonalDecaySpec,
+    LinearEdgeSpec,
+    StateDecaySpec,
+    StateInterceptSpec,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
@@ -171,28 +174,88 @@ def structural_dense_drift_spec(
     offdiag_prior: Any = None,
     cint_prior: Any = None,
 ) -> CompositeSpec:
-    """Build an explicit structural dense drift fixture for tests."""
-    return CompositeSpec(
-        n_latent=n_latent,
-        components=(
-            StructuralDenseLinearSpec(
-                n_latent=n_latent,
-                drift_diag_mask=drift_diag_mask,
-                drift_offdiag_mask=drift_offdiag_mask,
-                drift_template=drift_template,
-                time_invariant_mask=time_invariant_mask,
-                stability_margin=stability_margin,
-                base_decay_prior=base_decay_prior,
-                offdiag_prior=offdiag_prior,
-            ),
-            StructuralInterceptSpec(
-                n_latent=n_latent,
-                cint_mask=cint_mask,
-                cint_template=cint_template,
-                cint_prior=cint_prior,
-            ),
-        ),
+    """Build a component-native linear dynamics fixture for tests."""
+    del stability_margin
+
+    def _delta_prior(value: float) -> dict[str, Any]:
+        return {
+            "family": PriorDistributionFamily.DELTA,
+            "params": {"value": float(value)},
+        }
+
+    components: list[Any] = []
+    diag_mask = np.asarray(drift_diag_mask, dtype=bool)
+    edge_mask = np.asarray(drift_offdiag_mask, dtype=bool)
+    drift_template_array = np.asarray(drift_template, dtype=float)
+    ti_mask = (
+        np.asarray(time_invariant_mask, dtype=bool)
+        if time_invariant_mask is not None
+        else np.zeros(n_latent, dtype=bool)
     )
+
+    can_use_vector_decay = (
+        bool(np.all(diag_mask))
+        and not bool(np.any(ti_mask))
+        and bool(np.allclose(np.diag(drift_template_array), 0.0))
+    )
+    if can_use_vector_decay:
+        components.append(DiagonalDecaySpec(decay_prior=base_decay_prior))
+    else:
+        for target in range(n_latent):
+            if bool(ti_mask[target]):
+                components.append(StateDecaySpec(target=target, decay_prior=_delta_prior(1e-6)))
+                continue
+            fixed_diag = float(drift_template_array[target, target])
+            if bool(diag_mask[target]):
+                components.append(StateDecaySpec(target=target, decay_prior=base_decay_prior))
+            elif fixed_diag < 0.0:
+                components.append(
+                    StateDecaySpec(target=target, decay_prior=_delta_prior(-fixed_diag))
+                )
+            elif fixed_diag > 0.0:
+                components.append(
+                    LinearEdgeSpec(
+                        source=target,
+                        target=target,
+                        weight_prior=_delta_prior(fixed_diag),
+                    )
+                )
+
+    for effect in range(n_latent):
+        for cause in range(n_latent):
+            if effect == cause:
+                continue
+            if bool(edge_mask[effect, cause]):
+                components.append(
+                    LinearEdgeSpec(
+                        source=cause,
+                        target=effect,
+                        weight_prior=offdiag_prior,
+                    )
+                )
+                continue
+            fixed_weight = float(drift_template_array[effect, cause])
+            if fixed_weight != 0.0:
+                components.append(
+                    LinearEdgeSpec(
+                        source=cause,
+                        target=effect,
+                        weight_prior=_delta_prior(fixed_weight),
+                    )
+                )
+
+    cint_mask_array = np.asarray(cint_mask, dtype=bool)
+    cint_template_array = np.asarray(cint_template, dtype=float)
+    for target in range(n_latent):
+        fixed_cint = float(cint_template_array[target])
+        if bool(cint_mask_array[target]):
+            components.append(StateInterceptSpec(target=target, cint_prior=cint_prior))
+        elif fixed_cint != 0.0:
+            components.append(
+                StateInterceptSpec(target=target, cint_prior=_delta_prior(fixed_cint))
+            )
+
+    return CompositeSpec(n_latent=n_latent, components=tuple(components))
 
 
 def full_structural_dense_drift_spec(n_latent: int) -> CompositeSpec:
@@ -248,7 +311,7 @@ def make_lgss_data(
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
@@ -317,7 +380,7 @@ def prior_registry(**priors_by_site: PriorSpec) -> PriorRegistry:
 def block_ssm_spec(
     *,
     n_latent: int,
-    drift_spec: CompositeSpec,
+    dynamics_spec: CompositeSpec,
     n_manifest: int | None = None,
     diffusion_block: DiffusionBlockSpec | None = None,
     lambda_block: SparseMatrixBlockSpec | None = None,
@@ -337,7 +400,7 @@ def block_ssm_spec(
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=drift_spec,
+        dynamics_spec=dynamics_spec,
         diffusion_block=diffusion_block or default_diffusion_block(n_latent),
         lambda_block=lambda_block or default_lambda_block(n_manifest, n_latent),
         manifest_means_block=manifest_means_block or default_manifest_means_block(n_manifest),

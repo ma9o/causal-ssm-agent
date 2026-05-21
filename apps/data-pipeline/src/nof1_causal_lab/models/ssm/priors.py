@@ -60,18 +60,6 @@ class PriorRegistry:
 
 
 DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
-    "drift_base_decay": PriorSpec(
-        PriorDistributionFamily.GAMMA,
-        {"concentration": 2.0, "rate": 4.0},
-    ),
-    "drift_offdiag": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 0.5},
-    ),
-    "dense_drift": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 0.5},
-    ),
     "dynamics_decay": PriorSpec(
         PriorDistributionFamily.GAMMA,
         {"concentration": 2.0, "rate": 4.0},
@@ -107,10 +95,6 @@ DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
     "diffusion_offdiag": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 0.5},
-    ),
-    "cint": PriorSpec(
-        PriorDistributionFamily.NORMAL,
-        {"mu": 0.0, "sigma": 1.0},
     ),
     "input_effect": PriorSpec(
         PriorDistributionFamily.NORMAL,

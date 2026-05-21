@@ -8,11 +8,11 @@ import polars as pl
 
 from nof1_causal_lab.flows.stages.stage5b import fit as stage5_inference
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.builder import PreparedModelRuntime, SSMModelBuilder
 from nof1_causal_lab.models.ssm.inference import InferenceResult
 from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
 from tests.ssm_test_utils import (
     default_diffusion_block,
     default_input_effect_block,
@@ -52,35 +52,24 @@ class _FakeResult(InferenceResult):
         return []
 
 
-class _FakeBuilder(SSMModelBuilder):
-    def __init__(self, result: _FakeResult) -> None:
-        super().__init__()
-        self._result = result
-        model = SSMModel(
-            SSMSpec(
-                n_latent=1,
-                n_manifest=2,
-                drift_spec=full_structural_dense_drift_spec(1),
-                diffusion_block=default_diffusion_block(1),
-                lambda_block=default_lambda_block(2, 1),
-                manifest_means_block=default_manifest_means_block(2),
-                manifest_chol_block=default_manifest_chol_block(2),
-                t0_means_block=default_t0_means_block(1),
-                t0_chol_block=default_t0_chol_block(1),
-                input_effect_block=default_input_effect_block(1),
-                static_state_sd_block=default_static_state_sd_block(),
-                latent_names=["sleep_state"],
-                manifest_names=["sleep_avg", "energy"],
-            )
+def _make_fake_model() -> SSMModel:
+    return SSMModel(
+        SSMSpec(
+            n_latent=1,
+            n_manifest=2,
+            dynamics_spec=full_structural_dense_drift_spec(1),
+            diffusion_block=default_diffusion_block(1),
+            lambda_block=default_lambda_block(2, 1),
+            manifest_means_block=default_manifest_means_block(2),
+            manifest_chol_block=default_manifest_chol_block(2),
+            t0_means_block=default_t0_means_block(1),
+            t0_chol_block=default_t0_chol_block(1),
+            input_effect_block=default_input_effect_block(1),
+            static_state_sd_block=default_static_state_sd_block(),
+            latent_names=["sleep_state"],
+            manifest_names=["sleep_avg", "energy"],
         )
-        self.attach_runtime_artifacts(model, result=result)
-
-    def fit_prepared(
-        self, observations: jnp.ndarray, times: jnp.ndarray, **_kwargs
-    ) -> InferenceResult:
-        result = self._result
-        assert result is not None
-        return result
+    )
 
 
 def _make_observation_support_runtime() -> ObservationSupportRuntime:
@@ -115,12 +104,12 @@ def _make_observation_support_runtime() -> ObservationSupportRuntime:
     )
 
 
-def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
+def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
     return PreparedModelRuntime(
-        builder=fake_builder,
-        model=fake_builder.model,
-        spec=fake_builder.spec,
-        parameter_layout=fake_builder.model.parameter_layout,
+        model=model,
+        spec=model.spec,
+        parameter_layout=model.parameter_layout,
+        sampler_config={"method": "aux_kalman_mcmc"},
         wide_data=pl.DataFrame(
             {
                 "time": [0.0, 1.5],
@@ -144,10 +133,11 @@ def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
 
 def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, caplog):
     fake_result = _FakeResult()
-    fake_builder = _FakeBuilder(fake_result)
-    runtime = _make_runtime(fake_builder)
+    fake_model = _make_fake_model()
+    runtime = _make_runtime(fake_model)
 
     monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
+    monkeypatch.setattr(stage5_inference, "fit_prepared_model", lambda _runtime: fake_result)
 
     data_for_model = pl.DataFrame(
         {
@@ -166,7 +156,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
             None,
             data_for_model,
             sampler_config={"method": "aux_kalman_mcmc"},
-            builder=fake_builder,
+            model=fake_model,
         )
 
     assert result["fitted"] is True
@@ -186,10 +176,11 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
 def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
     fake_result = _FakeResult()
-    fake_builder = _FakeBuilder(fake_result)
-    runtime = _make_runtime(fake_builder)
+    fake_model = _make_fake_model()
+    runtime = _make_runtime(fake_model)
 
     monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
+    monkeypatch.setattr(stage5_inference, "fit_prepared_model", lambda _runtime: fake_result)
 
     data_for_model = pl.DataFrame(
         {
@@ -204,7 +195,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
             None,
             data_for_model,
             sampler_config={"method": "aux_kalman_mcmc"},
-            builder=fake_builder,
+            model=fake_model,
             compute_loo_diagnostics=False,
         )
 
@@ -216,8 +207,8 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
 
 def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     fake_result = _FakeResult()
-    fake_builder = _FakeBuilder(fake_result)
-    runtime = _make_runtime(fake_builder)
+    fake_model = _make_fake_model()
+    runtime = _make_runtime(fake_model)
     restore_calls: list[tuple[str | None, dict | None, bool]] = []
 
     monkeypatch.setattr(
@@ -228,6 +219,7 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
         ),
     )
     monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
+    monkeypatch.setattr(stage5_inference, "fit_prepared_model", lambda _runtime: fake_result)
 
     data_for_model = pl.DataFrame(
         {
@@ -252,8 +244,8 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
 
 def test_run_power_scaling_logs_completion_summary(monkeypatch, caplog):
     fake_result = _FakeResult()
-    fake_builder = _FakeBuilder(fake_result)
-    runtime = _make_runtime(fake_builder)
+    fake_model = _make_fake_model()
+    runtime = _make_runtime(fake_model)
 
     class _FakePowerScalingResult:
         def __init__(self) -> None:

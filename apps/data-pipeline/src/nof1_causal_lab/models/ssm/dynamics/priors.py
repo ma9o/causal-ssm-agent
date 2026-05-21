@@ -1,4 +1,4 @@
-"""Default NumPyro prior distributions for non-linear component parameters.
+"""Default NumPyro prior distributions for dynamics component parameters.
 
 These factories produce NumPyro ``Distribution`` objects directly
 plug-in-able into ``ComponentSpec``s. The defaults are PK/PD-informed
@@ -74,9 +74,7 @@ def hill_n_prior(
 # ---------------------------------------------------------------------------
 
 
-def multiplicative_weight_prior(
-    loc: float = 0.0, scale: float = 1.0
-) -> ndist.Distribution:
+def multiplicative_weight_prior(loc: float = 0.0, scale: float = 1.0) -> ndist.Distribution:
     """Normal prior over multiplicative coupling weight ``w``.
 
     For ``w · η_a · η_b`` the right scale depends on the observed scale
@@ -91,9 +89,7 @@ def multiplicative_weight_prior(
 # ---------------------------------------------------------------------------
 
 
-def linear_edge_weight_prior(
-    loc: float = 0.0, scale: float = 0.5
-) -> ndist.Distribution:
+def linear_edge_weight_prior(loc: float = 0.0, scale: float = 0.5) -> ndist.Distribution:
     """Normal prior over a generic LinearEdge weight ``β``.
 
     Tighter default than the multiplicative prior because per-edge
@@ -103,9 +99,7 @@ def linear_edge_weight_prior(
     return ndist.Normal(loc=loc, scale=scale)
 
 
-def effect_compartment_rate_prior(
-    loc: float = 0.0, scale: float = 0.7
-) -> ndist.Distribution:
+def effect_compartment_rate_prior(loc: float = 0.0, scale: float = 0.7) -> ndist.Distribution:
     """LogNormal prior over the effect-compartment rate ``k_e0``.
 
     For SSRI-like delayed-onset dynamics the effective time constant is
@@ -128,9 +122,7 @@ def diagonal_decay_prior(
 ) -> ndist.Distribution:
     """Gamma prior over per-latent decay rates ``ρ`` (must be positive).
 
-    Defaults match the structural affine drift defaults
-    (``Gamma(concentration=2, rate=4)`` → mean 0.5, mode 0.25), so the
-    composite primitive case retains the existing stability prior
-    behaviour for the diagonal-decay component.
+    ``Gamma(concentration=2, rate=4)`` has mean 0.5 and mode 0.25, a
+    weakly informative stability prior for diagonal-decay components.
     """
     return ndist.Gamma(concentration=rate_concentration, rate=rate_rate)

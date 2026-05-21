@@ -263,7 +263,7 @@ class InferenceConfig:
     pit_particle_mgrad: PITParticleMGradConfig = field(default_factory=PITParticleMGradConfig)
 
     def to_sampler_config(self, method_override: str | None = None) -> dict:
-        """Build a flat sampler config dict for SSMModelBuilder."""
+        """Build a flat sampler config dict for SSM inference."""
         method = method_override or self.method
         config: dict = {
             "method": method,

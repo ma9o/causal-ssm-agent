@@ -37,19 +37,18 @@ graph TD
     diag_out --> artifact
     artifact["CompiledSSMArtifact\nspec + edge_lag_days + compiled_prior_semantics + parameter_bindings + compile_diagnostics"]
 
-    subgraph build_compiled_ssm_builder ["build_compiled_ssm_builder() — ssm_compiler.py"]
-        artifact --> builder_ctor["make_builder_from_compiled_artifact()\n(deserialize_ssm_spec + load_prior_runtime_bundle)"]
-
-        subgraph build_model ["builder.build_model() — ssm_builder.py"]
-            builder_ctor --> hydrate["hydrate_discrete_manifest_metadata() — ssm_observation_metadata.py"]
-            hydrate --> validate_obs["validate_observation_support()"]
-            validate_obs --> ssm_model(["SSMModel"])
-            ssm_model --> registry["Site registry + PriorRuntimeBundle\n(derived from SSMSpec)"]
-            registry --> assemble["Runtime assembly\n(component params + block params -> RuntimeDynamics / diffusion / loadings / t0)"]
-        end
+    subgraph prepare_model_runtime ["prepare_model_runtime() — runtime.py"]
+        artifact --> model_ctor["build_model_from_compiled_artifact()\n(deserialize_ssm_spec + load_prior_runtime_bundle)"]
+        model_ctor --> hydrate["hydrate_discrete_manifest_metadata() — observation_support.py"]
+        hydrate --> validate_obs["validate_observation_support()"]
+        validate_obs --> ssm_model(["SSMModel"])
+        ssm_model --> arrays["prepare_fit_inputs()\nobservations + times + manifest order"]
+        arrays --> support["compile_observation_support_runtime()"]
+        support --> registry["Site registry + PriorRuntimeBundle\n(derived from SSMSpec)"]
+        registry --> assemble["Runtime assembly\n(component params + block params -> RuntimeDynamics / diffusion / loadings / t0)"]
     end
 
-    ssm_model --> fit["builder.fit(data) → InferenceResult"]
+    ssm_model --> fit["fit_prepared_model(runtime) → InferenceResult"]
     fit --> execute["SSMModel.model() execution"]
     assemble --> execute
 
@@ -80,7 +79,7 @@ Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the artifact that pe
 **What it does:**
 
 - Extracts latent construct layout from the DAG (names, order, time-invariant mask)
-- Builds the **drift spec** as a composite vector field. The standard affine artifact uses a `StructuralDenseLinearSpec` for decay/cross-lag dynamics plus a `StructuralInterceptSpec` for continuous-time state intercepts.
+- Builds the **dynamics spec** as a composite vector field. The standard affine artifact uses `DiagonalDecaySpec` for per-latent decay, `LinearEdgeSpec` for cross-lag dynamics, and `StateInterceptSpec` for any free continuous-time state intercepts.
 - Builds the **loading template** (`lambda_mat`) plus `lambda_mask`: fixed indicator-to-construct loadings and free non-reference loadings
 - Compiles concrete templates plus masks for `cint`, `static_state_sds`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`.
 - Converts marginalized time-invariant confounders into compiled low-rank baseline factors of the form `B diag(tau^2) B^T` rather than free pairwise `cor0_*` surfaces on the causal-spec path
@@ -175,20 +174,21 @@ Also provides validation entry points used by earlier pipeline stages:
 - `validate_model_spec_for_compilation()` — catches structural errors before committing to compilation
 - `trial_compile_model_spec()` / `trial_compile_measurement_model()` — dry-run compilation that returns an error string or None
 
-## Stage 6: Builder & Runtime (`ssm_compiler.py`, `ssm_builder.py`, `ssm_observation_metadata.py`)
+## Stage 5: Runtime Preparation (`compile/artifact.py`, `runtime.py`, `observation_support.py`)
 
-`build_compiled_ssm_builder()` in `ssm_compiler.py` reconstructs the compiled artifact into a live `SSMModelBuilder` that can build and fit models.
+`build_model_from_compiled_artifact()` in `compile/artifact.py` reconstructs the compiled artifact into a live `SSMModel`.
 
-**`ssm_observation_metadata.py`** handles data-dependent hydration:
+**`observation_support.py`** handles data-dependent hydration:
 
 - `hydrate_discrete_manifest_metadata()` — infers level counts for categorical/ordinal emissions from observed data
 - `validate_observation_support()` — checks no values fall outside the observation family's support (e.g., negative values for Poisson)
 
-**`ssm_builder.py`** provides the runtime API:
+**`runtime.py`** provides the runtime API:
 
-- `build_model(data)` → `SSMModel` — materializes the NumPyro model with data
-- `fit(data)` → `InferenceResult` — runs inference end-to-end
-- `sample_prior_predictive()` — generates prior predictive samples for validation
+- `build_ssm_model(wide_data, ...)` → `SSMModel` — materializes the NumPyro model from direct specs or compiled inputs
+- `prepare_model_runtime(data_for_model, ...)` → `PreparedModelRuntime` — prepares observations, times, observation support, transition inputs, and sampler config
+- `fit_prepared_model(runtime)` → `InferenceResult` — routes prepared arrays into `inference.fit()`
+- `sample_prior_predictive(model, ...)` — generates prior predictive samples for validation
 
 Runtime reconstruction now has three layers:
 
@@ -196,37 +196,37 @@ Runtime reconstruction now has three layers:
 - **`PriorRuntimeBundle`** is rebuilt from `compiled_prior_semantics` and owns sample-site registry, transforms, and prior-state semantics.
 - **`RuntimeDynamics`** is sampled through the compiled composite drift spec. Inference backends then derive affine or local-linear views from the vector field instead of splitting linear vs nonlinear at the spec level.
 
-**Why `fit()` lives on the builder, not on `SSMModel`:** the runtime separates three concerns:
+**Why `fit()` stays outside `SSMModel`:** the runtime separates three concerns:
 
 - **`SSMModel`** is a pure NumPyro model function. Its [`model(observations, times)`](estimation.md#data-flow) method takes JAX arrays, samples from the runtime prior bundle, assembles block deterministic values plus `RuntimeDynamics`, and injects the log-likelihood via `numpyro.factor()`. It has no knowledge of DataFrames, inference algorithms, or sampler configuration.
-- **`inference.fit()`** handles [algorithm selection](inference-routing.md) (MAP and blocked MCMC) and execution. It takes an `SSMModel` and raw arrays.
-- **`SSMModelBuilder`** bridges the gap: it converts Polars DataFrames to JAX arrays (`prepare_fit_inputs`), loads the prior runtime bundle from `compiled_prior_semantics`, routes sampler configuration from `config.yaml` to `inference.fit()`, and caches the `SSMModel` and `InferenceResult` for downstream access (diagnostics, summaries, prior predictive checks).
-- Before array conversion, the builder also applies deterministic centering to manifest columns whose compiled `manifest_centered` flag is `True`, so centered additive-location indicators are zero-centered consistently in both fitting and prior-predictive scale checks.
+- **`inference.fit()`** handles [algorithm selection](inference-routing.md) and execution. It takes an `SSMModel` and prepared arrays.
+- **`PreparedModelRuntime`** bridges the gap: it carries the `SSMModel`, prepared JAX arrays, observation-support runtime, transition inputs, manifest order, sampler config, and inference-structure plan for Stage 5 diagnostics.
+- Before array conversion, `prepare_fit_inputs()` applies deterministic centering to manifest columns whose compiled `manifest_centered` flag is `True`, so centered additive-location indicators are zero-centered consistently in both fitting and prior-predictive scale checks.
 
 Moving `fit()` onto `SSMModel` would couple it to DataFrame handling and sampler config routing — concerns that belong to the orchestrator layer, not the probabilistic model.
 
-**Two entry points to the builder:**
+**Two model-construction entry points:**
 
-- `build_compiled_ssm_builder(compiled_ssm, wide_data)` in `ssm_compiler.py` — deserializes a persisted `CompiledSSMArtifact`, rebuilds the prior runtime bundle from `compiled_prior_semantics`, and eagerly calls `build_model()`, returning a ready-to-fit builder. This is the pipeline path (Stage 5 consumes the artifact that Stage 4 persisted).
-- `build_ssm_builder(model_spec, priors, wide_data)` in `ssm_builder.py` — compiles on-the-fly from raw specs, also returning a ready-to-fit builder. This is the direct path for tests and notebooks.
+- `build_model_from_compiled_artifact(compiled_ssm, wide_data)` in `compile/artifact.py` — deserializes a persisted `CompiledSSMArtifact`, rebuilds the prior runtime bundle from `compiled_prior_semantics`, hydrates observation metadata from wide data, and returns an `SSMModel`. This is the pipeline path because Stage 5 consumes the artifact that Stage 4 persisted.
+- `build_ssm_model(wide_data, model_spec=..., priors=..., causal_spec=...)` in `runtime.py` — compiles on the fly from raw specs and returns an `SSMModel`. This is the direct path for tests and notebooks.
 
-Both return an `SSMModelBuilder` with the `SSMModel` already constructed. Callers that instantiate `SSMModelBuilder()` directly get a deferred builder — `build_model()` runs lazily on the first `fit()` call.
+Both return a live `SSMModel`. Callers that need fit-ready arrays use `prepare_model_runtime()` or `prepare_wide_model_runtime()` to construct a `PreparedModelRuntime`.
 
 ## File Dependency Graph
 
 ```mermaid
 graph LR
-    spec["ssm_spec_translation.py"] --> compilation["ssm_compilation.py"]
-    indexing["ssm_prior_indexing.py"] --> compilation
-    prior["ssm_prior_compilation.py"] --> compilation
-    compilation --> compiler["ssm_compiler.py (public API)"]
-    compilation --> builder["ssm_builder.py (runtime API)"]
-    compiler --> builder
-    obs["ssm_observation_metadata.py"] --> builder
-    common["ssm_compilation_common.py"] -.-> spec & indexing & prior & compilation & compiler & builder
+    spec["compile/spec_translation.py"] --> inputs["compile/inputs.py"]
+    indexing["compile/prior_indexing.py"] --> inputs
+    prior["compile/prior_compilation.py"] --> inputs
+    inputs --> artifact["compile/artifact.py"]
+    inputs --> runtime["runtime.py"]
+    artifact --> runtime
+    obs["observation_support.py"] --> runtime
+    common["compile/common.py"] -.-> spec & indexing & prior & inputs & artifact & runtime
 ```
 
-Leaf modules (`ssm_spec_translation`, `ssm_prior_indexing`, `ssm_observation_metadata`, `ssm_compilation_common`) have no intra-pipeline dependencies and can be understood in isolation. The compilation orchestrator (`ssm_compilation.py`) now exposes two explicit entry points:
+Leaf modules (`compile/spec_translation.py`, `compile/prior_indexing.py`, `observation_support.py`, `compile/common.py`) have no intra-pipeline dependencies and can be understood in isolation. The compilation orchestrator (`compile/inputs.py`) exposes two explicit entry points:
 
 - `compile_ssm_inputs_from_model_spec()` for the semantic Stage 4 path
 - `compile_ssm_inputs_from_spec()` for already-translated `SSMSpec` callers

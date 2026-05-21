@@ -617,9 +617,6 @@ def _component_parameter_label(site_kind: Any, prior_field: Any) -> str | None:
         "hill_emax": "Emax",
         "hill_ec50": "EC50",
         "hill_n": "n",
-        "drift_base_decay": "base_decay",
-        "drift_offdiag": "offdiag",
-        "cint": "cint",
     }
     key = str(site_kind or prior_field or "")
     return labels.get(key)

@@ -320,26 +320,12 @@ def _serialize_fitted_result(result: InferenceResult | None) -> InferenceResult 
     )
 
 
-def _serialize_fitted_builder(builder: Any) -> Any:
-    """Persist only the compiled spec Stage 6 needs for counterfactual analysis."""
-    if builder is None:
-        return None
-    return FittedBuilderSnapshot(spec=builder.spec)
-
-
-@dataclass(frozen=True)
-class FittedBuilderSnapshot:
-    """Minimal persisted builder state required by Stage 6."""
-
-    spec: Any | None
-
-
 @dataclass
 class FittedArtifact:
     """Canonical persisted output of inference."""
 
     result: InferenceResult | None
-    builder: Any | None
+    spec: Any | None
     times: Any
     observation_support: Any | None = None
     ppc_result: dict[str, Any] | None = None
@@ -349,7 +335,7 @@ class FittedArtifact:
         """Persist only the Stage 6 inputs, never live inference caches/backends."""
         return {
             "result": _serialize_fitted_result(self.result),
-            "builder": _serialize_fitted_builder(self.builder),
+            "spec": self.spec,
             "times": self.times,
             "observation_support": self.observation_support,
             "ppc_result": self.ppc_result,
@@ -358,7 +344,7 @@ class FittedArtifact:
 
     def __setstate__(self, state: dict[str, Any]) -> None:
         self.result = state["result"]
-        self.builder = state["builder"]
+        self.spec = state["spec"]
         self.times = state["times"]
         self.observation_support = state["observation_support"]
         self.ppc_result = state["ppc_result"]

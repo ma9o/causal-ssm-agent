@@ -1,8 +1,8 @@
-"""Vector field — single concrete implementation built from drift components.
+"""Vector field — single concrete implementation built from components.
 
 ``CompositeVectorField`` is the only vector field. It owns a tuple of
-``DriftComponent``s (see ``edges.py``); each component contributes to
-the drift vector. The dense linear case (the existing Stage 5b posterior
+``VectorFieldComponent``s (see ``edges.py``); each component contributes to
+the derivative vector. The dense linear case (the existing Stage 5b posterior
 shape) is one component (``DenseLinear``); the non-linear pharmacology
 case is many components (``DiagonalDecay`` + ``Intercept`` + per-edge
 Linear / Hill / Multiplicative).
@@ -12,9 +12,9 @@ The vector field is responsible for:
 - Building the ``(n_target, n_source)`` ``eta_per_edge`` matrix with
   edge-input overrides applied once.
 - Iterating over components and accumulating their contributions into
-  the drift.
+  the derivative.
 - Translating ``VariableOverride``s into the right semantics for the
-  simulator (drift component set to ``du/dt``) and the steady-state
+  simulator (derivative component set to ``du/dt``) and the steady-state
   root finder (residual set to ``eta − u(0)`` so the root pins the
   intervened latent exactly).
 
@@ -35,7 +35,7 @@ from .intervention import EdgeInputOverride, Intervention, VariableOverride
 if TYPE_CHECKING:
     from jax import Array
 
-    from .edges import DriftComponent
+    from .edges import VectorFieldComponent
 
 
 class VectorFieldArgs(eqx.Module):
@@ -52,7 +52,7 @@ class VectorFieldArgs(eqx.Module):
 
 @runtime_checkable
 class VectorField(Protocol):
-    """Drift callable plus simulator / root-finder companions.
+    """Vector-field callable plus simulator / root-finder companions.
 
     Kept as a Protocol so future alternative implementations (e.g., a
     JAX-jit-cached variant or a structured sparse path) can slot in
@@ -99,7 +99,7 @@ def _apply_edge_input_overrides(
     return eta_eff
 
 
-def _apply_variable_overrides_to_drift(
+def _apply_variable_overrides_to_derivative(
     d_eta: Array,
     t: Array,
     intervention: Intervention,
@@ -115,7 +115,7 @@ def _apply_variable_overrides_to_drift(
 
 
 class CompositeVectorField(eqx.Module):
-    """Drift as a sum of ``DriftComponent`` contributions.
+    """Vector field as a sum of ``VectorFieldComponent`` contributions.
 
     Equivalent dense-matrix dynamics: a single ``DenseLinear`` component
     with parameter slice ``{"drift": A, "cint": c}`` reproduces the
@@ -129,30 +129,30 @@ class CompositeVectorField(eqx.Module):
     """
 
     n_latent: int = eqx.field(static=True)
-    components: tuple[DriftComponent, ...]
+    components: tuple[VectorFieldComponent, ...]
 
     def __call__(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
-        d_eta = self._natural_drift(t, eta, args)
-        return _apply_variable_overrides_to_drift(d_eta, t, args.intervention)
+        d_eta = self._natural_derivative(t, eta, args)
+        return _apply_variable_overrides_to_derivative(d_eta, t, args.intervention)
 
     def initial_condition(self, eta0: Array, args: VectorFieldArgs) -> Array:
         return apply_variable_overrides_to_state(eta0, jnp.asarray(0.0), args.intervention)
 
     def steady_state_residual(self, eta: Array, args: VectorFieldArgs) -> Array:
-        residual = self._natural_drift(jnp.asarray(0.0), eta, args)
+        residual = self._natural_derivative(jnp.asarray(0.0), eta, args)
         for ov in args.intervention.variable_overrides():
             target = ov.value_fn(jnp.asarray(0.0))
             residual = residual.at[ov.index].set(eta[ov.index] - target)
         return residual
 
-    def _natural_drift(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
+    def _natural_derivative(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
         eta_eff = jnp.broadcast_to(eta[None, :], (self.n_latent, self.n_latent))
         eta_eff = _apply_edge_input_overrides(eta_eff, t, args.intervention)
 
-        drift = jnp.zeros(self.n_latent, dtype=eta.dtype)
+        accumulator = jnp.zeros(self.n_latent, dtype=eta.dtype)
         for component, slice_params in zip(self.components, args.params, strict=True):
-            drift = component.contribute_to_drift(drift, eta, eta_eff, t, slice_params)
-        return drift
+            accumulator = component.contribute(accumulator, eta, eta_eff, t, slice_params)
+        return accumulator
 
     def linearize(
         self,
@@ -170,7 +170,7 @@ class CompositeVectorField(eqx.Module):
         Multiplicative, ...) the Jacobian falls out of autodiff.
 
         This is the seam through which the existing CT→DT expm
-        discretization extends to non-linear drift: discretize the
+        discretization extends to non-linear vector fields: discretize the
         locally-linearized system at the filter's current mean estimate.
         """
         if t is None:

@@ -14,8 +14,6 @@ not via this module.
 Public API:
 
 - ``compute_interventions`` — Stage-6 orchestrator
-- ``linear_vector_field`` — convenience factory wrapping
-  ``CompositeVectorField`` with one ``DenseLinear`` component
 - ``approximate_abducted_state`` — rung-3 abduction (Kalman smoother)
 - ``summarize_draws``, ``summarize_temporal_effect``, ``build_time_grid``,
   ``resolve_action_value``, ``project_to_manifest`` — estimand helpers
@@ -36,7 +34,6 @@ from .estimands import (
 from .orchestration import (
     compute_interventions,
     compute_interventions_composite,
-    linear_vector_field,
     vmap_simulate_action_from_state_composite,
     vmap_steady_state_effect_composite,
 )
@@ -46,7 +43,6 @@ __all__ = [
     "build_time_grid",
     "compute_interventions",
     "compute_interventions_composite",
-    "linear_vector_field",
     "project_to_manifest",
     "resolve_action_value",
     "summarize_draws",

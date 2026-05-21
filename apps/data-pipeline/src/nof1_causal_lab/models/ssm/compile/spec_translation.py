@@ -18,14 +18,18 @@ from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
 from nof1_causal_lab.models.ssm.dynamics.composite import (
     CompositeSpec,
-    StructuralDenseLinearSpec,
-    StructuralInterceptSpec,
+    LinearEdgeSpec,
+    StateDecaySpec,
+    StateInterceptSpec,
 )
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
 )
 from nof1_causal_lab.models.ssm.model import SSMSpec
-from nof1_causal_lab.models.ssm.parameter_names import build_initial_state_correlation_mask
+from nof1_causal_lab.models.ssm.parameter_names import (
+    build_initial_state_correlation_mask,
+    split_compound_name,
+)
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
@@ -54,12 +58,6 @@ class SpecTranslationError(AggregatedCompileError):
 
 
 DEFAULT_STABILITY_MARGIN_PER_DAY = 0.05
-
-
-def _full_drift_offdiag_support(n_latent: int) -> np.ndarray:
-    support = np.ones((n_latent, n_latent), dtype=bool)
-    np.fill_diagonal(support, False)
-    return support
 
 
 def _zero_loading_support(n_manifest: int, n_latent: int) -> np.ndarray:
@@ -219,7 +217,7 @@ def build_structural_support_from_causal_spec(
     """Build block/component support arrays and edge lag metadata from causal structure."""
     if causal_spec is None or latent_names is None:
         return (
-            np.eye(n_latent, dtype=bool) | _full_drift_offdiag_support(n_latent),
+            np.eye(n_latent, dtype=bool),
             np.zeros((n_latent, 0), dtype=bool),
             jnp.eye(n_manifest, n_latent),
             _zero_loading_support(n_manifest, n_latent),
@@ -252,12 +250,12 @@ def build_structural_support_from_causal_spec(
         causal_spec
     )
     input_idx = {name: idx for idx, name in enumerate(input_names)}
-    drift_mask = np.zeros((n_latent, n_latent), dtype=bool)
+    state_dynamics_support = np.zeros((n_latent, n_latent), dtype=bool)
     input_effect_mask = np.zeros((n_latent, len(input_names)), dtype=bool)
     for latent_name, latent_idx_value in latent_idx.items():
         construct = latent_construct_lookup.get(latent_name) or {}
         if construct.get("temporal_status") != "time_invariant":
-            drift_mask[latent_idx_value, latent_idx_value] = True
+            state_dynamics_support[latent_idx_value, latent_idx_value] = True
     edge_lag_days: dict[tuple[int, int], float] = {}
     model_dt_days = get_construct_dt_days(causal_spec)
 
@@ -275,7 +273,7 @@ def build_structural_support_from_causal_spec(
         if cause not in latent_idx:
             continue
         cause_idx = latent_idx[cause]
-        drift_mask[effect_idx, cause_idx] = True
+        state_dynamics_support[effect_idx, cause_idx] = True
 
         lagged = edge.get("lagged", True) if isinstance(edge, dict) else edge.lagged
         lag_hours = model_dt_days * 24.0 if lagged else 0.0
@@ -334,7 +332,7 @@ def build_structural_support_from_causal_spec(
     if errors:
         raise SpecTranslationError(errors)
 
-    return drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days
+    return state_dynamics_support, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days
 
 
 def build_manifest_variance_from_causal_spec(
@@ -638,7 +636,7 @@ def translate_spec(
     manifest_links: list[LinkFunction] = [likelihood.link for likelihood in model_spec.likelihoods]
 
     try:
-        drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
+        state_dynamics_support, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
             build_structural_support_from_causal_spec(
                 latent_names,
                 manifest_cols,
@@ -649,18 +647,34 @@ def translate_spec(
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
-        drift_mask = np.eye(n_latent, dtype=bool) | _full_drift_offdiag_support(n_latent)
+        state_dynamics_support = np.eye(n_latent, dtype=bool)
         input_effect_mask = np.zeros((n_latent, 0), dtype=bool)
         lambda_mat = jnp.eye(n_manifest, n_latent)
         lambda_mask = _zero_loading_support(n_manifest, n_latent)
         edge_lag_days = {}
 
-    drift_diag_mask = np.diag(drift_mask).copy()
-    drift_diag_mask = _mask_time_invariant_vector_support(drift_diag_mask, time_invariant_mask)
-    drift_offdiag_mask = np.asarray(drift_mask, dtype=bool).copy()
-    np.fill_diagonal(drift_offdiag_mask, False)
-    drift_offdiag_mask = _mask_time_invariant_drift_targets(
-        drift_offdiag_mask,
+    if causal_spec is None:
+        latent_name_set = set(latent_names)
+        latent_idx = {name: idx for idx, name in enumerate(latent_names)}
+        for parameter in model_spec.parameters:
+            if parameter.role != ParameterRole.FIXED_EFFECT:
+                continue
+            parsed = split_compound_name(
+                parameter.name.removeprefix("beta_"),
+                latent_name_set,
+                latent_name_set,
+            )
+            if parsed is None:
+                continue
+            cause_name, effect_name = parsed
+            state_dynamics_support[latent_idx[effect_name], latent_idx[cause_name]] = True
+
+    decay_support = np.diag(state_dynamics_support).copy()
+    decay_support = _mask_time_invariant_vector_support(decay_support, time_invariant_mask)
+    linear_edge_support = np.asarray(state_dynamics_support, dtype=bool).copy()
+    np.fill_diagonal(linear_edge_support, False)
+    linear_edge_support = _mask_time_invariant_drift_targets(
+        linear_edge_support,
         time_invariant_mask,
     )
 
@@ -765,26 +779,28 @@ def translate_spec(
     if errors:
         raise SpecTranslationError(errors)
 
+    dynamics_components = []
+    for latent_idx, enabled in enumerate(decay_support):
+        if bool(enabled):
+            dynamics_components.append(StateDecaySpec(target=latent_idx, decay_prior=None))
+    for effect_idx, cause_idx in zip(*np.where(linear_edge_support), strict=False):
+        dynamics_components.append(
+            LinearEdgeSpec(
+                source=int(cause_idx),
+                target=int(effect_idx),
+                weight_prior=None,
+            )
+        )
+    for latent_idx, enabled in enumerate(cint_mask):
+        if bool(enabled):
+            dynamics_components.append(StateInterceptSpec(target=latent_idx, cint_prior=None))
+
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=CompositeSpec(
+        dynamics_spec=CompositeSpec(
             n_latent=n_latent,
-            components=(
-                StructuralDenseLinearSpec(
-                    n_latent=n_latent,
-                    drift_diag_mask=drift_diag_mask,
-                    drift_offdiag_mask=drift_offdiag_mask,
-                    drift_template=jnp.zeros((n_latent, n_latent)),
-                    time_invariant_mask=time_invariant_mask,
-                    stability_margin=DEFAULT_STABILITY_MARGIN_PER_DAY,
-                ),
-                StructuralInterceptSpec(
-                    n_latent=n_latent,
-                    cint_mask=cint_mask,
-                    cint_template=jnp.zeros(n_latent),
-                ),
-            ),
+            components=tuple(dynamics_components),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,

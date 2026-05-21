@@ -1,16 +1,13 @@
-"""Tests for SSMModelBuilder helper functions.
+"""Tests for SSM runtime preparation helpers.
 
 Covers: normalize_prior_params, split_compound_name, fit-input preparation.
 """
-
-from typing import cast
 
 import jax.numpy as jnp
 import numpy as np
 import polars as pl
 import pytest
 
-from nof1_causal_lab.models.ssm.builder import SSMModelBuilder, prepare_model_runtime
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors,
     compile_ssm_inputs_from_spec,
@@ -25,6 +22,13 @@ from nof1_causal_lab.models.ssm.dynamics.composite import (
     MultiplicativeEdgeSpec,
 )
 from nof1_causal_lab.models.ssm.model import SSMSpec
+from nof1_causal_lab.models.ssm.runtime import (
+    build_ssm_model,
+    prepare_fit_inputs,
+    prepare_model_runtime,
+    prepare_transition_inputs,
+    sample_prior_predictive,
+)
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     SparseMatrixBlockSpec,
@@ -54,7 +58,7 @@ def _make_spec(
     *,
     n_latent: int = 1,
     n_manifest: int = 1,
-    drift_spec=None,
+    dynamics_spec=None,
     diffusion_block=None,
     lambda_block=None,
     manifest_means_block=None,
@@ -66,12 +70,12 @@ def _make_spec(
     **kwargs,
 ) -> SSMSpec:
     """Build an SSMSpec from explicit block specs for tests."""
-    if drift_spec is None:
-        drift_spec = full_structural_dense_drift_spec(n_latent)
+    if dynamics_spec is None:
+        dynamics_spec = full_structural_dense_drift_spec(n_latent)
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=drift_spec,
+        dynamics_spec=dynamics_spec,
         diffusion_block=diffusion_block or default_diffusion_block(n_latent),
         lambda_block=lambda_block or default_lambda_block(n_manifest, n_latent),
         manifest_means_block=manifest_means_block or default_manifest_means_block(n_manifest),
@@ -607,7 +611,7 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["dose", "response"],
             manifest_names=["dose", "response"],
-            drift_spec=CompositeSpec(
+            dynamics_spec=CompositeSpec(
                 n_latent=2,
                 components=(
                     DiagonalDecaySpec(decay_prior=None),
@@ -639,13 +643,13 @@ class TestBuilderPriorConversion:
         hill_emax_prior = prior_registry.priors_by_site["vf_2_Emax"]
         hill_n_prior = prior_registry.priors_by_site["vf_2_n"]
 
-        assert linear_prior.params["mu"] == [pytest.approx(0.15)]
-        assert linear_prior.params["sigma"] == [pytest.approx(0.1)]
-        assert hill_emax_prior.params["sigma"] == [1.5]
-        assert hill_n_prior.params["mu"] == [2.0]
-        assert hill_n_prior.params["sigma"] == [0.3]
-        assert hill_n_prior.params["lower"] == [1.0]
-        assert hill_n_prior.params["upper"] == [4.0]
+        assert linear_prior.params["mu"] == pytest.approx(0.15)
+        assert linear_prior.params["sigma"] == pytest.approx(0.1)
+        assert hill_emax_prior.params["sigma"] == pytest.approx(1.5)
+        assert hill_n_prior.params["mu"] == pytest.approx(2.0)
+        assert hill_n_prior.params["sigma"] == pytest.approx(0.3)
+        assert hill_n_prior.params["lower"] == pytest.approx(1.0)
+        assert hill_n_prior.params["upper"] == pytest.approx(4.0)
 
     def test_cross_lag_prior_requires_resolved_interval_metadata(self):
         """Cross-lag priors should fail instead of silently defaulting to 1 day."""
@@ -686,7 +690,7 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["mood", "stress"],
             manifest_names=["mood", "stress"],
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=full_diagonal_mask(2),
                 drift_offdiag_mask=drift_offdiag_mask,
@@ -712,14 +716,14 @@ class TestBuilderPriorConversion:
         with pytest.raises(ValueError, match="requires model_spec to compile semantic prior"):
             compile_ssm_inputs_from_spec(ssm_spec=ssm_spec, priors=priors)
 
-    def test_builder_prior_predictive_supports_hill_edge_spec(self):
-        """The builder prior predictive path should accept nonlinear component drift."""
+    def test_prior_predictive_supports_hill_edge_spec(self):
+        """The prior predictive path should accept nonlinear component drift."""
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["dose", "response"],
             manifest_names=["dose", "response"],
-            drift_spec=CompositeSpec(
+            dynamics_spec=CompositeSpec(
                 n_latent=2,
                 components=(
                     DiagonalDecaySpec(decay_prior=None),
@@ -733,9 +737,13 @@ class TestBuilderPriorConversion:
                 ),
             ),
         )
-        builder = SSMModelBuilder(ssm_spec=spec)
+        model = build_ssm_model(
+            pl.DataFrame({"time": [0.0], "dose": [0.0], "response": [0.0]}),
+            ssm_spec=spec,
+        )
 
-        samples = builder.sample_prior_predictive(
+        samples = sample_prior_predictive(
+            model,
             samples=3,
             times=jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32),
         )
@@ -753,7 +761,7 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["a", "b"],
             manifest_names=["a", "b"],
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=full_diagonal_mask(2),
                 drift_offdiag_mask=np.zeros((2, 2), dtype=bool),
@@ -767,7 +775,7 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["a", "b"],
             manifest_names=["a", "b"],
-            drift_spec=CompositeSpec(
+            dynamics_spec=CompositeSpec(
                 n_latent=2,
                 components=(
                     DiagonalDecaySpec(decay_prior=None),
@@ -781,11 +789,21 @@ class TestBuilderPriorConversion:
             ),
         )
 
-        affine_samples = SSMModelBuilder(ssm_spec=affine_spec).sample_prior_predictive(
+        affine_model = build_ssm_model(
+            pl.DataFrame({"time": [0.0], "a": [0.0], "b": [0.0]}),
+            ssm_spec=affine_spec,
+        )
+        nonlinear_model = build_ssm_model(
+            pl.DataFrame({"time": [0.0], "a": [0.0], "b": [0.0]}),
+            ssm_spec=nonlinear_spec,
+        )
+        affine_samples = sample_prior_predictive(
+            affine_model,
             samples=2,
             times=times,
         )
-        nonlinear_samples = SSMModelBuilder(ssm_spec=nonlinear_spec).sample_prior_predictive(
+        nonlinear_samples = sample_prior_predictive(
+            nonlinear_model,
             samples=2,
             times=times,
         )
@@ -815,17 +833,16 @@ class TestObservationSupportValidation:
                 }
             ],
         }
-        builder = SSMModelBuilder(model_spec=model_spec, priors={})
         X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
 
         with pytest.raises(ValueError, match="Observation support check failed"):
-            builder.build_model(X)
+            build_ssm_model(X, model_spec=model_spec, priors={})
 
 
 class TestPrepareFitInputs:
     def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
         """Sparse wide cells should stay missing and never broadcast across ticks."""
-        builder = SSMModelBuilder()
+        spec = _make_spec(n_latent=2, n_manifest=2)
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0],
@@ -834,7 +851,7 @@ class TestPrepareFitInputs:
             }
         )
 
-        observations, times, manifest_names = builder.prepare_fit_inputs(wide)
+        observations, times, manifest_names, _wide = prepare_fit_inputs(spec, wide)
 
         assert manifest_names == ["x", "y"]
         assert jnp.allclose(times, jnp.array([0.0, 1.0], dtype=jnp.float32))
@@ -851,7 +868,6 @@ class TestPrepareFitInputs:
             manifest_names=["x", "y"],
             manifest_centered=[True, False],
         )
-        builder = SSMModelBuilder(ssm_spec=spec)
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
@@ -860,7 +876,7 @@ class TestPrepareFitInputs:
             }
         )
 
-        observations, times, manifest_names = builder.prepare_fit_inputs(wide)
+        observations, times, manifest_names, _wide = prepare_fit_inputs(spec, wide)
 
         assert manifest_names == ["x", "y"]
         np.testing.assert_allclose(np.asarray(times), np.array([0.0, 1.0, 2.0]))
@@ -890,7 +906,6 @@ class TestPrepareFitInputs:
             input_scales=[10.0],
             input_missing_policies=["forward_fill"],
         )
-        builder = SSMModelBuilder(ssm_spec=spec)
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0, 3.0],
@@ -899,7 +914,7 @@ class TestPrepareFitInputs:
             }
         )
 
-        transition_inputs = builder.prepare_transition_inputs(wide)
+        transition_inputs = prepare_transition_inputs(spec, wide)
 
         assert transition_inputs is not None
         np.testing.assert_allclose(
@@ -940,35 +955,11 @@ class TestPrepareModelRuntime:
             def set_transition_inputs(self, transition_inputs):
                 self.transition_inputs = transition_inputs
 
-        class StubBuilder:
-            def __init__(self):
-                self._attached_model = StubModel()
-
-            def prepare_fit_inputs(self, wide_data: pl.DataFrame):
-                return (
-                    jnp.array([[jnp.nan], [1.0]], dtype=jnp.float32),
-                    jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
-                    ["stress_score"],
-                )
-
-            def prepare_transition_inputs(self, _wide_data: pl.DataFrame):
-                return None
-
-            @property
-            def has_model(self) -> bool:
-                return True
-
-            @property
-            def model(self):
-                return self._attached_model
-
-            @property
-            def spec(self):
-                return self._attached_model.spec
-
         with caplog.at_level("INFO"):
             runtime = prepare_model_runtime(
-                data_for_model, builder=cast("SSMModelBuilder", StubBuilder())
+                data_for_model,
+                model=StubModel(),
+                sampler_config={"method": "aux_kalman_mcmc"},
             )
 
         assert runtime.observation_data is not None
@@ -1000,7 +991,7 @@ class TestPrepareModelRuntime:
         assert runtime.model.observation_support is runtime.observation_support
         assert runtime.inference_structure.structural_backend == "laplace"
         assert runtime.inference_structure.resolved_method == "aux_kalman_mcmc"
-        assert runtime.inference_structure.method_override is None
+        assert runtime.inference_structure.method_override == "aux_kalman_mcmc"
         assert "support-aware observation semantics" in caplog.text
 
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
@@ -1034,34 +1025,10 @@ class TestPrepareModelRuntime:
             def set_transition_inputs(self, transition_inputs):
                 self.transition_inputs = transition_inputs
 
-        class StubBuilder:
-            def __init__(self):
-                self._attached_model = StubModel()
-
-            def prepare_fit_inputs(self, wide_data: pl.DataFrame):
-                return (
-                    jnp.array([[jnp.nan], [jnp.nan], [3.0], [5.0]], dtype=jnp.float32),
-                    jnp.array(wide_data["time"].to_list(), dtype=jnp.float32),
-                    ["stress_score"],
-                )
-
-            def prepare_transition_inputs(self, _wide_data: pl.DataFrame):
-                return None
-
-            @property
-            def has_model(self) -> bool:
-                return True
-
-            @property
-            def model(self):
-                return self._attached_model
-
-            @property
-            def spec(self):
-                return self._attached_model.spec
-
         runtime = prepare_model_runtime(
-            data_for_model, builder=cast("SSMModelBuilder", StubBuilder())
+            data_for_model,
+            model=StubModel(),
+            sampler_config={"method": "aux_kalman_mcmc"},
         )
 
         assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
@@ -1076,7 +1043,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.interval_weights[2, 0, 1] == pytest.approx(1.0)
         assert runtime.observation_support.interval_weights[3, 0, 1] == pytest.approx(1.0)
 
-    def test_builder_prior_predictive_reuses_prepared_support_schedule(self):
+    def test_prior_predictive_reuses_prepared_support_schedule(self):
         data_for_model = pl.DataFrame(
             {
                 "indicator": ["stress_score"],
@@ -1090,7 +1057,8 @@ class TestPrepareModelRuntime:
                 "support_end": ["2024-02-01T00:00:00"],
             }
         )
-        builder = SSMModelBuilder(
+        model = build_ssm_model(
+            pl.DataFrame({"time": [0.0], "stress_score": [1.0]}),
             ssm_spec=_make_spec(
                 n_latent=1,
                 n_manifest=1,
@@ -1102,9 +1070,20 @@ class TestPrepareModelRuntime:
                 manifest_names=["stress_score"],
             ),
         )
-        runtime = prepare_model_runtime(data_for_model, builder=builder)
+        runtime = prepare_model_runtime(
+            data_for_model,
+            model=model,
+            sampler_config={"method": "aux_kalman_mcmc"},
+        )
 
-        samples = runtime.builder.sample_prior_predictive(samples=3)
+        samples = sample_prior_predictive(
+            runtime.model,
+            samples=3,
+            times=runtime.times,
+            observation_support=runtime.observation_support,
+            observation_mask=~jnp.isnan(runtime.observations),
+            transition_inputs=runtime.transition_inputs,
+        )
 
         assert samples["observations"].shape == (3, 2, 1)
         assert samples["observations_mask"].shape == (3, 2, 1)

@@ -366,7 +366,7 @@ def _supporting_compile_context(
         filtered = [
             diagnostic
             for diagnostic in diagnostics
-            if diagnostic.parameter == "drift_offdiag"
+            if diagnostic.parameter in {"linear_edge_weight", "dynamics_weight"}
             or any(name in diagnostic.parameter for name in construct_set)
         ]
         if filtered:
@@ -645,17 +645,16 @@ def _check_constraint_violations(
             Default 5% to tolerate minor numerical rounding near the boundary.
     """
     results = []
-    positive_sites = [
-        "vf_0_base_decay",
+    positive_site_names = {
         "diffusion_diag_free",
         "manifest_var_diag_free",
         "t0_var_diag_free",
-    ]
+    }
 
-    for site_name in positive_sites:
-        if site_name not in samples:
+    for site_name, sample_values in samples.items():
+        if site_name not in positive_site_names and not site_name.endswith("_decay"):
             continue
-        arr = np.asarray(samples[site_name])
+        arr = np.asarray(sample_values)
         n_total = arr.size
         if n_total == 0:
             continue
@@ -1086,15 +1085,15 @@ def validate_prior_predictive(
     from nof1_causal_lab.models.predictive_simulation import (
         PredictiveObservationMeanOverflow,
     )
-    from nof1_causal_lab.models.ssm.builder import (
-        prepare_model_runtime,
-        prepare_wide_model_runtime,
-    )
     from nof1_causal_lab.models.ssm.compile.artifact import (
         compile_ssm_artifact,
-        make_builder_from_compiled_artifact,
     )
     from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
+    from nof1_causal_lab.models.ssm.runtime import (
+        prepare_model_runtime,
+        prepare_wide_model_runtime,
+        sample_prior_predictive,
+    )
 
     priors_dict = dump_prior_payloads(priors)
 
@@ -1117,14 +1116,14 @@ def validate_prior_predictive(
             model_spec, priors_dict, causal_spec=causal_spec
         )
         if data_for_model is not None and not data_for_model.is_empty():
-            builder = prepare_model_runtime(data_for_model, compiled_ssm=artifact).builder
+            runtime = prepare_model_runtime(data_for_model, compiled_ssm=artifact)
         else:
             # No raw data: create dummy observations inside each family's support
             X_wide = _make_support_compatible_dummy_wide_data(spec_obj)
-            builder = prepare_wide_model_runtime(
+            runtime = prepare_wide_model_runtime(
                 X_wide,
-                builder=make_builder_from_compiled_artifact(artifact),
-            ).builder
+                compiled_ssm=artifact,
+            )
     except _RECOVERABLE_MODEL_BUILD_ERRORS as e:
         return (
             False,
@@ -1143,7 +1142,14 @@ def validate_prior_predictive(
 
     # 2. Sample prior predictive
     try:
-        samples = builder.sample_prior_predictive(samples=n_samples)
+        samples = sample_prior_predictive(
+            runtime.model,
+            samples=n_samples,
+            times=runtime.times,
+            observation_support=runtime.observation_support,
+            observation_mask=~jnp.isnan(runtime.observations),
+            transition_inputs=runtime.transition_inputs,
+        )
     except PredictiveObservationMeanOverflow as exc:
         related_parameters, supporting_codes = _supporting_compile_context(artifact)
         certificate = PriorPathologyCertificate(
@@ -1384,7 +1390,7 @@ def get_failed_parameters(
     """Extract parameter names that contributed to validation failure.
 
     Maps validation result parameter names (which may be SSM site names like
-    'vf_0_base_decay' or 'scale_mood') back to ModelSpec parameter names.
+    'vf_0_decay' or 'scale_mood') back to ModelSpec parameter names.
 
     When ``causal_spec`` is provided, scale mismatch failures are targeted
     to the construct whose indicator triggered the mismatch rather than

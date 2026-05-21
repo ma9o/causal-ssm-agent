@@ -306,25 +306,8 @@ def _assemble_single_likelihood_deterministics(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
 ) -> dict[str, jnp.ndarray]:
-    """Assemble one draw's non-drift SSM pieces plus structural drift pieces."""
-    from nof1_causal_lab.models.ssm.dynamics.composite import (
-        StructuralDenseLinearSpec,
-        StructuralInterceptSpec,
-    )
-
+    """Assemble one draw's non-dynamics SSM pieces."""
     det: dict[str, jnp.ndarray] = {}
-    for idx, component in enumerate(spec.drift_spec.components):
-        prefix = f"vf_{idx}"
-        if isinstance(component, StructuralDenseLinearSpec):
-            det[component.drift_deterministic_name(prefix)] = component.assemble_drift(
-                samples.get(component.base_decay_site_name(prefix)),
-                samples.get(component.offdiag_site_name(prefix)),
-            )
-        elif isinstance(component, StructuralInterceptSpec):
-            det[component.cint_deterministic_name(prefix)] = component.assemble_cint(
-                samples.get(component.cint_site_name(prefix))
-            )
-
     det["diffusion"] = spec.diffusion_block.assemble(
         samples.get("diffusion_diag_free"),
         samples.get("diffusion_lower_free"),
@@ -362,8 +345,8 @@ def _deterministics_to_likelihood_inputs(
 ) -> tuple[RuntimeDynamics, MeasurementParams, InitialStateParams]:
     """Convert one deterministic draw into backend parameter dataclasses."""
     diffusion_chol = det["diffusion"]
-    compiled = compile_composite(spec.drift_spec)
-    vf_params = pack_component_params_from_samples(spec.drift_spec, samples, det)
+    compiled = compile_composite(spec.dynamics_spec)
+    vf_params = pack_component_params_from_samples(spec.dynamics_spec, samples, det)
     return (
         RuntimeDynamics(
             vector_field=compiled.vector_field,

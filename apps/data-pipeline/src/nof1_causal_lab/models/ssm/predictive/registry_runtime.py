@@ -169,7 +169,7 @@ def _simulate_vector_field_predictive_latents(
     seed: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     _ensure_gaussian_process_diffusion(spec)
-    compiled = compile_composite(spec.drift_spec)
+    compiled = compile_composite(spec.dynamics_spec)
     n_draws = int(next(iter(samples.values())).shape[0])
     draw_keys = random.split(random.PRNGKey(seed), n_draws)
     latents = []
@@ -178,7 +178,7 @@ def _simulate_vector_field_predictive_latents(
     for draw_idx in range(n_draws):
         key_init, key_latent = random.split(draw_keys[draw_idx])
         draw = {name: values[draw_idx] for name, values in samples.items()}
-        vf_params = pack_component_params_from_samples(spec.drift_spec, draw, draw)
+        vf_params = pack_component_params_from_samples(spec.dynamics_spec, draw, draw)
         t0_chol = stable_cholesky(
             draw["t0_cov"],
             min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,

@@ -10,7 +10,6 @@ from jax import Array
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
-    DenseLinear,
     Intervention,
     VariableOverride,
     compute_steady_state,
@@ -25,11 +24,6 @@ from .estimands import (
 )
 
 logger = get_prefect_logger(__name__)
-
-
-def linear_vector_field(n_latent: int) -> CompositeVectorField:
-    """Factory for a single-component dense-linear vector field."""
-    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
 
 
 def _steady_state_treatment_effect_canonical(
@@ -50,9 +44,7 @@ def _steady_state_treatment_effect_canonical(
     intervention = Intervention(
         overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
     )
-    intervened = compute_steady_state(
-        vector_field, params, intervention, initial_guess=baseline
-    )
+    intervened = compute_steady_state(vector_field, params, intervention, initial_guess=baseline)
     return intervened[outcome_idx] - baseline[outcome_idx]
 
 
@@ -276,9 +268,7 @@ def vmap_steady_state_effect_composite(
 
     def per_draw(params: tuple[dict[str, Array], ...]) -> Array:
         baseline = compute_steady_state(vector_field, params, Intervention.none())
-        do_value = resolve_action_value(
-            baseline[treat_idx], mode=mode, value=value, amount=amount
-        )
+        do_value = resolve_action_value(baseline[treat_idx], mode=mode, value=value, amount=amount)
         intervention = Intervention(
             overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
         )
@@ -322,18 +312,12 @@ def vmap_simulate_action_from_state_composite(
     def _per_draw_paths(
         params: tuple[dict[str, Array], ...], y0: Array
     ) -> tuple[Array, Array, Array]:
-        do_value = resolve_action_value(
-            y0[treat_idx], mode=mode, value=value, amount=amount
-        )
+        do_value = resolve_action_value(y0[treat_idx], mode=mode, value=value, amount=amount)
         action_intervention = Intervention(
             overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
         )
-        baseline_path = simulate(
-            vector_field, params, Intervention.none(), y0, time_grid
-        )
-        action_path = simulate(
-            vector_field, params, action_intervention, y0, time_grid
-        )
+        baseline_path = simulate(vector_field, params, Intervention.none(), y0, time_grid)
+        action_path = simulate(vector_field, params, action_intervention, y0, time_grid)
         return baseline_path, action_path, action_path - baseline_path
 
     if initial_states is None:
