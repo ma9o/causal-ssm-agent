@@ -27,6 +27,7 @@ from tests.stages.stage4._support import (
     get_failed_parameters,
     np,
     patch,
+    pl,
     pytest,
     validate_prior_predictive,
 )
@@ -34,6 +35,45 @@ from tests.stages.stage4._support import (
 
 def _prior_params(prior_registry, site_name: str):
     return prior_registry.priors_by_site[site_name].params
+
+
+def _prior_params_for_parameter(prior_registry, index_maps, parameter: str) -> tuple[dict, int]:
+    binding = index_maps.by_parameter[parameter]
+    return prior_registry.priors_by_site[binding.site_name].params, binding.flat_index
+
+
+def _positive_prior_mean_for_parameter(prior_registry, index_maps, parameter: str) -> float:
+    params, flat_index = _prior_params_for_parameter(prior_registry, index_maps, parameter)
+    if "concentration" in params and "rate" in params:
+        concentration = np.asarray(params["concentration"], dtype=float).reshape(-1)
+        rate = np.asarray(params["rate"], dtype=float).reshape(-1)
+        return float(concentration[flat_index] / rate[flat_index])
+    if "value" in params:
+        return float(np.asarray(params["value"], dtype=float).reshape(-1)[flat_index])
+    if "sigma" in params:
+        sigma = np.asarray(params["sigma"], dtype=float).reshape(-1)[flat_index]
+        return float(sigma * np.sqrt(2.0 / np.pi))
+    raise AssertionError(f"Unsupported positive prior payload for {parameter}: {params}")
+
+
+def _positive_prior_sd_for_parameter(prior_registry, index_maps, parameter: str) -> float:
+    params, flat_index = _prior_params_for_parameter(prior_registry, index_maps, parameter)
+    if "concentration" in params and "rate" in params:
+        concentration = np.asarray(params["concentration"], dtype=float).reshape(-1)
+        rate = np.asarray(params["rate"], dtype=float).reshape(-1)
+        return float(np.sqrt(concentration[flat_index]) / rate[flat_index])
+    raise AssertionError(f"Unsupported positive prior payload for {parameter}: {params}")
+
+
+def _real_prior_mean_for_parameter(prior_registry, index_maps, parameter: str) -> float:
+    params, flat_index = _prior_params_for_parameter(prior_registry, index_maps, parameter)
+    if "mu" in params:
+        return float(np.asarray(params["mu"], dtype=float).reshape(-1)[flat_index])
+    if "loc" in params:
+        return float(np.asarray(params["loc"], dtype=float).reshape(-1)[flat_index])
+    if "value" in params:
+        return float(np.asarray(params["value"], dtype=float).reshape(-1)[flat_index])
+    raise AssertionError(f"Unsupported real prior payload for {parameter}: {params}")
 
 
 def _default_ssm_spec(
@@ -45,7 +85,7 @@ def _default_ssm_spec(
 ) -> SSMSpec:
     """Build a SSMSpec with all default blocks plus optional drift support + names."""
     if drift_offdiag_mask is not None:
-        drift_spec = structural_dense_drift_spec(
+        dynamics_spec = structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=np.asarray(drift_offdiag_mask, dtype=bool),
@@ -54,11 +94,11 @@ def _default_ssm_spec(
             cint_template=np.zeros(n_latent),
         )
     else:
-        drift_spec = full_structural_dense_drift_spec(n_latent)
+        dynamics_spec = full_structural_dense_drift_spec(n_latent)
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=drift_spec,
+        dynamics_spec=dynamics_spec,
         diffusion_block=default_diffusion_block(n_latent),
         lambda_block=default_lambda_block(n_manifest, n_latent),
         manifest_means_block=default_manifest_means_block(n_manifest),
@@ -96,21 +136,21 @@ def test_stage4_generate_config_sets_stage4_timeout(monkeypatch):
     assert config.max_tool_output is None
 
 
-# --- SSMModelBuilder Tests ---
+# --- SSM model construction tests ---
 
 
-class TestSSMModelBuilder:
+class TestSSMModelConstruction:
     """Test SSM model building."""
 
-    def test_builder_builds_model(self, simple_model_spec, simple_priors, simple_data):
-        """Builder creates an SSMModel with correct dimensions."""
-        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
+    def test_build_ssm_model_creates_model(self, simple_model_spec, simple_priors, simple_data):
+        """Runtime construction creates an SSMModel with correct dimensions."""
+        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        builder = SSMModelBuilder(
+        model = build_ssm_model(
+            pl.from_pandas(simple_data),
             model_spec=simple_model_spec,
             priors=simple_priors,
         )
-        model = builder.build_model(simple_data)
         assert model.spec.n_manifest == 1  # mood_score only
         assert model.spec.n_latent >= 1
         # Lambda should map latent to manifest
@@ -168,10 +208,9 @@ class TestPriorPredictiveValidation:
                 "reasoning": "test",
             }
         }
-        # This should still build (builder is tolerant), but let's test
-        # with a truly broken spec by patching build_model to raise
+        # Patch runtime preparation to make this a focused model-build failure.
         with patch(
-            "nof1_causal_lab.models.ssm.builder.SSMModelBuilder.build_model",
+            "nof1_causal_lab.models.ssm.runtime.prepare_wide_model_runtime",
             side_effect=ValueError("deliberate test failure"),
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -212,8 +251,8 @@ class TestPriorPredictiveValidation:
         }
 
         with patch(
-            "nof1_causal_lab.models.ssm.builder.SSMModelBuilder.sample_prior_predictive",
-            return_value={"vf_0_base_decay": np.ones((2, 1))},
+            "nof1_causal_lab.models.ssm.runtime.sample_prior_predictive",
+            return_value={"vf_0_decay": np.ones((2, 1))},
         ):
             is_valid, results, _samples = validate_prior_predictive(
                 model_spec, priors, None, n_samples=2
@@ -392,18 +431,13 @@ class TestPriorPredictiveValidation:
     ):
         """Explicit compiled_ssm should bypass compile_ssm_artifact entirely."""
 
-        class _DummyBuilder:
-            def sample_prior_predictive(self, samples: int = 500):
-                return {
-                    "vf_0_base_decay": np.ones((samples, 1)),
-                    "observations": np.random.default_rng(0).normal(
-                        loc=5.0,
-                        scale=1.5,
-                        size=(samples, 4, 1),
-                    ),
-                }
-
-        runtime = SimpleNamespace(builder=_DummyBuilder())
+        runtime = SimpleNamespace(
+            model=object(),
+            times=np.arange(4, dtype=float),
+            observation_support=None,
+            observations=np.zeros((4, 1), dtype=float),
+            transition_inputs=None,
+        )
 
         with (
             patch(
@@ -411,8 +445,19 @@ class TestPriorPredictiveValidation:
                 side_effect=AssertionError("compile should not be called"),
             ),
             patch(
-                "nof1_causal_lab.models.ssm.builder.prepare_model_runtime",
+                "nof1_causal_lab.models.ssm.runtime.prepare_model_runtime",
                 return_value=runtime,
+            ),
+            patch(
+                "nof1_causal_lab.models.ssm.runtime.sample_prior_predictive",
+                return_value={
+                    "vf_0_decay": np.ones((3, 1)),
+                    "observations": np.random.default_rng(0).normal(
+                        loc=5.0,
+                        scale=1.5,
+                        size=(3, 4, 1),
+                    ),
+                },
             ),
         ):
             is_valid, results, _samples = validate_prior_predictive(
@@ -433,23 +478,30 @@ class TestPriorPredictiveValidation:
     ):
         """Prior predictive should surface predictive-mean overflow as a typed diagnostic."""
 
-        class _OverflowBuilder:
-            def sample_prior_predictive(self, samples: int = 500):
-                del samples
-                raise PredictiveObservationMeanOverflow(
+        runtime = SimpleNamespace(
+            model=object(),
+            times=np.arange(4, dtype=float),
+            observation_support=None,
+            observations=np.zeros((4, 1), dtype=float),
+            transition_inputs=None,
+        )
+
+        with (
+            patch(
+                "nof1_causal_lab.models.ssm.runtime.prepare_model_runtime",
+                return_value=runtime,
+            ),
+            patch(
+                "nof1_causal_lab.models.ssm.runtime.sample_prior_predictive",
+                side_effect=PredictiveObservationMeanOverflow(
                     bad_manifest_names=("monthly_eveningness_activity_timing",),
                     manifest_indices=(0,),
                     failing_draw_indices=(0, 2),
                     first_bad_time_index=73,
                     max_linear_predictor=111.52,
                     overflow_threshold=88.72,
-                )
-
-        runtime = SimpleNamespace(builder=_OverflowBuilder())
-
-        with patch(
-            "nof1_causal_lab.models.ssm.builder.prepare_model_runtime",
-            return_value=runtime,
+                ),
+            ),
         ):
             is_valid, results, _samples = validate_prior_predictive(
                 simple_model_spec,
@@ -608,16 +660,16 @@ class TestPriorPredictiveValidation:
                         "is_runtime_prior_controlled": True,
                     },
                     {
-                        "name": "vf_0_offdiag",
+                        "name": "vf_0_weight",
                         "shape": [1],
                         "support": "real",
-                        "assembly_group": "drift",
-                        "site_kind": "drift_offdiag",
+                        "assembly_group": "dynamics",
+                        "site_kind": "dynamics_weight",
                         "transform_kind": "identity",
-                        "deterministic_name": "drift",
-                        "fixed_spec_field": "drift",
-                        "priors_field": "drift_offdiag",
-                        "runtime_prior_key": "vf_0_offdiag",
+                        "deterministic_name": None,
+                        "fixed_spec_field": None,
+                        "priors_field": "linear_edge_weight",
+                        "runtime_prior_key": "vf_0_weight",
                         "is_runtime_prior_controlled": True,
                     },
                 ],
@@ -629,7 +681,7 @@ class TestPriorPredictiveValidation:
                         "concentration": [1.0],
                         "rate": [1.0],
                     },
-                    "vf_0_offdiag": {
+                    "vf_0_weight": {
                         "family": 2,
                         "loc": [0.0],
                         "scale": [0.3],
@@ -642,7 +694,7 @@ class TestPriorPredictiveValidation:
                 {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
                 {
                     "parameter": "cor_stress_sleep",
-                    "site_name": "vf_0_offdiag",
+                    "site_name": "vf_0_weight",
                     "flat_index": 0,
                 },
             ],
@@ -668,21 +720,21 @@ class TestPriorPredictiveValidation:
                 "schema_version": 5,
                 "site_registry": [
                     {
-                        "name": "vf_0_offdiag",
+                        "name": "vf_0_weight",
                         "shape": [1],
                         "support": "real",
-                        "assembly_group": "drift",
-                        "site_kind": "drift_offdiag",
+                        "assembly_group": "dynamics",
+                        "site_kind": "dynamics_weight",
                         "transform_kind": "identity",
-                        "deterministic_name": "drift",
-                        "fixed_spec_field": "drift",
-                        "priors_field": "drift_offdiag",
-                        "runtime_prior_key": "vf_0_offdiag",
+                        "deterministic_name": None,
+                        "fixed_spec_field": None,
+                        "priors_field": "linear_edge_weight",
+                        "runtime_prior_key": "vf_0_weight",
                         "is_runtime_prior_controlled": True,
                     }
                 ],
                 "prior_state": {
-                    "vf_0_offdiag": {
+                    "vf_0_weight": {
                         "family": [0],
                         "loc": [0.15],
                         "scale": [0.4],
@@ -692,7 +744,7 @@ class TestPriorPredictiveValidation:
                 },
             },
             "parameter_bindings": [
-                {"parameter": "beta_sleep_mood", "site_name": "vf_0_offdiag", "flat_index": 0}
+                {"parameter": "beta_sleep_mood", "site_name": "vf_0_weight", "flat_index": 0}
             ],
         }
 
@@ -820,21 +872,18 @@ class TestSSMPriorConversion:
             },
         }
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["mood"])
-        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+        ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
             simple_model_spec,
             ssm_spec=ssm_spec,
         )
 
-        # Beta(2,2): E[X] = 0.5 → base decay mean = -ln(0.5)/1.0 ≈ 0.693.
-        # The compiler stores the positive base-decay prior as a Gamma moment match.
+        # Beta(2,2): E[X] = 0.5 → decay mean = -ln(0.5)/1.0 ≈ 0.693.
+        # The compiler stores the positive dynamics-decay prior as a Gamma moment match.
         expected_mu = -math.log(0.5) / 1.0
-        base_decay_prior = _prior_params(ssm_priors, "vf_0_base_decay")
-        concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
-        rate = np.asarray(base_decay_prior["rate"], dtype=float)
-        mu_val = float((concentration / rate).reshape(-1)[0])
+        mu_val = _positive_prior_mean_for_parameter(ssm_priors, index_maps, "rho_mood")
         assert abs(mu_val - expected_mu) < 0.01
-        sigma_val = float((np.sqrt(concentration) / rate).reshape(-1)[0])
+        sigma_val = _positive_prior_sd_for_parameter(ssm_priors, index_maps, "rho_mood")
         assert sigma_val > 0.4  # delta method sigma
 
     def test_structured_prior_requires_structural_binding_for_residual_sd(self, simple_model_spec):
@@ -1053,7 +1102,7 @@ class TestSSMPriorConversion:
         assert "beta_mood_stress" in message
 
     def test_multiple_ar_params_produce_per_element_base_decay(self):
-        """Multiple AR params map to separate base-decay array entries."""
+        """Multiple AR params map to separate dynamics-decay entries."""
         import math
 
         model_spec = {
@@ -1091,26 +1140,28 @@ class TestSSMPriorConversion:
             "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 5.0}},
         }
         ssm_spec = _default_ssm_spec(n_latent=2, n_manifest=2, latent_names=["mood", "stress"])
-        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+        ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
         )
-
-        # Both should produce per-element arrays, not scalars.
-        base_decay_prior = _prior_params(ssm_priors, "vf_0_base_decay")
-        concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
-        rate = np.asarray(base_decay_prior["rate"], dtype=float)
-        base_decay_mean = concentration / rate
-        assert base_decay_mean.shape == (2,)
 
         # Beta(5,2) → E=5/7≈0.714, Beta(2,5) → E=2/7≈0.286
         mu_ar_mood = 5.0 / 7.0
         mu_ar_stress = 2.0 / 7.0
         expected_mood = -math.log(mu_ar_mood) / 1.0
         expected_stress = -math.log(mu_ar_stress) / 1.0
-        assert abs(base_decay_mean[0] - expected_mood) < 0.01
-        assert abs(base_decay_mean[1] - expected_stress) < 0.01
+        assert (
+            abs(_positive_prior_mean_for_parameter(ssm_priors, index_maps, "rho_mood") - expected_mood)
+            < 0.01
+        )
+        assert (
+            abs(
+                _positive_prior_mean_for_parameter(ssm_priors, index_maps, "rho_stress")
+                - expected_stress
+            )
+            < 0.01
+        )
 
     def test_ar_transform_respects_granularity(self):
         """Hourly construct → dt=1/24, producing larger drift magnitude."""
@@ -1147,7 +1198,7 @@ class TestSSMPriorConversion:
             }
         )
         ssm_spec = _default_ssm_spec(n_latent=1, n_manifest=1, latent_names=["heart_rate"])
-        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+        ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
@@ -1155,13 +1206,10 @@ class TestSSMPriorConversion:
         )
 
         # Beta(2,2) → E=0.5; hourly dt = 1/24
-        # base-decay mean = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
+        # dynamics-decay mean = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
         dt_hourly = 1.0 / 24.0
         expected_mu = -math.log(0.5) / dt_hourly
-        base_decay_prior = _prior_params(ssm_priors, "vf_0_base_decay")
-        concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
-        rate = np.asarray(base_decay_prior["rate"], dtype=float)
-        mu_val = float((concentration / rate).reshape(-1)[0])
+        mu_val = _positive_prior_mean_for_parameter(ssm_priors, index_maps, "rho_heart_rate")
         assert abs(mu_val - expected_mu) < 0.1
 
     def test_beta_prior_dt_to_ct_transform(self):
@@ -1216,7 +1264,7 @@ class TestSSMPriorConversion:
             latent_names=["mood", "stress"],
             drift_offdiag_mask=drift_offdiag_mask,
         )
-        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+        ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
@@ -1224,8 +1272,7 @@ class TestSSMPriorConversion:
         )
 
         # Resolved 1d lag metadata: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
-        mu = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
-        mu_val = mu[0] if isinstance(mu, list) else mu
+        mu_val = _real_prior_mean_for_parameter(ssm_priors, index_maps, "beta_stress_mood")
         assert abs(mu_val - 0.3) < 0.01
 
     def test_dt_ct_warning_uses_full_matrix_logm(self):
@@ -1292,10 +1339,10 @@ class TestSSMPriorConversion:
             if diagnostic.code == "dt_ct_approximation_warning"
         )
         assert "matrix-log mismatch; exact CT coupling" in _require_text(warning.issue)
-        assert "0.730 1/day" in _require_text(warning.issue)
+        assert "0.600 1/day" in _require_text(warning.issue)
         assert "beta/dt value 0.300 1/day" in _require_text(warning.issue)
         assert warning.pathology_certificate is not None
-        assert warning.pathology_certificate.primary_score == pytest.approx(0.589, abs=0.001)
+        assert warning.pathology_certificate.primary_score == pytest.approx(0.5, abs=0.001)
 
     def test_lagged_beta_diagnostics_explain_default_authored_interval(self):
         """Lagged-edge diagnostics should mention the default authored interval semantics."""
@@ -1492,7 +1539,7 @@ class TestSSMPriorConversion:
             latent_names=["heart_rate", "activity"],
             drift_offdiag_mask=drift_offdiag_mask,
         )
-        ssm_priors, _idx, _diagnostics = compile_ssm_priors(
+        ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
             model_spec,
             ssm_spec=ssm_spec,
@@ -1502,8 +1549,11 @@ class TestSSMPriorConversion:
         # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
         dt_hourly = 1.0 / 24.0
         expected_mu = 0.3 / dt_hourly  # 7.2
-        mu = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
-        mu_val = mu[0] if isinstance(mu, list) else mu
+        mu_val = _real_prior_mean_for_parameter(
+            ssm_priors,
+            index_maps,
+            "beta_activity_heart_rate",
+        )
         assert abs(mu_val - expected_mu) < 0.5
 
     def test_compile_ssm_inputs_attaches_direct_writer_to_dt_ct_warning(self):
@@ -1623,7 +1673,7 @@ class TestSSMPriorConversion:
             for diagnostic in diagnostics
             if diagnostic.code == "dt_ct_approximation_warning"
         )
-        assert dt_ct_warning.parameter == "drift_offdiag"
+        assert dt_ct_warning.parameter == "linear_edge_weight"
         assert dt_ct_warning.related_parameters == ["beta_activity_heart_rate"]
 
 

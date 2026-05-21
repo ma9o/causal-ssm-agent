@@ -62,10 +62,7 @@ def _to_jsonable(value: Any) -> Any:
     if isinstance(value, CompositeSpec):
         return _to_jsonable(composite_spec_to_dict(value))
     if is_dataclass(value) and not isinstance(value, type):
-        return {
-            field.name: _to_jsonable(getattr(value, field.name))
-            for field in fields(value)
-        }
+        return {field.name: _to_jsonable(getattr(value, field.name)) for field in fields(value)}
     if isinstance(value, list):
         return [_to_jsonable(item) for item in value]
     if isinstance(value, tuple):
@@ -87,7 +84,7 @@ def serialize_ssm_spec(spec: SSMSpec) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "n_latent": spec.n_latent,
         "n_manifest": spec.n_manifest,
-        "drift_spec": _to_jsonable(composite_spec_to_dict(spec.drift_spec)),
+        "dynamics_spec": _to_jsonable(composite_spec_to_dict(spec.dynamics_spec)),
         "diffusion_block": _to_jsonable(spec.diffusion_block),
         "lambda_block": _to_jsonable(spec.lambda_block),
         "manifest_means_block": _to_jsonable(spec.manifest_means_block),
@@ -169,11 +166,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     )
 
     flat_fields = {
-        "drift",
-        "drift_diag_mask",
-        "drift_offdiag_mask",
-        "cint",
-        "cint_mask",
         "diffusion_chol",
         "diffusion_chol_mask",
         "lambda_mat",
@@ -191,8 +183,6 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         "input_effect_mask",
         "static_state_sds",
         "static_state_sd_mask",
-        "time_invariant_mask",
-        "stability_margin",
         "diffusion_dist",
         "manifest_dist",
     }
@@ -206,7 +196,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     required_fields = {
         "n_latent",
         "n_manifest",
-        "drift_spec",
+        "dynamics_spec",
         "diffusion_block",
         "lambda_block",
         "manifest_means_block",
@@ -296,7 +286,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
     kwargs: dict[str, Any] = {
         "n_latent": int(payload["n_latent"]),
         "n_manifest": int(payload["n_manifest"]),
-        "drift_spec": composite_spec_from_dict(payload["drift_spec"]),
+        "dynamics_spec": composite_spec_from_dict(payload["dynamics_spec"]),
         "diffusion_block": _diffusion_block(payload["diffusion_block"]),
         "lambda_block": _sparse_matrix_block(payload["lambda_block"]),
         "manifest_means_block": _sparse_vector_block(payload["manifest_means_block"]),
@@ -891,9 +881,7 @@ def resolve_prior_proposals(
     bundle = load_prior_runtime_bundle(semantics)
     site_by_name = {site.name: site for site in bundle.site_runtime.registry}
     site_by_field = {
-        site.priors_field: site
-        for site in bundle.site_runtime.registry
-        if site.priors_field
+        site.priors_field: site for site in bundle.site_runtime.registry if site.priors_field
     }
     binding_by_parameter = {
         str(binding["parameter"]): dict(binding)
@@ -948,18 +936,16 @@ def resolve_prior_proposals(
     return resolved
 
 
-def make_builder_from_compiled_artifact(
+def build_model_from_compiled_artifact(
     compiled_ssm: CompiledSSMArtifact,
-    *,
-    sampler_config: dict | None = None,
+    wide_data: pl.DataFrame,
 ):
-    """Instantiate an SSMModelBuilder directly from a compiled artifact.
+    """Build a live ``SSMModel`` from a compiled artifact and wide data."""
+    if wide_data.is_empty():
+        raise ValueError("Cannot build SSM model from empty data")
 
-    Uses ``compiled_prior_semantics`` as the canonical runtime prior state for
-    compiled artifacts.
-    """
-    from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
     from nof1_causal_lab.models.ssm.parameterization import load_prior_runtime_bundle
+    from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
     spec = deserialize_ssm_spec(compiled_ssm["spec"])
     semantics = compiled_ssm.get("compiled_prior_semantics")
@@ -969,29 +955,10 @@ def make_builder_from_compiled_artifact(
             "Recompile the artifact with the current compiler."
         )
     prior_runtime_bundle = load_prior_runtime_bundle(semantics)
-
-    return SSMModelBuilder(
+    return build_ssm_model(
+        wide_data,
         ssm_spec=spec,
         compiled_prior_semantics=semantics,
         prior_runtime_bundle=prior_runtime_bundle,
-        sampler_config=sampler_config,
         parameter_bindings=list(compiled_ssm.get("parameter_bindings", []) or []),
     )
-
-
-def build_compiled_ssm_builder(
-    compiled_ssm: CompiledSSMArtifact,
-    wide_data: pl.DataFrame,
-    *,
-    sampler_config: dict | None = None,
-):
-    """Build a ready-to-fit SSMModelBuilder from a compiled artifact."""
-    if wide_data.is_empty():
-        raise ValueError("Cannot build SSM model from empty data")
-
-    builder = make_builder_from_compiled_artifact(
-        compiled_ssm,
-        sampler_config=sampler_config,
-    )
-    builder.build_model(wide_data)
-    return builder

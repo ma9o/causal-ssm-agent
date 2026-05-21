@@ -19,9 +19,10 @@ Design:
   ``args.params``.
 
 Concrete specs cover every primitive currently in the library:
-``DenseLinearSpec``, ``DiagonalDecaySpec``, ``InterceptSpec``,
-``LinearEdgeSpec``, ``HillEdgeSpec``, ``MultiplicativeEdgeSpec``. Adding
-a new primitive is: a new ``DriftComponent`` (already in ``edges.py``)
+``StateDecaySpec``, ``DiagonalDecaySpec``, ``StateInterceptSpec``,
+``InterceptSpec``, ``LinearEdgeSpec``, ``HillEdgeSpec``,
+``MultiplicativeEdgeSpec``. Adding
+a new primitive is: a new ``VectorFieldComponent`` (already in ``edges.py``)
 plus a new ``ComponentSpec`` here.
 """
 
@@ -42,32 +43,31 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 )
 
 from .edges import (
-    DenseLinear,
     DiagonalDecay,
     HillEdge,
     Intercept,
     LinearEdge,
     MultiplicativeEdge,
+    StateDecay,
+    StateIntercept,
 )
 from .vector_field import CompositeVectorField
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
-    import jax.numpy as jnp
-    import numpy as np
     from jax import Array
 
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
-    from .edges import DriftComponent
+    from .edges import VectorFieldComponent
 
 
 @runtime_checkable
 class ComponentSpec(Protocol):
-    """Declarative description of one drift component plus its priors."""
+    """Declarative description of one vector-field component plus its priors."""
 
-    def build(self) -> DriftComponent: ...
+    def build(self) -> VectorFieldComponent: ...
 
     def iter_sites(self, prefix: str, *, n_latent: int | None = None) -> Iterator[SiteDescriptor]:
         """Yield canonical sample-site descriptors for this component."""
@@ -99,27 +99,90 @@ def _require_n_latent(component_name: str, n_latent: int | None) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Full-vector component specs
+# Scalar target-owned component specs
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, eq=False)
-class DenseLinearSpec:
-    """``DenseLinear`` component spec. Priors over ``A`` (``(n, n)``) and
-    optionally ``c`` (``(n,)``).
+class StateDecaySpec:
+    """Single-latent relaxation component with one positive decay parameter."""
 
-    Priors may be supplied as a ``numpyro.Distribution`` or as a dict-config
-    ``{"family": "...", "params": {...}, "shape": [...]}``.
-    """
+    target: int
+    decay_prior: Any
 
-    drift_prior: Any
-    cint_prior: Any = None
+    def build(self) -> StateDecay:
+        return StateDecay(target=self.target)
 
-    def build(self) -> DenseLinear:
-        return DenseLinear()
+    def decay_site_name(self, prefix: str) -> str:
+        return f"{prefix}_decay"
 
-    def drift_site_name(self, prefix: str) -> str:
-        return f"{prefix}_drift"
+    def iter_sites(
+        self,
+        prefix: str,
+        *,
+        n_latent: int | None = None,  # noqa: ARG002 - scalar target parameter
+    ) -> Iterator[SiteDescriptor]:
+        yield make_site(
+            self.decay_site_name(prefix),
+            (),
+            SupportClass.POSITIVE,
+            "dynamics",
+            SiteKind.DYNAMICS_DECAY,
+            positions=(self.target,),
+            priors_field="dynamics_decay",
+        )
+
+    def iter_semantic_bindings(
+        self,
+        prefix: str,
+        *,
+        latent_names: tuple[str, ...],
+        component_index: int,
+    ) -> Iterator[SemanticBinding]:
+        site_name = self.decay_site_name(prefix)
+        latent_name = latent_names[self.target]
+        yield SemanticBinding(
+            parameter_name=f"rho_{latent_name}",
+            site_name=site_name,
+            flat_index=0,
+            site_kind=SiteKind.DYNAMICS_DECAY,
+            transform=PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
+            prior_field="dynamics_decay",
+            construct_names=(latent_name,),
+            component_index=component_index,
+        )
+        yield SemanticBinding(
+            parameter_name=f"decay_{latent_name}",
+            site_name=site_name,
+            flat_index=0,
+            site_kind=SiteKind.DYNAMICS_DECAY,
+            transform=PriorAuthoringTransform.POSITIVE_IDENTITY,
+            prior_field="dynamics_decay",
+            construct_names=(latent_name,),
+            component_index=component_index,
+        )
+
+    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StateDecaySpec:
+        return replace(self, decay_prior=prior_fn(self.decay_site_name(prefix)))
+
+    def sample_params(self, prefix: str) -> dict[str, Array]:
+        return {
+            "decay": numpyro.sample(
+                self.decay_site_name(prefix),
+                resolve_prior_distribution(self.decay_prior),
+            )
+        }
+
+
+@dataclass(frozen=True, eq=False)
+class StateInterceptSpec:
+    """Single-latent constant intercept component."""
+
+    target: int
+    cint_prior: Any
+
+    def build(self) -> StateIntercept:
+        return StateIntercept(target=self.target)
 
     def cint_site_name(self, prefix: str) -> str:
         return f"{prefix}_cint"
@@ -128,365 +191,51 @@ class DenseLinearSpec:
         self,
         prefix: str,
         *,
-        n_latent: int | None = None,
+        n_latent: int | None = None,  # noqa: ARG002 - scalar target parameter
     ) -> Iterator[SiteDescriptor]:
-        n = _require_n_latent(type(self).__name__, n_latent)
         yield make_site(
-            self.drift_site_name(prefix),
-            (n, n),
+            self.cint_site_name(prefix),
+            (),
             SupportClass.REAL,
             "dynamics",
-            SiteKind.DENSE_DRIFT,
-            priors_field="dense_drift",
+            SiteKind.DYNAMICS_CINT,
+            positions=(self.target,),
+            priors_field="dynamics_cint",
         )
-        if self.cint_prior is not None:
-            yield make_site(
-                self.cint_site_name(prefix),
-                (n,),
-                SupportClass.REAL,
-                "dynamics",
-                SiteKind.DYNAMICS_CINT,
-                priors_field="dynamics_cint",
-            )
 
     def iter_semantic_bindings(
         self,
-        prefix: str,  # noqa: ARG002
+        prefix: str,
         *,
-        latent_names: tuple[str, ...],  # noqa: ARG002
-        component_index: int,  # noqa: ARG002
+        latent_names: tuple[str, ...],
+        component_index: int,
     ) -> Iterator[SemanticBinding]:
-        return iter(())
-
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> DenseLinearSpec:
-        return replace(
-            self,
-            drift_prior=prior_fn(self.drift_site_name(prefix)),
-            cint_prior=(
-                prior_fn(self.cint_site_name(prefix)) if self.cint_prior is not None else None
-            ),
+        latent_name = latent_names[self.target]
+        yield SemanticBinding(
+            parameter_name=f"cint_{latent_name}",
+            site_name=self.cint_site_name(prefix),
+            flat_index=0,
+            site_kind=SiteKind.DYNAMICS_CINT,
+            prior_field="dynamics_cint",
+            construct_names=(latent_name,),
+            component_index=component_index,
         )
 
+    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StateInterceptSpec:
+        return replace(self, cint_prior=prior_fn(self.cint_site_name(prefix)))
+
     def sample_params(self, prefix: str) -> dict[str, Array]:
-        drift_dist = resolve_prior_distribution(self.drift_prior)
-        cint_dist = resolve_prior_distribution(self.cint_prior)
-        out: dict[str, Array] = {
-            "drift": numpyro.sample(self.drift_site_name(prefix), drift_dist),
+        return {
+            "cint": numpyro.sample(
+                self.cint_site_name(prefix),
+                resolve_prior_distribution(self.cint_prior),
+            )
         }
-        if cint_dist is not None:
-            out["cint"] = numpyro.sample(self.cint_site_name(prefix), cint_dist)
-        return out
 
 
-@dataclass(frozen=True, eq=False)
-class StructuralDenseLinearSpec:
-    """Dense linear drift with structural sparsity + stability-by-construction.
-
-    Self-contained: carries the structural masks, template, stability margin,
-    and time-invariant mask directly. The dynamics framework owns the
-    linear drift sampling end-to-end; ``SSMParameterLayout`` only derives
-    site positions and sizes.
-
-    With this component a ``CompositeSpec`` expresses a linear SSM as a
-    single-component composite. Pair with
-    :class:`StructuralInterceptSpec` when a constant intercept is needed.
-
-    """
-
-    n_latent: int
-    drift_diag_mask: np.ndarray
-    drift_offdiag_mask: np.ndarray
-    drift_template: jnp.ndarray
-    stability_margin: float = 0.05
-    time_invariant_mask: np.ndarray | None = None
-    base_decay_prior: Any = None
-    offdiag_prior: Any = None
-
-    @property
-    def drift_base_decay_positions(self) -> list[int]:
-        from nof1_causal_lab.models.ssm.structure.assembly import (
-            drift_base_decay_positions as _positions,
-        )
-
-        return _positions(self.drift_diag_mask, self.n_latent)
-
-    @property
-    def offdiag_positions(self) -> list[tuple[int, int]]:
-        from nof1_causal_lab.models.ssm.structure.assembly import (
-            drift_offdiag_positions as _positions,
-        )
-
-        return _positions(self.drift_offdiag_mask, self.n_latent)
-
-    @property
-    def n_drift_base_decay(self) -> int:
-        return len(self.drift_base_decay_positions)
-
-    @property
-    def n_drift_offdiag(self) -> int:
-        return len(self.offdiag_positions)
-
-    def base_decay_site_name(self, prefix: str) -> str:
-        return f"{prefix}_base_decay"
-
-    def offdiag_site_name(self, prefix: str) -> str:
-        return f"{prefix}_offdiag"
-
-    def drift_deterministic_name(self, prefix: str) -> str:
-        return f"{prefix}_drift"
-
-    def iter_sites(
-        self,
-        prefix: str,
-        *,
-        n_latent: int | None = None,  # noqa: ARG002 - structural spec owns n_latent
-    ) -> Iterator[SiteDescriptor]:
-        if self.n_drift_base_decay > 0:
-            yield make_site(
-                self.base_decay_site_name(prefix),
-                (self.n_drift_base_decay,),
-                SupportClass.POSITIVE,
-                "drift",
-                SiteKind.DRIFT_BASE_DECAY,
-                positions=tuple(self.drift_base_decay_positions),
-                deterministic_name=self.drift_deterministic_name(prefix),
-                fixed_spec_field="drift",
-                priors_field="drift_base_decay",
-            )
-        if self.n_drift_offdiag > 0:
-            yield make_site(
-                self.offdiag_site_name(prefix),
-                (self.n_drift_offdiag,),
-                SupportClass.REAL,
-                "drift",
-                SiteKind.DRIFT_OFFDIAG,
-                positions=tuple(self.offdiag_positions),
-                deterministic_name=self.drift_deterministic_name(prefix),
-                fixed_spec_field="drift",
-                priors_field="drift_offdiag",
-            )
-
-    def iter_semantic_bindings(
-        self,
-        prefix: str,
-        *,
-        latent_names: tuple[str, ...],
-        component_index: int,
-    ) -> Iterator[SemanticBinding]:
-        base_decay_site_name = self.base_decay_site_name(prefix)
-        for flat_index, latent_idx in enumerate(self.drift_base_decay_positions):
-            latent_name = latent_names[latent_idx]
-            yield SemanticBinding(
-                parameter_name=f"rho_{latent_name}",
-                site_name=base_decay_site_name,
-                flat_index=flat_index,
-                site_kind=SiteKind.DRIFT_BASE_DECAY,
-                transform=PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
-                prior_field="drift_base_decay",
-                construct_names=(latent_name,),
-                component_index=component_index,
-            )
-
-        offdiag_site_name = self.offdiag_site_name(prefix)
-        for flat_index, (effect_idx, cause_idx) in enumerate(self.offdiag_positions):
-            cause_name = latent_names[cause_idx]
-            effect_name = latent_names[effect_idx]
-            yield SemanticBinding(
-                parameter_name=f"beta_{cause_name}_{effect_name}",
-                site_name=offdiag_site_name,
-                flat_index=flat_index,
-                site_kind=SiteKind.DRIFT_OFFDIAG,
-                transform=PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE,
-                prior_field="drift_offdiag",
-                construct_names=(cause_name, effect_name),
-                component_index=component_index,
-                effect_idx=effect_idx,
-                cause_idx=cause_idx,
-            )
-
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StructuralDenseLinearSpec:
-        return replace(
-            self,
-            base_decay_prior=(
-                prior_fn(self.base_decay_site_name(prefix))
-                if self.n_drift_base_decay > 0
-                else self.base_decay_prior
-            ),
-            offdiag_prior=(
-                prior_fn(self.offdiag_site_name(prefix))
-                if self.n_drift_offdiag > 0
-                else self.offdiag_prior
-            ),
-        )
-
-    def assemble_drift(
-        self,
-        base_decay_free: jnp.ndarray | None,
-        offdiag_free: jnp.ndarray | None,
-    ) -> jnp.ndarray:
-        """Stability-by-construction drift assembly.
-
-        Delegates to the shared :func:`assemble_dense_linear_drift` in
-        ``structure.assembly`` — single canonical implementation shared
-        with :class:`SSMParameterLayout`.
-        """
-        from nof1_causal_lab.models.ssm.structure.assembly import (
-            assemble_dense_linear_drift,
-        )
-
-        return assemble_dense_linear_drift(
-            drift_template=self.drift_template,
-            base_decay_positions=self.drift_base_decay_positions,
-            offdiag_positions_list=self.offdiag_positions,
-            base_decay_free=base_decay_free,
-            offdiag_free=offdiag_free,
-            stability_margin=self.stability_margin,
-            time_invariant_mask=self.time_invariant_mask,
-        )
-
-    def build(self) -> DenseLinear:
-        return DenseLinear()
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
-        if self.n_drift_base_decay > 0:
-            base_decay_dist = resolve_prior_distribution(self.base_decay_prior)
-            if base_decay_dist is None:
-                raise ValueError(
-                    "StructuralDenseLinearSpec requires base_decay_prior when "
-                    f"n_drift_base_decay={self.n_drift_base_decay} > 0."
-                )
-            base_decay_free = numpyro.sample(self.base_decay_site_name(prefix), base_decay_dist)
-        else:
-            base_decay_free = None
-
-        if self.n_drift_offdiag > 0:
-            offdiag_dist = resolve_prior_distribution(self.offdiag_prior)
-            if offdiag_dist is None:
-                raise ValueError(
-                    "StructuralDenseLinearSpec requires offdiag_prior when "
-                    f"n_drift_offdiag={self.n_drift_offdiag} > 0."
-                )
-            offdiag_free = numpyro.sample(self.offdiag_site_name(prefix), offdiag_dist)
-        else:
-            offdiag_free = None
-
-        drift = self.assemble_drift(base_decay_free, offdiag_free)
-        numpyro.deterministic(self.drift_deterministic_name(prefix), drift)
-
-        return {"drift": drift}
-
-
-@dataclass(frozen=True, eq=False)
-class StructuralInterceptSpec:
-    """Sparse-element-sampled constant intercept ``c`` with structural mask.
-
-    Self-contained sibling of :class:`StructuralDenseLinearSpec`. Ports the
-    sparse intercept assembly algorithm inline.
-    """
-
-    n_latent: int
-    cint_mask: np.ndarray
-    cint_template: jnp.ndarray
-    cint_prior: Any = None
-
-    @property
-    def cint_free_positions(self) -> list[int]:
-        from nof1_causal_lab.models.ssm.structure.assembly import (
-            cint_free_positions as _positions,
-        )
-
-        return _positions(self.cint_mask, self.n_latent)
-
-    @property
-    def n_cint(self) -> int:
-        return len(self.cint_free_positions)
-
-    def cint_site_name(self, prefix: str) -> str:
-        return f"{prefix}_cint"
-
-    def cint_deterministic_name(self, prefix: str) -> str:
-        return f"{prefix}_cint_full"
-
-    def iter_sites(
-        self,
-        prefix: str,
-        *,
-        n_latent: int | None = None,  # noqa: ARG002 - structural spec owns n_latent
-    ) -> Iterator[SiteDescriptor]:
-        if self.n_cint > 0:
-            yield make_site(
-                self.cint_site_name(prefix),
-                (self.n_cint,),
-                SupportClass.REAL,
-                "cint",
-                SiteKind.CINT,
-                positions=tuple(self.cint_free_positions),
-                deterministic_name=self.cint_deterministic_name(prefix),
-                fixed_spec_field="cint",
-                priors_field="cint",
-            )
-
-    def iter_semantic_bindings(
-        self,
-        prefix: str,
-        *,
-        latent_names: tuple[str, ...],
-        component_index: int,
-    ) -> Iterator[SemanticBinding]:
-        site_name = self.cint_site_name(prefix)
-        for flat_index, latent_idx in enumerate(self.cint_free_positions):
-            latent_name = latent_names[latent_idx]
-            yield SemanticBinding(
-                parameter_name=f"cint_{latent_name}",
-                site_name=site_name,
-                flat_index=flat_index,
-                site_kind=SiteKind.CINT,
-                prior_field="cint",
-                construct_names=(latent_name,),
-                component_index=component_index,
-            )
-
-    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StructuralInterceptSpec:
-        return replace(
-            self,
-            cint_prior=prior_fn(self.cint_site_name(prefix))
-            if self.n_cint > 0
-            else self.cint_prior,
-        )
-
-    def assemble_cint(self, cint_free: jnp.ndarray | None) -> jnp.ndarray:
-        """Sparse-element cint assembly.
-
-        Delegates to the shared :func:`assemble_intercept_cint` in
-        ``structure.assembly`` — single canonical implementation shared
-        with :class:`SSMParameterLayout`.
-        """
-        from nof1_causal_lab.models.ssm.structure.assembly import assemble_intercept_cint
-
-        return assemble_intercept_cint(
-            cint_template=self.cint_template,
-            free_positions=self.cint_free_positions,
-            cint_free=cint_free,
-        )
-
-    def build(self) -> Intercept:
-        return Intercept()
-
-    def sample_params(self, prefix: str) -> dict[str, Array]:
-        if self.n_cint > 0:
-            cint_dist = resolve_prior_distribution(self.cint_prior)
-            if cint_dist is None:
-                raise ValueError(
-                    f"StructuralInterceptSpec requires cint_prior when n_cint={self.n_cint} > 0."
-                )
-            cint_free = numpyro.sample(self.cint_site_name(prefix), cint_dist)
-        else:
-            cint_free = None
-
-        cint = self.assemble_cint(cint_free)
-        numpyro.deterministic(self.cint_deterministic_name(prefix), cint)
-
-        return {"cint": cint}
+# ---------------------------------------------------------------------------
+# Full-vector component specs
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, eq=False)
@@ -650,7 +399,7 @@ class LinearEdgeSpec:
             SupportClass.REAL,
             "dynamics",
             SiteKind.DYNAMICS_WEIGHT,
-            positions=((self.source, self.target),),
+            positions=((self.target, self.source),),
             priors_field="linear_edge_weight",
         )
 
@@ -733,7 +482,7 @@ class HillEdgeSpec:
         *,
         n_latent: int | None = None,  # noqa: ARG002 - scalar edge parameters
     ) -> Iterator[SiteDescriptor]:
-        positions = ((self.source, self.target),)
+        positions = ((self.target, self.source),)
         yield make_site(
             self.emax_site_name(prefix),
             (),
@@ -858,7 +607,7 @@ class MultiplicativeEdgeSpec:
             SupportClass.REAL,
             "dynamics",
             SiteKind.DYNAMICS_WEIGHT,
-            positions=((self.source_a, self.source_b, self.target),),
+            positions=((self.target, self.source_a, self.source_b),),
             priors_field="multiplicative_weight",
         )
 
@@ -961,7 +710,7 @@ def iter_component_semantic_bindings(
     latent_names: tuple[str, ...],
     prefix: str = "vf",
 ) -> Iterator[SemanticBinding]:
-    """Yield semantic prior bindings owned by drift component specs."""
+    """Yield semantic prior bindings owned by vector-field component specs."""
     for component_index, component_spec in enumerate(spec.components):
         yield from component_spec.iter_semantic_bindings(
             prefix=f"{prefix}_{component_index}",
@@ -973,7 +722,7 @@ def iter_component_semantic_bindings(
 def pack_component_params_from_samples(
     spec: CompositeSpec,
     samples: dict[str, Array],
-    deterministics: dict[str, Array],
+    deterministics: dict[str, Array],  # noqa: ARG001 - retained for call-site uniformity
     *,
     prefix: str = "vf",
 ) -> tuple[dict[str, Array], ...]:
@@ -986,29 +735,10 @@ def pack_component_params_from_samples(
     packed: list[dict[str, Array]] = []
     for idx, component_spec in enumerate(spec.components):
         site_prefix = f"{prefix}_{idx}"
-        if isinstance(component_spec, StructuralDenseLinearSpec):
-            drift_name = component_spec.drift_deterministic_name(site_prefix)
-            drift = deterministics.get(drift_name)
-            if drift is None:
-                drift = component_spec.assemble_drift(
-                    samples.get(component_spec.base_decay_site_name(site_prefix)),
-                    samples.get(component_spec.offdiag_site_name(site_prefix)),
-                )
-            packed.append({"drift": drift})
-        elif isinstance(component_spec, StructuralInterceptSpec):
-            cint_name = component_spec.cint_deterministic_name(site_prefix)
-            cint = deterministics.get(cint_name)
-            if cint is None:
-                cint = component_spec.assemble_cint(
-                    samples.get(component_spec.cint_site_name(site_prefix))
-                )
-            packed.append({"cint": cint})
-        elif isinstance(component_spec, DenseLinearSpec):
-            params = {"drift": samples[component_spec.drift_site_name(site_prefix)]}
-            cint_name = component_spec.cint_site_name(site_prefix)
-            if cint_name in samples:
-                params["cint"] = samples[cint_name]
-            packed.append(params)
+        if isinstance(component_spec, StateDecaySpec):
+            packed.append({"decay": samples[component_spec.decay_site_name(site_prefix)]})
+        elif isinstance(component_spec, StateInterceptSpec):
+            packed.append({"cint": samples[component_spec.cint_site_name(site_prefix)]})
         elif isinstance(component_spec, DiagonalDecaySpec):
             packed.append({"decay": samples[component_spec.decay_site_name(site_prefix)]})
         elif isinstance(component_spec, InterceptSpec):
@@ -1027,7 +757,7 @@ def pack_component_params_from_samples(
             packed.append({"weight": samples[component_spec.weight_site_name(site_prefix)]})
         else:
             raise TypeError(
-                f"Unsupported drift component spec for parameter packing: "
+                f"Unsupported vector-field component spec for parameter packing: "
                 f"{type(component_spec).__name__}"
             )
     return tuple(packed)

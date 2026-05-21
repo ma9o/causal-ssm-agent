@@ -584,8 +584,8 @@ def compile_model_artifact(
     compiled_ssm: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compile and verify the executable SSM artifact for Stage 4 output."""
-    from nof1_causal_lab.models.ssm.builder import prepare_model_runtime
     from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+    from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
     try:
         artifact = compiled_ssm or compile_ssm_artifact(
@@ -600,12 +600,10 @@ def compile_model_artifact(
         }
 
     try:
-        runtime = prepare_model_runtime(data_for_model, compiled_ssm=artifact)
-        builder = runtime.builder
+        prepare_model_runtime(data_for_model, compiled_ssm=artifact)
         return {
             "model_built": True,
-            "model_type": builder.model_type,
-            "version": builder.version,
+            "model_type": "SSM",
             "compiled_ssm": artifact,
         }
     except NotImplementedError:

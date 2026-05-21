@@ -33,9 +33,6 @@ class TransformKind(Enum):
 class SiteKind(Enum):
     """Semantic role for each sample site."""
 
-    DRIFT_BASE_DECAY = "drift_base_decay"
-    DRIFT_OFFDIAG = "drift_offdiag"
-    DENSE_DRIFT = "dense_drift"
     DYNAMICS_DECAY = "dynamics_decay"
     DYNAMICS_CINT = "dynamics_cint"
     DYNAMICS_WEIGHT = "dynamics_weight"
@@ -44,7 +41,6 @@ class SiteKind(Enum):
     HILL_N = "hill_n"
     DIFFUSION_DIAG = "diffusion_diag"
     DIFFUSION_LOWER = "diffusion_lower"
-    CINT = "cint"
     INPUT_EFFECT = "input_effect"
     STATIC_STATE_SD = "static_state_sd"
     LOADING = "loading"

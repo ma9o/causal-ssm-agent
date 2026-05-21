@@ -73,7 +73,7 @@ def _make_spec(
     *,
     n_latent: int = 2,
     n_manifest: int = 2,
-    drift_spec=None,
+    dynamics_spec=None,
     diffusion_block=None,
     lambda_block=None,
     manifest_means_block=None,
@@ -85,12 +85,12 @@ def _make_spec(
     **kwargs,
 ) -> SSMSpec:
     """Build an SSMSpec from explicit block specs for tests."""
-    if drift_spec is None:
-        drift_spec = full_structural_dense_drift_spec(n_latent)
+    if dynamics_spec is None:
+        dynamics_spec = full_structural_dense_drift_spec(n_latent)
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=drift_spec,
+        dynamics_spec=dynamics_spec,
         diffusion_block=diffusion_block or default_diffusion_block(n_latent),
         lambda_block=lambda_block or default_lambda_block(n_manifest, n_latent),
         manifest_means_block=manifest_means_block or default_manifest_means_block(n_manifest),
@@ -258,7 +258,7 @@ def dag_spec():
     return _make_spec(
         n_latent=2,
         n_manifest=2,
-        drift_spec=_linear_drift(
+        dynamics_spec=_linear_drift(
             2,
             drift_offdiag_mask=drift_offdiag_mask,
             cint_mask=full_vector_mask(2),
@@ -394,14 +394,13 @@ class TestSiteRegistry:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=_fixed_linear_drift(
+            dynamics_spec=_fixed_linear_drift(
                 jnp.array([[-0.5, 0.0], [0.0, -0.5]], dtype=jnp.float32)
             ),
         )
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
-        assert "vf_0_base_decay" not in names
-        assert "vf_0_offdiag" not in names
+        assert {"vf_0_decay", "vf_1_decay"}.issubset(names)
 
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
@@ -458,7 +457,7 @@ class TestSiteRegistry:
         registry = build_site_registry(simple_spec)
         support_map = {s.name: s.support for s in registry}
         # POSITIVE support sites
-        assert support_map["vf_0_base_decay"] == SupportClass.POSITIVE
+        assert support_map["vf_0_decay"] == SupportClass.POSITIVE
         # POSITIVE support sites (HalfNormal priors)
         assert support_map["diffusion_diag_free"] == SupportClass.POSITIVE
         assert support_map["manifest_var_diag_free"] == SupportClass.POSITIVE
@@ -589,19 +588,21 @@ class TestDeterministicAssembly:
         """Assembly grouping is driven by registry metadata."""
         registry = build_site_registry(simple_spec)
         grouped = group_sites_by_assembly_role(registry)
-        assert "drift" in grouped
+        assert "dynamics" in grouped
         assert "diffusion" in grouped
-        assert {site.name for site in grouped["drift"]} == {
-            "vf_0_base_decay",
-            "vf_0_offdiag",
+        assert {site.name for site in grouped["dynamics"]} == {
+            "vf_0_decay",
+            "vf_1_weight",
+            "vf_2_weight",
         }
 
     def test_assemble_deterministics_from_registry_free_spec(self, simple_spec):
         """Registry-driven assembly builds the expected matrices."""
         registry = build_site_registry(simple_spec)
         samples = {
-            "vf_0_base_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
-            "vf_0_offdiag": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
+            "vf_1_weight": jnp.array([0.1], dtype=jnp.float32),
+            "vf_2_weight": jnp.array([-0.2], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -611,8 +612,6 @@ class TestDeterministicAssembly:
         }
 
         det = assemble_deterministics_from_registry(samples, simple_spec, registry)
-        assert det["vf_0_drift"].shape == (1, 2, 2)
-        assert jnp.allclose(jnp.diag(det["vf_0_drift"][0]), jnp.array([-0.65, -0.55]))
         assert jnp.allclose(det["diffusion"][0], jnp.array([[0.4, 0.0], [0.25, 0.6]]))
         assert det["lambda"].shape == (1, 2, 2)
         assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.49, 0.64])))
@@ -624,7 +623,7 @@ class TestDeterministicAssembly:
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=_fixed_linear_drift(
+            dynamics_spec=_fixed_linear_drift(
                 jnp.array([[-0.4, 0.1], [0.0, -0.2]], dtype=jnp.float32)
             ),
             diffusion_block=_diffusion_block(
@@ -657,10 +656,6 @@ class TestDeterministicAssembly:
         registry = build_site_registry(spec)
 
         det = assemble_deterministics_from_registry({}, spec, registry, n_draws=3)
-        drift_component = spec.drift_spec.components[0]
-        expected_drift = drift_component.assemble_drift(None, None)
-        assert isinstance(expected_drift, jnp.ndarray)
-        assert jnp.allclose(det["vf_0_drift"], jnp.broadcast_to(expected_drift, (3, 2, 2)))
         assert jnp.allclose(
             det["diffusion"],
             jnp.broadcast_to(spec.diffusion_block.assemble(), (3, 2, 2)),
@@ -693,8 +688,7 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "vf_0_base_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
-            "vf_0_offdiag": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -722,8 +716,7 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "vf_0_base_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
-            "vf_0_offdiag": jnp.array([[0.1, -0.2]], dtype=jnp.float32),
+            "vf_0_decay": jnp.array([[0.5, 0.3]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -758,8 +751,7 @@ class TestDeterministicAssembly:
         )
         registry = build_site_registry(spec)
         samples = {
-            "vf_0_base_decay": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
-            "vf_0_offdiag": jnp.array([[0.1] * 6], dtype=jnp.float32),
+            "vf_0_decay": jnp.array([[0.5, 0.3, 0.4]], dtype=jnp.float32),
             "diffusion_diag_free": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
             "lambda_free": jnp.array([], dtype=jnp.float32).reshape(1, 0),
@@ -807,7 +799,7 @@ class TestPriorRuntimeState:
     def test_custom_priors_reflected(self, simple_spec):
         """Custom PriorRegistry values appear in the state."""
         priors = prior_registry(
-            vf_0_base_decay=PriorSpec(
+            vf_0_decay=PriorSpec(
                 PriorDistributionFamily.GAMMA,
                 {"concentration": 4.0, "rate": 2.0},
             )
@@ -815,10 +807,10 @@ class TestPriorRuntimeState:
         registry = build_site_registry(simple_spec)
         state = build_prior_runtime_state(registry, priors)
         assert jnp.allclose(
-            state["vf_0_base_decay"]["concentration"],
+            state["vf_0_decay"]["concentration"],
             jnp.full(2, 4.0),
         )
-        assert jnp.allclose(state["vf_0_base_decay"]["rate"], jnp.full(2, 2.0))
+        assert jnp.allclose(state["vf_0_decay"]["rate"], jnp.full(2, 2.0))
 
     def test_state_is_valid_pytree(self, simple_spec):
         """Prior state can be flattened/unflattened as a JAX pytree."""
@@ -936,7 +928,7 @@ class TestCompileStability:
         state1 = build_prior_runtime_state(
             registry,
             prior_registry(
-                vf_0_base_decay=PriorSpec(
+                vf_0_decay=PriorSpec(
                     PriorDistributionFamily.GAMMA,
                     {"concentration": 2.0, "rate": 4.0},
                 )
@@ -945,7 +937,7 @@ class TestCompileStability:
         state2 = build_prior_runtime_state(
             registry,
             prior_registry(
-                vf_0_base_decay=PriorSpec(
+                vf_0_decay=PriorSpec(
                     PriorDistributionFamily.GAMMA,
                     {"concentration": 4.0, "rate": 2.0},
                 )
@@ -1086,7 +1078,7 @@ class TestSerialization:
     def test_prior_state_roundtrip_custom_priors(self, simple_spec):
         """Custom priors survive the roundtrip."""
         priors = prior_registry(
-            vf_0_base_decay=PriorSpec(
+            vf_0_decay=PriorSpec(
                 PriorDistributionFamily.GAMMA,
                 {"concentration": 4.0, "rate": 2.0},
             ),
@@ -1097,11 +1089,11 @@ class TestSerialization:
         payload = serialize_prior_runtime_state(state)
         restored = deserialize_prior_runtime_state(payload, registry)
         assert jnp.allclose(
-            restored["vf_0_base_decay"]["concentration"],
+            restored["vf_0_decay"]["concentration"],
             jnp.full(2, 4.0),
             atol=1e-6,
         )
-        assert jnp.allclose(restored["vf_0_base_decay"]["rate"], jnp.full(2, 2.0))
+        assert jnp.allclose(restored["vf_0_decay"]["rate"], jnp.full(2, 2.0))
         assert jnp.allclose(
             restored["diffusion_diag_free"]["scale"],
             jnp.full(2, 0.5),
@@ -1111,7 +1103,7 @@ class TestSerialization:
     def test_compile_prior_semantics_roundtrip(self, simple_spec):
         """compile_prior_semantics → deserialize produces valid state."""
         priors = prior_registry(
-            vf_0_base_decay=PriorSpec(
+            vf_0_decay=PriorSpec(
                 PriorDistributionFamily.GAMMA,
                 {"concentration": 4.0, "rate": 2.0},
             )
@@ -1120,9 +1112,9 @@ class TestSerialization:
         assert semantics["schema_version"] == 5
         registry = deserialize_site_registry(semantics["site_registry"])
         state = deserialize_prior_runtime_state(semantics["prior_state"], registry)
-        assert "vf_0_base_decay" in state
+        assert "vf_0_decay" in state
         assert jnp.allclose(
-            state["vf_0_base_decay"]["concentration"],
+            state["vf_0_decay"]["concentration"],
             jnp.full(2, 4.0),
             atol=1e-6,
         )
@@ -1133,7 +1125,7 @@ class TestCanonicalRuntimePriors:
         """Compiled prior semantics preserve vector-valued site parameters exactly."""
         spec = _make_spec(n_latent=3, n_manifest=3)
         priors = prior_registry(
-            vf_0_base_decay=PriorSpec(
+            vf_0_decay=PriorSpec(
                 PriorDistributionFamily.GAMMA,
                 {
                     "concentration": [2.0, 3.0, 4.0],
@@ -1142,9 +1134,9 @@ class TestCanonicalRuntimePriors:
             ),
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(spec, priors))
-        assert runtime.prior_state["vf_0_base_decay"]["concentration"].shape == (3,)
+        assert runtime.prior_state["vf_0_decay"]["concentration"].shape == (3,)
         assert jnp.allclose(
-            runtime.prior_state["vf_0_base_decay"]["concentration"],
+            runtime.prior_state["vf_0_decay"]["concentration"],
             jnp.array([2.0, 3.0, 4.0], dtype=jnp.float32),
         )
 
@@ -1168,15 +1160,13 @@ class TestCanonicalRuntimePriors:
     def test_positive_delta_distribution_samples_fixed_vector(self, simple_spec):
         """Positive Delta priors build NumPyro Delta distributions and preserve shape."""
         priors = prior_registry(
-            vf_0_base_decay=PriorSpec(
+            vf_0_decay=PriorSpec(
                 PriorDistributionFamily.DELTA,
                 {"value": [0.25, 0.5]},
             )
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
-        site = next(
-            site for site in runtime.site_runtime.registry if site.name == "vf_0_base_decay"
-        )
+        site = next(site for site in runtime.site_runtime.registry if site.name == "vf_0_decay")
         prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
 
         assert isinstance(prior_dist, dist.Delta)
@@ -1186,7 +1176,7 @@ class TestCanonicalRuntimePriors:
     def test_positive_delta_roundtrips_through_serialized_semantics(self, simple_spec):
         """Positive Delta value survives v5 compiled-prior serialization."""
         priors = prior_registry(
-            vf_0_base_decay=PriorSpec(
+            vf_0_decay=PriorSpec(
                 PriorDistributionFamily.DELTA,
                 {"value": [0.25, 0.5]},
             )
@@ -1194,7 +1184,7 @@ class TestCanonicalRuntimePriors:
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
 
         assert jnp.allclose(
-            runtime.prior_state["vf_0_base_decay"]["value"],
+            runtime.prior_state["vf_0_decay"]["value"],
             jnp.array([0.25, 0.5], dtype=jnp.float32),
         )
 
@@ -1202,7 +1192,7 @@ class TestCanonicalRuntimePriors:
         """Base-decay prior state keeps the same positive-family leaves across prior edits."""
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec))
 
-        drift_params = runtime.prior_state["vf_0_base_decay"]
+        drift_params = runtime.prior_state["vf_0_decay"]
         assert set(drift_params) == {
             "family",
             "loc",
@@ -1374,24 +1364,31 @@ class TestCompiledArtifactIntegration:
         assert beta_binding["site_kind"] == "input_effect"
         assert beta_binding["transform"] == "dt_effect_to_ct_rate"
 
-    def test_builder_from_artifact_uses_semantics(self, model_spec_and_priors):
-        """make_builder_from_compiled_artifact reads compiled_prior_semantics."""
+    def test_model_from_artifact_uses_semantics(self, model_spec_and_priors):
+        """build_model_from_compiled_artifact reads compiled_prior_semantics."""
+        import polars as pl
+
         from nof1_causal_lab.models.ssm.compile.artifact import (
+            build_model_from_compiled_artifact,
             compile_ssm_artifact,
-            make_builder_from_compiled_artifact,
         )
 
         model_spec, priors = model_spec_and_priors
         artifact = compile_ssm_artifact(model_spec, priors)
-        builder = make_builder_from_compiled_artifact(artifact)
-        assert builder._prior_registry is None
-        assert builder._prior_runtime_bundle is not None
+        model = build_model_from_compiled_artifact(
+            artifact,
+            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
+        )
+        assert model.priors is not None
+        assert model.get_prior_runtime_bundle() is not None
 
-    def test_builder_requires_compiled_prior_semantics(self, model_spec_and_priors):
-        """Builder fails clearly when compiled semantics are missing."""
+    def test_model_from_artifact_requires_compiled_prior_semantics(self, model_spec_and_priors):
+        """Model rebuild fails clearly when compiled semantics are missing."""
+        import polars as pl
+
         from nof1_causal_lab.models.ssm.compile.artifact import (
+            build_model_from_compiled_artifact,
             compile_ssm_artifact,
-            make_builder_from_compiled_artifact,
         )
 
         model_spec, priors = model_spec_and_priors
@@ -1399,15 +1396,21 @@ class TestCompiledArtifactIntegration:
         del artifact["compiled_prior_semantics"]
 
         with pytest.raises(ValueError, match="compiled_prior_semantics"):
-            make_builder_from_compiled_artifact(artifact)
+            build_model_from_compiled_artifact(
+                artifact,
+                pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
+            )
 
     def test_end_to_end_compile_rebuild_sample(self, model_spec_and_priors):
         """Full roundtrip: compile → rebuild → sample."""
         import numpy as np
         import polars as pl
 
-        from nof1_causal_lab.models.ssm.builder import build_ssm_builder
         from nof1_causal_lab.models.ssm.compile.artifact import compile_ssm_artifact
+        from nof1_causal_lab.models.ssm.runtime import (
+            prepare_wide_model_runtime,
+            sample_prior_predictive,
+        )
         from nof1_causal_lab.utils.data import pivot_to_wide
 
         model_spec, priors = model_spec_and_priors
@@ -1422,34 +1425,51 @@ class TestCompiledArtifactIntegration:
                 "anchor_time": list(range(n)),
             }
         )
-        builder = build_ssm_builder(wide_data=pivot_to_wide(data_for_model), compiled_ssm=artifact)
-        assert builder.has_model
-        samples = builder.sample_prior_predictive(samples=5)
+        runtime = prepare_wide_model_runtime(
+            pivot_to_wide(data_for_model),
+            compiled_ssm=artifact,
+            sampler_config={"method": "aux_kalman_mcmc"},
+        )
+        samples = sample_prior_predictive(
+            runtime.model,
+            samples=5,
+            times=runtime.times,
+            observation_support=runtime.observation_support,
+            observation_mask=~jnp.isnan(runtime.observations),
+            transition_inputs=runtime.transition_inputs,
+        )
         assert samples is not None
 
-    def test_compiled_builder_prior_predictive_without_model(self, model_spec_and_priors):
-        """Compiled builders can sample prior predictive without building a model."""
-        from nof1_causal_lab.models.ssm.compile.artifact import (
-            compile_ssm_artifact,
-            make_builder_from_compiled_artifact,
-        )
-
-        model_spec, priors = model_spec_and_priors
-        artifact = compile_ssm_artifact(model_spec, priors)
-        builder = make_builder_from_compiled_artifact(artifact)
-        samples = builder.sample_prior_predictive(samples=4)
-        assert "vf_0_drift" in samples
-        assert samples["vf_0_drift"].shape[0] == 4
-        assert "observations" in samples
-
-    def test_compiled_builder_traces_vector_t0_prior_without_reconstructing(self):
-        """Compiled builders execute vector-valued positive priors via runtime semantics."""
+    def test_compiled_model_prior_predictive(self, model_spec_and_priors):
+        """Compiled models can sample prior predictive from artifact semantics."""
         import polars as pl
 
         from nof1_causal_lab.models.ssm.compile.artifact import (
-            make_builder_from_compiled_artifact,
+            build_model_from_compiled_artifact,
+            compile_ssm_artifact,
+        )
+        from nof1_causal_lab.models.ssm.runtime import sample_prior_predictive
+
+        model_spec, priors = model_spec_and_priors
+        artifact = compile_ssm_artifact(model_spec, priors)
+        model = build_model_from_compiled_artifact(
+            artifact,
+            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
+        )
+        samples = sample_prior_predictive(model, samples=4)
+        assert "vf_0_decay" in samples
+        assert samples["vf_0_decay"].shape[0] == 4
+        assert "observations" in samples
+
+    def test_compiled_model_traces_vector_t0_prior_without_reconstructing(self):
+        """Compiled models execute vector-valued positive priors via runtime semantics."""
+        import polars as pl
+
+        from nof1_causal_lab.models.ssm.compile.artifact import (
+            build_model_from_compiled_artifact,
             serialize_ssm_spec,
         )
+        from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs
 
         spec = _make_spec(
             n_latent=2,
@@ -1481,9 +1501,8 @@ class TestCompiledArtifactIntegration:
             }
         )
 
-        builder = make_builder_from_compiled_artifact(artifact)
-        model = builder.build_model(wide)
-        observations, times, _manifest_names = builder.prepare_fit_inputs(wide)
+        model = build_model_from_compiled_artifact(artifact, wide)
+        observations, times, _manifest_names, _wide = prepare_fit_inputs(model.spec, wide)
         backend = model.make_likelihood_backend()
         trace = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations,

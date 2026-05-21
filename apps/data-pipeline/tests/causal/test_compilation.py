@@ -2,11 +2,11 @@
 
 Three layers of checking:
 
-1. Each ``ComponentSpec`` builds the right ``DriftComponent`` (pure
+1. Each ``ComponentSpec`` builds the right ``VectorFieldComponent`` (pure
    structural test, no NumPyro context).
-2. ``CompositeSpec`` end-to-end: a DenseLinearSpec compiles to a vector
-   field equivalent to ``linear_vector_field``; an SSRI-style spec
-   compiles to the same components tuple a hand-construction would.
+2. ``CompositeSpec`` end-to-end: component-native linear specs compile to
+   the expected vector field; an SSRI-style spec compiles to the same
+   components tuple a hand-construction would.
 3. ``sample_params`` produces correctly-shaped per-component slices when
    called inside a NumPyro model context.
 """
@@ -17,11 +17,8 @@ import jax.numpy as jnp
 import numpyro.distributions as ndist
 from numpyro.handlers import seed, trace
 
-from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
 from nof1_causal_lab.models.ssm.dynamics import (
     CompositeSpec,
-    DenseLinear,
-    DenseLinearSpec,
     DiagonalDecay,
     DiagonalDecaySpec,
     HillEdge,
@@ -36,6 +33,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
     VectorFieldArgs,
     compile_composite,
 )
+from nof1_causal_lab.models.ssm.dynamics.composite import StateDecaySpec
+from nof1_causal_lab.models.ssm.dynamics.edges import StateDecay
 
 # =============================================================================
 # Per-spec build() tests
@@ -43,12 +42,11 @@ from nof1_causal_lab.models.ssm.dynamics import (
 
 
 class TestComponentSpecBuild:
-    def test_dense_linear_spec_builds_dense_linear(self):
-        spec = DenseLinearSpec(
-            drift_prior=ndist.Normal(jnp.zeros((2, 2)), 1.0),
-            cint_prior=ndist.Normal(jnp.zeros(2), 1.0),
-        )
-        assert isinstance(spec.build(), DenseLinear)
+    def test_state_decay_spec_builds_state_decay(self):
+        spec = StateDecaySpec(target=1, decay_prior=ndist.LogNormal(0.0, 0.5))
+        built = spec.build()
+        assert isinstance(built, StateDecay)
+        assert built.target == 1
 
     def test_diagonal_decay_spec_builds_diagonal_decay(self):
         spec = DiagonalDecaySpec(decay_prior=ndist.LogNormal(jnp.zeros(2), 0.5))
@@ -95,38 +93,32 @@ class TestComponentSpecBuild:
 
 
 class TestCompileComposite:
-    def test_dense_linear_spec_compiles_to_equivalent_field(self):
-        """A single DenseLinearSpec must produce a vector field that
-        matches the hand-built ``linear_vector_field`` factory."""
-        A = jnp.array([[-1.0, 0.5], [0.3, -2.0]])
+    def test_component_linear_spec_compiles_to_expected_field(self):
+        """Component-native linear specs produce the expected vector field."""
+        decay = jnp.array([1.0, 2.0])
+        weight = jnp.array(0.5)
         cint = jnp.array([0.1, -0.2])
 
         spec = CompositeSpec(
             n_latent=2,
             components=(
-                DenseLinearSpec(
-                    drift_prior=ndist.Normal(jnp.zeros((2, 2)), 1.0),
-                    cint_prior=ndist.Normal(jnp.zeros(2), 1.0),
-                ),
+                DiagonalDecaySpec(decay_prior=ndist.LogNormal(jnp.zeros(2), 0.5)),
+                LinearEdgeSpec(source=1, target=0, weight_prior=ndist.Normal(0.0, 1.0)),
+                InterceptSpec(cint_prior=ndist.Normal(jnp.zeros(2), 1.0)),
             ),
         )
         compiled = compile_composite(spec)
 
         assert compiled.vector_field.n_latent == 2
-        assert len(compiled.vector_field.components) == 1
-        assert isinstance(compiled.vector_field.components[0], DenseLinear)
+        assert len(compiled.vector_field.components) == 3
 
-        # Equivalence: same drift output when given the same params.
-        params = ({"drift": A, "cint": cint},)
+        params = ({"decay": decay}, {"weight": weight}, {"cint": cint})
         eta = jnp.array([1.5, 0.8])
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
         compiled_drift = compiled.vector_field(jnp.asarray(0.0), eta, args)
 
-        factory_vf = linear_vector_field(n_latent=2)
-        factory_drift = factory_vf(jnp.asarray(0.0), eta, args)
-
-        assert jnp.allclose(compiled_drift, factory_drift, atol=1e-6)
-        assert jnp.allclose(compiled_drift, A @ eta + cint, atol=1e-6)
+        expected = jnp.array([-decay[0] * eta[0] + weight * eta[1], -decay[1] * eta[1]]) + cint
+        assert jnp.allclose(compiled_drift, expected, atol=1e-6)
 
     def test_ssri_chain_spec_compiles_to_expected_components(self):
         """SSRI-style spec compiles to (DiagonalDecay, Intercept,
@@ -153,9 +145,7 @@ class TestCompileComposite:
                     target=AFFECTIVE,
                     emax_prior=ndist.LogNormal(0.0, 0.5),
                     ec50_prior=ndist.LogNormal(0.0, 0.5),
-                    n_prior=ndist.TruncatedNormal(
-                        low=1.0, high=4.0, loc=2.0, scale=0.5
-                    ),
+                    n_prior=ndist.TruncatedNormal(low=1.0, high=4.0, loc=2.0, scale=0.5),
                 ),
             ),
         )
@@ -183,14 +173,12 @@ class TestCompileComposite:
 
 
 class TestSampleParams:
-    def test_dense_linear_sample_shape(self):
+    def test_component_linear_sample_shape(self):
         spec = CompositeSpec(
             n_latent=2,
             components=(
-                DenseLinearSpec(
-                    drift_prior=ndist.Normal(jnp.zeros((2, 2)), 1.0),
-                    cint_prior=ndist.Normal(jnp.zeros(2), 1.0),
-                ),
+                StateDecaySpec(target=0, decay_prior=ndist.LogNormal(0.0, 0.5)),
+                LinearEdgeSpec(source=1, target=0, weight_prior=ndist.Normal(0.0, 1.0)),
             ),
         )
         compiled = compile_composite(spec)
@@ -198,27 +186,9 @@ class TestSampleParams:
         with seed(rng_seed=0):
             params = compiled.sample_params()
 
-        assert len(params) == 1
-        assert params[0]["drift"].shape == (2, 2)
-        assert params[0]["cint"].shape == (2,)
-
-    def test_dense_linear_without_intercept_omits_cint(self):
-        spec = CompositeSpec(
-            n_latent=2,
-            components=(
-                DenseLinearSpec(
-                    drift_prior=ndist.Normal(jnp.zeros((2, 2)), 1.0),
-                    cint_prior=None,
-                ),
-            ),
-        )
-        compiled = compile_composite(spec)
-
-        with seed(rng_seed=0):
-            params = compiled.sample_params()
-
-        assert "cint" not in params[0]
-        assert params[0]["drift"].shape == (2, 2)
+        assert len(params) == 2
+        assert params[0]["decay"].shape == ()
+        assert params[1]["weight"].shape == ()
 
     def test_ssri_chain_sample_shape(self):
         """The full SSRI chain spec produces a 5-tuple of param dicts
@@ -245,9 +215,7 @@ class TestSampleParams:
                     target=AFFECTIVE,
                     emax_prior=ndist.LogNormal(0.0, 0.5),
                     ec50_prior=ndist.LogNormal(0.0, 0.5),
-                    n_prior=ndist.TruncatedNormal(
-                        low=1.0, high=4.0, loc=2.0, scale=0.5
-                    ),
+                    n_prior=ndist.TruncatedNormal(low=1.0, high=4.0, loc=2.0, scale=0.5),
                 ),
             ),
         )
@@ -273,9 +241,7 @@ class TestSampleParams:
             n_latent=2,
             components=(
                 DiagonalDecaySpec(decay_prior=ndist.LogNormal(jnp.zeros(2), 0.5)),
-                LinearEdgeSpec(
-                    source=0, target=1, weight_prior=ndist.Normal(0.0, 1.0)
-                ),
+                LinearEdgeSpec(source=0, target=1, weight_prior=ndist.Normal(0.0, 1.0)),
             ),
         )
         compiled = compile_composite(spec, prefix="ssri")
@@ -295,12 +261,8 @@ class TestSampleParams:
         spec = CompositeSpec(
             n_latent=2,
             components=(
-                DiagonalDecaySpec(
-                    decay_prior=ndist.Delta(jnp.array([1.0, 0.5]))
-                ),
-                LinearEdgeSpec(
-                    source=0, target=1, weight_prior=ndist.Delta(jnp.asarray(0.3))
-                ),
+                DiagonalDecaySpec(decay_prior=ndist.Delta(jnp.array([1.0, 0.5]))),
+                LinearEdgeSpec(source=0, target=1, weight_prior=ndist.Delta(jnp.asarray(0.3))),
             ),
         )
         compiled = compile_composite(spec)

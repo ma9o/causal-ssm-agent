@@ -14,11 +14,11 @@ from nof1_causal_lab.models.ssm.compile.inputs import translate_spec
 from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     PriorCompilationError,
     _positive_prior_mean_values,
+    _prior_values_1d,
+    _value_at,
     compile_priors,
     logm_diagnostic_mean_drift,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import StructuralDenseLinearSpec
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind
 from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
@@ -57,7 +57,6 @@ class _PartialDriftState:
     offdiag_sigma: np.ndarray
     offdiag_present: np.ndarray
     offdiag_parameter_by_index: dict[int, str]
-    stability_margin: float
     diagnostic_drift: np.ndarray | None = None
 
     @property
@@ -72,13 +71,8 @@ class _PartialDriftState:
         for idx in np.flatnonzero(self.offdiag_present):
             effect_idx, cause_idx = self.offdiag_positions[idx]
             drift[effect_idx, cause_idx] = float(self.offdiag_mu[idx])
-        offdiag = drift.copy()
-        np.fill_diagonal(offdiag, 0.0)
-        row_abs = np.sum(np.abs(offdiag), axis=1)
         for idx in np.flatnonzero(self.diag_present):
-            drift[idx, idx] = -(
-                abs(float(self.diag_mu[idx])) + float(row_abs[idx]) + self.stability_margin
-            )
+            drift[idx, idx] = -abs(float(self.diag_mu[idx]))
         return drift
 
     def has_all_diagonals(self) -> bool:
@@ -119,55 +113,65 @@ def _build_partial_drift_state(
         edge_lag_days=edge_lag_days,
         causal_spec=causal_spec,
     )
-    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
-    diag_bindings = index_maps.by_site_kind(SiteKind.DRIFT_BASE_DECAY)
-    offdiag_bindings = index_maps.by_site_kind(SiteKind.DRIFT_OFFDIAG)
+    diag_bindings = {
+        parameter_name: binding
+        for parameter_name, binding in index_maps.by_site_kind(SiteKind.DYNAMICS_DECAY).items()
+        if parameter_name.startswith(("rho_", "ar_"))
+    }
+    offdiag_bindings = {
+        parameter_name: binding
+        for parameter_name, binding in index_maps.by_site_kind(SiteKind.DYNAMICS_WEIGHT).items()
+        if parameter_name.startswith("beta_")
+        and binding.effect_idx is not None
+        and binding.cause_idx is not None
+    }
 
     latent_names = tuple(ssm_spec.latent_names or ())
+    latent_index_by_name = {name: idx for idx, name in enumerate(latent_names)}
     diag_mu = np.zeros(len(latent_names), dtype=float)
     diag_sigma = np.zeros(len(latent_names), dtype=float)
     diag_present = np.zeros(len(latent_names), dtype=bool)
     diag_parameter_by_index: dict[int, str] = {}
-    base_decay_site = parameter_layout.site_by_kind(SiteKind.DRIFT_BASE_DECAY)
-    if base_decay_site is None:
-        return None
-    base_decay_prior = prior_registry.priors_by_site[base_decay_site.name]
-    base_decay_mu = _positive_prior_mean_values(base_decay_prior)
     for parameter_name in drift_priors:
         binding = diag_bindings.get(parameter_name)
         if binding is None:
             continue
-        flat_index = binding.flat_index
-        latent_index = parameter_layout.drift_base_decay_positions[flat_index]
+        if not binding.construct_names:
+            continue
+        latent_index = latent_index_by_name.get(binding.construct_names[0])
+        if latent_index is None:
+            continue
+        decay_prior = prior_registry.priors_by_site[binding.site_name]
+        decay_mu = _positive_prior_mean_values(decay_prior)
         diag_present[latent_index] = True
         diag_parameter_by_index[latent_index] = parameter_name
-        diag_mu[latent_index] = (
-            float(base_decay_mu[flat_index]) if flat_index < base_decay_mu.size else 0.0
-        )
+        diag_mu[latent_index] = _value_at(decay_mu, binding.flat_index, default=0.0)
 
-    offdiag_positions = list(parameter_layout.offdiag_positions)
+    offdiag_positions = [
+        (int(binding.effect_idx), int(binding.cause_idx)) for binding in offdiag_bindings.values()
+    ]
     offdiag_mu = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_present = np.zeros(len(offdiag_positions), dtype=bool)
     offdiag_parameter_by_index: dict[int, str] = {}
-    drift_offdiag_site = parameter_layout.site_by_kind(SiteKind.DRIFT_OFFDIAG)
-    if drift_offdiag_site is None:
-        return None
-    drift_offdiag_prior = prior_registry.priors_by_site[drift_offdiag_site.name]
-    drift_offdiag_mu = np.asarray(drift_offdiag_prior.params.get("mu", []), dtype=float)
-    drift_offdiag_sigma = np.asarray(drift_offdiag_prior.params.get("sigma", []), dtype=float)
+    offdiag_index_by_parameter = {
+        parameter_name: idx for idx, parameter_name in enumerate(offdiag_bindings)
+    }
     for parameter_name in drift_priors:
         binding = offdiag_bindings.get(parameter_name)
         if binding is None:
             continue
-        flat_index = binding.flat_index
-        offdiag_present[flat_index] = True
-        offdiag_parameter_by_index[flat_index] = parameter_name
-        offdiag_mu[flat_index] = (
-            float(drift_offdiag_mu[flat_index]) if flat_index < drift_offdiag_mu.size else 0.0
-        )
-        offdiag_sigma[flat_index] = (
-            float(drift_offdiag_sigma[flat_index]) if flat_index < drift_offdiag_sigma.size else 0.0
+        position_index = offdiag_index_by_parameter[parameter_name]
+        weight_prior = prior_registry.priors_by_site[binding.site_name]
+        weight_mu = _prior_values_1d(weight_prior.params.get("mu"))
+        weight_sigma = _prior_values_1d(weight_prior.params.get("sigma"))
+        offdiag_present[position_index] = True
+        offdiag_parameter_by_index[position_index] = parameter_name
+        offdiag_mu[position_index] = _value_at(weight_mu, binding.flat_index, default=0.0)
+        offdiag_sigma[position_index] = _value_at(
+            weight_sigma,
+            binding.flat_index,
+            default=0.0,
         )
 
     diagnostic_drift = logm_diagnostic_mean_drift(
@@ -178,15 +182,9 @@ def _build_partial_drift_state(
     if diagnostic_drift is not None:
         for latent_index in np.flatnonzero(diag_present):
             diag_mu[latent_index] = abs(float(diagnostic_drift[latent_index, latent_index]))
-        for flat_index in np.flatnonzero(offdiag_present):
-            effect_idx, cause_idx = offdiag_positions[flat_index]
-            offdiag_mu[flat_index] = float(diagnostic_drift[effect_idx, cause_idx])
-
-    drift_component = next(
-        component
-        for component in ssm_spec.drift_spec.components
-        if isinstance(component, StructuralDenseLinearSpec)
-    )
+        for position_index in np.flatnonzero(offdiag_present):
+            effect_idx, cause_idx = offdiag_positions[position_index]
+            offdiag_mu[position_index] = float(diagnostic_drift[effect_idx, cause_idx])
 
     return _PartialDriftState(
         latent_names=latent_names,
@@ -199,7 +197,6 @@ def _build_partial_drift_state(
         offdiag_sigma=offdiag_sigma,
         offdiag_present=offdiag_present,
         offdiag_parameter_by_index=offdiag_parameter_by_index,
-        stability_margin=float(drift_component.stability_margin),
         diagnostic_drift=diagnostic_drift,
     )
 

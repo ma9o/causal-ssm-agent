@@ -42,7 +42,7 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_validate_composite_spec as _execute_validate_composite_spec,
 )
-from nof1_causal_lab.models.ssm.builder import SSMModelBuilder, prepare_model_runtime
+from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.counterfactual import (
     summarize_draws,
     vmap_simulate_action_from_state_composite,
@@ -55,6 +55,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     infer_linearisation,
     posterior_dynamics_from_result,
 )
+from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.causal_spec import (
     get_estimable_treatments,
@@ -303,8 +304,7 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     fitted_result_path = find_run_artifact(workspace_id, STAGE5B_PICKLE_FILENAMES)
     fitted_artifact = load_pickle(fitted_result_path)
     data_for_model = load_parquet(data_for_model_path)
-    persisted_builder = getattr(fitted_artifact, "builder", None)
-    fitted_spec = getattr(persisted_builder, "spec", None)
+    fitted_spec = getattr(fitted_artifact, "spec", None)
     if fitted_spec is None:
         raise HTTPException(
             500,
@@ -312,9 +312,8 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         )
     runtime = prepare_model_runtime(
         data_for_model=data_for_model,
-        builder=SSMModelBuilder(ssm_spec=fitted_spec),
+        model=SSMModel(fitted_spec),
     )
-    fitted_artifact.builder = runtime.builder
     fitted_artifact.observation_support = runtime.observation_support
 
     causal_spec = stage1b.get("causal_spec", {})
@@ -392,7 +391,7 @@ def _prepare_stage6_simulation(
 ) -> tuple[Stage6SimulationSetup | None, dict[str, Any] | None]:
     fitted_artifact = ctx["_fitted_artifact"]
     runtime = ctx["_prepared_runtime"]
-    if fitted_artifact.result is None or fitted_artifact.builder is None:
+    if fitted_artifact.result is None or fitted_artifact.spec is None:
         return None, _tool_error_result("Fitted model artifact is unavailable for simulation.")
     samples = fitted_artifact.result.get_samples() or {}
 
@@ -406,7 +405,7 @@ def _prepare_stage6_simulation(
 
     causal_spec = ctx["stage-1b"].get("causal_spec", {})
     outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
-    spec = fitted_artifact.builder.spec
+    spec = fitted_artifact.spec
     latent_names = list(spec.latent_names or [])
     manifest_names = list(spec.manifest_names or [])
     name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
@@ -551,7 +550,9 @@ def _collect_stage6_warnings(
         for item in stage5b.get("power_scaling", []):
             if item.get("diagnosis") == "prior_dominated":
                 param = item.get("parameter", "")
-                if treatment in param or param.startswith("drift_offdiag"):
+                if treatment in param or param.startswith(
+                    ("linear_edge_weight", "dynamics_weight")
+                ):
                     warnings.append(
                         f"Effect may be prior-driven: parameter {param} "
                         f"is prior-dominated per power-scaling diagnostic"
@@ -647,7 +648,7 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
         payload["overview"] = {
             "outcome": ctx.get("_outcome_name"),
             "treatments": ctx["_identifiable_treatments"],
-            "n_latent": len(getattr(fitted_artifact.builder.spec, "latent_names", []) or []),
+            "n_latent": len(getattr(fitted_artifact.spec, "latent_names", []) or []),
             "n_manifest": len(runtime.manifest_names),
             "inference_method": (stage5b.get("inference_metadata") or {}).get("method"),
             "observed_time_range": {

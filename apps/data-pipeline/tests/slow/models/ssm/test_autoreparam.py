@@ -16,7 +16,7 @@ def _make_simple_ssm():
         spec=block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.ones(2, dtype=bool),
                 drift_offdiag_mask=np.array([[False, True], [True, False]]),

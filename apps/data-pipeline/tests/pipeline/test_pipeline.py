@@ -908,16 +908,15 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
 
     from nof1_causal_lab.models.ssm.inference import FittedArtifact
 
-    # Build a minimal FittedArtifact with mock result and builder
+    # Build a minimal FittedArtifact with mock result and compiled spec.
     mock_spec = SimpleNamespace(
         latent_names=["screen_time", "sleep_quality"],
         manifest_names=[],
     )
-    mock_builder = SimpleNamespace(spec=mock_spec)
 
     fitted_artifact = FittedArtifact(
         result=None,
-        builder=mock_builder,
+        spec=mock_spec,
         times=np.array([0.0, 1.0]),
         ppc_result={"checked": True, "per_variable_warnings": []},
         power_scaling_result={"checked": True, "diagnosis": {}},
@@ -1277,7 +1276,6 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
         latent_names=["screen_time", "sleep_quality"],
         manifest_names=["screen_time_obs"],
     )
-    builder = SimpleNamespace(spec=spec, model=_Unpicklable())
     result = InferenceResult(
         _samples={"drift": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
         method="aux_kalman_mcmc",
@@ -1285,7 +1283,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     )
     artifact = FittedArtifact(
         result=result,
-        builder=builder,
+        spec=spec,
         times=jnp.array([0.0, 1.0], dtype=jnp.float32),
         observation_support=SimpleNamespace(manifest_names=["screen_time_obs"]),
         ppc_result={"checked": True, "per_variable_warnings": []},
@@ -1300,8 +1298,8 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
         np.asarray(restored.result.get_samples()["drift"]),
         np.asarray(result.get_samples()["drift"]),
     )
-    assert restored.builder is not None
-    assert restored.builder.spec.latent_names == ["screen_time", "sleep_quality"]
+    assert restored.spec is not None
+    assert restored.spec.latent_names == ["screen_time", "sleep_quality"]
     assert restored.ppc_result == {"checked": True, "per_variable_warnings": []}
 
 
@@ -1902,7 +1900,7 @@ def test_stage2_calls_subflow_directly(monkeypatch, tmp_path):
 
 
 def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
-    from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
+    from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs
     from nof1_causal_lab.utils.data import pivot_to_wide
 
     stub = _AsyncSubflowStub(
@@ -1993,9 +1991,10 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
         == 1
     )
 
-    observations, _times, manifest_names = SSMModelBuilder(
-        sampler_config={"method": "aux_kalman_mcmc"}
-    ).prepare_fit_inputs(pivot_to_wide(data_for_model))
+    observations, _times, manifest_names, _wide = prepare_fit_inputs(
+        SimpleNamespace(manifest_names=[], manifest_centered=None),
+        pivot_to_wide(data_for_model),
+    )
     assert manifest_names == ["daytime_screen_events", "last_evening_activity_hour"]
     assert jnp.isclose(observations[0, 0], 5.0)
     assert jnp.isnan(observations[0, 1])

@@ -20,7 +20,7 @@ def _build_failed_fit_result(
     ps_result = {"checked": False, "error": fitted_result.get("error", "Model not fitted")}
     fitted_artifact = FittedArtifact(
         result=fitted_result.get("result"),
-        builder=fitted_result.get("builder"),
+        spec=fitted_result.get("spec"),
         times=fitted_result.get("times"),
         observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
         ppc_result=ppc_result,
@@ -157,7 +157,7 @@ def run_stage5b_with_data(
 
     fitted_artifact = FittedArtifact(
         result=fitted_result.get("result"),
-        builder=fitted_result.get("builder"),
+        spec=fitted_result.get("spec"),
         times=fitted_result.get("times"),
         observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
         ppc_result=ppc_result,

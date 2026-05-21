@@ -158,7 +158,7 @@ def _component_binding_candidates(
         candidates[name] = binding
 
     for binding in iter_component_semantic_bindings(
-        ssm_spec.drift_spec,
+        ssm_spec.dynamics_spec,
         latent_names=tuple(latent_names),
     ):
         site = sites_by_name.get(binding.site_name)
@@ -197,8 +197,8 @@ class _SimpleAxisRule:
 
     prefixes: tuple[str, ...]
     axis_kind: str  # "latent" or "manifest"
-    prior_field: str
-    layout_index_attr: str
+    prior_field: str | None
+    layout_index_attr: str | None
     transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY
     component_fallback_pattern: str | None = None
     error_template: str | None = None
@@ -273,6 +273,18 @@ def _apply_simple_axis_rule(
     construct = parameter.name
     for prefix in rule.prefixes:
         construct = construct.removeprefix(prefix)
+    if rule.component_fallback_pattern is not None:
+        candidate = ctx.component_candidates.get(
+            rule.component_fallback_pattern.format(construct=construct)
+        )
+        if candidate is not None:
+            ctx.add_site_binding(parameter.name, candidate)
+            return
+    if rule.prior_field is None or rule.layout_index_attr is None:
+        if ctx.strict_structure and rule.error_template is not None:
+            ctx.errors.append(rule.error_template.format(param=parameter.name))
+        return
+
     axis_idx_map = ctx.latent_idx_map if rule.axis_kind == "latent" else ctx.manifest_idx_map
     axis_idx = axis_idx_map.get(construct)
     layout_index = getattr(ctx.parameter_layout, rule.layout_index_attr)
@@ -286,13 +298,6 @@ def _apply_simple_axis_rule(
             construct_names=(construct,),
         )
         return
-    if rule.component_fallback_pattern is not None:
-        candidate = ctx.component_candidates.get(
-            rule.component_fallback_pattern.format(construct=construct)
-        )
-        if candidate is not None:
-            ctx.add_site_binding(parameter.name, candidate)
-            return
     if ctx.strict_structure and rule.error_template is not None:
         ctx.errors.append(rule.error_template.format(param=parameter.name))
 
@@ -331,20 +336,6 @@ def _handle_fixed_effect(parameter: Any, ctx: _BindingContext) -> None:
                 "FIXED_EFFECT parameter does not correspond to a known-input edge "
                 f"in causal_spec: {parameter.name!r}"
             ),
-        )
-        return
-    cause_idx = ctx.latent_idx_map[cause_name]
-    position = (effect_idx, cause_idx)
-    flat_idx = ctx.parameter_layout.offdiag_index.get(position)
-    if flat_idx is not None:
-        ctx.add(
-            parameter.name,
-            ctx.site_for_field("drift_offdiag"),
-            flat_idx,
-            transform=PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE,
-            construct_names=(cause_name, effect_name),
-            effect_idx=effect_idx,
-            cause_idx=cause_idx,
         )
         return
     candidate = ctx.component_candidates.get(parameter.name)
@@ -430,7 +421,7 @@ def _handle_dynamics_parameter(parameter: Any, ctx: _BindingContext) -> None:
         ctx.add_site_binding(parameter.name, candidate)
         return
     site = ctx.sites_by_name.get(parameter.name)
-    if site is not None and site.assembly_group in {"dynamics", "drift", "cint"}:
+    if site is not None and site.assembly_group == "dynamics":
         ctx.add(
             parameter.name,
             site,
@@ -512,8 +503,8 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
     ParameterRole.AR_COEFFICIENT: _SimpleAxisRule(
         prefixes=("rho_", "ar_"),
         axis_kind="latent",
-        prior_field="drift_base_decay",
-        layout_index_attr="drift_base_decay_index",
+        prior_field=None,
+        layout_index_attr=None,
         transform=PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
         component_fallback_pattern="rho_{construct}",
         error_template=(
@@ -554,8 +545,8 @@ _SIMPLE_AXIS_RULES: dict[ParameterRole, _SimpleAxisRule] = {
     ParameterRole.STATE_INTERCEPT: _SimpleAxisRule(
         prefixes=("cint_",),
         axis_kind="latent",
-        prior_field="cint",
-        layout_index_attr="cint_free_index",
+        prior_field=None,
+        layout_index_attr=None,
         component_fallback_pattern="cint_{construct}",
         error_template=(
             "STATE_INTERCEPT parameter does not correspond to a free continuous-time "

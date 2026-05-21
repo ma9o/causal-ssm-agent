@@ -24,21 +24,18 @@ if TYPE_CHECKING:
 # model-parameter keyword set it implicates. The matcher in
 # ``prior_predictive.get_failed_parameters`` does ``if site_prefix in
 # result_param:`` so each key must cover one variant the diagnostic can use:
-# prior_field forms (``"drift_offdiag"``), block-runtime site names
-# (``"diffusion_lower_free"``, ``"t0_var_lower_free"``), and the composite
-# drift runtime suffixes (``"base_decay"``, ``"offdiag"``) that appear inside
-# the prefixed component site names ``"vf_<i>_base_decay"`` and
-# ``"vf_<i>_offdiag"``.
+# prior_field forms and block-runtime site names.
 SITE_TO_KEYWORDS: dict[str, list[str]] = {
-    "drift_base_decay": ["rho", "ar"],
-    "base_decay": ["rho", "ar"],
-    "drift_offdiag": ["beta"],
-    "offdiag": ["beta"],
+    "dynamics_decay": ["rho", "ar", "decay"],
+    "decay": ["rho", "ar", "decay"],
+    "linear_edge_weight": ["beta", "linear_weight"],
+    "dynamics_weight": ["beta", "linear_weight", "multiplicative_weight"],
+    "weight": ["beta", "linear_weight", "multiplicative_weight"],
+    "dynamics_cint": ["cint"],
     "input_effect": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
     "diffusion_offdiag": ["cor"],
     "diffusion_lower_free": ["cor"],
-    "cint": ["cint"],
     "static_state_sd": ["tau", "baseline_factor"],
     "lambda_free": ["lambda", "loading"],
     "manifest_means": ["manifest_mean"],
@@ -55,9 +52,13 @@ SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "obs_ordered_gaps": ["obs_ordered_gaps"],
     "obs_cat_intercepts": ["obs_cat_intercepts"],
     "obs_cat_slopes": ["obs_cat_slopes"],
+    "hill_emax": ["hill_emax"],
+    "hill_ec50": ["hill_ec50"],
+    "hill_n": ["hill_n"],
+    "multiplicative_weight": ["multiplicative_weight"],
     # dynamics_stability is a synthetic validation parameter (not a prior
-    # field) that covers both drift and diffusion parameters.
-    "dynamics_stability": ["rho", "ar", "sigma", "sd"],
+    # field) that covers dynamics and diffusion parameters.
+    "dynamics_stability": ["rho", "ar", "beta", "sigma", "sd"],
 }
 
 # SSM parameters with fixed default priors that are not in ModelSpec and
@@ -105,10 +106,19 @@ def resolve_scalar_parameter_name(
     site = parameter_layout.by_name.get(site_name)
     site_kind = site.site_kind if site is not None else None
 
-    if site_kind == SiteKind.DRIFT_BASE_DECAY and flat_index < len(site.positions):
-        latent_idx = site.positions[flat_index]
+    if site_kind == SiteKind.DYNAMICS_DECAY:
+        latent_idx = (
+            site.positions[flat_index]
+            if site is not None and site.positions and flat_index < len(site.positions)
+            else flat_index
+        )
         return f"rho_{latent_names[latent_idx]}"
-    if site_kind == SiteKind.DRIFT_OFFDIAG and flat_index < len(site.positions):
+    if (
+        site_kind == SiteKind.DYNAMICS_WEIGHT
+        and site is not None
+        and flat_index < len(site.positions)
+        and len(site.positions[flat_index]) == 2
+    ):
         effect_idx, cause_idx = site.positions[flat_index]
         return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
     if site_name == "input_effect_free" and flat_index < parameter_layout.n_input_effect:
@@ -125,8 +135,12 @@ def resolve_scalar_parameter_name(
     if site_name == "diffusion_lower_free" and flat_index < parameter_layout.n_diffusion_lower:
         row, col = parameter_layout.diffusion_lower_positions[flat_index]
         return f"cor_{latent_names[col]}_{latent_names[row]}"
-    if site_kind == SiteKind.CINT and flat_index < len(site.positions):
-        latent_idx = site.positions[flat_index]
+    if site_kind == SiteKind.DYNAMICS_CINT:
+        latent_idx = (
+            site.positions[flat_index]
+            if site is not None and site.positions and flat_index < len(site.positions)
+            else flat_index
+        )
         return f"cint_{latent_names[latent_idx]}"
     if site_name == "lambda_free" and flat_index < parameter_layout.n_lambda_free:
         manifest_idx, latent_idx = parameter_layout.lambda_free_positions[flat_index]

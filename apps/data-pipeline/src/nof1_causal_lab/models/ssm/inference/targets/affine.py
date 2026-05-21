@@ -11,6 +11,8 @@ from nof1_causal_lab.models.ssm.dynamics.edges import (
     DiagonalDecay,
     Intercept,
     LinearEdge,
+    StateDecay,
+    StateIntercept,
 )
 
 if TYPE_CHECKING:
@@ -49,8 +51,13 @@ def derive_affine_dynamics(dynamics: RuntimeDynamics) -> AffineDynamicsParams:
                 has_cint = True
         elif isinstance(component, DiagonalDecay):
             drift = drift - jnp.diag(params["decay"])
+        elif isinstance(component, StateDecay):
+            drift = drift.at[component.target, component.target].add(-params["decay"])
         elif isinstance(component, Intercept):
             cint = cint + params["cint"]
+            has_cint = True
+        elif isinstance(component, StateIntercept):
+            cint = cint.at[component.target].add(params["cint"])
             has_cint = True
         elif isinstance(component, LinearEdge):
             drift = drift.at[component.target, component.source].add(params["weight"])

@@ -1,4 +1,4 @@
-"""Tests for the drift component primitives and CompositeVectorField.
+"""Tests for vector-field component primitives and CompositeVectorField.
 
 Three layers:
 
@@ -18,10 +18,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 import pytest
 
-from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
 from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
-    DenseLinear,
     DiagonalDecay,
     EdgeInputOverride,
     HillEdge,
@@ -35,6 +33,12 @@ from nof1_causal_lab.models.ssm.dynamics import (
     constant_value,
     simulate,
 )
+from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+
+
+def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
+    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+
 
 # =============================================================================
 # Individual primitives
@@ -46,7 +50,7 @@ class TestLinearEdge:
         edge = LinearEdge(source=0, target=1)
         drift = jnp.zeros(2)
         eta_per_edge = jnp.array([[1.0, 2.0], [3.0, 4.0]])  # eta_per_edge[1, 0] = 3.0
-        out = edge.contribute_to_drift(
+        out = edge.contribute(
             drift,
             jnp.zeros(2),
             eta_per_edge,
@@ -63,7 +67,7 @@ class TestHillEdge:
         drift = jnp.zeros(2)
         eta_per_edge = jnp.zeros((2, 2))
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute_to_drift(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
     def test_half_emax_at_ec50(self):
@@ -71,7 +75,7 @@ class TestHillEdge:
         drift = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1.0, 0.0]])  # source-as-seen-by-1 == EC50
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute_to_drift(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(1.0, abs=1e-6)
 
     def test_saturates_at_emax(self):
@@ -79,7 +83,7 @@ class TestHillEdge:
         drift = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [1000.0, 0.0]])
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute_to_drift(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(2.0, abs=1e-4)
 
     def test_clamps_negative_source(self):
@@ -87,7 +91,7 @@ class TestHillEdge:
         drift = jnp.zeros(2)
         eta_per_edge = jnp.array([[0.0, 0.0], [-5.0, 0.0]])
         params = {"Emax": jnp.asarray(2.0), "EC50": jnp.asarray(1.0), "n": jnp.asarray(2.0)}
-        out = edge.contribute_to_drift(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(drift, jnp.zeros(2), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[1]) == pytest.approx(0.0, abs=1e-10)
 
 
@@ -103,7 +107,7 @@ class TestMultiplicativeEdge:
             ]
         )
         params = {"weight": jnp.asarray(0.5)}
-        out = edge.contribute_to_drift(drift, jnp.zeros(3), eta_per_edge, jnp.asarray(0.0), params)
+        out = edge.contribute(drift, jnp.zeros(3), eta_per_edge, jnp.asarray(0.0), params)
         assert float(out[2]) == pytest.approx(6.0)
 
 
@@ -114,9 +118,7 @@ class TestDenseLinear:
         eta = jnp.array([1.5, 0.8])
         eta_per_edge = jnp.broadcast_to(eta[None, :], (2, 2))
         params = {"drift": A, "cint": jnp.array([0.1, -0.2])}
-        out = component.contribute_to_drift(
-            jnp.zeros(2), eta, eta_per_edge, jnp.asarray(0.0), params
-        )
+        out = component.contribute(jnp.zeros(2), eta, eta_per_edge, jnp.asarray(0.0), params)
         expected = A @ eta + params["cint"]
         assert jnp.allclose(out, expected, atol=1e-6)
 
@@ -126,9 +128,7 @@ class TestDiagonalDecay:
         component = DiagonalDecay()
         eta = jnp.array([2.0, -1.0])
         params = {"decay": jnp.array([0.5, 1.0])}
-        out = component.contribute_to_drift(
-            jnp.zeros(2), eta, jnp.zeros((2, 2)), jnp.asarray(0.0), params
-        )
+        out = component.contribute(jnp.zeros(2), eta, jnp.zeros((2, 2)), jnp.asarray(0.0), params)
         assert jnp.allclose(out, jnp.array([-1.0, 1.0]), atol=1e-6)
 
 
@@ -136,7 +136,7 @@ class TestInterceptComponent:
     def test_adds_intercept(self):
         component = Intercept()
         params = {"cint": jnp.array([0.3, -0.1])}
-        out = component.contribute_to_drift(
+        out = component.contribute(
             jnp.zeros(2), jnp.zeros(2), jnp.zeros((2, 2)), jnp.asarray(0.0), params
         )
         assert jnp.allclose(out, params["cint"], atol=1e-6)
@@ -158,7 +158,7 @@ class TestCompositeEquivalence:
         eta = jnp.array([1.5, 0.8])
 
         dense_vf = CompositeVectorField(n_latent=2, components=(DenseLinear(),))
-        factory_vf = linear_vector_field(n_latent=2)
+        factory_vf = _dense_linear_vector_field(n_latent=2)
 
         params = ({"drift": A, "cint": cint},)
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
@@ -216,9 +216,7 @@ class TestCompositeInterventions:
         # Replace the source-as-seen-by-target-1 with 10 → drift[1] += 0.5*(10-2)
         intervention = Intervention(
             overrides=(
-                EdgeInputOverride(
-                    source=0, target=1, value_fn=constant_value(jnp.asarray(10.0))
-                ),
+                EdgeInputOverride(source=0, target=1, value_fn=constant_value(jnp.asarray(10.0))),
             )
         )
         intervened_drift = vf(
@@ -306,9 +304,7 @@ class TestSSRIChain:
             components=(
                 DiagonalDecay(),
                 Intercept(),
-                MultiplicativeEdge(
-                    source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P
-                ),
+                MultiplicativeEdge(source_a=self.DOSE, source_b=self.ADHERENCE, target=self.C_P),
                 LinearEdge(source=self.C_P, target=self.C_E),
                 HillEdge(source=self.C_E, target=self.AFFECTIVE),
             ),
@@ -342,9 +338,7 @@ class TestSSRIChain:
         vf, params = self._build()
         intervention = Intervention(
             overrides=(
-                VariableOverride(
-                    index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))
-                ),
+                VariableOverride(index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))),
             )
         )
         steady = compute_steady_state(vf, params, intervention)
@@ -359,15 +353,11 @@ class TestSSRIChain:
         baseline_steady = compute_steady_state(vf, params, Intervention.none())
         do_dose_2 = Intervention(
             overrides=(
-                VariableOverride(
-                    index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))
-                ),
+                VariableOverride(index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))),
             )
         )
         intervened_steady = compute_steady_state(vf, params, do_dose_2)
-        effect = float(
-            intervened_steady[self.AFFECTIVE] - baseline_steady[self.AFFECTIVE]
-        )
+        effect = float(intervened_steady[self.AFFECTIVE] - baseline_steady[self.AFFECTIVE])
         # Hill(2) - Hill(1) = 1.6 - 1.0 = 0.6 (NOT 1.0 like a linear chain)
         assert effect == pytest.approx(0.6, abs=1e-3)
         assert effect < 1.0
@@ -377,9 +367,7 @@ class TestSSRIChain:
         baseline_steady = compute_steady_state(vf, params, Intervention.none())
         intervention = Intervention(
             overrides=(
-                VariableOverride(
-                    index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))
-                ),
+                VariableOverride(index=self.DOSE, value_fn=constant_value(jnp.asarray(2.0))),
             )
         )
         time_grid = jnp.linspace(0.0, 60.0, 121)

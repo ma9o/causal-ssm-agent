@@ -38,30 +38,25 @@ from __future__ import annotations
 
 from typing import Any
 
-import jax.numpy as jnp
-import numpy as np
-
 from .composite import (
     CompositeSpec,
-    DenseLinearSpec,
     DiagonalDecaySpec,
     HillEdgeSpec,
     InterceptSpec,
     LinearEdgeSpec,
     MultiplicativeEdgeSpec,
-    StructuralDenseLinearSpec,
-    StructuralInterceptSpec,
+    StateDecaySpec,
+    StateInterceptSpec,
 )
 
 _COMPONENT_KIND_REGISTRY: dict[str, str] = {
-    "DenseLinear": "dense_linear",
+    "StateDecay": "state_decay",
     "DiagonalDecay": "diagonal_decay",
+    "StateIntercept": "state_intercept",
     "Intercept": "intercept",
     "LinearEdge": "linear_edge",
     "HillEdge": "hill_edge",
     "MultiplicativeEdge": "multiplicative_edge",
-    "StructuralDenseLinear": "structural_dense_linear",
-    "StructuralIntercept": "structural_intercept",
 }
 
 
@@ -91,30 +86,24 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
     priors. Distribution-typed priors are passed through as-is (callers
     that need JSON serialisation must store priors as dict-configs).
     """
-    from .composite import (
-        DenseLinearSpec,
-        DiagonalDecaySpec,
-        HillEdgeSpec,
-        InterceptSpec,
-        LinearEdgeSpec,
-        MultiplicativeEdgeSpec,
-        StructuralDenseLinearSpec,
-        StructuralInterceptSpec,
-    )
-
     components: list[dict[str, Any]] = []
     for component in spec.components:
-        if isinstance(component, DenseLinearSpec):
+        if isinstance(component, StateDecaySpec):
             entry: dict[str, Any] = {
-                "kind": "DenseLinear",
-                "priors": {"drift": _prior_to_dict(component.drift_prior)},
+                "kind": "StateDecay",
+                "target": int(component.target),
+                "priors": {"decay": _prior_to_dict(component.decay_prior)},
             }
-            if component.cint_prior is not None:
-                entry["priors"]["cint"] = _prior_to_dict(component.cint_prior)
         elif isinstance(component, DiagonalDecaySpec):
             entry = {
                 "kind": "DiagonalDecay",
                 "priors": {"decay": _prior_to_dict(component.decay_prior)},
+            }
+        elif isinstance(component, StateInterceptSpec):
+            entry = {
+                "kind": "StateIntercept",
+                "target": int(component.target),
+                "priors": {"cint": _prior_to_dict(component.cint_prior)},
             }
         elif isinstance(component, InterceptSpec):
             entry = {
@@ -147,35 +136,6 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
                 "target": int(component.target),
                 "priors": {"weight": _prior_to_dict(component.weight_prior)},
             }
-        elif isinstance(component, StructuralDenseLinearSpec):
-            entry = {
-                "kind": "StructuralDenseLinear",
-                "n_latent": int(component.n_latent),
-                "drift_diag_mask": np.asarray(component.drift_diag_mask).tolist(),
-                "drift_offdiag_mask": np.asarray(component.drift_offdiag_mask).tolist(),
-                "drift_template": np.asarray(component.drift_template).tolist(),
-                "stability_margin": float(component.stability_margin),
-                "time_invariant_mask": (
-                    np.asarray(component.time_invariant_mask).tolist()
-                    if component.time_invariant_mask is not None
-                    else None
-                ),
-                "priors": {},
-            }
-            if component.base_decay_prior is not None:
-                entry["priors"]["base_decay"] = _prior_to_dict(component.base_decay_prior)
-            if component.offdiag_prior is not None:
-                entry["priors"]["offdiag"] = _prior_to_dict(component.offdiag_prior)
-        elif isinstance(component, StructuralInterceptSpec):
-            entry = {
-                "kind": "StructuralIntercept",
-                "n_latent": int(component.n_latent),
-                "cint_mask": np.asarray(component.cint_mask).tolist(),
-                "cint_template": np.asarray(component.cint_template).tolist(),
-                "priors": {},
-            }
-            if component.cint_prior is not None:
-                entry["priors"]["cint"] = _prior_to_dict(component.cint_prior)
         else:
             raise ValueError(
                 f"composite_spec_to_dict: unsupported component type {type(component).__name__}"
@@ -203,16 +163,12 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             )
         return priors[name]
 
-    def _optional(name: str) -> dict[str, Any] | None:
-        return priors.get(name)
-
-    if kind == "DenseLinear":
-        return DenseLinearSpec(
-            drift_prior=_required("drift"),
-            cint_prior=_optional("cint"),
-        )
+    if kind == "StateDecay":
+        return StateDecaySpec(target=int(component["target"]), decay_prior=_required("decay"))
     if kind == "DiagonalDecay":
         return DiagonalDecaySpec(decay_prior=_required("decay"))
+    if kind == "StateIntercept":
+        return StateInterceptSpec(target=int(component["target"]), cint_prior=_required("cint"))
     if kind == "Intercept":
         return InterceptSpec(cint_prior=_required("cint"))
     if kind == "LinearEdge":
@@ -235,27 +191,6 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             source_b=int(component["source_b"]),
             target=int(component["target"]),
             weight_prior=_required("weight"),
-        )
-    if kind == "StructuralDenseLinear":
-        time_inv = component.get("time_invariant_mask")
-        return StructuralDenseLinearSpec(
-            n_latent=int(component["n_latent"]),
-            drift_diag_mask=np.asarray(component["drift_diag_mask"], dtype=bool),
-            drift_offdiag_mask=np.asarray(component["drift_offdiag_mask"], dtype=bool),
-            drift_template=jnp.asarray(component["drift_template"]),
-            stability_margin=float(component.get("stability_margin", 0.05)),
-            time_invariant_mask=(
-                np.asarray(time_inv, dtype=bool) if time_inv is not None else None
-            ),
-            base_decay_prior=_optional("base_decay"),
-            offdiag_prior=_optional("offdiag"),
-        )
-    if kind == "StructuralIntercept":
-        return StructuralInterceptSpec(
-            n_latent=int(component["n_latent"]),
-            cint_mask=np.asarray(component["cint_mask"], dtype=bool),
-            cint_template=jnp.asarray(component["cint_template"]),
-            cint_prior=_optional("cint"),
         )
     raise ValueError(
         f"Unknown composite component kind {kind!r}; known: {sorted(_COMPONENT_KIND_REGISTRY)}"

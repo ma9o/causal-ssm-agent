@@ -20,11 +20,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
-from nof1_causal_lab.models.ssm.inference.targets.affine import (
-    AffineDynamicsParams,
-    derive_affine_dynamics,
-)
+from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
+from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
@@ -33,11 +30,14 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
     get_summary_operator_codes,
     get_support_kind_codes,
 )
+from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 
 from .point import (
+    _dense_dynamic_support_laplace_log_lik,
     _dense_support_laplace_log_lik,
     _ieks_smooth,
     _linear_summary_augmented_ieks_laplace,
+    _point_dynamic_transition_ieks_laplace,
     _point_ieks_mode,
     _point_laplace_from_mode,
 )
@@ -197,7 +197,7 @@ class LaplaceLikelihood:
 
     def _compute_log_likelihood_impl(
         self,
-        affine_dynamics: AffineDynamicsParams,
+        dynamics: RuntimeDynamics,
         measurement_params: MeasurementParams,
         initial_state: InitialStateParams,
         observations: jnp.ndarray,
@@ -229,14 +229,12 @@ class LaplaceLikelihood:
 
         def _discretize_base_system() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             with jax.named_scope("map/discretize_system"):
-                Ad, Qd, cd = discretize_system_with_inputs_batched(
-                    affine_dynamics.drift,
-                    affine_dynamics.diffusion_cov,
-                    affine_dynamics.cint,
-                    affine_dynamics.input_effect,
-                    transition_inputs,
+                transitions = build_discrete_transitions(
+                    dynamics,
                     time_intervals,
+                    transition_inputs=transition_inputs,
                 )
+                Ad, Qd, cd = transitions.Ad, transitions.Qd, transitions.cd
             if cd is None:
                 cd = jnp.zeros((len(time_intervals), n))
             else:
@@ -250,7 +248,7 @@ class LaplaceLikelihood:
             and self.observation_support.requires_interval_summary_handling
         ):
             cache_inputs = (
-                affine_dynamics,
+                dynamics,
                 measurement_params,
                 initial_state,
                 observations,
@@ -258,6 +256,50 @@ class LaplaceLikelihood:
                 obs_mask,
                 extra_params,
             )
+            uses_dynamic_transitions = infer_linearisation(dynamics.vector_field) == "trajectory"
+            if uses_dynamic_transitions:
+                can_reuse_support_mode = allow_stateful_cache and not _tree_contains_tracer(
+                    cache_inputs
+                )
+                support_mode_init = latent_mode_init
+                if (
+                    support_mode_init is None
+                    and can_reuse_support_mode
+                    and self._support_mode_cache is not None
+                    and self._support_mode_cache.shape == (clean_obs.shape[0], self.n_latent)
+                ):
+                    support_mode_init = self._support_mode_cache
+                if not _should_use_dense_support_laplace(
+                    n_time=clean_obs.shape[0],
+                    n_latent=self.n_latent,
+                ):
+                    raise NotImplementedError(
+                        "Trajectory-dependent interval-support dynamics are currently "
+                        "supported only by the dense support Laplace backend."
+                    )
+                with jax.named_scope("map/dense_dynamic_support_backend"):
+                    log_lik, inner_eval_aux = _dense_dynamic_support_laplace_log_lik(
+                        clean_obs,
+                        obs_mask,
+                        dynamics,
+                        time_intervals,
+                        measurement_params.lambda_mat,
+                        measurement_params.manifest_means,
+                        measurement_params.manifest_cov,
+                        initial_state.mean,
+                        initial_state.cov,
+                        obs_kernel,
+                        measurement_semantics.mean_log_prob_fn,
+                        self.observation_support,
+                        self.n_ieks_iters,
+                        transition_inputs=transition_inputs,
+                        z_init=support_mode_init,
+                    )
+                    if can_reuse_support_mode:
+                        self._support_mode_cache = jax.device_get(inner_eval_aux["latent_mode"])
+                return log_lik, inner_eval_aux if include_aux else None
+
+            affine_dynamics = derive_affine_dynamics(dynamics)
             if self._linear_summary_plan is not None:
 
                 def _build_linear_summary_measurement_objects(
@@ -411,7 +453,7 @@ class LaplaceLikelihood:
                 return log_lik, inner_eval_aux if include_aux else None
 
         cache_inputs = (
-            affine_dynamics,
+            dynamics,
             measurement_params,
             initial_state,
             observations,
@@ -429,7 +471,9 @@ class LaplaceLikelihood:
         ):
             point_mode_init = self._point_mode_cache
 
-        Ad, Qd, cd = _discretize_base_system()
+        uses_dynamic_transitions = infer_linearisation(dynamics.vector_field) == "trajectory"
+        if not uses_dynamic_transitions:
+            Ad, Qd, cd = _discretize_base_system()
         T_obs = clean_obs.shape[0]
         H_rows = jnp.broadcast_to(
             measurement_params.lambda_mat[None, :, :],
@@ -453,23 +497,40 @@ class LaplaceLikelihood:
             )
 
         with jax.named_scope("map/ieks_backend"):
-            z_mode, log_lik, inner_eval_aux = _ieks_smooth(
-                clean_obs,
-                obs_mask,
-                Ad,
-                Qd,
-                cd,
-                H_rows,
-                d_rows,
-                measurement_params.manifest_cov,
-                initial_state.mean,
-                initial_state.cov,
-                obs_kernel,
-                n_ieks_iters=self.n_ieks_iters,
-                z_init=point_mode_init,
-                build_measurement_objects=_build_point_measurement_objects,
-                extra_params=extra_params,
-            )
+            if uses_dynamic_transitions:
+                z_mode, log_lik, inner_eval_aux = _point_dynamic_transition_ieks_laplace(
+                    clean_obs,
+                    obs_mask,
+                    dynamics,
+                    time_intervals,
+                    H_rows,
+                    d_rows,
+                    measurement_params.manifest_cov,
+                    initial_state.mean,
+                    initial_state.cov,
+                    obs_kernel,
+                    n_ieks_iters=self.n_ieks_iters,
+                    z_init=point_mode_init,
+                    transition_inputs=transition_inputs,
+                )
+            else:
+                z_mode, log_lik, inner_eval_aux = _ieks_smooth(
+                    clean_obs,
+                    obs_mask,
+                    Ad,
+                    Qd,
+                    cd,
+                    H_rows,
+                    d_rows,
+                    measurement_params.manifest_cov,
+                    initial_state.mean,
+                    initial_state.cov,
+                    obs_kernel,
+                    n_ieks_iters=self.n_ieks_iters,
+                    z_init=point_mode_init,
+                    build_measurement_objects=_build_point_measurement_objects,
+                    extra_params=extra_params,
+                )
             if can_reuse_point_mode:
                 self._point_mode_cache = jax.device_get(z_mode)
 
@@ -492,9 +553,8 @@ class LaplaceLikelihood:
         Returns:
             (T,) cumulative log-normalizing constants, matching LikelihoodBackend protocol.
         """
-        affine_dynamics = derive_affine_dynamics(dynamics)
         log_lik, _aux = self._compute_log_likelihood_impl(
-            affine_dynamics,
+            dynamics,
             measurement_params,
             initial_state,
             observations,
@@ -521,9 +581,8 @@ class LaplaceLikelihood:
         transition_inputs: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Compute Laplace-approximated log-likelihood plus host-log aux."""
-        affine_dynamics = derive_affine_dynamics(dynamics)
         log_lik, inner_eval_aux = self._compute_log_likelihood_impl(
-            affine_dynamics,
+            dynamics,
             measurement_params,
             initial_state,
             observations,

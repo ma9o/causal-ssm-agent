@@ -38,7 +38,7 @@ def _full_default_spec(n_latent: int = 2, n_manifest: int = 2) -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=full_structural_dense_drift_spec(n_latent),
+        dynamics_spec=full_structural_dense_drift_spec(n_latent),
         diffusion_block=default_diffusion_block(n_latent),
         lambda_block=default_lambda_block(n_manifest, n_latent),
         manifest_means_block=default_manifest_means_block(n_manifest),
@@ -57,7 +57,7 @@ def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=np.eye(n_latent, dtype=bool)
@@ -134,7 +134,7 @@ def _all_fixed_spec(n_latent: int = 2) -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.zeros(n_latent, dtype=bool),
             drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),

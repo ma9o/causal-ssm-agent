@@ -5,7 +5,6 @@ from .prior_predictive import (
     validate_prior_predictive,
 )
 from .ssm import PriorRegistry, PriorSpec, SSMModel, SSMSpec
-from .ssm.builder import SSMModelBuilder
 
 __all__ = [
     # State-space model
@@ -13,7 +12,6 @@ __all__ = [
     "PriorSpec",
     "SSMModel",
     "SSMSpec",
-    "SSMModelBuilder",
     # Validation
     "validate_prior_predictive",
     "format_validation_report",

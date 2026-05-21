@@ -160,7 +160,7 @@ def _one_dim_block_spec():
     return block_ssm_spec(
         n_latent=1,
         n_manifest=1,
-        drift_spec=_structural_dense_drift_spec(1),
+        dynamics_spec=_structural_dense_drift_spec(1),
         diffusion_block=diagonal_diffusion_block(1),
     )
 
@@ -2096,7 +2096,7 @@ def test_map_optimizer_smoke_on_small_kalman_model():
     spec = block_ssm_spec(
         n_latent=1,
         n_manifest=1,
-        drift_spec=_structural_dense_drift_spec(
+        dynamics_spec=_structural_dense_drift_spec(
             1,
             drift_diag_mask=np.array([False]),
             drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -2185,7 +2185,7 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
     kwargs = {
         "n_latent": 1,
         "n_manifest": 1,
-        "drift_spec": _structural_dense_drift_spec(
+        "dynamics_spec": _structural_dense_drift_spec(
             1,
             drift_diag_mask=np.array([False]),
             drift_offdiag_mask=np.zeros((1, 1), dtype=bool),

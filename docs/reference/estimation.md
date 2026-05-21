@@ -1,6 +1,6 @@
 # Estimation Pipeline
 
-This document describes what `SSMModel.model()` computes when the [compilation pipeline](compilation.md) hands off a ready-to-fit [`SSMModel`](compilation.md#stage-6-builder--runtime-ssm_compilerpy-ssm_builderpy-ssm_observation_metadatapy). The entry point is a compiled artifact containing `SSMSpec`, `compiled_prior_semantics`, `edge_lag_days`, and parameter bindings — everything before this point is covered in [compilation.md](compilation.md). For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
+This document describes what `SSMModel.model()` computes when the [compilation pipeline](compilation.md) hands off a ready-to-fit [`SSMModel`](compilation.md#stage-5-runtime-preparation-compileartifactpy-runtimepy-observation_supportpy). The entry point is a compiled artifact containing `SSMSpec`, `compiled_prior_semantics`, `edge_lag_days`, and parameter bindings — everything before this point is covered in [compilation.md](compilation.md). For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
 
 **Reader guide:**
 
@@ -96,14 +96,17 @@ The estimation pipeline composes three main libraries:
 
 ```mermaid
 flowchart LR
-    A["CompiledSSMArtifact"] --> B["build_compiled_ssm_builder()"]
-    B --> C["SSMModel"]
-    C --> D["SSMModel.model(obs, times)"]
-    D --> E["inference.fit()"]
-    E --> F["InferenceResult"]
+    A["CompiledSSMArtifact"] --> B["build_model_from_compiled_artifact()"]
+    B --> C["prepare_model_runtime()"]
+    C --> D["SSMModel"]
+    C --> E["observations + times + support"]
+    D --> F["fit_prepared_model()"]
+    E --> F
+    F --> G["inference.fit()"]
+    G --> H["InferenceResult"]
 ```
 
-A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-ssm_compilerpy) arrives from the compilation pipeline. `build_compiled_ssm_builder()` deserializes `SSMSpec`, reloads the prior runtime bundle from `compiled_prior_semantics`, and constructs a live `SSMModel`, which derives `SSMStructureRuntime` once for structural assembly. Inside the NumPyro model function, `SSMModel.model()` samples from the runtime prior bundle, discretizes CT → DT (§2), delegates the state-side objective (§3), and injects it via `numpyro.factor("log_likelihood", ll)` when the active method uses a marginal-likelihood target. `inference.fit()` returns an `InferenceResult` with posterior samples and diagnostics.
+A [`CompiledSSMArtifact`](compilation.md#stage-5-artifact-serialization-ssm_compilerpy) arrives from the compilation pipeline. `build_model_from_compiled_artifact()` deserializes `SSMSpec`, reloads the prior runtime bundle from `compiled_prior_semantics`, and constructs a live `SSMModel`. `prepare_model_runtime()` then hydrates data-dependent observation metadata, prepares JAX observations/times/support arrays, and attaches support and transition inputs to the model. Inside the NumPyro model function, `SSMModel.model()` samples from the runtime prior bundle, discretizes CT → DT (§2), delegates the state-side objective (§3), and injects it via `numpyro.factor("log_likelihood", ll)` when the active method uses a marginal-likelihood target. `fit_prepared_model()` passes the prepared model and arrays to `inference.fit()`, which returns an `InferenceResult` with posterior samples and diagnostics.
 
 Post-estimation causal effect computation, intervention semantics, and interpretation guidance live in [Stage 6](../pipeline/06-intervention-analysis.md).
 

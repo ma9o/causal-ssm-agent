@@ -81,42 +81,6 @@ class SSMParameterLayout:
     # ------------------------------------------------------------------
 
     @property
-    def drift_base_decay_positions(self) -> list[int]:
-        return self._positions_for_kind(SiteKind.DRIFT_BASE_DECAY)
-
-    @property
-    def drift_base_decay_index(self) -> dict[int, int]:
-        return self._index_for_kind(SiteKind.DRIFT_BASE_DECAY)
-
-    @property
-    def n_drift_base_decay(self) -> int:
-        return self._count_for_kind(SiteKind.DRIFT_BASE_DECAY)
-
-    @property
-    def offdiag_positions(self) -> list[tuple[int, int]]:
-        return self._positions_for_kind(SiteKind.DRIFT_OFFDIAG)
-
-    @property
-    def offdiag_index(self) -> dict[tuple[int, int], int]:
-        return self._index_for_kind(SiteKind.DRIFT_OFFDIAG)
-
-    @property
-    def n_drift_offdiag(self) -> int:
-        return self._count_for_kind(SiteKind.DRIFT_OFFDIAG)
-
-    @property
-    def cint_free_positions(self) -> list[int]:
-        return self._positions_for_kind(SiteKind.CINT)
-
-    @property
-    def cint_free_index(self) -> dict[int, int]:
-        return self._index_for_kind(SiteKind.CINT)
-
-    @property
-    def n_cint(self) -> int:
-        return self._count_for_kind(SiteKind.CINT)
-
-    @property
     def static_state_sd_free_positions(self) -> list[int]:
         return self._positions_for_kind(SiteKind.STATIC_STATE_SD)
 

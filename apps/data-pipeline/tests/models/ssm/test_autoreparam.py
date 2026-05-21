@@ -473,7 +473,7 @@ class TestAutoReparamSSM:
         spec = SSMSpec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=full_structural_dense_drift_spec(2),
+            dynamics_spec=full_structural_dense_drift_spec(2),
             diffusion_block=default_diffusion_block(2),
             lambda_block=default_lambda_block(2, 2),
             manifest_means_block=default_manifest_means_block(2),

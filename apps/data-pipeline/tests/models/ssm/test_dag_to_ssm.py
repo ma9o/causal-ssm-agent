@@ -66,7 +66,7 @@ def _make_3latent_spec(
     return block_ssm_spec(
         n_latent=n_l,
         n_manifest=n_m,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_l,
             drift_diag_mask=np.ones(n_l, dtype=bool),
             drift_offdiag_mask=drift_offdiag_mask,
@@ -184,7 +184,7 @@ def _make_causal_spec_dict() -> dict:
 
 
 class TestDriftMask:
-    """Test that drift_mask constrains off-diagonal sampling."""
+    """Test that component translation constrains linear edge sampling."""
 
     def test_drift_mask_zeros_non_edges(self):
         """Drift entries where mask is False should be zero."""
@@ -202,16 +202,10 @@ class TestDriftMask:
             likelihood_backend=model.make_likelihood_backend(),
         )
 
-        drift = trace["vf_0_drift"]["value"]
-        # Off-diagonal zeros: positions NOT in mask
-        assert float(drift[0, 1]) == 0.0  # Y→X: no edge
-        assert float(drift[0, 2]) == 0.0  # Z→X: no edge
-        assert float(drift[1, 2]) == 0.0  # Z→Y: no edge
-        assert float(drift[2, 0]) == 0.0  # X→Z: no edge
-
-        # Non-zero where edges exist
-        assert float(drift[1, 0]) != 0.0  # X→Y edge
-        assert float(drift[2, 1]) != 0.0  # Y→Z edge
+        weight_sites = sorted(
+            name for name in trace if name.startswith("vf_") and name.endswith("_weight")
+        )
+        assert weight_sites == ["vf_1_weight", "vf_2_weight"]
 
     def test_no_mask_fully_free(self):
         """Default drift mask expands to a fully free drift structure."""
@@ -225,15 +219,17 @@ class TestDriftMask:
             likelihood_backend=model.make_likelihood_backend(),
         )
 
-        # 3x3 - 3 diagonal = 6 off-diagonal
-        assert trace["vf_0_offdiag"]["value"].shape == (6,)
+        weight_sites = [
+            name for name in trace if name.startswith("vf_") and name.endswith("_weight")
+        ]
+        assert len(weight_sites) == 6
 
     def test_drift_mask_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=np.ones(1, dtype=bool),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -251,8 +247,7 @@ class TestDriftMask:
             likelihood_backend=model.make_likelihood_backend(),
         )
 
-        # No off-diagonal params sampled
-        assert "vf_0_offdiag" not in trace
+        assert not any(name.startswith("vf_") and name.endswith("_weight") for name in trace)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -358,7 +353,7 @@ class TestPerElementPriors:
             shape=shape,
             support=SupportClass.REAL,
             assembly_group="test",
-            site_kind=SiteKind.DRIFT_OFFDIAG,
+            site_kind=SiteKind.DYNAMICS_WEIGHT,
             transform_kind=TransformKind.IDENTITY,
         )
 
@@ -428,7 +423,7 @@ class TestPerElementPriors:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.ones(2, dtype=bool),
                 drift_offdiag_mask=offdiag_mask,
@@ -442,9 +437,9 @@ class TestPerElementPriors:
 
         # Per-element prior: single off-diagonal has mu=2.0
         priors = prior_registry(
-            vf_0_offdiag=PriorSpec(
+            vf_1_weight=PriorSpec(
                 PriorDistributionFamily.NORMAL,
-                {"mu": [2.0], "sigma": [0.1]},
+                {"mu": 2.0, "sigma": 0.1},
             )
         )
         model = SSMModel(spec, priors)
@@ -457,20 +452,20 @@ class TestPerElementPriors:
         )
 
         # The off-diagonal value should be near 2.0 (tight prior)
-        offdiag = float(trace["vf_0_offdiag"]["value"][0])
-        assert abs(offdiag - 2.0) < 1.0, f"Expected ~2.0, got {offdiag}"
+        weight = float(trace["vf_1_weight"]["value"])
+        assert abs(weight - 2.0) < 1.0, f"Expected ~2.0, got {weight}"
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Builder structural-support construction
+# Runtime structural-support construction
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestBuilderStructuralSupport:
-    """Test that SSMModelBuilder constructs correct block support from CausalSpec."""
+class TestRuntimeStructuralSupport:
+    """Test that compilation constructs correct block support from CausalSpec."""
 
     def test_build_structural_support_from_causal_spec(self):
-        """Builder constructs drift/lambda support from CausalSpec."""
+        """Compilation constructs drift/lambda support from CausalSpec."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
             build_structural_support_from_causal_spec,
         )
@@ -616,20 +611,6 @@ class TestBuilderStructuralSupport:
         [
             pytest.param(
                 {
-                    "drift_spec": structural_dense_drift_spec(
-                        n_latent=3,
-                        drift_diag_mask=np.ones(2, dtype=bool),
-                        drift_offdiag_mask=np.ones((3, 3), dtype=bool),
-                        drift_template=jnp.zeros((3, 3)),
-                        cint_mask=np.zeros(3, dtype=bool),
-                        cint_template=jnp.zeros(3),
-                    )
-                },
-                r"drift_diag_mask must have shape \(3\)",
-                id="drift_diag_wrong_shape",
-            ),
-            pytest.param(
-                {
                     "lambda_block": SparseMatrixBlockSpec(
                         n_rows=4,
                         n_cols=3,
@@ -696,7 +677,7 @@ class TestBuilderStructuralSupport:
         base = {
             "n_latent": 3,
             "n_manifest": 4,
-            "drift_spec": structural_dense_drift_spec(
+            "dynamics_spec": structural_dense_drift_spec(
                 n_latent=3,
                 drift_diag_mask=np.ones(3, dtype=bool),
                 drift_offdiag_mask=np.ones((3, 3), dtype=bool),
@@ -729,7 +710,7 @@ class TestBuilderStructuralSupport:
             block_ssm_spec(
                 n_latent=2,
                 n_manifest=2,
-                drift_spec=structural_dense_drift_spec(
+                dynamics_spec=structural_dense_drift_spec(
                     n_latent=2,
                     drift_diag_mask=np.ones(2, dtype=bool),
                     drift_offdiag_mask=np.ones((2, 2), dtype=bool),
@@ -752,15 +733,11 @@ class TestBuilderStructuralSupport:
                 ),
             )
 
-    def test_builder_rejects_direct_ssm_spec_plus_causal_spec(self):
+    def test_model_build_rejects_direct_ssm_spec_plus_causal_spec(self):
         """Direct specs may not carry a causal graph unless already translated."""
-        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         causal_spec = _make_causal_spec_dict()
-        builder = SSMModelBuilder(
-            ssm_spec=_make_3latent_spec(),
-            causal_spec=causal_spec,
-        )
         X = pl.DataFrame(
             {
                 "time": list(range(5)),
@@ -772,14 +749,13 @@ class TestBuilderStructuralSupport:
         )
 
         with pytest.raises(ValueError, match="Do not pass causal_spec alongside a direct SSMSpec"):
-            builder.build_model(X)
+            build_ssm_model(X, ssm_spec=_make_3latent_spec(), causal_spec=causal_spec)
 
-    def test_builder_rejects_autodetect_when_causal_spec_present(self):
+    def test_model_build_rejects_autodetect_when_causal_spec_present(self):
         """Auto-detected specs may not bypass causal-structure translation."""
-        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         causal_spec = _make_causal_spec_dict()
-        builder = SSMModelBuilder(causal_spec=causal_spec)
         X = pl.DataFrame(
             {
                 "time": list(range(5)),
@@ -790,8 +766,8 @@ class TestBuilderStructuralSupport:
             }
         )
 
-        with pytest.raises(ValueError, match="without an explicit specification source"):
-            builder.build_model(X)
+        with pytest.raises(ValueError, match="requires either model_spec or ssm_spec"):
+            build_ssm_model(X, causal_spec=causal_spec)
 
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(self):
         """Initial-state confounders should compile to low-rank baseline factors."""
@@ -1175,8 +1151,8 @@ class TestBuilderStructuralSupport:
         ):
             translate_spec(model_spec, causal_spec=causal_spec)
 
-    def test_builder_end_to_end(self):
-        """Full builder pipeline with causal_spec produces masked spec."""
+    def test_model_build_end_to_end(self):
+        """Model construction with causal_spec produces masked spec."""
 
         from nof1_causal_lab.artifacts import (
             DistributionFamily,
@@ -1187,7 +1163,7 @@ class TestBuilderStructuralSupport:
             ParameterRole,
             ParameterSpec,
         )
-        from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
+        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         def _lik(var: str) -> LikelihoodSpec:
             return LikelihoodSpec(
@@ -1271,12 +1247,6 @@ class TestBuilderStructuralSupport:
 
         causal_spec = _make_causal_spec_dict()
 
-        builder = SSMModelBuilder(
-            model_spec=model_spec,
-            priors={},
-            causal_spec=causal_spec,
-        )
-
         # Minimal wide data
         X = pl.DataFrame(
             {
@@ -1288,14 +1258,13 @@ class TestBuilderStructuralSupport:
             }
         )
 
-        builder.build_model(X)
-        spec = builder.spec
+        model = build_ssm_model(X, model_spec=model_spec, priors={}, causal_spec=causal_spec)
+        spec = model.spec
 
-        # Verify masks were built
-        drift_component = spec.drift_spec.components[0]
-        assert drift_component.drift_diag_mask[0]
-        assert drift_component.drift_diag_mask[1]
-        assert drift_component.drift_diag_mask[2]
+        dynamics_sites = [
+            site for site in spec.iter_sample_sites() if site.assembly_group == "dynamics"
+        ]
+        assert sum(site.site_kind == SiteKind.DYNAMICS_DECAY for site in dynamics_sites) == 3
         assert spec.lambda_block.mask is not None
         assert spec.n_latent == 3
         assert spec.n_manifest == 4
@@ -1321,7 +1290,7 @@ class TestSiteRegistryMasks:
         spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=3,
                 drift_diag_mask=np.ones(3, dtype=bool),
                 drift_offdiag_mask=offdiag_mask,
@@ -1333,9 +1302,9 @@ class TestSiteRegistryMasks:
 
         registry = {site.name: site for site in build_site_registry(spec)}
 
-        # Should have 2 off-diagonal, not 6
-        assert registry["vf_0_offdiag"].shape == (2,)
-        assert registry["vf_0_base_decay"].shape == (3,)
+        weight_sites = sorted(name for name in registry if name.endswith("_weight"))
+        assert weight_sites == ["vf_1_weight", "vf_2_weight"]
+        assert registry["vf_0_decay"].shape == (3,)
 
     def test_site_registry_with_lambda_mask(self):
         """Site registry should size masked loading entries correctly."""
@@ -1347,7 +1316,7 @@ class TestSiteRegistryMasks:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=3,
-            drift_spec=structural_dense_drift_spec(
+            dynamics_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.ones(2, dtype=bool),
                 drift_offdiag_mask=np.ones((2, 2), dtype=bool),
@@ -1383,7 +1352,7 @@ class TestTraceVerification:
     """Verify parameter shapes via numpyro.handlers.trace."""
 
     def test_masked_model_trace(self):
-        """Full model trace with masks: verify vf_0_offdiag shape."""
+        """Full model trace with component edge sites."""
         offdiag_mask = np.zeros((3, 3), dtype=bool)
         offdiag_mask[1, 0] = True  # X→Y
         offdiag_mask[2, 1] = True  # Y→Z
@@ -1421,15 +1390,14 @@ class TestTraceVerification:
             likelihood_backend=model.make_likelihood_backend(),
         )
 
-        # Drift: 3 base-decay + 2 off-diagonal
-        assert trace["vf_0_base_decay"]["value"].shape == (3,)
-        assert trace["vf_0_offdiag"]["value"].shape == (2,)
+        assert trace["vf_0_decay"]["value"].shape == (3,)
+        weight_sites = [
+            name for name in trace if name.startswith("vf_") and name.endswith("_weight")
+        ]
+        assert len(weight_sites) == 2
 
         # Lambda: 1 free loading
         assert trace["lambda_free"]["value"].shape == (1,)
-
-        # Deterministic drift should be 3x3
-        assert trace["vf_0_drift"]["value"].shape == (3, 3)
 
         # Deterministic lambda should be 4x3
         assert trace["lambda"]["value"].shape == (4, 3)

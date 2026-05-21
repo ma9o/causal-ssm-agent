@@ -6,9 +6,9 @@ the same dict-config materialise into a runtime ``CompositeSpec`` ready
 for inference. These tests pin the bridge:
 
 - Every supported family materialises into the right ``ndist`` class.
-- Every component kind (``DenseLinear``, ``DiagonalDecay``, ``Intercept``,
-  ``LinearEdge``, ``HillEdge``, ``MultiplicativeEdge``) compiles end-to-end
-  from a dict and produces working ``sample_params`` + vector field.
+- Every component kind (``StateDecay``, ``DiagonalDecay``, ``StateIntercept``,
+  ``Intercept``, ``LinearEdge``, ``HillEdge``, ``MultiplicativeEdge``) compiles
+  end-to-end from a dict and produces working ``sample_params`` + vector field.
 """
 
 from __future__ import annotations
@@ -20,8 +20,9 @@ from numpyro.handlers import seed
 
 from nof1_causal_lab.models.ssm.dynamics import (
     CompositeSpec,
-    DenseLinear,
     Intervention,
+    StateDecay,
+    StateIntercept,
     VectorFieldArgs,
     compile_composite,
     composite_spec_from_dict,
@@ -89,24 +90,21 @@ class TestMaterializePrior:
 
 
 class TestCompositeSpecFromDict:
-    def test_dense_linear_compiles(self):
+    def test_scalar_background_components_compile(self):
         config = {
             "n_latent": 2,
             "components": [
                 {
-                    "kind": "DenseLinear",
+                    "kind": "StateDecay",
+                    "target": 0,
                     "priors": {
-                        "drift": {
-                            "family": "Normal",
-                            "params": {"mu": 0.0, "sigma": 1.0},
-                            "shape": [2, 2],
-                        },
-                        "cint": {
-                            "family": "Normal",
-                            "params": {"mu": 0.0, "sigma": 0.5},
-                            "shape": [2],
-                        },
+                        "decay": {"family": "Gamma", "params": {"concentration": 2.0, "rate": 4.0}}
                     },
+                },
+                {
+                    "kind": "StateIntercept",
+                    "target": 1,
+                    "priors": {"cint": {"family": "Normal", "params": {"mu": 0.0, "sigma": 0.5}}},
                 },
             ],
         }
@@ -115,11 +113,12 @@ class TestCompositeSpecFromDict:
         assert spec.n_latent == 2
 
         compiled = compile_composite(composite_spec_from_dict(config))
-        assert isinstance(compiled.vector_field.components[0], DenseLinear)
+        assert isinstance(compiled.vector_field.components[0], StateDecay)
+        assert isinstance(compiled.vector_field.components[1], StateIntercept)
         with seed(rng_seed=0):
             params = compiled.sample_params()
-        assert params[0]["drift"].shape == (2, 2)
-        assert params[0]["cint"].shape == (2,)
+        assert params[0]["decay"].shape == ()
+        assert params[1]["cint"].shape == ()
 
     def test_ssri_chain_round_trip(self):
         """The Hill/Multiplicative/LinearEdge chain emits the right
@@ -197,9 +196,9 @@ class TestCompositeSpecFromDict:
 
 
 class TestEndToEndDriftFromDict:
-    def test_dict_compiled_drift_matches_hand_built(self):
+    def test_dict_compiled_vector_field_matches_hand_built(self):
         """Sample params from a dict-compiled spec, plug into the vector
-        field, and verify the drift output is numerically sensible."""
+        field, and verify the output is numerically sensible."""
         config = {
             "n_latent": 2,
             "components": [
@@ -221,9 +220,9 @@ class TestEndToEndDriftFromDict:
         params = compiled.sample_params()
         eta = jnp.array([2.0, 1.0])
         args = VectorFieldArgs(params=params, intervention=Intervention.none())
-        drift = compiled.vector_field(jnp.asarray(0.0), eta, args)
+        dynamics = compiled.vector_field(jnp.asarray(0.0), eta, args)
         # decay·η = [-2, -1]; LinearEdge adds 0.3·2 = 0.6 to target=1
-        assert jnp.allclose(drift, jnp.array([-2.0, -0.4]), atol=1e-6)
+        assert jnp.allclose(dynamics, jnp.array([-2.0, -0.4]), atol=1e-6)
 
 
 class TestErrorPaths:
@@ -255,7 +254,7 @@ class TestErrorPaths:
 
 
 class TestBlockSpecEquivalence:
-    """Numerical-equivalence pins for the non-drift ``BlockSpec`` family.
+    """Numerical-equivalence pins for the non-dynamics ``BlockSpec`` family.
 
     Each ``*BlockSpec`` in ``dynamics/blocks.py`` delegates to the shared
     structural assembly helpers. The spec-level assembly methods and the
@@ -266,35 +265,17 @@ class TestBlockSpecEquivalence:
         from numpyro.handlers import condition, seed
 
         from nof1_causal_lab.models.ssm import SSMSpec
-        from nof1_causal_lab.models.ssm.dynamics import (
-            CompositeSpec,
-            StructuralDenseLinearSpec,
-            StructuralInterceptSpec,
-            compile_composite,
-        )
+        from nof1_causal_lab.models.ssm.dynamics import CompositeSpec
         from nof1_causal_lab.models.ssm.structure import (
             DiffusionBlockSpec,
             SparseMatrixBlockSpec,
         )
-        from tests.ssm_test_utils import (
-            full_diagonal_mask,
-            structural_dense_drift_spec,
-            zero_diagonal_mask,
-            zero_square_mask,
-            zero_vector_mask,
-        )
+        from tests.ssm_test_utils import full_diagonal_mask
 
         spec = SSMSpec(
             n_latent=2,
             n_manifest=1,
-            drift_spec=structural_dense_drift_spec(
-                n_latent=2,
-                drift_diag_mask=zero_diagonal_mask(2),
-                drift_offdiag_mask=zero_square_mask(2),
-                drift_template=jnp.zeros((2, 2)),
-                cint_mask=zero_vector_mask(2),
-                cint_template=jnp.zeros(2),
-            ),
+            dynamics_spec=CompositeSpec(n_latent=2),
             diffusion_block=DiffusionBlockSpec(
                 n_latent=2,
                 diffusion_chol_mask=np.diag(full_diagonal_mask(2)),
@@ -330,25 +311,6 @@ class TestBlockSpecEquivalence:
             time_invariant_mask=spec.diffusion_block.time_invariant_mask,
             diag_prior=ndist.LogNormal(0.0, 1.0),
         )
-        drift_component = spec.drift_spec.components[0]
-        cint_component = spec.drift_spec.components[1]
-        composite = CompositeSpec(
-            n_latent=2,
-            components=(
-                StructuralDenseLinearSpec(
-                    n_latent=2,
-                    drift_diag_mask=drift_component.drift_diag_mask,
-                    drift_offdiag_mask=drift_component.drift_offdiag_mask,
-                    drift_template=jnp.asarray(drift_component.drift_template),
-                ),
-                StructuralInterceptSpec(
-                    n_latent=2,
-                    cint_mask=cint_component.cint_mask,
-                    cint_template=jnp.asarray(cint_component.cint_template),
-                ),
-            ),
-        )
-        compile_composite(composite)  # smoke; not used here directly
 
         with seed(rng_seed=0), condition(data={"diffusion_diag_free": diag_vals}):
             block_assembled = block.sample_params(prefix="")["diffusion"]
@@ -363,12 +325,12 @@ class TestBlockSpecEquivalence:
             SparseMatrixBlockSpec,
             SparseVectorBlockSpec,
         )
-        from tests.ssm_test_utils import full_structural_dense_drift_spec, full_vector_mask
+        from tests.ssm_test_utils import full_vector_mask
 
         spec = SSMSpec(
             n_latent=3,
             n_manifest=1,
-            drift_spec=full_structural_dense_drift_spec(3),
+            dynamics_spec=CompositeSpec(n_latent=3),
             diffusion_block=default_diffusion_block(3),
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=1,
@@ -491,14 +453,12 @@ class TestCompositeSpecRoundTrip:
         round_tripped = composite_spec_to_dict(spec)
         assert round_tripped == config
 
-    def test_structural_dense_linear_round_trips(self):
-        import jax.numpy as jnp
-        import numpy as np
-
+    def test_component_dynamics_round_trips(self):
         from nof1_causal_lab.models.ssm.dynamics import (
             CompositeSpec,
-            StructuralDenseLinearSpec,
-            StructuralInterceptSpec,
+            LinearEdgeSpec,
+            StateDecaySpec,
+            StateInterceptSpec,
             composite_spec_from_dict,
             composite_spec_to_dict,
         )
@@ -506,32 +466,26 @@ class TestCompositeSpecRoundTrip:
         spec = CompositeSpec(
             n_latent=2,
             components=(
-                StructuralDenseLinearSpec(
-                    n_latent=2,
-                    drift_diag_mask=np.array([True, True], dtype=bool),
-                    drift_offdiag_mask=np.array([[False, True], [True, False]], dtype=bool),
-                    drift_template=jnp.zeros((2, 2)),
-                    stability_margin=0.05,
-                    time_invariant_mask=None,
-                    base_decay_prior={
+                StateDecaySpec(
+                    target=0,
+                    decay_prior={
                         "family": "Gamma",
                         "params": {"concentration": 2.0, "rate": 4.0},
-                        "shape": [2],
-                    },
-                    offdiag_prior={
-                        "family": "Normal",
-                        "params": {"mu": 0.0, "sigma": 0.5},
-                        "shape": [2],
                     },
                 ),
-                StructuralInterceptSpec(
-                    n_latent=2,
-                    cint_mask=np.array([True, False], dtype=bool),
-                    cint_template=jnp.zeros(2),
+                LinearEdgeSpec(
+                    source=0,
+                    target=1,
+                    weight_prior={
+                        "family": "Normal",
+                        "params": {"mu": 0.0, "sigma": 0.5},
+                    },
+                ),
+                StateInterceptSpec(
+                    target=1,
                     cint_prior={
                         "family": "Normal",
                         "params": {"mu": 0.0, "sigma": 1.0},
-                        "shape": [1],
                     },
                 ),
             ),
@@ -539,24 +493,18 @@ class TestCompositeSpecRoundTrip:
         payload = composite_spec_to_dict(spec)
         restored = composite_spec_from_dict(payload)
 
-        # Structural fields round-trip
         c0 = restored.components[0]
-        np.testing.assert_array_equal(c0.drift_diag_mask, [True, True])
-        np.testing.assert_array_equal(c0.drift_offdiag_mask, [[False, True], [True, False]])
-        np.testing.assert_allclose(c0.drift_template, np.zeros((2, 2)))
-        assert c0.stability_margin == 0.05
-        assert c0.time_invariant_mask is None
-
+        assert c0.target == 0
         c1 = restored.components[1]
-        np.testing.assert_array_equal(c1.cint_mask, [True, False])
-        np.testing.assert_allclose(c1.cint_template, np.zeros(2))
+        assert (c1.source, c1.target) == (0, 1)
+        c2 = restored.components[2]
+        assert c2.target == 1
 
-        # And the dict→dict round-trip is exact
         assert composite_spec_to_dict(restored) == payload
 
-    def test_ssm_compiler_serializes_drift_spec(self):
+    def test_ssm_compiler_serializes_dynamics_spec(self):
         """``serialize_ssm_spec`` / ``deserialize_ssm_spec`` round-trip a
-        populated ``drift_spec`` via the dict-config layer."""
+        populated ``dynamics_spec`` via the dict-config layer."""
         import jax.numpy as jnp
 
         from nof1_causal_lab.models.ssm import SSMSpec
@@ -572,7 +520,7 @@ class TestCompositeSpecRoundTrip:
             SparseMatrixBlockSpec,
         )
 
-        drift_spec = CompositeSpec(
+        dynamics_spec = CompositeSpec(
             n_latent=2,
             components=(
                 DiagonalDecaySpec(
@@ -587,7 +535,7 @@ class TestCompositeSpecRoundTrip:
         spec = SSMSpec(
             n_latent=2,
             n_manifest=1,
-            drift_spec=drift_spec,
+            dynamics_spec=dynamics_spec,
             diffusion_block=default_diffusion_block(2),
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=1,
@@ -610,13 +558,13 @@ class TestCompositeSpecRoundTrip:
             static_state_sd_block=default_static_state_sd_block(),
         )
         payload = serialize_ssm_spec(spec)
-        assert isinstance(payload["drift_spec"], dict)
-        assert payload["drift_spec"]["n_latent"] == 2
-        assert payload["drift_spec"]["components"][0]["kind"] == "DiagonalDecay"
+        assert isinstance(payload["dynamics_spec"], dict)
+        assert payload["dynamics_spec"]["n_latent"] == 2
+        assert payload["dynamics_spec"]["components"][0]["kind"] == "DiagonalDecay"
 
         restored = deserialize_ssm_spec(payload)
-        assert restored.drift_spec is not None
-        assert restored.drift_spec.n_latent == 2
+        assert restored.dynamics_spec is not None
+        assert restored.dynamics_spec.n_latent == 2
         from nof1_causal_lab.models.ssm.dynamics import DiagonalDecaySpec as _DD
 
-        assert isinstance(restored.drift_spec.components[0], _DD)
+        assert isinstance(restored.dynamics_spec.components[0], _DD)

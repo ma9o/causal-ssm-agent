@@ -32,12 +32,11 @@ def run_interventions(
         fitted_artifact.result is not None,
     )
 
-    if fitted_artifact.result is None or fitted_artifact.builder is None:
+    if fitted_artifact.result is None or fitted_artifact.spec is None:
         return [{"treatment": t} for t in treatments]
 
-    builder = fitted_artifact.builder
     result = fitted_artifact.result
-    spec = builder.spec
+    spec = fitted_artifact.spec
     samples = result.get_samples()
 
     latent_names = spec.latent_names

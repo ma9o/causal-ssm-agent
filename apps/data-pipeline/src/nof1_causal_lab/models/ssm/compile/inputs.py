@@ -39,7 +39,7 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict |
         return
 
     required_block_fields = (
-        "drift_spec",
+        "dynamics_spec",
         "diffusion_block.diffusion_chol_mask",
         "diffusion_block.diffusion_chol_template",
         "lambda_block.mask",

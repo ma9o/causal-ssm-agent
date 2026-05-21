@@ -51,7 +51,7 @@ def component_param_samples_from_site_samples(
         }
         param_samples.append(
             pack_component_params_from_samples(
-                spec.drift_spec,
+                spec.dynamics_spec,
                 draw,
                 draw,
                 prefix=prefix,
@@ -67,7 +67,7 @@ def posterior_dynamics_from_samples(
     prefix: str = "vf",
 ) -> PosteriorDynamicsSamples:
     """Rebuild posterior vector-field draws from an ``SSMSpec`` and samples."""
-    compiled = compile_composite(spec.drift_spec, prefix=prefix)
+    compiled = compile_composite(spec.dynamics_spec, prefix=prefix)
     return PosteriorDynamicsSamples(
         vector_field=compiled.vector_field,
         param_samples=component_param_samples_from_site_samples(

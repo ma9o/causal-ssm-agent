@@ -242,7 +242,7 @@ def complex_mixed_runtime_spec() -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.zeros(n_latent, dtype=bool),
             drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),

@@ -20,7 +20,6 @@ from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.compile.common import (
     axis_names_with_fallback,
     normalize_prior_params,
-    resolve_scalar_parameter_name,
 )
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     SemanticBindingRegistry,
@@ -29,7 +28,6 @@ from nof1_causal_lab.models.ssm.compile.prior_indexing import (
 )
 from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
 from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import SupportClass, build_site_registry
 from nof1_causal_lab.models.ssm.priors import (
     PriorRegistry,
@@ -40,6 +38,7 @@ from nof1_causal_lab.models.ssm.priors import (
 )
 from nof1_causal_lab.models.ssm.structure.sites import (
     PriorAuthoringTransform,
+    SemanticBinding,
     SiteDescriptor,
     SiteKind,
     site_size,
@@ -183,46 +182,68 @@ class PriorCompilationError(AggregatedCompileError):
     header = "Prior compilation failed"
 
 
-def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
-    return list(SSMParameterLayout.from_spec(ssm_spec).offdiag_positions)
+def _component_semantic_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
+    from nof1_causal_lab.models.ssm.dynamics.composite import iter_component_semantic_bindings
 
-
-def _structural_dense_component(ssm_spec: SSMSpec):
-    from nof1_causal_lab.models.ssm.dynamics.composite import StructuralDenseLinearSpec
-
-    for component in ssm_spec.drift_spec.components:
-        if isinstance(component, StructuralDenseLinearSpec):
-            return component
-    raise TypeError("Matrix-log drift diagnostics require a StructuralDenseLinearSpec component.")
-
-
-def _drift_parameter_name(
-    ssm_spec: SSMSpec,
-    effect_idx: int,
-    cause_idx: int,
-    *,
-    parameter_layout: SSMParameterLayout | None = None,
-) -> tuple[str, str, str]:
-    if not ssm_spec.latent_names:
-        raise ValueError(
-            "SSMSpec.latent_names is empty; cross-lag parameter names require explicit "
-            "latent_names on the translated SSMSpec."
+    latent_names = axis_names_with_fallback(
+        ssm_spec.latent_names,
+        expected=ssm_spec.n_latent,
+        prefix="latent",
+    )
+    active_site_names = {site.name for site in build_site_registry(ssm_spec)}
+    return tuple(
+        binding
+        for binding in iter_component_semantic_bindings(
+            ssm_spec.dynamics_spec,
+            latent_names=tuple(latent_names),
         )
-    runtime = parameter_layout or SSMParameterLayout.from_spec(ssm_spec)
-    flat_idx = runtime.offdiag_index.get((effect_idx, cause_idx))
-    if flat_idx is None:
-        raise ValueError(f"No drift_offdiag entry at latent pair ({effect_idx}, {cause_idx}).")
-    offdiag_site = runtime.site_by_kind(SiteKind.DRIFT_OFFDIAG)
-    if offdiag_site is None:
-        raise ValueError("No active drift off-diagonal sample site.")
-    name = resolve_scalar_parameter_name(ssm_spec, runtime, offdiag_site.name, flat_idx)
-    if name is None:
-        raise ValueError(
-            f"resolve_scalar_parameter_name failed for {offdiag_site.name}[{flat_idx}]."
+        if binding.site_name in active_site_names
+    )
+
+
+def _decay_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
+    return tuple(
+        binding
+        for binding in _component_semantic_bindings(ssm_spec)
+        if binding.site_kind == SiteKind.DYNAMICS_DECAY
+        and binding.parameter_name.startswith(("rho_", "ar_"))
+    )
+
+
+def _linear_effect_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
+    return tuple(
+        binding
+        for binding in _component_semantic_bindings(ssm_spec)
+        if binding.site_kind == SiteKind.DYNAMICS_WEIGHT
+        and binding.parameter_name.startswith("beta_")
+        and binding.effect_idx is not None
+        and binding.cause_idx is not None
+    )
+
+
+def _binding_latent_index(binding: SemanticBinding, ssm_spec: SSMSpec) -> int | None:
+    if binding.construct_names:
+        latent_names = axis_names_with_fallback(
+            ssm_spec.latent_names,
+            expected=ssm_spec.n_latent,
+            prefix="latent",
         )
-    cause_name = ssm_spec.latent_names[cause_idx]
-    effect_name = ssm_spec.latent_names[effect_idx]
-    return name, cause_name, effect_name
+        return {name: idx for idx, name in enumerate(latent_names)}.get(binding.construct_names[0])
+    site = next(
+        (
+            candidate
+            for candidate in build_site_registry(ssm_spec)
+            if candidate.name == binding.site_name
+        ),
+        None,
+    )
+    if site is not None and site.positions:
+        position = site.positions[min(binding.flat_index, len(site.positions) - 1)]
+        if isinstance(position, int):
+            return int(position)
+    if 0 <= binding.flat_index < ssm_spec.n_latent:
+        return int(binding.flat_index)
+    return None
 
 
 def _resolve_model_clock_interval_days(causal_spec: dict | None) -> float | None:
@@ -258,13 +279,11 @@ def _resolve_cross_lag_interval_days(
     *,
     param_name: str,
     prior_spec: dict[str, Any],
-    flat_index: int,
-    parameter_layout: SSMParameterLayout,
     ssm_spec: SSMSpec,
     edge_lag_days: dict[tuple[int, int], float] | None,
     causal_spec: dict | None,
-    effect_idx: int | None = None,
-    cause_idx: int | None = None,
+    effect_idx: int,
+    cause_idx: int,
 ) -> float:
     """Resolve a positive authoring interval for cross-lag priors."""
     ref_days = prior_spec.get("reference_interval_days")
@@ -276,16 +295,6 @@ def _resolve_cross_lag_interval_days(
                 f"positive value, got {interval_days:.3g}."
             )
         return interval_days
-
-    if effect_idx is None or cause_idx is None:
-        if flat_index >= parameter_layout.n_drift_offdiag:
-            raise ValueError(
-                f"Cross-lag prior '{param_name}' resolved to invalid flat index {flat_index}."
-            )
-        effect_idx, cause_idx = parameter_layout.offdiag_positions[flat_index]
-
-    if effect_idx is None or cause_idx is None:
-        raise ValueError(f"Cross-lag prior '{param_name}' is missing effect/cause metadata.")
 
     lag_days = (edge_lag_days or {}).get((effect_idx, cause_idx))
     if lag_days is not None:
@@ -373,23 +382,27 @@ def collect_interval_provenance_warnings(
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, dict] | None = None,
 ) -> list[CompileDiagnostic]:
-    """Collect deterministic interval-authoring diagnostics for lagged drift priors."""
+    """Collect deterministic interval-authoring diagnostics for lagged dynamics priors."""
     edge_lags = edge_lag_days or {}
     if not edge_lags:
         return []
 
-    positions = _iter_offdiag_positions(ssm_spec)
+    latent_names = axis_names_with_fallback(
+        ssm_spec.latent_names,
+        expected=ssm_spec.n_latent,
+        prefix="latent",
+    )
     warnings: list[CompileDiagnostic] = []
 
-    for effect_idx, cause_idx in positions:
+    for binding in _linear_effect_bindings(ssm_spec):
+        effect_idx = int(binding.effect_idx)
+        cause_idx = int(binding.cause_idx)
         if (effect_idx, cause_idx) not in edge_lags:
             continue
 
-        parameter_name, cause_name, effect_name = _drift_parameter_name(
-            ssm_spec,
-            effect_idx,
-            cause_idx,
-        )
+        parameter_name = binding.parameter_name
+        cause_name = latent_names[cause_idx]
+        effect_name = latent_names[effect_idx]
         expected_lag_days = edge_lags[(effect_idx, cause_idx)]
         prior_spec = (raw_priors or {}).get(parameter_name) or {}
         ref_days = prior_spec.get("reference_interval_days")
@@ -472,7 +485,7 @@ def collect_compile_diagnostics(
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     raw_priors: dict[str, dict] | None = None,
     prior_registry: PriorRegistry | None = None,
-    offdiag_interval_days: dict[int, float] | None = None,
+    offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Collect structured compiler diagnostics for downstream consumers."""
     diagnostics = collect_interval_provenance_warnings(
@@ -502,40 +515,17 @@ def collect_first_order_approximation_warnings(
     *,
     ssm_spec: SSMSpec | None = None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
-    offdiag_interval_days: dict[int, float] | None = None,
+    offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
     if ssm_spec is None:
         return []
-    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
-    base_decay_site = parameter_layout.site_by_kind(SiteKind.DRIFT_BASE_DECAY)
-    offdiag_site = parameter_layout.site_by_kind(SiteKind.DRIFT_OFFDIAG)
-    if base_decay_site is None or offdiag_site is None:
-        return []
-    base_decay_prior = _prior_for_site(prior_registry, base_decay_site.name)
-    offdiag_prior = _prior_for_site(prior_registry, offdiag_site.name)
-    if base_decay_prior is None or offdiag_prior is None:
+    taylor_drift = _assemble_mean_drift_from_component_priors(prior_registry, ssm_spec)
+    if taylor_drift is None:
         return []
 
-    base_decay_mu = _positive_prior_mean_values(base_decay_prior)
-    offdiag_mu = _prior_values_1d(offdiag_prior.params.get("mu"))
-    if base_decay_mu.size == 0 or offdiag_mu.size == 0:
-        return []
-
-    taylor_drift = _assemble_mean_drift_from_prior_values(
-        ssm_spec,
-        parameter_layout,
-        base_decay_mu=base_decay_mu,
-        offdiag_mu=offdiag_mu,
-    )
     diag_abs = np.abs(np.diag(taylor_drift))
-    ti_mask = np.zeros_like(diag_abs, dtype=bool)
-    drift_component = _structural_dense_component(ssm_spec)
-    if drift_component.time_invariant_mask is not None:
-        candidate = np.asarray(drift_component.time_invariant_mask, dtype=bool)
-        if candidate.size == diag_abs.size:
-            ti_mask = candidate
-    eligible_mask = (diag_abs >= NUMERICAL_EPSILON) & ~ti_mask
+    eligible_mask = diag_abs >= NUMERICAL_EPSILON
     if not np.any(eligible_mask):
         return []
     eligible_indices = np.where(eligible_mask)[0]
@@ -543,24 +533,33 @@ def collect_first_order_approximation_warnings(
     if min_diag < NUMERICAL_EPSILON:
         return []
     min_diag_latent_idx = int(eligible_indices[int(np.argmin(diag_abs[eligible_indices]))])
-    min_diag_flat_idx = parameter_layout.drift_base_decay_index.get(min_diag_latent_idx)
-
-    min_diag_name = (
-        resolve_scalar_parameter_name(
-            ssm_spec, parameter_layout, base_decay_site.name, min_diag_flat_idx
-        )
-        if min_diag_flat_idx is not None
-        else None
+    min_diag_name = next(
+        (
+            binding.parameter_name
+            for binding in _decay_bindings(ssm_spec)
+            if _binding_latent_index(binding, ssm_spec) == min_diag_latent_idx
+        ),
+        None,
     )
     min_diag_label = f"{min_diag_name}" if min_diag_name else f"latent[{min_diag_latent_idx}]"
 
     warnings: list[CompileDiagnostic] = []
-    for idx, offdiag_value in enumerate(offdiag_mu):
-        if idx >= len(parameter_layout.offdiag_positions):
+    latent_names = axis_names_with_fallback(
+        ssm_spec.latent_names,
+        expected=ssm_spec.n_latent,
+        prefix="latent",
+    )
+    for binding in _linear_effect_bindings(ssm_spec):
+        effect_idx = int(binding.effect_idx)
+        cause_idx = int(binding.cause_idx)
+        prior = _prior_for_site(prior_registry, binding.site_name)
+        if prior is None:
             continue
-        effect_idx, cause_idx = parameter_layout.offdiag_positions[idx]
+        offdiag_mu = _prior_values_1d(prior.params.get("mu"))
+        if offdiag_mu.size == 0:
+            continue
+        offdiag_value = _value_at(offdiag_mu, binding.flat_index, default=0.0)
         interval_days = _resolve_offdiag_interval_days(
-            idx,
             effect_idx=effect_idx,
             cause_idx=cause_idx,
             edge_lag_days=edge_lag_days,
@@ -569,24 +568,12 @@ def collect_first_order_approximation_warnings(
         if interval_days is None:
             continue
 
-        beta_name = resolve_scalar_parameter_name(
-            ssm_spec, parameter_layout, offdiag_site.name, idx
-        )
-        if beta_name is not None:
-            latent_names = axis_names_with_fallback(
-                ssm_spec.latent_names,
-                expected=ssm_spec.n_latent,
-                prefix="latent",
-            )
-            cause_name = latent_names[cause_idx]
-            effect_name = latent_names[effect_idx]
-            offdiag_label = f"{beta_name} ({cause_name} -> {effect_name})"
-        else:
-            offdiag_label = f"drift_offdiag[{idx}]"
+        cause_name = latent_names[cause_idx]
+        effect_name = latent_names[effect_idx]
+        offdiag_label = f"{binding.parameter_name} ({cause_name} -> {effect_name})"
 
         try:
             exact_drift = matrix_log_diagnostic_drift(
-                ssm_spec,
                 taylor_drift,
                 interval_days=interval_days,
             )
@@ -594,14 +581,14 @@ def collect_first_order_approximation_warnings(
             warnings.append(
                 _compile_warning(
                     code="dt_ct_approximation_warning",
-                    parameter="drift_offdiag",
+                    parameter=binding.prior_field or binding.site_name,
                     issue=f"{offdiag_label}: exact matrix-log CT diagnostic failed: {exc}",
                     suggested_adjustment=(
                         "Shrink the DT beta prior or elicit the prior directly on a real, stable "
                         "CT drift scale."
                     ),
-                    compiled_site_name=offdiag_site.name,
-                    compiled_flat_index=idx,
+                    compiled_site_name=binding.site_name,
+                    compiled_flat_index=binding.flat_index,
                     failure_stage="compiled_parameters",
                     pathology_certificate=PriorPathologyCertificate(
                         kind="dt_ct_approximation",
@@ -621,7 +608,7 @@ def collect_first_order_approximation_warnings(
         warnings.append(
             _compile_warning(
                 code="dt_ct_approximation_warning",
-                parameter="drift_offdiag",
+                parameter=binding.prior_field or binding.site_name,
                 issue=(
                     f"{offdiag_label}: matrix-log mismatch; exact CT coupling at "
                     f"{_format_interval_days(interval_days)} is {abs(exact_value):.3f} 1/day "
@@ -635,8 +622,8 @@ def collect_first_order_approximation_warnings(
                     "reference interval, shrink the DT beta prior, or elicit the prior directly "
                     "on the CT rate."
                 ),
-                compiled_site_name=offdiag_site.name,
-                compiled_flat_index=idx,
+                compiled_site_name=binding.site_name,
+                compiled_flat_index=binding.flat_index,
                 failure_stage="compiled_parameters",
                 pathology_certificate=PriorPathologyCertificate(
                     kind="dt_ct_approximation",
@@ -653,6 +640,16 @@ def _prior_values_1d(value: Any) -> np.ndarray:
         return np.asarray([], dtype=float)
     array = np.asarray(value if isinstance(value, list | tuple) else [value], dtype=float)
     return array.reshape(-1)
+
+
+def _value_at(values: np.ndarray, flat_index: int, *, default: float) -> float:
+    if values.size == 0:
+        return float(default)
+    if values.size == 1:
+        return float(values[0])
+    if flat_index < values.size:
+        return float(values[flat_index])
+    return float(default)
 
 
 def _prior_param_values(
@@ -702,48 +699,53 @@ def _positive_prior_mean_values(prior: PriorSpec) -> np.ndarray:
     return means
 
 
-def _assemble_mean_drift_from_prior_values(
+def _assemble_mean_drift_from_component_priors(
+    prior_registry: PriorRegistry,
     ssm_spec: SSMSpec,
-    parameter_layout: SSMParameterLayout,
-    *,
-    base_decay_mu: np.ndarray,
-    offdiag_mu: np.ndarray,
-) -> np.ndarray:
-    drift_component = _structural_dense_component(ssm_spec)
-    drift = np.asarray(drift_component.drift_template, dtype=float).copy()
-    for flat_idx, (effect_idx, cause_idx) in enumerate(parameter_layout.offdiag_positions):
-        if flat_idx < offdiag_mu.size:
-            drift[effect_idx, cause_idx] = float(offdiag_mu[flat_idx])
-    offdiag = drift.copy()
-    np.fill_diagonal(offdiag, 0.0)
-    row_abs = np.sum(np.abs(offdiag), axis=1)
-    for flat_idx, latent_idx in enumerate(parameter_layout.drift_base_decay_positions):
-        if flat_idx < base_decay_mu.size:
-            drift[latent_idx, latent_idx] = -(
-                float(base_decay_mu[flat_idx])
-                + float(row_abs[latent_idx])
-                + float(drift_component.stability_margin)
-            )
-    if drift_component.time_invariant_mask is not None:
-        ti_mask = np.asarray(drift_component.time_invariant_mask, dtype=bool)
-        if ti_mask.size == drift.shape[0]:
-            drift[np.diag_indices(drift.shape[0])] = np.where(
-                ti_mask,
-                -1e-6,
-                np.diag(drift),
-            )
-    return drift
+) -> np.ndarray | None:
+    drift = np.zeros((ssm_spec.n_latent, ssm_spec.n_latent), dtype=float)
+    populated = False
+
+    for binding in _decay_bindings(ssm_spec):
+        prior = _prior_for_site(prior_registry, binding.site_name)
+        latent_idx = _binding_latent_index(binding, ssm_spec)
+        if prior is None or latent_idx is None:
+            continue
+        decay_mu = _positive_prior_mean_values(prior)
+        if decay_mu.size == 0:
+            continue
+        drift[latent_idx, latent_idx] = -_value_at(
+            decay_mu,
+            binding.flat_index,
+            default=0.0,
+        )
+        populated = True
+
+    for binding in _linear_effect_bindings(ssm_spec):
+        prior = _prior_for_site(prior_registry, binding.site_name)
+        if prior is None:
+            continue
+        weight_mu = _prior_values_1d(prior.params.get("mu"))
+        if weight_mu.size == 0:
+            continue
+        drift[int(binding.effect_idx), int(binding.cause_idx)] = _value_at(
+            weight_mu,
+            binding.flat_index,
+            default=0.0,
+        )
+        populated = True
+
+    return drift if populated else None
 
 
 def _resolve_offdiag_interval_days(
-    flat_idx: int,
     *,
     effect_idx: int,
     cause_idx: int,
     edge_lag_days: dict[tuple[int, int], float] | None,
-    offdiag_interval_days: dict[int, float] | None,
+    offdiag_interval_days: dict[tuple[int, int], float] | None,
 ) -> float | None:
-    interval = (offdiag_interval_days or {}).get(flat_idx)
+    interval = (offdiag_interval_days or {}).get((effect_idx, cause_idx))
     if interval is None:
         interval = (edge_lag_days or {}).get((effect_idx, cause_idx))
     if interval is None:
@@ -768,7 +770,6 @@ def _transition_from_elementwise_dt_terms(
 
 
 def matrix_log_diagnostic_drift(
-    ssm_spec: SSMSpec,
     drift: np.ndarray,
     *,
     interval_days: float,
@@ -785,18 +786,7 @@ def matrix_log_diagnostic_drift(
             "Matrix-log CT dynamics diagnostics require an embeddable real transition matrix; "
             f"max imaginary logm component is {imaginary_scale:.3g}."
         )
-    exact_drift = np.real(log_transition) / interval_days
-
-    drift_component = _structural_dense_component(ssm_spec)
-    if drift_component.time_invariant_mask is not None:
-        ti_mask = np.asarray(drift_component.time_invariant_mask, dtype=bool)
-        if ti_mask.size == exact_drift.shape[0]:
-            exact_drift[np.diag_indices(exact_drift.shape[0])] = np.where(
-                ti_mask,
-                -1e-6,
-                np.diag(exact_drift),
-            )
-    return exact_drift
+    return np.real(log_transition) / interval_days
 
 
 def logm_diagnostic_mean_drift(
@@ -806,34 +796,20 @@ def logm_diagnostic_mean_drift(
     edge_lag_days: dict[tuple[int, int], float] | None = None,
 ) -> np.ndarray | None:
     """Return the exact matrix-log mean drift for Stage 4 dynamics diagnostics."""
-    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
-    base_decay_site = parameter_layout.site_by_kind(SiteKind.DRIFT_BASE_DECAY)
-    offdiag_site = parameter_layout.site_by_kind(SiteKind.DRIFT_OFFDIAG)
-    if base_decay_site is None or offdiag_site is None:
-        return None
-    base_decay_prior = _prior_for_site(prior_registry, base_decay_site.name)
-    offdiag_prior = _prior_for_site(prior_registry, offdiag_site.name)
-    if base_decay_prior is None or offdiag_prior is None:
-        return None
-    base_decay_mu = _positive_prior_mean_values(base_decay_prior)
-    offdiag_mu = _prior_values_1d(offdiag_prior.params.get("mu"))
-    if base_decay_mu.size == 0 and offdiag_mu.size == 0:
+    drift = _assemble_mean_drift_from_component_priors(prior_registry, ssm_spec)
+    if drift is None:
         return None
 
-    drift = _assemble_mean_drift_from_prior_values(
-        ssm_spec,
-        parameter_layout,
-        base_decay_mu=base_decay_mu,
-        offdiag_mu=offdiag_mu,
-    )
     intervals = sorted(
         {float(interval) for interval in (edge_lag_days or {}).values() if float(interval) > 0}
     )
     if not intervals:
-        if np.any(np.abs(offdiag_mu) >= NUMERICAL_EPSILON):
+        offdiag = drift.copy()
+        np.fill_diagonal(offdiag, 0.0)
+        if np.any(np.abs(offdiag) >= NUMERICAL_EPSILON):
             raise ValueError(
                 "Matrix-log CT dynamics diagnostics require edge lag metadata for "
-                "off-diagonal drift priors."
+                "linear dynamics priors."
             )
         return drift
     if len(intervals) > 1:
@@ -841,7 +817,7 @@ def logm_diagnostic_mean_drift(
             "Matrix-log CT dynamics diagnostics require one structural lag interval; "
             f"got {intervals}."
         )
-    return matrix_log_diagnostic_drift(ssm_spec, drift, interval_days=intervals[0])
+    return matrix_log_diagnostic_drift(drift, interval_days=intervals[0])
 
 
 def _collect_role_lookup(model_spec: ModelSpec | dict | None) -> dict[str, ParameterRole]:
@@ -873,7 +849,7 @@ def _build_site_prior_payload(
     site: SiteDescriptor,
     entries: list[tuple[int, dict[str, float | int]]],
     current: dict[str, float | int],
-) -> dict[str, list[float] | list[int]]:
+) -> dict[str, Any]:
     """Build an array-valued prior payload keyed by one unique sample site."""
     if not entries:
         raise ValueError(
@@ -965,25 +941,28 @@ def _build_site_prior_payload(
         if "value" in normalized and value_arr is not None:
             value_arr[idx] = float(normalized["value"])
 
-    result: dict[str, list[float] | list[int]] = {}
+    def _scalar_or_vector(values: list[Any]) -> Any:
+        return values[0] if site.shape == () else values
+
+    result: dict[str, Any] = {}
     if mu_arr is not None:
-        result["mu"] = mu_arr
+        result["mu"] = _scalar_or_vector(mu_arr)
     if sigma_arr is not None:
-        result["sigma"] = sigma_arr
+        result["sigma"] = _scalar_or_vector(sigma_arr)
     if loc_arr is not None:
-        result["loc"] = loc_arr
+        result["loc"] = _scalar_or_vector(loc_arr)
     if family_arr is not None:
-        result["family"] = family_arr
+        result["family"] = _scalar_or_vector(family_arr)
     if lower_arr is not None:
-        result["lower"] = lower_arr
+        result["lower"] = _scalar_or_vector(lower_arr)
     if upper_arr is not None:
-        result["upper"] = upper_arr
+        result["upper"] = _scalar_or_vector(upper_arr)
     if concentration_arr is not None:
-        result["concentration"] = concentration_arr
+        result["concentration"] = _scalar_or_vector(concentration_arr)
     if rate_arr is not None:
-        result["rate"] = rate_arr
+        result["rate"] = _scalar_or_vector(rate_arr)
     if value_arr is not None:
-        result["value"] = value_arr
+        result["value"] = _scalar_or_vector(value_arr)
     return result
 
 
@@ -1075,9 +1054,8 @@ def compile_priors(
     else:
         bindings = empty_prior_bindings()
     binding_by_parameter = bindings.by_parameter
-    parameter_layout = SSMParameterLayout.from_spec(ssm_spec) if ssm_spec is not None else None
     errors: list[str] = []
-    offdiag_interval_days: dict[int, float] = {}
+    offdiag_interval_days: dict[tuple[int, int], float] = {}
 
     for param_name, prior_spec in raw_priors.items():
         try:
@@ -1162,7 +1140,7 @@ def compile_priors(
                         f"{sigma_ar:.3g} during compilation."
                     )
                     continue
-                base_decay = -math.log(mu_ar) / dt
+                ct_decay = -math.log(mu_ar) / dt
                 sd = sigma_ar / (mu_ar * dt)
                 _append_structured_prior(
                     per_site,
@@ -1170,14 +1148,14 @@ def compile_priors(
                     binding.flat_index,
                     {
                         "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
-                        "concentration": (base_decay / sd) ** 2,
-                        "rate": base_decay / (sd**2),
+                        "concentration": (ct_decay / sd) ** 2,
+                        "rate": ct_decay / (sd**2),
                     },
                 )
                 continue
 
             if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
-                if parameter_layout is None or ssm_spec is None:
+                if ssm_spec is None:
                     raise ValueError(
                         "Dynamics effect prior compilation requires a translated SSMSpec runtime."
                     )
@@ -1199,15 +1177,13 @@ def compile_priors(
                     dt = _resolve_cross_lag_interval_days(
                         param_name=param_name,
                         prior_spec=prior_spec,
-                        flat_index=binding.flat_index,
-                        parameter_layout=parameter_layout,
                         ssm_spec=ssm_spec,
                         edge_lag_days=edge_lag_days,
                         causal_spec=causal_spec,
                         effect_idx=binding.effect_idx,
                         cause_idx=binding.cause_idx,
                     )
-                    offdiag_interval_days[binding.flat_index] = dt
+                    offdiag_interval_days[(binding.effect_idx, binding.cause_idx)] = dt
                 else:
                     raise ValueError(
                         f"Dynamics effect prior {param_name!r} is missing effect/cause metadata."

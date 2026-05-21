@@ -26,13 +26,19 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.models.ssm import SSMSpec, discretize_system
-from nof1_causal_lab.models.ssm.builder import SSMModelBuilder
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
 from nof1_causal_lab.models.ssm.compile.inputs import (
     translate_spec as translate_ssm_spec,
 )
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    DiagonalDecaySpec,
+    LinearEdgeSpec,
+    StateDecaySpec,
+    StateInterceptSpec,
+)
+from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 from tests.ssm_test_utils import block_ssm_spec, structural_dense_drift_spec
 
 
@@ -46,7 +52,7 @@ def _block_spec_with_drift_offdiag(
     return block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=structural_dense_drift_spec(
+        dynamics_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=drift_offdiag_mask,
@@ -109,25 +115,110 @@ def _prior_params(prior_registry, site_name: str):
     return prior_registry.priors_by_site[site_name].params
 
 
-def _base_decay_means(prior_registry) -> np.ndarray:
-    prior = _prior_params(prior_registry, "vf_0_base_decay")
+def _positive_prior_mean(prior: dict, flat_index: int = 0) -> float:
     if "concentration" in prior and "rate" in prior:
-        return _prior_vector(prior["concentration"]) / _prior_vector(prior["rate"])
+        concentration = _prior_vector(prior["concentration"])
+        rate = _prior_vector(prior["rate"])
+        return float(concentration[flat_index] / rate[flat_index])
     if "value" in prior:
-        return _prior_vector(prior["value"])
+        return float(_prior_vector(prior["value"])[flat_index])
     if "sigma" in prior:
-        return _prior_vector(prior["sigma"]) * math.sqrt(2.0 / math.pi)
-    raise AssertionError(f"Unsupported drift_base_decay prior payload: {prior}")
+        return float(_prior_vector(prior["sigma"])[flat_index] * math.sqrt(2.0 / math.pi))
+    raise AssertionError(f"Unsupported positive prior payload: {prior}")
+
+
+def _real_prior_mean(prior: dict, flat_index: int = 0) -> float:
+    if "mu" in prior:
+        return float(_prior_vector(prior["mu"])[flat_index])
+    if "loc" in prior:
+        return float(_prior_vector(prior["loc"])[flat_index])
+    if "value" in prior:
+        return float(_prior_vector(prior["value"])[flat_index])
+    if "lower" in prior and "upper" in prior:
+        lower = _prior_vector(prior["lower"])[flat_index]
+        upper = _prior_vector(prior["upper"])[flat_index]
+        return float((lower + upper) / 2.0)
+    raise AssertionError(f"Unsupported real prior payload: {prior}")
+
+
+def _decay_means(spec: SSMSpec, prior_registry) -> np.ndarray:
+    values = np.zeros(spec.n_latent, dtype=float)
+    for component_index, component in enumerate(spec.dynamics_spec.components):
+        prefix = f"vf_{component_index}"
+        if isinstance(component, DiagonalDecaySpec):
+            prior = _prior_params(prior_registry, component.decay_site_name(prefix))
+            values += np.array(
+                [_positive_prior_mean(prior, idx) for idx in range(spec.n_latent)],
+                dtype=float,
+            )
+        elif isinstance(component, StateDecaySpec):
+            prior = _prior_params(prior_registry, component.decay_site_name(prefix))
+            values[component.target] += _positive_prior_mean(prior)
+    return values
+
+
+def _linear_edge_weight(
+    spec: SSMSpec,
+    prior_registry,
+    *,
+    source: int,
+    target: int,
+) -> float:
+    for component_index, component in enumerate(spec.dynamics_spec.components):
+        if (
+            isinstance(component, LinearEdgeSpec)
+            and component.source == source
+            and component.target == target
+        ):
+            prior = _prior_params(prior_registry, component.weight_site_name(f"vf_{component_index}"))
+            return _real_prior_mean(prior)
+    raise AssertionError(f"No LinearEdgeSpec for source={source}, target={target}")
+
+
+def _decay_mask(spec: SSMSpec) -> np.ndarray:
+    mask = np.zeros(spec.n_latent, dtype=bool)
+    for component in spec.dynamics_spec.components:
+        if isinstance(component, DiagonalDecaySpec):
+            mask[:] = True
+        elif isinstance(component, StateDecaySpec):
+            mask[component.target] = True
+    return mask
+
+
+def _linear_edge_mask(spec: SSMSpec) -> np.ndarray:
+    mask = np.zeros((spec.n_latent, spec.n_latent), dtype=bool)
+    for component in spec.dynamics_spec.components:
+        if isinstance(component, LinearEdgeSpec):
+            mask[component.target, component.source] = True
+    return mask
+
+
+def _state_intercept_mask(spec: SSMSpec) -> np.ndarray:
+    mask = np.zeros(spec.n_latent, dtype=bool)
+    for component in spec.dynamics_spec.components:
+        if isinstance(component, StateInterceptSpec):
+            mask[component.target] = True
+    return mask
 
 
 def _mean_drift_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
-    base_decay = jnp.asarray(_base_decay_means(prior_registry), dtype=jnp.float32)
-    offdiag = jnp.asarray(
-        _prior_vector(_prior_params(prior_registry, "vf_0_offdiag")["mu"]),
-        dtype=jnp.float32,
-    )
-    drift_component = spec.drift_spec.components[0]
-    return drift_component.assemble_drift(base_decay, offdiag)
+    drift = np.zeros((spec.n_latent, spec.n_latent), dtype=float)
+    for component_index, component in enumerate(spec.dynamics_spec.components):
+        prefix = f"vf_{component_index}"
+        if isinstance(component, DiagonalDecaySpec):
+            prior = _prior_params(prior_registry, component.decay_site_name(prefix))
+            decay = np.array(
+                [_positive_prior_mean(prior, idx) for idx in range(spec.n_latent)],
+                dtype=float,
+            )
+            drift[np.arange(spec.n_latent), np.arange(spec.n_latent)] -= decay
+        elif isinstance(component, StateDecaySpec):
+            prior = _prior_params(prior_registry, component.decay_site_name(prefix))
+            drift[component.target, component.target] -= _positive_prior_mean(prior)
+        elif isinstance(component, LinearEdgeSpec):
+            prior = _prior_params(prior_registry, component.weight_site_name(prefix))
+            drift[component.target, component.source] += _real_prior_mean(prior)
+    return jnp.asarray(drift, dtype=jnp.float32)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -368,7 +459,7 @@ class TestE2ESpecToDiscretization:
     """End-to-end: CausalSpec → SSMSpec → PriorRegistry → discretize → roundtrip."""
 
     def test_ssm_spec_structure_from_dag(self, two_construct_causal_spec, two_construct_model_spec):
-        """SSMModelBuilder produces correct SSMSpec from DAG structure."""
+        """Compilation produces correct SSMSpec from DAG structure."""
         spec, _elags = _translate_spec_for_test(
             two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
@@ -379,14 +470,11 @@ class TestE2ESpecToDiscretization:
         assert spec.n_manifest == 3  # mood_rating, stress_self_report, stress_cortisol
         assert spec.latent_names == ["mood", "stress"]
 
-        # Drift mask: diagonal (AR) + stress→mood off-diagonal
-        drift_component = spec.drift_spec.components[0]
-        assert drift_component.drift_diag_mask[0]  # mood AR
-        assert drift_component.drift_diag_mask[1]  # stress AR
-        assert drift_component.drift_offdiag_mask[
-            0, 1
-        ]  # stress→mood coupling (effect=mood row, cause=stress col)
-        assert not drift_component.drift_offdiag_mask[1, 0]  # no mood→stress edge
+        # Dynamics support: diagonal decay (AR) + stress→mood linear edge.
+        np.testing.assert_array_equal(_decay_mask(spec), [True, True])
+        edge_mask = _linear_edge_mask(spec)
+        assert edge_mask[0, 1]  # stress→mood coupling (effect=mood row, cause=stress col)
+        assert not edge_mask[1, 0]  # no mood→stress edge
 
         # Lambda mask: stress_cortisol has free loading for stress
         assert spec.lambda_block.mask is not None
@@ -520,13 +608,8 @@ class TestE2ESpecToDiscretization:
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
         assert spec.n_latent == 3
-        drift_component = spec.drift_spec.components[0]
-
-        cint_component = spec.drift_spec.components[1]
-        assert drift_component.time_invariant_mask is not None
-        np.testing.assert_array_equal(drift_component.time_invariant_mask, [False, False, True])
-        np.testing.assert_array_equal(drift_component.drift_diag_mask, [True, True, False])
-        np.testing.assert_array_equal(cint_component.cint_mask, [False, False, False])
+        np.testing.assert_array_equal(_decay_mask(spec), [True, True, False])
+        np.testing.assert_array_equal(_state_intercept_mask(spec), [False, False, False])
         np.testing.assert_array_equal(
             spec.diffusion_block.diffusion_chol_mask,
             [
@@ -535,7 +618,7 @@ class TestE2ESpecToDiscretization:
                 [False, False, False],
             ],
         )
-        assert _base_decay_means(ssm_priors).shape == (2,)
+        assert _decay_means(spec, ssm_priors).shape == (3,)
 
     def test_time_invariant_states_drop_static_target_drift_and_diffusion_support(self):
         """Time-invariant states should not expose drift, diffusion, or cint support."""
@@ -664,15 +747,13 @@ class TestE2ESpecToDiscretization:
         spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
-        drift_component = spec.drift_spec.components[0]
-
-        cint_component = spec.drift_spec.components[1]
-        np.testing.assert_array_equal(drift_component.drift_diag_mask, [True, True, False])
-        assert drift_component.drift_offdiag_mask[0, 1]
-        assert drift_component.drift_offdiag_mask[0, 2]
-        assert not drift_component.drift_offdiag_mask[2, 0]
-        assert not drift_component.drift_offdiag_mask[2, 1]
-        np.testing.assert_array_equal(cint_component.cint_mask, [False, False, False])
+        np.testing.assert_array_equal(_decay_mask(spec), [True, True, False])
+        edge_mask = _linear_edge_mask(spec)
+        assert edge_mask[0, 1]
+        assert edge_mask[0, 2]
+        assert not edge_mask[2, 0]
+        assert not edge_mask[2, 1]
+        np.testing.assert_array_equal(_state_intercept_mask(spec), [False, False, False])
         np.testing.assert_array_equal(
             spec.diffusion_block.diffusion_chol_mask,
             [
@@ -745,7 +826,7 @@ class TestE2ESpecToDiscretization:
     ):
         """Compiled artifacts preserve the grounded latent and measurement layout."""
         from nof1_causal_lab.models.ssm.compile.artifact import (
-            build_compiled_ssm_builder,
+            build_model_from_compiled_artifact,
             compile_ssm_artifact,
         )
         from nof1_causal_lab.utils.data import pivot_to_wide
@@ -772,7 +853,7 @@ class TestE2ESpecToDiscretization:
             for binding in compiled["parameter_bindings"]
         ]
         assert parameter_bindings == [
-            {"parameter": "beta_stress_mood", "site_name": "vf_0_offdiag", "flat_index": 0},
+            {"parameter": "beta_stress_mood", "site_name": "vf_2_weight", "flat_index": 0},
             {
                 "parameter": "lambda_stress_cortisol_stress",
                 "site_name": "lambda_free",
@@ -788,8 +869,8 @@ class TestE2ESpecToDiscretization:
                 "site_name": "manifest_var_diag_free",
                 "flat_index": 0,
             },
-            {"parameter": "rho_mood", "site_name": "vf_0_base_decay", "flat_index": 0},
-            {"parameter": "rho_stress", "site_name": "vf_0_base_decay", "flat_index": 1},
+            {"parameter": "rho_mood", "site_name": "vf_0_decay", "flat_index": 0},
+            {"parameter": "rho_stress", "site_name": "vf_1_decay", "flat_index": 0},
             {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
             {"parameter": "sigma_stress", "site_name": "diffusion_diag_free", "flat_index": 1},
         ]
@@ -816,17 +897,18 @@ class TestE2ESpecToDiscretization:
             }
         )
 
-        builder = build_compiled_ssm_builder(compiled, pivot_to_wide(data_for_model))
-        spec = builder.spec
+        model = build_model_from_compiled_artifact(compiled, pivot_to_wide(data_for_model))
+        spec = model.spec
         assert spec.latent_names == ["mood", "stress"]
-        drift_component = spec.drift_spec.components[0]
-        assert drift_component.drift_offdiag_mask[0, 1]
-        assert not drift_component.drift_offdiag_mask[1, 0]
+        edge_mask = _linear_edge_mask(spec)
+        assert edge_mask[0, 1]
+        assert not edge_mask[1, 0]
         assert spec.lambda_block.mask is not None
         assert spec.lambda_block.mask[2, 1]
-        runtime = builder.model.get_prior_runtime_bundle()
-        assert runtime.prior_state["vf_0_base_decay"]["concentration"].shape == (2,)
-        assert builder.model.parameter_bindings == compiled["parameter_bindings"]
+        runtime = model.get_prior_runtime_bundle()
+        assert runtime.prior_state["vf_0_decay"]["concentration"].shape == ()
+        assert runtime.prior_state["vf_1_decay"]["concentration"].shape == ()
+        assert model.parameter_bindings == compiled["parameter_bindings"]
 
     def test_residual_sd_priors_are_construct_specific(
         self, two_construct_causal_spec, two_construct_model_spec
@@ -878,10 +960,10 @@ class TestE2ESpecToDiscretization:
         )
 
         # --- rho_mood: Beta(3,2) → E=0.6, reference_interval_days=7 ---
-        # drift_base_decay[0] = -ln(0.6) / 7 ≈ 0.073
+        # dynamics decay for mood = -ln(0.6) / 7 ≈ 0.073
         mu_ar_mood = 3.0 / 5.0  # E[Beta(3,2)] = 0.6
         expected_drift_mood = -math.log(mu_ar_mood) / 7.0
-        mu_drift = _base_decay_means(ssm_priors)
+        mu_drift = _decay_means(spec, ssm_priors)
         mu_mood = mu_drift[0]
         assert abs(mu_mood - expected_drift_mood) < 0.01, (
             f"mood drift: got {mu_mood}, expected {expected_drift_mood} "
@@ -889,7 +971,7 @@ class TestE2ESpecToDiscretization:
         )
 
         # --- rho_stress: Beta(2,2) → E=0.5, no reference_interval_days → daily dt=1 ---
-        # drift_base_decay[1] = -ln(0.5) / 1.0 ≈ 0.693
+        # dynamics decay for stress = -ln(0.5) / 1.0 ≈ 0.693
         mu_ar_stress = 0.5
         expected_drift_stress = -math.log(mu_ar_stress) / 1.0
         mu_stress = mu_drift[1]
@@ -899,10 +981,9 @@ class TestE2ESpecToDiscretization:
         )
 
         # --- beta_stress_mood: Normal(0.3, 0.15), reference_interval_days=7 ---
-        # drift_offdiag[0] = 0.3 / 7 ≈ 0.043
+        # linear-edge weight = 0.3 / 7 ≈ 0.043
         expected_offdiag = 0.3 / 7.0
-        mu_offdiag = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
-        mu_offdiag_val = mu_offdiag[0] if isinstance(mu_offdiag, list) else mu_offdiag
+        mu_offdiag_val = _linear_edge_weight(spec, ssm_priors, source=1, target=0)
         assert abs(mu_offdiag_val - expected_offdiag) < 0.01, (
             f"stress→mood drift: got {mu_offdiag_val}, expected {expected_offdiag} "
             f"(using reference_interval_days=7)"
@@ -933,7 +1014,7 @@ class TestE2ESpecToDiscretization:
     def test_first_order_roundtrip_ar(
         self, two_construct_causal_spec, two_construct_model_spec, weekly_study_priors
     ):
-        """Resolved AR persistence includes base decay, incoming mass, and margin."""
+        """Resolved AR persistence follows component-owned decay rates."""
         spec, _elags = _translate_spec_for_test(
             two_construct_model_spec,
             causal_spec=two_construct_causal_spec,
@@ -947,26 +1028,22 @@ class TestE2ESpecToDiscretization:
 
         drift = _mean_drift_from_priors(spec, ssm_priors)
 
-        # Discretize at dt=7 (weekly). The resolved diagonal damping is stronger
-        # than the elicited baseline persistence when incoming coupling is present.
+        # Discretize at dt=7 (weekly). The mood prior was authored on the
+        # weekly interval, so its diagonal transition recovers that persistence.
         dt_weekly = 7.0
         F_weekly = jla.expm(drift * dt_weekly)
 
-        base_decay = _base_decay_means(ssm_priors)
-        offdiag = _prior_vector(_prior_params(ssm_priors, "vf_0_offdiag")["mu"])
-        drift_component = spec.drift_spec.components[0]
+        base_decay = _decay_means(spec, ssm_priors)
         baseline_ar_mood = 3.0 / 5.0  # Beta(3,2) mean = 0.6
-        expected_resolved_mood = math.exp(
-            -(base_decay[0] + abs(offdiag[0]) + drift_component.stability_margin) * dt_weekly
-        )
+        expected_resolved_mood = math.exp(-base_decay[0] * dt_weekly)
         recovered_ar_mood = float(F_weekly[0, 0])
-        assert recovered_ar_mood < baseline_ar_mood
+        assert recovered_ar_mood == pytest.approx(baseline_ar_mood, abs=0.05)
         assert abs(recovered_ar_mood - expected_resolved_mood) < 0.05, (
             f"Weekly resolved mood AR: got {recovered_ar_mood:.4f}, "
             f"expected ≈{expected_resolved_mood:.4f}"
         )
 
-        # stress: dt=1 for this prior, with only the stability margin added.
+        # stress: dt=1 for this prior, evaluated over a weekly interval.
         recovered_ar_stress = float(F_weekly[1, 1])
         assert recovered_ar_stress < 0.05, (
             f"Stress AR at weekly interval should be very low (daily-derived rate), "
@@ -975,7 +1052,7 @@ class TestE2ESpecToDiscretization:
 
         # Discretize at dt=1 (daily) for stress resolved persistence.
         F_daily = jla.expm(drift * 1.0)
-        expected_daily_stress = math.exp(-(base_decay[1] + drift_component.stability_margin))
+        expected_daily_stress = math.exp(-base_decay[1])
         recovered_daily_stress = float(F_daily[1, 1])
         assert abs(recovered_daily_stress - expected_daily_stress) < 0.05, (
             f"Daily roundtrip stress AR: got {recovered_daily_stress:.4f}, "
@@ -1086,13 +1163,6 @@ class TestE2ESpecToDiscretization:
 
         from nof1_causal_lab.models.ssm.inference import prior_predictive
 
-        builder = SSMModelBuilder(
-            model_spec=two_construct_model_spec,
-            priors=weekly_study_priors,
-            causal_spec=two_construct_causal_spec,
-        )
-
-        # Build model with minimal mock data
         n_time = 30
         rng = np.random.default_rng(0)
         mock_data = pl.DataFrame(
@@ -1103,16 +1173,22 @@ class TestE2ESpecToDiscretization:
                 "time": np.arange(n_time, dtype=float),
             }
         )
-        model = builder.build_model(mock_data)
+        model = build_ssm_model(
+            mock_data,
+            model_spec=two_construct_model_spec,
+            priors=weekly_study_priors,
+            causal_spec=two_construct_causal_spec,
+        )
 
         # Sample from prior predictive
         times = jnp.arange(n_time, dtype=jnp.float32)
         samples = prior_predictive(model, times, num_samples=20, seed=42)
 
-        # Check key deterministic sites exist and are finite
-        assert "vf_0_drift" in samples, "Missing 'vf_0_drift' in prior predictive samples"
-        drift_samples = samples["vf_0_drift"]
-        assert jnp.all(jnp.isfinite(drift_samples)), "vf_0_drift samples contain NaN/Inf"
+        # Check key component-owned dynamics sites exist and are finite.
+        dynamics_keys = [key for key in samples if key.startswith("vf_")]
+        assert dynamics_keys, "Missing component-owned dynamics sites in prior predictive samples"
+        for key in dynamics_keys:
+            assert jnp.all(jnp.isfinite(samples[key])), f"{key} samples contain NaN/Inf"
 
         if "diffusion" in samples:
             diff_samples = samples["diffusion"]
@@ -1243,13 +1319,11 @@ class TestE2ESpecToDiscretization:
         )
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
-        mu_w = _prior_params(ssm_priors_w, "vf_0_offdiag")["mu"]
-        mu_w_val = mu_w[0] if isinstance(mu_w, list) else mu_w
+        mu_w_val = _linear_edge_weight(ssm_spec, ssm_priors_w, source=1, target=0)
         assert abs(mu_w_val - 0.3 / 7.0) < 0.01
 
         # Daily: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
-        mu_d = _prior_params(ssm_priors_d, "vf_0_offdiag")["mu"]
-        mu_d_val = mu_d[0] if isinstance(mu_d, list) else mu_d
+        mu_d_val = _linear_edge_weight(ssm_spec, ssm_priors_d, source=1, target=0)
         expected_daily = 0.3
         assert abs(mu_d_val - expected_daily) < 0.05, (
             f"Daily case uses beta/dt scaling: got {mu_d_val}, expected {expected_daily}"
@@ -1479,8 +1553,8 @@ class TestExactMatrixLogConversion:
             f"Shorter interval should have less decay: |eigs(F1)|={eigs_1}, |eigs(F2)|={eigs_2}"
         )
 
-    def test_builder_keeps_elementwise_priors_when_intervals_match(self, two_construct_causal_spec):
-        """SSMModelBuilder keeps factorized DT→CT priors even when dt values match."""
+    def test_compile_keeps_elementwise_priors_when_intervals_match(self, two_construct_causal_spec):
+        """Compilation keeps factorized DT→CT priors even when dt values match."""
         model_spec = {
             "likelihoods": [
                 {
@@ -1552,15 +1626,15 @@ class TestExactMatrixLogConversion:
             causal_spec=two_construct_causal_spec,
         )
 
-        drift_base_decay = _base_decay_means(ssm_priors)
-        drift_offdiag = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
+        drift_base_decay = _decay_means(ssm_spec, ssm_priors)
+        linear_edge_weight = _linear_edge_weight(ssm_spec, ssm_priors, source=1, target=0)
 
         assert abs(drift_base_decay[0] - (-math.log(0.6) / 7.0)) < 0.01
         assert abs(drift_base_decay[1] - (-math.log(0.5) / 7.0)) < 0.01
-        assert abs(drift_offdiag[0] - (0.3 / 7.0)) < 0.01
+        assert abs(linear_edge_weight - (0.3 / 7.0)) < 0.01
 
     def test_edge_lag_days_populated(self, two_construct_causal_spec):
-        """Builder stores edge lag metadata from causal spec during support building."""
+        """Compilation stores edge lag metadata from causal spec during support building."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
             build_structural_support_from_causal_spec,
         )
@@ -1580,7 +1654,7 @@ class TestExactMatrixLogConversion:
         assert abs(edge_lag_days[(0, 1)] - 1.0) < 0.01
 
     def test_drift_lag_consistency_warns(self, two_construct_causal_spec, caplog):
-        """Builder warns when CT drift implies timescale far from edge lag."""
+        """Compilation warns when CT drift implies timescale far from edge lag."""
         import logging
 
         model_spec = {
