@@ -129,8 +129,8 @@ def build_site_registry(
 ) -> list[SiteDescriptor]:
     """Enumerate all sample sites deterministically from *spec*.
 
-    Core dense-linear-path sites come from ``spec.iter_sample_sites()``
-    (each block owns its own descriptor). Likelihood-extra sites
+    Core model sites come from ``spec.iter_sample_sites()`` (each dynamics
+    component and structure block owns its own descriptor). Likelihood-extra sites
     (`obs_df`, `obs_shape`, cutpoints, etc.) depend on
     ``spec.manifest_dists`` and are generated locally because they are
     not block-owned.
@@ -423,7 +423,7 @@ def assemble_deterministics_from_registry(
 ) -> dict[str, jnp.ndarray]:
     """Assemble deterministic matrices from per-site posterior samples.
 
-    Each dense-linear-path block produces its deterministic via
+    Each structure block produces its deterministic via
     ``_maybe_vmap_assemble``; missing samples (fixed blocks) broadcast
     the template. ``manifest_cov`` and ``t0_cov`` are multi-block
     composition steps.

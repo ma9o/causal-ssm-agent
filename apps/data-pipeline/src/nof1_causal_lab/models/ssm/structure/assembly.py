@@ -1,4 +1,4 @@
-"""Single source of truth for the linear-path structural assembly algorithms.
+"""Single source of truth for affine structural assembly algorithms.
 
 The stability-by-construction drift assembler and the sparse-element
 cint assembler historically existed in two places — ``SSMParameterLayout``

@@ -1158,9 +1158,7 @@ class TestCanonicalRuntimePriors:
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
         site = next(
-            site
-            for site in runtime.site_runtime.registry
-            if site.name == "t0_var_diag_free"
+            site for site in runtime.site_runtime.registry if site.name == "t0_var_diag_free"
         )
         prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
         assert isinstance(prior_dist, dist.HalfNormal)
@@ -1177,9 +1175,7 @@ class TestCanonicalRuntimePriors:
         )
         runtime = load_prior_runtime_bundle(compile_prior_semantics(simple_spec, priors))
         site = next(
-            site
-            for site in runtime.site_runtime.registry
-            if site.name == "vf_0_base_decay"
+            site for site in runtime.site_runtime.registry if site.name == "vf_0_base_decay"
         )
         prior_dist = build_site_prior_distribution(site, runtime.prior_state[site.name])
 
@@ -1361,11 +1357,22 @@ class TestCompiledArtifactIntegration:
         assert artifact["spec"]["input_names"] == ["dose"]
         assert artifact["spec"]["input_source_indicators"] == ["dose_mg"]
         assert artifact["spec"]["input_effect_block"]["mask"] == [[True]]
+        beta_binding = next(
+            binding
+            for binding in artifact["parameter_bindings"]
+            if binding["parameter"] == "beta_dose_mood"
+        )
         assert {
+            "parameter": beta_binding["parameter"],
+            "site_name": beta_binding["site_name"],
+            "flat_index": beta_binding["flat_index"],
+        } == {
             "parameter": "beta_dose_mood",
             "site_name": "input_effect_free",
             "flat_index": 0,
-        } in artifact["parameter_bindings"]
+        }
+        assert beta_binding["site_kind"] == "input_effect"
+        assert beta_binding["transform"] == "dt_effect_to_ct_rate"
 
     def test_builder_from_artifact_uses_semantics(self, model_spec_and_priors):
         """make_builder_from_compiled_artifact reads compiled_prior_semantics."""

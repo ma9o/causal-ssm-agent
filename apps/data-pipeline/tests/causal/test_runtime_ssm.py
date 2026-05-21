@@ -21,6 +21,7 @@ import numpy as np
 import numpyro.distributions as ndist
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.dynamics import (
     CompositeSpec,
     DenseLinearSpec,
@@ -40,7 +41,19 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
 )
+from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+
+
+def _decay_prior_registry(values) -> PriorRegistry:
+    return PriorRegistry(
+        {
+            "vf_0_decay": PriorSpec(
+                PriorDistributionFamily.DELTA,
+                {"value": values},
+            )
+        }
+    )
 
 
 def _gaussian_kernel(R):
@@ -274,7 +287,7 @@ class TestRuntimeFromSSMModel:
             input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, priors=_decay_prior_registry([0.3, 0.5]))
 
         runtime = runtime_from_ssm_model(
             model,
@@ -394,7 +407,7 @@ class TestSSMModelCompositeDispatch:
             input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
-        model = SSMModel(spec)
+        model = SSMModel(spec, priors=_decay_prior_registry([0.3, 0.5]))
         tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations=jnp.zeros((4, 1)),
             times=jnp.arange(4, dtype=jnp.float64),

@@ -10,7 +10,7 @@ The factories are *callables*, not module-level constants, because
 NumPyro distributions cache JAX arrays internally and constructing them
 at import time can interact badly with JAX initialisation order.
 
-The dense-linear and nonlinear paths both bind priors through the
+Structure blocks and dynamics components both bind priors through the
 site-keyed registry in ``ssm.priors``; this module only provides
 distribution factories for hand-built composite specs.
 """
@@ -128,7 +128,7 @@ def diagonal_decay_prior(
 ) -> ndist.Distribution:
     """Gamma prior over per-latent decay rates ``ρ`` (must be positive).
 
-    Defaults match the existing dense-linear path
+    Defaults match the structural affine drift defaults
     (``Gamma(concentration=2, rate=4)`` → mean 0.5, mode 0.25), so the
     composite primitive case retains the existing stability prior
     behaviour for the diagonal-decay component.

@@ -6,13 +6,27 @@ Builds prior predictive samples directly from compiled prior semantics or
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.models.predictive_simulation import simulate_predictive_observations
+from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+from nof1_causal_lab.models.predictive_simulation import (
+    sample_predictive_observations_from_linear_predictors,
+)
+from nof1_causal_lab.models.ssm.covariance_utils import (
+    INITIAL_STATE_COV_MIN_EIGENVALUE,
+    stable_cholesky,
+)
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    compile_composite,
+    pack_component_params_from_samples,
+)
+from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
+from nof1_causal_lab.models.ssm.dynamics.simulator import simulate
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
 )
@@ -28,6 +42,44 @@ from nof1_causal_lab.models.ssm.parameterization import (
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.priors import PriorRegistry
+
+
+class _InputDrivenVectorField(eqx.Module):
+    """Vector-field wrapper adding piecewise-constant known-input forcing."""
+
+    base: Any
+    input_effect: jnp.ndarray
+    times: jnp.ndarray
+    transition_inputs: jnp.ndarray
+    n_latent: int = eqx.field(static=True)
+
+    def __call__(self, t: jnp.ndarray, eta: jnp.ndarray, args):
+        drift = self.base(t, eta, args)
+        idx = jnp.clip(
+            jnp.searchsorted(self.times, t, side="right"),
+            1,
+            self.transition_inputs.shape[0] - 1,
+        )
+        return drift + self.input_effect @ self.transition_inputs[idx]
+
+    def initial_condition(self, eta0: jnp.ndarray, args):
+        return self.base.initial_condition(eta0, args)
+
+    def steady_state_residual(self, eta: jnp.ndarray, args):
+        return self.base.steady_state_residual(eta, args)
+
+    def linearize(
+        self,
+        x_lin: jnp.ndarray,
+        args,
+        t: jnp.ndarray | None = None,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        if t is None:
+            t = jnp.asarray(0.0)
+        f_at_x = self(t, x_lin, args)
+        jacobian = jax.jacfwd(lambda x: self(t, x, args))(x_lin)
+        intercept = f_at_x - jacobian @ x_lin
+        return jacobian, intercept
 
 
 def _ensure_discrete_metadata(spec: SSMSpec) -> None:
@@ -61,24 +113,106 @@ def _assemble_extra_params_batched(
     return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int64))
 
 
-def _samples_for_affine_predictive_simulator(
-    spec: SSMSpec,
-    samples: dict[str, jnp.ndarray],
-) -> dict[str, jnp.ndarray]:
-    """Add the affine view expected by the legacy observation simulator."""
-    from nof1_causal_lab.models.ssm.dynamics.composite import (
-        StructuralDenseLinearSpec,
-        StructuralInterceptSpec,
+def _ensure_gaussian_process_diffusion(spec: SSMSpec) -> None:
+    non_gaussian = [
+        str(dist.value if isinstance(dist, DistributionFamily) else dist)
+        for dist in spec.diffusion_dists
+        if DistributionFamily(dist) != DistributionFamily.GAUSSIAN
+    ]
+    if non_gaussian:
+        raise ValueError(
+            "Vector-field prior predictive simulation currently requires Gaussian process "
+            f"diffusion; got {non_gaussian}."
+        )
+
+
+def _prepare_vector_field_for_draw(
+    base_vector_field,
+    *,
+    input_effect: jnp.ndarray,
+    times: jnp.ndarray,
+    transition_inputs: jnp.ndarray | None,
+):
+    if input_effect.shape[1] == 0:
+        return base_vector_field
+    if transition_inputs is None:
+        raise ValueError("SSM has known input effects but transition_inputs was not provided.")
+    transition_inputs = jnp.asarray(transition_inputs, dtype=input_effect.dtype)
+    if transition_inputs.shape != (times.shape[0], input_effect.shape[1]):
+        raise ValueError(
+            "transition_inputs must have shape "
+            f"({times.shape[0]}, {input_effect.shape[1]}), got {transition_inputs.shape}"
+        )
+    return _InputDrivenVectorField(
+        base=base_vector_field,
+        input_effect=input_effect,
+        times=times,
+        transition_inputs=transition_inputs,
+        n_latent=base_vector_field.n_latent,
     )
 
-    simulator_samples = dict(samples)
-    for idx, component in enumerate(spec.drift_spec.components):
-        prefix = f"vf_{idx}"
-        if isinstance(component, StructuralDenseLinearSpec):
-            simulator_samples["drift"] = samples[component.drift_deterministic_name(prefix)]
-        elif isinstance(component, StructuralInterceptSpec):
-            simulator_samples["cint"] = samples[component.cint_deterministic_name(prefix)]
-    return simulator_samples
+
+def _linear_predictors_from_latents(
+    latent_trajectory: jnp.ndarray,
+    lambda_mat: jnp.ndarray,
+    manifest_means: jnp.ndarray,
+) -> jnp.ndarray:
+    return jax.vmap(lambda eta_t: lambda_mat @ eta_t + manifest_means)(latent_trajectory)
+
+
+def _simulate_vector_field_predictive_latents(
+    spec: SSMSpec,
+    samples: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    *,
+    transition_inputs: jnp.ndarray | None,
+    seed: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    _ensure_gaussian_process_diffusion(spec)
+    compiled = compile_composite(spec.drift_spec)
+    n_draws = int(next(iter(samples.values())).shape[0])
+    draw_keys = random.split(random.PRNGKey(seed), n_draws)
+    latents = []
+    linear_predictors = []
+
+    for draw_idx in range(n_draws):
+        key_init, key_latent = random.split(draw_keys[draw_idx])
+        draw = {name: values[draw_idx] for name, values in samples.items()}
+        vf_params = pack_component_params_from_samples(spec.drift_spec, draw, draw)
+        t0_chol = stable_cholesky(
+            draw["t0_cov"],
+            min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+        )
+        eta0 = draw["t0_means"] + t0_chol @ random.normal(key_init, (spec.n_latent,))
+        diffusion_chol = draw["diffusion"]
+        if int(times.shape[0]) == 1:
+            latent_trajectory = eta0[None, :]
+        else:
+            vector_field = _prepare_vector_field_for_draw(
+                compiled.vector_field,
+                input_effect=draw["input_effect"],
+                times=times,
+                transition_inputs=transition_inputs,
+            )
+            latent_trajectory = simulate(
+                vector_field,
+                vf_params,
+                Intervention.none(),
+                eta0,
+                times,
+                key=key_latent,
+                diffusion_cov=diffusion_chol @ diffusion_chol.T,
+            )
+        latents.append(latent_trajectory)
+        linear_predictors.append(
+            _linear_predictors_from_latents(
+                latent_trajectory,
+                draw["lambda"],
+                draw["manifest_means"],
+            )
+        )
+
+    return jnp.stack(latents), jnp.stack(linear_predictors)
 
 
 def sample_prior_predictive_from_runtime(
@@ -119,20 +253,28 @@ def sample_prior_predictive_from_runtime(
     samples.update(constrained_samples)
     samples.update(deterministic_samples)
     samples.update(extra_params)
-    observations, observations_mask = simulate_predictive_observations(
-        _samples_for_affine_predictive_simulator(spec, samples),
+    latents, linear_predictors = _simulate_vector_field_predictive_latents(
+        spec,
+        samples,
         times,
-        diffusion_dists=spec.diffusion_dists,
+        transition_inputs=transition_inputs,
+        seed=seed,
+    )
+    observations, observations_mask = sample_predictive_observations_from_linear_predictors(
+        linear_predictors,
+        samples,
+        times,
         manifest_dists=spec.manifest_dists,
         manifest_links=spec.manifest_links,
         manifest_level_counts=spec.manifest_level_counts,
         observation_support=observation_support,
         observation_mask=observation_mask,
-        transition_inputs=transition_inputs,
         n_subsample=num_samples,
         rng_seed=seed,
         manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
     )
+    samples["latents"] = latents
+    samples["linear_predictors"] = linear_predictors
     samples["observations"] = observations
     samples["observations_mask"] = observations_mask
     return samples

@@ -244,14 +244,8 @@ def build_composite_aux_kalman_bundle(
         observation_support=observation_support,
     )
 
-    from nof1_causal_lab.models.ssm.dynamics import CompiledComposite as _CompiledComposite
-
-    compiled = _CompiledComposite(
-        vector_field=runtime.vector_field, sample_params=sample_params
-    )
-
     return CompositeAuxKalmanBundle(
-        compiled=compiled,
+        compiled=runtime.compiled,
         observations=observations,
         runtime_times=runtime_times,
         init_mean=runtime.init_mean,
@@ -368,7 +362,7 @@ def build_unconstrained_transform(
     compiled: CompiledComposite,
     *,
     init_seed: int = 0,
-    site_prefix: str = "vf",
+    site_prefix: str | None = None,
 ) -> _UnconstrainedTransform:
     """Build the unconstrained ↔ constrained transform for a compiled spec.
 
@@ -376,12 +370,13 @@ def build_unconstrained_transform(
     bijection + Jacobian logic; this wrapper only adds the
     component-tuple reshape required by the composite vector field.
     """
+    site_prefix = compiled.site_prefix if site_prefix is None else site_prefix
 
     def _model() -> tuple[dict[str, Array], ...]:
         return compiled.sample_params()
 
     tr = trace(seed(_model, rng_seed=init_seed)).get_trace()
-    site_info: dict[str, dict[str, Any]] = {
+    traced_site_info: dict[str, dict[str, Any]] = {
         name: {
             "transform": biject_to(info["fn"].support),
             "value": info["value"],
@@ -390,20 +385,42 @@ def build_unconstrained_transform(
         for name, info in tr.items()
         if info["type"] == "sample"
     }
-    shared = build_unconstrained_site_transform(site_info)
+    site_info: dict[str, dict[str, Any]] = {}
+    for site in compiled.site_registry:
+        if site.name not in traced_site_info:
+            raise ValueError(
+                f"Compiled composite registry site {site.name!r} was not sampled "
+                "by compiled.sample_params()."
+            )
+        traced = traced_site_info[site.name]
+        value_shape = tuple(jnp.shape(traced["value"]))
+        if value_shape != site.shape:
+            raise ValueError(
+                f"Compiled composite site {site.name!r} shape mismatch: "
+                f"registry={site.shape}, sampled={value_shape}."
+            )
+        site_info[site.name] = traced
 
-    with seed(rng_seed=init_seed):
-        example_tuple = compiled.sample_params()
-    component_layout: tuple[tuple[tuple[str, str], ...], ...] = tuple(
-        tuple((key, f"{site_prefix}_{i}_{key}") for key in slice_params)
-        for i, slice_params in enumerate(example_tuple)
-    )
+    extra_trace_sites = set(traced_site_info) - {site.name for site in compiled.site_registry}
+    if extra_trace_sites:
+        raise ValueError(
+            "compiled.sample_params() sampled sites not declared by the compiled "
+            f"registry: {sorted(extra_trace_sites)}"
+        )
+
+    shared = build_unconstrained_site_transform(site_info)
 
     def constrain_to_tuple(z_flat: Array) -> tuple[dict[str, Array], ...]:
         constrained = shared.constrain_dict(z_flat)
-        return tuple(
-            {key: constrained[site_name] for key, site_name in component_keys}
-            for component_keys in component_layout
+        from nof1_causal_lab.models.ssm.dynamics.composite import (
+            pack_component_params_from_samples,
+        )
+
+        return pack_component_params_from_samples(
+            compiled.spec,
+            constrained,
+            constrained,
+            prefix=site_prefix,
         )
 
     return _UnconstrainedTransform(

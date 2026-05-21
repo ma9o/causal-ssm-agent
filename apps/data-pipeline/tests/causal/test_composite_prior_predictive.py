@@ -39,17 +39,13 @@ class TestSampleCompositePriorPredictive:
                     target=1,
                     emax_prior=ndist.LogNormal(0.0, 0.5),
                     ec50_prior=ndist.LogNormal(0.0, 0.5),
-                    n_prior=ndist.TruncatedNormal(
-                        loc=2.0, scale=0.5, low=1.0, high=4.0
-                    ),
+                    n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.5, low=1.0, high=4.0),
                 ),
             ),
         )
         compiled = compile_composite(spec)
         times = jnp.linspace(0.0, 5.0, 20)
-        pp = sample_composite_prior_predictive(
-            compiled, jnp.array([1.0, 0.5]), times, n_draws=10
-        )
+        pp = sample_composite_prior_predictive(compiled, jnp.array([1.0, 0.5]), times, n_draws=10)
         assert pp.trajectories.shape == (10, 20, 2)
         assert bool(jnp.all(pp.finite))
         # Strictly positive decay → all draws should be stable
@@ -67,9 +63,7 @@ class TestSampleCompositePriorPredictive:
                     target=0,
                     emax_prior=ndist.LogNormal(2.0, 0.1),  # large Emax
                     ec50_prior=ndist.LogNormal(-1.0, 0.1),  # small EC50
-                    n_prior=ndist.TruncatedNormal(
-                        loc=3.5, scale=0.1, low=3.0, high=4.0
-                    ),
+                    n_prior=ndist.TruncatedNormal(loc=3.5, scale=0.1, low=3.0, high=4.0),
                 ),
             ),
         )
@@ -142,9 +136,7 @@ class TestSampleObservationsFromLatents:
 
         canonical = self._gaussian_canonical(n_latent=2)
         latents = jnp.ones((4, 5, 2))  # (n_draws=4, T=5, n_latent=2)
-        observations = sample_observations_from_latents(
-            canonical, latents, jr.PRNGKey(0)
-        )
+        observations = sample_observations_from_latents(canonical, latents, jr.PRNGKey(0))
         # H is (1, 2), so observation channel dim is 1
         assert observations.shape == (4, 5, 1)
         assert bool(jnp.all(jnp.isfinite(observations)))
@@ -162,9 +154,7 @@ class TestSampleObservationsFromLatents:
         # Fix the latent so any spread comes from observation noise alone.
         x = jnp.array([[2.0, -1.0], [1.0, 0.5]])  # (T=2, n_latent=2)
         latents = jnp.broadcast_to(x, (500, 2, 2))
-        observations = sample_observations_from_latents(
-            canonical, latents, jr.PRNGKey(1)
-        )
+        observations = sample_observations_from_latents(canonical, latents, jr.PRNGKey(1))
         empirical_mean = jnp.mean(observations, axis=0)
         expected = jnp.einsum("ij,tj->ti", canonical.H, x) + canonical.d_meas
         assert jnp.allclose(empirical_mean, expected, atol=0.05)
@@ -222,9 +212,7 @@ class TestSampleObservationsFromLatents:
         assert canonical.predictive_sampler is not None
         # 5 draws × 4 timesteps × 2 latent dims
         latents = jnp.zeros((5, 4, 2))
-        observations = sample_observations_from_latents(
-            canonical, latents, jr.PRNGKey(0)
-        )
+        observations = sample_observations_from_latents(canonical, latents, jr.PRNGKey(0))
         assert observations.shape == (5, 4, 1)
         # Beta is supported on (0, 1)
         assert bool(jnp.all(observations >= 0.0))
@@ -275,9 +263,7 @@ class TestSampleObservationsFromLatents:
         import pytest
 
         with pytest.raises(NotImplementedError, match="Gaussian"):
-            sample_observations_from_latents(
-                canonical, jnp.zeros((2, 3, 2)), jr.PRNGKey(0)
-            )
+            sample_observations_from_latents(canonical, jnp.zeros((2, 3, 2)), jr.PRNGKey(0))
 
 
 class TestSampleCompositePriorPredictiveFull:
@@ -302,7 +288,7 @@ class TestSampleCompositePriorPredictiveFull:
         from nof1_causal_lab.models.ssm.inference.targets.kernels import (
             build_observation_kernel,
         )
-        from nof1_causal_lab.models.ssm.predictive import (
+        from nof1_causal_lab.models.ssm.predictive.composite import (
             sample_composite_prior_predictive_full,
         )
 
@@ -329,9 +315,7 @@ class TestSampleCompositePriorPredictiveFull:
         )
         n_draws, T = 8, 5
         times = jnp.linspace(0.0, 2.0, T)
-        pp = sample_composite_prior_predictive_full(
-            canonical, times, n_draws=n_draws, rng_seed=42
-        )
+        pp = sample_composite_prior_predictive_full(canonical, times, n_draws=n_draws, rng_seed=42)
         # Latents
         assert pp.trajectories.shape == (n_draws, T, 2)
         # Observations
@@ -357,10 +341,16 @@ class TestValidateCompositeAssembly:
         config = {
             "n_latent": 1,
             "components": [
-                {"kind": "DiagonalDecay",
-                 "priors": {"decay": {"family": "Gamma",
-                                      "params": {"concentration": 2.0, "rate": 4.0},
-                                      "shape": [1]}}},
+                {
+                    "kind": "DiagonalDecay",
+                    "priors": {
+                        "decay": {
+                            "family": "Gamma",
+                            "params": {"concentration": 2.0, "rate": 4.0},
+                            "shape": [1],
+                        }
+                    },
+                },
             ],
         }
         result = validate_composite_assembly(
@@ -387,15 +377,11 @@ class TestValidateCompositeDynamics:
     def test_stable_spec_returns_is_valid_true(self):
         spec = CompositeSpec(
             n_latent=2,
-            components=(
-                DiagonalDecaySpec(decay_prior=ndist.Gamma(2.0, 4.0)),
-            ),
+            components=(DiagonalDecaySpec(decay_prior=ndist.Gamma(2.0, 4.0)),),
         )
         compiled = compile_composite(spec)
         times = jnp.linspace(0.0, 2.0, 5)
-        result = validate_composite_dynamics(
-            compiled, jnp.array([1.0, 1.0]), times, n_draws=10
-        )
+        result = validate_composite_dynamics(compiled, jnp.array([1.0, 1.0]), times, n_draws=10)
         assert result["code"] == "dynamics_stability"
         assert result["is_valid"] is True
         assert result["n_unstable"] == 0
@@ -412,17 +398,13 @@ class TestValidateCompositeDynamics:
                     target=0,
                     emax_prior=ndist.LogNormal(2.0, 0.1),
                     ec50_prior=ndist.LogNormal(-1.0, 0.1),
-                    n_prior=ndist.TruncatedNormal(
-                        loc=3.5, scale=0.1, low=3.0, high=4.0
-                    ),
+                    n_prior=ndist.TruncatedNormal(loc=3.5, scale=0.1, low=3.0, high=4.0),
                 ),
             ),
         )
         compiled = compile_composite(spec)
         times = jnp.linspace(0.0, 0.5, 5)
-        result = validate_composite_dynamics(
-            compiled, jnp.array([0.4]), times, n_draws=20
-        )
+        result = validate_composite_dynamics(compiled, jnp.array([0.4]), times, n_draws=20)
         assert result["is_valid"] is False
         assert result["primary_score"] > 0.5
         assert len(result["failing_draw_indices"]) >= 10

@@ -28,6 +28,8 @@ Stage4ParameterBlockKind = Literal[
 _DYNAMICS_PARAMETER_ROLES = frozenset(
     {
         "ar_coefficient",
+        "dynamics_parameter",
+        "dynamics_parameter_positive",
         "residual_sd",
         "state_intercept",
         "initial_state_mean",
@@ -225,13 +227,28 @@ def _build_parameter_surface(
     role = str(parameter["role"])
 
     if role in _DYNAMICS_PARAMETER_ROLES:
-        construct_name = str(parameter["construct"])
+        construct_name = parameter.get("construct")
+        construct_names = tuple(
+            name for name in (parameter.get("construct_names") or ()) if isinstance(name, str)
+        )
+        if not construct_names and isinstance(construct_name, str):
+            construct_names = (construct_name,)
+        cause = parameter.get("cause")
+        effect = parameter.get("effect")
+        if not construct_names and isinstance(cause, str) and isinstance(effect, str):
+            construct_names = (cause, effect)
+        owner_key = construct_names[-1] if construct_names else str(parameter["name"])
         return Stage4ParameterSurface(
             parameter=parameter,
             block_kind="dynamics_prior",
-            owner_key=construct_name,
-            construct_names=(construct_name,),
-            structural_context={"construct": construct_name},
+            owner_key=owner_key,
+            construct_names=construct_names,
+            structural_context={
+                "construct_names": list(construct_names),
+                "component_kind": parameter.get("component_kind"),
+                "component_parameter": parameter.get("component_parameter"),
+                **_compiled_binding_context(parameter),
+            },
         )
 
     if role == "measurement_error_sd":
@@ -264,6 +281,7 @@ def _build_parameter_surface(
                 "lagged": lagged,
                 "expected_lag_days": model_interval_days if lagged else 0.0,
                 "feedback_loop": lagged and (effect, cause) in lagged_edges,
+                **_compiled_binding_context(parameter),
             },
         )
 
@@ -345,3 +363,17 @@ def _build_parameter_surface(
         )
 
     raise ValueError(f"Unsupported Stage 4 parameter role {role!r}")
+
+
+def _compiled_binding_context(parameter: dict[str, Any]) -> dict[str, Any]:
+    """Return compiler binding fields for prompt-local structural context."""
+    keys = (
+        "compiled_site_name",
+        "compiled_prior_field",
+        "compiled_flat_index",
+        "compiled_site_kind",
+        "prior_transform",
+        "component_index",
+        "component_parameter",
+    )
+    return {key: parameter[key] for key in keys if parameter.get(key) is not None}

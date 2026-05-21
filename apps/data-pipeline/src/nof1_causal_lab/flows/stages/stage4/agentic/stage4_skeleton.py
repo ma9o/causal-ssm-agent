@@ -352,6 +352,12 @@ def _compiler_authoritative_stage4_inventory(
             induced_dependencies=induced_dependencies,
         )
 
+    binding_by_parameter = {
+        str(binding.get("parameter") or ""): dict(binding)
+        for binding in list(compiled_ssm.get("parameter_bindings", []) or [])
+        if isinstance(binding, dict) and binding.get("parameter")
+    }
+
     final_inventory: dict[str, dict[str, Any]] = {}
     for row in resolve_prior_proposals(compiled_ssm, authored_priors={}):
         parameter_name = str(row.get("parameter") or "")
@@ -361,6 +367,7 @@ def _compiler_authoritative_stage4_inventory(
         if parameter is None:
             parameter = _parameter_metadata_from_compiler_row(
                 parameter_name,
+                binding=binding_by_parameter.get(parameter_name),
                 retained_construct_names=retained_construct_names,
             )
         if parameter is None:
@@ -368,14 +375,20 @@ def _compiler_authoritative_stage4_inventory(
                 "Stage 4 deterministic inventory is missing compiler-exposed parameter "
                 f"{parameter_name!r}; add explicit metadata instead of silently dropping it."
             )
-        final_inventory[parameter_name] = dict(parameter)
+        final_inventory[parameter_name] = _enrich_parameter_with_binding(
+            parameter,
+            binding_by_parameter.get(parameter_name),
+        )
 
     for parameter_name, parameter in seed_by_name.items():
         if parameter_name in final_inventory or not _is_conditional_prior_surface_parameter(
             parameter
         ):
             continue
-        final_inventory[parameter_name] = dict(parameter)
+        final_inventory[parameter_name] = _enrich_parameter_with_binding(
+            parameter,
+            binding_by_parameter.get(parameter_name),
+        )
 
     missing_explicit = sorted(
         parameter_name
@@ -451,7 +464,10 @@ def _order_stage4_inventory(
         role_buckets.setdefault(role, []).append(parameter)
 
     def _construct_key(parameter: dict[str, Any]) -> tuple[int, str]:
-        construct_name = str(parameter.get("construct") or "")
+        construct_names = tuple(parameter.get("construct_names") or ())
+        construct_name = str(
+            parameter.get("construct") or (construct_names[-1] if construct_names else "")
+        )
         return (construct_order.get(construct_name, len(construct_order)), construct_name)
 
     def _measurement_error_key(parameter: dict[str, Any]) -> tuple[int, str, str]:
@@ -499,6 +515,12 @@ def _order_stage4_inventory(
     )
     ordered_parameters.extend(sorted(role_buckets.pop("residual_sd", []), key=_construct_key))
     ordered_parameters.extend(sorted(role_buckets.pop("state_intercept", []), key=_construct_key))
+    ordered_parameters.extend(
+        sorted(role_buckets.pop("dynamics_parameter", []), key=_construct_key)
+    )
+    ordered_parameters.extend(
+        sorted(role_buckets.pop("dynamics_parameter_positive", []), key=_construct_key)
+    )
     ordered_parameters.extend(
         sorted(role_buckets.pop("initial_state_mean", []), key=_construct_key)
     )
@@ -548,6 +570,59 @@ def _is_compiler_default_only_parameter_name(parameter_name: str) -> bool:
 def _is_conditional_prior_surface_parameter(parameter: dict[str, Any]) -> bool:
     """Whether a parameter is conditional on the locked likelihood choices."""
     return bool(parameter.get("conditional_prior_surface"))
+
+
+def _enrich_parameter_with_binding(
+    parameter: dict[str, Any],
+    binding: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Attach compiler binding metadata used by Stage 4 prior surfaces."""
+    enriched = dict(parameter)
+    if not binding:
+        return enriched
+
+    construct_names = tuple(
+        name for name in binding.get("construct_names", ()) if isinstance(name, str)
+    )
+    indicator_names = tuple(
+        name for name in binding.get("indicator_names", ()) if isinstance(name, str)
+    )
+    if construct_names and not enriched.get("construct_names"):
+        enriched["construct_names"] = list(construct_names)
+    if indicator_names and not enriched.get("indicator_names"):
+        enriched["indicator_names"] = list(indicator_names)
+    if construct_names and not enriched.get("construct"):
+        enriched["construct"] = construct_names[-1]
+    if len(construct_names) >= 2:
+        enriched.setdefault("cause", construct_names[0])
+        enriched.setdefault("effect", construct_names[-1])
+
+    site_kind = binding.get("site_kind")
+    prior_field = binding.get("prior_field")
+    enriched["compiled_site_name"] = binding.get("site_name")
+    enriched["compiled_prior_field"] = prior_field
+    enriched["compiled_flat_index"] = binding.get("flat_index")
+    enriched["compiled_site_kind"] = site_kind
+    enriched["prior_transform"] = binding.get("transform")
+    enriched["component_index"] = binding.get("component_index")
+    enriched["component_parameter"] = _component_parameter_label(site_kind, prior_field)
+    return enriched
+
+
+def _component_parameter_label(site_kind: Any, prior_field: Any) -> str | None:
+    labels = {
+        "dynamics_decay": "decay",
+        "dynamics_cint": "cint",
+        "dynamics_weight": "weight",
+        "hill_emax": "Emax",
+        "hill_ec50": "EC50",
+        "hill_n": "n",
+        "drift_base_decay": "base_decay",
+        "drift_offdiag": "offdiag",
+        "cint": "cint",
+    }
+    key = str(site_kind or prior_field or "")
+    return labels.get(key)
 
 
 def _measurement_error_parameters(
@@ -900,6 +975,7 @@ def _provisional_likelihood_choices(
 def _parameter_metadata_from_compiler_row(
     parameter_name: str,
     *,
+    binding: dict[str, Any] | None,
     retained_construct_names: set[str],
 ) -> dict[str, Any] | None:
     """Convert one compiler-owned extra prior row into Stage 4 parameter metadata."""
@@ -927,4 +1003,30 @@ def _parameter_metadata_from_compiler_row(
             }
         return None
 
+    if binding is not None and _is_component_owned_dynamics_binding(binding):
+        construct_names = tuple(
+            name for name in binding.get("construct_names", ()) if isinstance(name, str)
+        )
+        positive = str(binding.get("transform") or "") == "positive_identity" or str(
+            binding.get("site_kind") or ""
+        ) in {"dynamics_decay", "hill_emax", "hill_ec50"}
+        return {
+            "name": parameter_name,
+            "role": "dynamics_parameter_positive" if positive else "dynamics_parameter",
+            "constraint": "positive" if positive else "none",
+            "description": f"Component dynamics parameter {parameter_name}",
+            "construct_names": list(construct_names),
+        }
+
     return None
+
+
+def _is_component_owned_dynamics_binding(binding: dict[str, Any]) -> bool:
+    return str(binding.get("site_kind") or "") in {
+        "dynamics_decay",
+        "dynamics_cint",
+        "dynamics_weight",
+        "hill_emax",
+        "hill_ec50",
+        "hill_n",
+    }

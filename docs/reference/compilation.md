@@ -20,7 +20,7 @@ graph TD
             translate_out --> prior_idx["build_prior_index_maps() — ssm_prior_indexing.py"]
             prior_idx --> priors["compile_priors() — ssm_prior_compilation.py"]
             translate_out --> priors
-            priors --> priors_out(["SSMPriors + PriorIndexMaps"])
+            priors --> priors_out(["PriorRegistry + PriorIndexMaps"])
             priors_out --> bind["bind_parameters() — ssm_prior_compilation.py"]
             bind --> bind_out(["parameter_bindings"])
             priors_out --> attach_diag["_attach_compile_binding_provenance()"]
@@ -44,8 +44,8 @@ graph TD
             builder_ctor --> hydrate["hydrate_discrete_manifest_metadata() — ssm_observation_metadata.py"]
             hydrate --> validate_obs["validate_observation_support()"]
             validate_obs --> ssm_model(["SSMModel"])
-            ssm_model --> structure["SSMStructureRuntime\n(derived from SSMSpec)"]
-            structure --> assemble["Runtime matrix assembly\n(sampled free values -> dense drift / diffusion / loadings / t0)"]
+            ssm_model --> registry["Site registry + PriorRuntimeBundle\n(derived from SSMSpec)"]
+            registry --> assemble["Runtime assembly\n(component params + block params -> RuntimeDynamics / diffusion / loadings / t0)"]
         end
     end
 
@@ -64,24 +64,25 @@ graph TD
 |------|-----------|---------|
 | [`ModelSpec`](../pipeline/04-model-specification-priors.md#modelspec) | `artifacts/model_spec.py` | User-facing model spec: parameters, likelihoods, roles |
 | [`CausalSpec`](../pipeline/01b-measurement-identifiability.md#causalspec) | `artifacts/causal_spec.py` | DAG edges, construct metadata, temporal granularity |
-| `SSMSpec` | `models/ssm/model.py` | Flat structural SSM artifact: dimensions, numeric templates, boolean masks, distributions |
-| `SSMPriors` | `models/ssm/model.py` | Prior distributions for all SSM parameters |
-| `SSMStructureRuntime` | `models/ssm/structure_runtime.py` | Derived runtime structure view: canonical free-entry order, index maps, assembly helpers, cached covariance templates |
-| `PriorIndexMaps` | `ssm_compilation_common.py` | 13-tuple mapping param names → (prior field, flat index) |
-| `CompiledSSMArtifact` | `ssm_compiler.py` | Serializable bundle: spec + edge lags + compiled prior semantics + bindings + diagnostics |
+| `SSMSpec` | `models/ssm/model.py` | SSM artifact: dimensions, names, distributions, structure blocks, and composite drift spec |
+| `SiteDescriptor` | `models/ssm/structure/sites.py` | Canonical sample-site identity: name, shape, support, semantic kind, assembly group, and prior binding field |
+| `PriorRegistry` | `models/ssm/priors.py` | Site-keyed canonical priors for both structure blocks and dynamics components |
+| `PriorRuntimeBundle` | `models/ssm/parameterization.py` | Runtime site registry, transforms, and prior-state arrays reconstructed without model tracing |
+| `PriorIndexMaps` | `models/ssm/compile/common.py` | 14-tuple mapping param names → (prior field, flat index) for semantic bindings |
+| `CompiledSSMArtifact` | `models/ssm/compile/artifact.py` | Serializable bundle: spec + edge lags + compiled prior semantics + bindings + diagnostics |
 | `SSMModel` | `models/ssm/model.py` | Executable NumPyro generative model |
-| `InferenceResult` | `models/ssm/inference.py` | Posterior samples + diagnostics |
+| `InferenceResult` | `models/ssm/inference/types.py` | Posterior samples + diagnostics |
 
 ## Stage 1: Spec Translation (`ssm_spec_translation.py`)
 
-Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the flat structural artifact that persists concrete numeric templates plus boolean free-entry masks.
+Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the artifact that persists concrete numeric templates, structure blocks, and the composite drift spec.
 
 **What it does:**
 
 - Extracts latent construct layout from the DAG (names, order, time-invariant mask)
-- Builds the **drift template** plus split masks: `drift_diag_mask` marks free baseline decay entries for autoregressive surfaces and `drift_offdiag_mask` marks cross-lag entries in the [CT-SDE drift matrix](estimation.md#1-ct-sde-formulation)
+- Builds the **drift spec** as a composite vector field. The standard affine artifact uses a `StructuralDenseLinearSpec` for decay/cross-lag dynamics plus a `StructuralInterceptSpec` for continuous-time state intercepts.
 - Builds the **loading template** (`lambda_mat`) plus `lambda_mask`: fixed indicator-to-construct loadings and free non-reference loadings
-- Compiles concrete templates plus masks for `cint`, `static_state_sds`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`
+- Compiles concrete templates plus masks for `cint`, `static_state_sds`, `diffusion_chol`, `manifest_means`, `manifest_chol`, `t0_means`, and `t0_chol`.
 - Converts marginalized time-invariant confounders into compiled low-rank baseline factors of the form `B diag(tau^2) B^T` rather than free pairwise `cor0_*` surfaces on the causal-spec path
 - Derives deterministic `manifest_centered` flags from the locked likelihood family, link, and observation support semantics
 - Applies `initialization_policy` and `equilibrium_forcing` to determine which `t0_*`, `cint_*`, and `manifest_mean_*` surfaces remain free
@@ -99,41 +100,42 @@ Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_moo
 
 - For each parameter in `ModelSpec`, determines its role (AR coefficient, fixed effect, loading, residual SD, state intercept, observation intercept, static baseline-factor SD, correlation, and observation-family auxiliary site)
 - Maps it to the correct SSM field (`drift_base_decay`, `drift_offdiag`, `lambda_free`, `manifest_means`, `cint`, `static_state_sd`, etc.) and flat index
-- Derives the canonical free-entry order from `SSMStructureRuntime(ssm_spec)` so the compiler, runtime assembly, and posterior name resolution all share one structural indexing authority
+- Derives the canonical free-entry order from block and dynamics `SiteDescriptor`s so the compiler, runtime assembly, and posterior name resolution all share one site registry.
 - Uses `split_compound_name()` to parse compound names like `"beta_mood_stress"` into (cause, effect)
 
 **Key function:** `build_prior_index_maps(ssm_spec, model_spec, causal_spec) -> PriorIndexMaps`
 
 This is now a strict internal helper: it requires both a translated `SSMSpec` and a semantic `ModelSpec`. Spec-only entrypoints decide explicitly when no semantic bindings should be produced; the indexer no longer falls back to all-empty maps.
 
-**Returns:** 13-tuple of `dict[param_name -> (prior_field, flat_index)]`:
+**Returns:** 14-tuple of `dict[param_name -> (prior_field, flat_index)]`:
 
 1. `offdiag_index` — cross-lag effects (drift off-diagonal)
 2. `lambda_index` — factor loadings
 3. `diag_index` — AR coefficients (baseline decay for the derived drift diagonal)
 4. `diffusion_diag_index` — residual SDs
 5. `diffusion_offdiag_index` — residual correlations
-6. `t0_offdiag_index` — initial-state correlations
-7. `t0_mean_index` — initial-state means
-8. `t0_sd_index` — initial-state standard deviations
-9. `manifest_mean_index` — manifest intercepts
-10. `manifest_var_index` — manifest noise terms
-11. `cint_index` — continuous-time state intercepts
-12. `static_state_sd_index` — compiled baseline-factor scales
-13. `observation_site_index` — observation-family hyperparameter sites
+6. `input_effect_index` — transition input-effect entries
+7. `t0_offdiag_index` — initial-state correlations
+8. `t0_mean_index` — initial-state means
+9. `t0_sd_index` — initial-state standard deviations
+10. `manifest_mean_index` — manifest intercepts
+11. `manifest_var_index` — manifest noise terms
+12. `cint_index` — continuous-time state intercepts
+13. `static_state_sd_index` — compiled baseline-factor scales
+14. `observation_site_index` — observation-family hyperparameter sites
 
 ## Stage 3: Prior Compilation (`ssm_prior_compilation.py`)
 
-Translates user-facing prior specifications into `SSMPriors` arrays with the correct parameterization.
+Translates user-facing prior specifications into a site-keyed `PriorRegistry` with the correct parameterization.
 
 **Critical transformations:**
 
 - **AR coefficients (DT→CT):** User specifies `rho_*` as baseline persistence in `(0, 1)` over the authored interval, absent incoming feedback. The compiler transforms it to positive continuous-time base decay with `base_decay = −log(rho) / dt`; nondegenerate priors are moment-matched to `Gamma(concentration, rate)`, and fixed-width `rho_*` priors compile to positive `Delta(value)`.
 - **Hard-sparsity drift assembly:** Off-diagonal entries are compiled as `A_ij = beta_ij / dt` on allowed edges only. For each dynamic row, the realised diagonal is derived as `A_ii = -(base_decay_i + sum_j |A_ij| + stability_margin)`, preserving structural zeros while guaranteeing strict row diagonal dominance.
 - **Cross-lag effects:** Scaled by an explicitly resolved positive interval in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the causal-spec model clock. If none exists, compilation now raises instead of silently assuming `1.0d`.
-- **Array assembly:** `build_array_prior_payload()` fills SSM-sized arrays from the sparse index maps, using defaults for unmapped slots.
+- **Site binding:** compiled priors attach to canonical `SiteDescriptor`s. Structure blocks and dynamics components use the same prior materialization path.
 
-**Key function:** `compile_priors(raw_priors, model_spec, ssm_spec, edge_lag_days, causal_spec) -> (SSMPriors, PriorIndexMaps)`
+**Key function:** `compile_priors(raw_priors, model_spec, ssm_spec, edge_lag_days, causal_spec) -> (PriorRegistry, PriorIndexMaps, list[CompileDiagnostic])`
 
 **Post-compilation diagnostics:**
 
@@ -147,7 +149,7 @@ Creates the mapping from semantic parameter names to NumPyro sample sites — th
 
 **Key function:** `bind_parameters(index_maps) -> list[dict]`
 
-Each binding is: `{parameter: "rho_mood", site_name: "drift_base_decay_free", flat_index: 0}`
+Each binding is: `{parameter: "rho_mood", site_name: "vf_0_base_decay", flat_index: 0}`
 
 This allows `InferenceResult` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `PriorIndexMaps` from Stage 3 rather than rebuilding them, and only the compile entrypoints decide whether semantic bindings should exist at all.
 
@@ -166,7 +168,7 @@ CompiledSSMArtifact = {
 }
 ```
 
-The artifact does not serialize raw `SSMPriors`. Instead it stores `compiled_prior_semantics`, the canonical runtime prior block used to reconstruct `PriorRuntimeBundle` without retracing the model.
+The artifact stores `compiled_prior_semantics`, the canonical runtime prior block used to reconstruct `PriorRuntimeBundle` without retracing the model.
 
 Also provides validation entry points used by earlier pipeline stages:
 
@@ -190,13 +192,13 @@ Also provides validation entry points used by earlier pipeline stages:
 
 Runtime reconstruction now has three layers:
 
-- **`SSMSpec`** remains the flat serialization and validation boundary. It owns the persisted templates, masks, distributions, and names.
+- **`SSMSpec`** remains the serialization and validation boundary. It owns persisted templates, masks, distributions, names, and the composite drift spec.
 - **`PriorRuntimeBundle`** is rebuilt from `compiled_prior_semantics` and owns sample-site registry, transforms, and prior-state semantics.
-- **`SSMStructureRuntime`** is derived once inside `SSMModel` from `SSMSpec` and owns structural indexing plus dense matrix assembly from sampled free values during `SSMModel.model()` execution, including the additive low-rank baseline-factor covariance term in `t0_cov`.
+- **`RuntimeDynamics`** is sampled through the compiled composite drift spec. Inference backends then derive affine or local-linear views from the vector field instead of splitting linear vs nonlinear at the spec level.
 
 **Why `fit()` lives on the builder, not on `SSMModel`:** the runtime separates three concerns:
 
-- **`SSMModel`** is a pure NumPyro model function. Its [`model(observations, times)`](estimation.md#data-flow) method takes JAX arrays, samples from the runtime prior bundle, assembles matrices through `SSMStructureRuntime`, and injects the log-likelihood via `numpyro.factor()`. It has no knowledge of DataFrames, inference algorithms, or sampler configuration.
+- **`SSMModel`** is a pure NumPyro model function. Its [`model(observations, times)`](estimation.md#data-flow) method takes JAX arrays, samples from the runtime prior bundle, assembles block deterministic values plus `RuntimeDynamics`, and injects the log-likelihood via `numpyro.factor()`. It has no knowledge of DataFrames, inference algorithms, or sampler configuration.
 - **`inference.fit()`** handles [algorithm selection](inference-routing.md) (MAP and blocked MCMC) and execution. It takes an `SSMModel` and raw arrays.
 - **`SSMModelBuilder`** bridges the gap: it converts Polars DataFrames to JAX arrays (`prepare_fit_inputs`), loads the prior runtime bundle from `compiled_prior_semantics`, routes sampler configuration from `config.yaml` to `inference.fit()`, and caches the `SSMModel` and `InferenceResult` for downstream access (diagnostics, summaries, prior predictive checks).
 - Before array conversion, the builder also applies deterministic centering to manifest columns whose compiled `manifest_centered` flag is `True`, so centered additive-location indicators are zero-centered consistently in both fitting and prior-predictive scale checks.

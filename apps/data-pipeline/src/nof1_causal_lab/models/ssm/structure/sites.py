@@ -11,7 +11,7 @@ binding keys used by compile-time and runtime layers.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, StrEnum
 
 
 class SupportClass(Enum):
@@ -35,6 +35,13 @@ class SiteKind(Enum):
 
     DRIFT_BASE_DECAY = "drift_base_decay"
     DRIFT_OFFDIAG = "drift_offdiag"
+    DENSE_DRIFT = "dense_drift"
+    DYNAMICS_DECAY = "dynamics_decay"
+    DYNAMICS_CINT = "dynamics_cint"
+    DYNAMICS_WEIGHT = "dynamics_weight"
+    HILL_EMAX = "hill_emax"
+    HILL_EC50 = "hill_ec50"
+    HILL_N = "hill_n"
     DIFFUSION_DIAG = "diffusion_diag"
     DIFFUSION_LOWER = "diffusion_lower"
     CINT = "cint"
@@ -55,6 +62,17 @@ class SiteKind(Enum):
     OBS_CAT_INTERCEPTS = "obs_cat_intercepts"
     OBS_CAT_SLOPES = "obs_cat_slopes"
     PROC_DF = "proc_df"
+
+
+class PriorAuthoringTransform(StrEnum):
+    """How an authored semantic prior is transformed before site attachment."""
+
+    IDENTITY = "identity"
+    POSITIVE_IDENTITY = "positive_identity"
+    DT_PERSISTENCE_TO_CT_DECAY = "dt_persistence_to_ct_decay"
+    DT_EFFECT_TO_CT_RATE = "dt_effect_to_ct_rate"
+    INITIAL_STATE_CORRELATION = "initial_state_correlation"
+    SITE_WIDE = "site_wide"
 
 
 @dataclass(frozen=True)
@@ -79,6 +97,23 @@ class SiteDescriptor:
     priors_field: str | None = None
     runtime_prior_key: str | None = None
     is_runtime_prior_controlled: bool = True
+
+
+@dataclass(frozen=True)
+class SemanticBinding:
+    """One semantic model parameter bound to one runtime sample-site scalar."""
+
+    parameter_name: str
+    site_name: str
+    flat_index: int
+    site_kind: SiteKind
+    transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY
+    prior_field: str | None = None
+    construct_names: tuple[str, ...] = ()
+    indicator_names: tuple[str, ...] = ()
+    component_index: int | None = None
+    effect_idx: int | None = None
+    cause_idx: int | None = None
 
 
 def transform_kind_for(support: SupportClass) -> TransformKind:

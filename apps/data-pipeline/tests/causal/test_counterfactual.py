@@ -18,7 +18,7 @@ from nof1_causal_lab.models.ssm.counterfactual import (
     resolve_action_value,
     summarize_draws,
     summarize_temporal_effect,
-    vmap_steady_state_effect,
+    vmap_steady_state_effect_composite,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
     EdgeInputOverride,
@@ -249,12 +249,13 @@ class TestComputeInterventions:
     def _make_samples(self, n_draws=4, n_latent=3):
         drift = jnp.broadcast_to(-jnp.eye(n_latent), (n_draws, n_latent, n_latent))
         cint = jnp.broadcast_to(jnp.ones(n_latent), (n_draws, n_latent))
-        return {"drift": drift, "cint": cint}
+        return [({"drift": d, "cint": c},) for d, c in zip(drift, cint, strict=True)]
 
     def test_diagonal_drift_yields_zero_effects(self):
         samples = self._make_samples()
         results = compute_interventions(
             samples,
+            linear_vector_field(n_latent=3),
             treatments=["A", "B"],
             outcome="C",
             latent_names=["A", "B", "C"],
@@ -272,6 +273,7 @@ class TestComputeInterventions:
         samples = self._make_samples()
         results = compute_interventions(
             samples,
+            linear_vector_field(n_latent=3),
             treatments=["A"],
             outcome="MISSING",
             latent_names=["A", "B", "C"],
@@ -283,6 +285,7 @@ class TestComputeInterventions:
         samples = self._make_samples()
         results = compute_interventions(
             samples,
+            linear_vector_field(n_latent=3),
             treatments=["UNKNOWN"],
             outcome="C",
             latent_names=["A", "B", "C"],
@@ -291,7 +294,8 @@ class TestComputeInterventions:
 
     def test_no_drift_samples(self):
         results = compute_interventions(
-            {},
+            [],
+            linear_vector_field(n_latent=3),
             treatments=["A"],
             outcome="C",
             latent_names=["A", "B", "C"],
@@ -301,12 +305,10 @@ class TestComputeInterventions:
     def test_sorted_by_abs_effect(self):
         n = 4
         A = jnp.array([[-1.0, 0.0, 0.0], [0.8, -1.0, 0.0], [0.1, 0.0, -1.0]])
-        samples = {
-            "drift": jnp.broadcast_to(A, (n, 3, 3)),
-            "cint": jnp.broadcast_to(jnp.ones(3), (n, 3)),
-        }
+        samples = [({"drift": A, "cint": jnp.ones(3)},) for _ in range(n)]
         results = compute_interventions(
             samples,
+            linear_vector_field(n_latent=3),
             treatments=["A", "B"],
             outcome="C",
             latent_names=["A", "B", "C"],
@@ -318,16 +320,15 @@ class TestComputeInterventions:
         ]
         assert means == sorted(means, reverse=True)
 
-    def test_missing_cint_defaults_to_zeros(self):
-        n = 3
-        samples = {"drift": jnp.broadcast_to(-jnp.eye(2), (n, 2, 2))}
+    def test_parameter_samples_are_required(self):
         results = compute_interventions(
-            samples,
+            [],
+            linear_vector_field(n_latent=2),
             treatments=["A"],
             outcome="B",
             latent_names=["A", "B"],
         )
-        assert results[0].get("posterior_draws") is not None
+        assert results[0].get("posterior_draws") is None
 
     def test_manifest_effects_include_interval_supported_outcome_indicators(self):
         n = 3
@@ -341,16 +342,14 @@ class TestComputeInterventions:
             (n, 1, 2),
         )
         results = compute_interventions(
-            {
-                "drift": drift,
-                "cint": cint,
-                "lambda": lambda_draws,
-            },
+            [({"drift": d, "cint": c},) for d, c in zip(drift, cint, strict=True)],
+            linear_vector_field(n_latent=2),
             treatments=["A"],
             outcome="B",
             latent_names=["A", "B"],
             causal_spec={"measurement": {"model_clock": "1d"}},
             manifest_names=["sleep_problem_search_count"],
+            lambda_mean=jnp.mean(lambda_draws, axis=0),
         )
 
         manifest_effects = results[0].get("manifest_effects")
@@ -423,7 +422,7 @@ class TestNumericalCorrectness:
         assert jnp.allclose(numerical, closed_form, atol=1e-6)
 
     def test_treatment_effect_matches_closed_form_do(self):
-        """``vmap_steady_state_effect`` vs hand-computed ``do(η_j=v) - baseline``."""
+        """Composite vmap helper vs hand-computed ``do(η_j=v) - baseline``."""
         import jax.scipy.linalg as jla
 
         A = jnp.array([[-1.0, 0.0], [0.5, -1.0]])
@@ -440,10 +439,9 @@ class TestNumericalCorrectness:
 
         vf = linear_vector_field(n_latent=A.shape[0])
         numerical = float(
-            vmap_steady_state_effect(
+            vmap_steady_state_effect_composite(
                 vf,
-                A[None],
-                c[None],
+                [({"drift": A, "cint": c},)],
                 treat_idx=treat_idx,
                 outcome_idx=outcome_idx,
                 mode="shift",
@@ -458,7 +456,7 @@ class TestApproximateAbductedState:
     def test_smoother_uses_selected_evidence_window(self, monkeypatch):
         captured = {}
 
-        def fake_try_smoother(_ssm_model, observations, times, _det_values):
+        def fake_try_smoother(_ssm_model, observations, times, _site_values, _det_values):
             captured["observations"] = observations
             captured["times"] = times
             return jnp.array([[0.1], [0.2]])
@@ -489,7 +487,7 @@ class TestApproximateAbductedState:
         observations = jnp.array([[1.0], [2.0], [3.0], [4.0]])
         times = jnp.array([0.0, 1.0, 2.0, 3.0])
         result = approximate_abducted_state(
-            samples={"drift": jnp.ones((2, 1, 1))},
+            samples={"vf_0_decay": jnp.ones((2, 1))},
             ssm_model=object(),
             spec=DummySpec(),
             observations=observations,

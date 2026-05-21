@@ -14,8 +14,6 @@ not via this module.
 Public API:
 
 - ``compute_interventions`` — Stage-6 orchestrator
-- ``vmap_steady_state_effect``, ``vmap_simulate_action_from_state`` —
-  ``tool_server`` vmapped entry points
 - ``linear_vector_field`` — convenience factory wrapping
   ``CompositeVectorField`` with one ``DenseLinear`` component
 - ``approximate_abducted_state`` — rung-3 abduction (Kalman smoother)
@@ -42,9 +40,7 @@ from .orchestration import (
     compute_interventions,
     compute_interventions_composite,
     linear_vector_field,
-    vmap_simulate_action_from_state,
     vmap_simulate_action_from_state_composite,
-    vmap_steady_state_effect,
     vmap_steady_state_effect_composite,
 )
 
@@ -61,8 +57,6 @@ __all__ = [
     "resolve_action_value",
     "summarize_draws",
     "summarize_temporal_effect",
-    "vmap_simulate_action_from_state",
     "vmap_simulate_action_from_state_composite",
-    "vmap_steady_state_effect",
     "vmap_steady_state_effect_composite",
 ]

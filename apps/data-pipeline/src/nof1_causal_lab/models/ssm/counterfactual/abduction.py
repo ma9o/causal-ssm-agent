@@ -396,7 +396,13 @@ def approximate_abducted_state(
 
     evidence_obs = observations[evidence_start_idx : evidence_end_idx + 1]
     evidence_times = times[evidence_start_idx : evidence_end_idx + 1]
-    smoothed = _try_smoother(ssm_model, evidence_obs, evidence_times, det_values)
+    smoothed = _try_smoother(
+        ssm_model,
+        evidence_obs,
+        evidence_times,
+        posterior_means,
+        det_values,
+    )
     if smoothed is not None:
         return {
             "state": smoothed[-1],
@@ -539,6 +545,7 @@ def _try_smoother(
     ssm_model: Any,
     observations: jnp.ndarray,
     times: jnp.ndarray,
+    site_values: dict,
     det_values: dict,
 ) -> jnp.ndarray | None:
     """Try running Kalman smoother with estimated parameters."""
@@ -546,14 +553,37 @@ def _try_smoother(
     n_l = spec.n_latent
 
     try:
-        drift = det_values["drift"]
+        from nof1_causal_lab.models.ssm.dynamics.composite import (
+            compile_composite,
+            pack_component_params_from_samples,
+        )
+        from nof1_causal_lab.models.ssm.inference.targets.affine import (
+            derive_affine_dynamics,
+        )
+        from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+
         diffusion_chol = det_values["diffusion"]
         diffusion_cov = diffusion_chol @ diffusion_chol.T
+        compiled = compile_composite(spec.drift_spec)
+        vf_params = pack_component_params_from_samples(
+            spec.drift_spec,
+            site_values,
+            det_values,
+        )
+        affine = derive_affine_dynamics(
+            RuntimeDynamics(
+                vector_field=compiled.vector_field,
+                vf_params=vf_params,
+                diffusion_cov=diffusion_cov,
+                input_effect=det_values.get("input_effect"),
+            )
+        )
+        drift = affine.drift
         lambda_mat = det_values["lambda"]
         manifest_cov = det_values["manifest_cov"]
         t0_mean = det_values["t0_means"]
         t0_cov = det_values["t0_cov"]
-        cint = det_values.get("cint")
+        cint = affine.cint
 
         manifest_means_val = det_values.get(
             "manifest_means",
@@ -571,7 +601,7 @@ def _try_smoother(
             drift,
             diffusion_cov,
             cint,
-            det_values.get("input_effect"),
+            affine.input_effect,
             transition_inputs,
             time_intervals,
         )

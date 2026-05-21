@@ -26,6 +26,7 @@ from .composite import (
     StructuralInterceptSpec,
     compile_composite,
     default_linear_drift_spec,
+    iter_component_semantic_bindings,
     linear_drift_spec,
 )
 from .edges import (
@@ -45,6 +46,12 @@ from .intervention import (
     VariableOverride,
     constant_value,
     linear_ramp,
+)
+from .posterior import (
+    PosteriorDynamicsSamples,
+    component_param_samples_from_site_samples,
+    posterior_dynamics_from_result,
+    posterior_dynamics_from_samples,
 )
 from .priors import (
     diagonal_decay_prior,
@@ -92,6 +99,7 @@ __all__ = [
     "MultiplicativeEdge",
     "MultiplicativeEdgeSpec",
     "Override",
+    "PosteriorDynamicsSamples",
     "RuntimeSSM",
     "SimulationConfig",
     "StabilityReport",
@@ -105,6 +113,7 @@ __all__ = [
     "compile_composite",
     "composite_spec_from_dict",
     "composite_spec_to_dict",
+    "component_param_samples_from_site_samples",
     "compute_steady_state",
     "constant_value",
     "default_linear_drift_spec",
@@ -114,10 +123,13 @@ __all__ = [
     "hill_emax_prior",
     "hill_n_prior",
     "infer_linearisation",
+    "iter_component_semantic_bindings",
     "linear_drift_spec",
     "linear_edge_weight_prior",
     "linear_ramp",
     "multiplicative_weight_prior",
+    "posterior_dynamics_from_result",
+    "posterior_dynamics_from_samples",
     "runtime_from_composite",
     "runtime_from_dense_linear",
     "runtime_from_ssm_model",

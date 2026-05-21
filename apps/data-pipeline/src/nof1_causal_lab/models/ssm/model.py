@@ -458,10 +458,10 @@ class SSMSpec:
         Blocks with no free parameters yield nothing.
         """
         for idx, component in enumerate(self.drift_spec.components):
-            iter_sites = getattr(component, "iter_sites", None)
-            if iter_sites is None:
-                continue
-            yield from iter_sites(prefix=f"vf_{idx}")
+            yield from component.iter_sites(
+                prefix=f"vf_{idx}",
+                n_latent=self.n_latent,
+            )
         for block in (
             self.diffusion_block,
             self.lambda_block,
@@ -552,7 +552,7 @@ class SSMModel:
 
         After :class:`SSMSpec` auto-builds ``drift_spec`` in
         ``__post_init__``, every spec has a populated ``drift_spec`` — the
-        linear path becomes a 2-component composite
+        affine dynamics are represented by a structural composite
         (``StructuralDenseLinear`` + ``StructuralIntercept``), the composite
         path stays whatever the user / Stage 4 declared. The compiled
         vector field is what downstream consumers
@@ -718,8 +718,6 @@ class SSMModel:
         """Bind runtime prior distributions to component-owned sample sites."""
         components = tuple(
             component.with_runtime_priors(self._prior_distribution, prefix=f"vf_{idx}")
-            if hasattr(component, "with_runtime_priors")
-            else component
             for idx, component in enumerate(self.spec.drift_spec.components)
         )
         return replace(self.spec.drift_spec, components=components)

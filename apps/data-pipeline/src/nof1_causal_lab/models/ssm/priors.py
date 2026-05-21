@@ -90,6 +90,38 @@ DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 0.5},
     ),
+    "dense_drift": PriorSpec(
+        PriorDistributionFamily.NORMAL,
+        {"mu": 0.0, "sigma": 0.5},
+    ),
+    "dynamics_decay": PriorSpec(
+        PriorDistributionFamily.GAMMA,
+        {"concentration": 2.0, "rate": 4.0},
+    ),
+    "dynamics_cint": PriorSpec(
+        PriorDistributionFamily.NORMAL,
+        {"mu": 0.0, "sigma": 1.0},
+    ),
+    "linear_edge_weight": PriorSpec(
+        PriorDistributionFamily.NORMAL,
+        {"mu": 0.0, "sigma": 0.5},
+    ),
+    "multiplicative_weight": PriorSpec(
+        PriorDistributionFamily.NORMAL,
+        {"mu": 0.0, "sigma": 1.0},
+    ),
+    "hill_emax": PriorSpec(
+        PriorDistributionFamily.LOG_NORMAL,
+        {"mu": 0.0, "sigma": 1.0},
+    ),
+    "hill_ec50": PriorSpec(
+        PriorDistributionFamily.LOG_NORMAL,
+        {"mu": 0.0, "sigma": 1.0},
+    ),
+    "hill_n": PriorSpec(
+        PriorDistributionFamily.TRUNCATED_NORMAL,
+        {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
+    ),
     "diffusion_diag": PriorSpec(
         PriorDistributionFamily.HALF_NORMAL,
         {"sigma": 1.0},
