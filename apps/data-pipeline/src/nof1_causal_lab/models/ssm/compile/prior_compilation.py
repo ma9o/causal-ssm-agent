@@ -18,7 +18,6 @@ from nof1_causal_lab.distributions import (
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.compile.common import (
-    SAMPLE_SITE_FOR_PRIOR_FIELD,
     PriorIndexMaps,
     axis_names_with_fallback,
     build_array_prior_payload,
@@ -32,13 +31,14 @@ from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import SupportClass, build_site_registry
 from nof1_causal_lab.models.ssm.priors import (
-    SITE_NAME_FOR_PRIOR_FIELD,
     PriorRegistry,
     PriorSpec,
+    default_prior_for_descriptor,
     default_prior_registry,
     prior_spec_from_normalized_params,
     prior_spec_to_normalized_params,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SiteKind
 from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
@@ -182,6 +182,30 @@ def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
     return list(SSMParameterLayout.from_spec(ssm_spec).offdiag_positions)
 
 
+def _site_by_prior_field(
+    sites: list[SiteDescriptor],
+    prior_field: str,
+) -> SiteDescriptor | None:
+    matches = [site for site in sites if site.priors_field == prior_field]
+    if not matches:
+        return None
+    if len(matches) > 1:
+        raise ValueError(
+            f"Prior field {prior_field!r} maps to multiple active sample sites: "
+            f"{[site.name for site in matches]}"
+        )
+    return matches[0]
+
+
+def _structural_dense_component(ssm_spec: SSMSpec):
+    from nof1_causal_lab.models.ssm.dynamics.composite import StructuralDenseLinearSpec
+
+    for component in ssm_spec.drift_spec.components:
+        if isinstance(component, StructuralDenseLinearSpec):
+            return component
+    raise TypeError("Matrix-log drift diagnostics require a StructuralDenseLinearSpec component.")
+
+
 def _drift_parameter_name(
     ssm_spec: SSMSpec,
     effect_idx: int,
@@ -198,11 +222,12 @@ def _drift_parameter_name(
     flat_idx = runtime.offdiag_index.get((effect_idx, cause_idx))
     if flat_idx is None:
         raise ValueError(f"No drift_offdiag entry at latent pair ({effect_idx}, {cause_idx}).")
-    name = resolve_scalar_parameter_name(ssm_spec, runtime, "drift_offdiag_free", flat_idx)
+    offdiag_site = runtime.site_by_kind(SiteKind.DRIFT_OFFDIAG)
+    if offdiag_site is None:
+        raise ValueError("No active drift off-diagonal sample site.")
+    name = resolve_scalar_parameter_name(ssm_spec, runtime, offdiag_site.name, flat_idx)
     if name is None:
-        raise ValueError(
-            f"resolve_scalar_parameter_name failed for drift_offdiag_free[{flat_idx}]."
-        )
+        raise ValueError(f"resolve_scalar_parameter_name failed for {offdiag_site.name}[{flat_idx}].")
     cause_name = ssm_spec.latent_names[cause_idx]
     effect_name = ssm_spec.latent_names[effect_idx]
     return name, cause_name, effect_name
@@ -482,12 +507,18 @@ def collect_first_order_approximation_warnings(
     offdiag_interval_days: dict[int, float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
-    base_decay_prior = _prior_for_site(prior_registry, "drift_base_decay_free")
-    offdiag_prior = _prior_for_site(prior_registry, "drift_offdiag_free")
-    if ssm_spec is None or base_decay_prior is None or offdiag_prior is None:
+    if ssm_spec is None:
+        return []
+    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
+    base_decay_site = parameter_layout.site_by_kind(SiteKind.DRIFT_BASE_DECAY)
+    offdiag_site = parameter_layout.site_by_kind(SiteKind.DRIFT_OFFDIAG)
+    if base_decay_site is None or offdiag_site is None:
+        return []
+    base_decay_prior = _prior_for_site(prior_registry, base_decay_site.name)
+    offdiag_prior = _prior_for_site(prior_registry, offdiag_site.name)
+    if base_decay_prior is None or offdiag_prior is None:
         return []
 
-    parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
     base_decay_mu = _positive_prior_mean_values(base_decay_prior)
     offdiag_mu = _prior_values_1d(offdiag_prior.params.get("mu"))
     if base_decay_mu.size == 0 or offdiag_mu.size == 0:
@@ -501,7 +532,7 @@ def collect_first_order_approximation_warnings(
     )
     diag_abs = np.abs(np.diag(taylor_drift))
     ti_mask = np.zeros_like(diag_abs, dtype=bool)
-    drift_component, _ = ssm_spec.structural_drift_components()
+    drift_component = _structural_dense_component(ssm_spec)
     if drift_component.time_invariant_mask is not None:
         candidate = np.asarray(drift_component.time_invariant_mask, dtype=bool)
         if candidate.size == diag_abs.size:
@@ -518,7 +549,7 @@ def collect_first_order_approximation_warnings(
 
     min_diag_name = (
         resolve_scalar_parameter_name(
-            ssm_spec, parameter_layout, "drift_base_decay_free", min_diag_flat_idx
+            ssm_spec, parameter_layout, base_decay_site.name, min_diag_flat_idx
         )
         if min_diag_flat_idx is not None
         else None
@@ -541,7 +572,7 @@ def collect_first_order_approximation_warnings(
             continue
 
         beta_name = resolve_scalar_parameter_name(
-            ssm_spec, parameter_layout, "drift_offdiag_free", idx
+            ssm_spec, parameter_layout, offdiag_site.name, idx
         )
         if beta_name is not None:
             latent_names = axis_names_with_fallback(
@@ -571,7 +602,7 @@ def collect_first_order_approximation_warnings(
                         "Shrink the DT beta prior or elicit the prior directly on a real, stable "
                         "CT drift scale."
                     ),
-                    compiled_site_name="drift_offdiag_free",
+                    compiled_site_name=offdiag_site.name,
                     compiled_flat_index=idx,
                     failure_stage="compiled_parameters",
                     pathology_certificate=PriorPathologyCertificate(
@@ -606,7 +637,7 @@ def collect_first_order_approximation_warnings(
                     "reference interval, shrink the DT beta prior, or elicit the prior directly "
                     "on the CT rate."
                 ),
-                compiled_site_name="drift_offdiag_free",
+                compiled_site_name=offdiag_site.name,
                 compiled_flat_index=idx,
                 failure_stage="compiled_parameters",
                 pathology_certificate=PriorPathologyCertificate(
@@ -678,7 +709,7 @@ def _assemble_mean_drift_from_prior_values(
     base_decay_mu: np.ndarray,
     offdiag_mu: np.ndarray,
 ) -> np.ndarray:
-    drift_component, _ = ssm_spec.structural_drift_components()
+    drift_component = _structural_dense_component(ssm_spec)
     drift = np.asarray(drift_component.drift_template, dtype=float).copy()
     for flat_idx, (effect_idx, cause_idx) in enumerate(parameter_layout.offdiag_positions):
         if flat_idx < offdiag_mu.size:
@@ -756,7 +787,7 @@ def matrix_log_diagnostic_drift(
         )
     exact_drift = np.real(log_transition) / interval_days
 
-    drift_component, _ = ssm_spec.structural_drift_components()
+    drift_component = _structural_dense_component(ssm_spec)
     if drift_component.time_invariant_mask is not None:
         ti_mask = np.asarray(drift_component.time_invariant_mask, dtype=bool)
         if ti_mask.size == exact_drift.shape[0]:
@@ -776,8 +807,12 @@ def logm_diagnostic_mean_drift(
 ) -> np.ndarray | None:
     """Return the exact matrix-log mean drift for Stage 4 dynamics diagnostics."""
     parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
-    base_decay_prior = _prior_for_site(prior_registry, "drift_base_decay_free")
-    offdiag_prior = _prior_for_site(prior_registry, "drift_offdiag_free")
+    base_decay_site = parameter_layout.site_by_kind(SiteKind.DRIFT_BASE_DECAY)
+    offdiag_site = parameter_layout.site_by_kind(SiteKind.DRIFT_OFFDIAG)
+    if base_decay_site is None or offdiag_site is None:
+        return None
+    base_decay_prior = _prior_for_site(prior_registry, base_decay_site.name)
+    offdiag_prior = _prior_for_site(prior_registry, offdiag_site.name)
     if base_decay_prior is None or offdiag_prior is None:
         return None
     base_decay_mu = _positive_prior_mean_values(base_decay_prior)
@@ -893,12 +928,13 @@ def compile_priors(
     causal_spec: dict | None = None,
 ) -> tuple[PriorRegistry, PriorIndexMaps, list[CompileDiagnostic]]:
     """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
-    prior_entries: dict[str, PriorSpec] = dict(default_prior_registry().priors_by_site)
-    site_by_name = (
-        {site.name: site for site in build_site_registry(ssm_spec)}
-        if ssm_spec is not None
-        else {}
+    active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
+    prior_entries: dict[str, PriorSpec] = (
+        {site.name: default_prior_for_descriptor(site) for site in active_sites}
+        if active_sites
+        else dict(default_prior_registry().priors_by_site)
     )
+    site_by_name = {site.name: site for site in active_sites}
     role_by_name = _collect_role_lookup(model_spec)
     per_element: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
     has_model_spec = model_spec is not None and (
@@ -1147,14 +1183,13 @@ def compile_priors(
         raise PriorCompilationError(errors)
 
     for attr, entries in per_element.items():
-        site_name = SITE_NAME_FOR_PRIOR_FIELD[attr]
-        site = site_by_name.get(site_name)
+        site = _site_by_prior_field(active_sites, attr)
         if site is None:
-            raise ValueError(f"Prior field {attr!r} maps to inactive site {site_name!r}.")
-        current_prior = prior_entries[site_name]
+            raise ValueError(f"Prior field {attr!r} maps to no active sample site.")
+        current_prior = prior_entries[site.name]
         current = _normalized_params_for_site_prior(site.support, current_prior)
         result = build_array_prior_payload(attr, entries, current, ssm_spec)
-        prior_entries[site_name] = _site_prior_from_normalized(site.support, result)
+        prior_entries[site.name] = _site_prior_from_normalized(site.support, result)
 
     prior_registry = PriorRegistry(prior_entries)
 
@@ -1172,7 +1207,7 @@ def compile_priors(
     return prior_registry, index_maps, diagnostics
 
 
-def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
+def bind_parameters(index_maps: PriorIndexMaps, ssm_spec: SSMSpec) -> list[dict[str, Any]]:
     """Map semantic parameter names to NumPyro sample sites."""
     (
         offdiag_index,
@@ -1192,6 +1227,7 @@ def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
     ) = index_maps
 
     bindings: list[dict[str, Any]] = []
+    active_sites = build_site_registry(ssm_spec)
     ordered_maps = (
         diag_index,
         offdiag_index,
@@ -1210,13 +1246,13 @@ def bind_parameters(index_maps: PriorIndexMaps) -> list[dict[str, Any]]:
     )
     for mapping in ordered_maps:
         for param_name, (prior_field, flat_index) in sorted(mapping.items()):
-            sample_site = SAMPLE_SITE_FOR_PRIOR_FIELD.get(prior_field)
-            if sample_site is None:
+            site = _site_by_prior_field(active_sites, prior_field)
+            if site is None:
                 continue
             bindings.append(
                 {
                     "parameter": param_name,
-                    "site_name": sample_site,
+                    "site_name": site.name,
                     "flat_index": flat_index,
                 }
             )

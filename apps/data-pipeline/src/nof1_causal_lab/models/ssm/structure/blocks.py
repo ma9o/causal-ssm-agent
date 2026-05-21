@@ -23,17 +23,29 @@ runtime priors attached (via ``dataclasses.replace``) and calls
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 import numpyro
 
 from nof1_causal_lab.models.ssm.priors import resolve_prior_distribution
+from nof1_causal_lab.models.ssm.structure.sites import (
+    SiteKind,
+    SupportClass,
+    make_site,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     import jax.numpy as jnp
     import numpy as np
+    import numpyro.distributions as dist
     from jax import Array
+
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
+
+    PriorFn = Callable[[str], dist.Distribution]
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +102,39 @@ class DiffusionBlockSpec:
     def n_diffusion_lower(self) -> int:
         return len(self.diffusion_lower_positions)
 
+    def iter_sites(self) -> Iterator[SiteDescriptor]:
+        if self.n_diffusion_diag > 0:
+            yield make_site(
+                "diffusion_diag_free",
+                (self.n_diffusion_diag,),
+                SupportClass.POSITIVE,
+                "diffusion",
+                SiteKind.DIFFUSION_DIAG,
+                positions=tuple(self.diffusion_diag_positions),
+                deterministic_name="diffusion",
+                fixed_spec_field="diffusion_chol",
+                priors_field="diffusion_diag",
+            )
+        if self.n_diffusion_lower > 0:
+            yield make_site(
+                "diffusion_lower_free",
+                (self.n_diffusion_lower,),
+                SupportClass.REAL,
+                "diffusion",
+                SiteKind.DIFFUSION_LOWER,
+                positions=tuple(self.diffusion_lower_positions),
+                deterministic_name="diffusion",
+                fixed_spec_field="diffusion_chol",
+                priors_field="diffusion_offdiag",
+            )
+
+    def with_runtime_priors(self, prior_fn: PriorFn) -> DiffusionBlockSpec:
+        return replace(
+            self,
+            diag_prior=prior_fn("diffusion_diag_free") if self.n_diffusion_diag > 0 else self.diag_prior,
+            lower_prior=prior_fn("diffusion_lower_free") if self.n_diffusion_lower > 0 else self.lower_prior,
+        )
+
     def assemble(
         self,
         diag_free: jnp.ndarray | None = None,
@@ -141,11 +186,10 @@ class SparseVectorBlockSpec:
     into a template. Used for ``t0_means``, ``manifest_means``, and
     any other length-``n`` parameter sampled element-wise.
 
-    The ``free_site_name`` controls the bare NumPyro site name for the
-    sparse free vector (e.g. ``"t0_means_free"``,
-    ``"manifest_means_free"``). The ``det_site_name`` controls the bare
-    NumPyro deterministic site name for the assembled vector (e.g.
-    ``"t0_means"``, ``"manifest_means"``).
+    The role-identifying fields (``support``, ``site_kind``,
+    ``assembly_group``, ``fixed_spec_field``, ``priors_field``)
+    let the block declare its own SiteDescriptor without consulting
+    an external table.
     """
 
     n: int
@@ -153,6 +197,11 @@ class SparseVectorBlockSpec:
     template: jnp.ndarray
     free_site_name: str
     det_site_name: str
+    support: SupportClass
+    site_kind: SiteKind
+    assembly_group: str
+    fixed_spec_field: str
+    priors_field: str
     prior: Any = None
 
     @property
@@ -164,6 +213,26 @@ class SparseVectorBlockSpec:
     @property
     def n_free(self) -> int:
         return len(self.free_positions)
+
+    def iter_sites(self) -> Iterator[SiteDescriptor]:
+        if self.n_free > 0:
+            yield make_site(
+                self.free_site_name,
+                (self.n_free,),
+                self.support,
+                self.assembly_group,
+                self.site_kind,
+                positions=tuple(self.free_positions),
+                deterministic_name=self.det_site_name,
+                fixed_spec_field=self.fixed_spec_field,
+                priors_field=self.priors_field,
+            )
+
+    def with_runtime_priors(self, prior_fn: PriorFn) -> SparseVectorBlockSpec:
+        return replace(
+            self,
+            prior=prior_fn(self.free_site_name) if self.n_free > 0 else self.prior,
+        )
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_vector
@@ -186,7 +255,10 @@ class SparseVectorBlockSpec:
             free = numpyro.sample(self.free_site_name, dist)
 
         assembled = self.assemble(free)
-        numpyro.deterministic(self.det_site_name, assembled)
+        # Empty blocks (n=0) skip the deterministic emit: size-0 sites
+        # break numpyro's per-chain summarizer reshape.
+        if self.n > 0:
+            numpyro.deterministic(self.det_site_name, assembled)
         return {self.det_site_name: assembled}
 
 
@@ -208,6 +280,11 @@ class SparseMatrixBlockSpec:
     template: jnp.ndarray
     free_site_name: str
     det_site_name: str
+    support: SupportClass
+    site_kind: SiteKind
+    assembly_group: str
+    fixed_spec_field: str
+    priors_field: str
     prior: Any = None
 
     @property
@@ -219,6 +296,26 @@ class SparseMatrixBlockSpec:
     @property
     def n_free(self) -> int:
         return len(self.free_positions)
+
+    def iter_sites(self) -> Iterator[SiteDescriptor]:
+        if self.n_free > 0:
+            yield make_site(
+                self.free_site_name,
+                (self.n_free,),
+                self.support,
+                self.assembly_group,
+                self.site_kind,
+                positions=tuple(self.free_positions),
+                deterministic_name=self.det_site_name,
+                fixed_spec_field=self.fixed_spec_field,
+                priors_field=self.priors_field,
+            )
+
+    def with_runtime_priors(self, prior_fn: PriorFn) -> SparseMatrixBlockSpec:
+        return replace(
+            self,
+            prior=prior_fn(self.free_site_name) if self.n_free > 0 else self.prior,
+        )
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_matrix
@@ -241,7 +338,10 @@ class SparseMatrixBlockSpec:
             free = numpyro.sample(self.free_site_name, dist)
 
         assembled = self.assemble(free)
-        numpyro.deterministic(self.det_site_name, assembled)
+        # Empty blocks (n_rows=0 or n_cols=0) skip the deterministic emit:
+        # size-0 sites break numpyro's per-chain summarizer reshape.
+        if self.n_rows > 0 and self.n_cols > 0:
+            numpyro.deterministic(self.det_site_name, assembled)
         return {self.det_site_name: assembled}
 
 
@@ -272,6 +372,26 @@ class ManifestCholBlockSpec:
     def n_free(self) -> int:
         return len(self.free_positions)
 
+    def iter_sites(self) -> Iterator[SiteDescriptor]:
+        if self.n_free > 0:
+            yield make_site(
+                "manifest_var_diag_free",
+                (self.n_free,),
+                SupportClass.POSITIVE,
+                "manifest",
+                SiteKind.MANIFEST_VAR_DIAG,
+                positions=tuple(self.free_positions),
+                deterministic_name="manifest_cov",
+                fixed_spec_field="manifest_chol",
+                priors_field="manifest_var_diag",
+            )
+
+    def with_runtime_priors(self, prior_fn: PriorFn) -> ManifestCholBlockSpec:
+        return replace(
+            self,
+            diag_prior=prior_fn("manifest_var_diag_free") if self.n_free > 0 else self.diag_prior,
+        )
+
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_manifest_chol
 
@@ -285,8 +405,8 @@ class ManifestCholBlockSpec:
         """Sample the diagonal free entries and assemble the Cholesky.
 
         Does NOT emit a ``manifest_cov`` deterministic — that's the
-        caller's responsibility; ``SSMModel._sample_manifest_params``
-        emits it once after combining the means and Cholesky blocks.
+        composition-step caller's responsibility (``manifest_cov`` is
+        emitted once after the means + Cholesky blocks are composed).
         """
 
         free = None
@@ -350,6 +470,32 @@ class T0CholBlockSpec:
     def n_correlation_free(self) -> int:
         return len(self.correlation_positions)
 
+    def iter_sites(self) -> Iterator[SiteDescriptor]:
+        if self.n_diag_free > 0:
+            yield make_site(
+                "t0_var_diag_free",
+                (self.n_diag_free,),
+                SupportClass.POSITIVE,
+                "t0",
+                SiteKind.T0_VAR_DIAG,
+                positions=tuple(self.diag_positions),
+                deterministic_name="t0_cov",
+                fixed_spec_field="t0_chol",
+                priors_field="t0_var_diag",
+            )
+        if self.n_correlation_free > 0:
+            yield make_site(
+                "t0_var_lower_free",
+                (self.n_correlation_free,),
+                SupportClass.CORRELATION,
+                "t0",
+                SiteKind.T0_VAR_LOWER,
+                positions=tuple(self.correlation_positions),
+                deterministic_name="t0_cov",
+                fixed_spec_field="t0_chol",
+                priors_field="t0_var_offdiag",
+            )
+
     @property
     def base_cov(self) -> jnp.ndarray:
         import jax.numpy as jnp_local
@@ -399,12 +545,20 @@ class T0CholBlockSpec:
         cov = corr * (std[:, None] * std[None, :])
         return 0.5 * (cov + cov.T)
 
+    def with_runtime_priors(self, prior_fn: PriorFn) -> T0CholBlockSpec:
+        return replace(
+            self,
+            diag_prior=prior_fn("t0_var_diag_free") if self.n_diag_free > 0 else self.diag_prior,
+            correlation_prior=prior_fn("t0_var_lower_free") if self.n_correlation_free > 0 else self.correlation_prior,
+        )
+
     def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
         """Sample free diagonal SDs and free off-diagonal correlations.
 
-        Returns a dict with ``diag_free`` and ``correlation_free`` entries
-        (may be ``None`` for empty masks). The caller assembles the final
-        covariance (possibly composing with a static-factor contribution).
+        Returns a dict keyed by sample-site name; values may be ``None``
+        for empty masks. The composition step
+        (``_compose_t0_cov``) assembles the final covariance from
+        these raw samples plus the static-factor contribution.
         """
 
         diag_free = None
@@ -426,8 +580,8 @@ class T0CholBlockSpec:
             correlation_free = numpyro.sample("t0_var_lower_free", dist)
 
         return {
-            "diag_free": diag_free,
-            "correlation_free": correlation_free,
+            "t0_var_diag_free": diag_free,
+            "t0_var_lower_free": correlation_free,
         }
 
 
@@ -464,6 +618,11 @@ def default_lambda_block(n_manifest: int, n_latent: int) -> SparseMatrixBlockSpe
         template=_jnp.eye(n_manifest, n_latent),
         free_site_name="lambda_free",
         det_site_name="lambda",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.LOADING,
+        assembly_group="lambda",
+        fixed_spec_field="lambda_mat",
+        priors_field="lambda_free",
     )
 
 
@@ -478,6 +637,11 @@ def default_manifest_means_block(n_manifest: int) -> SparseVectorBlockSpec:
         template=_jnp.zeros(n_manifest),
         free_site_name="manifest_means_free",
         det_site_name="manifest_means",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.MANIFEST_MEANS,
+        assembly_group="manifest",
+        fixed_spec_field="manifest_means",
+        priors_field="manifest_means",
     )
 
 
@@ -504,6 +668,11 @@ def default_t0_means_block(n_latent: int) -> SparseVectorBlockSpec:
         template=_jnp.zeros(n_latent),
         free_site_name="t0_means_free",
         det_site_name="t0_means",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.T0_MEANS,
+        assembly_group="t0",
+        fixed_spec_field="t0_means",
+        priors_field="t0_means",
     )
 
 
@@ -532,6 +701,11 @@ def default_input_effect_block(n_latent: int) -> SparseMatrixBlockSpec:
         template=_jnp.zeros((n_latent, 0)),
         free_site_name="input_effect_free",
         det_site_name="input_effect",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.INPUT_EFFECT,
+        assembly_group="input_effect",
+        fixed_spec_field="input_effect",
+        priors_field="input_effect",
     )
 
 
@@ -546,4 +720,9 @@ def default_static_state_sd_block() -> SparseVectorBlockSpec:
         template=_jnp.zeros(0),
         free_site_name="static_state_sd_free",
         det_site_name="static_state_sds",
+        support=SupportClass.POSITIVE,
+        site_kind=SiteKind.STATIC_STATE_SD,
+        assembly_group="t0",
+        fixed_spec_field="static_state_sds",
+        priors_field="static_state_sd",
     )

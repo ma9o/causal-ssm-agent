@@ -27,6 +27,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     composite_spec_from_dict,
 )
 from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 
 class TestMaterializePrior:
@@ -275,6 +276,11 @@ class TestBlockSpecEquivalence:
                 mask=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
                 free_site_name="lambda_free", det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=default_manifest_chol_block(1),
@@ -295,7 +301,8 @@ class TestBlockSpecEquivalence:
             time_invariant_mask=spec.diffusion_block.time_invariant_mask,
             diag_prior=ndist.LogNormal(0.0, 1.0),
         )
-        drift_component, cint_component = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
+        cint_component = spec.drift_spec.components[1]
         composite = CompositeSpec(
             n_latent=2,
             components=(
@@ -346,6 +353,11 @@ class TestBlockSpecEquivalence:
                 mask=np.zeros((1, 3), dtype=bool),
                 template=jnp.array([[0.0, 1.0, 0.0]]),
                 free_site_name="lambda_free", det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=default_manifest_chol_block(1),
@@ -354,6 +366,11 @@ class TestBlockSpecEquivalence:
                 mask=full_vector_mask(3),
                 template=jnp.zeros(3),
                 free_site_name="t0_means_free", det_site_name="t0_means",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.T0_MEANS,
+                assembly_group="t0",
+                fixed_spec_field="t0_means",
+                priors_field="t0_means",
             ),
             t0_chol_block=default_t0_chol_block(3),
             input_effect_block=default_input_effect_block(3),
@@ -368,6 +385,11 @@ class TestBlockSpecEquivalence:
             template=jnp.asarray(spec.t0_means_block.template),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.T0_MEANS,
+            assembly_group="t0",
+            fixed_spec_field="t0_means",
+            priors_field="t0_means",
             prior=ndist.Normal(jnp.zeros(3), 1.0),
         )
         with seed(rng_seed=0), condition(data={"t0_means_free": free}):
@@ -556,6 +578,11 @@ class TestCompositeSpecRoundTrip:
                 mask=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
                 free_site_name="lambda_free", det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=default_manifest_chol_block(1),

@@ -34,6 +34,7 @@ from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
 )
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec, T0CholBlockSpec
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 from tests.ssm_test_utils import block_ssm_spec, diagonal_diffusion_block, prior_registry
 
@@ -55,14 +56,14 @@ def _require_text(value: str | None) -> str:
 
 class TestCheckNanInf:
     def test_clean_samples_no_issue(self):
-        samples = {"drift_base_decay_free": jnp.array([1.0, 2.0, 3.0])}
+        samples = {"vf_0_base_decay": jnp.array([1.0, 2.0, 3.0])}
         assert _check_nan_inf(samples) is None
 
     def test_nan_detected(self):
-        samples = {"drift_base_decay_free": jnp.array([1.0, float("nan"), 3.0])}
+        samples = {"vf_0_base_decay": jnp.array([1.0, float("nan"), 3.0])}
         result = _require_result(_check_nan_inf(samples))
         assert not result.is_valid
-        assert "drift_base_decay_free" in _require_text(result.issue)
+        assert "vf_0_base_decay" in _require_text(result.issue)
 
     def test_inf_detected(self):
         samples = {"x": jnp.array([float("inf")])}
@@ -84,7 +85,7 @@ class TestCheckNanInf:
         samples = {
             "ll_per_timestep": jnp.array([float("-inf")]),
             "log_likelihood": jnp.array([float("nan")]),
-            "drift_base_decay_free": jnp.array([0.1, 0.2]),
+            "vf_0_base_decay": jnp.array([0.1, 0.2]),
         }
         assert _check_nan_inf(samples) is None
 
@@ -162,7 +163,7 @@ class TestCheckConstraintViolations:
         assert results == []
 
     def test_non_positive_site_ignored(self):
-        samples = {"drift_offdiag_free": jnp.array([-1.0, -2.0])}
+        samples = {"vf_0_offdiag": jnp.array([-1.0, -2.0])}
         results = _check_constraint_violations(samples)
         assert results == []
 
@@ -184,13 +185,13 @@ class TestCheckConstraintViolations:
 
 class TestCheckExtremeValues:
     def test_normal_values_no_issue(self):
-        samples = {"drift_base_decay_free": jnp.array([0.5, 0.3, 1.0])}
+        samples = {"vf_0_base_decay": jnp.array([0.5, 0.3, 1.0])}
         results = _check_extreme_values(samples)
         assert results == []
 
     def test_extreme_values_detected(self):
         # All extreme
-        samples = {"drift_base_decay_free": jnp.array([1e7, 1e8, 1e9])}
+        samples = {"vf_0_base_decay": jnp.array([1e7, 1e8, 1e9])}
         results = _check_extreme_values(samples)
         assert len(results) == 1
         assert "extreme" in _require_text(results[0].issue).lower()
@@ -198,13 +199,13 @@ class TestCheckExtremeValues:
     def test_below_threshold_no_issue(self):
         # Only 1 out of 100 extreme → 1% < 10% threshold
         values = jnp.concatenate([jnp.array([1e7]), jnp.ones(99)])
-        samples = {"drift_base_decay_free": values}
+        samples = {"vf_0_base_decay": values}
         results = _check_extreme_values(samples)
         assert results == []
 
     def test_non_param_site_ignored(self):
         # Sites not matching param patterns are skipped
-        samples = {"drift": jnp.array([1e7, 1e8])}
+        samples = {"vf_0_drift": jnp.array([1e7, 1e8])}
         results = _check_extreme_values(samples)
         assert results == []
 
@@ -223,7 +224,7 @@ class TestFormatValidationReport:
     def test_failed_report_includes_each_issue_and_parameter(self):
         results = [
             PriorValidationResult(
-                parameter="drift_base_decay_free",
+                parameter="vf_0_base_decay",
                 is_valid=False,
                 issue="Too extreme",
                 suggested_adjustment="Fix it",
@@ -237,7 +238,7 @@ class TestFormatValidationReport:
         ]
         report = format_validation_report(False, results)
         assert "FAILED" in report
-        assert "drift_base_decay_free" in report
+        assert "vf_0_base_decay" in report
         assert "Too extreme" in report
         assert "diffusion_diag_free" in report
         assert "Negative values" in report
@@ -579,7 +580,7 @@ class TestCheckLaggedResponsePlausibility:
             latent_names=["stress", "sleep"],
         )
         samples = {
-            "drift": jnp.asarray(
+            "vf_0_drift": jnp.asarray(
                 [
                     [[-0.5, 0.0], [0.001, -0.5]],
                     [[-0.6, 0.0], [0.002, -0.4]],
@@ -613,7 +614,7 @@ class TestCheckLaggedResponsePlausibility:
 class TestScalePlausibilityDiagnostics:
     def test_observation_samples_drive_scale_check_when_available(self):
         samples = {
-            "drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
+            "vf_0_drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]]], dtype=jnp.float32),
             "observations": jnp.asarray(
                 [[[0.0], [300.0], [600.0], [900.0]]],
@@ -638,7 +639,7 @@ class TestScalePlausibilityDiagnostics:
 
     def test_missing_observations_emits_harness_error(self):
         samples = {
-            "drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
+            "vf_0_drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]]], dtype=jnp.float32),
         }
 
@@ -655,7 +656,7 @@ class TestScalePlausibilityDiagnostics:
 
     def test_unstable_dynamics_emits_stage_and_certificate(self):
         samples = {
-            "drift": jnp.asarray([[[0.1]], [[0.2]], [[-1.0]]], dtype=jnp.float32),
+            "vf_0_drift": jnp.asarray([[[0.1]], [[0.2]], [[-1.0]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32),
             "observations": jnp.asarray(
                 [
@@ -693,7 +694,7 @@ class TestScalePlausibilityDiagnostics:
 
     def test_overwhelmingly_unstable_dynamics_raise_runtime_error(self, monkeypatch):
         samples = {
-            "drift": jnp.asarray(
+            "vf_0_drift": jnp.asarray(
                 [[[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]]], dtype=jnp.float32
             ),
             "diffusion": jnp.asarray(
@@ -740,15 +741,15 @@ class TestScalePlausibilityDiagnostics:
         assert result.failing_draw_indices == [0, 1, 2, 3, 4]
 
     def test_nuisance_site_skipped(self):
-        results = [PriorValidationResult(parameter="cint_free", is_valid=False, issue="something")]
+        results = [PriorValidationResult(parameter="vf_1_cint", is_valid=False, issue="something")]
         failed = get_failed_parameters(results, ["alpha", "beta"])
-        # cint_free is nuisance → skipped, no other matches → falls back to all params
+        # vf_1_cint is nuisance → skipped, no other matches → falls back to all params
         assert set(failed) == {"alpha", "beta"}
 
     def test_keyword_matching(self):
         results = [
             PriorValidationResult(
-                parameter="drift_base_decay_free",
+                parameter="vf_0_base_decay",
                 is_valid=False,
                 issue="constraint",
             )
@@ -857,6 +858,11 @@ class TestCompiledPriorPredictiveRuntime:
                 template=jnp.zeros((1, 1), dtype=jnp.float32),
                 free_site_name="input_effect_free",
                 det_site_name="input_effect",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.INPUT_EFFECT,
+                assembly_group="input_effect",
+                fixed_spec_field="input_effect",
+                priors_field="input_effect",
             ),
             input_names=["dose"],
             input_source_indicators=["dose_mg"],

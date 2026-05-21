@@ -54,6 +54,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
@@ -290,6 +291,11 @@ class SSMModelBuilder:
                     template=jnp.eye(n),
                     free_site_name="lambda_free",
                     det_site_name="lambda",
+                    support=SupportClass.REAL,
+                    site_kind=SiteKind.LOADING,
+                    assembly_group="lambda",
+                    fixed_spec_field="lambda_mat",
+                    priors_field="lambda_free",
                 ),
                 manifest_means_block=SparseVectorBlockSpec(
                     n=n,
@@ -297,6 +303,11 @@ class SSMModelBuilder:
                     template=jnp.zeros(n),
                     free_site_name="manifest_means_free",
                     det_site_name="manifest_means",
+                    support=SupportClass.REAL,
+                    site_kind=SiteKind.MANIFEST_MEANS,
+                    assembly_group="manifest",
+                    fixed_spec_field="manifest_means",
+                    priors_field="manifest_means",
                 ),
                 manifest_chol_block=ManifestCholBlockSpec(
                     n_manifest=n,
@@ -309,6 +320,11 @@ class SSMModelBuilder:
                     template=jnp.zeros(n),
                     free_site_name="t0_means_free",
                     det_site_name="t0_means",
+                    support=SupportClass.REAL,
+                    site_kind=SiteKind.T0_MEANS,
+                    assembly_group="t0",
+                    fixed_spec_field="t0_means",
+                    priors_field="t0_means",
                 ),
                 t0_chol_block=T0CholBlockSpec(
                     n_latent=n,
@@ -323,6 +339,11 @@ class SSMModelBuilder:
                     template=jnp.zeros((n, 0)),
                     free_site_name="input_effect_free",
                     det_site_name="input_effect",
+                    support=SupportClass.REAL,
+                    site_kind=SiteKind.INPUT_EFFECT,
+                    assembly_group="input_effect",
+                    fixed_spec_field="input_effect",
+                    priors_field="input_effect",
                 ),
                 static_state_sd_block=SparseVectorBlockSpec(
                     n=0,
@@ -330,6 +351,11 @@ class SSMModelBuilder:
                     template=jnp.zeros(0),
                     free_site_name="static_state_sd_free",
                     det_site_name="static_state_sds",
+                    support=SupportClass.POSITIVE,
+                    site_kind=SiteKind.STATIC_STATE_SD,
+                    assembly_group="t0",
+                    fixed_spec_field="static_state_sds",
+                    priors_field="static_state_sd",
                 ),
             )
             spec, priors, _bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs_from_spec(

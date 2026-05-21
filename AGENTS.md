@@ -41,7 +41,7 @@ THINK VERY HARD
 
 - NEVER run evals (`inspect eval`, `uv run inspect eval`, etc.) unless explicitly asked. Evals cost money. Only run `uv run pytest tests/` for testing.
 
-- ALWAYS run `uv run ruff check src/ tests/` before committing to catch linting errors. Use `uv run ruff check --fix src/ tests/` to auto-fix issues. For formatting, run `uv run ruff format src/ tests/`. Avoid running tests marked as `slow` unless you changed something that directly impacts them. In general always run the subset of tests that make sense for the changes.
+- Before committing, run `bun run --cwd apps/data-pipeline lint` — this runs ruff check, ruff format check, config validation, and vulture in one pass. For autofix during development, use `uv run ruff check --fix src/ tests/` and `uv run ruff format src/ tests/`. Avoid running tests marked as `slow` unless your change directly impacts them; in general run the subset of tests that makes sense for the change.
 
 - ALWAYS encode structural assumptions as DAGs with explicit latent confounders. NEVER use ADMGs (bidirected edges) as user-facing representations. If unobserved confounding exists, model it as an explicit unobserved node (e.g., `U -> X`, `U -> Y`) rather than a bidirected edge (`X <-> Y`). ADMGs are only used internally for running y0's identification algorithm via projection.
 

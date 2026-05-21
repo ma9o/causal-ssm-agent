@@ -111,7 +111,7 @@ def _prior_params(prior_registry, site_name: str):
 
 
 def _base_decay_means(prior_registry) -> np.ndarray:
-    prior = _prior_params(prior_registry, "drift_base_decay_free")
+    prior = _prior_params(prior_registry, "vf_0_base_decay")
     if "concentration" in prior and "rate" in prior:
         return _prior_vector(prior["concentration"]) / _prior_vector(prior["rate"])
     if "value" in prior:
@@ -124,10 +124,11 @@ def _base_decay_means(prior_registry) -> np.ndarray:
 def _mean_drift_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
     base_decay = jnp.asarray(_base_decay_means(prior_registry), dtype=jnp.float32)
     offdiag = jnp.asarray(
-        _prior_vector(_prior_params(prior_registry, "drift_offdiag_free")["mu"]),
+        _prior_vector(_prior_params(prior_registry, "vf_0_offdiag")["mu"]),
         dtype=jnp.float32,
     )
-    return spec.assemble_drift(base_decay, offdiag)
+    drift_component = spec.drift_spec.components[0]
+    return drift_component.assemble_drift(base_decay, offdiag)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -380,7 +381,7 @@ class TestE2ESpecToDiscretization:
         assert spec.latent_names == ["mood", "stress"]
 
         # Drift mask: diagonal (AR) + stress→mood off-diagonal
-        drift_component, _ = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
         assert drift_component.drift_diag_mask[0]  # mood AR
         assert drift_component.drift_diag_mask[1]  # stress AR
         assert drift_component.drift_offdiag_mask[
@@ -520,7 +521,9 @@ class TestE2ESpecToDiscretization:
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
         assert spec.n_latent == 3
-        drift_component, cint_component = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
+
+        cint_component = spec.drift_spec.components[1]
         assert drift_component.time_invariant_mask is not None
         np.testing.assert_array_equal(
             drift_component.time_invariant_mask, [False, False, True]
@@ -664,7 +667,9 @@ class TestE2ESpecToDiscretization:
         spec, _elags = _translate_spec_for_test(model_spec, causal_spec=causal_spec)
 
         assert spec.latent_names == ["mood", "stress", "trait_vulnerability"]
-        drift_component, cint_component = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
+
+        cint_component = spec.drift_spec.components[1]
         np.testing.assert_array_equal(drift_component.drift_diag_mask, [True, True, False])
         assert drift_component.drift_offdiag_mask[0, 1]
         assert drift_component.drift_offdiag_mask[0, 2]
@@ -762,7 +767,7 @@ class TestE2ESpecToDiscretization:
             "stress_cortisol",
         ]
         assert compiled["parameter_bindings"] == [
-            {"parameter": "beta_stress_mood", "site_name": "drift_offdiag_free", "flat_index": 0},
+            {"parameter": "beta_stress_mood", "site_name": "vf_0_offdiag", "flat_index": 0},
             {
                 "parameter": "lambda_stress_cortisol_stress",
                 "site_name": "lambda_free",
@@ -778,8 +783,8 @@ class TestE2ESpecToDiscretization:
                 "site_name": "manifest_var_diag_free",
                 "flat_index": 0,
             },
-            {"parameter": "rho_mood", "site_name": "drift_base_decay_free", "flat_index": 0},
-            {"parameter": "rho_stress", "site_name": "drift_base_decay_free", "flat_index": 1},
+            {"parameter": "rho_mood", "site_name": "vf_0_base_decay", "flat_index": 0},
+            {"parameter": "rho_stress", "site_name": "vf_0_base_decay", "flat_index": 1},
             {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
             {"parameter": "sigma_stress", "site_name": "diffusion_diag_free", "flat_index": 1},
         ]
@@ -809,13 +814,13 @@ class TestE2ESpecToDiscretization:
         builder = build_compiled_ssm_builder(compiled, pivot_to_wide(data_for_model))
         spec = builder.spec
         assert spec.latent_names == ["mood", "stress"]
-        drift_component, _ = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
         assert drift_component.drift_offdiag_mask[0, 1]
         assert not drift_component.drift_offdiag_mask[1, 0]
         assert spec.lambda_block.mask is not None
         assert spec.lambda_block.mask[2, 1]
         runtime = builder.model.get_prior_runtime_bundle()
-        assert runtime.prior_state["drift_base_decay_free"]["concentration"].shape == (2,)
+        assert runtime.prior_state["vf_0_base_decay"]["concentration"].shape == (2,)
         assert builder.model.parameter_bindings == compiled["parameter_bindings"]
 
     def test_residual_sd_priors_are_construct_specific(
@@ -891,7 +896,7 @@ class TestE2ESpecToDiscretization:
         # --- beta_stress_mood: Normal(0.3, 0.15), reference_interval_days=7 ---
         # drift_offdiag[0] = 0.3 / 7 ≈ 0.043
         expected_offdiag = 0.3 / 7.0
-        mu_offdiag = _prior_params(ssm_priors, "drift_offdiag_free")["mu"]
+        mu_offdiag = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
         mu_offdiag_val = mu_offdiag[0] if isinstance(mu_offdiag, list) else mu_offdiag
         assert abs(mu_offdiag_val - expected_offdiag) < 0.01, (
             f"stress→mood drift: got {mu_offdiag_val}, expected {expected_offdiag} "
@@ -943,8 +948,8 @@ class TestE2ESpecToDiscretization:
         F_weekly = jla.expm(drift * dt_weekly)
 
         base_decay = _base_decay_means(ssm_priors)
-        offdiag = _prior_vector(_prior_params(ssm_priors, "drift_offdiag_free")["mu"])
-        drift_component, _ = spec.structural_drift_components()
+        offdiag = _prior_vector(_prior_params(ssm_priors, "vf_0_offdiag")["mu"])
+        drift_component = spec.drift_spec.components[0]
         baseline_ar_mood = 3.0 / 5.0  # Beta(3,2) mean = 0.6
         expected_resolved_mood = math.exp(
             -(base_decay[0] + abs(offdiag[0]) + drift_component.stability_margin)
@@ -1103,9 +1108,9 @@ class TestE2ESpecToDiscretization:
         samples = prior_predictive(model, times, num_samples=20, seed=42)
 
         # Check key deterministic sites exist and are finite
-        assert "drift" in samples, "Missing 'drift' in prior predictive samples"
-        drift_samples = samples["drift"]
-        assert jnp.all(jnp.isfinite(drift_samples)), "drift samples contain NaN/Inf"
+        assert "vf_0_drift" in samples, "Missing 'vf_0_drift' in prior predictive samples"
+        drift_samples = samples["vf_0_drift"]
+        assert jnp.all(jnp.isfinite(drift_samples)), "vf_0_drift samples contain NaN/Inf"
 
         if "diffusion" in samples:
             diff_samples = samples["diffusion"]
@@ -1236,12 +1241,12 @@ class TestE2ESpecToDiscretization:
         )
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
-        mu_w = _prior_params(ssm_priors_w, "drift_offdiag_free")["mu"]
+        mu_w = _prior_params(ssm_priors_w, "vf_0_offdiag")["mu"]
         mu_w_val = mu_w[0] if isinstance(mu_w, list) else mu_w
         assert abs(mu_w_val - 0.3 / 7.0) < 0.01
 
         # Daily: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
-        mu_d = _prior_params(ssm_priors_d, "drift_offdiag_free")["mu"]
+        mu_d = _prior_params(ssm_priors_d, "vf_0_offdiag")["mu"]
         mu_d_val = mu_d[0] if isinstance(mu_d, list) else mu_d
         expected_daily = 0.3
         assert abs(mu_d_val - expected_daily) < 0.05, (
@@ -1546,7 +1551,7 @@ class TestExactMatrixLogConversion:
         )
 
         drift_base_decay = _base_decay_means(ssm_priors)
-        drift_offdiag = _prior_params(ssm_priors, "drift_offdiag_free")["mu"]
+        drift_offdiag = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
 
         assert abs(drift_base_decay[0] - (-math.log(0.6) / 7.0)) < 0.01
         assert abs(drift_base_decay[1] - (-math.log(0.5) / 7.0)) < 0.01

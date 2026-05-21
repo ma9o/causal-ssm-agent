@@ -41,9 +41,9 @@ from nof1_causal_lab.models.ssm.inference.backend_factory import (
     build_laplace_backend,
 )
 from nof1_causal_lab.models.ssm.inference.targets.base import (
-    CTParams,
     InitialStateParams,
     MeasurementParams,
+    RuntimeDynamics,
 )
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     any_family_needs_level_metadata,
@@ -450,42 +450,29 @@ class SSMSpec:
                 f"{len(self.static_factor_names)} vs {n_static_factor}"
             )
 
-    def structural_drift_components(self):
-        """Return the structural dense-linear drift components.
+    def iter_sample_sites(self):
+        """Flat iteration over every sample-site descriptor on this spec.
 
-        The NumPyro ``SSMModel.model`` path is the dense-linear SSM path.
-        Nonlinear composite drifts use the composite inference drivers and
-        should not be coerced into dense-linear sample sites.
+        Drift components receive their canonical vector-field component prefix
+        so their sample sites match ``compile_composite(prefix="vf")``.
+        Blocks with no free parameters yield nothing.
         """
-        from nof1_causal_lab.models.ssm.dynamics.composite import (
-            StructuralDenseLinearSpec,
-            StructuralInterceptSpec,
-        )
-
-        components = self.drift_spec.components
-        if (
-            len(components) >= 2
-            and isinstance(components[0], StructuralDenseLinearSpec)
-            and isinstance(components[1], StructuralInterceptSpec)
+        for idx, component in enumerate(self.drift_spec.components):
+            iter_sites = getattr(component, "iter_sites", None)
+            if iter_sites is None:
+                continue
+            yield from iter_sites(prefix=f"vf_{idx}")
+        for block in (
+            self.diffusion_block,
+            self.lambda_block,
+            self.manifest_means_block,
+            self.manifest_chol_block,
+            self.t0_means_block,
+            self.t0_chol_block,
+            self.input_effect_block,
+            self.static_state_sd_block,
         ):
-            return components[0], components[1]
-        raise TypeError(
-            "Dense-linear SSM assembly requires drift_spec components "
-            "(StructuralDenseLinearSpec, StructuralInterceptSpec). "
-            "Use the composite inference path for nonlinear drift specs."
-        )
-
-    def assemble_drift(
-        self,
-        base_decay_free: jnp.ndarray | None = None,
-        offdiag_free: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        drift_component, _ = self.structural_drift_components()
-        return drift_component.assemble_drift(base_decay_free, offdiag_free)
-
-    def assemble_cint(self, cint_free: jnp.ndarray | None = None) -> jnp.ndarray:
-        _, cint_component = self.structural_drift_components()
-        return cint_component.assemble_cint(cint_free)
+            yield from block.iter_sites()
 
     def assemble_t0_cov(
         self,
@@ -604,194 +591,10 @@ class SSMModel:
             raise ValueError(f"Prior runtime bundle has no site named {site_name!r}")
         return build_site_prior_distribution(site, runtime.prior_state[site_name])
 
-    def _sample_drift(self) -> jnp.ndarray:
-        """Sample drift matrix via the structural dense-linear component.
-
-        Reads the structural component directly from ``spec.drift_spec``;
-        attaches runtime priors via ``dataclasses.replace``.
-        """
-        layout = self._parameter_layout
-        if layout.n_drift_base_decay == 0 and layout.n_drift_offdiag == 0:
-            return self.spec.assemble_drift()
-
-        drift_component, _ = self.spec.structural_drift_components()
-        component_spec = replace(
-            drift_component,
-            base_decay_prior=(
-                self._prior_distribution("drift_base_decay_free")
-                if layout.n_drift_base_decay > 0
-                else None
-            ),
-            offdiag_prior=(
-                self._prior_distribution("drift_offdiag_free")
-                if layout.n_drift_offdiag > 0
-                else None
-            ),
-        )
-        return component_spec.sample_params(prefix="")["drift"]
-
-    def _sample_diffusion(self, _spec: SSMSpec) -> jnp.ndarray:
-        """Sample diffusion matrix (lower Cholesky) via the diffusion block."""
-        layout = self._parameter_layout
-        if layout.n_diffusion_diag == 0 and layout.n_diffusion_lower == 0:
-            return self.spec.diffusion_block.assemble()
-
-        block = replace(
-            self.spec.diffusion_block,
-            diag_prior=(
-                self._prior_distribution("diffusion_diag_free")
-                if layout.n_diffusion_diag > 0
-                else None
-            ),
-            lower_prior=(
-                self._prior_distribution("diffusion_lower_free")
-                if layout.n_diffusion_lower > 0
-                else None
-            ),
-        )
-        return block.sample_params(prefix="")["diffusion"]
-
-    def _sample_cint(self, _spec: SSMSpec) -> jnp.ndarray | None:
-        """Sample continuous intercept via the structural intercept component."""
-        layout = self._parameter_layout
-        if layout.n_cint == 0:
-            return self.spec.assemble_cint()
-
-        _, cint_component = self.spec.structural_drift_components()
-        component_spec = replace(
-            cint_component,
-            cint_prior=self._prior_distribution("cint_free"),
-        )
-        return component_spec.sample_params(prefix="")["cint"]
-
-    def _sample_input_effect(self, _spec: SSMSpec) -> jnp.ndarray:
-        """Sample known-input transition effects via the input-effect block."""
-        layout = self._parameter_layout
-        if layout.n_input_effect == 0:
-            return self.spec.input_effect_block.assemble()
-
-        block = replace(
-            self.spec.input_effect_block,
-            prior=self._prior_distribution("input_effect_free"),
-        )
-        return block.sample_params(prefix="")["input_effect"]
-
-    def _sample_lambda(self, _spec: SSMSpec) -> jnp.ndarray:
-        """Sample factor loading matrix via the lambda block."""
-        layout = self._parameter_layout
-        if layout.n_lambda_free == 0:
-            return self.spec.lambda_block.assemble()
-
-        block = replace(
-            self.spec.lambda_block,
-            prior=self._prior_distribution("lambda_free"),
-        )
-        return block.sample_params(prefix="")["lambda"]
-
-    def _sample_manifest_params(self, _spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Sample manifest means + Cholesky and emit the composed manifest_cov."""
-        layout = self._parameter_layout
-
-        # Means
-        if layout.n_manifest_means == 0:
-            manifest_means = self.spec.manifest_means_block.assemble()
-        else:
-            means_block = replace(
-                self.spec.manifest_means_block,
-                prior=self._prior_distribution("manifest_means_free"),
-            )
-            manifest_means = means_block.sample_params(prefix="")["manifest_means"]
-
-        # Variance (diagonal Cholesky)
-        if layout.n_manifest_var_diag == 0:
-            manifest_chol = self.spec.manifest_chol_block.assemble()
-        else:
-            chol_block = replace(
-                self.spec.manifest_chol_block,
-                diag_prior=self._prior_distribution("manifest_var_diag_free"),
-            )
-            manifest_chol = chol_block.sample_params(prefix="")["manifest_chol"]
-
-        numpyro.deterministic("manifest_cov", manifest_chol @ manifest_chol.T)
-        return jnp.asarray(manifest_means), jnp.asarray(manifest_chol)
-
-    def _sample_t0_params(self, _spec: SSMSpec) -> tuple[jnp.ndarray, jnp.ndarray]:
-        """Sample initial state parameters.
-
-        Means delegate to the t0_means block. The covariance assembly
-        (free diagonal SDs + free correlation entries + static factor SDs
-        combined via factor loadings) stays inline because the composed
-        structure is genuinely multi-block — block-spec just owns the
-        masks/templates; assembly is at the model layer.
-        """
-        # Means via block-spec. The block emits the ``t0_means``
-        # deterministic when sampled; for the no-free case we emit it
-        # explicitly below so the site is always present (legacy
-        # contract).
-        layout = self._parameter_layout
-        if layout.n_t0_means == 0:
-            t0_means = self.spec.t0_means_block.assemble()
-            numpyro.deterministic("t0_means", t0_means)
-        else:
-            means_block = replace(
-                self.spec.t0_means_block,
-                prior=self._prior_distribution("t0_means_free"),
-            )
-            t0_means = means_block.sample_params(prefix="")["t0_means"]
-
-        # Variance (Cholesky)
-        n_diag = layout.n_t0_diag
-        n_corr = layout.n_t0_correlation
-        n_static = layout.n_static_state_sd
-        if n_diag == 0 and n_corr == 0 and n_static == 0:
-            t0_cov, _min_eig = stabilize_covariance_for_cholesky(
-                self.spec.assemble_t0_cov(),
-                min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
-            )
-        else:
-            var_diag = None
-            if n_diag > 0:
-                var_diag = _sample_prior_array(
-                    "t0_var_diag_free",
-                    self._prior_distribution("t0_var_diag_free"),
-                )
-            t0_corr = None
-            if n_corr > 0:
-                t0_corr = _sample_prior_array(
-                    "t0_var_lower_free",
-                    self._prior_distribution("t0_var_lower_free"),
-                )
-            static_state_sds = None
-            if n_static > 0:
-                static_state_sds = _sample_prior_array(
-                    "static_state_sd_free",
-                    self._prior_distribution("static_state_sd_free"),
-                )
-                numpyro.deterministic(
-                    "static_state_sds",
-                    self.spec.static_state_sd_block.assemble(static_state_sds),
-                )
-            t0_cov_raw = self.spec.assemble_t0_cov(var_diag, t0_corr, static_state_sds)
-            t0_cov, min_eig = stabilize_covariance_for_cholesky(
-                t0_cov_raw,
-                min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
-            )
-            numpyro.factor(
-                "t0_correlation_positive_definite",
-                jnp.where(
-                    min_eig > INITIAL_STATE_COV_MIN_EIGENVALUE,
-                    0.0,
-                    -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eig),
-                ),
-            )
-        t0_chol = jnp.linalg.cholesky(t0_cov)
-
-        # ``t0_means`` deterministic is emitted either inside the
-        # SparseVectorBlockSpec (sampled branch) or by the explicit
-        # ``numpyro.deterministic`` call in the no-free branch above —
-        # always exactly once.
-        numpyro.deterministic("t0_cov", t0_cov)
-        return jnp.asarray(t0_means), jnp.asarray(t0_chol)
+    # Per-block sampling now lives in the unified ``_run_block_sampling``
+    # loop below — each block's ``with_runtime_priors`` + ``sample_params``
+    # pair handles drift, diffusion, cint, input_effect, lambda, manifest,
+    # and t0 in one declarative pass.
 
     def make_likelihood_backend(self):
         """Construct or reuse the default Laplace likelihood backend."""
@@ -882,6 +685,90 @@ class SSMModel:
 
         return assemble_sampled_extra_params(spec, sampled_values)
 
+    def _run_block_sampling(self) -> dict[str, jnp.ndarray]:
+        """Sample every non-drift block-owned parameter once.
+
+        Returns a flat dict mapping deterministic names (diffusion, lambda,
+        input_effect, manifest_means, manifest_chol, t0_means,
+        static_state_sds) and raw free-site names (t0_var_diag_free,
+        t0_var_lower_free) to their sampled values.
+
+        Drift parameters are always sampled through ``compile_composite`` so
+        linear and nonlinear dynamics share one vector-field runtime path.
+        """
+        sampled: dict[str, jnp.ndarray] = {}
+        for block in (
+            self.spec.diffusion_block,
+            self.spec.lambda_block,
+            self.spec.manifest_means_block,
+            self.spec.manifest_chol_block,
+            self.spec.t0_means_block,
+            self.spec.t0_chol_block,
+            self.spec.input_effect_block,
+            self.spec.static_state_sd_block,
+        ):
+            with_priors = getattr(block, "with_runtime_priors", None)
+            sample_params = getattr(block, "sample_params", None)
+            if with_priors is None or sample_params is None:
+                continue
+            sampled.update(with_priors(self._prior_distribution).sample_params())
+        return sampled
+
+    def _drift_spec_with_runtime_priors(self):
+        """Bind runtime prior distributions to component-owned sample sites."""
+        components = tuple(
+            component.with_runtime_priors(self._prior_distribution, prefix=f"vf_{idx}")
+            if hasattr(component, "with_runtime_priors")
+            else component
+            for idx, component in enumerate(self.spec.drift_spec.components)
+        )
+        return replace(self.spec.drift_spec, components=components)
+
+    def _sample_runtime_dynamics(
+        self,
+        diffusion_cov: jnp.ndarray,
+        input_effect: jnp.ndarray,
+    ) -> RuntimeDynamics:
+        """Sample vector-field drift parameters inside the NumPyro trace."""
+        from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
+
+        compiled = compile_composite(self._drift_spec_with_runtime_priors())
+        vf_params = compiled.sample_params()
+        return RuntimeDynamics(
+            vector_field=compiled.vector_field,
+            vf_params=vf_params,
+            diffusion_cov=diffusion_cov,
+            input_effect=input_effect,
+        )
+
+    def _compose_t0_cov(
+        self, sampled: dict[str, jnp.ndarray]
+    ) -> jnp.ndarray:
+        """Assemble t0 covariance from the t0_chol block's raw free samples
+        plus the static-factor contribution (loadings @ diag(sds^2) @ loadingsᵀ),
+        then stabilize for Cholesky decomposition.
+        """
+        diag_free = sampled.get("t0_var_diag_free")
+        correlation_free = sampled.get("t0_var_lower_free")
+        cov = self.spec.t0_chol_block.assemble_cov(diag_free, correlation_free)
+        static_sds = sampled.get("static_state_sds")
+        if static_sds is not None and jnp.asarray(static_sds).size:
+            loadings = jnp.asarray(self.spec.static_factor_loadings)
+            cov = cov + loadings @ jnp.diag(static_sds**2) @ loadings.T
+        cov = symmetrize(cov)
+        stable_cov, min_eig = stabilize_covariance_for_cholesky(
+            cov, min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE
+        )
+        numpyro.factor(
+            "t0_correlation_positive_definite",
+            jnp.where(
+                min_eig > INITIAL_STATE_COV_MIN_EIGENVALUE,
+                0.0,
+                -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eig),
+            ),
+        )
+        return stable_cov
+
     def model(
         self,
         observations: jnp.ndarray,
@@ -903,26 +790,23 @@ class SSMModel:
             )
 
         spec = self.spec
+        sampled = self._run_block_sampling()
 
-        drift = self._sample_drift()
-        diffusion_chol = self._sample_diffusion(spec)
-        cint = self._sample_cint(spec)
-        input_effect = self._sample_input_effect(spec)
-        lambda_mat = self._sample_lambda(spec)
-        manifest_means, manifest_chol = self._sample_manifest_params(spec)
-        t0_means, t0_chol = self._sample_t0_params(spec)
+        diffusion_chol = sampled["diffusion"]
+        input_effect = sampled["input_effect"]
+        lambda_mat = sampled["lambda"]
+        manifest_means = sampled["manifest_means"]
+        manifest_chol = sampled["manifest_chol"]
+        t0_means = sampled["t0_means"]
 
         diffusion_cov = diffusion_chol @ diffusion_chol.T
         manifest_cov = manifest_chol @ manifest_chol.T
-        t0_cov = t0_chol @ t0_chol.T
+        numpyro.deterministic("manifest_cov", manifest_cov)
+        t0_cov = self._compose_t0_cov(sampled)
+        numpyro.deterministic("t0_cov", t0_cov)
         extra_params = self._sample_likelihood_extra_params(spec)
+        dynamics = self._sample_runtime_dynamics(diffusion_cov, input_effect)
 
-        ct_params = CTParams(
-            drift=drift,
-            diffusion_cov=diffusion_cov,
-            cint=cint,
-            input_effect=input_effect,
-        )
         meas_params = MeasurementParams(
             lambda_mat=lambda_mat,
             manifest_means=manifest_means,
@@ -934,7 +818,7 @@ class SSMModel:
 
         init = InitialStateParams(mean=t0_means, cov=t0_cov)
         lnc = likelihood_backend.compute_log_likelihood(
-            ct_params,
+            dynamics,
             meas_params,
             init,
             observations,

@@ -384,8 +384,8 @@ def _prepare_stage6_simulation(
         return None, _tool_error_result("Treatment or outcome not present in fitted latent model.")
 
     # Dispatch on the InferenceResult method: composite fits expose a
-    # vector field + per-draw param tuples through ``diagnostics``; linear
-    # fits expose the dense ``(drift, cint)`` arrays through ``samples``.
+    # vector field + per-draw param tuples through ``diagnostics``; affine
+    # fits expose component-owned dense drift/intercept deterministics.
     method = fitted_artifact.result.method
     diagnostics = fitted_artifact.result.diagnostics
     query = dict(args.get("query") or {})
@@ -408,13 +408,13 @@ def _prepare_stage6_simulation(
                 "Composite fit is missing vector_field / param_samples in diagnostics."
             )
     else:
-        drift_draws = samples.get("drift")
+        drift_draws = samples.get("vf_0_drift")
         if drift_draws is None:
-            return None, _tool_error_result("Posterior drift samples are unavailable.")
-        cint_draws = samples.get("cint")
+            return None, _tool_error_result("Posterior vf_0_drift samples are unavailable.")
+        cint_draws = samples.get("vf_1_cint_full")
         if cint_draws is None:
-            cint_draws = jnp.zeros((drift_draws.shape[0], drift_draws.shape[-1]))
-        # Linear path is normalised to the canonical composite shape:
+            return None, _tool_error_result("Posterior vf_1_cint_full samples are unavailable.")
+        # Affine path is normalised to the canonical composite shape:
         # 2-component ``(DenseLinear + Intercept)`` vector field plus
         # per-draw param tuples ``({"drift": A}, {"cint": c})``. After
         # this point downstream Stage 6 dispatch is uniform — the

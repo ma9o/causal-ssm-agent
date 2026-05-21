@@ -15,12 +15,15 @@ from nof1_causal_lab.models.ssm import SSMModel, fit
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
 from nof1_causal_lab.models.ssm.inference import _eval_model
 from nof1_causal_lab.models.ssm.inference.shared import _apply_reparam
+from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
-    CTParams,
     InitialStateParams,
     MeasurementParams,
+    RuntimeDynamics,
 )
 from nof1_causal_lab.models.ssm.inference.targets.emissions import (
     get_mean_param_log_prob_fn,
@@ -34,6 +37,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
 )
 from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     block_ssm_spec,
     diagonal_diffusion_block,
@@ -61,6 +65,27 @@ def _default_linear_spec(n_latent: int, n_manifest: int):
     )
 
 
+def _runtime_dynamics(
+    *,
+    drift: jnp.ndarray,
+    diffusion_cov: jnp.ndarray,
+    cint: jnp.ndarray | None = None,
+    input_effect: jnp.ndarray | None = None,
+) -> RuntimeDynamics:
+    params = {"drift": drift}
+    if cint is not None:
+        params["cint"] = cint
+    return RuntimeDynamics(
+        vector_field=CompositeVectorField(
+            n_latent=int(drift.shape[0]),
+            components=(DenseLinear(),),
+        ),
+        vf_params=(params,),
+        diffusion_cov=diffusion_cov,
+        input_effect=input_effect,
+    )
+
+
 class TestLaplaceSupportAware:
     def test_laplace_backend_handles_window_average(self):
         support = make_observation_support_runtime(
@@ -82,7 +107,7 @@ class TestLaplaceSupportAware:
             n_ieks_iters=2,
             observation_support=support,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -129,7 +154,7 @@ class TestLaplaceSupportAware:
             n_ieks_iters=2,
             observation_support=support,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -147,9 +172,9 @@ class TestLaplaceSupportAware:
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
 
         Ad, Qd, cd = discretize_system_batched(
-            ct_params.drift,
-            ct_params.diffusion_cov,
-            ct_params.cint,
+            derive_affine_dynamics(ct_params).drift,
+            derive_affine_dynamics(ct_params).diffusion_cov,
+            derive_affine_dynamics(ct_params).cint,
             time_intervals,
         )
         assert cd is not None
@@ -227,7 +252,7 @@ class TestParameterRecoveryMAP:
         )
 
         samples = result.get_samples()
-        drift_diag_samples = -jnp.abs(samples["drift_base_decay_free"])
+        drift_diag_samples = -jnp.abs(samples["vf_0_base_decay"])
 
         for i, true_val in enumerate(true_drift_diag):
             posterior_mean = jnp.mean(drift_diag_samples[:, i])
@@ -304,6 +329,11 @@ class TestPureJaxLikelihoodEvaluator:
                 template=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
                 free_site_name="manifest_means_free",
                 det_site_name="manifest_means",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.MANIFEST_MEANS,
+                assembly_group="manifest",
+                fixed_spec_field="manifest_means",
+                priors_field="manifest_means",
             ),
             manifest_dists=[DistributionFamily.POISSON],
             manifest_links=[LinkFunction.LOG],

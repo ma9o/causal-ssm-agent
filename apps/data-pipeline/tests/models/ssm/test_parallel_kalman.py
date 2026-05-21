@@ -54,6 +54,7 @@ from nof1_causal_lab.models.ssm.structure import (
     default_input_effect_block,
     default_static_state_sd_block,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 _JITTER = 1e-6
 
@@ -216,6 +217,11 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
             template=lambda_mat,
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
@@ -223,6 +229,11 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
             template=jnp.zeros(n_manifest, dtype=jnp.float64),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.MANIFEST_MEANS,
+            assembly_group="manifest",
+            fixed_spec_field="manifest_means",
+            priors_field="manifest_means",
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
@@ -235,6 +246,11 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
             template=jnp.zeros(n_latent, dtype=jnp.float64),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.T0_MEANS,
+            assembly_group="t0",
+            fixed_spec_field="t0_means",
+            priors_field="t0_means",
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,

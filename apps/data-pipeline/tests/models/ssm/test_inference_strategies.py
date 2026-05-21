@@ -32,14 +32,17 @@ from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import AutoReparam, InferenceResult, SSMModel, fit
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
 from nof1_causal_lab.models.ssm.inference.methods.map import (
     _build_map_laplace_bundle,
     fit_map,
 )
+from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
-    CTParams,
     InitialStateParams,
     MeasurementParams,
+    RuntimeDynamics,
 )
 from nof1_causal_lab.models.ssm.inference.targets.emissions import get_mean_param_log_prob_fn
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
@@ -94,6 +97,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     block_ssm_spec,
     diagonal_diffusion_block,
@@ -128,6 +132,27 @@ def _linear_drift_spec(
         cint_template=(
             jnp.zeros(n_latent, dtype=jnp.float32) if cint_template is None else cint_template
         ),
+    )
+
+
+def _runtime_dynamics(
+    *,
+    drift: jnp.ndarray,
+    diffusion_cov: jnp.ndarray,
+    cint: jnp.ndarray | None = None,
+    input_effect: jnp.ndarray | None = None,
+) -> RuntimeDynamics:
+    params = {"drift": drift}
+    if cint is not None:
+        params["cint"] = cint
+    return RuntimeDynamics(
+        vector_field=CompositeVectorField(
+            n_latent=int(drift.shape[0]),
+            components=(DenseLinear(),),
+        ),
+        vf_params=(params,),
+        diffusion_cov=diffusion_cov,
+        input_effect=input_effect,
     )
 
 
@@ -466,7 +491,7 @@ class TestLaplaceEMBlockSolver:
             manifest_links=[LinkFunction.IDENTITY],
             n_ieks_iters=12,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.09]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.07]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -1259,16 +1284,16 @@ class TestLaplaceSupportAwareGradients:
             for batch in window_batches
         )
 
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.35]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.12]], dtype=jnp.float32),
             cint=jnp.array([0.05], dtype=jnp.float32),
         )
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
         Ad, Qd, cd = discretize_system_batched(
-            ct_params.drift,
-            ct_params.diffusion_cov,
-            ct_params.cint,
+            derive_affine_dynamics(ct_params).drift,
+            derive_affine_dynamics(ct_params).diffusion_cov,
+            derive_affine_dynamics(ct_params).cint,
             time_intervals,
         )
         assert cd is not None
@@ -1300,9 +1325,9 @@ class TestLaplaceSupportAwareGradients:
             clean_obs,
             obs_mask,
             time_intervals,
-            ct_params.drift,
-            ct_params.diffusion_cov,
-            ct_params.cint,
+            derive_affine_dynamics(ct_params).drift,
+            derive_affine_dynamics(ct_params).diffusion_cov,
+            derive_affine_dynamics(ct_params).cint,
             H,
             d,
             R,
@@ -1379,7 +1404,7 @@ class TestLaplaceSupportAwareGradients:
             n_ieks_iters=8,
             observation_support=support,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.15]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.08]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -1510,7 +1535,7 @@ class TestLaplaceBackendCaching:
             n_ieks_iters=2,
             observation_support=support,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -1584,7 +1609,7 @@ class TestLaplaceBackendCaching:
             n_ieks_iters=2,
             observation_support=support,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -1646,7 +1671,7 @@ class TestLaplaceBackendCaching:
             manifest_links=[LinkFunction.IDENTITY],
             n_ieks_iters=2,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -1716,7 +1741,7 @@ class TestLaplaceBackendCaching:
             n_ieks_iters=2,
             observation_support=support,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -1800,7 +1825,7 @@ class TestLaplaceBackendCaching:
             n_ieks_iters=2,
             observation_support=support,
         )
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
@@ -1902,7 +1927,7 @@ class TestLaplaceBackendCaching:
         )
         observations = jnp.zeros((n_time, n_manifest), dtype=jnp.float32).at[0].set(jnp.nan)
         time_intervals = jnp.ones((n_time,), dtype=jnp.float32)
-        ct_params = CTParams(
+        ct_params = _runtime_dynamics(
             drift=-0.2 * jnp.eye(n_latent, dtype=jnp.float32),
             diffusion_cov=jnp.diag(jnp.linspace(0.01, 0.03, n_latent, dtype=jnp.float32)),
             cint=jnp.zeros(n_latent, dtype=jnp.float32),
@@ -2003,7 +2028,7 @@ class TestInferenceCaching:
             _ExplodingBackend(),
         )
 
-        assert "drift_base_decay_free" in site_info
+        assert "vf_0_base_decay" in site_info
         assert "manifest_var_diag_free" in site_info
 
 
@@ -2042,7 +2067,7 @@ class TestDefaultMethodRouting:
 
         def fake_fit_aux_kalman_mcmc(_model, _observations, _times, **kwargs):
             return InferenceResult(
-                _samples={"drift_base_decay_free": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"vf_0_base_decay": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method="aux_kalman_mcmc",
                 diagnostics={"kwargs": kwargs},
             )
@@ -2065,7 +2090,7 @@ class TestDefaultMethodRouting:
 
         def fake_fit_map(_model, _observations, _times, **kwargs):
             return InferenceResult(
-                _samples={"drift_base_decay_free": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"vf_0_base_decay": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method="map",
                 diagnostics={"kwargs": kwargs},
             )
@@ -2098,6 +2123,11 @@ def test_map_optimizer_smoke_on_small_kalman_model():
             template=jnp.array([[1.0]], dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=1,
@@ -2105,6 +2135,11 @@ def test_map_optimizer_smoke_on_small_kalman_model():
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.MANIFEST_MEANS,
+            assembly_group="manifest",
+            fixed_spec_field="manifest_means",
+            priors_field="manifest_means",
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=1,
@@ -2117,6 +2152,11 @@ def test_map_optimizer_smoke_on_small_kalman_model():
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.T0_MEANS,
+            assembly_group="t0",
+            fixed_spec_field="t0_means",
+            priors_field="t0_means",
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=1,
@@ -2173,6 +2213,11 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
             template=jnp.array([[1.0]], dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         ),
         "manifest_means_block": SparseVectorBlockSpec(
             n=1,
@@ -2180,6 +2225,11 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.MANIFEST_MEANS,
+            assembly_group="manifest",
+            fixed_spec_field="manifest_means",
+            priors_field="manifest_means",
         ),
         "manifest_chol_block": ManifestCholBlockSpec(
             n_manifest=1,
@@ -2192,6 +2242,11 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.T0_MEANS,
+            assembly_group="t0",
+            fixed_spec_field="t0_means",
+            priors_field="t0_means",
         ),
         "t0_chol_block": T0CholBlockSpec(
             n_latent=1,
@@ -2998,6 +3053,11 @@ def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
             template=jnp.array([[1.0], [0.7]], dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=2,
@@ -3005,6 +3065,11 @@ def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
             template=jnp.array([0.0, 0.0], dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.MANIFEST_MEANS,
+            assembly_group="manifest",
+            fixed_spec_field="manifest_means",
+            priors_field="manifest_means",
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=2,

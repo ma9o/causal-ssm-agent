@@ -503,7 +503,7 @@ class TestAutoReparamSSM:
             trace = handlers.trace(reparam_model).get_trace(observations, times)
 
         # Normal sites (loc-scale, real support) → LocScaleReparam
-        for site in ["drift_offdiag_free", "t0_means_free"]:
+        for site in ["vf_0_offdiag", "t0_means_free"]:
             if site in strategy.config:
                 assert isinstance(strategy.config[site], LocScaleReparam), (
                     f"{site} should be LocScaleReparam"
@@ -511,7 +511,7 @@ class TestAutoReparamSSM:
 
         # Positive-support sites → None
         for site in [
-            "drift_base_decay_free",
+            "vf_0_base_decay",
             "diffusion_diag_free",
             "manifest_var_diag_free",
             "t0_var_diag_free",
@@ -562,8 +562,8 @@ class TestAutoReparamSSM:
             times=times,
         )
 
-        assert "drift_base_decay_free" in samples
+        assert "vf_0_base_decay" in samples
         assert "diffusion_diag_free" in samples
         assert all("_decentered" not in name for name in samples)
-        assert samples["drift_base_decay_free"].shape[0] == 2
+        assert samples["vf_0_base_decay"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2

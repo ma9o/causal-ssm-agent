@@ -21,6 +21,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
+from nof1_causal_lab.models.ssm.inference.targets.affine import (
+    AffineDynamicsParams,
+    derive_affine_dynamics,
+)
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
     build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
@@ -66,9 +70,9 @@ from .support import (
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
     from nof1_causal_lab.models.ssm.inference.targets.base import (
-        CTParams,
         InitialStateParams,
         MeasurementParams,
+        RuntimeDynamics,
     )
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
@@ -193,7 +197,7 @@ class LaplaceLikelihood:
 
     def _compute_log_likelihood_impl(
         self,
-        ct_params: CTParams,
+        affine_dynamics: AffineDynamicsParams,
         measurement_params: MeasurementParams,
         initial_state: InitialStateParams,
         observations: jnp.ndarray,
@@ -226,10 +230,10 @@ class LaplaceLikelihood:
         def _discretize_base_system() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
             with jax.named_scope("map/discretize_system"):
                 Ad, Qd, cd = discretize_system_with_inputs_batched(
-                    ct_params.drift,
-                    ct_params.diffusion_cov,
-                    ct_params.cint,
-                    ct_params.input_effect,
+                    affine_dynamics.drift,
+                    affine_dynamics.diffusion_cov,
+                    affine_dynamics.cint,
+                    affine_dynamics.input_effect,
                     transition_inputs,
                     time_intervals,
                 )
@@ -246,7 +250,7 @@ class LaplaceLikelihood:
             and self.observation_support.requires_interval_summary_handling
         ):
             cache_inputs = (
-                ct_params,
+                affine_dynamics,
                 measurement_params,
                 initial_state,
                 observations,
@@ -295,9 +299,9 @@ class LaplaceLikelihood:
                         clean_obs,
                         obs_mask,
                         time_intervals,
-                        ct_params.drift,
-                        ct_params.diffusion_cov,
-                        ct_params.cint,
+                        affine_dynamics.drift,
+                        affine_dynamics.diffusion_cov,
+                        affine_dynamics.cint,
                         measurement_params.lambda_mat,
                         measurement_params.manifest_means,
                         measurement_params.manifest_cov,
@@ -407,7 +411,7 @@ class LaplaceLikelihood:
                 return log_lik, inner_eval_aux if include_aux else None
 
         cache_inputs = (
-            ct_params,
+            affine_dynamics,
             measurement_params,
             initial_state,
             observations,
@@ -473,7 +477,7 @@ class LaplaceLikelihood:
 
     def compute_log_likelihood(
         self,
-        ct_params: CTParams,
+        dynamics: RuntimeDynamics,
         measurement_params: MeasurementParams,
         initial_state: InitialStateParams,
         observations: jnp.ndarray,
@@ -488,8 +492,9 @@ class LaplaceLikelihood:
         Returns:
             (T,) cumulative log-normalizing constants, matching LikelihoodBackend protocol.
         """
+        affine_dynamics = derive_affine_dynamics(dynamics)
         log_lik, _aux = self._compute_log_likelihood_impl(
-            ct_params,
+            affine_dynamics,
             measurement_params,
             initial_state,
             observations,
@@ -505,7 +510,7 @@ class LaplaceLikelihood:
 
     def compute_log_likelihood_with_aux(
         self,
-        ct_params: CTParams,
+        dynamics: RuntimeDynamics,
         measurement_params: MeasurementParams,
         initial_state: InitialStateParams,
         observations: jnp.ndarray,
@@ -516,8 +521,9 @@ class LaplaceLikelihood:
         transition_inputs: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Compute Laplace-approximated log-likelihood plus host-log aux."""
+        affine_dynamics = derive_affine_dynamics(dynamics)
         log_lik, inner_eval_aux = self._compute_log_likelihood_impl(
-            ct_params,
+            affine_dynamics,
             measurement_params,
             initial_state,
             observations,

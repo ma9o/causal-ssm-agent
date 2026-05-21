@@ -17,7 +17,6 @@ It replaces the three overlapping conventions:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 import jax
@@ -37,110 +36,23 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
     stabilize_covariance_for_cholesky,
 )
+from nof1_causal_lab.models.ssm.structure.sites import (
+    SiteDescriptor,
+    SiteKind,
+    SupportClass,
+    TransformKind,
+)
+from nof1_causal_lab.models.ssm.structure.sites import (
+    make_site as _site,
+)
+from nof1_causal_lab.models.ssm.structure.sites import (
+    site_size as _site_size,
+)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
     from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
-
-
-# ---------------------------------------------------------------------------
-# Support classes
-# ---------------------------------------------------------------------------
-
-
-class SupportClass(Enum):
-    """Runtime support class for a sample site.
-
-    Determines the unconstrained ↔ constrained transform and the set of
-    valid prior families.  Static per topology — changing it requires
-    recompilation (expected and rare).
-    """
-
-    REAL = "real"
-    POSITIVE = "positive"
-    CORRELATION = "correlation"
-
-
-class TransformKind(Enum):
-    """Explicit unconstrained -> constrained transform metadata."""
-
-    IDENTITY = "identity"
-    EXP = "exp"
-    CORRELATION = "correlation"
-
-
-class SiteKind(Enum):
-    """Semantic role for each sample site."""
-
-    DRIFT_BASE_DECAY = "drift_base_decay"
-    DRIFT_OFFDIAG = "drift_offdiag"
-    DIFFUSION_DIAG = "diffusion_diag"
-    DIFFUSION_LOWER = "diffusion_lower"
-    CINT = "cint"
-    INPUT_EFFECT = "input_effect"
-    STATIC_STATE_SD = "static_state_sd"
-    LOADING = "loading"
-    MANIFEST_MEANS = "manifest_means"
-    MANIFEST_VAR_DIAG = "manifest_var_diag"
-    T0_MEANS = "t0_means"
-    T0_VAR_DIAG = "t0_var_diag"
-    T0_VAR_LOWER = "t0_var_lower"
-    OBS_DF = "obs_df"
-    OBS_SHAPE = "obs_shape"
-    OBS_R = "obs_r"
-    OBS_CONCENTRATION = "obs_concentration"
-    OBS_ORDERED_BASE = "obs_ordered_base"
-    OBS_ORDERED_GAPS = "obs_ordered_gaps"
-    OBS_CAT_INTERCEPTS = "obs_cat_intercepts"
-    OBS_CAT_SLOPES = "obs_cat_slopes"
-    PROC_DF = "proc_df"
-
-
-# ---------------------------------------------------------------------------
-# Site descriptor
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class SiteDescriptor:
-    """Metadata for a single sample site, derived from SSMSpec.
-
-    Attributes:
-        name: NumPyro sample site name (e.g. ``"drift_base_decay_free"``).
-        shape: Array shape of the sampled value.
-        support: Support class determining transform and valid families.
-        assembly_group: Which matrix group this site contributes to
-            (``"drift"``, ``"diffusion"``, ``"cint"``, ``"lambda"``,
-            ``"manifest"``, ``"t0"``, ``"likelihood"``).
-        site_kind: Semantic site role within the assembly group.
-        transform_kind: Explicit transform metadata for runtime consumers.
-        deterministic_name: Output name assembled from this site, if any.
-        fixed_spec_field: Spec field to broadcast when this site is absent
-            because the parameter is fixed.
-        priors_field: legacy compile binding key when this site is directly
-            controlled by user priors.
-    """
-
-    name: str
-    shape: tuple[int, ...]
-    support: SupportClass
-    assembly_group: str
-    site_kind: SiteKind
-    transform_kind: TransformKind
-    deterministic_name: str | None = None
-    fixed_spec_field: str | None = None
-    priors_field: str | None = None
-    runtime_prior_key: str | None = None
-    is_runtime_prior_controlled: bool = True
-
-
-def _site_size(shape: tuple[int, ...]) -> int:
-    """Number of scalar elements in a site shape."""
-    size = 1
-    for d in shape:
-        size *= d
-    return size
 
 
 @dataclass
@@ -175,7 +87,7 @@ class SiteRuntimeBundle:
 
     @property
     def scalar_names(self) -> list[str]:
-        """Flat list of per-element names (e.g. ``drift_base_decay_free[0]``)."""
+        """Flat list of per-element names (e.g. ``vf_0_base_decay[0]``)."""
         names: list[str] = []
         for site in self.registry:
             size = _site_size(site.shape)
@@ -206,41 +118,6 @@ class PriorRuntimeBundle:
     prior_state: PriorRuntimeState
 
 
-def _site(
-    name: str,
-    shape: tuple[int, ...],
-    support: SupportClass,
-    assembly_group: str,
-    site_kind: SiteKind,
-    *,
-    deterministic_name: str | None = None,
-    fixed_spec_field: str | None = None,
-    priors_field: str | None = None,
-    runtime_prior_key: str | None = None,
-) -> SiteDescriptor:
-    """Construct a site descriptor with consistent metadata defaults."""
-    if support == SupportClass.REAL:
-        transform_kind = TransformKind.IDENTITY
-    elif support == SupportClass.POSITIVE:
-        transform_kind = TransformKind.EXP
-    else:
-        transform_kind = TransformKind.CORRELATION
-    runtime_key = runtime_prior_key or name
-    return SiteDescriptor(
-        name=name,
-        shape=shape,
-        support=support,
-        assembly_group=assembly_group,
-        site_kind=site_kind,
-        transform_kind=transform_kind,
-        deterministic_name=deterministic_name,
-        fixed_spec_field=fixed_spec_field,
-        priors_field=priors_field,
-        runtime_prior_key=runtime_key,
-        is_runtime_prior_controlled=True,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Registry builder
 # ---------------------------------------------------------------------------
@@ -248,180 +125,23 @@ def _site(
 
 def build_site_registry(
     spec: SSMSpec,
-    parameter_layout: SSMParameterLayout | None = None,
+    parameter_layout: SSMParameterLayout | None = None,  # noqa: ARG001
 ) -> list[SiteDescriptor]:
     """Enumerate all sample sites deterministically from *spec*.
 
-    No model tracing needed.  The returned list is sorted by site name
-    (matching JAX pytree dict-key ordering used by ``ravel_pytree``).
+    Core dense-linear-path sites come from ``spec.iter_sample_sites()``
+    (each block owns its own descriptor). Likelihood-extra sites
+    (`obs_df`, `obs_shape`, cutpoints, etc.) depend on
+    ``spec.manifest_dists`` and are generated locally because they are
+    not block-owned.
+
+    The returned list is sorted by site name to match JAX pytree
+    dict-key ordering used by ``ravel_pytree``.
     """
     from nof1_causal_lab.artifacts.model_spec import DistributionFamily
-    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 
-    if parameter_layout is None:
-        parameter_layout = SSMParameterLayout.from_spec(spec)
-
-    sites: list[SiteDescriptor] = []
+    sites: list[SiteDescriptor] = list(spec.iter_sample_sites())
     n_m = spec.n_manifest
-
-    # -- Core parameter sites (mirroring SSMModel._sample_* methods) --------
-    core_site_specs = (
-        (
-            "drift_base_decay_free",
-            "n_drift_base_decay",
-            SupportClass.POSITIVE,
-            "drift",
-            SiteKind.DRIFT_BASE_DECAY,
-            "drift",
-            "drift",
-            "drift_base_decay",
-        ),
-        (
-            "drift_offdiag_free",
-            "n_drift_offdiag",
-            SupportClass.REAL,
-            "drift",
-            SiteKind.DRIFT_OFFDIAG,
-            "drift",
-            "drift",
-            "drift_offdiag",
-        ),
-        (
-            "diffusion_diag_free",
-            "n_diffusion_diag",
-            SupportClass.POSITIVE,
-            "diffusion",
-            SiteKind.DIFFUSION_DIAG,
-            "diffusion",
-            "diffusion_chol",
-            "diffusion_diag",
-        ),
-        (
-            "diffusion_lower_free",
-            "n_diffusion_lower",
-            SupportClass.REAL,
-            "diffusion",
-            SiteKind.DIFFUSION_LOWER,
-            "diffusion",
-            "diffusion_chol",
-            "diffusion_offdiag",
-        ),
-        (
-            "cint_free",
-            "n_cint",
-            SupportClass.REAL,
-            "cint",
-            SiteKind.CINT,
-            "cint",
-            "cint",
-            "cint",
-        ),
-        (
-            "input_effect_free",
-            "n_input_effect",
-            SupportClass.REAL,
-            "input_effect",
-            SiteKind.INPUT_EFFECT,
-            "input_effect",
-            "input_effect",
-            "input_effect",
-        ),
-        (
-            "static_state_sd_free",
-            "n_static_state_sd",
-            SupportClass.POSITIVE,
-            "t0",
-            SiteKind.STATIC_STATE_SD,
-            "static_state_sds",
-            "static_state_sds",
-            "static_state_sd",
-        ),
-        (
-            "lambda_free",
-            "n_lambda_free",
-            SupportClass.REAL,
-            "lambda",
-            SiteKind.LOADING,
-            "lambda",
-            "lambda_mat",
-            "lambda_free",
-        ),
-        (
-            "manifest_means_free",
-            "n_manifest_means",
-            SupportClass.REAL,
-            "manifest",
-            SiteKind.MANIFEST_MEANS,
-            "manifest_means",
-            "manifest_means",
-            "manifest_means",
-        ),
-        (
-            "manifest_var_diag_free",
-            "n_manifest_var_diag",
-            SupportClass.POSITIVE,
-            "manifest",
-            SiteKind.MANIFEST_VAR_DIAG,
-            "manifest_cov",
-            "manifest_chol",
-            "manifest_var_diag",
-        ),
-        (
-            "t0_means_free",
-            "n_t0_means",
-            SupportClass.REAL,
-            "t0",
-            SiteKind.T0_MEANS,
-            "t0_means",
-            "t0_means",
-            "t0_means",
-        ),
-        (
-            "t0_var_diag_free",
-            "n_t0_diag",
-            SupportClass.POSITIVE,
-            "t0",
-            SiteKind.T0_VAR_DIAG,
-            "t0_cov",
-            "t0_chol",
-            "t0_var_diag",
-        ),
-        (
-            "t0_var_lower_free",
-            "n_t0_correlation",
-            SupportClass.CORRELATION,
-            "t0",
-            SiteKind.T0_VAR_LOWER,
-            "t0_cov",
-            "t0_chol",
-            "t0_var_offdiag",
-        ),
-    )
-    for (
-        site_name,
-        count_attr,
-        support,
-        assembly_group,
-        site_kind,
-        deterministic_name,
-        fixed_spec_field,
-        priors_field,
-    ) in core_site_specs:
-        count = getattr(parameter_layout, count_attr)
-        if count <= 0:
-            continue
-        sites.append(
-            _site(
-                site_name,
-                (count,),
-                support,
-                assembly_group,
-                site_kind,
-                deterministic_name=deterministic_name,
-                fixed_spec_field=fixed_spec_field,
-                priors_field=priors_field,
-            )
-        )
 
     # -- Likelihood extra-parameter sites -----------------------------------
 
@@ -631,265 +351,168 @@ def _resolve_num_draws(
     raise ValueError("n_draws is required when assembling deterministic values without samples")
 
 
-def _broadcast_fixed(
-    value: jnp.ndarray,
+def _maybe_vmap_assemble(
+    assemble_fn,
+    *site_samples,
     n_draws: int,
 ) -> jnp.ndarray:
-    return jnp.broadcast_to(value, (n_draws, *value.shape))
+    """Vmap ``assemble_fn`` over the present samples; broadcast the
+    template otherwise.
+
+    Each entry of ``site_samples`` is either a ``(n_draws, …)`` array
+    (sampled) or ``None`` (fixed). ``assemble_fn`` is called with the
+    same positional shape, threading ``None`` through for absent sites.
+    """
+    if all(s is None for s in site_samples):
+        fixed = assemble_fn()
+        return jnp.broadcast_to(fixed, (n_draws, *fixed.shape))
+
+    present_indices = [i for i, s in enumerate(site_samples) if s is not None]
+    present_arrays = tuple(site_samples[i] for i in present_indices)
+
+    def _one(*present):
+        full = list(site_samples)
+        for idx, value in zip(present_indices, present, strict=True):
+            full[idx] = value
+        return assemble_fn(*full)
+
+    return jax.vmap(_one)(*present_arrays)
 
 
-def _assemble_diag_to_cov(
-    site: SiteDescriptor | None,
-    samples: dict[str, jnp.ndarray],
-    fixed_chol: jnp.ndarray | None,
+def _compose_t0_cov_batched(
     spec: SSMSpec,
+    diag_samples: jnp.ndarray | None,
+    corr_samples: jnp.ndarray | None,
+    static_state_samples: jnp.ndarray | None,
     n_draws: int,
-    dim: int,
-) -> jnp.ndarray | None:
-    """Convert diagonal variance samples to full covariance, or broadcast fixed Cholesky."""
-    if site is not None and site.name in samples:
-        diag_samples = samples[site.name]
-        chol = jax.vmap(spec.manifest_chol_block.assemble)(diag_samples)
-        return jax.vmap(lambda ch: ch @ ch.T)(chol)
-    if isinstance(fixed_chol, jnp.ndarray):
-        fixed_cov = fixed_chol @ fixed_chol.T
-        return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
-    return None
+) -> jnp.ndarray:
+    """Vmap t0_cov composition (latent chol + static-factor contribution).
 
+    Always emits a stabilized covariance regardless of which inputs are
+    fixed. One vmap, one composition function — no per-input powerset.
+    """
 
-def _assemble_t0_cov(
-    diag_site: SiteDescriptor | None,
-    corr_site: SiteDescriptor | None,
-    static_state_site: SiteDescriptor | None,
-    samples: dict[str, jnp.ndarray],
-    _fixed_chol: jnp.ndarray,
-    spec: SSMSpec,
-    n_draws: int,
-    dim: int,
-) -> jnp.ndarray | None:
-    """Assemble initial-state covariance from SDs and sparse correlations."""
-    diag_samples = (
-        samples[diag_site.name] if diag_site is not None and diag_site.name in samples else None
-    )
-    corr_samples = (
-        samples[corr_site.name] if corr_site is not None and corr_site.name in samples else None
-    )
-    static_state_samples = (
-        samples[static_state_site.name]
-        if static_state_site is not None and static_state_site.name in samples
-        else None
-    )
-    if diag_samples is not None or corr_samples is not None or static_state_samples is not None:
-
-        def _build_stable_cov(
-            diag_values: jnp.ndarray | None = None,
-            corr_values: jnp.ndarray | None = None,
-            static_state_values: jnp.ndarray | None = None,
-        ) -> jnp.ndarray:
-            raw_cov = spec.assemble_t0_cov(
-                diag_values,
-                corr_values,
-                static_state_values,
-            )
-            stable_cov, _min_eig = stabilize_covariance_for_cholesky(
-                raw_cov,
-                min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
-            )
-            return stable_cov
-
-        if (
-            diag_samples is not None
-            and corr_samples is not None
-            and static_state_samples is not None
-        ):
-            return jax.vmap(_build_stable_cov)(diag_samples, corr_samples, static_state_samples)
-        if diag_samples is not None and corr_samples is not None:
-            return jax.vmap(
-                lambda diag_values, corr_values: _build_stable_cov(diag_values, corr_values, None)
-            )(diag_samples, corr_samples)
-        if diag_samples is not None and static_state_samples is not None:
-            return jax.vmap(
-                lambda diag_values, static_values: _build_stable_cov(
-                    diag_values, None, static_values
-                )
-            )(diag_samples, static_state_samples)
-        if corr_samples is not None and static_state_samples is not None:
-            return jax.vmap(
-                lambda corr_values, static_values: _build_stable_cov(
-                    None, corr_values, static_values
-                )
-            )(corr_samples, static_state_samples)
-        if diag_samples is not None:
-            return jax.vmap(lambda diag_values: _build_stable_cov(diag_values, None, None))(
-                diag_samples
-            )
-        if corr_samples is not None:
-            return jax.vmap(lambda corr_values: _build_stable_cov(None, corr_values, None))(
-                corr_samples
-            )
-        return jax.vmap(lambda static_values: _build_stable_cov(None, None, static_values))(
-            static_state_samples
+    def _one(diag_values=None, corr_values=None, static_values=None):
+        cov = spec.t0_chol_block.assemble_cov(diag_values, corr_values)
+        static_sds = spec.static_state_sd_block.assemble(static_values)
+        if static_sds.size:
+            loadings = jnp.asarray(spec.static_factor_loadings)
+            cov = cov + loadings @ jnp.diag(static_sds**2) @ loadings.T
+        cov = 0.5 * (cov + cov.T)
+        stable_cov, _ = stabilize_covariance_for_cholesky(
+            cov, min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE
         )
+        return stable_cov
 
-    fixed_cov = spec.assemble_t0_cov()
-    return jnp.broadcast_to(fixed_cov, (n_draws, dim, dim))
+    return _maybe_vmap_assemble(
+        _one,
+        diag_samples,
+        corr_samples,
+        static_state_samples,
+        n_draws=n_draws,
+    )
 
 
 def assemble_deterministics_from_registry(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,
-    registry: list[SiteDescriptor],
+    registry: list[SiteDescriptor],  # noqa: ARG001 - kept for ABI compat
     *,
-    parameter_layout: SSMParameterLayout | None = None,
+    parameter_layout: SSMParameterLayout | None = None,  # noqa: ARG001
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
-    """Assemble deterministic matrices using registry metadata as authority."""
-    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
+    """Assemble deterministic matrices from per-site posterior samples.
 
+    Each dense-linear-path block produces its deterministic via
+    ``_maybe_vmap_assemble``; missing samples (fixed blocks) broadcast
+    the template. ``manifest_cov`` and ``t0_cov`` are multi-block
+    composition steps.
+    """
     n_draws = _resolve_num_draws(samples, n_draws)
-    if parameter_layout is None:
-        parameter_layout = SSMParameterLayout.from_spec(spec)
-
-    by_kind = {site.site_kind: site for site in registry}
     det: dict[str, jnp.ndarray] = {}
-    n_l, n_m = spec.n_latent, spec.n_manifest
 
-    drift_base_decay_site = by_kind.get(SiteKind.DRIFT_BASE_DECAY)
-    drift_offdiag_site = by_kind.get(SiteKind.DRIFT_OFFDIAG)
-    drift_base_decay_samples = (
-        samples[drift_base_decay_site.name]
-        if drift_base_decay_site is not None and drift_base_decay_site.name in samples
-        else None
+    from nof1_causal_lab.models.ssm.dynamics.composite import (
+        StructuralDenseLinearSpec,
+        StructuralInterceptSpec,
     )
-    drift_offdiag_samples = (
-        samples[drift_offdiag_site.name]
-        if drift_offdiag_site is not None and drift_offdiag_site.name in samples
-        else None
-    )
-    if drift_base_decay_samples is not None or drift_offdiag_samples is not None:
-        if drift_base_decay_samples is not None and drift_offdiag_samples is not None:
-            det["drift"] = jax.vmap(spec.assemble_drift)(
-                drift_base_decay_samples,
-                drift_offdiag_samples,
+
+    for idx, component in enumerate(spec.drift_spec.components):
+        prefix = f"vf_{idx}"
+        if isinstance(component, StructuralDenseLinearSpec):
+            det[component.drift_deterministic_name(prefix)] = _maybe_vmap_assemble(
+                lambda base_decay=None, offdiag=None, component=component: component.assemble_drift(
+                    base_decay, offdiag
+                ),
+                samples.get(component.base_decay_site_name(prefix)),
+                samples.get(component.offdiag_site_name(prefix)),
+                n_draws=n_draws,
             )
-        elif drift_base_decay_samples is not None:
-            det["drift"] = jax.vmap(spec.assemble_drift)(drift_base_decay_samples)
-        else:
-            det["drift"] = jax.vmap(
-                lambda offdiag: spec.assemble_drift(None, offdiag)
-            )(drift_offdiag_samples)
-    else:
-        det["drift"] = _broadcast_fixed(spec.assemble_drift(), n_draws)
-
-    diffusion_diag_site = by_kind.get(SiteKind.DIFFUSION_DIAG)
-    diffusion_lower_site = by_kind.get(SiteKind.DIFFUSION_LOWER)
-    diffusion_diag_samples = (
-        samples[diffusion_diag_site.name]
-        if diffusion_diag_site is not None and diffusion_diag_site.name in samples
-        else None
-    )
-    diffusion_lower_samples = (
-        samples[diffusion_lower_site.name]
-        if diffusion_lower_site is not None and diffusion_lower_site.name in samples
-        else None
-    )
-    if diffusion_diag_samples is not None or diffusion_lower_samples is not None:
-        if diffusion_diag_samples is not None and diffusion_lower_samples is not None:
-            det["diffusion"] = jax.vmap(spec.diffusion_block.assemble)(
-                diffusion_diag_samples,
-                diffusion_lower_samples,
+        elif isinstance(component, StructuralInterceptSpec):
+            det[component.cint_deterministic_name(prefix)] = _maybe_vmap_assemble(
+                lambda cint=None, component=component: component.assemble_cint(cint),
+                samples.get(component.cint_site_name(prefix)),
+                n_draws=n_draws,
             )
-        elif diffusion_diag_samples is not None:
-            det["diffusion"] = jax.vmap(spec.diffusion_block.assemble)(
-                diffusion_diag_samples
-            )
-        else:
-            det["diffusion"] = jax.vmap(
-                lambda lower: spec.diffusion_block.assemble(None, lower)
-            )(diffusion_lower_samples)
-    else:
-        det["diffusion"] = _broadcast_fixed(spec.diffusion_block.assemble(), n_draws)
 
-    cint_site = by_kind.get(SiteKind.CINT)
-    if cint_site is not None and cint_site.name in samples:
-        det["cint"] = jax.vmap(spec.assemble_cint)(samples[cint_site.name])
-    else:
-        det["cint"] = _broadcast_fixed(spec.assemble_cint(), n_draws)
+    # Diffusion Cholesky
+    det["diffusion"] = _maybe_vmap_assemble(
+        spec.diffusion_block.assemble,
+        samples.get("diffusion_diag_free"),
+        samples.get("diffusion_lower_free"),
+        n_draws=n_draws,
+    )
 
-    input_effect_site = by_kind.get(SiteKind.INPUT_EFFECT)
-    if input_effect_site is not None and input_effect_site.name in samples:
-        det["input_effect"] = jax.vmap(spec.input_effect_block.assemble)(
-            samples[input_effect_site.name]
-        )
-    else:
-        det["input_effect"] = _broadcast_fixed(spec.input_effect_block.assemble(), n_draws)
+    # Input-effect matrix
+    det["input_effect"] = _maybe_vmap_assemble(
+        spec.input_effect_block.assemble,
+        samples.get("input_effect_free"),
+        n_draws=n_draws,
+    )
 
-    static_state_site = by_kind.get(SiteKind.STATIC_STATE_SD)
-    if static_state_site is not None and static_state_site.name in samples:
-        det["static_state_sds"] = jax.vmap(spec.static_state_sd_block.assemble)(
-            samples[static_state_site.name]
-        )
-    else:
-        det["static_state_sds"] = _broadcast_fixed(
-            spec.static_state_sd_block.assemble(),
-            n_draws,
-        )
+    # Static-factor SDs
+    det["static_state_sds"] = _maybe_vmap_assemble(
+        spec.static_state_sd_block.assemble,
+        samples.get("static_state_sd_free"),
+        n_draws=n_draws,
+    )
 
-    loading_site = by_kind.get(SiteKind.LOADING)
-    if (
-        loading_site is not None
-        and loading_site.name in samples
-        and parameter_layout.n_lambda_free > 0
-    ):
-        det["lambda"] = jax.vmap(spec.lambda_block.assemble)(samples[loading_site.name])
-    else:
-        det["lambda"] = jnp.broadcast_to(
-            spec.lambda_block.assemble(),
-            (n_draws, n_m, n_l),
-        )
+    # Loading matrix
+    det["lambda"] = _maybe_vmap_assemble(
+        spec.lambda_block.assemble,
+        samples.get("lambda_free"),
+        n_draws=n_draws,
+    )
 
-    manifest_means_site = by_kind.get(SiteKind.MANIFEST_MEANS)
-    if manifest_means_site is not None and manifest_means_site.name in samples:
-        det["manifest_means"] = jax.vmap(spec.manifest_means_block.assemble)(
-            samples[manifest_means_site.name]
-        )
-    else:
-        det["manifest_means"] = _broadcast_fixed(
-            spec.manifest_means_block.assemble(),
-            n_draws,
-        )
+    # Manifest means
+    det["manifest_means"] = _maybe_vmap_assemble(
+        spec.manifest_means_block.assemble,
+        samples.get("manifest_means_free"),
+        n_draws=n_draws,
+    )
 
-    manifest_cov = _assemble_diag_to_cov(
-        by_kind.get(SiteKind.MANIFEST_VAR_DIAG),
-        samples,
-        spec.manifest_chol_block.assemble(),
+    # Manifest covariance: Cholesky from block then chol @ cholᵀ
+    manifest_chol_batched = _maybe_vmap_assemble(
+        spec.manifest_chol_block.assemble,
+        samples.get("manifest_var_diag_free"),
+        n_draws=n_draws,
+    )
+    det["manifest_cov"] = jax.vmap(lambda chol: chol @ chol.T)(manifest_chol_batched)
+
+    # t0 means
+    det["t0_means"] = _maybe_vmap_assemble(
+        spec.t0_means_block.assemble,
+        samples.get("t0_means_free"),
+        n_draws=n_draws,
+    )
+
+    # t0 covariance: latent chol + static-factor contribution, stabilized
+    det["t0_cov"] = _compose_t0_cov_batched(
         spec,
+        samples.get("t0_var_diag_free"),
+        samples.get("t0_var_lower_free"),
+        samples.get("static_state_sd_free"),
         n_draws,
-        n_m,
     )
-    if manifest_cov is not None:
-        det["manifest_cov"] = manifest_cov
-
-    t0_means_site = by_kind.get(SiteKind.T0_MEANS)
-    if t0_means_site is not None and t0_means_site.name in samples:
-        det["t0_means"] = jax.vmap(spec.t0_means_block.assemble)(
-            samples[t0_means_site.name]
-        )
-    else:
-        det["t0_means"] = _broadcast_fixed(spec.t0_means_block.assemble(), n_draws)
-
-    t0_cov = _assemble_t0_cov(
-        by_kind.get(SiteKind.T0_VAR_DIAG),
-        by_kind.get(SiteKind.T0_VAR_LOWER),
-        by_kind.get(SiteKind.STATIC_STATE_SD),
-        samples,
-        spec.t0_chol_block.template,
-        spec,
-        n_draws,
-        n_l,
-    )
-    if t0_cov is not None:
-        det["t0_cov"] = t0_cov
 
     return det
 
@@ -1216,7 +839,10 @@ def build_prior_runtime_state(
     The returned dict has fixed structure per topology — only leaf values
     change when priors change.
     """
-    from nof1_causal_lab.models.ssm.priors import default_prior_for_site, default_prior_registry
+    from nof1_causal_lab.models.ssm.priors import (
+        default_prior_for_descriptor,
+        default_prior_registry,
+    )
 
     if priors is None:
         priors = default_prior_registry()
@@ -1224,7 +850,7 @@ def build_prior_runtime_state(
     state: PriorRuntimeState = {}
 
     for site in registry:
-        prior = priors.get(site.name) or default_prior_for_site(site.name)
+        prior = priors.get(site.name) or default_prior_for_descriptor(site)
         state[site.name] = _params_from_prior_spec(site, prior)
 
     return state
