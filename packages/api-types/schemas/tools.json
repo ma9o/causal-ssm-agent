@@ -217,6 +217,32 @@
         "type": "object"
       },
       "result": null
+    },
+    {
+      "name": "validate_composite_spec",
+      "description": "Dry-run validate a non-linear composite spec (dict-config). Returns stability + finiteness diagnostics without committing any Stage 4 state.",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "composite_spec_json": {
+            "description": "JSON string containing a composite-spec dict-config (``{\"n_latent\": ..., \"components\": [{\"kind\": \"...\", \"priors\": {...}}]}``). Dry-run validation only; does not commit any Stage 4 state.",
+            "title": "Composite Spec Json",
+            "type": "string"
+          },
+          "n_draws": {
+            "default": 50,
+            "description": "Prior-predictive draws used for stability checks.",
+            "title": "N Draws",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "composite_spec_json"
+        ],
+        "title": "ValidateCompositeSpecInput",
+        "type": "object"
+      },
+      "result": null
     }
   ],
   "stage-6": [

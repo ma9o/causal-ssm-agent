@@ -167,10 +167,7 @@ def validate_composite_dynamics(
         "n_draws": n_total,
         "n_unstable": n_unstable,
         "n_nonfinite": n_nonfinite,
-        "failing_draw_indices": [
-            int(i)
-            for i in jnp.where(~pp.stable | ~pp.finite)[0].tolist()
-        ],
+        "failing_draw_indices": [int(i) for i in jnp.where(~pp.stable | ~pp.finite)[0].tolist()],
         "primary_score": float((n_unstable + n_nonfinite) / max(1, n_total)),
         "max_real_eigenvalue_per_draw": pp.max_real_eigenvalue,
     }
@@ -185,29 +182,22 @@ def sample_composite_prior_predictive_full(
     x_lin: Array | None = None,
     stability_threshold: float = 0.0,
 ) -> CompositePriorPredictive:
-    """Full composite prior-predictive: params + latents + observations.
+    """Internal composite validation helper: params + latents + observations.
 
-    Canonical-keyed wrapper that composes
+    The public SSM prior-predictive path is
+    ``registry_runtime.sample_prior_predictive_from_runtime`` for both affine
+    and nonlinear specs. This canonical-keyed helper remains for composite
+    validation tests that operate directly on ``RuntimeSSM`` and composes
     :func:`sample_composite_prior_predictive` and
-    :func:`sample_observations_from_latents` in one call, mirroring the
-    return shape of the linear-path
-    ``predictive.registry_runtime.sample_prior_predictive_from_priors`` —
-    with the addition that ``observations`` populates the returned
-    :class:`CompositePriorPredictive`.
+    :func:`sample_observations_from_latents` in one call.
 
     Use this when validating a composite spec end-to-end (latent
     stability **and** observation plausibility). The latents-only
     :func:`sample_composite_prior_predictive` is still appropriate when
     the observation operator is unknown or not the focus of validation.
     """
-    from nof1_causal_lab.models.ssm.dynamics.composite import CompiledComposite
-
-    compiled = CompiledComposite(
-        vector_field=canonical.vector_field,
-        sample_params=canonical.sample_params,
-    )
     pp = sample_composite_prior_predictive(
-        compiled,
+        canonical.compiled,
         canonical.init_mean,
         times,
         n_draws=n_draws,
@@ -216,9 +206,7 @@ def sample_composite_prior_predictive_full(
         stability_threshold=stability_threshold,
     )
     obs_key = jr.fold_in(jr.PRNGKey(rng_seed), n_draws + 1)
-    observations = sample_observations_from_latents(
-        canonical, pp.trajectories, obs_key
-    )
+    observations = sample_observations_from_latents(canonical, pp.trajectories, obs_key)
     return CompositePriorPredictive(
         trajectories=pp.trajectories,
         param_draws=pp.param_draws,
@@ -335,9 +323,7 @@ def composite_per_t_log_likelihood(
     if not chain_grouped:
         return ll_flat
     n_chains = int(fit_result.diagnostics.get("num_chains", 1))
-    n_iter = int(
-        fit_result.diagnostics.get("num_samples_per_chain", ll_flat.shape[0])
-    )
+    n_iter = int(fit_result.diagnostics.get("num_samples_per_chain", ll_flat.shape[0]))
     return ll_flat.reshape(n_chains, n_iter, -1)
 
 
@@ -379,9 +365,7 @@ def sample_composite_posterior_predictive_observations(
             "fit_result.diagnostics['trajectory_samples'] (populated by "
             "fit_composite_aux_kalman)."
         )
-    return sample_observations_from_latents(
-        canonical, trajectory_samples, jr.PRNGKey(rng_seed)
-    )
+    return sample_observations_from_latents(canonical, trajectory_samples, jr.PRNGKey(rng_seed))
 
 
 def sample_observations_from_latents(
@@ -495,9 +479,7 @@ def validate_composite_assembly(
     try:
         compiled = compile_composite(composite_spec_from_dict(composite_spec_config))
     except (ValueError, KeyError) as exc:
-        return CompositeAssemblyValidation(
-            compile_ok=False, compile_error=str(exc)
-        )
+        return CompositeAssemblyValidation(compile_ok=False, compile_error=str(exc))
 
     diagnostic = validate_composite_dynamics(
         compiled,

@@ -27,7 +27,7 @@ from nof1_causal_lab.workers.schemas_prior import (
 )
 
 logger = get_prefect_logger(__name__)
-_AFFINE_DRIFT_SAMPLE = "vf_0_drift"
+_AFFINE_DRIFT_VIEW = "drift"
 _RECOVERABLE_MODEL_BUILD_ERRORS = (
     AggregatedCompileError,
     AttributeError,
@@ -780,8 +780,8 @@ def _check_scale_plausibility(
             )
         ]
 
-    if _AFFINE_DRIFT_SAMPLE in samples and "diffusion" in samples:
-        drift_samples = np.asarray(samples[_AFFINE_DRIFT_SAMPLE])
+    if _AFFINE_DRIFT_VIEW in samples and "diffusion" in samples:
+        drift_samples = np.asarray(samples[_AFFINE_DRIFT_VIEW])
         diffusion_samples = np.asarray(samples["diffusion"])
         n_total = drift_samples.shape[0]
         idx = np.random.default_rng(42).choice(
@@ -936,7 +936,7 @@ def _check_lagged_response_plausibility(
     draws and the full transition matrix ``exp(A * dt)`` instead of treating a
     single off-diagonal drift mean as the edge timescale.
     """
-    if compiled_ssm is None or causal_spec is None or _AFFINE_DRIFT_SAMPLE not in samples:
+    if compiled_ssm is None or causal_spec is None or _AFFINE_DRIFT_VIEW not in samples:
         logger.debug("Skipping lagged-response plausibility check (missing inputs)")
         return []
 
@@ -962,7 +962,7 @@ def _check_lagged_response_plausibility(
     if not latent_names:
         return []
 
-    drift_samples = np.asarray(samples[_AFFINE_DRIFT_SAMPLE])
+    drift_samples = np.asarray(samples[_AFFINE_DRIFT_VIEW])
     if drift_samples.ndim != 3 or drift_samples.shape[1] != drift_samples.shape[2]:
         return []
 

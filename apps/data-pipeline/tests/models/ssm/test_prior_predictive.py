@@ -26,7 +26,12 @@ from nof1_causal_lab.models.prior_predictive import (
     resolve_scale_target_parameters,
 )
 from nof1_causal_lab.models.ssm.compile.artifact import serialize_edge_lag_days, serialize_ssm_spec
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    CompositeSpec,
+    DiagonalDecaySpec,
+    HillEdgeSpec,
+    linear_drift_spec,
+)
 from nof1_causal_lab.models.ssm.model import full_diagonal_mask
 from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
@@ -205,7 +210,7 @@ class TestCheckExtremeValues:
 
     def test_non_param_site_ignored(self):
         # Sites not matching param patterns are skipped
-        samples = {"vf_0_drift": jnp.array([1e7, 1e8])}
+        samples = {"drift": jnp.array([1e7, 1e8])}
         results = _check_extreme_values(samples)
         assert results == []
 
@@ -580,7 +585,7 @@ class TestCheckLaggedResponsePlausibility:
             latent_names=["stress", "sleep"],
         )
         samples = {
-            "vf_0_drift": jnp.asarray(
+            "drift": jnp.asarray(
                 [
                     [[-0.5, 0.0], [0.001, -0.5]],
                     [[-0.6, 0.0], [0.002, -0.4]],
@@ -614,7 +619,7 @@ class TestCheckLaggedResponsePlausibility:
 class TestScalePlausibilityDiagnostics:
     def test_observation_samples_drive_scale_check_when_available(self):
         samples = {
-            "vf_0_drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
+            "drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]]], dtype=jnp.float32),
             "observations": jnp.asarray(
                 [[[0.0], [300.0], [600.0], [900.0]]],
@@ -639,7 +644,7 @@ class TestScalePlausibilityDiagnostics:
 
     def test_missing_observations_emits_harness_error(self):
         samples = {
-            "vf_0_drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
+            "drift": jnp.asarray([[[-1.0]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]]], dtype=jnp.float32),
         }
 
@@ -656,7 +661,7 @@ class TestScalePlausibilityDiagnostics:
 
     def test_unstable_dynamics_emits_stage_and_certificate(self):
         samples = {
-            "vf_0_drift": jnp.asarray([[[0.1]], [[0.2]], [[-1.0]]], dtype=jnp.float32),
+            "drift": jnp.asarray([[[0.1]], [[0.2]], [[-1.0]]], dtype=jnp.float32),
             "diffusion": jnp.asarray([[[0.1]], [[0.1]], [[0.1]]], dtype=jnp.float32),
             "observations": jnp.asarray(
                 [
@@ -694,7 +699,7 @@ class TestScalePlausibilityDiagnostics:
 
     def test_overwhelmingly_unstable_dynamics_raise_runtime_error(self, monkeypatch):
         samples = {
-            "vf_0_drift": jnp.asarray(
+            "drift": jnp.asarray(
                 [[[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]], [[-1.0]]], dtype=jnp.float32
             ),
             "diffusion": jnp.asarray(
@@ -884,6 +889,41 @@ class TestCompiledPriorPredictiveRuntime:
 
         assert samples["input_effect"].shape == (3, 1, 1)
         assert samples["observations"].shape == (3, 3, 1)
+        assert bool(jnp.isfinite(samples["observations"]).all())
+
+    def test_nonlinear_drift_uses_compiled_prior_predictive_runtime(self):
+        """Component drift specs should sample prior predictive without an affine view."""
+        spec = block_ssm_spec(
+            n_latent=2,
+            n_manifest=2,
+            drift_spec=CompositeSpec(
+                n_latent=2,
+                components=(
+                    DiagonalDecaySpec(decay_prior=None),
+                    HillEdgeSpec(
+                        source=0, target=1, emax_prior=None, ec50_prior=None, n_prior=None
+                    ),
+                ),
+            ),
+            diffusion_block=diagonal_diffusion_block(2),
+            manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN],
+            manifest_links=[LinkFunction.IDENTITY, LinkFunction.IDENTITY],
+        )
+        semantics = compile_prior_semantics(spec)
+
+        samples = sample_prior_predictive_from_compiled_semantics(
+            spec,
+            semantics,
+            jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32),
+            num_samples=3,
+            seed=0,
+        )
+
+        assert samples["vf_0_decay"].shape == (3, 2)
+        assert samples["vf_1_Emax"].shape == (3,)
+        assert samples["latents"].shape == (3, 4, 2)
+        assert samples["linear_predictors"].shape == (3, 4, 2)
+        assert samples["observations"].shape == (3, 4, 2)
         assert bool(jnp.isfinite(samples["observations"]).all())
 
     def test_ordered_likelihood_requires_hydrated_level_counts(self):

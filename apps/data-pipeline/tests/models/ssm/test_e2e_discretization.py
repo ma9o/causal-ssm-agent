@@ -525,9 +525,7 @@ class TestE2ESpecToDiscretization:
 
         cint_component = spec.drift_spec.components[1]
         assert drift_component.time_invariant_mask is not None
-        np.testing.assert_array_equal(
-            drift_component.time_invariant_mask, [False, False, True]
-        )
+        np.testing.assert_array_equal(drift_component.time_invariant_mask, [False, False, True])
         np.testing.assert_array_equal(drift_component.drift_diag_mask, [True, True, False])
         np.testing.assert_array_equal(cint_component.cint_mask, [False, False, False])
         np.testing.assert_array_equal(
@@ -735,7 +733,7 @@ class TestE2ESpecToDiscretization:
             causal_spec=two_construct_causal_spec,
         )
 
-        with pytest.raises(ValueError, match="AR parameter does not reference a construct"):
+        with pytest.raises(ValueError, match="does not correspond to a free dynamics decay"):
             _compile_priors_for_test(
                 priors,
                 model_spec,
@@ -766,7 +764,15 @@ class TestE2ESpecToDiscretization:
             "stress_self_report",
             "stress_cortisol",
         ]
-        assert compiled["parameter_bindings"] == [
+        parameter_bindings = [
+            {
+                "parameter": binding["parameter"],
+                "site_name": binding["site_name"],
+                "flat_index": binding["flat_index"],
+            }
+            for binding in compiled["parameter_bindings"]
+        ]
+        assert parameter_bindings == [
             {"parameter": "beta_stress_mood", "site_name": "vf_0_offdiag", "flat_index": 0},
             {
                 "parameter": "lambda_stress_cortisol_stress",
@@ -952,8 +958,7 @@ class TestE2ESpecToDiscretization:
         drift_component = spec.drift_spec.components[0]
         baseline_ar_mood = 3.0 / 5.0  # Beta(3,2) mean = 0.6
         expected_resolved_mood = math.exp(
-            -(base_decay[0] + abs(offdiag[0]) + drift_component.stability_margin)
-            * dt_weekly
+            -(base_decay[0] + abs(offdiag[0]) + drift_component.stability_margin) * dt_weekly
         )
         recovered_ar_mood = float(F_weekly[0, 0])
         assert recovered_ar_mood < baseline_ar_mood
@@ -971,9 +976,7 @@ class TestE2ESpecToDiscretization:
 
         # Discretize at dt=1 (daily) for stress resolved persistence.
         F_daily = jla.expm(drift * 1.0)
-        expected_daily_stress = math.exp(
-            -(base_decay[1] + drift_component.stability_margin)
-        )
+        expected_daily_stress = math.exp(-(base_decay[1] + drift_component.stability_margin))
         recovered_daily_stress = float(F_daily[1, 1])
         assert abs(recovered_daily_stress - expected_daily_stress) < 0.05, (
             f"Daily roundtrip stress AR: got {recovered_daily_stress:.4f}, "

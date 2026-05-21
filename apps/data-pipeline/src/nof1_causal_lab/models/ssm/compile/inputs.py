@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.compile.common import (
-    PriorIndexMaps,
-    empty_prior_index_maps,
     normalize_prior_params,
 )
 from nof1_causal_lab.models.ssm.compile.prior_compilation import (
@@ -16,8 +14,10 @@ from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     compile_priors,
 )
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
-    build_prior_index_maps,
+    SemanticBindingRegistry,
+    build_semantic_prior_bindings,
     check_backward_closure,
+    empty_prior_bindings,
 )
 from nof1_causal_lab.models.ssm.compile.spec_translation import (
     build_masks_from_causal_spec,
@@ -184,7 +184,7 @@ def compile_ssm_inputs_from_spec(
                 "proposals from a direct SSMSpec."
             )
         resolved_prior_registry = prior_registry or default_prior_registry()
-        index_maps = empty_prior_index_maps()
+        index_maps = empty_prior_bindings()
         diagnostics = collect_compile_diagnostics(
             ssm_spec,
             edge_lag_days=resolved_edge_lag_days,
@@ -204,7 +204,7 @@ def compile_ssm_inputs_from_spec(
             causal_spec=causal_spec,
         )
     else:
-        index_maps = build_prior_index_maps(
+        index_maps = build_semantic_prior_bindings(
             ssm_spec,
             resolved_model_spec,
             causal_spec=causal_spec,
@@ -229,10 +229,10 @@ def compile_ssm_inputs_from_spec(
 
 
 __all__ = [
-    "PriorIndexMaps",
+    "SemanticBindingRegistry",
     "bind_parameters",
     "build_masks_from_causal_spec",
-    "build_prior_index_maps",
+    "build_semantic_prior_bindings",
     "compile_priors",
     "compile_ssm_inputs_from_model_spec",
     "compile_ssm_inputs_from_spec",

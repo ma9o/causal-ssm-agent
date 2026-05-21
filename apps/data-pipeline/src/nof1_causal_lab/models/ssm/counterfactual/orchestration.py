@@ -1,19 +1,11 @@
-"""Stage-6 entry point: rank treatments by intervention effect.
-
-Single trajectory path (Diffrax) for both steady-state contrasts and
-temporal trajectories. The vector field is a ``CompositeVectorField``
-with a single ``DenseLinear`` component for the existing Stage 5b
-dense-posterior shape; the same code path will work for explicit
-primitive composition once Stage 4 emits non-linear edges.
-"""
+"""Stage-6 entry point: rank treatments by intervention effect."""
 
 from __future__ import annotations
 
 from typing import Any
 
-import jax
 import jax.numpy as jnp
-from jax import Array, vmap
+from jax import Array
 
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.dynamics import (
@@ -36,27 +28,8 @@ logger = get_prefect_logger(__name__)
 
 
 def linear_vector_field(n_latent: int) -> CompositeVectorField:
-    """Factory: single-component ``DenseLinear`` vector field — TEST UTILITY ONLY.
-
-    Production Stage 6 uses the two-component
-    (``DenseLinear`` + ``Intercept``) shape via
-    :func:`_two_component_linear_vector_field` and the vmap-ified composite
-    consumers. This single-component factory remains as a test utility
-    for code paths that build params as ``({"drift": A, "cint": c},)``.
-    New code should use the two-component shape to stay aligned with the
-    component-owned ``drift_spec``.
-
-    The returned field has one ``DenseLinear`` component; callers pass
-    ``params=({"drift": A, "cint": c},)`` via :func:`_linear_params`.
-
-    Note: this is intentionally *not* the same shape as the two-component
-    ``drift_spec`` that :meth:`SSMSpec.__post_init__` auto-builds.
-    """
+    """Factory for a single-component dense-linear vector field."""
     return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
-
-
-def _linear_params(drift: Array, cint: Array) -> tuple[dict[str, Array]]:
-    return ({"drift": drift, "cint": cint},)
 
 
 def _steady_state_treatment_effect_canonical(
@@ -69,8 +42,8 @@ def _steady_state_treatment_effect_canonical(
     """Equilibrium contrast: ``effect = (do(treat = baseline+shift) - baseline)[outcome]``.
 
     Canonical implementation: takes a per-component ``params`` tuple
-    directly. The dense-linear path passes ``({"drift": A, "cint": c},)``;
-    composite paths pass the per-component tuple they already have.
+    directly. A dense affine component passes ``({"drift": A, "cint": c},)``;
+    other composites pass the per-component tuple they already have.
     """
     baseline = compute_steady_state(vector_field, params, Intervention.none())
     do_value = baseline[treat_idx] + shift_size
@@ -110,26 +83,9 @@ def _temporal_treatment_effect_canonical(
     return effect_path
 
 
-def _linear_samples_to_composite_params(
-    drift_draws: Array, cint_draws: Array
-) -> list[tuple[dict[str, Array], ...]]:
-    """Adapt linear-path posterior samples to the canonical per-draw
-    composite param shape (``({"drift": A}, {"cint": c})``) — matching
-    the auto-built two-component ``drift_spec`` that ``SSMSpec.__post_init__``
-    produces for linear models."""
-    return [({"drift": d}, {"cint": c}) for d, c in zip(drift_draws, cint_draws, strict=False)]
-
-
-def _two_component_linear_vector_field(n_latent: int) -> CompositeVectorField:
-    """The two-component (``DenseLinear`` + ``Intercept``) vector field
-    matching the auto-built linear ``drift_spec``."""
-    from nof1_causal_lab.models.ssm.dynamics.edges import Intercept as _Intercept
-
-    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(), _Intercept()))
-
-
 def compute_interventions(
-    samples: dict[str, jnp.ndarray],
+    param_samples: list[tuple[dict[str, Array], ...]],
+    vector_field: CompositeVectorField,
     treatments: list[str],
     outcome: str,
     latent_names: list[str],
@@ -137,44 +93,15 @@ def compute_interventions(
     manifest_names: list[str] | None = None,
     times: jnp.ndarray | None = None,
     shift_size: float = 1.0,
+    lambda_mean: Array | None = None,
 ) -> list[dict[str, Any]]:
     """Compute intervention effects for all treatments from posterior samples.
 
-    Thin adapter over :func:`compute_interventions_composite`. Converts
-    affine posterior samples (stacked ``(drift, cint)`` arrays) into the
-    canonical per-draw composite param shape and delegates. The composite
-    path uses ``jax.vmap`` internally so the linear case preserves
-    vectorisation.
+    Thin public wrapper over :func:`compute_interventions_composite`.
     """
-    name_to_idx = {name: i for i, name in enumerate(latent_names)}
-    outcome_idx = name_to_idx.get(outcome)
-
-    def _skeleton(treatment_name: str) -> dict[str, Any]:
-        return {"treatment": treatment_name}
-
-    if outcome_idx is None:
-        logger.warning("Outcome '%s' not found in latent names %s", outcome, latent_names)
-        return [_skeleton(t) for t in treatments]
-
-    drift_draws = samples.get("vf_0_drift")
-    if drift_draws is None:
-        logger.warning("No 'vf_0_drift' in posterior samples")
-        return [_skeleton(t) for t in treatments]
-
-    n_latent = int(drift_draws.shape[-1])
-    cint_draws = samples.get("vf_1_cint_full")
-    if cint_draws is None:
-        logger.warning("No 'vf_1_cint_full' in posterior samples")
-        return [_skeleton(t) for t in treatments]
-
-    lambda_draws = samples.get("lambda")
-    lambda_mean: jnp.ndarray | None = None
-    if lambda_draws is not None:
-        lambda_mean = jnp.mean(lambda_draws, axis=0) if lambda_draws.ndim == 3 else lambda_draws
-
     return compute_interventions_composite(
-        param_samples=_linear_samples_to_composite_params(drift_draws, cint_draws),
-        vector_field=_two_component_linear_vector_field(n_latent),
+        param_samples=param_samples,
+        vector_field=vector_field,
         treatments=treatments,
         outcome=outcome,
         latent_names=latent_names,
@@ -198,17 +125,7 @@ def compute_interventions_composite(
     shift_size: float = 1.0,
     lambda_mean: Array | None = None,
 ) -> list[dict[str, Any]]:
-    """Composite-spec counterpart of :func:`compute_interventions`.
-
-    Consumes a posterior parameter-tuple list (the shape
-    ``composite_aux_kalman.fit_*`` returns as ``param_samples``) plus the
-    compiled vector field, and returns Stage-6-style intervention dicts.
-
-    This closes the integration gap where Stage 6 was hardcoded to the
-    linear ``(drift, cint)`` posterior shape. The output schema matches
-    :func:`compute_interventions` so downstream UI / summarisation code
-    needs no special case.
-    """
+    """Compute interventions from vector-field posterior parameter draws."""
     name_to_idx = {name: i for i, name in enumerate(latent_names)}
     outcome_idx = name_to_idx.get(outcome)
 
@@ -336,7 +253,7 @@ def vmap_steady_state_effect_composite(
     value: float | None = None,
     amount: float | None = None,
 ) -> Array:
-    """Composite analogue of :func:`vmap_steady_state_effect`.
+    """Vmapped steady-state set/shift effect for vector-field params.
 
     Uses ``jax.vmap`` over the stacked per-draw pytree (see
     :func:`_stack_composite_params`). Heterogeneity across composite
@@ -384,7 +301,7 @@ def vmap_simulate_action_from_state_composite(
     amount: float | None = None,
     time_grid: Array,
 ) -> tuple[Array, Array, Array]:
-    """Composite analogue of :func:`vmap_simulate_action_from_state`.
+    """Vmapped baseline / action / effect trajectories for vector-field params.
 
     ``jax.vmap`` over the stacked per-draw pytree (and optionally
     ``initial_states``). Same vmap argument as
@@ -428,78 +345,3 @@ def vmap_simulate_action_from_state_composite(
         return jax.vmap(per_draw_steady)(stacked)
 
     return jax.vmap(_per_draw_paths)(stacked, initial_states)
-
-
-def vmap_steady_state_effect(
-    vector_field: CompositeVectorField,
-    drift_draws: Array,
-    cint_draws: Array,
-    treat_idx: int,
-    outcome_idx: int,
-    *,
-    mode: str,
-    value: float | None = None,
-    amount: float | None = None,
-) -> Array:
-    """Vmapped steady-state set/shift effect for tool_server."""
-    from .estimands import resolve_action_value
-
-    def _per_draw(d: Array, c: Array) -> Array:
-        params = _linear_params(d, c)
-        baseline = compute_steady_state(vector_field, params, Intervention.none())
-        do_value = resolve_action_value(
-            baseline[treat_idx], mode=mode, value=value, amount=amount
-        )
-        intervention = Intervention(
-            overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
-        )
-        intervened = compute_steady_state(
-            vector_field, params, intervention, initial_guess=baseline
-        )
-        return intervened[outcome_idx] - baseline[outcome_idx]
-
-    return vmap(_per_draw)(drift_draws, cint_draws)
-
-
-def vmap_simulate_action_from_state(
-    vector_field: CompositeVectorField,
-    drift_draws: Array,
-    cint_draws: Array,
-    initial_states: Array | None,
-    treat_idx: int,
-    *,
-    mode: str,
-    value: float | None = None,
-    amount: float | None = None,
-    time_grid: Array,
-) -> tuple[Array, Array, Array]:
-    """Vmapped baseline / action / effect trajectories.
-
-    If ``initial_states`` is ``None`` (rung 2), the per-draw baseline steady
-    state is used as the starting point. If provided (rung 3), each draw
-    uses the same abducted state.
-    """
-    from .estimands import resolve_action_value
-
-    def _per_draw(d: Array, c: Array, y0_seed: Array) -> tuple[Array, Array, Array]:
-        params = _linear_params(d, c)
-        if initial_states is None:
-            y0 = compute_steady_state(vector_field, params, Intervention.none())
-        else:
-            y0 = y0_seed
-        do_value = resolve_action_value(
-            y0[treat_idx], mode=mode, value=value, amount=amount
-        )
-        action_intervention = Intervention(
-            overrides=(VariableOverride(index=treat_idx, value_fn=constant_value(do_value)),)
-        )
-        baseline_path = simulate(vector_field, params, Intervention.none(), y0, time_grid)
-        action_path = simulate(vector_field, params, action_intervention, y0, time_grid)
-        return baseline_path, action_path, action_path - baseline_path
-
-    seed = (
-        initial_states
-        if initial_states is not None
-        else jnp.zeros((drift_draws.shape[0], vector_field.n_latent))
-    )
-    return jax.vmap(_per_draw)(drift_draws, cint_draws, seed)

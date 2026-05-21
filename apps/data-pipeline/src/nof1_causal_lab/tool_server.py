@@ -56,6 +56,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
     CompositeVectorField,
     Intervention,
     compute_steady_state,
+    infer_linearisation,
+    posterior_dynamics_from_result,
 )
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.causal_spec import (
@@ -309,30 +311,18 @@ class Stage6SimulationSetup:
     manifest_names: list[str]
     treat_idx: int
     outcome_idx: int
-    drift_draws: Any
-    cint_draws: Any
     dt_days: float
     horizon_steps: int
     time_grid: jnp.ndarray
     vector_field: CompositeVectorField
     # ``param_samples`` is the canonical per-draw composite-shape
-    # parameter list. For composite fits it comes from
-    # ``diagnostics["param_samples"]``; for linear fits the dispatcher
-    # adapts the stacked ``(drift, cint)`` arrays via
-    # ``_linear_samples_to_composite_params``. Always populated.
+    # parameter list rebuilt from ``SSMSpec`` and posterior sample sites.
     param_samples: list[tuple[dict[str, Any], ...]] | None = None
 
     @property
     def is_composite(self) -> bool:
-        """True when the *fit method* was composite Gibbs (not when
-        ``param_samples`` happens to be populated — the linear path also
-        populates it after C.5 dispatch normalisation).
-
-        Used only by the abduction dispatch, which is the one place that
-        genuinely needs to pick between linear (Kalman smoother) and
-        composite (EKS/IEKS/trajectory-mean) algorithms.
-        """
-        return self.fitted_artifact.result.method == "composite_aux_kalman"
+        """True when dynamics require trajectory-local linearisation."""
+        return infer_linearisation(self.vector_field) == "trajectory"
 
 
 @dataclass(frozen=True)
@@ -383,11 +373,6 @@ def _prepare_stage6_simulation(
     if treat_idx is None or outcome_idx is None:
         return None, _tool_error_result("Treatment or outcome not present in fitted latent model.")
 
-    # Dispatch on the InferenceResult method: composite fits expose a
-    # vector field + per-draw param tuples through ``diagnostics``; affine
-    # fits expose component-owned dense drift/intercept deterministics.
-    method = fitted_artifact.result.method
-    diagnostics = fitted_artifact.result.diagnostics
     query = dict(args.get("query") or {})
     dt_days, horizon_steps = _stage6_time_config(
         causal_spec,
@@ -396,38 +381,20 @@ def _prepare_stage6_simulation(
     )
     time_grid = jnp.linspace(0.0, dt_days * horizon_steps, horizon_steps + 1)
 
-    drift_draws: Any = None
-    cint_draws: Any = None
-    param_samples: list[tuple[dict[str, Any], ...]] | None = None
-
-    if method == "composite_aux_kalman":
+    if hasattr(spec, "drift_spec"):
+        posterior_dynamics = posterior_dynamics_from_result(spec, fitted_artifact.result)
+        vector_field = posterior_dynamics.vector_field
+        param_samples = posterior_dynamics.param_samples
+    else:
+        diagnostics = fitted_artifact.result.diagnostics
         vector_field = diagnostics.get("vector_field")
         param_samples = diagnostics.get("param_samples")
-        if vector_field is None or not param_samples:
+        if vector_field is None:
             return None, _tool_error_result(
-                "Composite fit is missing vector_field / param_samples in diagnostics."
+                "Composite fitted artifact is missing diagnostics['vector_field']."
             )
-    else:
-        drift_draws = samples.get("vf_0_drift")
-        if drift_draws is None:
-            return None, _tool_error_result("Posterior vf_0_drift samples are unavailable.")
-        cint_draws = samples.get("vf_1_cint_full")
-        if cint_draws is None:
-            return None, _tool_error_result("Posterior vf_1_cint_full samples are unavailable.")
-        # Affine path is normalised to the canonical composite shape:
-        # 2-component ``(DenseLinear + Intercept)`` vector field plus
-        # per-draw param tuples ``({"drift": A}, {"cint": c})``. After
-        # this point downstream Stage 6 dispatch is uniform — the
-        # ``if setup.is_composite`` branches read ``param_samples`` /
-        # ``vector_field`` regardless of inference method.
-        from nof1_causal_lab.models.ssm.counterfactual.orchestration import (
-            _linear_samples_to_composite_params,
-            _two_component_linear_vector_field,
-        )
-
-        n_latent = int(drift_draws.shape[-1])
-        vector_field = _two_component_linear_vector_field(n_latent)
-        param_samples = _linear_samples_to_composite_params(drift_draws, cint_draws)
+    if not param_samples:
+        return None, _tool_error_result("Posterior dynamics samples are unavailable.")
 
     return (
         Stage6SimulationSetup(
@@ -444,8 +411,6 @@ def _prepare_stage6_simulation(
             manifest_names=manifest_names,
             treat_idx=treat_idx,
             outcome_idx=outcome_idx,
-            drift_draws=drift_draws,
-            cint_draws=cint_draws,
             dt_days=dt_days,
             horizon_steps=horizon_steps,
             time_grid=time_grid,
@@ -755,12 +720,8 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
         return error
     assert setup is not None
 
-    # Linear/composite dispatch collapsed: ``setup.param_samples`` and
-    # ``setup.vector_field`` are normalised to the canonical composite
-    # shape in ``_prepare_stage6_simulation`` (linear path adapts via
-    # ``_linear_samples_to_composite_params`` + two-component vector
-    # field). The vmap-ified composite consumers handle both paths
-    # with the same vectorisation.
+    # ``setup.param_samples`` and ``setup.vector_field`` are reconstructed
+    # from the fitted ``SSMSpec`` and canonical posterior sample sites.
     assert setup.param_samples is not None
     _stacked_params = jax.tree.map(lambda *xs: jnp.stack(xs), *setup.param_samples)
     baseline_states = jax.vmap(
@@ -892,7 +853,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
     abducted_state = _serialize_latent_state(initial_state, setup.latent_names)
     estimand = str(setup.query.get("estimand", "end_state"))
 
-    # Linear/composite collapsed — see ``_prepare_stage6_simulation``.
+    # Vector-field params are reconstructed in ``_prepare_stage6_simulation``.
     assert setup.param_samples is not None
     n_draws = len(setup.param_samples)
     initial_states = jnp.broadcast_to(initial_state, (n_draws, initial_state.shape[0]))

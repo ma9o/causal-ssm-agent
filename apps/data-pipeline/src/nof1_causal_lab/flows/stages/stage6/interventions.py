@@ -22,7 +22,8 @@ def run_interventions(
     causal_spec: dict | None = None,
 ) -> list[dict]:
     """Run do-operator interventions and rank treatments by effect size."""
-    from nof1_causal_lab.models.ssm.counterfactual import compute_interventions
+    from nof1_causal_lab.models.ssm.counterfactual import compute_interventions_composite
+    from nof1_causal_lab.models.ssm.dynamics import posterior_dynamics_from_result
 
     logger.info(
         "Running interventions: treatments=%d outcome=%s fitted=%s",
@@ -36,8 +37,8 @@ def run_interventions(
 
     builder = fitted_artifact.builder
     result = fitted_artifact.result
-    samples = result.get_samples()
     spec = builder.spec
+    samples = result.get_samples()
 
     latent_names = spec.latent_names
     if latent_names is None:
@@ -45,14 +46,21 @@ def run_interventions(
 
     manifest_names = spec.manifest_names or []
 
-    results = compute_interventions(
-        samples=samples,
+    posterior_dynamics = posterior_dynamics_from_result(spec, result)
+    lambda_draws = samples.get("lambda")
+    lambda_mean = None
+    if lambda_draws is not None:
+        lambda_mean = lambda_draws.mean(axis=0) if lambda_draws.ndim == 3 else lambda_draws
+    results = compute_interventions_composite(
+        param_samples=posterior_dynamics.param_samples,
+        vector_field=posterior_dynamics.vector_field,
         treatments=treatments,
         outcome=outcome,
         latent_names=latent_names,
         causal_spec=causal_spec,
         manifest_names=manifest_names,
         times=fitted_artifact.times,
+        lambda_mean=lambda_mean,
     )
     logger.info("Interventions complete: ranked_treatments=%d", len(results))
     return results

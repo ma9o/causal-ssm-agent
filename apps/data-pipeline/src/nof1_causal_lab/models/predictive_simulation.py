@@ -316,6 +316,191 @@ def _sample_observations_for_draw(
     return _apply_observation_mask(point_samples, semantic_mask, observation_mask), effective_mask
 
 
+def sample_predictive_observations_from_linear_predictors(
+    linear_predictors: jnp.ndarray,
+    samples: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    manifest_dists: Sequence[DistributionFamily | str] | None = None,
+    manifest_links: Sequence[LinkFunction | str | None] | None = None,
+    manifest_level_counts: list[int] | None = None,
+    observation_support: ObservationSupportRuntime | None = None,
+    observation_mask: jnp.ndarray | None = None,
+    n_subsample: int = 50,
+    rng_seed: int = 42,
+    manifest_names: list[str] | None = None,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Sample observations from precomputed observation linear predictors."""
+    linear_predictors = jnp.asarray(linear_predictors)
+    if linear_predictors.ndim != 3:
+        raise ValueError(
+            "linear_predictors must have shape (n_draws, n_timepoints, n_manifest), "
+            f"got {linear_predictors.shape}."
+        )
+
+    n_draws_total = linear_predictors.shape[0]
+    n_use = min(n_subsample, n_draws_total)
+    indices = jnp.linspace(0, n_draws_total - 1, n_use).astype(int)
+
+    linear_predictors_sub = linear_predictors[indices]
+    manifest_cov_sub = _broadcast_draw_param(samples["manifest_cov"], n_use, indices)
+
+    n_timepoints = int(times.shape[0])
+    n_manifest = linear_predictors_sub.shape[2]
+    resolved_manifest_names = manifest_names or [f"var_{idx}" for idx in range(n_manifest)]
+    if len(resolved_manifest_names) != n_manifest:
+        raise ValueError(
+            f"manifest_names must have length {n_manifest}, got {len(resolved_manifest_names)}"
+        )
+    resolved_manifest_dists = (
+        list(manifest_dists) if manifest_dists is not None else ["gaussian"] * n_manifest
+    )
+    resolved_manifest_links = list(manifest_links) if manifest_links is not None else None
+
+    ordered_cutpoints_draws = samples.get("obs_ordered_cutpoints")
+    ordered_cutpoints_sub = (
+        _broadcast_draw_param(ordered_cutpoints_draws, n_use, indices)
+        if ordered_cutpoints_draws is not None
+        else None
+    )
+    cat_intercepts_draws = samples.get("obs_cat_intercepts")
+    cat_intercepts_sub = (
+        _broadcast_draw_param(cat_intercepts_draws, n_use, indices)
+        if cat_intercepts_draws is not None
+        else None
+    )
+    cat_slopes_draws = samples.get("obs_cat_slopes")
+    cat_slopes_sub = (
+        _broadcast_draw_param(cat_slopes_draws, n_use, indices)
+        if cat_slopes_draws is not None
+        else None
+    )
+    obs_df_draws = samples.get("obs_df")
+    obs_df_sub = (
+        _broadcast_draw_param(obs_df_draws, n_use, indices) if obs_df_draws is not None else None
+    )
+    obs_shape_draws = samples.get("obs_shape")
+    obs_shape_sub = (
+        _broadcast_draw_param(obs_shape_draws, n_use, indices)
+        if obs_shape_draws is not None
+        else None
+    )
+    obs_r_draws = samples.get("obs_r")
+    obs_r_sub = (
+        _broadcast_draw_param(obs_r_draws, n_use, indices) if obs_r_draws is not None else None
+    )
+    obs_concentration_draws = samples.get("obs_concentration")
+    obs_conc_sub = (
+        _broadcast_draw_param(obs_concentration_draws, n_use, indices)
+        if obs_concentration_draws is not None
+        else None
+    )
+    level_counts = (
+        jnp.asarray(manifest_level_counts, dtype=jnp.int64)
+        if manifest_level_counts is not None
+        else None
+    )
+
+    rng = jax.random.PRNGKey(rng_seed)
+    draw_keys = jax.random.split(rng, n_use)
+
+    resolved_dists, _resolved_links = resolve_manifest_families_and_links(
+        resolved_manifest_dists,
+        manifest_links=resolved_manifest_links,
+    )
+    observation_operator = compile_observation_operator(observation_support)
+
+    if level_counts is None and any_family_needs_level_metadata(
+        [dist.value for dist in resolved_dists]
+    ):
+        raise ValueError(
+            "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
+        )
+
+    observation_mask_array = None
+    if observation_mask is not None:
+        observation_mask_array = jnp.asarray(observation_mask, dtype=bool)
+        if observation_mask_array.shape != (n_timepoints, n_manifest):
+            raise ValueError(
+                "observation_mask must have shape (T, n_manifest) matching the predictive grid"
+            )
+
+    if observation_operator.requires_interval_summary_handling:
+        support = observation_operator.observation_support
+        assert support is not None
+        if support.anchor_times.shape != times.shape or not bool(
+            jnp.allclose(jnp.asarray(support.anchor_times), times)
+        ):
+            raise ValueError("observation_support is not aligned to the predictive time grid")
+
+    _raise_if_log_link_mean_overflow(
+        linear_predictors_sub,
+        manifest_dists=resolved_manifest_dists,
+        manifest_links=manifest_links,
+        manifest_names=resolved_manifest_names,
+    )
+
+    def _draw_extra_params(i: int) -> dict[str, jnp.ndarray | float]:
+        extra_params: dict[str, jnp.ndarray | float] = {}
+        if obs_df_sub is not None:
+            extra_params["obs_df"] = obs_df_sub[i]
+        if obs_shape_sub is not None:
+            extra_params["obs_shape"] = obs_shape_sub[i]
+        if obs_r_sub is not None:
+            extra_params["obs_r"] = obs_r_sub[i]
+        if obs_conc_sub is not None:
+            extra_params["obs_concentration"] = obs_conc_sub[i]
+        if level_counts is not None:
+            extra_params["obs_level_counts"] = level_counts
+        if ordered_cutpoints_sub is not None:
+            extra_params["obs_ordered_cutpoints"] = ordered_cutpoints_sub[i]
+        if cat_intercepts_sub is not None:
+            extra_params["obs_cat_intercepts"] = cat_intercepts_sub[i]
+        if cat_slopes_sub is not None:
+            extra_params["obs_cat_slopes"] = cat_slopes_sub[i]
+        return extra_params
+
+    def sim_one(i):
+        extra_params = _draw_extra_params(i)
+        point_sampler = build_predictive_observation_sampler(
+            resolved_manifest_dists,
+            manifest_cov=manifest_cov_sub[i],
+            manifest_links=resolved_manifest_links,
+            extra_params=extra_params,
+        )
+        interval_summary_sampler: PredictiveObservationSampler | None = None
+        if observation_operator.requires_interval_summary_handling:
+            interval_summary_indices = list(observation_operator.interval_summary_indices)
+            interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int64)
+            interval_summary_sampler = build_predictive_observation_sampler(
+                [point_sampler.manifest_dists[idx] for idx in interval_summary_indices],
+                manifest_cov=manifest_cov_sub[i][
+                    jnp.ix_(interval_summary_idx, interval_summary_idx)
+                ],
+                manifest_links=(
+                    [resolved_manifest_links[idx] for idx in interval_summary_indices]
+                    if resolved_manifest_links is not None
+                    else None
+                ),
+                extra_params=_slice_extra_params_for_indices(
+                    extra_params, interval_summary_indices
+                ),
+            )
+        return _sample_observations_for_draw(
+            linear_predictors=linear_predictors_sub[i],
+            rng_key=draw_keys[i],
+            manifest_dists=resolved_manifest_dists,
+            manifest_links=resolved_manifest_links,
+            point_sampler=point_sampler,
+            interval_summary_sampler=interval_summary_sampler,
+            observation_operator=observation_operator,
+            observation_mask=observation_mask_array,
+            extra_params=extra_params,
+        )
+
+    y_sim, y_mask = vmap(sim_one)(jnp.arange(n_use))
+    return y_sim, y_mask
+
+
 def _simulate_predictive_observations_with_mask(
     samples: dict[str, jnp.ndarray],
     times: jnp.ndarray,

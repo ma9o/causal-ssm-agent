@@ -106,6 +106,7 @@ class RuntimeSSM:
 
     vector_field: CompositeVectorField
     sample_params: Callable[[], tuple[dict[str, Array], ...]]
+    compiled: CompiledComposite
     init_mean: Array
     init_cov: Array
     diffusion_cov: Array
@@ -150,6 +151,7 @@ def runtime_from_composite(
     return RuntimeSSM(
         vector_field=compiled.vector_field,
         sample_params=compiled.sample_params,
+        compiled=compiled,
         init_mean=init_mean,
         init_cov=init_cov,
         diffusion_cov=diffusion_cov,
@@ -191,7 +193,7 @@ def runtime_from_ssm_model(
     from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
 
     spec = model.spec
-    compiled = compile_composite(spec.drift_spec)
+    compiled = compile_composite(model._drift_spec_with_runtime_priors())
 
     diffusion_chol = jnp.asarray(spec.diffusion_block.diffusion_chol_template)
     diffusion_cov = diffusion_chol @ diffusion_chol.T
@@ -231,28 +233,36 @@ def runtime_from_dense_linear(
 ) -> RuntimeSSM:
     """Build a :class:`RuntimeSSM` from a single ``(drift, cint)`` pair.
 
-    For callers that already have linear-path posterior samples and want
-    to consume them through the canonical surface (Stage 6 counterfactual
-    orchestrator, Stage 4 prior-predictive validator). ``sample_params``
-    returns the Delta-distributed parameters so the canonical-shaped
-    consumer can treat the linear pair as a single-component tuple.
+    For callers that already have concrete dense affine parameters and want
+    to consume them through the canonical vector-field surface. ``sample_params``
+    returns Delta-distributed parameters so consumers see a normal component
+    tuple.
 
     This is the minimum-viable translator for callers that already have
     concrete posterior draws and do not need the compiled artifact
     machinery.
     """
-    from .vector_field import CompositeVectorField
+    import numpyro.distributions as ndist
 
     n_latent = int(drift.shape[-1])
-    vf = CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
-    params_tuple: tuple[dict[str, Array], ...] = ({"drift": drift, "cint": cint},)
+    from .composite import CompositeSpec, DenseLinearSpec, compile_composite
 
-    def _sample_delta() -> tuple[dict[str, Array], ...]:
-        return params_tuple
+    compiled = compile_composite(
+        CompositeSpec(
+            n_latent=n_latent,
+            components=(
+                DenseLinearSpec(
+                    drift_prior=ndist.Delta(drift),
+                    cint_prior=ndist.Delta(cint),
+                ),
+            ),
+        )
+    )
 
     return RuntimeSSM(
-        vector_field=vf,
-        sample_params=_sample_delta,
+        vector_field=compiled.vector_field,
+        sample_params=compiled.sample_params,
+        compiled=compiled,
         init_mean=init_mean,
         init_cov=init_cov,
         diffusion_cov=diffusion_cov,

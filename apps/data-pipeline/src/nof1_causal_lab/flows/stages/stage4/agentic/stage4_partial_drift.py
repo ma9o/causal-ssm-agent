@@ -120,22 +120,8 @@ def _build_partial_drift_state(
         causal_spec=causal_spec,
     )
     parameter_layout = SSMParameterLayout.from_spec(ssm_spec)
-    (
-        _offdiag_param_index,
-        _lambda_param_index,
-        diag_param_index,
-        _diffusion_diag_param_index,
-        _diffusion_offdiag_param_index,
-        _input_effect_param_index,
-        _t0_offdiag_param_index,
-        _t0_mean_param_index,
-        _t0_sd_param_index,
-        _manifest_mean_param_index,
-        _manifest_var_param_index,
-        _cint_param_index,
-        _static_state_sd_param_index,
-        _observation_site_param_index,
-    ) = index_maps
+    diag_bindings = index_maps.by_site_kind(SiteKind.DRIFT_BASE_DECAY)
+    offdiag_bindings = index_maps.by_site_kind(SiteKind.DRIFT_OFFDIAG)
 
     latent_names = tuple(ssm_spec.latent_names or ())
     diag_mu = np.zeros(len(latent_names), dtype=float)
@@ -148,9 +134,10 @@ def _build_partial_drift_state(
     base_decay_prior = prior_registry.priors_by_site[base_decay_site.name]
     base_decay_mu = _positive_prior_mean_values(base_decay_prior)
     for parameter_name in drift_priors:
-        if parameter_name not in diag_param_index:
+        binding = diag_bindings.get(parameter_name)
+        if binding is None:
             continue
-        _attr, flat_index = diag_param_index[parameter_name]
+        flat_index = binding.flat_index
         latent_index = parameter_layout.drift_base_decay_positions[flat_index]
         diag_present[latent_index] = True
         diag_parameter_by_index[latent_index] = parameter_name
@@ -169,11 +156,11 @@ def _build_partial_drift_state(
     drift_offdiag_prior = prior_registry.priors_by_site[drift_offdiag_site.name]
     drift_offdiag_mu = np.asarray(drift_offdiag_prior.params.get("mu", []), dtype=float)
     drift_offdiag_sigma = np.asarray(drift_offdiag_prior.params.get("sigma", []), dtype=float)
-    offdiag_param_index = index_maps[0]
     for parameter_name in drift_priors:
-        if parameter_name not in offdiag_param_index:
+        binding = offdiag_bindings.get(parameter_name)
+        if binding is None:
             continue
-        _attr, flat_index = offdiag_param_index[parameter_name]
+        flat_index = binding.flat_index
         offdiag_present[flat_index] = True
         offdiag_parameter_by_index[flat_index] = parameter_name
         offdiag_mu[flat_index] = (

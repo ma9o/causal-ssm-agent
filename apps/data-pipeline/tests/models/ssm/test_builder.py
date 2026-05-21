@@ -18,6 +18,11 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
     split_compound_name,
 )
 from nof1_causal_lab.models.ssm.dynamics.composite import (
+    CompositeSpec,
+    DiagonalDecaySpec,
+    HillEdgeSpec,
+    LinearEdgeSpec,
+    MultiplicativeEdgeSpec,
     default_linear_drift_spec,
     linear_drift_spec,
 )
@@ -447,10 +452,18 @@ class TestBuilderPriorConversion:
         assert t0_mean_prior.params["mu"] == [0.1, -0.3]
         assert t0_mean_prior.params["sigma"] == [0.2, 0.4]
         assert t0_diag_prior.params["sigma"] == [0.7, 0.9]
-        assert index_maps[7]["t0_mean_mood"] == ("t0_means", 0)
-        assert index_maps[7]["t0_mean_sleep"] == ("t0_means", 1)
-        assert index_maps[8]["t0_sd_mood"] == ("t0_var_diag", 0)
-        assert index_maps[8]["t0_sd_sleep"] == ("t0_var_diag", 1)
+        assert index_maps.by_parameter["t0_mean_mood"].site_name == "t0_means_free"
+        assert index_maps.by_parameter["t0_mean_mood"].prior_field == "t0_means"
+        assert index_maps.by_parameter["t0_mean_mood"].flat_index == 0
+        assert index_maps.by_parameter["t0_mean_sleep"].site_name == "t0_means_free"
+        assert index_maps.by_parameter["t0_mean_sleep"].prior_field == "t0_means"
+        assert index_maps.by_parameter["t0_mean_sleep"].flat_index == 1
+        assert index_maps.by_parameter["t0_sd_mood"].site_name == "t0_var_diag_free"
+        assert index_maps.by_parameter["t0_sd_mood"].prior_field == "t0_var_diag"
+        assert index_maps.by_parameter["t0_sd_mood"].flat_index == 0
+        assert index_maps.by_parameter["t0_sd_sleep"].site_name == "t0_var_diag_free"
+        assert index_maps.by_parameter["t0_sd_sleep"].prior_field == "t0_var_diag"
+        assert index_maps.by_parameter["t0_sd_sleep"].flat_index == 1
 
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         """Filtered initial-state pairs should not leave holes in prior arrays."""
@@ -518,11 +531,121 @@ class TestBuilderPriorConversion:
         )
         t0_corr_prior = prior_registry.priors_by_site["t0_var_lower_free"]
 
-        assert index_maps[6]["cor0_C_B"] == ("t0_var_offdiag", 0)
+        assert index_maps.by_parameter["cor0_C_B"].site_name == "t0_var_lower_free"
+        assert index_maps.by_parameter["cor0_C_B"].prior_field == "t0_var_offdiag"
+        assert index_maps.by_parameter["cor0_C_B"].flat_index == 0
         assert t0_corr_prior.params["mu"] == [0.1]
         assert t0_corr_prior.params["sigma"] == [0.2]
         assert t0_corr_prior.params["lower"] == [-1.0]
         assert t0_corr_prior.params["upper"] == [1.0]
+
+    def test_nonlinear_dynamics_parameters_bind_to_component_sites(self):
+        """Semantic priors should bind to component-owned nonlinear dynamics sites."""
+        model_spec = {
+            "likelihoods": [
+                {
+                    "variable": "dose",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+                {
+                    "variable": "response",
+                    "distribution": "gaussian",
+                    "link": "identity",
+                    "reasoning": "",
+                },
+            ],
+            "parameters": [
+                {
+                    "name": "rho_response",
+                    "role": "ar_coefficient",
+                    "constraint": "unit_interval",
+                    "description": "",
+                },
+                {
+                    "name": "beta_dose_response",
+                    "role": "fixed_effect",
+                    "constraint": "none",
+                    "description": "",
+                },
+                {
+                    "name": "hill_emax_dose_response",
+                    "role": "dynamics_parameter_positive",
+                    "constraint": "positive",
+                    "description": "",
+                },
+                {
+                    "name": "hill_n_dose_response",
+                    "role": "dynamics_parameter",
+                    "constraint": "none",
+                    "description": "",
+                },
+            ],
+        }
+        priors = {
+            "rho_response": {
+                "distribution": "Beta",
+                "params": {"alpha": 4.0, "beta": 1.0},
+            },
+            "beta_dose_response": {
+                "distribution": "Normal",
+                "params": {"mu": 0.3, "sigma": 0.2},
+                "reference_interval_days": 2.0,
+            },
+            "hill_emax_dose_response": {
+                "distribution": "HalfNormal",
+                "params": {"sigma": 1.5},
+            },
+            "hill_n_dose_response": {
+                "distribution": "TruncatedNormal",
+                "params": {"mu": 2.0, "sigma": 0.3, "lower": 1.0, "upper": 4.0},
+            },
+        }
+        ssm_spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["dose", "response"],
+            manifest_names=["dose", "response"],
+            drift_spec=CompositeSpec(
+                n_latent=2,
+                components=(
+                    DiagonalDecaySpec(decay_prior=None),
+                    LinearEdgeSpec(source=0, target=1, weight_prior=None),
+                    HillEdgeSpec(
+                        source=0, target=1, emax_prior=None, ec50_prior=None, n_prior=None
+                    ),
+                ),
+            ),
+        )
+
+        prior_registry, index_maps, _diagnostics = compile_priors(
+            priors,
+            model_spec,
+            ssm_spec=ssm_spec,
+        )
+
+        assert index_maps.by_parameter["rho_response"].site_name == "vf_0_decay"
+        assert index_maps.by_parameter["rho_response"].prior_field == "dynamics_decay"
+        assert index_maps.by_parameter["rho_response"].flat_index == 1
+        assert index_maps.by_parameter["beta_dose_response"].site_name == "vf_1_weight"
+        assert index_maps.by_parameter["beta_dose_response"].prior_field == "linear_edge_weight"
+        assert index_maps.by_parameter["hill_emax_dose_response"].site_name == "vf_2_Emax"
+        assert index_maps.by_parameter["hill_emax_dose_response"].prior_field == "hill_emax"
+        assert index_maps.by_parameter["hill_n_dose_response"].site_name == "vf_2_n"
+        assert index_maps.by_parameter["hill_n_dose_response"].prior_field == "hill_n"
+
+        linear_prior = prior_registry.priors_by_site["vf_1_weight"]
+        hill_emax_prior = prior_registry.priors_by_site["vf_2_Emax"]
+        hill_n_prior = prior_registry.priors_by_site["vf_2_n"]
+
+        assert linear_prior.params["mu"] == [pytest.approx(0.15)]
+        assert linear_prior.params["sigma"] == [pytest.approx(0.1)]
+        assert hill_emax_prior.params["sigma"] == [1.5]
+        assert hill_n_prior.params["mu"] == [2.0]
+        assert hill_n_prior.params["sigma"] == [0.3]
+        assert hill_n_prior.params["lower"] == [1.0]
+        assert hill_n_prior.params["upper"] == [4.0]
 
     def test_cross_lag_prior_requires_resolved_interval_metadata(self):
         """Cross-lag priors should fail instead of silently defaulting to 1 day."""
@@ -588,6 +711,87 @@ class TestBuilderPriorConversion:
 
         with pytest.raises(ValueError, match="requires model_spec to compile semantic prior"):
             compile_ssm_inputs_from_spec(ssm_spec=ssm_spec, priors=priors)
+
+    def test_builder_prior_predictive_supports_hill_edge_spec(self):
+        """The builder prior predictive path should accept nonlinear component drift."""
+        spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["dose", "response"],
+            manifest_names=["dose", "response"],
+            drift_spec=CompositeSpec(
+                n_latent=2,
+                components=(
+                    DiagonalDecaySpec(decay_prior=None),
+                    HillEdgeSpec(
+                        source=0,
+                        target=1,
+                        emax_prior=None,
+                        ec50_prior=None,
+                        n_prior=None,
+                    ),
+                ),
+            ),
+        )
+        builder = SSMModelBuilder(ssm_spec=spec)
+
+        samples = builder.sample_prior_predictive(
+            samples=3,
+            times=jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32),
+        )
+
+        assert samples["latents"].shape == (3, 4, 2)
+        assert samples["linear_predictors"].shape == (3, 4, 2)
+        assert samples["observations"].shape == (3, 4, 2)
+        assert bool(jnp.isfinite(samples["observations"]).all())
+
+    def test_prior_predictive_observation_shape_matches_affine_and_nonlinear_specs(self):
+        """Affine and nonlinear specs should use the same public predictive shape."""
+        times = jnp.linspace(0.0, 1.0, 4, dtype=jnp.float32)
+        affine_spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["a", "b"],
+            manifest_names=["a", "b"],
+            drift_spec=linear_drift_spec(
+                n_latent=2,
+                drift_diag_mask=full_diagonal_mask(2),
+                drift_offdiag_mask=np.zeros((2, 2), dtype=bool),
+                drift_template=jnp.zeros((2, 2), dtype=jnp.float32),
+                cint_mask=np.zeros(2, dtype=bool),
+                cint_template=jnp.zeros(2, dtype=jnp.float32),
+            ),
+        )
+        nonlinear_spec = _make_spec(
+            n_latent=2,
+            n_manifest=2,
+            latent_names=["a", "b"],
+            manifest_names=["a", "b"],
+            drift_spec=CompositeSpec(
+                n_latent=2,
+                components=(
+                    DiagonalDecaySpec(decay_prior=None),
+                    MultiplicativeEdgeSpec(
+                        source_a=0,
+                        source_b=1,
+                        target=1,
+                        weight_prior=None,
+                    ),
+                ),
+            ),
+        )
+
+        affine_samples = SSMModelBuilder(ssm_spec=affine_spec).sample_prior_predictive(
+            samples=2,
+            times=times,
+        )
+        nonlinear_samples = SSMModelBuilder(ssm_spec=nonlinear_spec).sample_prior_predictive(
+            samples=2,
+            times=times,
+        )
+
+        assert affine_samples["observations"].shape == nonlinear_samples["observations"].shape
+        assert affine_samples["observations"].shape == (2, 4, 2)
 
 
 class TestObservationSupportValidation:

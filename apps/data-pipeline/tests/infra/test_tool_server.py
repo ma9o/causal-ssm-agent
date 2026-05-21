@@ -220,23 +220,29 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
 
 def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     class FakeResult:
-        def __init__(self, samples):
-            self._samples = samples
+        def __init__(self, vector_field, param_samples):
+            self._samples = {}
             self.method = "aux_kalman_mcmc"
-            self.diagnostics: dict = {}
+            self.diagnostics = {
+                "vector_field": vector_field,
+                "param_samples": param_samples,
+            }
 
         def get_samples(self):
             return self._samples
 
-    samples = {
-        "drift": jnp.array(
-            [
-                [[1.0, 0.0], [0.0, 0.0]],
-                [[3.0, 0.0], [0.0, 0.0]],
-            ]
-        ),
-        "cint": jnp.zeros((2, 2)),
-    }
+    from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
+
+    drift = jnp.array(
+        [
+            [[1.0, 0.0], [0.0, 0.0]],
+            [[3.0, 0.0], [0.0, 0.0]],
+        ]
+    )
+    cint = jnp.zeros((2, 2))
+    param_samples = [
+        ({"drift": d, "cint": c},) for d, c in zip(drift, cint, strict=True)
+    ]
 
     monkeypatch.setattr(
         tool_server,
@@ -277,7 +283,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
-            result=FakeResult(samples),
+            result=FakeResult(linear_vector_field(n_latent=2), param_samples),
             builder=SimpleNamespace(
                 spec=SimpleNamespace(latent_names=["treat", "outcome"], manifest_names=[]),
                 model=object(),
@@ -366,7 +372,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
 def test_simulate_intervention_dispatches_to_composite_path():
     """End-to-end: a composite-fitted InferenceResult flows through
     ``_prepare_stage6_simulation`` and ``_execute_simulate_intervention``
-    without ever touching the linear ``samples["drift"]`` shape.
+    without touching the affine deterministic sample shape.
 
     Pins the Phase E dispatch: the tool_server endpoint inspects
     ``result.method`` and routes to ``vmap_*_composite`` helpers when

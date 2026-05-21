@@ -18,14 +18,15 @@ from nof1_causal_lab.distributions import (
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.compile.common import (
-    PriorIndexMaps,
     axis_names_with_fallback,
-    build_array_prior_payload,
-    empty_prior_index_maps,
     normalize_prior_params,
     resolve_scalar_parameter_name,
 )
-from nof1_causal_lab.models.ssm.compile.prior_indexing import build_prior_index_maps
+from nof1_causal_lab.models.ssm.compile.prior_indexing import (
+    SemanticBindingRegistry,
+    build_semantic_prior_bindings,
+    empty_prior_bindings,
+)
 from nof1_causal_lab.models.ssm.compile.spec_translation import get_construct_dt_days
 from nof1_causal_lab.models.ssm.inference.targets.base import NUMERICAL_EPSILON
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
@@ -38,7 +39,12 @@ from nof1_causal_lab.models.ssm.priors import (
     prior_spec_from_normalized_params,
     prior_spec_to_normalized_params,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SiteKind
+from nof1_causal_lab.models.ssm.structure.sites import (
+    PriorAuthoringTransform,
+    SiteDescriptor,
+    SiteKind,
+    site_size,
+)
 from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
@@ -182,21 +188,6 @@ def _iter_offdiag_positions(ssm_spec: SSMSpec) -> list[tuple[int, int]]:
     return list(SSMParameterLayout.from_spec(ssm_spec).offdiag_positions)
 
 
-def _site_by_prior_field(
-    sites: list[SiteDescriptor],
-    prior_field: str,
-) -> SiteDescriptor | None:
-    matches = [site for site in sites if site.priors_field == prior_field]
-    if not matches:
-        return None
-    if len(matches) > 1:
-        raise ValueError(
-            f"Prior field {prior_field!r} maps to multiple active sample sites: "
-            f"{[site.name for site in matches]}"
-        )
-    return matches[0]
-
-
 def _structural_dense_component(ssm_spec: SSMSpec):
     from nof1_causal_lab.models.ssm.dynamics.composite import StructuralDenseLinearSpec
 
@@ -227,7 +218,9 @@ def _drift_parameter_name(
         raise ValueError("No active drift off-diagonal sample site.")
     name = resolve_scalar_parameter_name(ssm_spec, runtime, offdiag_site.name, flat_idx)
     if name is None:
-        raise ValueError(f"resolve_scalar_parameter_name failed for {offdiag_site.name}[{flat_idx}].")
+        raise ValueError(
+            f"resolve_scalar_parameter_name failed for {offdiag_site.name}[{flat_idx}]."
+        )
     cause_name = ssm_spec.latent_names[cause_idx]
     effect_name = ssm_spec.latent_names[effect_idx]
     return name, cause_name, effect_name
@@ -271,6 +264,8 @@ def _resolve_cross_lag_interval_days(
     ssm_spec: SSMSpec,
     edge_lag_days: dict[tuple[int, int], float] | None,
     causal_spec: dict | None,
+    effect_idx: int | None = None,
+    cause_idx: int | None = None,
 ) -> float:
     """Resolve a positive authoring interval for cross-lag priors."""
     ref_days = prior_spec.get("reference_interval_days")
@@ -283,12 +278,16 @@ def _resolve_cross_lag_interval_days(
             )
         return interval_days
 
-    if flat_index >= parameter_layout.n_drift_offdiag:
-        raise ValueError(
-            f"Cross-lag prior '{param_name}' resolved to invalid flat index {flat_index}."
-        )
+    if effect_idx is None or cause_idx is None:
+        if flat_index >= parameter_layout.n_drift_offdiag:
+            raise ValueError(
+                f"Cross-lag prior '{param_name}' resolved to invalid flat index {flat_index}."
+            )
+        effect_idx, cause_idx = parameter_layout.offdiag_positions[flat_index]
 
-    effect_idx, cause_idx = parameter_layout.offdiag_positions[flat_index]
+    if effect_idx is None or cause_idx is None:
+        raise ValueError(f"Cross-lag prior '{param_name}' is missing effect/cause metadata.")
+
     lag_days = (edge_lag_days or {}).get((effect_idx, cause_idx))
     if lag_days is not None:
         interval_days = float(lag_days)
@@ -657,7 +656,9 @@ def _prior_values_1d(value: Any) -> np.ndarray:
     return array.reshape(-1)
 
 
-def _prior_param_values(params: Mapping[str, Any], key: str, *, n: int, default: float) -> np.ndarray:
+def _prior_param_values(
+    params: Mapping[str, Any], key: str, *, n: int, default: float
+) -> np.ndarray:
     values = _prior_values_1d(params.get(key))
     if values.size == 0:
         return np.full(n, default, dtype=float)
@@ -869,6 +870,124 @@ def _append_structured_prior(
     per_element.setdefault(attr, []).append((idx, normalized))
 
 
+def _build_site_prior_payload(
+    site: SiteDescriptor,
+    entries: list[tuple[int, dict[str, float | int]]],
+    current: dict[str, float | int],
+) -> dict[str, list[float] | list[int]]:
+    """Build an array-valued prior payload keyed by one unique sample site."""
+    if not entries:
+        raise ValueError(
+            f"_build_site_prior_payload({site.name!r}) called with no entries; "
+            "callers must filter out fields without any bound prior before invoking."
+        )
+    n_total = site_size(site.shape)
+
+    include_mu = "mu" in current or any("mu" in normalized for _, normalized in entries)
+    include_sigma = "sigma" in current or any("sigma" in normalized for _, normalized in entries)
+    include_loc = "loc" in current or any("loc" in normalized for _, normalized in entries)
+    include_family = "family" in current or any("family" in normalized for _, normalized in entries)
+    include_lower = "lower" in current or any("lower" in normalized for _, normalized in entries)
+    include_upper = "upper" in current or any("upper" in normalized for _, normalized in entries)
+    include_concentration = "concentration" in current or any(
+        "concentration" in normalized for _, normalized in entries
+    )
+    include_rate = "rate" in current or any("rate" in normalized for _, normalized in entries)
+    include_value = "value" in current or any("value" in normalized for _, normalized in entries)
+
+    lower_indices = {idx for idx, normalized in entries if "lower" in normalized}
+    upper_indices = {idx for idx, normalized in entries if "upper" in normalized}
+    all_indices = set(range(n_total))
+
+    if include_lower and "lower" not in current and lower_indices != all_indices:
+        raise ValueError(
+            f"_build_site_prior_payload({site.name!r}): some entries specify 'lower' but no "
+            "baseline was provided in the prior default. Provide a default 'lower' in current, "
+            "or ensure every entry specifies one."
+        )
+    if include_upper and "upper" not in current and upper_indices != all_indices:
+        raise ValueError(
+            f"_build_site_prior_payload({site.name!r}): some entries specify 'upper' but no "
+            "baseline was provided in the prior default."
+        )
+
+    mu_arr = [float(current.get("mu", 0.0))] * n_total if include_mu else None
+    sigma_arr = [float(current.get("sigma", 0.5))] * n_total if include_sigma else None
+    loc_arr = [float(current.get("loc", 0.0))] * n_total if include_loc else None
+    family_arr = [int(current.get("family", 0))] * n_total if include_family else None
+    lower_default = None
+    if include_lower:
+        lower_default = (
+            float(current["lower"])
+            if "lower" in current
+            else float(
+                next(normalized["lower"] for _, normalized in entries if "lower" in normalized)
+            )
+        )
+    upper_default = None
+    if include_upper:
+        upper_default = (
+            float(current["upper"])
+            if "upper" in current
+            else float(
+                next(normalized["upper"] for _, normalized in entries if "upper" in normalized)
+            )
+        )
+    lower_arr = [lower_default] * n_total if include_lower else None
+    upper_arr = [upper_default] * n_total if include_upper else None
+    concentration_arr = (
+        [float(current.get("concentration", 1.0))] * n_total if include_concentration else None
+    )
+    rate_arr = [float(current.get("rate", 1.0))] * n_total if include_rate else None
+    value_arr = [float(current.get("value", 1.0))] * n_total if include_value else None
+
+    for idx, normalized in entries:
+        if idx < 0 or idx >= n_total:
+            raise ValueError(
+                f"Prior binding for site {site.name!r} has flat index {idx}; "
+                f"expected 0 <= index < {n_total}."
+            )
+        if "mu" in normalized and mu_arr is not None:
+            mu_arr[idx] = float(normalized["mu"])
+        if "sigma" in normalized and sigma_arr is not None:
+            sigma_arr[idx] = float(normalized["sigma"])
+        if "loc" in normalized and loc_arr is not None:
+            loc_arr[idx] = float(normalized["loc"])
+        if "family" in normalized and family_arr is not None:
+            family_arr[idx] = int(normalized["family"])
+        if "lower" in normalized and lower_arr is not None:
+            lower_arr[idx] = float(normalized["lower"])
+        if "upper" in normalized and upper_arr is not None:
+            upper_arr[idx] = float(normalized["upper"])
+        if "concentration" in normalized and concentration_arr is not None:
+            concentration_arr[idx] = float(normalized["concentration"])
+        if "rate" in normalized and rate_arr is not None:
+            rate_arr[idx] = float(normalized["rate"])
+        if "value" in normalized and value_arr is not None:
+            value_arr[idx] = float(normalized["value"])
+
+    result: dict[str, list[float] | list[int]] = {}
+    if mu_arr is not None:
+        result["mu"] = mu_arr
+    if sigma_arr is not None:
+        result["sigma"] = sigma_arr
+    if loc_arr is not None:
+        result["loc"] = loc_arr
+    if family_arr is not None:
+        result["family"] = family_arr
+    if lower_arr is not None:
+        result["lower"] = lower_arr
+    if upper_arr is not None:
+        result["upper"] = upper_arr
+    if concentration_arr is not None:
+        result["concentration"] = concentration_arr
+    if rate_arr is not None:
+        result["rate"] = rate_arr
+    if value_arr is not None:
+        result["value"] = value_arr
+    return result
+
+
 def _support_name(support: SupportClass) -> str:
     if support == SupportClass.POSITIVE:
         return "positive"
@@ -926,7 +1045,7 @@ def compile_priors(
     ssm_spec: SSMSpec | None,
     edge_lag_days: dict[tuple[int, int], float] | None = None,
     causal_spec: dict | None = None,
-) -> tuple[PriorRegistry, PriorIndexMaps, list[CompileDiagnostic]]:
+) -> tuple[PriorRegistry, SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
     active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
     prior_entries: dict[str, PriorSpec] = (
@@ -936,13 +1055,17 @@ def compile_priors(
     )
     site_by_name = {site.name: site for site in active_sites}
     role_by_name = _collect_role_lookup(model_spec)
-    per_element: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
+    per_site: dict[str, list[tuple[int, dict[str, float | int]]]] = {}
     has_model_spec = model_spec is not None and (
         not isinstance(model_spec, dict) or bool(model_spec)
     )
     resolved_model_spec = model_spec if has_model_spec else None
     if resolved_model_spec is not None and ssm_spec is not None:
-        index_maps = build_prior_index_maps(ssm_spec, resolved_model_spec, causal_spec=causal_spec)
+        bindings = build_semantic_prior_bindings(
+            ssm_spec,
+            resolved_model_spec,
+            causal_spec=causal_spec,
+        )
     elif raw_priors and not has_model_spec:
         raise ValueError(
             "compile_priors() requires model_spec when compiling semantic prior proposals."
@@ -953,23 +1076,8 @@ def compile_priors(
             "proposals."
         )
     else:
-        index_maps = empty_prior_index_maps()
-    (
-        offdiag_param_index,
-        lambda_param_index,
-        diag_param_index,
-        diffusion_diag_param_index,
-        diffusion_offdiag_param_index,
-        input_effect_param_index,
-        t0_offdiag_param_index,
-        t0_mean_param_index,
-        t0_sd_param_index,
-        manifest_mean_param_index,
-        manifest_var_param_index,
-        cint_param_index,
-        static_state_sd_param_index,
-        observation_site_param_index,
-    ) = index_maps
+        bindings = empty_prior_bindings()
+    binding_by_parameter = bindings.by_parameter
     parameter_layout = SSMParameterLayout.from_spec(ssm_spec) if ssm_spec is not None else None
     errors: list[str] = []
     offdiag_interval_days: dict[int, float] = {}
@@ -985,9 +1093,34 @@ def compile_priors(
                 errors.extend(degenerate_issues)
                 continue
             normalized = normalize_prior_params(distribution, raw_prior_params)
+            binding = binding_by_parameter.get(param_name)
+            if binding is None:
+                role = role_by_name.get(param_name)
+                if role is not None:
+                    errors.append(
+                        f"Prior {param_name!r} with role {role.value!r} could not be structurally "
+                        "bound to the compiled SSM. Compile priors with a translated SSMSpec that "
+                        "matches the ModelSpec."
+                    )
+                    continue
+                errors.append(
+                    f"Prior {param_name!r} does not correspond to any parameter in ModelSpec."
+                )
+                continue
 
-            if param_name in diag_param_index:
-                attr, idx = diag_param_index[param_name]
+            if binding.transform == PriorAuthoringTransform.SITE_WIDE:
+                site = site_by_name.get(binding.site_name)
+                if site is None:
+                    raise ValueError(
+                        f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."
+                    )
+                prior_entries[binding.site_name] = _site_prior_from_normalized(
+                    site.support,
+                    dict(normalized),
+                )
+                continue
+
+            if binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
                 construct_name = param_name.removeprefix("rho_").removeprefix("ar_")
                 ref_days = prior_spec.get("reference_interval_days")
                 resolved_ref_days = float(ref_days) if ref_days is not None else None
@@ -1027,7 +1160,6 @@ def compile_priors(
 
                 sigma_ar = float(normalized.get("sigma", 0.2))
                 if sigma_ar <= 0.0:
-                    # Should have been caught by _validate_nondegenerate_prior; defensive.
                     errors.append(
                         f"AR prior '{param_name}' resolved to non-positive sigma "
                         f"{sigma_ar:.3g} during compilation."
@@ -1036,9 +1168,9 @@ def compile_priors(
                 base_decay = -math.log(mu_ar) / dt
                 sd = sigma_ar / (mu_ar * dt)
                 _append_structured_prior(
-                    per_element,
-                    attr,
-                    idx,
+                    per_site,
+                    binding.site_name,
+                    binding.flat_index,
                     {
                         "family": get_positive_runtime_family_index(PriorDistributionFamily.GAMMA),
                         "concentration": (base_decay / sd) ** 2,
@@ -1047,26 +1179,46 @@ def compile_priors(
                 )
                 continue
 
-            if param_name in offdiag_param_index:
-                attr, idx = offdiag_param_index[param_name]
+            if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
                 if parameter_layout is None or ssm_spec is None:
                     raise ValueError(
-                        "Cross-lag prior compilation requires a translated SSMSpec runtime."
+                        "Dynamics effect prior compilation requires a translated SSMSpec runtime."
                     )
-                dt = _resolve_cross_lag_interval_days(
-                    param_name=param_name,
-                    prior_spec=prior_spec,
-                    flat_index=idx,
-                    parameter_layout=parameter_layout,
-                    ssm_spec=ssm_spec,
-                    edge_lag_days=edge_lag_days,
-                    causal_spec=causal_spec,
-                )
-                offdiag_interval_days[idx] = dt
+                if binding.site_kind == SiteKind.INPUT_EFFECT:
+                    ref_days = prior_spec.get("reference_interval_days")
+                    resolved_ref_days = float(ref_days) if ref_days is not None else None
+                    if resolved_ref_days is not None and resolved_ref_days <= 0:
+                        errors.append(
+                            f"Known-input effect prior '{param_name}' reference_interval_days "
+                            f"must be positive, got {resolved_ref_days:.3g}"
+                        )
+                        continue
+                    dt = (
+                        resolved_ref_days
+                        if resolved_ref_days is not None
+                        else get_construct_dt_days(causal_spec)
+                    )
+                elif binding.effect_idx is not None and binding.cause_idx is not None:
+                    dt = _resolve_cross_lag_interval_days(
+                        param_name=param_name,
+                        prior_spec=prior_spec,
+                        flat_index=binding.flat_index,
+                        parameter_layout=parameter_layout,
+                        ssm_spec=ssm_spec,
+                        edge_lag_days=edge_lag_days,
+                        causal_spec=causal_spec,
+                        effect_idx=binding.effect_idx,
+                        cause_idx=binding.cause_idx,
+                    )
+                    offdiag_interval_days[binding.flat_index] = dt
+                else:
+                    raise ValueError(
+                        f"Dynamics effect prior {param_name!r} is missing effect/cause metadata."
+                    )
                 _append_structured_prior(
-                    per_element,
-                    attr,
-                    idx,
+                    per_site,
+                    binding.site_name,
+                    binding.flat_index,
                     {
                         "mu": normalized.get("mu", 0.0) / dt,
                         "sigma": normalized.get("sigma", 0.5) / dt,
@@ -1074,106 +1226,20 @@ def compile_priors(
                 )
                 continue
 
-            if param_name in input_effect_param_index:
-                attr, idx = input_effect_param_index[param_name]
-                ref_days = prior_spec.get("reference_interval_days")
-                resolved_ref_days = float(ref_days) if ref_days is not None else None
-                if resolved_ref_days is not None and resolved_ref_days <= 0:
-                    errors.append(
-                        f"Known-input effect prior '{param_name}' reference_interval_days "
-                        f"must be positive, got {resolved_ref_days:.3g}"
-                    )
-                    continue
-                dt = (
-                    resolved_ref_days
-                    if resolved_ref_days is not None
-                    else get_construct_dt_days(causal_spec)
-                )
+            if binding.transform == PriorAuthoringTransform.INITIAL_STATE_CORRELATION:
                 _append_structured_prior(
-                    per_element,
-                    attr,
-                    idx,
-                    {
-                        "mu": normalized.get("mu", 0.0) / dt,
-                        "sigma": normalized.get("sigma", 0.5) / dt,
-                    },
-                )
-                continue
-
-            if param_name in lambda_param_index:
-                attr, idx = lambda_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in cint_param_index:
-                attr, idx = cint_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in static_state_sd_param_index:
-                attr, idx = static_state_sd_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in manifest_mean_param_index:
-                attr, idx = manifest_mean_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in manifest_var_param_index:
-                attr, idx = manifest_var_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in diffusion_diag_param_index:
-                attr, idx = diffusion_diag_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in t0_mean_param_index:
-                attr, idx = t0_mean_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in t0_sd_param_index:
-                attr, idx = t0_sd_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in diffusion_offdiag_param_index:
-                attr, idx = diffusion_offdiag_param_index[param_name]
-                _append_structured_prior(per_element, attr, idx, normalized)
-                continue
-
-            if param_name in t0_offdiag_param_index:
-                attr, idx = t0_offdiag_param_index[param_name]
-                _append_structured_prior(
-                    per_element,
-                    attr,
-                    idx,
+                    per_site,
+                    binding.site_name,
+                    binding.flat_index,
                     _coerce_initial_state_correlation_prior(normalized),
                 )
                 continue
 
-            if param_name in observation_site_param_index:
-                attr, _idx = observation_site_param_index[param_name]
-                site = site_by_name.get(attr)
-                if site is None:
-                    raise ValueError(f"Observation prior {param_name!r} maps to inactive site {attr!r}.")
-                prior_entries[attr] = _site_prior_from_normalized(site.support, dict(normalized))
-                continue
-
-            role = role_by_name.get(param_name)
-            if role is not None:
-                errors.append(
-                    f"Prior {param_name!r} with role {role.value!r} could not be structurally "
-                    "bound to the compiled SSM. Compile priors with a translated SSMSpec that "
-                    "matches the ModelSpec."
-                )
-                continue
-
-            errors.append(
-                f"Prior {param_name!r} does not correspond to any parameter in ModelSpec."
+            _append_structured_prior(
+                per_site,
+                binding.site_name,
+                binding.flat_index,
+                normalized,
             )
         except ValueError as exc:
             errors.append(str(exc))
@@ -1182,13 +1248,13 @@ def compile_priors(
     if errors:
         raise PriorCompilationError(errors)
 
-    for attr, entries in per_element.items():
-        site = _site_by_prior_field(active_sites, attr)
+    for site_name, entries in per_site.items():
+        site = site_by_name.get(site_name)
         if site is None:
-            raise ValueError(f"Prior field {attr!r} maps to no active sample site.")
+            raise ValueError(f"Prior site {site_name!r} maps to no active sample site.")
         current_prior = prior_entries[site.name]
         current = _normalized_params_for_site_prior(site.support, current_prior)
-        result = build_array_prior_payload(attr, entries, current, ssm_spec)
+        result = _build_site_prior_payload(site, entries, current)
         prior_entries[site.name] = _site_prior_from_normalized(site.support, result)
 
     prior_registry = PriorRegistry(prior_entries)
@@ -1204,58 +1270,27 @@ def compile_priors(
         )
         _log_compile_diagnostics(diagnostics)
 
-    return prior_registry, index_maps, diagnostics
+    return prior_registry, bindings, diagnostics
 
 
-def bind_parameters(index_maps: PriorIndexMaps, ssm_spec: SSMSpec) -> list[dict[str, Any]]:
+def bind_parameters(
+    bindings: SemanticBindingRegistry,
+    ssm_spec: SSMSpec,  # noqa: ARG001 - retained so call sites document spec provenance
+) -> list[dict[str, Any]]:
     """Map semantic parameter names to NumPyro sample sites."""
-    (
-        offdiag_index,
-        lambda_index,
-        diag_index,
-        diffusion_diag_index,
-        diffusion_offdiag_index,
-        input_effect_index,
-        t0_offdiag_index,
-        t0_mean_index,
-        t0_sd_index,
-        manifest_mean_index,
-        manifest_var_index,
-        cint_index,
-        static_state_sd_index,
-        observation_site_index,
-    ) = index_maps
-
-    bindings: list[dict[str, Any]] = []
-    active_sites = build_site_registry(ssm_spec)
-    ordered_maps = (
-        diag_index,
-        offdiag_index,
-        input_effect_index,
-        diffusion_diag_index,
-        cint_index,
-        static_state_sd_index,
-        t0_mean_index,
-        t0_sd_index,
-        diffusion_offdiag_index,
-        t0_offdiag_index,
-        lambda_index,
-        manifest_mean_index,
-        manifest_var_index,
-        observation_site_index,
-    )
-    for mapping in ordered_maps:
-        for param_name, (prior_field, flat_index) in sorted(mapping.items()):
-            site = _site_by_prior_field(active_sites, prior_field)
-            if site is None:
-                continue
-            bindings.append(
-                {
-                    "parameter": param_name,
-                    "site_name": site.name,
-                    "flat_index": flat_index,
-                }
-            )
-
-    bindings.sort(key=lambda entry: str(entry["parameter"]))
-    return bindings
+    return [
+        {
+            "parameter": binding.parameter_name,
+            "site_name": binding.site_name,
+            "prior_field": binding.prior_field,
+            "flat_index": binding.flat_index,
+            "site_kind": binding.site_kind.value,
+            "transform": binding.transform.value,
+            "construct_names": list(binding.construct_names),
+            "indicator_names": list(binding.indicator_names),
+            "component_index": binding.component_index,
+            "effect_idx": binding.effect_idx,
+            "cause_idx": binding.cause_idx,
+        }
+        for binding in sorted(bindings.bindings, key=lambda item: item.parameter_name)
+    ]

@@ -191,6 +191,23 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         note="Causal effects can be positive or negative; unconstrained",
     ),
     ParameterRoleSpec(
+        role="dynamics_parameter",
+        symbol="theta",
+        count="One per real-valued component-owned dynamics parameter",
+        constraint="none",
+        ssm_location="Component dynamics site",
+        note="Used for nonlinear dynamics components whose parameters are owned by "
+        "component sample sites rather than dense drift matrix entries.",
+    ),
+    ParameterRoleSpec(
+        role="dynamics_parameter_positive",
+        symbol="theta+",
+        count="One per positive component-owned dynamics parameter",
+        constraint="positive",
+        ssm_location="Component dynamics site",
+        note="Used for positive nonlinear dynamics parameters such as Hill Emax and EC50.",
+    ),
+    ParameterRoleSpec(
         role="residual_sd",
         symbol="sigma",
         count="One per construct",

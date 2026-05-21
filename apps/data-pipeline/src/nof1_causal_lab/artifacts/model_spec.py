@@ -45,6 +45,8 @@ class ParameterRole(StrEnum):
 
     FIXED_EFFECT = "fixed_effect"
     AR_COEFFICIENT = "ar_coefficient"
+    DYNAMICS_PARAMETER = "dynamics_parameter"
+    DYNAMICS_PARAMETER_POSITIVE = "dynamics_parameter_positive"
     RESIDUAL_SD = "residual_sd"
     STATE_INTERCEPT = "state_intercept"
     OBSERVATION_INTERCEPT = "observation_intercept"
