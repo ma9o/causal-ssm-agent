@@ -22,10 +22,18 @@ from numpyro import handlers
 
 from nof1_causal_lab.models.ssm.autoreparam import fixed_autoreparam_centering
 from nof1_causal_lab.models.ssm.constants import INTERNAL_DIAGNOSTIC_SITES, MIN_DT
+from nof1_causal_lab.models.ssm.covariance_utils import (
+    INITIAL_STATE_COV_MIN_EIGENVALUE,
+    stabilize_covariance_for_cholesky,
+)
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    compile_composite,
+    pack_component_params_from_samples,
+)
 from nof1_causal_lab.models.ssm.inference.targets.base import (
-    CTParams,
     InitialStateParams,
     MeasurementParams,
+    RuntimeDynamics,
 )
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import (
@@ -300,16 +308,79 @@ def _assemble_single_deterministics(
     return {name: value[0] for name, value in det.items()}
 
 
+def _assemble_single_likelihood_deterministics(
+    samples: dict[str, jnp.ndarray],
+    spec: SSMSpec,
+) -> dict[str, jnp.ndarray]:
+    """Assemble one draw's non-drift SSM pieces plus structural drift pieces."""
+    from nof1_causal_lab.models.ssm.dynamics.composite import (
+        StructuralDenseLinearSpec,
+        StructuralInterceptSpec,
+    )
+
+    det: dict[str, jnp.ndarray] = {}
+    for idx, component in enumerate(spec.drift_spec.components):
+        prefix = f"vf_{idx}"
+        if isinstance(component, StructuralDenseLinearSpec):
+            det[component.drift_deterministic_name(prefix)] = component.assemble_drift(
+                samples.get(component.base_decay_site_name(prefix)),
+                samples.get(component.offdiag_site_name(prefix)),
+            )
+        elif isinstance(component, StructuralInterceptSpec):
+            det[component.cint_deterministic_name(prefix)] = component.assemble_cint(
+                samples.get(component.cint_site_name(prefix))
+            )
+
+    det["diffusion"] = spec.diffusion_block.assemble(
+        samples.get("diffusion_diag_free"),
+        samples.get("diffusion_lower_free"),
+    )
+    det["input_effect"] = spec.input_effect_block.assemble(
+        samples.get("input_effect_free")
+    )
+    det["static_state_sds"] = spec.static_state_sd_block.assemble(
+        samples.get("static_state_sd_free")
+    )
+    det["lambda"] = spec.lambda_block.assemble(samples.get("lambda_free"))
+    det["manifest_means"] = spec.manifest_means_block.assemble(
+        samples.get("manifest_means_free")
+    )
+    manifest_chol = spec.manifest_chol_block.assemble(
+        samples.get("manifest_var_diag_free")
+    )
+    det["manifest_cov"] = manifest_chol @ manifest_chol.T
+    det["t0_means"] = spec.t0_means_block.assemble(samples.get("t0_means_free"))
+
+    t0_cov = spec.t0_chol_block.assemble_cov(
+        samples.get("t0_var_diag_free"),
+        samples.get("t0_var_lower_free"),
+    )
+    static_sds = det["static_state_sds"]
+    if static_sds.size:
+        loadings = jnp.asarray(spec.static_factor_loadings)
+        t0_cov = t0_cov + loadings @ jnp.diag(static_sds**2) @ loadings.T
+    stable_cov, _ = stabilize_covariance_for_cholesky(
+        0.5 * (t0_cov + t0_cov.T),
+        min_eigenvalue=INITIAL_STATE_COV_MIN_EIGENVALUE,
+    )
+    det["t0_cov"] = stable_cov
+    return det
+
+
 def _deterministics_to_likelihood_inputs(
+    spec: SSMSpec,
+    samples: dict[str, jnp.ndarray],
     det: dict[str, jnp.ndarray],
-) -> tuple[CTParams, MeasurementParams, InitialStateParams]:
+) -> tuple[RuntimeDynamics, MeasurementParams, InitialStateParams]:
     """Convert one deterministic draw into backend parameter dataclasses."""
     diffusion_chol = det["diffusion"]
+    compiled = compile_composite(spec.drift_spec)
+    vf_params = pack_component_params_from_samples(spec.drift_spec, samples, det)
     return (
-        CTParams(
-            drift=det["drift"],
+        RuntimeDynamics(
+            vector_field=compiled.vector_field,
+            vf_params=vf_params,
             diffusion_cov=diffusion_chol @ diffusion_chol.T,
-            cint=det["cint"],
             input_effect=det.get("input_effect"),
         ),
         MeasurementParams(
@@ -329,16 +400,19 @@ def _assemble_likelihood_inputs(
     spec: SSMSpec,
     registry=None,
     parameter_layout: SSMParameterLayout | None = None,
-) -> tuple[CTParams, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
+) -> tuple[RuntimeDynamics, MeasurementParams, InitialStateParams, dict[str, jnp.ndarray] | None]:
     """Build backend-ready parameter tuples from constrained sample sites."""
     if parameter_layout is None:
         parameter_layout = SSMParameterLayout.from_spec(spec)
-    det = _assemble_single_deterministics(
+    det = _assemble_single_likelihood_deterministics(
         samples,
         spec,
-        parameter_layout=parameter_layout,
     )
-    ct_params, measurement_params, initial_state = _deterministics_to_likelihood_inputs(det)
+    dynamics, measurement_params, initial_state = _deterministics_to_likelihood_inputs(
+        spec,
+        samples,
+        det,
+    )
 
     runtime_registry = (
         registry if registry is not None else build_site_registry(spec, parameter_layout)
@@ -346,7 +420,7 @@ def _assemble_likelihood_inputs(
     extra_params = assemble_extra_params_from_registry(spec, samples, runtime_registry)
 
     return (
-        ct_params,
+        dynamics,
         measurement_params,
         initial_state,
         extra_params or None,
@@ -534,7 +608,7 @@ def _build_eval_fns(
         """Log-likelihood p(y|theta) via the configured backend only."""
         con, _ = _constrain(z)
         original_samples = con if sample_resolver is None else sample_resolver(con)
-        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
             original_samples,
             model.spec,
             registry=runtime_registry,
@@ -543,7 +617,7 @@ def _build_eval_fns(
         time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
         if latent_mode_init is None:
             lnc = likelihood_backend.compute_log_likelihood(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 observations,
@@ -553,7 +627,7 @@ def _build_eval_fns(
             )
         else:
             lnc = likelihood_backend.compute_log_likelihood(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 observations,
@@ -569,7 +643,7 @@ def _build_eval_fns(
         """Runtime-argument log-likelihood p(y|theta)."""
         con, _ = _constrain(z)
         original_samples = con if sample_resolver is None else sample_resolver(con)
-        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
             original_samples,
             model.spec,
             registry=runtime_registry,
@@ -583,7 +657,7 @@ def _build_eval_fns(
         )
         if latent_mode_init is None:
             lnc = likelihood_backend.compute_log_likelihood(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 runtime_observations,
@@ -593,7 +667,7 @@ def _build_eval_fns(
             )
         else:
             lnc = likelihood_backend.compute_log_likelihood(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 runtime_observations,
@@ -614,7 +688,7 @@ def _build_eval_fns(
         """Log-likelihood p(y|theta) plus a fixed-shape backend aux payload."""
         con, _ = _constrain(z)
         original_samples = con if sample_resolver is None else sample_resolver(con)
-        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
             original_samples,
             model.spec,
             registry=runtime_registry,
@@ -623,7 +697,7 @@ def _build_eval_fns(
         time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
         if latent_mode_init is None:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 observations,
@@ -633,7 +707,7 @@ def _build_eval_fns(
             )
         else:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 observations,
@@ -655,7 +729,7 @@ def _build_eval_fns(
         """Runtime-argument log-likelihood p(y|theta) plus fixed-shape aux."""
         con, _ = _constrain(z)
         original_samples = con if sample_resolver is None else sample_resolver(con)
-        ct_params, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+        dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
             original_samples,
             model.spec,
             registry=runtime_registry,
@@ -669,7 +743,7 @@ def _build_eval_fns(
         )
         if latent_mode_init is None:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 runtime_observations,
@@ -679,7 +753,7 @@ def _build_eval_fns(
             )
         else:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
-                ct_params,
+                dynamics,
                 measurement_params,
                 initial_state,
                 runtime_observations,
@@ -710,5 +784,3 @@ def _build_eval_fns(
     if include_likelihood_aux:
         return log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn
     return log_lik_fn, log_prior_unc_fn
-
-

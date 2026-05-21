@@ -42,20 +42,15 @@ def linear_vector_field(n_latent: int) -> CompositeVectorField:
     (``DenseLinear`` + ``Intercept``) shape via
     :func:`_two_component_linear_vector_field` and the vmap-ified composite
     consumers. This single-component factory remains as a test utility
-    for code paths that build params as ``({"drift": A, "cint": c},)``
-    (the legacy dense posterior shape). New code should use the
-    two-component shape to stay aligned with the auto-built ``drift_spec``.
+    for code paths that build params as ``({"drift": A, "cint": c},)``.
+    New code should use the two-component shape to stay aligned with the
+    component-owned ``drift_spec``.
 
     The returned field has one ``DenseLinear`` component; callers pass
     ``params=({"drift": A, "cint": c},)`` via :func:`_linear_params`.
 
     Note: this is intentionally *not* the same shape as the two-component
-    ``drift_spec`` that :meth:`SSMSpec.__post_init__` auto-builds. The
-    two coexist by design — this factory matches the legacy dense
-    posterior shape consumed by ``compute_interventions`` and
-    Stage 6 ``tool_server`` dispatch, where ``samples["drift"]`` and
-    ``samples["cint"]`` come back as separate stacked arrays and are
-    vmapped together as a single dict.
+    ``drift_spec`` that :meth:`SSMSpec.__post_init__` auto-builds.
     """
     return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
 
@@ -146,7 +141,7 @@ def compute_interventions(
     """Compute intervention effects for all treatments from posterior samples.
 
     Thin adapter over :func:`compute_interventions_composite`. Converts
-    linear posterior samples (stacked ``(drift, cint)`` arrays) into the
+    affine posterior samples (stacked ``(drift, cint)`` arrays) into the
     canonical per-draw composite param shape and delegates. The composite
     path uses ``jax.vmap`` internally so the linear case preserves
     vectorisation.
@@ -161,15 +156,16 @@ def compute_interventions(
         logger.warning("Outcome '%s' not found in latent names %s", outcome, latent_names)
         return [_skeleton(t) for t in treatments]
 
-    drift_draws = samples.get("drift")
+    drift_draws = samples.get("vf_0_drift")
     if drift_draws is None:
-        logger.warning("No 'drift' in posterior samples")
+        logger.warning("No 'vf_0_drift' in posterior samples")
         return [_skeleton(t) for t in treatments]
 
     n_latent = int(drift_draws.shape[-1])
-    cint_draws = samples.get("cint")
+    cint_draws = samples.get("vf_1_cint_full")
     if cint_draws is None:
-        cint_draws = jnp.zeros((drift_draws.shape[0], n_latent))
+        logger.warning("No 'vf_1_cint_full' in posterior samples")
+        return [_skeleton(t) for t in treatments]
 
     lambda_draws = samples.get("lambda")
     lambda_mean: jnp.ndarray | None = None

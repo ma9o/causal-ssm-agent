@@ -190,9 +190,8 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
 
     Priors are stored on the spec as the original dict-configs (not
     materialised). Materialisation to ``numpyro.Distribution`` happens
-    lazily inside ``sample_params`` via the polymorphic ``_resolve_prior``
-    helper — this lets ``composite_spec_to_dict`` round-trip the spec
-    back to JSON without needing an inverse of ``materialize_prior``.
+    lazily inside ``sample_params`` via ``resolve_prior_distribution``,
+    so ``composite_spec_to_dict`` can round-trip the spec back to JSON.
     """
     kind = component["kind"]
     priors = component.get("priors", {})

@@ -14,7 +14,7 @@ from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameter_names import (
     INITIAL_STATE_CORRELATION_KEYWORDS,
 )
-from nof1_causal_lab.models.ssm.priors import SITE_NAME_FOR_PRIOR_FIELD
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -42,20 +42,17 @@ def empty_prior_index_maps() -> PriorIndexMaps:
     return ({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {})
 
 
-SAMPLE_SITE_FOR_PRIOR_FIELD: dict[str, str] = SITE_NAME_FOR_PRIOR_FIELD
-
 SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "drift_base_decay": ["rho", "ar"],
-    "drift_base_decay_free": ["rho", "ar"],
+    "base_decay": ["rho", "ar"],
     "drift_offdiag": ["beta"],
-    "drift_offdiag_free": ["beta"],
+    "offdiag": ["beta"],
     "input_effect": ["beta"],
     "input_effect_free": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
     "diffusion_diag_free": ["sigma", "sd"],
     "diffusion_lower_free": ["cor"],
     "cint": ["cint"],
-    "cint_free": ["cint"],
     "static_state_sd": ["tau", "baseline_factor"],
     "static_state_sd_free": ["tau", "baseline_factor"],
     "lambda_free": ["lambda", "loading"],
@@ -124,11 +121,14 @@ def resolve_scalar_parameter_name(
         spec.manifest_names, expected=spec.n_manifest, prefix="manifest"
     )
 
-    if site_name == "drift_base_decay_free" and flat_index < parameter_layout.n_drift_base_decay:
-        latent_idx = parameter_layout.drift_base_decay_positions[flat_index]
+    site = parameter_layout.by_name.get(site_name)
+    site_kind = site.site_kind if site is not None else None
+
+    if site_kind == SiteKind.DRIFT_BASE_DECAY and flat_index < len(site.positions):
+        latent_idx = site.positions[flat_index]
         return f"rho_{latent_names[latent_idx]}"
-    if site_name == "drift_offdiag_free" and flat_index < parameter_layout.n_drift_offdiag:
-        effect_idx, cause_idx = parameter_layout.offdiag_positions[flat_index]
+    if site_kind == SiteKind.DRIFT_OFFDIAG and flat_index < len(site.positions):
+        effect_idx, cause_idx = site.positions[flat_index]
         return f"beta_{latent_names[cause_idx]}_{latent_names[effect_idx]}"
     if site_name == "input_effect_free" and flat_index < parameter_layout.n_input_effect:
         effect_idx, input_idx = parameter_layout.input_effect_positions[flat_index]
@@ -144,8 +144,8 @@ def resolve_scalar_parameter_name(
     if site_name == "diffusion_lower_free" and flat_index < parameter_layout.n_diffusion_lower:
         row, col = parameter_layout.diffusion_lower_positions[flat_index]
         return f"cor_{latent_names[col]}_{latent_names[row]}"
-    if site_name == "cint_free" and flat_index < parameter_layout.n_cint:
-        latent_idx = parameter_layout.cint_free_positions[flat_index]
+    if site_kind == SiteKind.CINT and flat_index < len(site.positions):
+        latent_idx = site.positions[flat_index]
         return f"cint_{latent_names[latent_idx]}"
     if site_name == "lambda_free" and flat_index < parameter_layout.n_lambda_free:
         manifest_idx, latent_idx = parameter_layout.lambda_free_positions[flat_index]

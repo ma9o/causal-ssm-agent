@@ -215,7 +215,7 @@ class TestPriorPredictiveValidation:
 
         with patch(
             "nof1_causal_lab.models.ssm.builder.SSMModelBuilder.sample_prior_predictive",
-            return_value={"drift_base_decay_free": np.ones((2, 1))},
+            return_value={"vf_0_base_decay": np.ones((2, 1))},
         ):
             is_valid, results, _samples = validate_prior_predictive(
                 model_spec, priors, None, n_samples=2
@@ -397,7 +397,7 @@ class TestPriorPredictiveValidation:
         class _DummyBuilder:
             def sample_prior_predictive(self, samples: int = 500):
                 return {
-                    "drift_base_decay_free": np.ones((samples, 1)),
+                    "vf_0_base_decay": np.ones((samples, 1)),
                     "observations": np.random.default_rng(0).normal(
                         loc=5.0,
                         scale=1.5,
@@ -610,7 +610,7 @@ class TestPriorPredictiveValidation:
                         "is_runtime_prior_controlled": True,
                     },
                     {
-                        "name": "drift_offdiag_free",
+                        "name": "vf_0_offdiag",
                         "shape": [1],
                         "support": "real",
                         "assembly_group": "drift",
@@ -619,7 +619,7 @@ class TestPriorPredictiveValidation:
                         "deterministic_name": "drift",
                         "fixed_spec_field": "drift",
                         "priors_field": "drift_offdiag",
-                        "runtime_prior_key": "drift_offdiag_free",
+                        "runtime_prior_key": "vf_0_offdiag",
                         "is_runtime_prior_controlled": True,
                     },
                 ],
@@ -631,7 +631,7 @@ class TestPriorPredictiveValidation:
                         "concentration": [1.0],
                         "rate": [1.0],
                     },
-                    "drift_offdiag_free": {
+                    "vf_0_offdiag": {
                         "family": 2,
                         "loc": [0.0],
                         "scale": [0.3],
@@ -644,7 +644,7 @@ class TestPriorPredictiveValidation:
                 {"parameter": "sigma_mood", "site_name": "diffusion_diag_free", "flat_index": 0},
                 {
                     "parameter": "cor_stress_sleep",
-                    "site_name": "drift_offdiag_free",
+                    "site_name": "vf_0_offdiag",
                     "flat_index": 0,
                 },
             ],
@@ -670,7 +670,7 @@ class TestPriorPredictiveValidation:
                 "schema_version": 5,
                 "site_registry": [
                     {
-                        "name": "drift_offdiag_free",
+                        "name": "vf_0_offdiag",
                         "shape": [1],
                         "support": "real",
                         "assembly_group": "drift",
@@ -679,12 +679,12 @@ class TestPriorPredictiveValidation:
                         "deterministic_name": "drift",
                         "fixed_spec_field": "drift",
                         "priors_field": "drift_offdiag",
-                        "runtime_prior_key": "drift_offdiag_free",
+                        "runtime_prior_key": "vf_0_offdiag",
                         "is_runtime_prior_controlled": True,
                     }
                 ],
                 "prior_state": {
-                    "drift_offdiag_free": {
+                    "vf_0_offdiag": {
                         "family": [0],
                         "loc": [0.15],
                         "scale": [0.4],
@@ -694,7 +694,7 @@ class TestPriorPredictiveValidation:
                 },
             },
             "parameter_bindings": [
-                {"parameter": "beta_sleep_mood", "site_name": "drift_offdiag_free", "flat_index": 0}
+                {"parameter": "beta_sleep_mood", "site_name": "vf_0_offdiag", "flat_index": 0}
             ],
         }
 
@@ -831,7 +831,7 @@ class TestSSMPriorConversion:
         # Beta(2,2): E[X] = 0.5 → base decay mean = -ln(0.5)/1.0 ≈ 0.693.
         # The compiler stores the positive base-decay prior as a Gamma moment match.
         expected_mu = -math.log(0.5) / 1.0
-        base_decay_prior = _prior_params(ssm_priors, "drift_base_decay_free")
+        base_decay_prior = _prior_params(ssm_priors, "vf_0_base_decay")
         concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
         rate = np.asarray(base_decay_prior["rate"], dtype=float)
         mu_val = float((concentration / rate).reshape(-1)[0])
@@ -1102,7 +1102,7 @@ class TestSSMPriorConversion:
         )
 
         # Both should produce per-element arrays, not scalars.
-        base_decay_prior = _prior_params(ssm_priors, "drift_base_decay_free")
+        base_decay_prior = _prior_params(ssm_priors, "vf_0_base_decay")
         concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
         rate = np.asarray(base_decay_prior["rate"], dtype=float)
         base_decay_mean = concentration / rate
@@ -1164,7 +1164,7 @@ class TestSSMPriorConversion:
         # base-decay mean = -ln(0.5) / (1/24) = 0.693 * 24 ≈ 16.64
         dt_hourly = 1.0 / 24.0
         expected_mu = -math.log(0.5) / dt_hourly
-        base_decay_prior = _prior_params(ssm_priors, "drift_base_decay_free")
+        base_decay_prior = _prior_params(ssm_priors, "vf_0_base_decay")
         concentration = np.asarray(base_decay_prior["concentration"], dtype=float)
         rate = np.asarray(base_decay_prior["rate"], dtype=float)
         mu_val = float((concentration / rate).reshape(-1)[0])
@@ -1230,7 +1230,7 @@ class TestSSMPriorConversion:
         )
 
         # Resolved 1d lag metadata: beta_CT = beta_DT / dt = 0.3 / 1 = 0.3
-        mu = _prior_params(ssm_priors, "drift_offdiag_free")["mu"]
+        mu = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - 0.3) < 0.01
 
@@ -1508,7 +1508,7 @@ class TestSSMPriorConversion:
         # Hourly dt = 1/24 → beta_CT = 0.3 / (1/24) = 7.2
         dt_hourly = 1.0 / 24.0
         expected_mu = 0.3 / dt_hourly  # 7.2
-        mu = _prior_params(ssm_priors, "drift_offdiag_free")["mu"]
+        mu = _prior_params(ssm_priors, "vf_0_offdiag")["mu"]
         mu_val = mu[0] if isinstance(mu, list) else mu
         assert abs(mu_val - expected_mu) < 0.5
 

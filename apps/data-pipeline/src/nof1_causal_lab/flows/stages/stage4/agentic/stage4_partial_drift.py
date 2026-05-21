@@ -17,7 +17,9 @@ from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     compile_priors,
     logm_diagnostic_mean_drift,
 )
+from nof1_causal_lab.models.ssm.dynamics.composite import StructuralDenseLinearSpec
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind
 from nof1_causal_lab.workers.schemas_prior import (
     PriorPathologyCertificate,
     PriorValidationResult,
@@ -140,7 +142,10 @@ def _build_partial_drift_state(
     diag_sigma = np.zeros(len(latent_names), dtype=float)
     diag_present = np.zeros(len(latent_names), dtype=bool)
     diag_parameter_by_index: dict[int, str] = {}
-    base_decay_prior = prior_registry.priors_by_site["drift_base_decay_free"]
+    base_decay_site = parameter_layout.site_by_kind(SiteKind.DRIFT_BASE_DECAY)
+    if base_decay_site is None:
+        return None
+    base_decay_prior = prior_registry.priors_by_site[base_decay_site.name]
     base_decay_mu = _positive_prior_mean_values(base_decay_prior)
     for parameter_name in drift_priors:
         if parameter_name not in diag_param_index:
@@ -158,7 +163,10 @@ def _build_partial_drift_state(
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_present = np.zeros(len(offdiag_positions), dtype=bool)
     offdiag_parameter_by_index: dict[int, str] = {}
-    drift_offdiag_prior = prior_registry.priors_by_site["drift_offdiag_free"]
+    drift_offdiag_site = parameter_layout.site_by_kind(SiteKind.DRIFT_OFFDIAG)
+    if drift_offdiag_site is None:
+        return None
+    drift_offdiag_prior = prior_registry.priors_by_site[drift_offdiag_site.name]
     drift_offdiag_mu = np.asarray(drift_offdiag_prior.params.get("mu", []), dtype=float)
     drift_offdiag_sigma = np.asarray(drift_offdiag_prior.params.get("sigma", []), dtype=float)
     offdiag_param_index = index_maps[0]
@@ -187,7 +195,11 @@ def _build_partial_drift_state(
             effect_idx, cause_idx = offdiag_positions[flat_index]
             offdiag_mu[flat_index] = float(diagnostic_drift[effect_idx, cause_idx])
 
-    drift_component, _ = ssm_spec.structural_drift_components()
+    drift_component = next(
+        component
+        for component in ssm_spec.drift_spec.components
+        if isinstance(component, StructuralDenseLinearSpec)
+    )
 
     return _PartialDriftState(
         latent_names=latent_names,

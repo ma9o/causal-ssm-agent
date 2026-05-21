@@ -26,7 +26,7 @@ class TestCompiledPriorPredictiveRuntime:
 
         assert samples["observations"].shape == (10, 12, 10)
         assert samples["observations_mask"].shape == (10, 12, 10)
-        assert bool(jnp.isfinite(samples["drift"]).all())
+        assert bool(jnp.isfinite(samples["vf_0_drift"]).all())
         assert bool(jnp.isfinite(samples["diffusion"]).all())
         assert bool(jnp.isfinite(samples["observations"]).all())
         assert bool(samples["observations_mask"].all())

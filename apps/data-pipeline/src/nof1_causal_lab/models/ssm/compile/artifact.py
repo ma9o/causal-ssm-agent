@@ -28,6 +28,7 @@ from nof1_causal_lab.artifacts.model_spec import (
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 logger = get_prefect_logger(__name__)
 
@@ -251,6 +252,11 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             template=_float_array(block, "template"),
             free_site_name=str(block["free_site_name"]),
             det_site_name=str(block["det_site_name"]),
+            support=SupportClass(block["support"]),
+            site_kind=SiteKind(block["site_kind"]),
+            assembly_group=str(block["assembly_group"]),
+            fixed_spec_field=str(block["fixed_spec_field"]),
+            priors_field=str(block["priors_field"]),
             prior=block.get("prior"),
         )
 
@@ -261,6 +267,11 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
             template=_float_array(block, "template"),
             free_site_name=str(block["free_site_name"]),
             det_site_name=str(block["det_site_name"]),
+            support=SupportClass(block["support"]),
+            site_kind=SiteKind(block["site_kind"]),
+            assembly_group=str(block["assembly_group"]),
+            fixed_spec_field=str(block["fixed_spec_field"]),
+            priors_field=str(block["priors_field"]),
             prior=block.get("prior"),
         )
 

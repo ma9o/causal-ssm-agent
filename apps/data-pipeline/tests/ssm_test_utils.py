@@ -28,6 +28,7 @@ from nof1_causal_lab.models.ssm.structure import (
     default_t0_chol_block,
     default_t0_means_block,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.dynamics.composite import CompositeSpec
@@ -93,6 +94,11 @@ def make_lgss_data(
             template=jnp.eye(n_manifest, n_latent),
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         ),
         manifest_means_block=default_manifest_means_block(n_manifest),
         manifest_chol_block=default_manifest_chol_block(n_manifest),
@@ -102,6 +108,11 @@ def make_lgss_data(
             template=jnp.zeros(n_latent),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.T0_MEANS,
+            assembly_group="t0",
+            fixed_spec_field="t0_means",
+            priors_field="t0_means",
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
@@ -226,6 +237,11 @@ def make_composite_ssm_model(
             template=jnp.asarray(H),
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
@@ -233,6 +249,11 @@ def make_composite_ssm_model(
             template=jnp.asarray(d_meas),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.MANIFEST_MEANS,
+            assembly_group="manifest",
+            fixed_spec_field="manifest_means",
+            priors_field="manifest_means",
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
@@ -245,6 +266,11 @@ def make_composite_ssm_model(
             template=jnp.asarray(init_mean),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.T0_MEANS,
+            assembly_group="t0",
+            fixed_spec_field="t0_means",
+            priors_field="t0_means",
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,

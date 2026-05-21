@@ -13,6 +13,8 @@ import numpyro.distributions as ndist
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
+
 from nof1_causal_lab.distributions import (
     PriorDistributionFamily,
     get_positive_runtime_kind_from_index,
@@ -58,12 +60,9 @@ class PriorRegistry:
 
 
 SITE_NAME_FOR_PRIOR_FIELD: dict[str, str] = {
-    "drift_base_decay": "drift_base_decay_free",
-    "drift_offdiag": "drift_offdiag_free",
     "diffusion_diag": "diffusion_diag_free",
     "diffusion_offdiag": "diffusion_lower_free",
     "input_effect": "input_effect_free",
-    "cint": "cint_free",
     "static_state_sd": "static_state_sd_free",
     "lambda_free": "lambda_free",
     "manifest_means": "manifest_means_free",
@@ -82,32 +81,32 @@ SITE_NAME_FOR_PRIOR_FIELD: dict[str, str] = {
     "proc_df": "proc_df",
 }
 
-DEFAULT_PRIOR_SPECS_BY_SITE: dict[str, PriorSpec] = {
-    "drift_base_decay_free": PriorSpec(
+DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
+    "drift_base_decay": PriorSpec(
         PriorDistributionFamily.GAMMA,
         {"concentration": 2.0, "rate": 4.0},
     ),
-    "drift_offdiag_free": PriorSpec(
+    "drift_offdiag": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 0.5},
     ),
-    "diffusion_diag_free": PriorSpec(
+    "diffusion_diag": PriorSpec(
         PriorDistributionFamily.HALF_NORMAL,
         {"sigma": 1.0},
     ),
-    "diffusion_lower_free": PriorSpec(
+    "diffusion_offdiag": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 0.5},
     ),
-    "cint_free": PriorSpec(
+    "cint": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 1.0},
     ),
-    "input_effect_free": PriorSpec(
+    "input_effect": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 0.5},
     ),
-    "static_state_sd_free": PriorSpec(
+    "static_state_sd": PriorSpec(
         PriorDistributionFamily.HALF_NORMAL,
         {"sigma": 1.0},
     ),
@@ -115,11 +114,11 @@ DEFAULT_PRIOR_SPECS_BY_SITE: dict[str, PriorSpec] = {
         PriorDistributionFamily.NORMAL,
         {"mu": 0.5, "sigma": 0.5},
     ),
-    "manifest_means_free": PriorSpec(
+    "manifest_means": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 2.0},
     ),
-    "manifest_var_diag_free": PriorSpec(
+    "manifest_var_diag": PriorSpec(
         PriorDistributionFamily.HALF_NORMAL,
         {"sigma": 1.0},
     ),
@@ -159,18 +158,23 @@ DEFAULT_PRIOR_SPECS_BY_SITE: dict[str, PriorSpec] = {
         PriorDistributionFamily.GAMMA,
         {"concentration": 5.0, "rate": 1.0},
     ),
-    "t0_means_free": PriorSpec(
+    "t0_means": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 2.0},
     ),
-    "t0_var_diag_free": PriorSpec(
+    "t0_var_diag": PriorSpec(
         PriorDistributionFamily.HALF_NORMAL,
         {"sigma": 2.0},
     ),
-    "t0_var_lower_free": PriorSpec(
+    "t0_var_offdiag": PriorSpec(
         PriorDistributionFamily.TRUNCATED_NORMAL,
         dict(INITIAL_STATE_CORRELATION_PRIOR_DEFAULTS),
     ),
+}
+
+DEFAULT_PRIOR_SPECS_BY_SITE: dict[str, PriorSpec] = {
+    site_name: DEFAULT_PRIOR_SPECS_BY_FIELD[prior_field]
+    for prior_field, site_name in SITE_NAME_FOR_PRIOR_FIELD.items()
 }
 
 
@@ -185,6 +189,19 @@ def default_prior_for_site(site_name: str) -> PriorSpec:
         return DEFAULT_PRIOR_SPECS_BY_SITE[site_name]
     except KeyError as exc:
         raise KeyError(f"No default prior registered for sample site {site_name!r}") from exc
+
+
+def default_prior_for_descriptor(site: SiteDescriptor) -> PriorSpec:
+    """Return the default prior for a descriptor-owned sample site."""
+    if site.priors_field is None:
+        return default_prior_for_site(site.name)
+    try:
+        return DEFAULT_PRIOR_SPECS_BY_FIELD[site.priors_field]
+    except KeyError as exc:
+        raise KeyError(
+            f"No default prior registered for prior field {site.priors_field!r} "
+            f"on sample site {site.name!r}"
+        ) from exc
 
 
 def _broadcast_prior_param(value: Any, shape: tuple[int, ...]):

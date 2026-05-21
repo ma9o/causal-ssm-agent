@@ -161,6 +161,7 @@ ignore_names = [
     "model",
     "model_config",
     "pytestmark",
+    "should_exit",
     "exc_type",
     "exc_val",
     "exc_tb",

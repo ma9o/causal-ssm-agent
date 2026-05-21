@@ -40,6 +40,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.inference.targets.kernels import (
     build_observation_kernel,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 
 def _gaussian_kernel(R):
@@ -241,6 +242,11 @@ class TestRuntimeFromSSMModel:
                 mask=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
                 free_site_name="lambda_free", det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=ManifestCholBlockSpec(
@@ -253,6 +259,11 @@ class TestRuntimeFromSSMModel:
                 mask=np.zeros(2, dtype=bool),
                 template=jnp.array([1.5, 0.0]),
                 free_site_name="t0_means_free", det_site_name="t0_means",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.T0_MEANS,
+                assembly_group="t0",
+                fixed_spec_field="t0_means",
+                priors_field="t0_means",
             ),
             t0_chol_block=T0CholBlockSpec(
                 n_latent=2,
@@ -287,6 +298,115 @@ class TestRuntimeFromSSMModel:
 
         np.testing.assert_allclose(runtime.init_mean, np.array([1.5, 0.0]))
         np.testing.assert_allclose(runtime.H, np.array([[0.0, 1.0]]))
+
+
+class TestSSMModelCompositeDispatch:
+    """The NumPyro model samples nonlinear drift and delegates at backend boundary."""
+
+    def test_nonlinear_drift_uses_vector_field_backend_method(self):
+        import numpyro
+        from numpyro import handlers
+
+        from nof1_causal_lab.models.ssm import SSMModel, SSMSpec
+        from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+        from nof1_causal_lab.models.ssm.structure import (
+            DiffusionBlockSpec,
+            ManifestCholBlockSpec,
+            SparseMatrixBlockSpec,
+            SparseVectorBlockSpec,
+            T0CholBlockSpec,
+            default_input_effect_block,
+            default_manifest_means_block,
+            default_static_state_sd_block,
+        )
+
+        class CompositeAwareBackend:
+            checkpoint_loglik = False
+
+            def compute_log_likelihood(
+                self,
+                dynamics,
+                _measurement_params,
+                _initial_state,
+                _observations,
+                time_intervals,
+                **_kwargs,
+            ):
+                assert isinstance(dynamics, RuntimeDynamics)
+                numpyro.deterministic(
+                    "backend_n_vf_components",
+                    jnp.asarray(len(dynamics.vf_params)),
+                )
+                numpyro.deterministic("backend_decay", dynamics.vf_params[0]["decay"])
+                return jnp.zeros_like(time_intervals)
+
+        spec = SSMSpec(
+            n_latent=2,
+            n_manifest=1,
+            drift_spec=CompositeSpec(
+                n_latent=2,
+                components=(
+                    DiagonalDecaySpec(decay_prior=ndist.Delta(jnp.array([0.3, 0.5]))),
+                ),
+            ),
+            diffusion_block=DiffusionBlockSpec(
+                n_latent=2,
+                diffusion_chol_mask=np.zeros((2, 2), dtype=bool),
+                diffusion_chol_template=jnp.eye(2) * 0.1,
+            ),
+            lambda_block=SparseMatrixBlockSpec(
+                n_rows=1,
+                n_cols=2,
+                mask=np.zeros((1, 2), dtype=bool),
+                template=jnp.array([[1.0, 0.0]]),
+                free_site_name="lambda_free",
+                det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
+            ),
+            manifest_means_block=default_manifest_means_block(1),
+            manifest_chol_block=ManifestCholBlockSpec(
+                n_manifest=1,
+                diag_mask=np.zeros(1, dtype=bool),
+                template=jnp.array([[0.2]]),
+            ),
+            t0_means_block=SparseVectorBlockSpec(
+                n=2,
+                mask=np.zeros(2, dtype=bool),
+                template=jnp.zeros(2),
+                free_site_name="t0_means_free",
+                det_site_name="t0_means",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.T0_MEANS,
+                assembly_group="t0",
+                fixed_spec_field="t0_means",
+                priors_field="t0_means",
+            ),
+            t0_chol_block=T0CholBlockSpec(
+                n_latent=2,
+                diag_mask=np.zeros(2, dtype=bool),
+                correlation_mask=np.zeros((2, 2), dtype=bool),
+                template=jnp.eye(2) * 0.3,
+            ),
+            input_effect_block=default_input_effect_block(2),
+            static_state_sd_block=default_static_state_sd_block(),
+        )
+        model = SSMModel(spec)
+        tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
+            observations=jnp.zeros((4, 1)),
+            times=jnp.arange(4, dtype=jnp.float64),
+            likelihood_backend=CompositeAwareBackend(),
+        )
+
+        assert "vf_0_decay" in tr
+        assert int(tr["backend_n_vf_components"]["value"]) == 1
+        np.testing.assert_allclose(
+            tr["backend_decay"]["value"],
+            np.array([0.3, 0.5]),
+        )
 
 
 class TestStructuralLinearSpecs:
@@ -345,6 +465,11 @@ class TestStructuralLinearSpecs:
                 mask=np.zeros((1, n_latent), dtype=bool),
                 template=jnp.array([[0.0, 1.0, 0.0]]),
                 free_site_name="lambda_free", det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=default_manifest_chol_block(1),
@@ -357,10 +482,8 @@ class TestStructuralLinearSpecs:
         base_decay_values = jnp.array([0.3, 0.5, 0.7])
         offdiag_values = jnp.array([0.2, -0.1, 0.4])
 
-        expected_drift = spec.assemble_drift(
-            base_decay_values, offdiag_values
-        )
-        drift_component, _ = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
+        expected_drift = drift_component.assemble_drift(base_decay_values, offdiag_values)
 
         component = StructuralDenseLinearSpec(
             n_latent=n_latent,
@@ -382,8 +505,8 @@ class TestStructuralLinearSpecs:
             seed(rng_seed=0),
             condition(
                 data={
-                    "drift_base_decay_free": base_decay_values,
-                    "drift_offdiag_free": offdiag_values,
+                    "vf_0_base_decay": base_decay_values,
+                    "vf_0_offdiag": offdiag_values,
                 }
             ),
             trace() as tr,
@@ -392,8 +515,8 @@ class TestStructuralLinearSpecs:
 
         composite_drift = params[0]["drift"]
         np.testing.assert_allclose(composite_drift, expected_drift, atol=1e-12)
-        assert "drift" in tr
-        np.testing.assert_allclose(tr["drift"]["value"], expected_drift, atol=1e-12)
+        assert "vf_0_drift" in tr
+        np.testing.assert_allclose(tr["vf_0_drift"]["value"], expected_drift, atol=1e-12)
         assert "cint" not in params[0]
 
     def test_no_free_drift_returns_template(self):
@@ -438,6 +561,11 @@ class TestStructuralLinearSpecs:
                 mask=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
                 free_site_name="lambda_free", det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=default_manifest_chol_block(1),
@@ -446,7 +574,7 @@ class TestStructuralLinearSpecs:
             input_effect_block=default_input_effect_block(2),
             static_state_sd_block=default_static_state_sd_block(),
         )
-        drift_component, _ = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
 
         component = StructuralDenseLinearSpec(
             n_latent=2,
@@ -501,6 +629,11 @@ class TestStructuralLinearSpecs:
                 mask=np.zeros((1, n_latent), dtype=bool),
                 template=jnp.array([[0.0, 1.0, 0.0]]),
                 free_site_name="lambda_free", det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             manifest_means_block=default_manifest_means_block(1),
             manifest_chol_block=default_manifest_chol_block(1),
@@ -510,8 +643,8 @@ class TestStructuralLinearSpecs:
             static_state_sd_block=default_static_state_sd_block(),
         )
         cint_values = jnp.array([0.1, -0.2, 0.3])
-        expected_cint = spec.assemble_cint(cint_values)
-        _, cint_component = spec.structural_drift_components()
+        cint_component = spec.drift_spec.components[1]
+        expected_cint = cint_component.assemble_cint(cint_values)
 
         component = StructuralInterceptSpec(
             n_latent=n_latent,
@@ -523,10 +656,10 @@ class TestStructuralLinearSpecs:
         compiled = compile_composite(composite)
         with (
             seed(rng_seed=0),
-            condition(data={"cint_free": cint_values}),
+            condition(data={"vf_0_cint": cint_values}),
             trace() as tr,
         ):
             params = compiled.sample_params()
         np.testing.assert_allclose(params[0]["cint"], expected_cint, atol=1e-12)
-        assert "cint" in tr
-        np.testing.assert_allclose(tr["cint"]["value"], expected_cint, atol=1e-12)
+        assert "vf_0_cint_full" in tr
+        np.testing.assert_allclose(tr["vf_0_cint_full"]["value"], expected_cint, atol=1e-12)

@@ -27,6 +27,7 @@ from nof1_causal_lab.workers.schemas_prior import (
 )
 
 logger = get_prefect_logger(__name__)
+_AFFINE_DRIFT_SAMPLE = "vf_0_drift"
 _RECOVERABLE_MODEL_BUILD_ERRORS = (
     AggregatedCompileError,
     AttributeError,
@@ -644,7 +645,12 @@ def _check_constraint_violations(
             Default 5% to tolerate minor numerical rounding near the boundary.
     """
     results = []
-    positive_sites = ["diffusion_diag_free", "manifest_var_diag_free", "t0_var_diag_free"]
+    positive_sites = [
+        "vf_0_base_decay",
+        "diffusion_diag_free",
+        "manifest_var_diag_free",
+        "t0_var_diag_free",
+    ]
 
     for site_name in positive_sites:
         if site_name not in samples:
@@ -680,8 +686,13 @@ def _check_extreme_values(
 ) -> list[PriorValidationResult]:
     """Check for extreme parameter values indicating priors too wide."""
     results = []
-    # Check parameter sites (not deterministic outputs like drift, diffusion)
-    param_sites = [k for k in samples if k.endswith("_free")]
+    # Check parameter sites, not deterministic outputs or observations.
+    param_sites = [
+        k
+        for k in samples
+        if k.endswith("_free")
+        or (k.startswith("vf_") and not (k.endswith("_drift") or k.endswith("_full")))
+    ]
     for site_name in param_sites:
         arr = np.asarray(samples[site_name])
         n_total = arr.size
@@ -769,8 +780,8 @@ def _check_scale_plausibility(
             )
         ]
 
-    if "drift" in samples and "diffusion" in samples:
-        drift_samples = np.asarray(samples["drift"])
+    if _AFFINE_DRIFT_SAMPLE in samples and "diffusion" in samples:
+        drift_samples = np.asarray(samples[_AFFINE_DRIFT_SAMPLE])
         diffusion_samples = np.asarray(samples["diffusion"])
         n_total = drift_samples.shape[0]
         idx = np.random.default_rng(42).choice(
@@ -925,7 +936,7 @@ def _check_lagged_response_plausibility(
     draws and the full transition matrix ``exp(A * dt)`` instead of treating a
     single off-diagonal drift mean as the edge timescale.
     """
-    if compiled_ssm is None or causal_spec is None or "drift" not in samples:
+    if compiled_ssm is None or causal_spec is None or _AFFINE_DRIFT_SAMPLE not in samples:
         logger.debug("Skipping lagged-response plausibility check (missing inputs)")
         return []
 
@@ -951,7 +962,7 @@ def _check_lagged_response_plausibility(
     if not latent_names:
         return []
 
-    drift_samples = np.asarray(samples["drift"])
+    drift_samples = np.asarray(samples[_AFFINE_DRIFT_SAMPLE])
     if drift_samples.ndim != 3 or drift_samples.shape[1] != drift_samples.shape[2]:
         return []
 
@@ -1373,7 +1384,7 @@ def get_failed_parameters(
     """Extract parameter names that contributed to validation failure.
 
     Maps validation result parameter names (which may be SSM site names like
-    'drift_base_decay_free' or 'scale_mood') back to ModelSpec parameter names.
+    'vf_0_base_decay' or 'scale_mood') back to ModelSpec parameter names.
 
     When ``causal_spec`` is provided, scale mismatch failures are targeted
     to the construct whose indicator triggered the mismatch rather than

@@ -61,6 +61,26 @@ def _assemble_extra_params_batched(
     return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int64))
 
 
+def _samples_for_affine_predictive_simulator(
+    spec: SSMSpec,
+    samples: dict[str, jnp.ndarray],
+) -> dict[str, jnp.ndarray]:
+    """Add the affine view expected by the legacy observation simulator."""
+    from nof1_causal_lab.models.ssm.dynamics.composite import (
+        StructuralDenseLinearSpec,
+        StructuralInterceptSpec,
+    )
+
+    simulator_samples = dict(samples)
+    for idx, component in enumerate(spec.drift_spec.components):
+        prefix = f"vf_{idx}"
+        if isinstance(component, StructuralDenseLinearSpec):
+            simulator_samples["drift"] = samples[component.drift_deterministic_name(prefix)]
+        elif isinstance(component, StructuralInterceptSpec):
+            simulator_samples["cint"] = samples[component.cint_deterministic_name(prefix)]
+    return simulator_samples
+
+
 def sample_prior_predictive_from_runtime(
     spec: SSMSpec,
     runtime: PriorRuntimeBundle,
@@ -100,7 +120,7 @@ def sample_prior_predictive_from_runtime(
     samples.update(deterministic_samples)
     samples.update(extra_params)
     observations, observations_mask = simulate_predictive_observations(
-        samples,
+        _samples_for_affine_predictive_simulator(spec, samples),
         times,
         diffusion_dists=spec.diffusion_dists,
         manifest_dists=spec.manifest_dists,

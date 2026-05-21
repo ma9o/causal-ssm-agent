@@ -11,7 +11,7 @@ Used by Laplace likelihood backends to inject marginalized state likelihoods
 into NumPyro models via numpyro.factor().
 """
 
-from typing import NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol
 
 import jax.numpy as jnp
 
@@ -25,24 +25,18 @@ LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS = 2
 LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT = 3
 
 
-class CTParams(NamedTuple):
-    """Continuous-time state-space parameters.
+class RuntimeDynamics(NamedTuple):
+    """Continuous-time dynamics expressed as a vector field plus parameters.
 
-    Represents the continuous-time SDE:
-        dη = (A*η + c + B*u(t)) dt + G dW
-
-    where:
-        A = drift matrix (n_latent x n_latent)
-        G*G' = diffusion covariance (n_latent x n_latent)
-        c = continuous intercept (n_latent,)
-
-    Note: diffusion_cov stores the covariance G*G', not the Cholesky factor G.
+    This is the model-facing drift representation. Inference backends may derive
+    specialized internal parameterizations from it, but ``SSMModel`` always
+    hands off dynamics through this vector-field surface.
     """
 
-    drift: jnp.ndarray  # (n_latent, n_latent)
-    diffusion_cov: jnp.ndarray  # (n_latent, n_latent) - G @ G.T
-    cint: jnp.ndarray | None  # (n_latent,) or None
-    input_effect: jnp.ndarray | None = None  # (n_latent, n_input) or None
+    vector_field: Any
+    vf_params: tuple[dict[str, jnp.ndarray], ...]
+    diffusion_cov: jnp.ndarray
+    input_effect: jnp.ndarray | None = None
 
 
 class MeasurementParams(NamedTuple):
@@ -93,7 +87,7 @@ class LikelihoodBackend(Protocol):
 
     def compute_log_likelihood(
         self,
-        ct_params: CTParams,
+        dynamics: RuntimeDynamics,
         measurement_params: MeasurementParams,
         initial_state: InitialStateParams,
         observations: jnp.ndarray,
@@ -104,7 +98,7 @@ class LikelihoodBackend(Protocol):
         """Compute log-likelihood by marginalizing out latent states.
 
         Args:
-            ct_params: Continuous-time dynamics parameters (drift, diffusion, cint)
+            dynamics: Continuous-time vector-field dynamics plus diffusion
             measurement_params: Observation model parameters (Λ, μ, R)
             initial_state: Initial state distribution (m_0, P_0)
             observations: (T, n_manifest) observed data

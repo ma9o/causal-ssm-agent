@@ -38,6 +38,7 @@ from nof1_causal_lab.models.ssm.structure import (
     default_t0_chol_block,
     default_t0_means_block,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 # =============================================================================
 # normalize_prior_params
@@ -674,6 +675,11 @@ class TestPrepareFitInputs:
                 template=jnp.zeros((1, 1)),
                 free_site_name="input_effect_free",
                 det_site_name="input_effect",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.INPUT_EFFECT,
+                assembly_group="input_effect",
+                fixed_spec_field="input_effect",
+                priors_field="input_effect",
             ),
             input_names=["dose"],
             input_source_indicators=["dose_mg"],

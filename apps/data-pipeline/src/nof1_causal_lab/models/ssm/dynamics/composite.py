@@ -27,12 +27,17 @@ plus a new ``ComponentSpec`` here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpyro
 
 from nof1_causal_lab.models.ssm.priors import resolve_prior_distribution
+from nof1_causal_lab.models.ssm.structure.sites import (
+    SiteKind,
+    SupportClass,
+    make_site,
+)
 
 from .edges import (
     DenseLinear,
@@ -45,23 +50,15 @@ from .edges import (
 from .vector_field import CompositeVectorField
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
     import jax.numpy as jnp
     import numpy as np
     from jax import Array
-    from numpyro.distributions import Distribution
+
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
     from .edges import DriftComponent
-
-
-def _resolve_prior(prior: Any) -> Distribution | None:
-    """Materialise a prior given either a numpyro ``Distribution`` or a
-    dict-config like ``{"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0}}``.
-
-    Returns ``None`` if ``prior`` is ``None``.
-    """
-    return resolve_prior_distribution(prior)
 
 
 @runtime_checkable
@@ -96,8 +93,8 @@ class DenseLinearSpec:
         return DenseLinear()
 
     def sample_params(self, prefix: str) -> dict[str, Array]:
-        drift_dist = _resolve_prior(self.drift_prior)
-        cint_dist = _resolve_prior(self.cint_prior)
+        drift_dist = resolve_prior_distribution(self.drift_prior)
+        cint_dist = resolve_prior_distribution(self.cint_prior)
         out: dict[str, Array] = {
             "drift": numpyro.sample(f"{prefix}_drift", drift_dist),
         }
@@ -154,6 +151,56 @@ class StructuralDenseLinearSpec:
     def n_drift_offdiag(self) -> int:
         return len(self.offdiag_positions)
 
+    def base_decay_site_name(self, prefix: str) -> str:
+        return f"{prefix}_base_decay"
+
+    def offdiag_site_name(self, prefix: str) -> str:
+        return f"{prefix}_offdiag"
+
+    def drift_deterministic_name(self, prefix: str) -> str:
+        return f"{prefix}_drift"
+
+    def iter_sites(self, prefix: str) -> Iterator[SiteDescriptor]:
+        if self.n_drift_base_decay > 0:
+            yield make_site(
+                self.base_decay_site_name(prefix),
+                (self.n_drift_base_decay,),
+                SupportClass.POSITIVE,
+                "drift",
+                SiteKind.DRIFT_BASE_DECAY,
+                positions=tuple(self.drift_base_decay_positions),
+                deterministic_name=self.drift_deterministic_name(prefix),
+                fixed_spec_field="drift",
+                priors_field="drift_base_decay",
+            )
+        if self.n_drift_offdiag > 0:
+            yield make_site(
+                self.offdiag_site_name(prefix),
+                (self.n_drift_offdiag,),
+                SupportClass.REAL,
+                "drift",
+                SiteKind.DRIFT_OFFDIAG,
+                positions=tuple(self.offdiag_positions),
+                deterministic_name=self.drift_deterministic_name(prefix),
+                fixed_spec_field="drift",
+                priors_field="drift_offdiag",
+            )
+
+    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StructuralDenseLinearSpec:
+        return replace(
+            self,
+            base_decay_prior=(
+                prior_fn(self.base_decay_site_name(prefix))
+                if self.n_drift_base_decay > 0
+                else self.base_decay_prior
+            ),
+            offdiag_prior=(
+                prior_fn(self.offdiag_site_name(prefix))
+                if self.n_drift_offdiag > 0
+                else self.offdiag_prior
+            ),
+        )
+
     def assemble_drift(
         self,
         base_decay_free: jnp.ndarray | None,
@@ -182,31 +229,31 @@ class StructuralDenseLinearSpec:
     def build(self) -> DenseLinear:
         return DenseLinear()
 
-    def sample_params(self, prefix: str) -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prefix: str) -> dict[str, Array]:
         if self.n_drift_base_decay > 0:
-            base_decay_dist = _resolve_prior(self.base_decay_prior)
+            base_decay_dist = resolve_prior_distribution(self.base_decay_prior)
             if base_decay_dist is None:
                 raise ValueError(
                     "StructuralDenseLinearSpec requires base_decay_prior when "
                     f"n_drift_base_decay={self.n_drift_base_decay} > 0."
                 )
-            base_decay_free = numpyro.sample("drift_base_decay_free", base_decay_dist)
+            base_decay_free = numpyro.sample(self.base_decay_site_name(prefix), base_decay_dist)
         else:
             base_decay_free = None
 
         if self.n_drift_offdiag > 0:
-            offdiag_dist = _resolve_prior(self.offdiag_prior)
+            offdiag_dist = resolve_prior_distribution(self.offdiag_prior)
             if offdiag_dist is None:
                 raise ValueError(
                     "StructuralDenseLinearSpec requires offdiag_prior when "
                     f"n_drift_offdiag={self.n_drift_offdiag} > 0."
                 )
-            offdiag_free = numpyro.sample("drift_offdiag_free", offdiag_dist)
+            offdiag_free = numpyro.sample(self.offdiag_site_name(prefix), offdiag_dist)
         else:
             offdiag_free = None
 
         drift = self.assemble_drift(base_decay_free, offdiag_free)
-        numpyro.deterministic("drift", drift)
+        numpyro.deterministic(self.drift_deterministic_name(prefix), drift)
 
         return {"drift": drift}
 
@@ -236,6 +283,32 @@ class StructuralInterceptSpec:
     def n_cint(self) -> int:
         return len(self.cint_free_positions)
 
+    def cint_site_name(self, prefix: str) -> str:
+        return f"{prefix}_cint"
+
+    def cint_deterministic_name(self, prefix: str) -> str:
+        return f"{prefix}_cint_full"
+
+    def iter_sites(self, prefix: str) -> Iterator[SiteDescriptor]:
+        if self.n_cint > 0:
+            yield make_site(
+                self.cint_site_name(prefix),
+                (self.n_cint,),
+                SupportClass.REAL,
+                "cint",
+                SiteKind.CINT,
+                positions=tuple(self.cint_free_positions),
+                deterministic_name=self.cint_deterministic_name(prefix),
+                fixed_spec_field="cint",
+                priors_field="cint",
+            )
+
+    def with_runtime_priors(self, prior_fn, *, prefix: str) -> StructuralInterceptSpec:
+        return replace(
+            self,
+            cint_prior=prior_fn(self.cint_site_name(prefix)) if self.n_cint > 0 else self.cint_prior,
+        )
+
     def assemble_cint(self, cint_free: jnp.ndarray | None) -> jnp.ndarray:
         """Sparse-element cint assembly.
 
@@ -254,20 +327,20 @@ class StructuralInterceptSpec:
     def build(self) -> Intercept:
         return Intercept()
 
-    def sample_params(self, prefix: str) -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prefix: str) -> dict[str, Array]:
         if self.n_cint > 0:
-            cint_dist = _resolve_prior(self.cint_prior)
+            cint_dist = resolve_prior_distribution(self.cint_prior)
             if cint_dist is None:
                 raise ValueError(
                     "StructuralInterceptSpec requires cint_prior when "
                     f"n_cint={self.n_cint} > 0."
                 )
-            cint_free = numpyro.sample("cint_free", cint_dist)
+            cint_free = numpyro.sample(self.cint_site_name(prefix), cint_dist)
         else:
             cint_free = None
 
         cint = self.assemble_cint(cint_free)
-        numpyro.deterministic("cint", cint)
+        numpyro.deterministic(self.cint_deterministic_name(prefix), cint)
 
         return {"cint": cint}
 
@@ -283,7 +356,7 @@ class DiagonalDecaySpec:
         return DiagonalDecay()
 
     def sample_params(self, prefix: str) -> dict[str, Array]:
-        return {"decay": numpyro.sample(f"{prefix}_decay", _resolve_prior(self.decay_prior))}
+        return {"decay": numpyro.sample(f"{prefix}_decay", resolve_prior_distribution(self.decay_prior))}
 
 
 @dataclass(frozen=True, eq=False)
@@ -296,7 +369,7 @@ class InterceptSpec:
         return Intercept()
 
     def sample_params(self, prefix: str) -> dict[str, Array]:
-        return {"cint": numpyro.sample(f"{prefix}_cint", _resolve_prior(self.cint_prior))}
+        return {"cint": numpyro.sample(f"{prefix}_cint", resolve_prior_distribution(self.cint_prior))}
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +389,7 @@ class LinearEdgeSpec:
         return LinearEdge(source=self.source, target=self.target)
 
     def sample_params(self, prefix: str) -> dict[str, Array]:
-        return {"weight": numpyro.sample(f"{prefix}_weight", _resolve_prior(self.weight_prior))}
+        return {"weight": numpyro.sample(f"{prefix}_weight", resolve_prior_distribution(self.weight_prior))}
 
 
 @dataclass(frozen=True, eq=False)
@@ -339,9 +412,9 @@ class HillEdgeSpec:
 
     def sample_params(self, prefix: str) -> dict[str, Array]:
         return {
-            "Emax": numpyro.sample(f"{prefix}_Emax", _resolve_prior(self.emax_prior)),
-            "EC50": numpyro.sample(f"{prefix}_EC50", _resolve_prior(self.ec50_prior)),
-            "n": numpyro.sample(f"{prefix}_n", _resolve_prior(self.n_prior)),
+            "Emax": numpyro.sample(f"{prefix}_Emax", resolve_prior_distribution(self.emax_prior)),
+            "EC50": numpyro.sample(f"{prefix}_EC50", resolve_prior_distribution(self.ec50_prior)),
+            "n": numpyro.sample(f"{prefix}_n", resolve_prior_distribution(self.n_prior)),
         }
 
 
@@ -360,7 +433,7 @@ class MultiplicativeEdgeSpec:
         )
 
     def sample_params(self, prefix: str) -> dict[str, Array]:
-        return {"weight": numpyro.sample(f"{prefix}_weight", _resolve_prior(self.weight_prior))}
+        return {"weight": numpyro.sample(f"{prefix}_weight", resolve_prior_distribution(self.weight_prior))}
 
 
 # ---------------------------------------------------------------------------
@@ -477,3 +550,53 @@ def compile_composite(
     return CompiledComposite(
         vector_field=vector_field, sample_params=_sample_all_params
     )
+
+
+def pack_component_params_from_samples(
+    spec: CompositeSpec,
+    samples: dict[str, Array],
+    deterministics: dict[str, Array],
+    *,
+    prefix: str = "vf",
+) -> tuple[dict[str, Array], ...]:
+    """Pack flat sample-site values into the vector-field param tuple.
+
+    This mirrors ``CompiledComposite.sample_params`` without entering a NumPyro
+    sampling context, so post-fit likelihood evaluators can rebuild the same
+    runtime dynamics object from constrained parameter draws.
+    """
+    packed: list[dict[str, Array]] = []
+    for idx, component_spec in enumerate(spec.components):
+        site_prefix = f"{prefix}_{idx}"
+        if isinstance(component_spec, StructuralDenseLinearSpec):
+            packed.append({"drift": deterministics[component_spec.drift_deterministic_name(site_prefix)]})
+        elif isinstance(component_spec, StructuralInterceptSpec):
+            packed.append({"cint": deterministics[component_spec.cint_deterministic_name(site_prefix)]})
+        elif isinstance(component_spec, DenseLinearSpec):
+            params = {"drift": samples[f"{site_prefix}_drift"]}
+            cint_name = f"{site_prefix}_cint"
+            if cint_name in samples:
+                params["cint"] = samples[cint_name]
+            packed.append(params)
+        elif isinstance(component_spec, DiagonalDecaySpec):
+            packed.append({"decay": samples[f"{site_prefix}_decay"]})
+        elif isinstance(component_spec, InterceptSpec):
+            packed.append({"cint": samples[f"{site_prefix}_cint"]})
+        elif isinstance(component_spec, LinearEdgeSpec):
+            packed.append({"weight": samples[f"{site_prefix}_weight"]})
+        elif isinstance(component_spec, HillEdgeSpec):
+            packed.append(
+                {
+                    "Emax": samples[f"{site_prefix}_Emax"],
+                    "EC50": samples[f"{site_prefix}_EC50"],
+                    "n": samples[f"{site_prefix}_n"],
+                }
+            )
+        elif isinstance(component_spec, MultiplicativeEdgeSpec):
+            packed.append({"weight": samples[f"{site_prefix}_weight"]})
+        else:
+            raise TypeError(
+                f"Unsupported drift component spec for parameter packing: "
+                f"{type(component_spec).__name__}"
+            )
+    return tuple(packed)

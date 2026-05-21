@@ -49,7 +49,7 @@ class TestAutoReparamSSM:
         )
 
         sample_names = set(result.get_samples())
-        assert "drift_base_decay_free" in sample_names
+        assert "vf_0_base_decay" in sample_names
         assert "diffusion_diag_free" in sample_names
         assert all("_decentered" not in name for name in sample_names)
 

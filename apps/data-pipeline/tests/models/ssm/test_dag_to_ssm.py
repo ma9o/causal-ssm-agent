@@ -26,14 +26,13 @@ from nof1_causal_lab.models.ssm.model import (
 )
 from nof1_causal_lab.models.ssm.parameterization import (
     SiteDescriptor,
-    SiteKind,
-    SupportClass,
     TransformKind,
     build_prior_runtime_state,
     build_site_prior_distribution,
 )
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     block_ssm_spec,
     prior_registry,
@@ -61,6 +60,11 @@ def _make_3latent_spec(
             template=jnp.eye(n_m, n_l),
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         )
     return block_ssm_spec(
         n_latent=n_l,
@@ -201,7 +205,7 @@ class TestDriftMask:
             likelihood_backend=model.make_likelihood_backend(),
         )
 
-        drift = trace["drift"]["value"]
+        drift = trace["vf_0_drift"]["value"]
         # Off-diagonal zeros: positions NOT in mask
         assert float(drift[0, 1]) == 0.0  # Y→X: no edge
         assert float(drift[0, 2]) == 0.0  # Z→X: no edge
@@ -225,7 +229,7 @@ class TestDriftMask:
         )
 
         # 3x3 - 3 diagonal = 6 off-diagonal
-        assert trace["drift_offdiag_free"]["value"].shape == (6,)
+        assert trace["vf_0_offdiag"]["value"].shape == (6,)
 
     def test_drift_mask_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
@@ -251,7 +255,7 @@ class TestDriftMask:
         )
 
         # No off-diagonal params sampled
-        assert "drift_offdiag_free" not in trace
+        assert "vf_0_offdiag" not in trace
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -281,6 +285,11 @@ class TestLambdaMask:
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             )
         )
         model = SSMModel(spec)
@@ -313,6 +322,11 @@ class TestLambdaMask:
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             )
         )
         model = SSMModel(spec)
@@ -326,8 +340,10 @@ class TestLambdaMask:
 
         # No lambda_free sampled
         assert "lambda_free" not in trace
-        # Lambda should not appear as deterministic since it's fully fixed
-        assert "lambda" not in trace
+        # Lambda deterministic IS emitted (the block always emits its
+        # assembled output, fixed or sampled); the value equals the template.
+        assert "lambda" in trace
+        np.testing.assert_allclose(np.asarray(trace["lambda"]["value"]), np.asarray(lambda_mat))
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -429,7 +445,7 @@ class TestPerElementPriors:
 
         # Per-element prior: single off-diagonal has mu=2.0
         priors = prior_registry(
-            drift_offdiag_free=PriorSpec(
+            vf_0_offdiag=PriorSpec(
                 PriorDistributionFamily.NORMAL,
                 {"mu": [2.0], "sigma": [0.1]},
             )
@@ -444,7 +460,7 @@ class TestPerElementPriors:
         )
 
         # The off-diagonal value should be near 2.0 (tight prior)
-        offdiag = float(trace["drift_offdiag_free"]["value"][0])
+        offdiag = float(trace["vf_0_offdiag"]["value"][0])
         assert abs(offdiag - 2.0) < 1.0, f"Expected ~2.0, got {offdiag}"
 
 
@@ -616,6 +632,11 @@ class TestBuilderMasks:
                         template=jnp.eye(4, 3),
                         free_site_name="lambda_free",
                         det_site_name="lambda",
+                        support=SupportClass.REAL,
+                        site_kind=SiteKind.LOADING,
+                        assembly_group="lambda",
+                        fixed_spec_field="lambda_mat",
+                        priors_field="lambda_free",
                     )
                 },
                 "lambda_mask must have shape",
@@ -630,6 +651,11 @@ class TestBuilderMasks:
                         template=jnp.eye(4, 3),
                         free_site_name="lambda_free",
                         det_site_name="lambda",
+                        support=SupportClass.REAL,
+                        site_kind=SiteKind.LOADING,
+                        assembly_group="lambda",
+                        fixed_spec_field="lambda_mat",
+                        priors_field="lambda_free",
                     )
                 },
                 r"lambda_mask must have shape \(4, 3\)",
@@ -680,6 +706,11 @@ class TestBuilderMasks:
                 template=jnp.eye(4, 3),
                 free_site_name="lambda_free",
                 det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
             "latent_names": ["X", "Y", "Z"],
             "manifest_names": ["x1", "x2", "y1", "z1"],
@@ -708,6 +739,11 @@ class TestBuilderMasks:
                     template="free",
                     free_site_name="lambda_free",
                     det_site_name="lambda",
+                    support=SupportClass.REAL,
+                    site_kind=SiteKind.LOADING,
+                    assembly_group="lambda",
+                    fixed_spec_field="lambda_mat",
+                    priors_field="lambda_free",
                 ),
             )
 
@@ -1257,7 +1293,7 @@ class TestBuilderMasks:
         spec = builder.spec
 
         # Verify masks were built
-        drift_component, _ = spec.structural_drift_components()
+        drift_component = spec.drift_spec.components[0]
         assert drift_component.drift_diag_mask[0]
         assert drift_component.drift_diag_mask[1]
         assert drift_component.drift_diag_mask[2]
@@ -1299,8 +1335,8 @@ class TestSiteRegistryMasks:
         registry = {site.name: site for site in build_site_registry(spec)}
 
         # Should have 2 off-diagonal, not 6
-        assert registry["drift_offdiag_free"].shape == (2,)
-        assert registry["drift_base_decay_free"].shape == (3,)
+        assert registry["vf_0_offdiag"].shape == (2,)
+        assert registry["vf_0_base_decay"].shape == (3,)
 
     def test_site_registry_with_lambda_mask(self):
         """Site registry should size masked loading entries correctly."""
@@ -1327,6 +1363,11 @@ class TestSiteRegistryMasks:
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
         )
 
@@ -1343,7 +1384,7 @@ class TestTraceVerification:
     """Verify parameter shapes via numpyro.handlers.trace."""
 
     def test_masked_model_trace(self):
-        """Full model trace with masks: verify drift_offdiag_free shape."""
+        """Full model trace with masks: verify vf_0_offdiag shape."""
         offdiag_mask = np.zeros((3, 3), dtype=bool)
         offdiag_mask[1, 0] = True  # X→Y
         offdiag_mask[2, 1] = True  # Y→Z
@@ -1365,6 +1406,11 @@ class TestTraceVerification:
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",
+                support=SupportClass.REAL,
+                site_kind=SiteKind.LOADING,
+                assembly_group="lambda",
+                fixed_spec_field="lambda_mat",
+                priors_field="lambda_free",
             ),
         )
         model = SSMModel(spec)
@@ -1377,14 +1423,14 @@ class TestTraceVerification:
         )
 
         # Drift: 3 base-decay + 2 off-diagonal
-        assert trace["drift_base_decay_free"]["value"].shape == (3,)
-        assert trace["drift_offdiag_free"]["value"].shape == (2,)
+        assert trace["vf_0_base_decay"]["value"].shape == (3,)
+        assert trace["vf_0_offdiag"]["value"].shape == (2,)
 
         # Lambda: 1 free loading
         assert trace["lambda_free"]["value"].shape == (1,)
 
         # Deterministic drift should be 3x3
-        assert trace["drift"]["value"].shape == (3, 3)
+        assert trace["vf_0_drift"]["value"].shape == (3, 3)
 
         # Deterministic lambda should be 4x3
         assert trace["lambda"]["value"].shape == (4, 3)

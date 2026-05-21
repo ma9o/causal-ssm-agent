@@ -39,6 +39,7 @@ from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     sample_lgssm_trajectory,
 )
 from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
+from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     GaussianTrajectoryPriorTerms,
@@ -410,7 +411,7 @@ def build_auxiliary_kalman_bundle(
         def latent_context_runtime_fn(z: jnp.ndarray, runtime_times: jnp.ndarray) -> LatentContext:
             constrained, _ = _constrain(z)
             original_samples = sample_resolver(constrained)
-            ct_params, measurement_params, initial_state, extra_params = (
+            dynamics, measurement_params, initial_state, extra_params = (
                 _assemble_likelihood_inputs(
                     original_samples,
                     model.spec,
@@ -418,15 +419,16 @@ def build_auxiliary_kalman_bundle(
                     parameter_layout=model.parameter_layout,
                 )
             )
+            affine_dynamics = derive_affine_dynamics(dynamics)
             time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
             transition_inputs = getattr(model, "transition_inputs", None)
             if transition_inputs is not None:
                 transition_inputs = transition_inputs[: runtime_times.shape[0]]
             Ad, Qd, cd = discretize_system_with_inputs_batched(
-                ct_params.drift,
-                ct_params.diffusion_cov,
-                ct_params.cint,
-                ct_params.input_effect,
+                affine_dynamics.drift,
+                affine_dynamics.diffusion_cov,
+                affine_dynamics.cint,
+                affine_dynamics.input_effect,
                 transition_inputs,
                 time_intervals,
             )
@@ -453,11 +455,14 @@ def build_auxiliary_kalman_bundle(
                 ) = build_linear_summary_augmented_system(
                     plan=linear_summary_plan,
                     time_intervals=time_intervals,
-                    drift=ct_params.drift,
-                    diffusion_cov=ct_params.diffusion_cov,
-                    cint=ct_params.cint
-                    if ct_params.cint is not None
-                    else jnp.zeros((ct_params.drift.shape[0],), dtype=ct_params.drift.dtype),
+                    drift=affine_dynamics.drift,
+                    diffusion_cov=affine_dynamics.diffusion_cov,
+                    cint=affine_dynamics.cint
+                    if affine_dynamics.cint is not None
+                    else jnp.zeros(
+                        (affine_dynamics.drift.shape[0],),
+                        dtype=affine_dynamics.drift.dtype,
+                    ),
                     H=measurement_params.lambda_mat,
                     d=measurement_params.manifest_means,
                     init_mean=initial_state.mean,

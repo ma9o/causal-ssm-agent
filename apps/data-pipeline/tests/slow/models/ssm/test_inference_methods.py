@@ -32,6 +32,7 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import assert_recovery_ci, block_ssm_spec, make_lgss_data, prior_registry
 
 pytestmark = pytest.mark.slow
@@ -39,7 +40,7 @@ pytestmark = pytest.mark.slow
 
 def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], data: dict) -> None:
     assert_recovery_ci(
-        samples["drift_base_decay_free"][:, 0],
+        samples["vf_0_base_decay"][:, 0],
         data["true_drift_diag"],
         "Drift",
         transform=lambda s: -jnp.abs(s),
@@ -279,6 +280,11 @@ def _make_map_mixed_support_recovery_data() -> dict:
             template=lambda_mat,
             free_site_name="lambda_free",
             det_site_name="lambda",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.LOADING,
+            assembly_group="lambda",
+            fixed_spec_field="lambda_mat",
+            priors_field="lambda_free",
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
@@ -286,6 +292,11 @@ def _make_map_mixed_support_recovery_data() -> dict:
             template=jnp.zeros(n_manifest, dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.MANIFEST_MEANS,
+            assembly_group="manifest",
+            fixed_spec_field="manifest_means",
+            priors_field="manifest_means",
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
@@ -298,6 +309,11 @@ def _make_map_mixed_support_recovery_data() -> dict:
             template=jnp.zeros(n_latent, dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
+            support=SupportClass.REAL,
+            site_kind=SiteKind.T0_MEANS,
+            assembly_group="t0",
+            fixed_spec_field="t0_means",
+            priors_field="t0_means",
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
@@ -332,7 +348,7 @@ def _summarize_family_recovery(
 ) -> dict[str, dict[str, float]]:
     """Summarize mean error, interval width, and empirical coverage by parameter family."""
     families = [
-        ("drift", -jnp.abs(samples["drift_base_decay_free"]), data["true_drift_diag"]),
+        ("drift", -jnp.abs(samples["vf_0_base_decay"]), data["true_drift_diag"]),
         ("diffusion_sd", samples["diffusion_diag_free"], data["true_diff_diag"]),
         ("obs_scale", samples["manifest_var_diag_free"], data["true_obs_scale"]),
         ("obs_df", samples["obs_df"], data["true_obs_df"]),
@@ -395,7 +411,7 @@ class TestMapLaplaceRecovery:
         samples = result.get_samples()
         _assert_lgss_recovery(samples, data)
 
-        drift_mean = float(jnp.mean(-jnp.abs(samples["drift_base_decay_free"][:, 0])))
+        drift_mean = float(jnp.mean(-jnp.abs(samples["vf_0_base_decay"][:, 0])))
         diff_mean = float(jnp.mean(samples["diffusion_diag_free"][:, 0]))
         obs_mean = float(jnp.mean(samples["manifest_var_diag_free"][:, 0]))
 
