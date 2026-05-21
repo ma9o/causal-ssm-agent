@@ -11,10 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.dynamics import (
-    default_linear_drift_spec,
-    linear_drift_spec,
-)
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
@@ -22,6 +18,9 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
+)
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.ssm_test_utils import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -30,15 +29,16 @@ from nof1_causal_lab.models.ssm.structure import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
+    full_structural_dense_drift_spec,
+    structural_dense_drift_spec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 
 def _full_default_spec(n_latent: int = 2, n_manifest: int = 2) -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=default_linear_drift_spec(n_latent),
+        drift_spec=full_structural_dense_drift_spec(n_latent),
         diffusion_block=default_diffusion_block(n_latent),
         lambda_block=default_lambda_block(n_manifest, n_latent),
         manifest_means_block=default_manifest_means_block(n_manifest),
@@ -57,12 +57,11 @@ def _sparse_spec_with_inputs_and_static(n_latent: int = 3) -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
-            drift_offdiag_mask=np.eye(n_latent, dtype=bool) ^ np.ones(
-                (n_latent, n_latent), dtype=bool
-            ),
+            drift_offdiag_mask=np.eye(n_latent, dtype=bool)
+            ^ np.ones((n_latent, n_latent), dtype=bool),
             drift_template=jnp.zeros((n_latent, n_latent)),
             cint_mask=np.ones(n_latent, dtype=bool),
             cint_template=jnp.zeros(n_latent),
@@ -135,7 +134,7 @@ def _all_fixed_spec(n_latent: int = 2) -> SSMSpec:
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.zeros(n_latent, dtype=bool),
             drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
@@ -219,21 +218,18 @@ def _descriptor_fields(s):
 
 def _compare_block_owned_with_registry(spec: SSMSpec) -> None:
     # registry has likelihood extras; restrict to the dense-linear core sites.
-    legacy = [
-        s for s in build_site_registry(spec) if s.assembly_group != "likelihood"
-    ]
+    legacy = [s for s in build_site_registry(spec) if s.assembly_group != "likelihood"]
     block_owned = sorted(spec.iter_sample_sites(), key=lambda s: s.name)
 
     legacy_by_name = {s.name: s for s in legacy}
     new_by_name = {s.name: s for s in block_owned}
     assert set(legacy_by_name) == set(new_by_name), (
-        f"site-name mismatch: legacy={sorted(legacy_by_name)}, "
-        f"new={sorted(new_by_name)}"
+        f"site-name mismatch: legacy={sorted(legacy_by_name)}, new={sorted(new_by_name)}"
     )
     for name in legacy_by_name:
-        assert _descriptor_fields(legacy_by_name[name]) == _descriptor_fields(
-            new_by_name[name]
-        ), f"descriptor field mismatch for site {name!r}"
+        assert _descriptor_fields(legacy_by_name[name]) == _descriptor_fields(new_by_name[name]), (
+            f"descriptor field mismatch for site {name!r}"
+        )
 
 
 def test_full_default_spec_equivalence():

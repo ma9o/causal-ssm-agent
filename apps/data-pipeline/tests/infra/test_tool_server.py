@@ -220,39 +220,54 @@ def test_execute_submit_priors_loads_stage2_runtime_via_stage_registry(monkeypat
 
 def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     class FakeResult:
-        def __init__(self, vector_field, param_samples):
-            self._samples = {}
+        def __init__(self, samples):
+            self._samples = samples
             self.method = "aux_kalman_mcmc"
+            self._latent_paths = jnp.array(
+                [
+                    [[0.0, 0.0], [1.0, 1.0], [2.0, 3.0]],
+                    [[0.0, 0.0], [4.0, 5.0], [6.0, 7.0]],
+                ]
+            )
             self.diagnostics = {
-                "vector_field": vector_field,
-                "param_samples": param_samples,
+                "latent_paths": self._latent_paths,
             }
 
         def get_samples(self):
             return self._samples
 
-    from nof1_causal_lab.models.ssm.counterfactual import linear_vector_field
+        def get_latent_paths(self):
+            return self._latent_paths
 
-    drift = jnp.array(
-        [
-            [[1.0, 0.0], [0.0, 0.0]],
-            [[3.0, 0.0], [0.0, 0.0]],
-        ]
-    )
-    cint = jnp.zeros((2, 2))
-    param_samples = [
-        ({"drift": d, "cint": c},) for d, c in zip(drift, cint, strict=True)
-    ]
+    import numpyro.distributions as ndist
 
-    monkeypatch.setattr(
-        tool_server,
-        "approximate_abducted_state",
-        lambda *_args, **_kwargs: {
-            "state": jnp.zeros(2),
-            "method": "kalman_smoother",
-            "warning": None,
-        },
+    from nof1_causal_lab.models.ssm.dynamics import (
+        CompositeSpec,
+        DiagonalDecaySpec,
+        HillEdgeSpec,
     )
+
+    spec = CompositeSpec(
+        n_latent=2,
+        components=(
+            DiagonalDecaySpec(decay_prior=ndist.LogNormal(0.0, 0.1)),
+            HillEdgeSpec(
+                source=0,
+                target=1,
+                emax_prior=ndist.LogNormal(0.0, 0.1),
+                ec50_prior=ndist.LogNormal(0.0, 0.1),
+                n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.1, low=1.5, high=2.5),
+            ),
+        ),
+    )
+    n_draws = 2
+    samples = {
+        "vf_0_decay": jnp.tile(jnp.array([0.5, 0.5]), (n_draws, 1)),
+        "vf_1_Emax": jnp.full((n_draws,), 1.5),
+        "vf_1_EC50": jnp.full((n_draws,), 1.0),
+        "vf_1_n": jnp.full((n_draws,), 2.0),
+    }
+    captured_initial_states: list[jnp.ndarray] = []
 
     def fake_vmap_simulate(
         vector_field,
@@ -265,7 +280,8 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         amount=None,
         time_grid,
     ):
-        del vector_field, initial_states, treat_idx, mode, value, amount
+        del vector_field, treat_idx, mode, value, amount
+        captured_initial_states.append(initial_states)
         n_draws = len(param_samples)
         n_t = time_grid.shape[0]
         # n_latent = 2 in this test setup
@@ -283,9 +299,13 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
-            result=FakeResult(linear_vector_field(n_latent=2), param_samples),
+            result=FakeResult(samples),
             builder=SimpleNamespace(
-                spec=SimpleNamespace(latent_names=["treat", "outcome"], manifest_names=[]),
+                spec=SimpleNamespace(
+                    drift_spec=spec,
+                    latent_names=["treat", "outcome"],
+                    manifest_names=[],
+                ),
                 model=object(),
             ),
             observation_support=None,
@@ -330,19 +350,21 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     assert end_state["effect_trajectory"] is None
     assert "counterfactual_forecast_mean" not in end_state
     assert "temporal" not in end_state
-    assert end_state["evidence"] == {
-        "start_time": "2024-01-01T00:00:00+00:00",
-        "end_time": "2024-01-03T00:00:00+00:00",
-        "n_timepoints": 3,
-        "variables": [],
-        "conditioning_method": "kalman_smoother",
+    assert end_state["start"] == {
+        "time_index": 2,
+        "time": "2024-01-03T00:00:00+00:00",
+        "state_source": "fitted_latent_paths",
     }
     assert end_state["visualization"] == {
         "reference_node_trajectories": None,
         "action_node_trajectories": None,
         "node_effect_trajectories": None,
-        "abducted_state": {"treat": 0.0, "outcome": 0.0},
+        "start_state": {"treat": 4.0, "outcome": 5.0},
     }
+    assert all(
+        jnp.array_equal(initial_states, jnp.array([[2.0, 3.0], [6.0, 7.0]]))
+        for initial_states in captured_initial_states
+    )
 
     assert trajectory["estimand"] == "trajectory"
     assert trajectory["summary"]["mean"] == pytest.approx(3.0)
@@ -365,7 +387,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
             "treat": [1.5, 1.5, 1.5],
             "outcome": [3.0, 3.0, 3.0],
         },
-        "abducted_state": {"treat": 0.0, "outcome": 0.0},
+        "start_state": {"treat": 4.0, "outcome": 5.0},
     }
 
 
@@ -384,7 +406,6 @@ def test_simulate_intervention_dispatches_to_composite_path():
         CompositeSpec,
         DiagonalDecaySpec,
         HillEdgeSpec,
-        compile_composite,
     )
 
     spec = CompositeSpec(
@@ -396,40 +417,33 @@ def test_simulate_intervention_dispatches_to_composite_path():
                 target=1,
                 emax_prior=ndist.LogNormal(0.0, 0.1),
                 ec50_prior=ndist.LogNormal(0.0, 0.1),
-                n_prior=ndist.TruncatedNormal(
-                    loc=2.0, scale=0.1, low=1.5, high=2.5
-                ),
+                n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.1, low=1.5, high=2.5),
             ),
         ),
     )
-    compiled = compile_composite(spec)
     n_draws = 4
-    param_samples = [
-        (
-            {"decay": jnp.array([0.5, 0.5])},
-            {
-                "Emax": jnp.asarray(1.5),
-                "EC50": jnp.asarray(1.0),
-                "n": jnp.asarray(2.0),
-            },
-        )
-        for _ in range(n_draws)
-    ]
+    samples = {
+        "vf_0_decay": jnp.tile(jnp.array([0.5, 0.5]), (n_draws, 1)),
+        "vf_1_Emax": jnp.full((n_draws,), 1.5),
+        "vf_1_EC50": jnp.full((n_draws,), 1.0),
+        "vf_1_n": jnp.full((n_draws,), 2.0),
+    }
 
     fake_result = SimpleNamespace(
-        method="composite_aux_kalman",
-        diagnostics={
-            "vector_field": compiled.vector_field,
-            "param_samples": param_samples,
-        },
-        get_samples=lambda: {},
+        method="aux_kalman_mcmc",
+        diagnostics={},
+        get_samples=lambda: samples,
     )
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
             result=fake_result,
             builder=SimpleNamespace(
-                spec=SimpleNamespace(latent_names=["src", "tgt"], manifest_names=[]),
+                spec=SimpleNamespace(
+                    drift_spec=spec,
+                    latent_names=["src", "tgt"],
+                    manifest_names=[],
+                ),
                 model=object(),
             ),
             observation_support=None,
@@ -466,17 +480,13 @@ def test_simulate_intervention_dispatches_to_composite_path():
 
 
 def test_simulate_counterfactual_dispatches_to_composite_path():
-    """Rung-3 on composite now works via the trajectory-marginal
-    abducted-state estimator. The tool_server endpoint must dispatch
-    composite rung-3 through vmap_simulate_action_from_state_composite
-    and return a rung-3 result (no structured error)."""
+    """Rung-3 on composite starts from retained fitted trajectory draws."""
     import numpyro.distributions as ndist
 
     from nof1_causal_lab.models.ssm.dynamics import (
         CompositeSpec,
         DiagonalDecaySpec,
         HillEdgeSpec,
-        compile_composite,
     )
 
     spec = CompositeSpec(
@@ -488,42 +498,35 @@ def test_simulate_counterfactual_dispatches_to_composite_path():
                 target=1,
                 emax_prior=ndist.LogNormal(0.0, 0.1),
                 ec50_prior=ndist.LogNormal(0.0, 0.1),
-                n_prior=ndist.TruncatedNormal(
-                    loc=2.0, scale=0.1, low=1.5, high=2.5
-                ),
+                n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.1, low=1.5, high=2.5),
             ),
         ),
     )
-    compiled = compile_composite(spec)
     n_draws = 3
-    param_samples = [
-        (
-            {"decay": jnp.array([0.5, 0.5])},
-            {
-                "Emax": jnp.asarray(1.5),
-                "EC50": jnp.asarray(1.0),
-                "n": jnp.asarray(2.0),
-            },
-        )
-        for _ in range(n_draws)
-    ]
-    # Synthetic trajectory_samples so the abducted-state estimator has data
-    trajectory_samples = jnp.tile(jnp.array([[1.0, 0.5], [0.9, 0.6], [0.8, 0.7]]), (n_draws, 1, 1))
+    samples = {
+        "vf_0_decay": jnp.tile(jnp.array([0.5, 0.5]), (n_draws, 1)),
+        "vf_1_Emax": jnp.full((n_draws,), 1.5),
+        "vf_1_EC50": jnp.full((n_draws,), 1.0),
+        "vf_1_n": jnp.full((n_draws,), 2.0),
+    }
+    latent_paths = jnp.tile(jnp.array([[1.0, 0.5], [0.9, 0.6], [0.8, 0.7]]), (n_draws, 1, 1))
     fake_result = SimpleNamespace(
-        method="composite_aux_kalman",
+        method="aux_kalman_mcmc",
         diagnostics={
-            "vector_field": compiled.vector_field,
-            "param_samples": param_samples,
-            "trajectory_samples": trajectory_samples,
+            "latent_paths": latent_paths,
         },
-        get_samples=lambda: {},
+        get_samples=lambda: samples,
     )
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
             result=fake_result,
             builder=SimpleNamespace(
-                spec=SimpleNamespace(latent_names=["src", "tgt"], manifest_names=[]),
+                spec=SimpleNamespace(
+                    drift_spec=spec,
+                    latent_names=["src", "tgt"],
+                    manifest_names=[],
+                ),
                 model=object(),
             ),
             observation_support=None,
@@ -545,7 +548,6 @@ def test_simulate_counterfactual_dispatches_to_composite_path():
     args = {
         "action": {"variable": "src", "mode": "shift", "amount": 0.5},
         "query": {"horizon_days": 3, "estimand": "end_state"},
-        "evidence": {},
     }
 
     response = tool_server._execute_simulate_counterfactual(ctx, args)
@@ -553,151 +555,13 @@ def test_simulate_counterfactual_dispatches_to_composite_path():
     assert "error" not in result, f"composite rung-3 failed: {result}"
     assert result["rung"] == 3
     assert result["estimand"] == "end_state"
-    assert result["evidence"]["conditioning_method"] == "composite_trajectory_marginal"
+    assert result["start"] == {
+        "time_index": 2,
+        "time": "2024-01-03T00:00:00+00:00",
+        "state_source": "fitted_latent_paths",
+    }
     # Shift on src should produce a positive effect on tgt via the Hill chain
     assert result["summary"]["mean"] > 0
-
-
-def test_simulate_counterfactual_composite_dispatches_to_eks():
-    """Round 23 — query.abduction_method='eks' routes composite rung-3
-    through the single-pass EKS estimator (per-draw conditional means).
-    Verified by ``conditioning_method == 'composite_eks'`` in the result."""
-    import numpy as np
-    import numpyro.distributions as ndist
-
-    from nof1_causal_lab.artifacts.model_spec import (
-        DistributionFamily,
-        LinkFunction,
-    )
-    from nof1_causal_lab.models.ssm.dynamics import (
-        CompositeSpec,
-        DiagonalDecaySpec,
-        HillEdgeSpec,
-        compile_composite,
-        runtime_from_composite,
-    )
-    from nof1_causal_lab.models.ssm.inference.targets.kernels import (
-        build_observation_kernel,
-    )
-
-    spec = CompositeSpec(
-        n_latent=2,
-        components=(
-            DiagonalDecaySpec(decay_prior=ndist.LogNormal(0.0, 0.1)),
-            HillEdgeSpec(
-                source=0,
-                target=1,
-                emax_prior=ndist.LogNormal(0.0, 0.1),
-                ec50_prior=ndist.LogNormal(0.0, 0.1),
-                n_prior=ndist.TruncatedNormal(
-                    loc=2.0, scale=0.1, low=1.5, high=2.5
-                ),
-            ),
-        ),
-    )
-    compiled = compile_composite(spec)
-    H = jnp.array([[0.0, 1.0]])
-    R = jnp.array([[0.02]])
-    kernel = build_observation_kernel(
-        DistributionFamily.GAUSSIAN,
-        LinkFunction.IDENTITY,
-        manifest_cov=np.asarray(R),
-    )
-    canonical = runtime_from_composite(
-        compiled,
-        init_mean=jnp.array([1.5, 0.0]),
-        init_cov=jnp.eye(2) * 0.1,
-        diffusion_cov=jnp.eye(2) * 0.005,
-        H=H,
-        d_meas=jnp.array([0.0]),
-        R=R,
-        obs_kernel=kernel,
-    )
-
-    n_draws = 3
-    param_samples = [
-        (
-            {"decay": jnp.array([0.5, 0.5])},
-            {
-                "Emax": jnp.asarray(1.5),
-                "EC50": jnp.asarray(1.0),
-                "n": jnp.asarray(2.0),
-            },
-        )
-        for _ in range(n_draws)
-    ]
-    trajectory_samples = jnp.tile(jnp.array([[1.0, 0.5], [0.9, 0.6], [0.8, 0.7]]), (n_draws, 1, 1))
-
-    fake_result = SimpleNamespace(
-        method="composite_aux_kalman",
-        diagnostics={
-            "vector_field": compiled.vector_field,
-            "canonical_model": canonical,
-            "param_samples": param_samples,
-            "trajectory_samples": trajectory_samples,
-        },
-        get_samples=lambda: {},
-    )
-
-    ctx = {
-        "_fitted_artifact": SimpleNamespace(
-            result=fake_result,
-            builder=SimpleNamespace(
-                spec=SimpleNamespace(latent_names=["src", "tgt"], manifest_names=[]),
-                model=object(),
-            ),
-            observation_support=None,
-        ),
-        "_prepared_runtime": SimpleNamespace(
-            observations=jnp.zeros((3, 1)),
-            times=jnp.array([0.0, 1.0, 2.0]),
-        ),
-        "_identifiable_treatments": ["src"],
-        "_outcome_name": "tgt",
-        "_observation_timestamps": [
-            datetime(2024, 1, 1, tzinfo=UTC),
-            datetime(2024, 1, 2, tzinfo=UTC),
-            datetime(2024, 1, 3, tzinfo=UTC),
-        ],
-        "stage-1b": {"causal_spec": {"measurement": {"model_clock": "1d"}}},
-        "stage-6": {},
-    }
-
-    # EKS path
-    args_eks = {
-        "action": {"variable": "src", "mode": "shift", "amount": 0.5},
-        "query": {"horizon_days": 3, "estimand": "end_state", "abduction_method": "eks"},
-        "evidence": {},
-    }
-    response = tool_server._execute_simulate_counterfactual(ctx, args_eks)
-    result = response["result"]
-    assert "error" not in result, f"composite EKS rung-3 failed: {result}"
-    assert result["evidence"]["conditioning_method"] == "composite_eks"
-
-    # IEKS path
-    args_ieks = {
-        "action": {"variable": "src", "mode": "shift", "amount": 0.5},
-        "query": {"horizon_days": 3, "estimand": "end_state", "abduction_method": "ieks"},
-        "evidence": {},
-    }
-    response = tool_server._execute_simulate_counterfactual(ctx, args_ieks)
-    result = response["result"]
-    assert "error" not in result, f"composite IEKS rung-3 failed: {result}"
-    assert result["evidence"]["conditioning_method"] == "composite_ieks"
-
-    # Unknown method returns clear error
-    args_bad = {
-        "action": {"variable": "src", "mode": "shift", "amount": 0.5},
-        "query": {
-            "horizon_days": 3,
-            "estimand": "end_state",
-            "abduction_method": "bogus",
-        },
-        "evidence": {},
-    }
-    response = tool_server._execute_simulate_counterfactual(ctx, args_bad)
-    assert "error" in response["result"]
-    assert "bogus" in response["result"]["error"]
 
 
 def test_validate_composite_spec_runs_dry_run_validation():
@@ -853,7 +717,7 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
                 },
             }
         },
-        "stage-5b": {"inference_metadata": {"method": "map"}},
+        "stage-5b": {"inference_metadata": {"method": "aux_kalman_mcmc"}},
         "stage-6": {},
         "_prepared_runtime": SimpleNamespace(
             manifest_names=["daily_event_count", "sleep_issue_searches"]

@@ -17,7 +17,7 @@ export type CausalSSMToolResults =
   | EffectSummaryContract
   | EffectTrajectoryPointContract
   | Stage6VisualizationContract
-  | CounterfactualEvidenceResultContract
+  | CounterfactualStartResultContract
   | SimulateInterventionResultContract
   | SimulateCounterfactualResultContract
   | SimulateInterventionToolResultContract
@@ -42,7 +42,7 @@ export interface EffectTrajectoryPointContract {
 }
 export interface Stage6VisualizationContract {
   /**
-   * Per-construct latent trajectories for the reference path aligned to effect_trajectory days. This is the no-action baseline forecast for rung-2 queries and the factual forecast from the abducted state for rung-3 queries.
+   * Per-construct latent trajectories for the reference path aligned to effect_trajectory days. This is the no-action baseline forecast for rung-2 queries and the factual forecast from the fitted start state for rung-3 queries.
    */
   reference_node_trajectories?: {
     [k: string]: number[] | undefined;
@@ -60,18 +60,16 @@ export interface Stage6VisualizationContract {
     [k: string]: number[] | undefined;
   } | null;
   /**
-   * Recovered latent state at the evidence boundary for rung-3 queries.
+   * Posterior mean fitted latent state used to start a rung-3 query.
    */
-  abducted_state?: {
+  start_state?: {
     [k: string]: number | undefined;
   } | null;
 }
-export interface CounterfactualEvidenceResultContract {
-  start_time: string;
-  end_time: string;
-  n_timepoints: number;
-  variables: string[];
-  conditioning_method: string;
+export interface CounterfactualStartResultContract {
+  time_index: number;
+  time?: string | null;
+  state_source: "fitted_latent_paths";
 }
 export interface SimulateInterventionResultContract {
   action: InterventionActionInput;
@@ -116,7 +114,7 @@ export interface SimulateCounterfactualResultContract {
   } | null;
   warnings: string[];
   rung: 3;
-  evidence: CounterfactualEvidenceResultContract;
+  start: CounterfactualStartResultContract;
   estimand: "end_state" | "trajectory";
   baseline_forecast_mean: number;
 }

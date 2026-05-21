@@ -7,7 +7,6 @@ Available methods:
 - PIT Particle-mGRAD: blocked complete-data updates with PIT dSMC Particle-mGRAD
   latent proposals.
 - Auxiliary Kalman MCMC: blocked complete-data updates with auxiliary Kalman latent proposals.
-- MAP: L-BFGS mode finding + Laplace Gaussian parameter posterior.
 """
 
 from __future__ import annotations
@@ -58,7 +57,7 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method: "pit_particle_mgrad", "aux_kalman_mcmc", or "map".
+        method: Inference method: "pit_particle_mgrad" or "aux_kalman_mcmc".
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
               centering.
@@ -81,12 +80,8 @@ def fit(
         from nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc import fit_aux_kalman_mcmc
 
         return fit_aux_kalman_mcmc(model, observations, times, reparam=reparam, **kwargs)
-    if method == "map":
-        from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
-
-        return fit_map(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
-        f"Unknown inference method: {method!r}. Use 'pit_particle_mgrad', 'aux_kalman_mcmc', or 'map'."
+        f"Unknown inference method: {method!r}. Use 'pit_particle_mgrad' or 'aux_kalman_mcmc'."
     )
 
 

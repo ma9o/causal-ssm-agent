@@ -246,7 +246,16 @@ def build_site_registry(
     from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
 
     if has_student_t_diffusion(spec):
-        sites.append(_site("proc_df", (), SupportClass.POSITIVE, "likelihood", SiteKind.PROC_DF))
+        sites.append(
+            _site(
+                "proc_df",
+                (),
+                SupportClass.POSITIVE,
+                "likelihood",
+                SiteKind.PROC_DF,
+                priors_field="proc_df",
+            )
+        )
 
     # Sort by name to match JAX pytree dict-key ordering.
     sites.sort(key=lambda s: s.name)
@@ -839,18 +848,14 @@ def build_prior_runtime_state(
     The returned dict has fixed structure per topology — only leaf values
     change when priors change.
     """
-    from nof1_causal_lab.models.ssm.priors import (
-        default_prior_for_descriptor,
-        default_prior_registry,
-    )
-
-    if priors is None:
-        priors = default_prior_registry()
+    from nof1_causal_lab.models.ssm.priors import default_prior_for_descriptor
 
     state: PriorRuntimeState = {}
 
     for site in registry:
-        prior = priors.get(site.name) or default_prior_for_descriptor(site)
+        prior = (priors.get(site.name) if priors is not None else None) or (
+            default_prior_for_descriptor(site)
+        )
         state[site.name] = _params_from_prior_spec(site, prior)
 
     return state

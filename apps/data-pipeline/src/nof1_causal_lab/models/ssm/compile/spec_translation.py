@@ -16,20 +16,15 @@ from nof1_causal_lab.artifacts.model_spec import (
 )
 from nof1_causal_lab.models.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    CompositeSpec,
+    StructuralDenseLinearSpec,
+    StructuralInterceptSpec,
+)
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     supported_distribution_families,
 )
-from nof1_causal_lab.models.ssm.model import (
-    SSMSpec,
-    full_cholesky_mask,
-    full_diagonal_mask,
-    full_drift_offdiag_mask,
-    full_vector_mask,
-    zero_loading_mask,
-    zero_square_mask,
-    zero_vector_mask,
-)
+from nof1_causal_lab.models.ssm.model import SSMSpec
 from nof1_causal_lab.models.ssm.parameter_names import build_initial_state_correlation_mask
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
@@ -59,6 +54,36 @@ class SpecTranslationError(AggregatedCompileError):
 
 
 DEFAULT_STABILITY_MARGIN_PER_DAY = 0.05
+
+
+def _full_drift_offdiag_support(n_latent: int) -> np.ndarray:
+    support = np.ones((n_latent, n_latent), dtype=bool)
+    np.fill_diagonal(support, False)
+    return support
+
+
+def _zero_loading_support(n_manifest: int, n_latent: int) -> np.ndarray:
+    return np.zeros((n_manifest, n_latent), dtype=bool)
+
+
+def _full_vector_support(n: int) -> np.ndarray:
+    return np.ones(n, dtype=bool)
+
+
+def _zero_vector_support(n: int) -> np.ndarray:
+    return np.zeros(n, dtype=bool)
+
+
+def _full_diagonal_support(n: int) -> np.ndarray:
+    return np.ones(n, dtype=bool)
+
+
+def _full_cholesky_support(n: int) -> np.ndarray:
+    return np.tri(n, dtype=bool)
+
+
+def _zero_square_support(n: int) -> np.ndarray:
+    return np.zeros((n, n), dtype=bool)
 
 
 def get_construct_dt_days(causal_spec: dict | None, _construct_name: str = "") -> float:
@@ -177,7 +202,7 @@ def _mask_time_invariant_diffusion_support(
     return masked
 
 
-def build_masks_from_causal_spec(
+def build_structural_support_from_causal_spec(
     latent_names: list[str] | None,
     manifest_cols: list[str],
     n_latent: int,
@@ -191,13 +216,13 @@ def build_masks_from_causal_spec(
     np.ndarray,
     dict[tuple[int, int], float],
 ]:
-    """Build drift/lambda masks and edge lag metadata from the causal structure."""
+    """Build block/component support arrays and edge lag metadata from causal structure."""
     if causal_spec is None or latent_names is None:
         return (
-            np.eye(n_latent, dtype=bool) | full_drift_offdiag_mask(n_latent),
+            np.eye(n_latent, dtype=bool) | _full_drift_offdiag_support(n_latent),
             np.zeros((n_latent, 0), dtype=bool),
             jnp.eye(n_manifest, n_latent),
-            zero_loading_mask(n_manifest, n_latent),
+            _zero_loading_support(n_manifest, n_latent),
             {},
         )
 
@@ -614,7 +639,7 @@ def translate_spec(
 
     try:
         drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
-            build_masks_from_causal_spec(
+            build_structural_support_from_causal_spec(
                 latent_names,
                 manifest_cols,
                 n_latent,
@@ -624,10 +649,10 @@ def translate_spec(
         )
     except SpecTranslationError as exc:
         errors.extend(exc.errors)
-        drift_mask = np.eye(n_latent, dtype=bool) | full_drift_offdiag_mask(n_latent)
+        drift_mask = np.eye(n_latent, dtype=bool) | _full_drift_offdiag_support(n_latent)
         input_effect_mask = np.zeros((n_latent, 0), dtype=bool)
         lambda_mat = jnp.eye(n_manifest, n_latent)
-        lambda_mask = zero_loading_mask(n_manifest, n_latent)
+        lambda_mask = _zero_loading_support(n_manifest, n_latent)
         edge_lag_days = {}
 
     drift_diag_mask = np.diag(drift_mask).copy()
@@ -670,25 +695,25 @@ def translate_spec(
         if causal_spec is None:
             t0_correlation_mask = build_initial_state_correlation_mask(latent_names, model_spec)
         else:
-            t0_correlation_mask = zero_square_mask(n_latent)
+            t0_correlation_mask = _zero_square_support(n_latent)
     except ValueError as exc:
         errors.append(str(exc))
-        t0_correlation_mask = zero_square_mask(n_latent)
+        t0_correlation_mask = _zero_square_support(n_latent)
     diffusion_chol_mask = (
-        full_cholesky_mask(n_latent)
+        _full_cholesky_support(n_latent)
         if has_innovation_correlation
-        else np.diag(full_diagonal_mask(n_latent))
+        else np.diag(_full_diagonal_support(n_latent))
     )
     diffusion_chol_mask = _mask_time_invariant_diffusion_support(
         diffusion_chol_mask,
         time_invariant_mask,
     )
     if t0_correlation_mask is None:
-        t0_correlation_mask = zero_square_mask(n_latent)
+        t0_correlation_mask = _zero_square_support(n_latent)
     initialization_policy = InitializationPolicy(model_spec.initialization_policy)
     if initialization_policy == InitializationPolicy.FREE:
-        t0_means_mask = full_vector_mask(n_latent)
-        t0_chol_diag_mask = full_diagonal_mask(n_latent)
+        t0_means_mask = _full_vector_support(n_latent)
+        t0_chol_diag_mask = _full_diagonal_support(n_latent)
     else:
         dynamic_mask = (
             np.ones(n_latent, dtype=bool)
@@ -704,7 +729,7 @@ def translate_spec(
         model_spec.observation_intercept_policy
     )
     if observation_intercept_policy == ObservationInterceptPolicy.FIXED:
-        manifest_means_mask = zero_vector_mask(n_manifest)
+        manifest_means_mask = _zero_vector_support(n_manifest)
     else:
         manifest_means_mask = _build_role_index_lookup(
             model_spec,
@@ -720,7 +745,7 @@ def translate_spec(
             names=latent_names,
         )
     else:
-        cint_mask = zero_vector_mask(n_latent)
+        cint_mask = _zero_vector_support(n_latent)
     static_state_sd_mask, static_state_sds, static_factor_loadings, static_factor_names = (
         _build_static_factor_structure(
             model_spec,
@@ -743,15 +768,23 @@ def translate_spec(
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=CompositeSpec(
             n_latent=n_latent,
-            drift_diag_mask=drift_diag_mask,
-            drift_offdiag_mask=drift_offdiag_mask,
-            drift_template=jnp.zeros((n_latent, n_latent)),
-            cint_mask=cint_mask,
-            cint_template=jnp.zeros(n_latent),
-            time_invariant_mask=time_invariant_mask,
-            stability_margin=DEFAULT_STABILITY_MARGIN_PER_DAY,
+            components=(
+                StructuralDenseLinearSpec(
+                    n_latent=n_latent,
+                    drift_diag_mask=drift_diag_mask,
+                    drift_offdiag_mask=drift_offdiag_mask,
+                    drift_template=jnp.zeros((n_latent, n_latent)),
+                    time_invariant_mask=time_invariant_mask,
+                    stability_margin=DEFAULT_STABILITY_MARGIN_PER_DAY,
+                ),
+                StructuralInterceptSpec(
+                    n_latent=n_latent,
+                    cint_mask=cint_mask,
+                    cint_template=jnp.zeros(n_latent),
+                ),
+            ),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,

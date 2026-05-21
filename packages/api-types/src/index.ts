@@ -82,7 +82,7 @@ export type {
 } from "./generated/models";
 
 export type {
-  CounterfactualEvidenceResultContract as CounterfactualEvidenceResult,
+  CounterfactualStartResultContract as CounterfactualStartResult,
   EffectSummaryContract as EffectSummary,
   EffectTrajectoryPointContract as EffectTrajectoryPoint,
   InterventionActionInput,

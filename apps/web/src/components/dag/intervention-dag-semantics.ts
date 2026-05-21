@@ -5,12 +5,12 @@ function formatSignedAmount(value: number, digits = 1): string {
   return value >= 0 ? `+${magnitude}` : `-${magnitude}`;
 }
 
-function formatEvidenceTimestamp(value: string): string {
+function formatStartTimestamp(value: string): string {
   return value.replace(/T.*$/, "");
 }
 
 export function getActionReference(result: Stage6SimulationResult): ActionReferenceKind {
-  return result.rung === 3 ? "abducted_state" : "baseline_steady_state";
+  return result.rung === 3 ? "fitted_start_state" : "baseline_steady_state";
 }
 
 export function formatActionDescription(result: Stage6SimulationResult): string {
@@ -20,7 +20,8 @@ export function formatActionDescription(result: Stage6SimulationResult): string 
     return `do(${treatment} = ${Number(action.value ?? 0).toFixed(1)})`;
   }
 
-  const reference = getActionReference(result) === "baseline_steady_state" ? "baseline" : "abducted state";
+  const reference =
+    getActionReference(result) === "baseline_steady_state" ? "baseline" : "fitted start state";
   return `do(${treatment} = ${reference} ${formatSignedAmount(action.amount ?? 0)})`;
 }
 
@@ -37,15 +38,18 @@ export function formatActionReferenceLabel(result: Stage6SimulationResult): stri
   }
   return getActionReference(result) === "baseline_steady_state"
     ? "from baseline steady state"
-    : "from abducted state";
+    : "from fitted start state";
 }
 
-export function formatEvidenceWindowLabel(result: Stage6SimulationResult): string | null {
+export function formatCounterfactualStartLabel(result: Stage6SimulationResult): string | null {
   if (result.rung !== 3) {
     return null;
   }
-  const { start_time, end_time, n_timepoints } = result.evidence;
-  return `conditioned on observed window ${formatEvidenceTimestamp(start_time)} to ${formatEvidenceTimestamp(end_time)} (${n_timepoints} points)`;
+  const { time, time_index } = result.start;
+  if (time) {
+    return `started from fitted state ${formatStartTimestamp(time)} (#${time_index})`;
+  }
+  return `started from fitted state #${time_index}`;
 }
 
 export function getEffectTrajectoryDays(result: Stage6SimulationResult): number[] {

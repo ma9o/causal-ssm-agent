@@ -4,7 +4,7 @@ import {
   formatActionDescription,
   formatActionReferenceLabel,
   formatActionShortLabel,
-  formatEvidenceWindowLabel,
+  formatCounterfactualStartLabel,
   getEffectTrajectoryDays,
   getNodeActionSeries,
   getNodeReferenceSeries,
@@ -22,7 +22,7 @@ export interface EffectNodeViewModel {
   rung?: 2 | 3;
   animPhase: NodeAnimPhase;
   effectMagnitude: number | null;
-  abductedValue: number | null;
+  startStateValue: number | null;
   timeIndex: number;
   timeStepsDays: number[] | null;
   referenceTimeSeries: number[] | null;
@@ -34,7 +34,7 @@ export interface EffectNodeViewModel {
 export interface InterventionDagViewModel {
   mode: DagMode;
   actionDescription: string | null;
-  evidenceDescription: string | null;
+  startDescription: string | null;
   timeStepsDays: number[];
   temporalMarkers?: TemporalMarker[];
   nodeData: Record<string, EffectNodeViewModel>;
@@ -90,7 +90,7 @@ export function buildInterventionDagViewModel(args: {
   constructs: Construct[];
   requestedHorizonDays?: number;
   result: Stage6SimulationResult | null;
-  animation: Pick<DagAnimationState, "phase" | "timeIndex" | "nodePhases" | "nodeEffects" | "abductedValues">;
+  animation: Pick<DagAnimationState, "phase" | "timeIndex" | "nodePhases" | "nodeEffects" | "startStateValues">;
 }): InterventionDagViewModel {
   const { constructs, requestedHorizonDays, result, animation } = args;
   const mode = getDagMode(result);
@@ -98,7 +98,7 @@ export function buildInterventionDagViewModel(args: {
     return {
       mode,
       actionDescription: null,
-      evidenceDescription: null,
+      startDescription: null,
       timeStepsDays: [],
       nodeData: {},
     };
@@ -111,7 +111,7 @@ export function buildInterventionDagViewModel(args: {
   return {
     mode,
     actionDescription: formatActionDescription(result),
-    evidenceDescription: formatEvidenceWindowLabel(result),
+    startDescription: formatCounterfactualStartLabel(result),
     timeStepsDays,
     temporalMarkers: buildTemporalMarkers(timeStepsDays, requestedHorizonDays),
     nodeData: Object.fromEntries(
@@ -121,7 +121,7 @@ export function buildInterventionDagViewModel(args: {
           rung: result.rung,
           animPhase: animation.nodePhases[construct.name] ?? "idle",
           effectMagnitude: animation.nodeEffects[construct.name] ?? null,
-          abductedValue: animation.abductedValues[construct.name] ?? null,
+          startStateValue: animation.startStateValues[construct.name] ?? null,
           timeIndex: animation.timeIndex,
           timeStepsDays,
           referenceTimeSeries: getNodeReferenceSeries(result, construct.name),

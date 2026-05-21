@@ -5,7 +5,7 @@ import {
   formatActionDescription,
   formatActionReferenceLabel,
   formatActionShortLabel,
-  formatEvidenceWindowLabel,
+  formatCounterfactualStartLabel,
   getActionReference,
   getNodeActionSeries,
   getEffectTrajectoryDays,
@@ -32,7 +32,7 @@ describe("intervention DAG semantics", () => {
         node_effect_trajectories: {
           lipid_burden: [1],
         },
-        abducted_state: null,
+        start_state: null,
       },
     } as unknown as Stage6SimulationResult;
 
@@ -49,7 +49,7 @@ describe("intervention DAG semantics", () => {
     expect(getNodeActionSeries(result, "lipid_burden")).toEqual([1.85]);
   });
 
-  it("formats abducted-state counterfactual labels from rung-3 results", () => {
+  it("formats fitted-start-state counterfactual labels from rung-3 results", () => {
     const result = {
       rung: 3 as const,
       action: {
@@ -57,20 +57,20 @@ describe("intervention DAG semantics", () => {
         mode: "shift" as const,
         amount: 1,
       },
-      evidence: {
-        start_time: "2024-01-01T00:00:00+00:00",
-        end_time: "2024-03-31T00:00:00+00:00",
-        n_timepoints: 90,
+      start: {
+        time_index: 89,
+        time: "2024-03-31T00:00:00+00:00",
+        state_source: "fitted_latent_paths",
       },
     } as unknown as Stage6SimulationResult;
 
-    expect(getActionReference(result)).toBe("abducted_state");
+    expect(getActionReference(result)).toBe("fitted_start_state");
     expect(formatActionDescription(result)).toBe(
-      "do(medication_adherence = abducted state +1.0)",
+      "do(medication_adherence = fitted start state +1.0)",
     );
-    expect(formatActionReferenceLabel(result)).toBe("from abducted state");
-    expect(formatEvidenceWindowLabel(result)).toBe(
-      "conditioned on observed window 2024-01-01 to 2024-03-31 (90 points)",
+    expect(formatActionReferenceLabel(result)).toBe("from fitted start state");
+    expect(formatCounterfactualStartLabel(result)).toBe(
+      "started from fitted state 2024-03-31 (#89)",
     );
   });
 });

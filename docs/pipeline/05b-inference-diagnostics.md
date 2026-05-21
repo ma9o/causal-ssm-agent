@@ -12,7 +12,7 @@ Fits the compiled state-space model from [Stage 4](04-model-specification-priors
 |---|---|---|
 | `compiled_ssm` | [Stage 4](04-model-specification-priors.md) | [`CompiledSSMArtifact`](../reference/compilation.md) with model spec, priors, and compiled SSM |
 | `data_for_model` | [Stage 2](02-indicator-extraction.md) | Encoded long-format [`ObservationRecord`](02-indicator-extraction.md#observationrecord) table |
-| `inference_method` | Pipeline config | Optional sampler override (`"map"`, `"aux_kalman_mcmc"`, or `"pit_particle_mgrad"`); `null` uses the [default route](../reference/inference-routing.md#structural-routing) |
+| `inference_method` | Pipeline config | Optional sampler override (`"aux_kalman_mcmc"` or `"pit_particle_mgrad"`); `null` uses the [default route](../reference/inference-routing.md#structural-routing) |
 
 Stage 4 provided the compiled model and priors; Stage 5b is where that model is fitted to data and the posterior is characterized.
 

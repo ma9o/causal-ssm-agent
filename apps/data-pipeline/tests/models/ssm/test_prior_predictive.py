@@ -30,9 +30,7 @@ from nof1_causal_lab.models.ssm.dynamics.composite import (
     CompositeSpec,
     DiagonalDecaySpec,
     HillEdgeSpec,
-    linear_drift_spec,
 )
-from nof1_causal_lab.models.ssm.model import full_diagonal_mask
 from nof1_causal_lab.models.ssm.parameterization import compile_prior_semantics
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_compiled_semantics,
@@ -41,7 +39,13 @@ from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec, T0CholBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
-from tests.ssm_test_utils import block_ssm_spec, diagonal_diffusion_block, prior_registry
+from tests.ssm_test_utils import (
+    block_ssm_spec,
+    diagonal_diffusion_block,
+    full_diagonal_mask,
+    prior_registry,
+    structural_dense_drift_spec,
+)
 
 
 def _require_result(result: PriorValidationResult | None) -> PriorValidationResult:
@@ -529,7 +533,7 @@ class TestCheckLaggedResponsePlausibility:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.array([True, True]),
                 drift_offdiag_mask=np.array([[False, False], [True, False]]),
@@ -574,7 +578,7 @@ class TestCheckLaggedResponsePlausibility:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.array([True, True]),
                 drift_offdiag_mask=np.array([[False, False], [True, False]]),
@@ -847,7 +851,7 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=full_diagonal_mask(1),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -931,7 +935,7 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=full_diagonal_mask(1),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -962,7 +966,7 @@ class TestCompiledPriorPredictiveRuntime:
         spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=3,
                 drift_diag_mask=full_diagonal_mask(3),
                 drift_offdiag_mask=np.zeros((3, 3), dtype=bool),

@@ -4,8 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
-from tests.ssm_test_utils import block_ssm_spec
+from tests.ssm_test_utils import block_ssm_spec, structural_dense_drift_spec
 
 pytestmark = pytest.mark.slow
 
@@ -17,7 +16,7 @@ def _make_simple_ssm():
         spec=block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.ones(2, dtype=bool),
                 drift_offdiag_mask=np.array([[False, True], [True, False]]),
@@ -31,17 +30,16 @@ def _make_simple_ssm():
 
 class TestAutoReparamSSM:
     def test_fit_map_filters_auxiliary_sites(self):
-        from nof1_causal_lab.models.ssm.inference import fit
+        from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 
         model = _make_simple_ssm()
         observations = jnp.zeros((8, 2))
         times = jnp.linspace(0, 1, 8)
 
-        result = fit(
+        result = fit_map(
             model,
             observations,
             times,
-            method="map",
             num_warmup=10,
             num_samples=10,
             num_chains=1,

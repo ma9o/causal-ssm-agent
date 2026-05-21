@@ -90,24 +90,30 @@ class SimulateInterventionInput(BaseModel):
     query: InterventionQueryInput = Field(default_factory=InterventionQueryInput)
 
 
-class CounterfactualEvidenceInput(BaseModel):
+class CounterfactualStartInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    start_time: str | None = Field(
+    time_index: int | None = Field(
         default=None,
-        description="Inclusive ISO-8601 lower bound for the evidence window.",
-    )
-    end_time: str | None = Field(
-        default=None,
+        ge=0,
         description=(
-            "Inclusive ISO-8601 upper bound for the evidence window. "
-            "Defaults to the final observed time."
+            "Observed fitted-state index to start the counterfactual forecast from. "
+            "Defaults to the final retained fitted latent state."
         ),
     )
-    variables: list[str] = Field(
-        default_factory=list,
-        description="Optional constructs or indicators to highlight when describing evidence coverage.",
+    time: str | None = Field(
+        default=None,
+        description=(
+            "Optional ISO-8601 observed timestamp matching a retained fitted latent state. "
+            "Use either time_index or time, not both."
+        ),
     )
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> CounterfactualStartInput:
+        if self.time_index is not None and self.time is not None:
+            raise ValueError("Use either start.time_index or start.time, not both")
+        return self
 
 
 class CounterfactualQueryInput(BaseModel):
@@ -132,7 +138,7 @@ class CounterfactualQueryInput(BaseModel):
 class SimulateCounterfactualInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    evidence: CounterfactualEvidenceInput = Field(default_factory=CounterfactualEvidenceInput)
+    start: CounterfactualStartInput = Field(default_factory=CounterfactualStartInput)
     action: InterventionActionInput
     outcome: str | None = Field(
         default=None,
@@ -173,7 +179,7 @@ class Stage6VisualizationContract(BaseModel):
         description=(
             "Per-construct latent trajectories for the reference path aligned to "
             "effect_trajectory days. This is the no-action baseline forecast for rung-2 "
-            "queries and the factual forecast from the abducted state for rung-3 queries."
+            "queries and the factual forecast from the fitted start state for rung-3 queries."
         ),
     )
     action_node_trajectories: dict[str, list[float]] | None = Field(
@@ -190,20 +196,18 @@ class Stage6VisualizationContract(BaseModel):
             "Values are causal deltas relative to the relevant reference path."
         ),
     )
-    abducted_state: dict[str, float] | None = Field(
+    start_state: dict[str, float] | None = Field(
         default=None,
-        description="Recovered latent state at the evidence boundary for rung-3 queries.",
+        description="Posterior mean fitted latent state used to start a rung-3 query.",
     )
 
 
-class CounterfactualEvidenceResultContract(BaseModel):
+class CounterfactualStartResultContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    start_time: str
-    end_time: str
-    n_timepoints: int
-    variables: list[str] = Field(default_factory=list)
-    conditioning_method: str
+    time_index: int
+    time: str | None = None
+    state_source: Literal["fitted_latent_paths"] = "fitted_latent_paths"
 
 
 class BaseStage6SimulationResultContract(BaseModel):
@@ -226,7 +230,7 @@ class SimulateInterventionResultContract(BaseStage6SimulationResultContract):
 
 class SimulateCounterfactualResultContract(BaseStage6SimulationResultContract):
     rung: Literal[3]
-    evidence: CounterfactualEvidenceResultContract
+    start: CounterfactualStartResultContract
     estimand: Literal["end_state", "trajectory"]
     baseline_forecast_mean: float
 
@@ -261,8 +265,8 @@ STAGE6_TOOL_CONTRACTS: list[ToolContract] = [
     ToolContract(
         name="simulate_counterfactual",
         description=(
-            "Run a Pearl rung-3 counterfactual forecast by conditioning on an observed "
-            "history window, then applying an action."
+            "Run a Pearl rung-3 counterfactual forecast from a retained fitted latent "
+            "state, then applying an action."
         ),
         input_schema=SimulateCounterfactualInput,
         output_schema=SimulateCounterfactualToolResultContract,
@@ -275,7 +279,7 @@ EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
     EffectSummaryContract,
     EffectTrajectoryPointContract,
     Stage6VisualizationContract,
-    CounterfactualEvidenceResultContract,
+    CounterfactualStartResultContract,
     SimulateInterventionResultContract,
     SimulateCounterfactualResultContract,
     SimulateInterventionToolResultContract,

@@ -20,7 +20,7 @@ from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     empty_prior_bindings,
 )
 from nof1_causal_lab.models.ssm.compile.spec_translation import (
-    build_masks_from_causal_spec,
+    build_structural_support_from_causal_spec,
     get_construct_dt_days,
     get_estimation_latent_layout,
     translate_spec,
@@ -167,7 +167,8 @@ def compile_ssm_inputs_from_spec(
     dict[tuple[int, int], float],
 ]:
     """Finalize executable SSM inputs from an explicit translated SSMSpec surface."""
-    from nof1_causal_lab.models.ssm.priors import default_prior_registry
+    from nof1_causal_lab.models.ssm.parameterization import build_site_registry
+    from nof1_causal_lab.models.ssm.priors import default_prior_registry_for_sites
 
     resolved_model_spec = (
         ModelSpec.model_validate(model_spec) if isinstance(model_spec, dict) else model_spec
@@ -183,7 +184,9 @@ def compile_ssm_inputs_from_spec(
                 "compile_ssm_inputs_from_spec() requires model_spec to compile semantic prior "
                 "proposals from a direct SSMSpec."
             )
-        resolved_prior_registry = prior_registry or default_prior_registry()
+        resolved_prior_registry = prior_registry or default_prior_registry_for_sites(
+            build_site_registry(ssm_spec)
+        )
         index_maps = empty_prior_bindings()
         diagnostics = collect_compile_diagnostics(
             ssm_spec,
@@ -231,7 +234,7 @@ def compile_ssm_inputs_from_spec(
 __all__ = [
     "SemanticBindingRegistry",
     "bind_parameters",
-    "build_masks_from_causal_spec",
+    "build_structural_support_from_causal_spec",
     "build_semantic_prior_bindings",
     "compile_priors",
     "compile_ssm_inputs_from_model_spec",

@@ -6,9 +6,9 @@ recompute positions from masks (the blocks already do that). It does
 not own templates and it does not assemble matrices. Assembly belongs
 to the block that owns the parameter.
 
-The named position/index/count accessors are derived lookups against
-``by_name``; they exist to keep compile-time consumers' call sites
-narrow, not to encode the topology a second time.
+The named position/index/count accessors are derived ``SiteKind``
+lookups against ``by_name``; they exist to keep compile-time consumers'
+call sites narrow, not to encode the topology a second time.
 """
 
 from __future__ import annotations
@@ -45,22 +45,8 @@ class SSMParameterLayout:
         )
 
     # ------------------------------------------------------------------
-    # Generic descriptor lookups
+    # SiteKind lookups (canonical)
     # ------------------------------------------------------------------
-
-    def _positions(self, site_name: str) -> list:
-        site = self.by_name.get(site_name)
-        return list(site.positions) if site is not None else []
-
-    def _count(self, site_name: str) -> int:
-        site = self.by_name.get(site_name)
-        return len(site.positions) if site is not None else 0
-
-    def _index(self, site_name: str) -> dict:
-        site = self.by_name.get(site_name)
-        if site is None:
-            return {}
-        return {position: flat_idx for flat_idx, position in enumerate(site.positions)}
 
     def sites_by_kind(self, site_kind: SiteKind) -> tuple[SiteDescriptor, ...]:
         return tuple(site for site in self.sites if site.site_kind == site_kind)
@@ -91,7 +77,7 @@ class SSMParameterLayout:
         return {position: flat_idx for flat_idx, position in enumerate(site.positions)}
 
     # ------------------------------------------------------------------
-    # Named positions / index / count accessors (derived)
+    # Named positions / index / count accessors (derived from SiteKind)
     # ------------------------------------------------------------------
 
     @property
@@ -132,120 +118,120 @@ class SSMParameterLayout:
 
     @property
     def static_state_sd_free_positions(self) -> list[int]:
-        return self._positions("static_state_sd_free")
+        return self._positions_for_kind(SiteKind.STATIC_STATE_SD)
 
     @property
     def static_state_sd_free_index(self) -> dict[int, int]:
-        return self._index("static_state_sd_free")
+        return self._index_for_kind(SiteKind.STATIC_STATE_SD)
 
     @property
     def n_static_state_sd(self) -> int:
-        return self._count("static_state_sd_free")
+        return self._count_for_kind(SiteKind.STATIC_STATE_SD)
 
     @property
     def input_effect_positions(self) -> list[tuple[int, int]]:
-        return self._positions("input_effect_free")
+        return self._positions_for_kind(SiteKind.INPUT_EFFECT)
 
     @property
     def input_effect_index(self) -> dict[tuple[int, int], int]:
-        return self._index("input_effect_free")
+        return self._index_for_kind(SiteKind.INPUT_EFFECT)
 
     @property
     def n_input_effect(self) -> int:
-        return self._count("input_effect_free")
+        return self._count_for_kind(SiteKind.INPUT_EFFECT)
 
     @property
     def diffusion_diag_positions(self) -> list[int]:
-        return self._positions("diffusion_diag_free")
+        return self._positions_for_kind(SiteKind.DIFFUSION_DIAG)
 
     @property
     def diffusion_diag_index(self) -> dict[int, int]:
-        return self._index("diffusion_diag_free")
+        return self._index_for_kind(SiteKind.DIFFUSION_DIAG)
 
     @property
     def n_diffusion_diag(self) -> int:
-        return self._count("diffusion_diag_free")
+        return self._count_for_kind(SiteKind.DIFFUSION_DIAG)
 
     @property
     def diffusion_lower_positions(self) -> list[tuple[int, int]]:
-        return self._positions("diffusion_lower_free")
+        return self._positions_for_kind(SiteKind.DIFFUSION_LOWER)
 
     @property
     def diffusion_lower_index(self) -> dict[tuple[int, int], int]:
-        return self._index("diffusion_lower_free")
+        return self._index_for_kind(SiteKind.DIFFUSION_LOWER)
 
     @property
     def n_diffusion_lower(self) -> int:
-        return self._count("diffusion_lower_free")
+        return self._count_for_kind(SiteKind.DIFFUSION_LOWER)
 
     @property
     def lambda_free_positions(self) -> list[tuple[int, int]]:
-        return self._positions("lambda_free")
+        return self._positions_for_kind(SiteKind.LOADING)
 
     @property
     def lambda_free_index(self) -> dict[tuple[int, int], int]:
-        return self._index("lambda_free")
+        return self._index_for_kind(SiteKind.LOADING)
 
     @property
     def n_lambda_free(self) -> int:
-        return self._count("lambda_free")
+        return self._count_for_kind(SiteKind.LOADING)
 
     @property
     def manifest_means_free_positions(self) -> list[int]:
-        return self._positions("manifest_means_free")
+        return self._positions_for_kind(SiteKind.MANIFEST_MEANS)
 
     @property
     def manifest_means_free_index(self) -> dict[int, int]:
-        return self._index("manifest_means_free")
+        return self._index_for_kind(SiteKind.MANIFEST_MEANS)
 
     @property
     def n_manifest_means(self) -> int:
-        return self._count("manifest_means_free")
+        return self._count_for_kind(SiteKind.MANIFEST_MEANS)
 
     @property
     def manifest_var_free_positions(self) -> list[int]:
-        return self._positions("manifest_var_diag_free")
+        return self._positions_for_kind(SiteKind.MANIFEST_VAR_DIAG)
 
     @property
     def manifest_var_free_index(self) -> dict[int, int]:
-        return self._index("manifest_var_diag_free")
+        return self._index_for_kind(SiteKind.MANIFEST_VAR_DIAG)
 
     @property
     def n_manifest_var_diag(self) -> int:
-        return self._count("manifest_var_diag_free")
+        return self._count_for_kind(SiteKind.MANIFEST_VAR_DIAG)
 
     @property
     def t0_means_free_positions(self) -> list[int]:
-        return self._positions("t0_means_free")
+        return self._positions_for_kind(SiteKind.T0_MEANS)
 
     @property
     def t0_means_free_index(self) -> dict[int, int]:
-        return self._index("t0_means_free")
+        return self._index_for_kind(SiteKind.T0_MEANS)
 
     @property
     def n_t0_means(self) -> int:
-        return self._count("t0_means_free")
+        return self._count_for_kind(SiteKind.T0_MEANS)
 
     @property
     def t0_diag_free_positions(self) -> list[int]:
-        return self._positions("t0_var_diag_free")
+        return self._positions_for_kind(SiteKind.T0_VAR_DIAG)
 
     @property
     def t0_diag_free_index(self) -> dict[int, int]:
-        return self._index("t0_var_diag_free")
+        return self._index_for_kind(SiteKind.T0_VAR_DIAG)
 
     @property
     def n_t0_diag(self) -> int:
-        return self._count("t0_var_diag_free")
+        return self._count_for_kind(SiteKind.T0_VAR_DIAG)
 
     @property
     def t0_correlation_positions(self) -> list[tuple[int, int]]:
-        return self._positions("t0_var_lower_free")
+        return self._positions_for_kind(SiteKind.T0_VAR_LOWER)
 
     @property
     def t0_correlation_index(self) -> dict[tuple[int, int], int]:
-        return self._index("t0_var_lower_free")
+        return self._index_for_kind(SiteKind.T0_VAR_LOWER)
 
     @property
     def n_t0_correlation(self) -> int:
-        return self._count("t0_var_lower_free")
+        return self._count_for_kind(SiteKind.T0_VAR_LOWER)

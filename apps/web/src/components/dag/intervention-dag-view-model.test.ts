@@ -10,7 +10,7 @@ const emptyAnimation = {
   timeIndex: 0,
   nodePhases: {},
   nodeEffects: {},
-  abductedValues: {},
+  startStateValues: {},
 } as const;
 
 describe("buildInterventionDagViewModel", () => {

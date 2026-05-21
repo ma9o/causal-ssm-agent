@@ -3,7 +3,7 @@
 This module implements Bayesian state-space models with:
 - Continuous-time dynamics via stochastic differential equations
 - Automatic CT→DT discretization for irregular time intervals
-- Multiple inference backends: MAP, auxiliary Kalman MCMC, and PIT Particle-mGRAD
+- Two public inference backends: auxiliary Kalman MCMC and PIT Particle-mGRAD
 - Automatic reparameterization via AutoReparam
 """
 
@@ -23,15 +23,6 @@ from nof1_causal_lab.models.ssm.inference import InferenceMethod, InferenceResul
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
     SSMSpec,
-    full_cholesky_mask,
-    full_diagonal_mask,
-    full_drift_offdiag_mask,
-    full_vector_mask,
-    strict_lower_triangle_mask,
-    zero_diagonal_mask,
-    zero_loading_mask,
-    zero_square_mask,
-    zero_vector_mask,
 )
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
@@ -53,15 +44,6 @@ __all__ = [
     "SSMSpec",
     "PriorRegistry",
     "PriorSpec",
-    "full_cholesky_mask",
-    "full_diagonal_mask",
-    "full_drift_offdiag_mask",
-    "full_vector_mask",
-    "strict_lower_triangle_mask",
-    "zero_diagonal_mask",
-    "zero_loading_mask",
-    "zero_square_mask",
-    "zero_vector_mask",
     # Inference
     "InferenceMethod",
     "InferenceResult",

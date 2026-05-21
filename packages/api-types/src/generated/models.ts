@@ -56,6 +56,8 @@ export type LinkFunction = "identity" | "log" | "inverse" | "logit" | "probit" |
 export type ParameterRole =
   | "fixed_effect"
   | "ar_coefficient"
+  | "dynamics_parameter"
+  | "dynamics_parameter_positive"
   | "residual_sd"
   | "state_intercept"
   | "observation_intercept"

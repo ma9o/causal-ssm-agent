@@ -197,10 +197,8 @@ class UnconstrainedSiteTransform:
     """Shared bijection between dict-keyed NumPyro sample sites and a
     flat unconstrained vector.
 
-    Both the dense auxiliary-Kalman path (``trajectory_mcmc/auxiliary_kalman.py``)
-    and the composite-spec MH driver (``inference/methods/composite_aux_kalman.py``)
-    need identical machinery: per-site ``biject_to(support)`` bijections, a
-    ravel/unravel pair, and a combined ``log_prior(constrained) +
+    The blocked MCMC paths need per-site ``biject_to(support)`` bijections,
+    a ravel/unravel pair, and a combined ``log_prior(constrained) +
     log_abs_det_jacobian`` callable on the flat unconstrained representation.
 
     Built from a site-info dict where each entry has ``transform``
@@ -263,9 +261,7 @@ def build_unconstrained_site_transform(
         total = jnp.asarray(0.0, dtype=flat_dtype)
         for name in unc:
             con = transforms[name](unc[name])
-            total = total + jnp.sum(
-                transforms[name].log_abs_det_jacobian(unc[name], con)
-            )
+            total = total + jnp.sum(transforms[name].log_abs_det_jacobian(unc[name], con))
         return total
 
     def log_prior_unc(z: jnp.ndarray) -> jnp.ndarray:
@@ -275,9 +271,7 @@ def build_unconstrained_site_transform(
         for name in unc:
             con = transforms[name](unc[name])
             log_prior = log_prior + jnp.sum(distributions[name].log_prob(con))
-            log_jac = log_jac + jnp.sum(
-                transforms[name].log_abs_det_jacobian(unc[name], con)
-            )
+            log_jac = log_jac + jnp.sum(transforms[name].log_abs_det_jacobian(unc[name], con))
         return log_prior + log_jac
 
     return UnconstrainedSiteTransform(
@@ -335,19 +329,13 @@ def _assemble_single_likelihood_deterministics(
         samples.get("diffusion_diag_free"),
         samples.get("diffusion_lower_free"),
     )
-    det["input_effect"] = spec.input_effect_block.assemble(
-        samples.get("input_effect_free")
-    )
+    det["input_effect"] = spec.input_effect_block.assemble(samples.get("input_effect_free"))
     det["static_state_sds"] = spec.static_state_sd_block.assemble(
         samples.get("static_state_sd_free")
     )
     det["lambda"] = spec.lambda_block.assemble(samples.get("lambda_free"))
-    det["manifest_means"] = spec.manifest_means_block.assemble(
-        samples.get("manifest_means_free")
-    )
-    manifest_chol = spec.manifest_chol_block.assemble(
-        samples.get("manifest_var_diag_free")
-    )
+    det["manifest_means"] = spec.manifest_means_block.assemble(samples.get("manifest_means_free"))
+    manifest_chol = spec.manifest_chol_block.assemble(samples.get("manifest_var_diag_free"))
     det["manifest_cov"] = manifest_chol @ manifest_chol.T
     det["t0_means"] = spec.t0_means_block.assemble(samples.get("t0_means_free"))
 
@@ -536,7 +524,9 @@ def extract_constrained_samples(
         profiling["original_sample_resolution_seconds"] = time.perf_counter() - resolve_start
 
     # Assemble deterministic matrices (drift, diffusion, lambda, etc.)
-    parameter_layout = model.parameter_layout if model is not None else SSMParameterLayout.from_spec(spec)
+    parameter_layout = (
+        model.parameter_layout if model is not None else SSMParameterLayout.from_spec(spec)
+    )
     det_start = time.perf_counter()
     det_samples = _assemble_deterministics(
         original_samples,

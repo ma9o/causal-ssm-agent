@@ -65,7 +65,7 @@ class TestToSamplerConfig:
         assert result["param_max_num_doublings"] == 10
         assert result["adaptation_rate"] == 0.05
         assert result["init_scale"] == 0.05
-        assert result["retain_latent_paths"] is False
+        assert result["retain_latent_paths"] is True
         assert result["compute_latent_posterior_summary"] is True
         assert "num_steps" not in result
         assert "learning_rate" not in result
@@ -81,22 +81,22 @@ class TestToSamplerConfig:
         assert result["latent_kernel"] == "kalman"
         assert result["parameter_kernel"] == "mala"
         assert result["param_max_num_doublings"] == 10
-        assert result["retain_latent_paths"] is False
+        assert result["retain_latent_paths"] is True
         assert result["compute_latent_posterior_summary"] is True
 
     def test_method_override(self):
-        cfg = InferenceConfig(method="aux_kalman_mcmc")
-        result = cfg.to_sampler_config(method_override="map")
-        assert result["method"] == "map"
-        assert result["n_ieks_iters"] == 6
-        assert "num_steps" not in result
+        cfg = InferenceConfig(method="pit_particle_mgrad")
+        result = cfg.to_sampler_config(method_override="aux_kalman_mcmc")
+        assert result["method"] == "aux_kalman_mcmc"
+        assert result["latent_kernel"] == "kalman"
 
     def test_custom_map_settings(self):
         cfg = InferenceConfig(
-            method="map",
+            method="pit_particle_mgrad",
             map=MAPConfig(n_ieks_iters=10),
         )
         result = cfg.to_sampler_config()
+        assert result["method"] == "pit_particle_mgrad"
         assert result["n_ieks_iters"] == 10
 
     def test_aux_kalman_mcmc_settings(self):
@@ -284,7 +284,7 @@ FULL_CONFIG = textwrap.dedent("""\
         model: openrouter/claude-3
 
     inference:
-      method: map
+      method: pit_particle_mgrad
       num_warmup: 500
       num_samples: 2000
       num_chains: 2
@@ -365,7 +365,7 @@ class TestLoadConfig:
         assert cfg.stage4_prior_elicitation.paraphrasing.enabled is True
         assert cfg.stage4_prior_elicitation.paraphrasing.n_paraphrases == 5
         assert cfg.stage6_commentary.llm.model == "openrouter/claude-3"
-        assert cfg.inference.method == "map"
+        assert cfg.inference.method == "pit_particle_mgrad"
         assert cfg.inference.num_warmup == 500
         assert cfg.inference.num_samples == 2000
         assert cfg.inference.num_chains == 2
@@ -408,7 +408,7 @@ class TestLoadConfig:
 
         cfg = load_config()
         sampler = cfg.inference.to_sampler_config()
-        assert sampler["method"] == "map"
+        assert sampler["method"] == "pit_particle_mgrad"
         assert sampler["num_warmup"] == 500
         assert sampler["n_ieks_iters"] == 10
 

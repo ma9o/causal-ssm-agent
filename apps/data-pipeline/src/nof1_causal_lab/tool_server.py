@@ -44,10 +44,6 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
 )
 from nof1_causal_lab.models.ssm.builder import SSMModelBuilder, prepare_model_runtime
 from nof1_causal_lab.models.ssm.counterfactual import (
-    approximate_abducted_state,
-    approximate_abducted_state_composite,
-    approximate_abducted_state_composite_eks,
-    approximate_abducted_state_composite_ieks,
     summarize_draws,
     vmap_simulate_action_from_state_composite,
     vmap_steady_state_effect_composite,
@@ -215,32 +211,78 @@ def _serialize_latent_state(state: jnp.ndarray, latent_names: list[str]) -> dict
     return {name: float(value) for name, value in zip(latent_names, state.tolist(), strict=False)}
 
 
-def _select_evidence_window(
-    timestamps: list[datetime],
-    evidence: dict[str, Any],
-) -> tuple[int, int, dict[str, Any]]:
-    if not timestamps:
+def _fitted_latent_paths_from_result(result: Any) -> jnp.ndarray | None:
+    """Return retained per-draw fitted latent paths as ``(draw, time, latent)``."""
+    paths = result.get_latent_paths() if hasattr(result, "get_latent_paths") else None
+    if paths is None:
+        diagnostics = getattr(result, "diagnostics", {}) or {}
+        paths = diagnostics.get("latent_paths")
+    if paths is None:
+        return None
+
+    latent_paths = jnp.asarray(paths)
+    if latent_paths.ndim == 4:
+        latent_paths = latent_paths.reshape(
+            (
+                latent_paths.shape[0] * latent_paths.shape[1],
+                latent_paths.shape[2],
+                latent_paths.shape[3],
+            )
+        )
+    if latent_paths.ndim != 3:
         raise HTTPException(
-            400, "No observed history is available for counterfactual conditioning."
+            400,
+            "Persisted fitted latent paths must have shape "
+            "(draw, time, latent) or (chain, draw, time, latent).",
+        )
+    return latent_paths
+
+
+def _resolve_counterfactual_start(
+    ctx: dict[str, Any],
+    start: dict[str, Any],
+    *,
+    n_timepoints: int,
+) -> tuple[int, dict[str, Any]]:
+    if n_timepoints <= 0:
+        raise HTTPException(400, "Persisted fitted latent paths contain no timepoints.")
+
+    raw_time_index = start.get("time_index")
+    raw_time = start.get("time")
+    timestamps = list(ctx.get("_observation_timestamps") or [])
+
+    if raw_time_index is not None:
+        time_index = int(raw_time_index)
+    elif raw_time:
+        if not timestamps:
+            raise HTTPException(
+                400, "start.time requires observed timestamps in the fitted workspace."
+            )
+        requested = _parse_iso_datetime(str(raw_time))
+        matches = [
+            idx for idx, timestamp in enumerate(timestamps[:n_timepoints]) if timestamp == requested
+        ]
+        if not matches:
+            raise HTTPException(
+                400, "start.time must exactly match a retained fitted-state timestamp."
+            )
+        time_index = matches[0]
+    else:
+        time_index = n_timepoints - 1
+
+    if time_index < 0 or time_index >= n_timepoints:
+        raise HTTPException(
+            400,
+            f"start.time_index must be between 0 and {n_timepoints - 1}; got {time_index}.",
         )
 
-    start = _parse_iso_datetime(evidence.get("start_time")) or timestamps[0]
-    end = _parse_iso_datetime(evidence.get("end_time")) or timestamps[-1]
-    if start > end:
-        raise HTTPException(400, "evidence.start_time must be <= evidence.end_time")
-
-    matching = [idx for idx, ts in enumerate(timestamps) if start <= ts <= end]
-    if not matching:
-        raise HTTPException(400, "Evidence window does not overlap the observed history.")
-
+    time = timestamps[time_index].isoformat() if time_index < len(timestamps) else None
     return (
-        matching[0],
-        matching[-1],
+        time_index,
         {
-            "start_time": timestamps[matching[0]].isoformat(),
-            "end_time": timestamps[matching[-1]].isoformat(),
-            "n_timepoints": len(matching),
-            "variables": list(evidence.get("variables", []) or []),
+            "time_index": time_index,
+            "time": time,
+            "state_source": "fitted_latent_paths",
         },
     )
 
@@ -381,18 +423,9 @@ def _prepare_stage6_simulation(
     )
     time_grid = jnp.linspace(0.0, dt_days * horizon_steps, horizon_steps + 1)
 
-    if hasattr(spec, "drift_spec"):
-        posterior_dynamics = posterior_dynamics_from_result(spec, fitted_artifact.result)
-        vector_field = posterior_dynamics.vector_field
-        param_samples = posterior_dynamics.param_samples
-    else:
-        diagnostics = fitted_artifact.result.diagnostics
-        vector_field = diagnostics.get("vector_field")
-        param_samples = diagnostics.get("param_samples")
-        if vector_field is None:
-            return None, _tool_error_result(
-                "Composite fitted artifact is missing diagnostics['vector_field']."
-            )
+    posterior_dynamics = posterior_dynamics_from_result(spec, fitted_artifact.result)
+    vector_field = posterior_dynamics.vector_field
+    param_samples = posterior_dynamics.param_samples
     if not param_samples:
         return None, _tool_error_result("Posterior dynamics samples are unavailable.")
 
@@ -427,7 +460,7 @@ def _build_visualization_payload(
     reference_node_paths: jnp.ndarray | None = None,
     action_node_paths: jnp.ndarray | None = None,
     node_effect_paths: jnp.ndarray | None = None,
-    abducted_state: dict[str, float] | None = None,
+    start_state: dict[str, float] | None = None,
 ) -> dict[str, Any] | None:
     reference_node_trajectories = (
         _serialize_node_trajectories(reference_node_paths[:, 1:], latent_names)
@@ -448,14 +481,14 @@ def _build_visualization_payload(
         reference_node_trajectories is None
         and action_node_trajectories is None
         and node_effect_trajectories is None
-        and abducted_state is None
+        and start_state is None
     ):
         return None
     return {
         "reference_node_trajectories": reference_node_trajectories,
         "action_node_trajectories": action_node_trajectories,
         "node_effect_trajectories": node_effect_trajectories,
-        "abducted_state": abducted_state,
+        "start_state": start_state,
     }
 
 
@@ -467,7 +500,7 @@ def _build_effect_outputs(
     reference_node_paths: jnp.ndarray | None = None,
     action_node_paths: jnp.ndarray | None = None,
     node_effect_paths: jnp.ndarray | None = None,
-    abducted_state: dict[str, float] | None = None,
+    start_state: dict[str, float] | None = None,
 ) -> Stage6EffectOutputs:
     if effect_paths is not None:
         effect_draws = effect_paths[:, -1]
@@ -499,7 +532,7 @@ def _build_effect_outputs(
             reference_node_paths=reference_node_paths,
             action_node_paths=action_node_paths,
             node_effect_paths=node_effect_paths,
-            abducted_state=abducted_state,
+            start_state=start_state,
         ),
         manifest_effects=manifest_effects,
     )
@@ -702,8 +735,7 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
             },
             "counterfactual": {
                 "rung": 3,
-                "evidence_mode": "observed_window",
-                "conditioning_methods": ["kalman_smoother", "observation_pseudoinverse"],
+                "start_state": "retained_fitted_latent_paths",
                 "estimands": ["end_state", "trajectory"],
             },
         }
@@ -787,76 +819,30 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
         return error
     assert setup is not None
 
-    evidence = dict(args.get("evidence") or {})
-    evidence_start_idx, evidence_end_idx, evidence_meta = _select_evidence_window(
-        ctx["_observation_timestamps"],
-        evidence,
+    latent_paths = _fitted_latent_paths_from_result(setup.fitted_artifact.result)
+    if latent_paths is None:
+        return _tool_error_result(
+            "Stage 5b fitted artifact is missing persisted latent state paths required "
+            "for counterfactual simulation."
+        )
+
+    start_index, start_meta = _resolve_counterfactual_start(
+        ctx,
+        dict(args.get("start") or {}),
+        n_timepoints=int(latent_paths.shape[1]),
     )
 
-    if setup.is_composite:
-        # Composite rung-3. Three abduction estimators, selectable via
-        # ``query.abduction_method``:
-        #
-        # - ``trajectory_marginal`` (default): mean of composite MCMC
-        #   trajectory samples at evidence_end. Fastest; noisy per-draw.
-        # - ``eks``: per-parameter forward Kalman filter + RTS smoother
-        #   on the linearised LGSSM. Deterministic conditional mean per
-        #   draw; EKF observation update covers Beta/Binomial/Poisson.
-        # - ``ieks``: iterative re-linearisation of EKS until the
-        #   smoothed trajectory converges. Most accurate for non-linear
-        #   systems; slower per draw.
-        assert setup.param_samples is not None
-        abduction_method = str(setup.query.get("abduction_method", "trajectory_marginal"))
-        if abduction_method == "trajectory_marginal":
-            abducted = approximate_abducted_state_composite(
-                setup.fitted_artifact.result,
-                evidence_end_idx,
-            )
-        elif abduction_method in {"eks", "ieks"}:
-            canonical = setup.fitted_artifact.result.diagnostics.get(
-                "canonical_model"
-            )
-            if canonical is None:
-                return _tool_error_result(
-                    "Composite fit is missing diagnostics['canonical_model'] — "
-                    "required for EKS/IEKS abduction. Refit with the current "
-                    "fit_composite_aux_kalman to populate it."
-                )
-            abducter = (
-                approximate_abducted_state_composite_eks
-                if abduction_method == "eks"
-                else approximate_abducted_state_composite_ieks
-            )
-            abducted = abducter(
-                canonical=canonical,
-                param_samples=setup.param_samples,
-                runtime_times=setup.runtime.times,
-                observations=setup.runtime.observations,
-                evidence_end_idx=evidence_end_idx,
-            )
-        else:
-            return _tool_error_result(
-                f"Unknown abduction_method {abduction_method!r}; "
-                f"supported: trajectory_marginal, eks, ieks."
-            )
-    else:
-        abducted = approximate_abducted_state(
-            setup.samples,
-            setup.fitted_artifact.builder.model,
-            setup.spec,
-            setup.runtime.observations,
-            setup.runtime.times,
-            evidence_start_idx,
-            evidence_end_idx,
-        )
-    initial_state = abducted["state"]
-    abducted_state = _serialize_latent_state(initial_state, setup.latent_names)
     estimand = str(setup.query.get("estimand", "end_state"))
-
-    # Vector-field params are reconstructed in ``_prepare_stage6_simulation``.
     assert setup.param_samples is not None
     n_draws = len(setup.param_samples)
-    initial_states = jnp.broadcast_to(initial_state, (n_draws, initial_state.shape[0]))
+    initial_states = latent_paths[:, start_index, :]
+    if int(initial_states.shape[0]) != n_draws:
+        return _tool_error_result(
+            "Persisted fitted latent path draw count does not match posterior dynamics "
+            f"draw count ({int(initial_states.shape[0])} != {n_draws})."
+        )
+    start_state = _serialize_latent_state(jnp.mean(initial_states, axis=0), setup.latent_names)
+
     baseline_state_paths, counterfactual_state_paths, effect_state_paths = (
         vmap_simulate_action_from_state_composite(
             setup.vector_field,
@@ -878,13 +864,13 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
             reference_node_paths=baseline_state_paths,
             action_node_paths=counterfactual_state_paths,
             node_effect_paths=effect_state_paths,
-            abducted_state=abducted_state,
+            start_state=start_state,
         )
     else:
         outputs = _build_effect_outputs(
             setup,
             effect_draws=effect_state_paths[:, -1, setup.outcome_idx],
-            abducted_state=abducted_state,
+            start_state=start_state,
         )
 
     mean_baseline = jnp.mean(baseline_paths[:, -1])
@@ -892,10 +878,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
     return {
         "result": {
             "rung": 3,
-            "evidence": {
-                **evidence_meta,
-                "conditioning_method": abducted["method"],
-            },
+            "start": start_meta,
             "action": setup.action,
             "outcome": setup.outcome,
             "estimand": estimand,
@@ -904,10 +887,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
             "effect_trajectory": outputs.effect_trajectory,
             "visualization": outputs.visualization,
             "manifest_effects": outputs.manifest_effects,
-            "warnings": _collect_stage6_warnings(
-                ctx,
-                extra_warnings=[str(abducted["warning"])] if abducted.get("warning") else None,
-            ),
+            "warnings": _collect_stage6_warnings(ctx),
         }
     }
 

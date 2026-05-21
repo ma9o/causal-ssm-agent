@@ -210,11 +210,7 @@ function getToolInputExamples(stageId: string, toolName: string): ToolInputExamp
       return [
         {
           input: {
-            evidence: {
-              start_time: "2026-01-01T00:00:00Z",
-              end_time: "2026-01-07T00:00:00Z",
-              variables: ["stress", "sleep_quality"],
-            },
+            start: { time_index: 6 },
             action: { variable: "stress", mode: "shift", amount: -0.5 },
             outcome: "sleep_quality",
             query: { estimand: "trajectory", horizon_days: 30, projection: "latent" },

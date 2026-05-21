@@ -4,7 +4,7 @@ dict-config priors and the runtime ``CompositeSpec`` consumed by
 
 Composite specs store prior config using the same canonical
 ``{"family": ..., "params": {...}}`` shape as the site prior registry,
-so Stage 4 can emit nonlinear dynamics specs that round-trip through
+so Stage 4 can emit component dynamics specs that round-trip through
 JSON / pydantic without distribution objects.
 
 Schema
@@ -178,8 +178,7 @@ def composite_spec_to_dict(spec: CompositeSpec) -> dict[str, Any]:
                 entry["priors"]["cint"] = _prior_to_dict(component.cint_prior)
         else:
             raise ValueError(
-                f"composite_spec_to_dict: unsupported component type "
-                f"{type(component).__name__}"
+                f"composite_spec_to_dict: unsupported component type {type(component).__name__}"
             )
         components.append(entry)
     return {"n_latent": int(spec.n_latent), "components": components}
@@ -259,8 +258,7 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
             cint_prior=_optional("cint"),
         )
     raise ValueError(
-        f"Unknown composite component kind {kind!r}; "
-        f"known: {sorted(_COMPONENT_KIND_REGISTRY)}"
+        f"Unknown composite component kind {kind!r}; known: {sorted(_COMPONENT_KIND_REGISTRY)}"
     )
 
 
@@ -268,7 +266,5 @@ def composite_spec_from_dict(config: dict[str, Any]) -> CompositeSpec:
     """Build a ``CompositeSpec`` from a nested dict-config (see module docstring)."""
     if "n_latent" not in config:
         raise ValueError("composite_spec_from_dict requires 'n_latent'")
-    components = tuple(
-        _spec_from_component_dict(c) for c in config.get("components", ())
-    )
+    components = tuple(_spec_from_component_dict(c) for c in config.get("components", ()))
     return CompositeSpec(n_latent=int(config["n_latent"]), components=components)

@@ -253,9 +253,7 @@ def execute_public_validate_composite_spec(
     # Minimal time grid for the dry-run — 5 steps over the unit interval.
     times = _jnp.linspace(0.0, 1.0, 5)
     init_mean = _jnp.zeros(n_latent)
-    validation = validate_composite_assembly(
-        config, init_mean, times, n_draws=n_draws
-    )
+    validation = validate_composite_assembly(config, init_mean, times, n_draws=n_draws)
     payload: dict[str, Any] = {
         "is_valid": validation.is_valid,
         "compile_ok": validation.compile_ok,
@@ -354,7 +352,7 @@ STAGE4_TOOL_SPECS: tuple[Stage4ToolSpec, ...] = (
     Stage4ToolSpec(
         name="validate_composite_spec",
         description=(
-            "Dry-run validate a non-linear composite spec (dict-config). "
+            "Dry-run validate a composite dynamics spec (dict-config). "
             "Returns stability + finiteness diagnostics without "
             "committing any Stage 4 state."
         ),

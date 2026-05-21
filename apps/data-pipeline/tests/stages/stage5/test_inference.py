@@ -9,12 +9,11 @@ import polars as pl
 from nof1_causal_lab.flows.stages.stage5b import fit as stage5_inference
 from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.builder import PreparedModelRuntime, SSMModelBuilder
-from nof1_causal_lab.models.ssm.dynamics.composite import default_linear_drift_spec
 from nof1_causal_lab.models.ssm.inference import InferenceResult
 from nof1_causal_lab.models.ssm.inference.structure import InferenceStructurePlan
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.structure import (
+from tests.ssm_test_utils import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -23,12 +22,13 @@ from nof1_causal_lab.models.ssm.structure import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
+    full_structural_dense_drift_spec,
 )
 
 
 class _FakeResult(InferenceResult):
     def __init__(self) -> None:
-        self.method = "map"
+        self.method = "aux_kalman_mcmc"
         self.diagnostics = {"likelihood_backend": object()}
         self._samples = {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
 
@@ -60,7 +60,7 @@ class _FakeBuilder(SSMModelBuilder):
             SSMSpec(
                 n_latent=1,
                 n_manifest=2,
-                drift_spec=default_linear_drift_spec(1),
+                drift_spec=full_structural_dense_drift_spec(1),
                 diffusion_block=default_diffusion_block(1),
                 lambda_block=default_lambda_block(2, 1),
                 manifest_means_block=default_manifest_means_block(2),
@@ -132,7 +132,7 @@ def _make_runtime(fake_builder: _FakeBuilder) -> PreparedModelRuntime:
         observation_support=_make_observation_support_runtime(),
         inference_structure=InferenceStructurePlan(
             structural_backend="laplace",
-            resolved_method="map",
+            resolved_method="aux_kalman_mcmc",
             method_override=None,
         ),
         observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
@@ -165,7 +165,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
         result = stage5_inference.fit_model.fn(
             None,
             data_for_model,
-            sampler_config={"method": "map"},
+            sampler_config={"method": "aux_kalman_mcmc"},
             builder=fake_builder,
         )
 
@@ -174,7 +174,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "support=interval(1: sleep_avg) max_active_windows=2" in caplog.text
     assert "Manifest order: sleep_avg, energy" in caplog.text
     assert (
-        "Inference route: requested_method=map resolved_method=map "
+        "Inference route: requested_method=aux_kalman_mcmc resolved_method=aux_kalman_mcmc "
         "structural_backend=laplace method_override=none"
     ) in caplog.text
     assert "Starting inference kernel..." in caplog.text
@@ -203,7 +203,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
         result = stage5_inference.fit_model.fn(
             None,
             data_for_model,
-            sampler_config={"method": "map"},
+            sampler_config={"method": "aux_kalman_mcmc"},
             builder=fake_builder,
             compute_loo_diagnostics=False,
         )
@@ -241,7 +241,7 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     result = stage5_inference.fit_model.fn(
         compiled_ssm,
         data_for_model,
-        sampler_config={"method": "map"},
+        sampler_config={"method": "aux_kalman_mcmc"},
         workspace_id="workspace-123",
         wait_for_compile_cache=True,
     )

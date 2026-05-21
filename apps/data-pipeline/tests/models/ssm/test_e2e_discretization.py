@@ -33,8 +33,7 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
 from nof1_causal_lab.models.ssm.compile.inputs import (
     translate_spec as translate_ssm_spec,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
-from tests.ssm_test_utils import block_ssm_spec
+from tests.ssm_test_utils import block_ssm_spec, structural_dense_drift_spec
 
 
 def _block_spec_with_drift_offdiag(
@@ -47,7 +46,7 @@ def _block_spec_with_drift_offdiag(
     return block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=drift_offdiag_mask,
@@ -1561,11 +1560,12 @@ class TestExactMatrixLogConversion:
         assert abs(drift_offdiag[0] - (0.3 / 7.0)) < 0.01
 
     def test_edge_lag_days_populated(self, two_construct_causal_spec):
-        """Builder stores edge lag metadata from causal spec during mask building."""
-        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
+        """Builder stores edge lag metadata from causal spec during support building."""
+        from nof1_causal_lab.models.ssm.compile.inputs import (
+            build_structural_support_from_causal_spec,
+        )
 
-        # Building masks returns edge_lag_days as 4th value
-        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
+        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_spec(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,
@@ -1636,10 +1636,11 @@ class TestExactMatrixLogConversion:
             latent_names=["mood", "stress"],
             drift_offdiag_mask=drift_offdiag_mask,
         )
-        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import (
+            build_structural_support_from_causal_spec,
+        )
 
-        # Build masks to get edge_lag_days, then pass explicitly
-        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_masks_from_causal_spec(
+        _dm, _input_mask, _lm, _lmask, edge_lag_days = build_structural_support_from_causal_spec(
             ["mood", "stress"],
             ["mood_rating", "stress_self_report"],
             2,

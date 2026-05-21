@@ -17,17 +17,19 @@ import numpyro.distributions as dist
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import SSMSpec
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
-    default_input_effect_block,
-    default_static_state_sd_block,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.ssm_test_utils import (
+    default_input_effect_block,
+    default_static_state_sd_block,
+    structural_dense_drift_spec,
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AUTOREPARAM
@@ -236,13 +238,11 @@ def complex_mixed_runtime_spec() -> SSMSpec:
         ** 2
     )
     t0_chol_template = jnp.eye(n_latent, dtype=jnp.float32) * 0.25
-    diffusion_template = jnp.diag(
-        jnp.array([0.2, 0.18, 0.16, 0.14], dtype=jnp.float32)
-    )
+    diffusion_template = jnp.diag(jnp.array([0.2, 0.18, 0.16, 0.14], dtype=jnp.float32))
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.zeros(n_latent, dtype=bool),
             drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
@@ -344,4 +344,3 @@ def complex_mixed_runtime_spec() -> SSMSpec:
             "focus_cont",
         ],
     )
-

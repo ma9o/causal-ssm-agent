@@ -181,13 +181,13 @@ class Stage6Config:
 
 
 # ---------------------------------------------------------------------------
-# Inference (unchanged)
+# Inference
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
 class MAPConfig:
-    """MAP/Laplace inference settings."""
+    """Internal IEKS/Laplace settings used by MCMC initializers."""
 
     n_ieks_iters: int = 6
 
@@ -218,7 +218,7 @@ class AuxKalmanMCMCConfig:
 
     adaptation_rate: float = 0.05
     init_scale: float = 0.05
-    retain_latent_paths: bool = False
+    retain_latent_paths: bool = True
     compute_latent_posterior_summary: bool = True
     latent_kernel: AuxKalmanMCMCLatentKernelConfig = field(
         default_factory=AuxKalmanMCMCLatentKernelConfig
@@ -252,7 +252,7 @@ class PITParticleMGradConfig:
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
-    method: Literal["map", "aux_kalman_mcmc", "pit_particle_mgrad"] = "pit_particle_mgrad"
+    method: Literal["aux_kalman_mcmc", "pit_particle_mgrad"] = "pit_particle_mgrad"
     num_warmup: int = 4000
     num_samples: int = 1000
     num_chains: int = 4
@@ -293,8 +293,6 @@ class InferenceConfig:
                     ),
                 }
             )
-        elif method == "map":
-            config.update(dataclasses.asdict(self.map))
         elif method == "pit_particle_mgrad":
             config.update(
                 {
@@ -317,7 +315,7 @@ class InferenceConfig:
         else:
             raise ValueError(
                 "Unsupported inference method "
-                f"{method!r}; expected 'map', 'aux_kalman_mcmc', or 'pit_particle_mgrad'."
+                f"{method!r}; expected 'aux_kalman_mcmc' or 'pit_particle_mgrad'."
             )
         return config
 

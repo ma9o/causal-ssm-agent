@@ -23,17 +23,15 @@ from nof1_causal_lab.models.ssm.dynamics.composite import (
     HillEdgeSpec,
     LinearEdgeSpec,
     MultiplicativeEdgeSpec,
-    default_linear_drift_spec,
-    linear_drift_spec,
 )
-from nof1_causal_lab.models.ssm.model import (
-    SSMSpec,
-    full_diagonal_mask,
-)
+from nof1_causal_lab.models.ssm.model import SSMSpec
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     SparseMatrixBlockSpec,
     T0CholBlockSpec,
+)
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.ssm_test_utils import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -42,8 +40,10 @@ from nof1_causal_lab.models.ssm.structure import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
+    full_diagonal_mask,
+    full_structural_dense_drift_spec,
+    structural_dense_drift_spec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
 # =============================================================================
 # normalize_prior_params
@@ -67,7 +67,7 @@ def _make_spec(
 ) -> SSMSpec:
     """Build an SSMSpec from explicit block specs for tests."""
     if drift_spec is None:
-        drift_spec = default_linear_drift_spec(n_latent)
+        drift_spec = full_structural_dense_drift_spec(n_latent)
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
@@ -686,7 +686,7 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["mood", "stress"],
             manifest_names=["mood", "stress"],
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=full_diagonal_mask(2),
                 drift_offdiag_mask=drift_offdiag_mask,
@@ -753,7 +753,7 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["a", "b"],
             manifest_names=["a", "b"],
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=full_diagonal_mask(2),
                 drift_offdiag_mask=np.zeros((2, 2), dtype=bool),

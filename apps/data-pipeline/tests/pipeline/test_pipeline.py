@@ -160,7 +160,11 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
         return Stage5bContract(
             power_scaling=[],
             ppc={"checked": False, "per_variable_warnings": []},
-            inference_metadata={"method": "map", "n_samples": 0, "duration_seconds": 0.0},
+            inference_metadata={
+                "method": "aux_kalman_mcmc",
+                "n_samples": 0,
+                "duration_seconds": 0.0,
+            },
         )
 
     async def stage6(
@@ -1002,7 +1006,11 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
     stage5b_contract = Stage5bContract(
         power_scaling=[],
         ppc={"checked": True, "per_variable_warnings": []},
-        inference_metadata={"method": "map", "n_samples": 100, "duration_seconds": 1.0},
+        inference_metadata={
+            "method": "aux_kalman_mcmc",
+            "n_samples": 100,
+            "duration_seconds": 1.0,
+        },
     )
     result = asyncio.run(
         dag.stage6(
@@ -1272,7 +1280,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     builder = SimpleNamespace(spec=spec, model=_Unpicklable())
     result = InferenceResult(
         _samples={"drift": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
-        method="map",
+        method="aux_kalman_mcmc",
         diagnostics={"likelihood_backend": _Unpicklable()},
     )
     artifact = FittedArtifact(
@@ -1287,7 +1295,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     restored = cloudpickle.loads(cloudpickle.dumps(artifact))
 
     assert restored.result is not None
-    assert restored.result.method == "map"
+    assert restored.result.method == "aux_kalman_mcmc"
     np.testing.assert_allclose(
         np.asarray(restored.result.get_samples()["drift"]),
         np.asarray(result.get_samples()["drift"]),
@@ -1594,7 +1602,11 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
                     }
                 ],
             },
-            "inference_metadata": {"method": "map", "n_samples": 100, "duration_seconds": 5.0},
+            "inference_metadata": {
+                "method": "aux_kalman_mcmc",
+                "n_samples": 100,
+                "duration_seconds": 5.0,
+            },
             "mcmc_diagnostics": None,
             "smc_diagnostics": None,
             "loo_diagnostics": None,
@@ -1625,7 +1637,7 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
             "fitted": True,
             "n_samples": 654,
             "duration_seconds": 7.5,
-            "inference_type": "map",
+            "inference_type": "aux_kalman_mcmc",
             "result": None,
             "builder": None,
             "runtime": SimpleNamespace(observation_support=None),
@@ -1649,7 +1661,9 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
-                to_sampler_config=lambda method_override=None: {"method": method_override or "map"},
+                to_sampler_config=lambda method_override=None: {
+                    "method": method_override or "aux_kalman_mcmc"
+                },
                 compute_loo_diagnostics=False,
             )
         ),
@@ -1678,13 +1692,13 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         _s4,
         _s2,
         workspace_id="test-workspace",
-        inference_method="map",
+        inference_method="aux_kalman_mcmc",
     )
 
     assert isinstance(result, Stage5bContract)
     result_dict = result.model_dump(mode="json")
     assert result_dict["inference_metadata"] == {
-        "method": "map",
+        "method": "aux_kalman_mcmc",
         "n_samples": 654,
         "duration_seconds": 7.5,
     }
@@ -1726,7 +1740,9 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         "nof1_causal_lab.utils.config.get_config",
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
-                to_sampler_config=lambda method_override=None: {"method": method_override or "map"},
+                to_sampler_config=lambda method_override=None: {
+                    "method": method_override or "aux_kalman_mcmc"
+                },
                 compute_loo_diagnostics=False,
             )
         ),
@@ -1755,7 +1771,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         _s4,
         _s2,
         workspace_id="test-workspace",
-        inference_method="map",
+        inference_method="aux_kalman_mcmc",
     )
 
     assert isinstance(result, Stage5bContract)
@@ -1771,7 +1787,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         "n_subsample": None,
     }
     assert result_dict["inference_metadata"] == {
-        "method": "map",
+        "method": "aux_kalman_mcmc",
         "n_samples": 0,
         "duration_seconds": 2.5,
     }
@@ -1978,7 +1994,7 @@ def test_stage2_preserves_null_values_for_inference(monkeypatch, tmp_path):
     )
 
     observations, _times, manifest_names = SSMModelBuilder(
-        sampler_config={"method": "map"}
+        sampler_config={"method": "aux_kalman_mcmc"}
     ).prepare_fit_inputs(pivot_to_wide(data_for_model))
     assert manifest_names == ["daytime_screen_events", "last_evening_activity_hour"]
     assert jnp.isclose(observations[0, 0], 5.0)
