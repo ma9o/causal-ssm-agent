@@ -12,7 +12,7 @@ from nof1_causal_lab.artifacts.model_spec import DistributionFamily
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 
 from .base import NUMERICAL_EPSILON
-from .emissions import build_composite_mean_sample_fn
+from .emissions import build_heterogeneous_mean_sample_fn
 from .observation_families import (
     FAMILY_REGISTRY,
     POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
@@ -95,7 +95,7 @@ def build_predictive_observation_sampler(
     all_gaussian = all(dist == DistributionFamily.GAUSSIAN for dist in dists)
     manifest_dist_values = tuple(dist.value for dist in dists)
     try:
-        mean_sample_fn = build_composite_mean_sample_fn(manifest_dist_values, extra_params)
+        mean_sample_fn = build_heterogeneous_mean_sample_fn(manifest_dist_values, extra_params)
     except ValueError as exc:
         mean_sample_fn = None
         mean_sampler_error = exc

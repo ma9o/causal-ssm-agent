@@ -1,20 +1,20 @@
-"""Stability check for composite vector fields.
+"""Stability check for vector-field dynamics.
 
 For dense-linear systems the existing parameter_layout enforces stability
 via diagonal dominance: every diagonal of ``A`` exceeds the sum of its row's
 off-diagonal magnitudes plus a margin, so all eigenvalues of ``A`` have
 strictly negative real parts.
 
-For composite (non-linear) systems the analogous check is local: at a
+For vector-field systems the analogous check is local: at a
 representative state (typically the prior predictive mean), the *Jacobian*
 ``∂f/∂x`` should have all eigenvalues with strictly negative real parts.
 This guarantees local stability around that point — sufficient for the
 EKF-style auxiliary samplers to converge (Corenflos §2.3 uses this same
 linearisation).
 
-Global stability for non-linear systems requires Lyapunov analysis or
-checking the Jacobian over an invariant set; the local check here is a
-necessary condition and matches what the linear path already enforces.
+Global stability for trajectory-dependent systems requires Lyapunov analysis
+or checking the Jacobian over an invariant set; the local check here is a
+necessary condition and matches the dense-matrix stability condition.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .vector_field import VectorFieldArgs
 if TYPE_CHECKING:
     from jax import Array
 
-    from .vector_field import CompositeVectorField
+    from .vector_field import VectorField
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ class StabilityReport:
 
 
 def check_jacobian_stability(
-    vector_field: CompositeVectorField,
+    vector_field: VectorField,
     vf_params: tuple[dict[str, Array], ...],
     x_lin: Array,
     *,
@@ -67,7 +67,7 @@ def check_jacobian_stability(
     any non-decaying mode (real-part ≥ 0).
 
     Args:
-        vector_field: The composite drift.
+        vector_field: The vector-field drift.
         vf_params: Parameter tuple matching ``vector_field.components``.
         x_lin: ``(n_latent,)`` linearisation point. Typical choices:
             the prior predictive mean state, the steady-state under

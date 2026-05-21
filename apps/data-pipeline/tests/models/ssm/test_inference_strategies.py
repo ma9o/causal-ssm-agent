@@ -32,7 +32,7 @@ from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import AutoReparam, InferenceResult, SSMModel, fit
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
-from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
+from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
 from nof1_causal_lab.models.ssm.inference.methods.map import (
     _build_map_laplace_bundle,
     fit_map,
@@ -99,36 +99,38 @@ from nof1_causal_lab.models.ssm.structure import (
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     block_ssm_spec,
+    dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
-    structural_dense_drift_spec,
 )
 
 
-def _structural_dense_drift_spec(
+def _dense_matrix_dynamics_spec(
     n_latent: int,
     *,
-    drift_diag_mask: np.ndarray | None = None,
-    drift_offdiag_mask: np.ndarray | None = None,
-    drift_template: jnp.ndarray | None = None,
-    cint_mask: np.ndarray | None = None,
+    decay_support: np.ndarray | None = None,
+    edge_support: np.ndarray | None = None,
+    coupling_template: jnp.ndarray | None = None,
+    intercept_support: np.ndarray | None = None,
     cint_template: jnp.ndarray | None = None,
 ):
-    if drift_diag_mask is None:
-        drift_diag_mask = np.ones(n_latent, dtype=bool)
-    if drift_offdiag_mask is None:
-        drift_offdiag_mask = np.ones((n_latent, n_latent), dtype=bool)
-        np.fill_diagonal(drift_offdiag_mask, False)
-    return structural_dense_drift_spec(
+    if decay_support is None:
+        decay_support = np.ones(n_latent, dtype=bool)
+    if edge_support is None:
+        edge_support = np.ones((n_latent, n_latent), dtype=bool)
+        np.fill_diagonal(edge_support, False)
+    return dense_matrix_dynamics_spec(
         n_latent=n_latent,
-        drift_diag_mask=drift_diag_mask,
-        drift_offdiag_mask=drift_offdiag_mask,
-        drift_template=(
+        decay_support=decay_support,
+        edge_support=edge_support,
+        coupling_template=(
             jnp.zeros((n_latent, n_latent), dtype=jnp.float32)
-            if drift_template is None
-            else drift_template
+            if coupling_template is None
+            else coupling_template
         ),
-        cint_mask=np.zeros(n_latent, dtype=bool) if cint_mask is None else cint_mask,
+        intercept_support=np.zeros(n_latent, dtype=bool)
+        if intercept_support is None
+        else intercept_support,
         cint_template=(
             jnp.zeros(n_latent, dtype=jnp.float32) if cint_template is None else cint_template
         ),
@@ -146,7 +148,7 @@ def _runtime_dynamics(
     if cint is not None:
         params["cint"] = cint
     return RuntimeDynamics(
-        vector_field=CompositeVectorField(
+        vector_field=VectorField(
             n_latent=int(drift.shape[0]),
             components=(DenseLinear(),),
         ),
@@ -160,7 +162,7 @@ def _one_dim_block_spec():
     return block_ssm_spec(
         n_latent=1,
         n_manifest=1,
-        dynamics_spec=_structural_dense_drift_spec(1),
+        dynamics_spec=_dense_matrix_dynamics_spec(1),
         diffusion_block=diagonal_diffusion_block(1),
     )
 
@@ -2028,7 +2030,7 @@ class TestInferenceCaching:
             _ExplodingBackend(),
         )
 
-        assert "vf_0_base_decay" in site_info
+        assert "vf_0_decay" in site_info
         assert "manifest_var_diag_free" in site_info
 
 
@@ -2067,7 +2069,7 @@ class TestDefaultMethodRouting:
 
         def fake_fit_aux_kalman_mcmc(_model, _observations, _times, **kwargs):
             return InferenceResult(
-                _samples={"vf_0_base_decay": jnp.zeros((1, 1), dtype=jnp.float32)},
+                _samples={"vf_0_decay": jnp.zeros((1, 1), dtype=jnp.float32)},
                 method="aux_kalman_mcmc",
                 diagnostics={"kwargs": kwargs},
             )
@@ -2096,17 +2098,17 @@ def test_map_optimizer_smoke_on_small_kalman_model():
     spec = block_ssm_spec(
         n_latent=1,
         n_manifest=1,
-        dynamics_spec=_structural_dense_drift_spec(
+        dynamics_spec=_dense_matrix_dynamics_spec(
             1,
-            drift_diag_mask=np.array([False]),
-            drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
-            drift_template=jnp.array([[-0.4]], dtype=jnp.float32),
+            decay_support=np.array([False]),
+            edge_support=np.zeros((1, 1), dtype=bool),
+            coupling_template=jnp.array([[-0.4]], dtype=jnp.float32),
         ),
         diffusion_block=diagonal_diffusion_block(1),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=1,
             n_cols=1,
-            mask=np.zeros((1, 1), dtype=bool),
+            free_support=np.zeros((1, 1), dtype=bool),
             template=jnp.array([[1.0]], dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -2118,7 +2120,7 @@ def test_map_optimizer_smoke_on_small_kalman_model():
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=1,
-            mask=np.array([False]),
+            free_support=np.array([False]),
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -2130,12 +2132,12 @@ def test_map_optimizer_smoke_on_small_kalman_model():
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=1,
-            diag_mask=np.array([True]),
+            diag_support=np.array([True]),
             template=jnp.array([[0.0]], dtype=jnp.float32),
         ),
         t0_means_block=SparseVectorBlockSpec(
             n=1,
-            mask=np.array([False]),
+            free_support=np.array([False]),
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -2147,8 +2149,8 @@ def test_map_optimizer_smoke_on_small_kalman_model():
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=1,
-            diag_mask=np.array([True]),
-            correlation_mask=np.zeros((1, 1), dtype=bool),
+            diag_support=np.array([True]),
+            correlation_support=np.zeros((1, 1), dtype=bool),
             template=jnp.array([[1.0]], dtype=jnp.float32),
         ),
     )
@@ -2185,17 +2187,17 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
     kwargs = {
         "n_latent": 1,
         "n_manifest": 1,
-        "dynamics_spec": _structural_dense_drift_spec(
+        "dynamics_spec": _dense_matrix_dynamics_spec(
             1,
-            drift_diag_mask=np.array([False]),
-            drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
-            drift_template=jnp.array([[-0.4]], dtype=jnp.float32),
+            decay_support=np.array([False]),
+            edge_support=np.zeros((1, 1), dtype=bool),
+            coupling_template=jnp.array([[-0.4]], dtype=jnp.float32),
         ),
         "diffusion_block": diagonal_diffusion_block(1),
         "lambda_block": SparseMatrixBlockSpec(
             n_rows=1,
             n_cols=1,
-            mask=np.zeros((1, 1), dtype=bool),
+            free_support=np.zeros((1, 1), dtype=bool),
             template=jnp.array([[1.0]], dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -2207,7 +2209,7 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
         ),
         "manifest_means_block": SparseVectorBlockSpec(
             n=1,
-            mask=np.array([False]),
+            free_support=np.array([False]),
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -2219,12 +2221,12 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
         ),
         "manifest_chol_block": ManifestCholBlockSpec(
             n_manifest=1,
-            diag_mask=np.array([True]),
+            diag_support=np.array([True]),
             template=jnp.array([[0.0]], dtype=jnp.float32),
         ),
         "t0_means_block": SparseVectorBlockSpec(
             n=1,
-            mask=np.array([False]),
+            free_support=np.array([False]),
             template=jnp.array([0.0], dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -2236,8 +2238,8 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
         ),
         "t0_chol_block": T0CholBlockSpec(
             n_latent=1,
-            diag_mask=np.array([True]),
-            correlation_mask=np.zeros((1, 1), dtype=bool),
+            diag_support=np.array([True]),
+            correlation_support=np.zeros((1, 1), dtype=bool),
             template=jnp.array([[1.0]], dtype=jnp.float32),
         ),
     }
@@ -3035,7 +3037,7 @@ def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
         lambda_block=SparseMatrixBlockSpec(
             n_rows=2,
             n_cols=1,
-            mask=np.zeros((2, 1), dtype=bool),
+            free_support=np.zeros((2, 1), dtype=bool),
             template=jnp.array([[1.0], [0.7]], dtype=jnp.float32),
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -3047,7 +3049,7 @@ def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=2,
-            mask=np.array([False, False]),
+            free_support=np.array([False, False]),
             template=jnp.array([0.0, 0.0], dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -3059,7 +3061,7 @@ def test_aux_kalman_mcmc_heterogeneous_observation_families_smoke():
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=2,
-            diag_mask=np.array([True, True]),
+            diag_support=np.array([True, True]),
             template=jnp.zeros((2, 2), dtype=jnp.float32),
         ),
         manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],

@@ -39,20 +39,16 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
     execute_public_submit_priors as _execute_submit_priors,
 )
-from nof1_causal_lab.flows.stages.stage4.tool_registry import (
-    execute_public_validate_composite_spec as _execute_validate_composite_spec,
-)
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.counterfactual import (
     summarize_draws,
-    vmap_simulate_action_from_state_composite,
-    vmap_steady_state_effect_composite,
+    vmap_simulate_action_from_state_dynamics,
+    vmap_steady_state_effect_dynamics,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeVectorField,
     Intervention,
+    VectorField,
     compute_steady_state,
-    infer_linearisation,
     posterior_dynamics_from_result,
 )
 from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
@@ -355,15 +351,10 @@ class Stage6SimulationSetup:
     dt_days: float
     horizon_steps: int
     time_grid: jnp.ndarray
-    vector_field: CompositeVectorField
-    # ``param_samples`` is the canonical per-draw composite-shape
+    vector_field: VectorField
+    # ``param_samples`` is the canonical per-draw component-shape
     # parameter list rebuilt from ``SSMSpec`` and posterior sample sites.
     param_samples: list[tuple[dict[str, Any], ...]] | None = None
-
-    @property
-    def is_composite(self) -> bool:
-        """True when dynamics require trajectory-local linearisation."""
-        return infer_linearisation(self.vector_field) == "trajectory"
 
 
 @dataclass(frozen=True)
@@ -764,7 +755,7 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
 
     if setup.query.get("estimand", "steady_state") == "trajectory":
         baseline_state_paths, action_state_paths, effect_state_paths = (
-            vmap_simulate_action_from_state_composite(
+            vmap_simulate_action_from_state_dynamics(
                 setup.vector_field,
                 setup.param_samples,
                 initial_states=baseline_states,
@@ -783,7 +774,7 @@ def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) ->
             node_effect_paths=effect_state_paths,
         )
     else:
-        effect_draws = vmap_steady_state_effect_composite(
+        effect_draws = vmap_steady_state_effect_dynamics(
             setup.vector_field,
             setup.param_samples,
             treat_idx=setup.treat_idx,
@@ -845,7 +836,7 @@ def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) 
     start_state = _serialize_latent_state(jnp.mean(initial_states, axis=0), setup.latent_names)
 
     baseline_state_paths, counterfactual_state_paths, effect_state_paths = (
-        vmap_simulate_action_from_state_composite(
+        vmap_simulate_action_from_state_dynamics(
             setup.vector_field,
             setup.param_samples,
             initial_states=initial_states,
@@ -900,7 +891,6 @@ _TOOL_IMPLS: dict[tuple[str, str], Any] = {
     ("stage-2", "validate_extractions"): _execute_validate_extractions,
     ("stage-4", "submit_model_spec"): _execute_submit_model_spec,
     ("stage-4", "submit_priors"): _execute_submit_priors,
-    ("stage-4", "validate_composite_spec"): _execute_validate_composite_spec,
     ("stage-4", "search_literature"): _execute_search_literature,
     ("stage-6", "get_model_info"): _execute_get_model_info,
     ("stage-6", "simulate_intervention"): _execute_simulate_intervention,

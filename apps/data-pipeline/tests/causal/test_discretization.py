@@ -1,7 +1,7 @@
-"""Tests for ``discretize_at_state`` and ``CompositeVectorField.linearize``.
+"""Tests for ``discretize_at_state`` and ``VectorField.linearize``.
 
 The discretization machinery here is the bridge from the new
-``CompositeVectorField`` to the existing CT→DT expm path used by Stage
+``VectorField`` to the existing CT→DT expm path used by Stage
 5b's filter. Three layers of checking:
 
 1. ``linearize`` matches analytic Jacobians for each primitive in
@@ -25,21 +25,21 @@ from nof1_causal_lab.models.ssm.discretization import (
     discretize_linear_system_exact,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeVectorField,
     DiagonalDecay,
     HillEdge,
     Intercept,
     Intervention,
     LinearEdge,
     MultiplicativeEdge,
+    VectorField,
     VectorFieldArgs,
     simulate,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 
-def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
-    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+def _dense_matrix_vector_field(n_latent: int) -> VectorField:
+    return VectorField(n_latent=n_latent, components=(DenseLinear(),))
 
 
 # =============================================================================
@@ -53,7 +53,7 @@ class TestLinearizePrimitives:
         ``(A, c)`` exactly — autodiff through ``A @ x + c`` reproduces ``A``."""
         A = jnp.array([[-1.0, 0.5], [0.3, -2.0]])
         c = jnp.array([0.1, -0.2])
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         args = VectorFieldArgs(params=({"drift": A, "cint": c},), intervention=Intervention.none())
         x_lin = jnp.array([0.7, -0.4])
         A_loc, b_loc = vf.linearize(x_lin, args)
@@ -64,7 +64,7 @@ class TestLinearizePrimitives:
         """At ``x = EC50``, ``dHill/dx = Emax · n / (4 · EC50)``. The
         Jacobian entry for the source must match this."""
         Emax, EC50, n = 2.0, 1.0, 2.0
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=2,
             components=(HillEdge(source=0, target=1),),
         )
@@ -90,7 +90,7 @@ class TestLinearizePrimitives:
         ``∂f/∂η_b = w · a₀``."""
         w = 0.5
         a0, b0 = 3.0, 4.0
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=3,
             components=(MultiplicativeEdge(source_a=0, source_b=1, target=2),),
         )
@@ -130,7 +130,7 @@ class TestDiscretizeDenseLinearParity:
 
         A_d_ref, Q_d_ref, c_d_ref = discretize_linear_system_exact(A, diffusion_cov, c, dt)
 
-        vf = _dense_linear_vector_field(n_latent=3)
+        vf = _dense_matrix_vector_field(n_latent=3)
         args = VectorFieldArgs(params=({"drift": A, "cint": c},), intervention=Intervention.none())
         # x_lin is irrelevant for a linear field — pick something non-trivial
         x_lin = jnp.array([1.7, -0.3, 0.5])
@@ -143,7 +143,7 @@ class TestDiscretizeDenseLinearParity:
     def test_zero_intercept(self):
         A = -jnp.eye(2)
         diffusion_cov = jnp.eye(2) * 0.05
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         args = VectorFieldArgs(
             params=({"drift": A, "cint": jnp.zeros(2)},),
             intervention=Intervention.none(),
@@ -177,7 +177,7 @@ class TestSSRIChainLinearization:
     N_HILL = 2.0
 
     def _build(self):
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=5,
             components=(
                 DiagonalDecay(),
@@ -230,8 +230,8 @@ class TestSSRIChainLinearization:
             expected_hill_slope, abs=1e-4
         )
 
-        # b_loc: drift at baseline minus A · baseline. At baseline the
-        # natural drift is zero (steady state), so b_loc = -A · baseline.
+        # b_loc: dynamics at baseline minus A · baseline. At baseline the
+        # natural dynamics is zero (steady state), so b_loc = -A · baseline.
         assert jnp.allclose(b_loc, -A_loc @ baseline, atol=1e-5)
 
     def test_discrete_step_matches_diffrax_for_linearized_system(self):
@@ -252,7 +252,7 @@ class TestSSRIChainLinearization:
 
         # Linearized system as a fresh DenseLinear vector field
         A_loc, b_loc = vf.linearize(x_lin, args)
-        lin_vf = CompositeVectorField(n_latent=5, components=(DenseLinear(),))
+        lin_vf = VectorField(n_latent=5, components=(DenseLinear(),))
         lin_args = VectorFieldArgs(
             params=({"drift": A_loc, "cint": b_loc},),
             intervention=Intervention.none(),
@@ -354,7 +354,7 @@ class TestCuthbertCallbackIntegration:
             simulate,
         )
 
-        vf = _dense_linear_vector_field(n_latent=A.shape[0])
+        vf = _dense_matrix_vector_field(n_latent=A.shape[0])
         params = ({"drift": A, "cint": c},)
         time_grid = jnp.concatenate([jnp.zeros(1), jnp.cumsum(dts)])
         traj = simulate(vf, params, Intervention.none(), init_mean, time_grid)
@@ -378,7 +378,7 @@ class TestCuthbertCallbackIntegration:
         ys = self._generate_linear_obs(jr.PRNGKey(0), A, c, init_mean, H, R, dts)
 
         ll = _run_moments_filter_via_callback(
-            _dense_linear_vector_field(n_latent=2),
+            _dense_matrix_vector_field(n_latent=2),
             ({"drift": A, "cint": c},),
             GG,
             init_mean,
@@ -395,12 +395,12 @@ class TestCuthbertCallbackIntegration:
         a finite log-likelihood, proving the callback path handles state-
         dependent linearization correctly inside cuthbert's scan."""
         from nof1_causal_lab.models.ssm.dynamics import (
-            CompositeVectorField,
             DiagonalDecay,
             HillEdge,
+            VectorField,
         )
 
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=2,
             components=(DiagonalDecay(), HillEdge(source=0, target=1)),
         )
@@ -510,7 +510,7 @@ class TestCuthbertCallbackIntegration:
 
         # New: via callback
         new_ll = _run_moments_filter_via_callback(
-            _dense_linear_vector_field(n_latent=2),
+            _dense_matrix_vector_field(n_latent=2),
             ({"drift": A, "cint": c},),
             GG,
             init_mean,

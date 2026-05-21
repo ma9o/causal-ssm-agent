@@ -211,10 +211,15 @@ def build_pit_particle_mgrad_latent_kernel(
     if num_particles < 2:
         raise ValueError("pit_particle_mgrad requires num_particles >= 2.")
 
-    obs_increment_fn = bundle["observation_increment_log_prob_from_context_fn"]
+    obs_increment_fn = bundle["observation_increment_log_prob_conditioned_from_context_fn"]
+    obs_full_grad_fn = bundle["observation_grad_conditioned_from_context_fn"]
+    rbpf_structure = str(bundle.get("rbpf_structure", "none"))
+    rbpf_initial_filter_update_fn = bundle["rbpf_initial_filter_update_fn"]
+    rbpf_step_filter_update_fn = bundle["rbpf_step_filter_update_fn"]
+    runtime_observations = bundle["observations"]
     _raw_obs_increment_grad_fn = jax.grad(obs_increment_fn, argnums=1)
 
-    def obs_increment_grad_fn(context, latent_t, time_idx):
+    def obs_increment_grad_fn(context, latent_t, observation_auxiliary, time_idx):
         """TULAc-tamed observation log-prob gradient (fixed h, see TULAC_H).
 
         Same fix as `tame_gradient_tulac` used in aux_kalman_mcmc: bounds the
@@ -223,15 +228,198 @@ def build_pit_particle_mgrad_latent_kernel(
         ratio remains valid (proposal kernel just becomes a different but
         still-valid kernel).
         """
-        return tame_gradient_tulac(_raw_obs_increment_grad_fn(context, latent_t, time_idx))
+        return tame_gradient_tulac(
+            _raw_obs_increment_grad_fn(context, latent_t, observation_auxiliary, time_idx)
+        )
 
     ref_particle_index = 0
     num_free_particles = num_particles - 1
 
+    def _conditional_rbpf_particle_step(state, key: jnp.ndarray):
+        aux_key, proposal_key, resample_key, select_key = random.split(key, 4)
+        x_ref = state.latent_trajectory
+        context = state.latent_context
+        observation_auxiliary = state.observation_auxiliary
+        latent_dtype = x_ref.dtype
+        traj_dtype = state.trajectory_log_prob.dtype
+        complete_dtype = state.complete_log_posterior.dtype
+
+        latent_dim = int(x_ref.shape[-1])
+        num_steps = int(x_ref.shape[0])
+        delta_per_t = jnp.broadcast_to(
+            jnp.asarray(state.latent_delta, dtype=latent_dtype),
+            (num_steps,),
+        )
+        auxiliary_var = 0.5 * delta_per_t
+        auxiliary_std = jnp.sqrt(auxiliary_var)[:, None]
+        ref_grads = jnp.asarray(
+            tame_gradient_tulac(obs_full_grad_fn(context, x_ref, observation_auxiliary)),
+            dtype=latent_dtype,
+        )
+        u = x_ref + auxiliary_var[:, None] * ref_grads
+        u = u + auxiliary_std * random.normal(aux_key, x_ref.shape, dtype=latent_dtype)
+
+        proposal_eps = random.normal(
+            proposal_key,
+            (num_steps, num_free_particles, latent_dim),
+            dtype=latent_dtype,
+        )
+        free_particles = u[:, None, :] + auxiliary_std[:, None, :] * proposal_eps
+        x_particles = jnp.concatenate([x_ref[:, None, :], free_particles], axis=1)
+
+        proposal_log_probs = jax.vmap(
+            lambda particles_t, u_t, var_t: jax.vmap(
+                lambda particle: gaussian_log_prob_isotropic(particle, u_t, var_t)
+            )(particles_t)
+        )(x_particles, u, auxiliary_var)
+
+        init_mean, init_cov = _initial_latent_moments(context)
+        init_prior_lp = jax.vmap(
+            lambda particle: _gaussian_log_prob_full(particle, init_mean, init_cov)
+        )(x_particles[0])
+        init_obs_lp = jax.vmap(
+            lambda particle: obs_increment_fn(
+                context,
+                particle,
+                observation_auxiliary,
+                jnp.asarray(0, dtype=jnp.int32),
+            )
+        )(x_particles[0])
+        init_filter_state, init_rbpf_lp = jax.vmap(
+            lambda particle: rbpf_initial_filter_update_fn(
+                context.rbpf_marginal_context,
+                runtime_observations,
+                observation_auxiliary,
+                particle,
+                jitter=AUX_JITTER,
+            )
+        )(x_particles[0])
+        log_weights = init_prior_lp + init_obs_lp + init_rbpf_lp - proposal_log_probs[0]
+        log_weights = log_weights - jax.scipy.special.logsumexp(log_weights)
+        paths = jnp.zeros((num_particles, num_steps, latent_dim), dtype=latent_dtype)
+        paths = paths.at[:, 0, :].set(x_particles[0])
+        origins = jnp.zeros((num_particles, num_steps), dtype=jnp.int32)
+        origins = origins.at[:, 0].set(jnp.arange(num_particles, dtype=jnp.int32))
+
+        resample_keys = random.split(resample_key, max(num_steps - 1, 1))
+
+        def _step(carry, inputs):
+            prev_log_weights, prev_filter_state, prev_paths, prev_origins = carry
+            particles_t, proposal_lp_t, time_idx, resample_key_t = inputs
+            free_ancestors = random.categorical(
+                resample_key_t,
+                prev_log_weights,
+                shape=(num_free_particles,),
+            ).astype(jnp.int32)
+            ancestors = jnp.concatenate(
+                [jnp.zeros((1,), dtype=jnp.int32), free_ancestors],
+                axis=0,
+            )
+            ancestor_paths = jnp.take(prev_paths, ancestors, axis=0)
+            ancestor_origins = jnp.take(prev_origins, ancestors, axis=0)
+            prev_particles = ancestor_paths[:, time_idx - 1, :]
+            ancestor_filter_state = jax.tree_util.tree_map(
+                lambda leaf: jnp.take(leaf, ancestors, axis=0),
+                prev_filter_state,
+            )
+
+            pred_means = prev_particles @ context.Ad[time_idx].T + context.cd[time_idx]
+            transition_lp = jax.vmap(_gaussian_log_prob_full)(
+                particles_t,
+                pred_means,
+                jnp.broadcast_to(
+                    context.Qd[time_idx],
+                    (num_particles, *context.Qd.shape[-2:]),
+                ),
+            )
+            obs_lp = jax.vmap(
+                lambda particle: obs_increment_fn(
+                    context,
+                    particle,
+                    observation_auxiliary,
+                    time_idx,
+                )
+            )(particles_t)
+            next_filter_state, rbpf_lp = jax.vmap(
+                lambda filter_state, carried_prev, carried_t: rbpf_step_filter_update_fn(
+                    context.rbpf_marginal_context,
+                    filter_state,
+                    runtime_observations,
+                    observation_auxiliary,
+                    carried_prev,
+                    carried_t,
+                    time_idx,
+                    jitter=AUX_JITTER,
+                )
+            )(ancestor_filter_state, prev_particles, particles_t)
+            next_log_weights = transition_lp + obs_lp + rbpf_lp - proposal_lp_t
+            next_log_weights = next_log_weights - jax.scipy.special.logsumexp(next_log_weights)
+            next_paths = ancestor_paths.at[:, time_idx, :].set(particles_t)
+            next_origins = ancestor_origins.at[:, time_idx].set(
+                jnp.arange(num_particles, dtype=jnp.int32)
+            )
+            return (
+                next_log_weights.astype(traj_dtype),
+                next_filter_state,
+                next_paths,
+                next_origins,
+            ), None
+
+        if num_steps > 1:
+            (log_weights, _filter_state, paths, origins), _ = jax.lax.scan(
+                _step,
+                (log_weights.astype(traj_dtype), init_filter_state, paths, origins),
+                (
+                    x_particles[1:],
+                    proposal_log_probs[1:],
+                    jnp.arange(1, num_steps, dtype=jnp.int32),
+                    resample_keys[: num_steps - 1],
+                ),
+            )
+
+        final_idx = random.categorical(select_key, log_weights).astype(jnp.int32)
+        latent_path = paths[final_idx]
+        origin_path = origins[final_idx]
+        prior_terms = bundle["prior_terms_from_context_fn"](context)
+        next_traj_lp = jnp.asarray(
+            bundle["trajectory_log_prob_conditioned_from_context_fn"](
+                context,
+                latent_path,
+                observation_auxiliary,
+                prior_terms,
+            ),
+            dtype=traj_dtype,
+        )
+        log_prior_z = jnp.asarray(
+            bundle["log_prior_unc_fn"](state.position),
+            dtype=complete_dtype,
+        )
+        next_complete = log_prior_z + next_traj_lp.astype(complete_dtype)
+        updated_mask = (origin_path != ref_particle_index).astype(state.position.dtype)
+        latent_move = latent_path - x_ref
+        latent_move_rms_per_t = jnp.sqrt(jnp.mean(latent_move * latent_move, axis=-1))
+        latent_move_rms = jnp.sqrt(jnp.mean(latent_move * latent_move))
+        latent_move_max_abs = jnp.max(jnp.abs(latent_move))
+        next_state = state._replace(
+            latent_trajectory=latent_path,
+            trajectory_log_prob=next_traj_lp,
+            complete_log_posterior=next_complete,
+        )
+        return next_state, {
+            "accepted": updated_mask,
+            "latent_move_rms": latent_move_rms,
+            "latent_move_max_abs": latent_move_max_abs,
+            "latent_move_rms_per_t": latent_move_rms_per_t,
+        }
+
     def _latent_pit_particle_mgrad_step(state, key: jnp.ndarray):
+        if rbpf_structure == "conditional":
+            return _conditional_rbpf_particle_step(state, key)
+
         aux_key, proposal_key, combine_key, select_key = random.split(key, 4)
         x_ref = state.latent_trajectory
         context = state.latent_context
+        observation_auxiliary = state.observation_auxiliary
         latent_dtype = x_ref.dtype
         traj_dtype = state.trajectory_log_prob.dtype
         complete_dtype = state.complete_log_posterior.dtype
@@ -247,7 +435,7 @@ def build_pit_particle_mgrad_latent_kernel(
         time_indices = jnp.arange(num_steps, dtype=jnp.int32)
         ref_grads = jax.vmap(
             lambda latent_t, time_idx: jnp.asarray(
-                obs_increment_grad_fn(context, latent_t, time_idx),
+                obs_increment_grad_fn(context, latent_t, observation_auxiliary, time_idx),
                 dtype=latent_dtype,
             )
         )(x_ref, time_indices)
@@ -273,7 +461,12 @@ def build_pit_particle_mgrad_latent_kernel(
             lambda particle: _gaussian_log_prob_full(particle, init_mean, init_cov)
         )(x_particles[0])
         init_obs_lp = jax.vmap(
-            lambda particle: obs_increment_fn(context, particle, jnp.asarray(0, dtype=jnp.int32))
+            lambda particle: obs_increment_fn(
+                context,
+                particle,
+                observation_auxiliary,
+                jnp.asarray(0, dtype=jnp.int32),
+            )
         )(x_particles[0])
         log_weights0 = init_prior_lp + init_obs_lp - proposal_log_probs[0]
         log_weights_rest = jnp.zeros((num_steps - 1, num_particles), dtype=log_weights0.dtype)
@@ -314,9 +507,14 @@ def build_pit_particle_mgrad_latent_kernel(
                     )
                 )(right_particles)
             )(pred_means)
-            obs_lp = jax.vmap(lambda particle: obs_increment_fn(context, particle, time_idx))(
-                right_particles
-            )
+            obs_lp = jax.vmap(
+                lambda particle: obs_increment_fn(
+                    context,
+                    particle,
+                    observation_auxiliary,
+                    time_idx,
+                )
+            )(right_particles)
             proposal_lp = jax.vmap(
                 lambda particle: gaussian_log_prob_isotropic(
                     particle,
@@ -365,7 +563,12 @@ def build_pit_particle_mgrad_latent_kernel(
 
         prior_terms = bundle["prior_terms_from_context_fn"](context)
         next_traj_lp = jnp.asarray(
-            bundle["trajectory_log_prob_from_context_fn"](context, latent_path, prior_terms),
+            bundle["trajectory_log_prob_conditioned_from_context_fn"](
+                context,
+                latent_path,
+                observation_auxiliary,
+                prior_terms,
+            ),
             dtype=traj_dtype,
         )
         log_prior_z = jnp.asarray(

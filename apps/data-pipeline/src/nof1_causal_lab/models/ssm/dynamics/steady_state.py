@@ -34,7 +34,7 @@ def compute_steady_state(
 ) -> Array:
     """Find ``η*`` such that ``f(0, η*, args) = 0``.
 
-    For ``LinearVectorField`` with a stable drift, this reproduces
+    For a stable linear vector field, this reproduces
     ``-A⁻¹c`` (up to solver tolerance) and naturally extends to
     interventions, which simply alter the equation system whose root we
     seek.

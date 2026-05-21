@@ -10,8 +10,8 @@ from tests.ssm_test_utils import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
-    full_structural_dense_drift_spec,
-    structural_dense_drift_spec,
+    dense_matrix_dynamics_spec,
+    full_dense_matrix_dynamics_spec,
 )
 from tests.stages.stage4._support import (
     Any,
@@ -81,20 +81,20 @@ def _default_ssm_spec(
     n_latent: int,
     n_manifest: int,
     latent_names: list[str] | None = None,
-    drift_offdiag_mask=None,
+    edge_support=None,
 ) -> SSMSpec:
-    """Build a SSMSpec with all default blocks plus optional drift support + names."""
-    if drift_offdiag_mask is not None:
-        dynamics_spec = structural_dense_drift_spec(
+    """Build a SSMSpec with all default blocks plus optional dynamics support + names."""
+    if edge_support is not None:
+        dynamics_spec = dense_matrix_dynamics_spec(
             n_latent=n_latent,
-            drift_diag_mask=np.ones(n_latent, dtype=bool),
-            drift_offdiag_mask=np.asarray(drift_offdiag_mask, dtype=bool),
-            drift_template=np.zeros((n_latent, n_latent)),
-            cint_mask=np.zeros(n_latent, dtype=bool),
+            decay_support=np.ones(n_latent, dtype=bool),
+            edge_support=np.asarray(edge_support, dtype=bool),
+            coupling_template=np.zeros((n_latent, n_latent)),
+            intercept_support=np.zeros(n_latent, dtype=bool),
             cint_template=np.zeros(n_latent),
         )
     else:
-        dynamics_spec = full_structural_dense_drift_spec(n_latent)
+        dynamics_spec = full_dense_matrix_dynamics_spec(n_latent)
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
@@ -859,7 +859,7 @@ class TestSSMPriorConversion:
     """Test that priors with non-Normal distributions convert correctly."""
 
     def test_beta_prior_converts_to_mu_sigma(self, simple_model_spec):
-        """Beta(2,2) AR prior converts via AR-to-drift transform."""
+        """Beta(2,2) AR prior converts via AR-to-dynamics transform."""
         import math
 
         priors = {
@@ -1101,7 +1101,7 @@ class TestSSMPriorConversion:
         assert "rho_affect" in message
         assert "beta_mood_stress" in message
 
-    def test_multiple_ar_params_produce_per_element_base_decay(self):
+    def test_multiple_ar_params_produce_per_element_decay_rate(self):
         """Multiple AR params map to separate dynamics-decay entries."""
         import math
 
@@ -1152,7 +1152,10 @@ class TestSSMPriorConversion:
         expected_mood = -math.log(mu_ar_mood) / 1.0
         expected_stress = -math.log(mu_ar_stress) / 1.0
         assert (
-            abs(_positive_prior_mean_for_parameter(ssm_priors, index_maps, "rho_mood") - expected_mood)
+            abs(
+                _positive_prior_mean_for_parameter(ssm_priors, index_maps, "rho_mood")
+                - expected_mood
+            )
             < 0.01
         )
         assert (
@@ -1164,7 +1167,7 @@ class TestSSMPriorConversion:
         )
 
     def test_ar_transform_respects_granularity(self):
-        """Hourly construct → dt=1/24, producing larger drift magnitude."""
+        """Hourly construct → dt=1/24, producing larger dynamics magnitude."""
         import math
 
         model_spec = {
@@ -1257,12 +1260,12 @@ class TestSSMPriorConversion:
             "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.15}},
         }
         # off-diagonal support enables [mood, stress].
-        drift_offdiag_mask = np.array([[False, True], [False, False]])
+        edge_support = np.array([[False, True], [False, False]])
         ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_offdiag_mask=drift_offdiag_mask,
+            edge_support=edge_support,
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
@@ -1323,7 +1326,7 @@ class TestSSMPriorConversion:
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
-            drift_offdiag_mask=np.array([[False, True], [False, False]]),
+            edge_support=np.array([[False, True], [False, False]]),
         )
 
         _ssm_priors, _idx, diagnostics = compile_ssm_priors(
@@ -1388,7 +1391,7 @@ class TestSSMPriorConversion:
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
-            drift_offdiag_mask=np.array([[False, False], [True, False]]),
+            edge_support=np.array([[False, False], [True, False]]),
         )
 
         _priors, _idx, diagnostics = compile_ssm_priors(
@@ -1452,7 +1455,7 @@ class TestSSMPriorConversion:
             n_latent=2,
             n_manifest=2,
             latent_names=["stress", "sleep"],
-            drift_offdiag_mask=np.array([[False, False], [True, False]]),
+            edge_support=np.array([[False, False], [True, False]]),
         )
 
         _priors, _idx, diagnostics = compile_ssm_priors(
@@ -1532,12 +1535,12 @@ class TestSSMPriorConversion:
                 "measurement": {"model_clock": "1h", "indicators": []},
             }
         )
-        drift_offdiag_mask = np.array([[False, True], [False, False]])
+        edge_support = np.array([[False, True], [False, False]])
         ssm_spec = _default_ssm_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["heart_rate", "activity"],
-            drift_offdiag_mask=drift_offdiag_mask,
+            edge_support=edge_support,
         )
         ssm_priors, index_maps, _diagnostics = compile_ssm_priors(
             priors,
@@ -1714,7 +1717,7 @@ class TestTrialCompile:
         }
         with patch(
             "nof1_causal_lab.models.ssm.compile.artifact._compile_validated_ssm_artifact",
-            side_effect=ValueError("dimension mismatch in drift matrix"),
+            side_effect=ValueError("dimension mismatch in dynamics matrix"),
         ):
             result = trial_compile_model_spec(spec)
         assert result is not None

@@ -22,7 +22,7 @@ from tests.ssm_test_utils import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
-    full_structural_dense_drift_spec,
+    full_dense_matrix_dynamics_spec,
 )
 
 
@@ -57,7 +57,7 @@ def _make_fake_model() -> SSMModel:
         SSMSpec(
             n_latent=1,
             n_manifest=2,
-            dynamics_spec=full_structural_dense_drift_spec(1),
+            dynamics_spec=full_dense_matrix_dynamics_spec(1),
             diffusion_block=default_diffusion_block(1),
             lambda_block=default_lambda_block(2, 1),
             manifest_means_block=default_manifest_means_block(2),

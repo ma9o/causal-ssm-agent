@@ -26,7 +26,7 @@ from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
 
 from .emissions import (
-    build_composite_mean_log_prob_fn,
+    build_heterogeneous_mean_log_prob_fn,
     get_mean_param_log_prob_fn,
 )
 from .observation_dispatch import (
@@ -481,11 +481,11 @@ def build_transition_kernel(
 
 
 # =============================================================================
-# Composite ObservationKernel for per-channel heterogeneous distributions
+# ObservationKernel for per-channel heterogeneous distributions
 # =============================================================================
 
 
-def build_composite_observation_kernel(
+def build_heterogeneous_observation_kernel(
     dists: list[DistributionFamily],
     links: list[LinkFunction],
     extra_params: dict | None = None,
@@ -542,7 +542,7 @@ def build_composite_observation_kernel(
         group_kernels.append((ch_indices, kernel))
 
     # Compose emission_fn: sum per-group emission log-probs
-    def composite_emission_fn(y_t, z_t, H, d, R, mask_t):
+    def heterogeneous_emission_fn(y_t, z_t, H, d, R, mask_t):
         total_ll = 0.0
         for ch_indices, kernel in group_kernels:
             idx = jnp.array(ch_indices)
@@ -555,7 +555,7 @@ def build_composite_observation_kernel(
         return total_ll
 
     # Compose emission_grad_hess_fn: sum per-group gradients and Hessians
-    def composite_emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
+    def heterogeneous_emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
         D = z_t.shape[0]
         total_grad = jnp.zeros(D)
         total_hess = jnp.zeros((D, D))
@@ -571,14 +571,14 @@ def build_composite_observation_kernel(
             total_hess = total_hess + neg_H
         return total_grad, total_hess
 
-    def composite_response_fn(eta: jnp.ndarray) -> jnp.ndarray:
+    def heterogeneous_response_fn(eta: jnp.ndarray) -> jnp.ndarray:
         response = jnp.zeros_like(eta)
         for ch_indices, kernel in group_kernels:
             idx = jnp.array(ch_indices)
             response = response.at[idx].set(kernel.response_fn(eta[idx]))
         return response
 
-    def composite_variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
+    def heterogeneous_variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
         variance = jnp.zeros((n_manifest, n_manifest), dtype=mean.dtype)
         for ch_indices, kernel in group_kernels:
             idx = jnp.array(ch_indices)
@@ -586,11 +586,11 @@ def build_composite_observation_kernel(
         return variance
 
     return ObservationKernel(
-        emission_fn=composite_emission_fn,
-        response_fn=composite_response_fn,
-        variance_fn=composite_variance_fn,
+        emission_fn=heterogeneous_emission_fn,
+        response_fn=heterogeneous_response_fn,
+        variance_fn=heterogeneous_variance_fn,
         is_gaussian=False,  # heterogeneous is never purely Gaussian
-        emission_grad_hess_fn=composite_emission_grad_hess_fn,
+        emission_grad_hess_fn=heterogeneous_emission_grad_hess_fn,
     )
 
 
@@ -634,7 +634,7 @@ def compile_measurement_semantics(
             manifest_cov=manifest_cov,
         )
     else:
-        obs_kernel = build_composite_observation_kernel(
+        obs_kernel = build_heterogeneous_observation_kernel(
             dists,
             links,
             extra_params,
@@ -652,7 +652,7 @@ def compile_measurement_semantics(
                 interval_summary_dists[0], extra_params
             )
         else:
-            base_mean_log_prob_fn = build_composite_mean_log_prob_fn(
+            base_mean_log_prob_fn = build_heterogeneous_mean_log_prob_fn(
                 [dist.value for dist in interval_summary_dists],
                 _slice_observation_extra_params(extra_params, interval_summary_indices),
             )

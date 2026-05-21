@@ -14,9 +14,9 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
     normalize_prior_params,
     split_compound_name,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    CompositeSpec,
+from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
+    DynamicsSpec,
     HillEdgeSpec,
     LinearEdgeSpec,
     MultiplicativeEdgeSpec,
@@ -44,9 +44,9 @@ from tests.ssm_test_utils import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
-    full_diagonal_mask,
-    full_structural_dense_drift_spec,
-    structural_dense_drift_spec,
+    dense_matrix_dynamics_spec,
+    full_dense_matrix_dynamics_spec,
+    full_diagonal_support,
 )
 
 # =============================================================================
@@ -71,7 +71,7 @@ def _make_spec(
 ) -> SSMSpec:
     """Build an SSMSpec from explicit block specs for tests."""
     if dynamics_spec is None:
-        dynamics_spec = full_structural_dense_drift_spec(n_latent)
+        dynamics_spec = full_dense_matrix_dynamics_spec(n_latent)
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
@@ -354,8 +354,8 @@ class TestBuilderPriorConversion:
             manifest_names=["mood", "sleep"],
             t0_chol_block=T0CholBlockSpec(
                 n_latent=2,
-                diag_mask=full_diagonal_mask(2),
-                correlation_mask=t0_mask,
+                diag_support=full_diagonal_support(2),
+                correlation_support=t0_mask,
                 template=jnp.eye(2),
             ),
         )
@@ -441,8 +441,8 @@ class TestBuilderPriorConversion:
             manifest_names=["mood", "sleep"],
             t0_chol_block=T0CholBlockSpec(
                 n_latent=2,
-                diag_mask=full_diagonal_mask(2),
-                correlation_mask=np.zeros((2, 2), dtype=bool),
+                diag_support=full_diagonal_support(2),
+                correlation_support=np.zeros((2, 2), dtype=bool),
                 template=jnp.eye(2),
             ),
         )
@@ -522,8 +522,8 @@ class TestBuilderPriorConversion:
             manifest_names=["a", "b", "c"],
             t0_chol_block=T0CholBlockSpec(
                 n_latent=3,
-                diag_mask=full_diagonal_mask(3),
-                correlation_mask=t0_mask,
+                diag_support=full_diagonal_support(3),
+                correlation_support=t0_mask,
                 template=jnp.eye(3),
             ),
         )
@@ -543,8 +543,8 @@ class TestBuilderPriorConversion:
         assert t0_corr_prior.params["lower"] == [-1.0]
         assert t0_corr_prior.params["upper"] == [1.0]
 
-    def test_nonlinear_dynamics_parameters_bind_to_component_sites(self):
-        """Semantic priors should bind to component-owned nonlinear dynamics sites."""
+    def test_component_dynamics_parameters_bind_to_component_sites(self):
+        """Semantic priors should bind to component-owned dynamics sites."""
         model_spec = {
             "likelihoods": [
                 {
@@ -611,14 +611,12 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["dose", "response"],
             manifest_names=["dose", "response"],
-            dynamics_spec=CompositeSpec(
+            dynamics_spec=DynamicsSpec(
                 n_latent=2,
                 components=(
-                    DiagonalDecaySpec(decay_prior=None),
-                    LinearEdgeSpec(source=0, target=1, weight_prior=None),
-                    HillEdgeSpec(
-                        source=0, target=1, emax_prior=None, ec50_prior=None, n_prior=None
-                    ),
+                    DiagonalDecaySpec(),
+                    LinearEdgeSpec(source=0, target=1),
+                    HillEdgeSpec(source=0, target=1),
                 ),
             ),
         )
@@ -683,19 +681,19 @@ class TestBuilderPriorConversion:
                 "params": {"mu": 0.3, "sigma": 0.15},
             }
         }
-        drift_offdiag_mask = np.zeros((2, 2), dtype=bool)
-        drift_offdiag_mask[0, 1] = True
+        edge_support = np.zeros((2, 2), dtype=bool)
+        edge_support[0, 1] = True
         ssm_spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["mood", "stress"],
             manifest_names=["mood", "stress"],
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=2,
-                drift_diag_mask=full_diagonal_mask(2),
-                drift_offdiag_mask=drift_offdiag_mask,
-                drift_template=jnp.zeros((2, 2)),
-                cint_mask=np.zeros(2, dtype=bool),
+                decay_support=full_diagonal_support(2),
+                edge_support=edge_support,
+                coupling_template=jnp.zeros((2, 2)),
+                intercept_support=np.zeros(2, dtype=bool),
                 cint_template=jnp.zeros(2),
             ),
         )
@@ -717,22 +715,19 @@ class TestBuilderPriorConversion:
             compile_ssm_inputs_from_spec(ssm_spec=ssm_spec, priors=priors)
 
     def test_prior_predictive_supports_hill_edge_spec(self):
-        """The prior predictive path should accept nonlinear component drift."""
+        """The prior predictive path should accept nonlinear component dynamics."""
         spec = _make_spec(
             n_latent=2,
             n_manifest=2,
             latent_names=["dose", "response"],
             manifest_names=["dose", "response"],
-            dynamics_spec=CompositeSpec(
+            dynamics_spec=DynamicsSpec(
                 n_latent=2,
                 components=(
-                    DiagonalDecaySpec(decay_prior=None),
+                    DiagonalDecaySpec(),
                     HillEdgeSpec(
                         source=0,
                         target=1,
-                        emax_prior=None,
-                        ec50_prior=None,
-                        n_prior=None,
                     ),
                 ),
             ),
@@ -761,12 +756,12 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["a", "b"],
             manifest_names=["a", "b"],
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=2,
-                drift_diag_mask=full_diagonal_mask(2),
-                drift_offdiag_mask=np.zeros((2, 2), dtype=bool),
-                drift_template=jnp.zeros((2, 2), dtype=jnp.float32),
-                cint_mask=np.zeros(2, dtype=bool),
+                decay_support=full_diagonal_support(2),
+                edge_support=np.zeros((2, 2), dtype=bool),
+                coupling_template=jnp.zeros((2, 2), dtype=jnp.float32),
+                intercept_support=np.zeros(2, dtype=bool),
                 cint_template=jnp.zeros(2, dtype=jnp.float32),
             ),
         )
@@ -775,15 +770,14 @@ class TestBuilderPriorConversion:
             n_manifest=2,
             latent_names=["a", "b"],
             manifest_names=["a", "b"],
-            dynamics_spec=CompositeSpec(
+            dynamics_spec=DynamicsSpec(
                 n_latent=2,
                 components=(
-                    DiagonalDecaySpec(decay_prior=None),
+                    DiagonalDecaySpec(),
                     MultiplicativeEdgeSpec(
                         source_a=0,
                         source_b=1,
                         target=1,
-                        weight_prior=None,
                     ),
                 ),
             ),
@@ -891,7 +885,7 @@ class TestPrepareFitInputs:
             input_effect_block=SparseMatrixBlockSpec(
                 n_rows=1,
                 n_cols=1,
-                mask=np.array([[True]]),
+                free_support=np.array([[True]]),
                 template=jnp.zeros((1, 1)),
                 free_site_name="input_effect_free",
                 det_site_name="input_effect",
@@ -1064,7 +1058,7 @@ class TestPrepareModelRuntime:
                 n_manifest=1,
                 diffusion_block=DiffusionBlockSpec(
                     n_latent=1,
-                    diffusion_chol_mask=np.diag(full_diagonal_mask(1)),
+                    diffusion_chol_support=np.diag(full_diagonal_support(1)),
                     diffusion_chol_template=jnp.eye(1, dtype=jnp.float32),
                 ),
                 manifest_names=["stress_score"],

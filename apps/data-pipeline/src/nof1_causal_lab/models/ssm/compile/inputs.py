@@ -40,22 +40,22 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict |
 
     required_block_fields = (
         "dynamics_spec",
-        "diffusion_block.diffusion_chol_mask",
+        "diffusion_block.diffusion_chol_support",
         "diffusion_block.diffusion_chol_template",
-        "lambda_block.mask",
+        "lambda_block.free_support",
         "lambda_block.template",
-        "manifest_means_block.mask",
+        "manifest_means_block.free_support",
         "manifest_means_block.template",
-        "manifest_chol_block.diag_mask",
+        "manifest_chol_block.diag_support",
         "manifest_chol_block.template",
-        "t0_means_block.mask",
+        "t0_means_block.free_support",
         "t0_means_block.template",
-        "t0_chol_block.diag_mask",
-        "t0_chol_block.correlation_mask",
+        "t0_chol_block.diag_support",
+        "t0_chol_block.correlation_support",
         "t0_chol_block.template",
-        "input_effect_block.mask",
+        "input_effect_block.free_support",
         "input_effect_block.template",
-        "static_state_sd_block.mask",
+        "static_state_sd_block.free_support",
         "static_state_sd_block.template",
         "static_factor_loadings",
     )
@@ -77,7 +77,7 @@ def _require_explicit_causal_structure(ssm_spec: SSMSpec, *, causal_spec: dict |
         "Causal-spec compilation requires an explicit compiled structure on SSMSpec. "
         f"Missing block fields: {', '.join(missing_fields)}. Compile from ModelSpec + CausalSpec so "
         "translate_spec() can derive the full structural payload, or supply an already "
-        "translated SSMSpec with explicit block masks and templates."
+        "translated SSMSpec with explicit block supports and templates."
     )
 
 

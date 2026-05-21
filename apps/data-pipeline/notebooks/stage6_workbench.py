@@ -399,7 +399,7 @@ class Stage6Workbench:
     def _on_kind_change(self, change: dict[str, Any]) -> None:
         kind = change["new"]
         is_counterfactual = kind == "counterfactual"
-        self.start_index.disabled = not is_counterfactual
+        setattr(self.start_index, "disabled", not is_counterfactual)
         self.estimand.options = (
             [("Trajectory", "trajectory"), ("End state", "end_state")]
             if is_counterfactual
@@ -409,8 +409,8 @@ class Stage6Workbench:
 
     def _on_mode_change(self, change: dict[str, Any]) -> None:
         mode = change["new"]
-        self.amount.disabled = mode != "shift"
-        self.value.disabled = mode != "set"
+        setattr(self.amount, "disabled", mode != "shift")
+        setattr(self.value, "disabled", mode != "set")
 
     def _scenario_name(self) -> str | None:
         value = self.name.value.strip()
@@ -492,10 +492,3 @@ class Stage6Workbench:
         if result.manifest_effects:
             print("Manifest effects:")
             display(JSON(result.manifest_effects))
-
-
-def launch(workspace_id: str) -> Stage6Workbench:
-    """Create and display a Stage 6 workbench for a workspace."""
-    workbench = Stage6Workbench.from_workspace(workspace_id)
-    workbench.display()
-    return workbench

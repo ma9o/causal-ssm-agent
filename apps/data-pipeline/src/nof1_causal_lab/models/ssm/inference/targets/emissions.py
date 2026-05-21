@@ -695,7 +695,7 @@ def _slice_per_channel_extra_params(
     return sliced
 
 
-def build_composite_mean_log_prob_fn(
+def build_heterogeneous_mean_log_prob_fn(
     manifest_dists,
     extra_params: dict | None = None,
 ):
@@ -724,7 +724,7 @@ def build_composite_mean_log_prob_fn(
             )
         )
 
-    def composite_mean_log_prob(y_t, mean_t, R, obs_mask_t):
+    def heterogeneous_mean_log_prob(y_t, mean_t, R, obs_mask_t):
         total_ll = 0.0
         for ch_indices, group_fn in group_fns:
             idx = jnp.array(ch_indices)
@@ -735,10 +735,10 @@ def build_composite_mean_log_prob_fn(
             total_ll = total_ll + group_fn(y_g, mean_g, R_g, mask_g)
         return total_ll
 
-    return composite_mean_log_prob
+    return heterogeneous_mean_log_prob
 
 
-def build_composite_mean_sample_fn(
+def build_heterogeneous_mean_sample_fn(
     manifest_dists,
     extra_params: dict | None = None,
 ):
@@ -767,7 +767,7 @@ def build_composite_mean_sample_fn(
             )
         )
 
-    def composite_mean_sample(key, mean_t, R):
+    def heterogeneous_mean_sample(key, mean_t, R):
         sampled = jnp.zeros_like(mean_t)
         keys = jax.random.split(key, len(group_fns))
         for subkey, (ch_indices, group_fn) in zip(keys, group_fns, strict=False):
@@ -775,4 +775,4 @@ def build_composite_mean_sample_fn(
             sampled = sampled.at[idx].set(group_fn(subkey, mean_t[idx], R[jnp.ix_(idx, idx)]))
         return sampled
 
-    return composite_mean_sample
+    return heterogeneous_mean_sample

@@ -127,9 +127,7 @@ def simulate(
     dtype = y0.dtype
     diffusion_cov = jnp.asarray(diffusion_cov, dtype=dtype)
     jitter = jnp.asarray(1e-8, dtype=dtype)
-    chol_G = jnp.linalg.cholesky(
-        diffusion_cov + jitter * jnp.eye(n_latent, dtype=dtype)
-    )
+    chol_G = jnp.linalg.cholesky(diffusion_cov + jitter * jnp.eye(n_latent, dtype=dtype))
 
     brownian = dfx.VirtualBrownianTree(
         t0=t0,

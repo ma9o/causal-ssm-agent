@@ -28,12 +28,12 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
+import numpy as np
 from blackjax.mcmc import nuts as blackjax_nuts
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.discretization import discretize_system_with_inputs_batched
 from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     aux_filter_lgssm_lightweight,
     sample_lgssm_trajectory,
@@ -53,12 +53,37 @@ from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation im
     row_observation_log_prob,
     row_observation_log_probs,
 )
+from nof1_causal_lab.models.ssm.inference.targets.polya_gamma import (
+    PolyaGammaObservationPlan,
+    build_polya_gamma_observation_plan,
+    initialize_polya_gamma_auxiliary_state,
+    mask_polya_gamma_observations,
+    polya_gamma_increment_log_prob,
+    polya_gamma_quadratic_log_prob,
+    polya_gamma_quadratic_log_probs,
+    refresh_polya_gamma_auxiliary_state,
+)
+from nof1_causal_lab.models.ssm.inference.targets.rao_blackwell import (
+    build_gaussian_rbpf_observation_plan,
+    build_rbpf_marginal_context,
+    build_rbpf_partition,
+    mask_rbpf_observations,
+    normalize_rbpf_mode,
+    rbpf_initial_filter_update,
+    rbpf_marginal_log_likelihood,
+    rbpf_marginal_log_likelihoods,
+    rbpf_step_filter_update,
+    reduce_context_to_carried,
+    sample_rbpf_marginal_trajectory,
+    validate_rbpf_mode,
+)
 from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_support_kind_codes,
     trajectory_observation_log_prob,
     trajectory_observation_log_probs,
 )
+from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 from nof1_causal_lab.models.ssm.inference.utils import (
     _assemble_likelihood_inputs,
     _build_original_sample_resolver,
@@ -85,6 +110,19 @@ class LatentContext(NamedTuple):
     extra_params: dict[str, jnp.ndarray] | None
     H_rows: jnp.ndarray | None
     d_rows: jnp.ndarray | None
+    rbpf_marginal_context: Any | None
+    full_H: jnp.ndarray
+    full_d_meas: jnp.ndarray
+    full_H_rows: jnp.ndarray | None
+    full_d_rows: jnp.ndarray | None
+
+
+class _LinearPredictorContext(NamedTuple):
+    H: jnp.ndarray
+    d_meas: jnp.ndarray
+    H_rows: jnp.ndarray | None
+    d_rows: jnp.ndarray | None
+    extra_params: dict[str, jnp.ndarray] | None
 
 
 def _shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
@@ -334,17 +372,33 @@ def build_auxiliary_kalman_bundle(
     *,
     trace_key: jnp.ndarray,
     reparam,
+    polya_gamma_num_terms: int = 64,
+    polya_gamma_sampler: str = "truncated_sum",
+    enable_polya_gamma: bool = True,
+    rbpf_mode: str = "none",
+    rbpf_marginalized_latent_indices: tuple[int, ...] | list[int] | None = None,
 ) -> dict[str, Any]:
     """Assemble all static helpers needed by the auxiliary Kalman method."""
     if has_student_t_diffusion(model.spec):
         raise ValueError(
             "aux_kalman_mcmc with latent_kernel='kalman' currently requires Gaussian latent diffusion for every state."
         )
+    normalized_rbpf_mode = normalize_rbpf_mode(rbpf_mode)
+    marginalized_indices = tuple(int(idx) for idx in (rbpf_marginalized_latent_indices or ()))
+    if normalized_rbpf_mode == "none" and marginalized_indices:
+        raise ValueError(
+            "rbpf_mode='none' cannot be combined with rbpf_marginalized_latent_indices."
+        )
     observation_support = getattr(model, "observation_support", None)
     cache_key = (
         "aux_kalman_runtime_bundle",
         id(reparam),
         id(observation_support),
+        int(polya_gamma_num_terms),
+        str(polya_gamma_sampler).strip().lower(),
+        bool(enable_polya_gamma),
+        normalized_rbpf_mode,
+        marginalized_indices,
         _shape_dtype_signature(observations),
         _shape_dtype_signature(times),
     )
@@ -378,6 +432,45 @@ def build_auxiliary_kalman_bundle(
         manifest_links = model.spec.manifest_links or [
             LinkFunction.IDENTITY for _ in range(model.spec.n_manifest)
         ]
+        polya_gamma_plan = build_polya_gamma_observation_plan(
+            model.spec.manifest_dists,
+            manifest_links,
+            num_terms=int(polya_gamma_num_terms),
+            sampler=polya_gamma_sampler,
+            enabled=bool(enable_polya_gamma),
+        )
+        rbpf_partition = build_rbpf_partition(
+            model.spec.n_latent,
+            marginalized_indices if normalized_rbpf_mode != "none" else None,
+        )
+        rbpf_observation_plan = build_gaussian_rbpf_observation_plan(
+            model.spec,
+            rbpf_partition,
+            manifest_links,
+            polya_gamma_plan.channel_mask,
+        )
+        validate_rbpf_mode(normalized_rbpf_mode, rbpf_partition, rbpf_observation_plan)
+        rbpf_active = bool(normalized_rbpf_mode != "none")
+        rbpf_structure = rbpf_observation_plan.structure
+        rbpf_has_polya_gamma_rows = bool(
+            np.any(np.asarray(rbpf_observation_plan.polya_gamma_channel_mask))
+        )
+        residual_polya_gamma_mask = polya_gamma_plan.channel_mask & (
+            ~rbpf_observation_plan.polya_gamma_channel_mask
+        )
+        residual_polya_gamma_plan = PolyaGammaObservationPlan(
+            channel_mask=residual_polya_gamma_mask,
+            bernoulli_channel_mask=polya_gamma_plan.bernoulli_channel_mask
+            & residual_polya_gamma_mask,
+            negative_binomial_channel_mask=polya_gamma_plan.negative_binomial_channel_mask
+            & residual_polya_gamma_mask,
+            num_terms=polya_gamma_plan.num_terms,
+            sampler=polya_gamma_plan.sampler,
+            enabled=bool(np.any(np.asarray(residual_polya_gamma_mask))),
+            consumes_all_channels=bool(np.all(np.asarray(residual_polya_gamma_mask)))
+            if residual_polya_gamma_mask.size
+            else False,
+        )
         support_kind_codes = (
             get_support_kind_codes(observation_support)
             if observation_support is not None
@@ -392,6 +485,17 @@ def build_auxiliary_kalman_bundle(
             observation_support is not None
             and observation_support.requires_interval_summary_handling
         )
+        if rbpf_active and use_linear_summary_augmentation:
+            raise NotImplementedError(
+                "RBPF marginalization is not supported with linear-summary state augmentation."
+            )
+        if rbpf_active:
+            rbpf_obs = np.asarray(observations)[:, np.asarray(rbpf_observation_plan.channel_mask)]
+            if bool(np.isnan(rbpf_obs).any()):
+                raise NotImplementedError(
+                    "RBPF marginalization currently requires every RBPF-consumed observation "
+                    "cell to be present."
+                )
         if use_linear_summary_augmentation and linear_summary_plan is None:
             raise ValueError(
                 "aux_kalman_mcmc with latent_kernel='kalman' only supports linear interval summaries "
@@ -411,27 +515,22 @@ def build_auxiliary_kalman_bundle(
         def latent_context_runtime_fn(z: jnp.ndarray, runtime_times: jnp.ndarray) -> LatentContext:
             constrained, _ = _constrain(z)
             original_samples = sample_resolver(constrained)
-            dynamics, measurement_params, initial_state, extra_params = (
-                _assemble_likelihood_inputs(
-                    original_samples,
-                    model.spec,
-                    registry=runtime_registry,
-                    parameter_layout=model.parameter_layout,
-                )
+            dynamics, measurement_params, initial_state, extra_params = _assemble_likelihood_inputs(
+                original_samples,
+                model.spec,
+                registry=runtime_registry,
+                parameter_layout=model.parameter_layout,
             )
-            affine_dynamics = derive_affine_dynamics(dynamics)
             time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
             transition_inputs = getattr(model, "transition_inputs", None)
             if transition_inputs is not None:
                 transition_inputs = transition_inputs[: runtime_times.shape[0]]
-            Ad, Qd, cd = discretize_system_with_inputs_batched(
-                affine_dynamics.drift,
-                affine_dynamics.diffusion_cov,
-                affine_dynamics.cint,
-                affine_dynamics.input_effect,
-                transition_inputs,
+            transitions = build_discrete_transitions(
+                dynamics,
                 time_intervals,
+                transition_inputs=transition_inputs,
             )
+            Ad, Qd, cd = transitions.Ad, transitions.Qd, transitions.cd
             cd_scan = (
                 jnp.zeros((Ad.shape[0], Ad.shape[1]), dtype=Ad.dtype)
                 if cd is None
@@ -443,7 +542,12 @@ def build_auxiliary_kalman_bundle(
             init_cov = initial_state.cov
             H = measurement_params.lambda_mat
             d_meas = measurement_params.manifest_means
+            full_H = H
+            full_d_meas = d_meas
+            full_H_rows = None
+            full_d_rows = None
             if use_linear_summary_augmentation:
+                affine_dynamics = derive_affine_dynamics(dynamics)
                 (
                     Ad,
                     Qd,
@@ -469,6 +573,40 @@ def build_auxiliary_kalman_bundle(
                     init_cov=initial_state.cov,
                     support_kind_codes=support_kind_codes,
                 )
+                full_H = H
+                full_d_meas = d_meas
+                full_H_rows = H_rows
+                full_d_rows = d_rows
+            rbpf_marginal_context = None
+            if rbpf_active:
+                rbpf_marginal_context = build_rbpf_marginal_context(
+                    Ad=Ad,
+                    Qd=Qd,
+                    cd=cd_scan,
+                    init_mean=init_mean,
+                    init_cov=init_cov,
+                    H=H,
+                    d_meas=d_meas,
+                    R=measurement_params.manifest_cov,
+                    partition=rbpf_partition,
+                    observation_plan=rbpf_observation_plan,
+                )
+                (
+                    Ad,
+                    Qd,
+                    cd_scan,
+                    init_mean,
+                    init_cov,
+                    H,
+                ) = reduce_context_to_carried(
+                    Ad=Ad,
+                    Qd=Qd,
+                    cd=cd_scan,
+                    init_mean=init_mean,
+                    init_cov=init_cov,
+                    H=H,
+                    partition=rbpf_partition,
+                )
             return LatentContext(
                 Ad=Ad,
                 Qd=Qd,
@@ -481,6 +619,11 @@ def build_auxiliary_kalman_bundle(
                 extra_params=extra_params,
                 H_rows=H_rows,
                 d_rows=d_rows,
+                rbpf_marginal_context=rbpf_marginal_context,
+                full_H=full_H,
+                full_d_meas=full_d_meas,
+                full_H_rows=full_H_rows,
+                full_d_rows=full_d_rows,
             )
 
         def _measurement_semantics_from_context(context: LatentContext):
@@ -493,6 +636,42 @@ def build_auxiliary_kalman_bundle(
                 if use_linear_summary_augmentation
                 else observation_support,
             )
+
+        def _full_linear_predictor_context(context: LatentContext) -> _LinearPredictorContext:
+            return _LinearPredictorContext(
+                H=context.full_H,
+                d_meas=context.full_d_meas,
+                H_rows=context.full_H_rows,
+                d_rows=context.full_d_rows,
+                extra_params=context.extra_params,
+            )
+
+        def _carried_linear_predictor_context(context: LatentContext) -> _LinearPredictorContext:
+            return _LinearPredictorContext(
+                H=context.H,
+                d_meas=context.d_meas,
+                H_rows=context.H_rows,
+                d_rows=context.d_rows,
+                extra_params=context.extra_params,
+            )
+
+        def _reconstruct_full_latent_trajectory(
+            carried_trajectory: jnp.ndarray,
+            marginalized_trajectory: jnp.ndarray,
+        ) -> jnp.ndarray:
+            if not rbpf_active:
+                return carried_trajectory
+            full = jnp.zeros(
+                (carried_trajectory.shape[0], model.spec.n_latent),
+                dtype=carried_trajectory.dtype,
+            )
+            carried_idx = jnp.asarray(rbpf_partition.carried_latent_indices, dtype=jnp.int32)
+            marginalized_idx = jnp.asarray(
+                rbpf_partition.marginalized_latent_indices,
+                dtype=jnp.int32,
+            )
+            full = full.at[:, carried_idx].set(carried_trajectory)
+            return full.at[:, marginalized_idx].set(marginalized_trajectory)
 
         def observation_log_prob_from_context_runtime_fn(
             context: LatentContext,
@@ -589,6 +768,199 @@ def build_auxiliary_kalman_bundle(
                 )
             return jnp.asarray(per_t, dtype=latent_trajectory.dtype)
 
+        def initial_observation_auxiliary_from_context_runtime_fn(
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+        ):
+            pg_context = _carried_linear_predictor_context(context)
+            pg_latent_trajectory = latent_trajectory
+            if rbpf_active and rbpf_has_polya_gamma_rows:
+                marginalized_mean = jnp.broadcast_to(
+                    context.rbpf_marginal_context.init_mean_m,
+                    (
+                        latent_trajectory.shape[0],
+                        context.rbpf_marginal_context.init_mean_m.shape[0],
+                    ),
+                )
+                pg_latent_trajectory = _reconstruct_full_latent_trajectory(
+                    latent_trajectory,
+                    marginalized_mean.astype(latent_trajectory.dtype),
+                )
+                pg_context = _full_linear_predictor_context(context)
+            return initialize_polya_gamma_auxiliary_state(
+                polya_gamma_plan,
+                pg_context,
+                pg_latent_trajectory,
+                runtime_observations,
+            )
+
+        def refresh_observation_auxiliary_from_context_runtime_fn(
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            _observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+            key: jnp.ndarray,
+        ):
+            if not polya_gamma_plan.enabled:
+                return _observation_auxiliary
+            pg_context = _carried_linear_predictor_context(context)
+            pg_latent_trajectory = latent_trajectory
+            if rbpf_active and rbpf_has_polya_gamma_rows:
+                sample_key, pg_key = jax.random.split(key)
+                marginalized_trajectory = sample_rbpf_marginal_trajectory(
+                    sample_key,
+                    context.rbpf_marginal_context,
+                    runtime_observations,
+                    _observation_auxiliary,
+                    latent_trajectory,
+                    jitter=AUX_JITTER,
+                )
+                pg_latent_trajectory = _reconstruct_full_latent_trajectory(
+                    latent_trajectory,
+                    marginalized_trajectory,
+                )
+                pg_context = _full_linear_predictor_context(context)
+                key = pg_key
+            return refresh_polya_gamma_auxiliary_state(
+                key,
+                polya_gamma_plan,
+                pg_context,
+                pg_latent_trajectory,
+                runtime_observations,
+            )
+
+        def residual_observations_runtime_fn(runtime_observations: jnp.ndarray) -> jnp.ndarray:
+            return mask_rbpf_observations(
+                rbpf_observation_plan,
+                mask_polya_gamma_observations(
+                    residual_polya_gamma_plan,
+                    runtime_observations,
+                ),
+            )
+
+        def rbpf_marginal_log_prob_from_context_runtime_fn(
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            if rbpf_has_polya_gamma_rows and observation_auxiliary is None:
+                raise ValueError(
+                    "PG-conditioned RBPF likelihood requires a Polya-Gamma auxiliary state."
+                )
+            return rbpf_marginal_log_likelihood(
+                context.rbpf_marginal_context,
+                runtime_observations,
+                observation_auxiliary,
+                latent_trajectory,
+                jitter=AUX_JITTER,
+            )
+
+        def rbpf_marginal_log_probs_from_context_runtime_fn(
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            if rbpf_has_polya_gamma_rows and observation_auxiliary is None:
+                raise ValueError(
+                    "PG-conditioned RBPF likelihood requires a Polya-Gamma auxiliary state."
+                )
+            return rbpf_marginal_log_likelihoods(
+                context.rbpf_marginal_context,
+                runtime_observations,
+                observation_auxiliary,
+                latent_trajectory,
+                jitter=AUX_JITTER,
+            )
+
+        def observation_log_prob_conditioned_from_context_runtime_fn(
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            residual_lp = (
+                jnp.asarray(0.0, dtype=latent_trajectory.dtype)
+                if polya_gamma_plan.consumes_all_channels
+                else observation_log_prob_from_context_runtime_fn(
+                    context,
+                    latent_trajectory,
+                    residual_observations_runtime_fn(runtime_observations),
+                )
+            )
+            pg_lp = polya_gamma_quadratic_log_prob(
+                residual_polya_gamma_plan,
+                observation_auxiliary,
+                context,
+                latent_trajectory,
+            )
+            rbpf_lp = rbpf_marginal_log_prob_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                observation_auxiliary,
+                runtime_observations,
+            )
+            return jnp.asarray(residual_lp + pg_lp + rbpf_lp, dtype=latent_trajectory.dtype)
+
+        def observation_increment_log_prob_conditioned_from_context_runtime_fn(
+            context: LatentContext,
+            latent_state: jnp.ndarray,
+            observation_auxiliary,
+            time_idx: jnp.ndarray,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            residual_lp = (
+                jnp.asarray(0.0, dtype=latent_state.dtype)
+                if polya_gamma_plan.consumes_all_channels
+                else observation_increment_log_prob_from_context_runtime_fn(
+                    context,
+                    latent_state,
+                    time_idx,
+                    residual_observations_runtime_fn(runtime_observations),
+                )
+            )
+            pg_lp = polya_gamma_increment_log_prob(
+                residual_polya_gamma_plan,
+                observation_auxiliary,
+                context,
+                latent_state,
+                time_idx,
+            )
+            return jnp.asarray(residual_lp + pg_lp, dtype=latent_state.dtype)
+
+        def observation_log_prob_per_t_conditioned_from_context_runtime_fn(
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+        ) -> jnp.ndarray:
+            residual_per_t = (
+                jnp.zeros((latent_trajectory.shape[0],), dtype=latent_trajectory.dtype)
+                if polya_gamma_plan.consumes_all_channels
+                else observation_log_prob_per_t_from_context_runtime_fn(
+                    context,
+                    latent_trajectory,
+                    residual_observations_runtime_fn(runtime_observations),
+                )
+            )
+            pg_per_t = polya_gamma_quadratic_log_probs(
+                residual_polya_gamma_plan,
+                observation_auxiliary,
+                context,
+                latent_trajectory,
+            )
+            rbpf_per_t = rbpf_marginal_log_probs_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                observation_auxiliary,
+                runtime_observations,
+            )
+            return jnp.asarray(
+                residual_per_t + pg_per_t + rbpf_per_t, dtype=latent_trajectory.dtype
+            )
+
         def observation_log_prob_runtime_fn(
             z: jnp.ndarray,
             latent_trajectory: jnp.ndarray,
@@ -609,6 +981,14 @@ def build_auxiliary_kalman_bundle(
         )
         observation_log_prob_and_grad_from_context_runtime_fn = jax.value_and_grad(
             observation_log_prob_from_context_runtime_fn,
+            argnums=1,
+        )
+        observation_grad_conditioned_from_context_runtime_fn = jax.grad(
+            observation_log_prob_conditioned_from_context_runtime_fn,
+            argnums=1,
+        )
+        observation_log_prob_and_grad_conditioned_from_context_runtime_fn = jax.value_and_grad(
+            observation_log_prob_conditioned_from_context_runtime_fn,
             argnums=1,
         )
 
@@ -639,9 +1019,38 @@ def build_auxiliary_kalman_bundle(
             total = prior_lp + observation_log_prob_from_context_runtime_fn(
                 context,
                 latent_trajectory,
+                mask_rbpf_observations(rbpf_observation_plan, runtime_observations),
+            )
+            rbpf_lp = rbpf_marginal_log_prob_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                None,
                 runtime_observations,
             )
-            return jnp.asarray(total, dtype=latent_trajectory.dtype)
+            return jnp.asarray(total + rbpf_lp, dtype=latent_trajectory.dtype)
+
+        def trajectory_log_prob_conditioned_from_context_runtime_fn(
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+            prior_terms: GaussianTrajectoryPriorTerms | None = None,
+        ) -> jnp.ndarray:
+            if prior_terms is None:
+                prior_terms = prior_terms_from_context_fn(context)
+            prior_lp = trajectory_prior_log_prob_from_terms(
+                latent_trajectory,
+                context.Ad,
+                context.cd,
+                prior_terms,
+            )
+            obs_lp = observation_log_prob_conditioned_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                observation_auxiliary,
+                runtime_observations,
+            )
+            return jnp.asarray(prior_lp + obs_lp, dtype=latent_trajectory.dtype)
 
         def trajectory_log_prob_runtime_fn(
             z: jnp.ndarray,
@@ -670,6 +1079,22 @@ def build_auxiliary_kalman_bundle(
             complete_lp = log_prior_unc_fn(z) + trajectory_lp
             return complete_lp, trajectory_lp
 
+        def complete_log_posterior_conditioned_from_context_runtime_fn(
+            z: jnp.ndarray,
+            context: LatentContext,
+            latent_trajectory: jnp.ndarray,
+            observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+        ) -> tuple[jnp.ndarray, jnp.ndarray]:
+            trajectory_lp = trajectory_log_prob_conditioned_from_context_runtime_fn(
+                context,
+                latent_trajectory,
+                observation_auxiliary,
+                runtime_observations,
+            )
+            complete_lp = log_prior_unc_fn(z) + trajectory_lp
+            return complete_lp, trajectory_lp
+
         def complete_log_posterior_runtime_fn(
             z: jnp.ndarray,
             latent_trajectory: jnp.ndarray,
@@ -681,6 +1106,23 @@ def build_auxiliary_kalman_bundle(
                 z,
                 context,
                 latent_trajectory,
+                runtime_observations,
+            )
+            return complete_lp
+
+        def complete_log_posterior_conditioned_runtime_fn(
+            z: jnp.ndarray,
+            latent_trajectory: jnp.ndarray,
+            observation_auxiliary,
+            runtime_observations: jnp.ndarray,
+            runtime_times: jnp.ndarray,
+        ) -> jnp.ndarray:
+            context = latent_context_runtime_fn(z, runtime_times)
+            complete_lp, _ = complete_log_posterior_conditioned_from_context_runtime_fn(
+                z,
+                context,
+                latent_trajectory,
+                observation_auxiliary,
                 runtime_observations,
             )
             return complete_lp
@@ -716,8 +1158,25 @@ def build_auxiliary_kalman_bundle(
             "site_info": site_info,
             "unravel_fn": unravel_fn,
             "public_sites": public_sites,
+            "polya_gamma_plan": polya_gamma_plan,
+            "polya_gamma_enabled": bool(enable_polya_gamma),
+            "polya_gamma_sampler": polya_gamma_plan.sampler,
+            "rbpf_partition": rbpf_partition,
+            "rbpf_observation_plan": rbpf_observation_plan,
+            "rbpf_enabled": rbpf_active,
+            "rbpf_requested": bool(normalized_rbpf_mode != "none"),
+            "rbpf_mode": normalized_rbpf_mode,
+            "rbpf_structure": rbpf_structure,
+            "rbpf_initial_filter_update_fn": rbpf_initial_filter_update,
+            "rbpf_step_filter_update_fn": rbpf_step_filter_update,
             "log_prior_unc_fn": log_prior_unc_fn,
             "latent_context_runtime_fn": latent_context_runtime_fn,
+            "initial_observation_auxiliary_from_context_runtime_fn": (
+                initial_observation_auxiliary_from_context_runtime_fn
+            ),
+            "refresh_observation_auxiliary_from_context_runtime_fn": (
+                refresh_observation_auxiliary_from_context_runtime_fn
+            ),
             "observation_log_prob_runtime_fn": observation_log_prob_runtime_fn,
             "observation_log_prob_from_context_runtime_fn": (
                 observation_log_prob_from_context_runtime_fn
@@ -725,23 +1184,47 @@ def build_auxiliary_kalman_bundle(
             "observation_log_prob_and_grad_from_context_runtime_fn": (
                 observation_log_prob_and_grad_from_context_runtime_fn
             ),
+            "observation_log_prob_conditioned_from_context_runtime_fn": (
+                observation_log_prob_conditioned_from_context_runtime_fn
+            ),
+            "observation_log_prob_and_grad_conditioned_from_context_runtime_fn": (
+                observation_log_prob_and_grad_conditioned_from_context_runtime_fn
+            ),
             "observation_log_prob_per_t_from_context_runtime_fn": (
                 observation_log_prob_per_t_from_context_runtime_fn
+            ),
+            "observation_log_prob_per_t_conditioned_from_context_runtime_fn": (
+                observation_log_prob_per_t_conditioned_from_context_runtime_fn
             ),
             "observation_increment_log_prob_from_context_runtime_fn": (
                 observation_increment_log_prob_from_context_runtime_fn
             ),
+            "observation_increment_log_prob_conditioned_from_context_runtime_fn": (
+                observation_increment_log_prob_conditioned_from_context_runtime_fn
+            ),
             "observation_grad_runtime_fn": observation_grad_runtime_fn,
             "observation_grad_from_context_runtime_fn": observation_grad_from_context_runtime_fn,
+            "observation_grad_conditioned_from_context_runtime_fn": (
+                observation_grad_conditioned_from_context_runtime_fn
+            ),
             "trajectory_log_prob_runtime_fn": trajectory_log_prob_runtime_fn,
             "trajectory_log_prob_from_context_runtime_fn": (
                 trajectory_log_prob_from_context_runtime_fn
+            ),
+            "trajectory_log_prob_conditioned_from_context_runtime_fn": (
+                trajectory_log_prob_conditioned_from_context_runtime_fn
             ),
             "prior_terms_from_context_fn": prior_terms_from_context_fn,
             "complete_log_posterior_from_context_runtime_fn": (
                 complete_log_posterior_from_context_runtime_fn
             ),
+            "complete_log_posterior_conditioned_from_context_runtime_fn": (
+                complete_log_posterior_conditioned_from_context_runtime_fn
+            ),
             "complete_log_posterior_runtime_fn": complete_log_posterior_runtime_fn,
+            "complete_log_posterior_conditioned_runtime_fn": (
+                complete_log_posterior_conditioned_runtime_fn
+            ),
             "complete_log_posterior_with_aux_runtime_fn": (
                 complete_log_posterior_with_aux_runtime_fn
             ),
@@ -796,6 +1279,82 @@ def build_auxiliary_kalman_bundle(
             context,
             latent_trajectory,
             runtime_observations,
+        )
+
+    def initial_observation_auxiliary_from_context_fn(
+        context: LatentContext,
+        latent_trajectory: jnp.ndarray,
+    ):
+        return runtime_bundle["initial_observation_auxiliary_from_context_runtime_fn"](
+            context,
+            latent_trajectory,
+            runtime_observations,
+        )
+
+    def refresh_observation_auxiliary_from_context_fn(
+        context: LatentContext,
+        latent_trajectory: jnp.ndarray,
+        observation_auxiliary,
+        key: jnp.ndarray,
+    ):
+        return runtime_bundle["refresh_observation_auxiliary_from_context_runtime_fn"](
+            context,
+            latent_trajectory,
+            observation_auxiliary,
+            runtime_observations,
+            key,
+        )
+
+    def observation_log_prob_conditioned_from_context_fn(
+        context: LatentContext,
+        latent_trajectory: jnp.ndarray,
+        observation_auxiliary,
+    ) -> jnp.ndarray:
+        return runtime_bundle["observation_log_prob_conditioned_from_context_runtime_fn"](
+            context,
+            latent_trajectory,
+            observation_auxiliary,
+            runtime_observations,
+        )
+
+    def observation_increment_log_prob_conditioned_from_context_fn(
+        context: LatentContext,
+        latent_state: jnp.ndarray,
+        observation_auxiliary,
+        time_idx: jnp.ndarray,
+    ) -> jnp.ndarray:
+        return runtime_bundle["observation_increment_log_prob_conditioned_from_context_runtime_fn"](
+            context,
+            latent_state,
+            observation_auxiliary,
+            time_idx,
+            runtime_observations,
+        )
+
+    def observation_log_prob_per_t_conditioned_from_context_fn(
+        context: LatentContext,
+        latent_trajectory: jnp.ndarray,
+        observation_auxiliary,
+    ) -> jnp.ndarray:
+        return runtime_bundle["observation_log_prob_per_t_conditioned_from_context_runtime_fn"](
+            context,
+            latent_trajectory,
+            observation_auxiliary,
+            runtime_observations,
+        )
+
+    def trajectory_log_prob_conditioned_from_context_fn(
+        context: LatentContext,
+        latent_trajectory: jnp.ndarray,
+        observation_auxiliary,
+        prior_terms: GaussianTrajectoryPriorTerms | None = None,
+    ) -> jnp.ndarray:
+        return runtime_bundle["trajectory_log_prob_conditioned_from_context_runtime_fn"](
+            context,
+            latent_trajectory,
+            observation_auxiliary,
+            runtime_observations,
+            prior_terms=prior_terms,
         )
 
     def observation_log_prob_fn(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
@@ -876,6 +1435,12 @@ def build_auxiliary_kalman_bundle(
         "observations": runtime_observations,
         "times": runtime_times,
         "latent_context_fn": latent_context_fn,
+        "initial_observation_auxiliary_from_context_fn": (
+            initial_observation_auxiliary_from_context_fn
+        ),
+        "refresh_observation_auxiliary_from_context_fn": (
+            refresh_observation_auxiliary_from_context_fn
+        ),
         "observation_log_prob_fn": observation_log_prob_fn,
         "observation_log_prob_from_context_fn": observation_log_prob_from_context_fn,
         "observation_log_prob_and_grad_from_context_fn": (
@@ -887,8 +1452,27 @@ def build_auxiliary_kalman_bundle(
                 runtime_observations,
             )
         ),
+        "observation_log_prob_conditioned_from_context_fn": (
+            observation_log_prob_conditioned_from_context_fn
+        ),
+        "observation_log_prob_and_grad_conditioned_from_context_fn": (
+            lambda context, latent_trajectory, observation_auxiliary: runtime_bundle[
+                "observation_log_prob_and_grad_conditioned_from_context_runtime_fn"
+            ](
+                context,
+                latent_trajectory,
+                observation_auxiliary,
+                runtime_observations,
+            )
+        ),
         "observation_log_prob_per_t_from_context_fn": observation_log_prob_per_t_from_context_fn,
+        "observation_log_prob_per_t_conditioned_from_context_fn": (
+            observation_log_prob_per_t_conditioned_from_context_fn
+        ),
         "observation_increment_log_prob_from_context_fn": observation_increment_log_prob_from_context_fn,
+        "observation_increment_log_prob_conditioned_from_context_fn": (
+            observation_increment_log_prob_conditioned_from_context_fn
+        ),
         "observation_grad_fn": observation_grad_fn,
         "observation_grad_from_context_fn": (
             lambda context, latent_trajectory: runtime_bundle[
@@ -899,8 +1483,21 @@ def build_auxiliary_kalman_bundle(
                 runtime_observations,
             )
         ),
+        "observation_grad_conditioned_from_context_fn": (
+            lambda context, latent_trajectory, observation_auxiliary: runtime_bundle[
+                "observation_grad_conditioned_from_context_runtime_fn"
+            ](
+                context,
+                latent_trajectory,
+                observation_auxiliary,
+                runtime_observations,
+            )
+        ),
         "trajectory_log_prob_fn": trajectory_log_prob_fn,
         "trajectory_log_prob_from_context_fn": trajectory_log_prob_from_context_fn,
+        "trajectory_log_prob_conditioned_from_context_fn": (
+            trajectory_log_prob_conditioned_from_context_fn
+        ),
         "complete_log_posterior_from_context_fn": complete_log_posterior_from_context_fn,
         "complete_log_posterior_fn": complete_log_posterior_fn,
         "complete_log_posterior_with_aux_fn": complete_log_posterior_with_aux_fn,
@@ -912,6 +1509,7 @@ def build_auxiliary_kalman_bundle(
 def _complete_log_posterior_grad_runtime(
     z: jnp.ndarray,
     latent_trajectory: jnp.ndarray,
+    observation_auxiliary,
     runtime_observations: jnp.ndarray,
     runtime_times: jnp.ndarray,
     *,
@@ -920,6 +1518,7 @@ def _complete_log_posterior_grad_runtime(
     return jax.grad(runtime_complete_log_posterior_fn, argnums=0)(
         z,
         latent_trajectory,
+        observation_auxiliary,
         runtime_observations,
         runtime_times,
     )
@@ -929,6 +1528,7 @@ def _complete_log_posterior_grad_runtime(
 def _complete_log_posterior_value_and_grad_runtime(
     z: jnp.ndarray,
     latent_trajectory: jnp.ndarray,
+    observation_auxiliary,
     runtime_observations: jnp.ndarray,
     runtime_times: jnp.ndarray,
     *,
@@ -937,6 +1537,7 @@ def _complete_log_posterior_value_and_grad_runtime(
     return jax.value_and_grad(runtime_complete_log_posterior_fn, argnums=0)(
         z,
         latent_trajectory,
+        observation_auxiliary,
         runtime_observations,
         runtime_times,
     )
@@ -967,7 +1568,12 @@ def _prepare_latent_step_runtime(
     traj_curr = jnp.asarray(state.trajectory_log_prob, dtype=traj_dtype)
     log_prior_z = jnp.asarray(log_prior_unc_fn(state.position), dtype=complete_dtype)
     grad_curr = jnp.asarray(
-        observation_grad_from_context_runtime_fn(context, x_curr, runtime_observations),
+        observation_grad_from_context_runtime_fn(
+            context,
+            x_curr,
+            state.observation_auxiliary,
+            runtime_observations,
+        ),
         dtype=latent_dtype,
     )
     return (
@@ -1075,6 +1681,7 @@ def _latent_mh_step_eq8_runtime(
     obs_prop, grad_prop = observation_log_prob_and_grad_from_context_runtime_fn(
         context,
         x_prop,
+        state.observation_auxiliary,
         runtime_observations,
     )
     grad_prop = jnp.asarray(grad_prop, dtype=latent_dtype)
@@ -1118,11 +1725,13 @@ def _latent_mh_step_eq8_runtime(
         obs_per_t_prop = observation_log_prob_per_t_from_context_runtime_fn(
             context,
             x_prop,
+            state.observation_auxiliary,
             runtime_observations,
         )
         obs_per_t_curr = observation_log_prob_per_t_from_context_runtime_fn(
             context,
             x_curr,
+            state.observation_auxiliary,
             runtime_observations,
         )
         traj_per_t = (prior_per_t_prop + obs_per_t_prop) - (prior_per_t_curr + obs_per_t_curr)
@@ -1238,6 +1847,7 @@ def _latent_mh_step_eq10_11_runtime(
     obs_prop, grad_prop = observation_log_prob_and_grad_from_context_runtime_fn(
         context,
         x_prop,
+        state.observation_auxiliary,
         runtime_observations,
     )
     prior_prop = trajectory_prior_log_prob_from_terms(
@@ -1303,10 +1913,16 @@ def _latent_mh_step_eq10_11_runtime(
                 "observation_log_prob_per_t_from_context_runtime_fn."
             )
         obs_per_t_prop = observation_log_prob_per_t_from_context_runtime_fn(
-            context, x_prop, runtime_observations
+            context,
+            x_prop,
+            state.observation_auxiliary,
+            runtime_observations,
         )
         obs_per_t_curr = observation_log_prob_per_t_from_context_runtime_fn(
-            context, x_curr, runtime_observations
+            context,
+            x_curr,
+            state.observation_auxiliary,
+            runtime_observations,
         )
         iso_per_t_xprop = gaussian_log_prob_isotropic_per_t(u, x_prop, half_delta_variance)
         iso_per_t_xcurr = gaussian_log_prob_isotropic_per_t(u, x_curr, half_delta_variance)
@@ -1364,6 +1980,7 @@ def _parameter_mala_step_runtime(
     grad_curr = _complete_log_posterior_grad_runtime(
         state.position,
         state.latent_trajectory,
+        state.observation_auxiliary,
         runtime_observations,
         runtime_times,
         runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
@@ -1388,6 +2005,7 @@ def _parameter_mala_step_runtime(
     complete_prop, grad_prop = _complete_log_posterior_value_and_grad_runtime(
         proposal,
         state.latent_trajectory,
+        state.observation_auxiliary,
         runtime_observations,
         runtime_times,
         runtime_complete_log_posterior_fn=runtime_complete_log_posterior_fn,
@@ -1464,6 +2082,7 @@ def _parameter_nuts_step_runtime(
         return runtime_complete_log_posterior_fn(
             position,
             state.latent_trajectory,
+            state.observation_auxiliary,
             runtime_observations,
             runtime_times,
         )
@@ -1886,12 +2505,7 @@ def build_mala_parameter_kernel(
         precond_chol = None
         preconditioner_mat = None
 
-    runtime_complete_log_posterior_fn = bundle.get(
-        "complete_log_posterior_runtime_fn",
-        lambda z, latent_trajectory, _runtime_observations, _runtime_times: bundle[
-            "complete_log_posterior_fn"
-        ](z, latent_trajectory),
-    )
+    runtime_complete_log_posterior_fn = bundle["complete_log_posterior_conditioned_runtime_fn"]
     runtime_latent_context_fn = bundle.get(
         "latent_context_runtime_fn",
         lambda z, _runtime_times: bundle["latent_context_fn"](z),
@@ -1959,12 +2573,7 @@ def build_nuts_parameter_kernel(
         precond_chol = None
         inverse_mass_matrix = jnp.ones((int(bundle["dim"]),), dtype=bundle["flat_example"].dtype)
 
-    runtime_complete_log_posterior_fn = bundle.get(
-        "complete_log_posterior_runtime_fn",
-        lambda z, latent_trajectory, _runtime_observations, _runtime_times: bundle[
-            "complete_log_posterior_fn"
-        ](z, latent_trajectory),
-    )
+    runtime_complete_log_posterior_fn = bundle["complete_log_posterior_conditioned_runtime_fn"]
     runtime_latent_context_fn = bundle.get(
         "latent_context_runtime_fn",
         lambda z, _runtime_times: bundle["latent_context_fn"](z),

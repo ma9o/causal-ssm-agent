@@ -1,23 +1,23 @@
-"""Tests for ``check_jacobian_stability`` on composite vector fields."""
+"""Tests for ``check_jacobian_stability`` on vector-field dynamics."""
 
 from __future__ import annotations
 
 import jax.numpy as jnp
 
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeVectorField,
     DiagonalDecay,
     HillEdge,
     Intercept,
     LinearEdge,
     MultiplicativeEdge,
+    VectorField,
     check_jacobian_stability,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 
-def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
-    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+def _dense_matrix_vector_field(n_latent: int) -> VectorField:
+    return VectorField(n_latent=n_latent, components=(DenseLinear(),))
 
 
 class TestStabilityLinear:
@@ -25,7 +25,7 @@ class TestStabilityLinear:
         """Dense linear with all-negative-diagonal A: stable everywhere."""
         A = jnp.array([[-1.0, 0.2], [0.3, -0.7]])
         c = jnp.array([0.0, 0.0])
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         report = check_jacobian_stability(
             vf,
             ({"drift": A, "cint": c},),
@@ -39,7 +39,7 @@ class TestStabilityLinear:
         """Diagonal A with positive entry: unstable."""
         A = jnp.array([[+0.3, 0.0], [0.0, -1.0]])
         c = jnp.array([0.0, 0.0])
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         report = check_jacobian_stability(
             vf,
             ({"drift": A, "cint": c},),
@@ -52,7 +52,7 @@ class TestStabilityLinear:
         """Threshold lets the caller require a margin."""
         A = jnp.array([[-0.01]])  # barely stable
         c = jnp.array([0.0])
-        vf = _dense_linear_vector_field(n_latent=1)
+        vf = _dense_matrix_vector_field(n_latent=1)
         # Default threshold (0.0): stable
         report = check_jacobian_stability(
             vf,
@@ -73,7 +73,7 @@ class TestStabilityLinear:
 class TestStabilityNonLinear:
     def test_hill_chain_stable_at_baseline(self):
         """Hill chain with positive decays: stable Jacobian at baseline."""
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=2,
             components=(
                 DiagonalDecay(),
@@ -97,7 +97,7 @@ class TestStabilityNonLinear:
         assert report.max_real_part < 0.0
 
     def test_multiplicative_chain_stable_at_typical_state(self):
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=3,
             components=(
                 DiagonalDecay(),
@@ -118,7 +118,7 @@ class TestStabilityNonLinear:
         Hill in this case), the Jacobian has a positive eigenvalue."""
         # A latent with zero decay + a strong Hill self-feedback (target=source=0)
         # makes its Jacobian row positive at the Hill curve's steep region.
-        vf = CompositeVectorField(
+        vf = VectorField(
             n_latent=1,
             components=(HillEdge(source=0, target=0),),
         )
@@ -139,7 +139,7 @@ class TestStabilityReportFields:
     def test_eigenvalues_match_jacobian_directly(self):
         A = jnp.array([[-1.5, 0.3], [0.2, -0.8]])
         c = jnp.array([0.0, 0.0])
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         report = check_jacobian_stability(vf, ({"drift": A, "cint": c},), x_lin=jnp.zeros(2))
         # For a DenseLinear field, the Jacobian is exactly A.
         expected_eigs = jnp.linalg.eigvals(A)
@@ -150,7 +150,7 @@ class TestStabilityReportFields:
         )
 
     def test_linearization_point_preserved(self):
-        vf = _dense_linear_vector_field(n_latent=2)
+        vf = _dense_matrix_vector_field(n_latent=2)
         x_lin = jnp.array([0.7, -1.3])
         report = check_jacobian_stability(
             vf, ({"drift": -jnp.eye(2), "cint": jnp.zeros(2)},), x_lin=x_lin

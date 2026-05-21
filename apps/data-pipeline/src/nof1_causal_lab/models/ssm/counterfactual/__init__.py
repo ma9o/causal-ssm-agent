@@ -33,20 +33,18 @@ from .estimands import (
 )
 from .orchestration import (
     compute_interventions,
-    compute_interventions_composite,
-    vmap_simulate_action_from_state_composite,
-    vmap_steady_state_effect_composite,
+    vmap_simulate_action_from_state_dynamics,
+    vmap_steady_state_effect_dynamics,
 )
 
 __all__ = [
     "approximate_abducted_state",
     "build_time_grid",
     "compute_interventions",
-    "compute_interventions_composite",
     "project_to_manifest",
     "resolve_action_value",
     "summarize_draws",
     "summarize_temporal_effect",
-    "vmap_simulate_action_from_state_composite",
-    "vmap_steady_state_effect_composite",
+    "vmap_simulate_action_from_state_dynamics",
+    "vmap_steady_state_effect_dynamics",
 ]

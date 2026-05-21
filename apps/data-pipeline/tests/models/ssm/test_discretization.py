@@ -129,14 +129,14 @@ class TestDiscreteDiffusion:
         Q_large = compute_discrete_diffusion(A, Q, dt=1.0)
         assert Q_large[0, 0] > Q_small[0, 0]
 
-    def test_reuses_precomputed_drift(self):
-        """Passing discrete_drift should preserve results."""
+    def test_reuses_precomputed_dynamics(self):
+        """Passing discrete_dynamics should preserve results."""
         A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
         Q = jnp.eye(2)
         dt = 0.5
         Ad = jla.expm(A * dt)
         Q_dt_1 = compute_discrete_diffusion(A, Q, dt)
-        Q_dt_2 = compute_discrete_diffusion(A, Q, dt, discrete_drift=Ad)
+        Q_dt_2 = compute_discrete_diffusion(A, Q, dt, discrete_dynamics=Ad)
         assert jnp.allclose(Q_dt_1, Q_dt_2, atol=1e-10)
 
     def test_matches_lyapunov_reference(self):
@@ -166,7 +166,7 @@ class TestDiscreteDiffusion:
 
 
 class TestDiscreteCint:
-    def test_zero_drift_limit(self):
+    def test_zero_dynamics_limit(self):
         """For nearly-zero dt, c_dt ≈ c * dt."""
         A = jnp.array([[-1.0, 0.0], [0.0, -2.0]])
         c = jnp.array([1.0, 2.0])
@@ -181,8 +181,8 @@ class TestDiscreteCint:
         c_dt = compute_discrete_cint(A, c, dt=0.5)
         assert c_dt.shape == c.shape
 
-    def test_exact_handles_singular_drift(self):
-        """The exact block-exponential path should work for singular drift."""
+    def test_exact_handles_singular_dynamics(self):
+        """The exact block-exponential path should work for singular dynamics."""
         A = jnp.array([[0.0, 0.0], [1.0, 0.0]])
         c = jnp.array([2.0, 0.0])
         dt = 0.5
@@ -219,8 +219,8 @@ class TestDiscretizeSystem:
         assert Ad.shape == (n, n)
         assert Qd.shape == (n, n)
 
-    def test_drift_is_matrix_exponential(self):
-        """Discrete drift should be exp(A*dt)."""
+    def test_dynamics_is_matrix_exponential(self):
+        """Discrete dynamics should be exp(A*dt)."""
         A = jnp.array([[-1.0, 0.5], [0.0, -2.0]])
         Q = jnp.eye(2)
         dt = 0.5

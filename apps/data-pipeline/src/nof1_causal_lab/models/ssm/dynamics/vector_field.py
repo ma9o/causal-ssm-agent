@@ -1,11 +1,10 @@
-"""Vector field — single concrete implementation built from components.
+"""Vector field runtime built from dynamics components.
 
-``CompositeVectorField`` is the only vector field. It owns a tuple of
-``VectorFieldComponent``s (see ``edges.py``); each component contributes to
-the derivative vector. The dense linear case (the existing Stage 5b posterior
-shape) is one component (``DenseLinear``); the non-linear pharmacology
-case is many components (``DiagonalDecay`` + ``Intercept`` + per-edge
-Linear / Hill / Multiplicative).
+``VectorField`` owns a tuple of ``VectorFieldComponent``s (see ``edges.py``);
+each component contributes to the derivative vector. The dense linear case
+(the existing Stage 5b posterior shape) is one component (``DenseLinear``);
+the non-linear pharmacology case is many components (``DiagonalDecay`` +
+``Intercept`` + per-edge Linear / Hill / Multiplicative).
 
 The vector field is responsible for:
 
@@ -24,7 +23,7 @@ each component reads its own slice and never sees others'.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -48,31 +47,6 @@ class VectorFieldArgs(eqx.Module):
 
     params: tuple[dict[str, Array], ...]
     intervention: Intervention
-
-
-@runtime_checkable
-class VectorField(Protocol):
-    """Vector-field callable plus simulator / root-finder companions.
-
-    Kept as a Protocol so future alternative implementations (e.g., a
-    JAX-jit-cached variant or a structured sparse path) can slot in
-    without changing call sites.
-    """
-
-    n_latent: int
-
-    def __call__(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array: ...
-
-    def initial_condition(self, eta0: Array, args: VectorFieldArgs) -> Array: ...
-
-    def steady_state_residual(self, eta: Array, args: VectorFieldArgs) -> Array: ...
-
-    def linearize(
-        self,
-        x_lin: Array,
-        args: VectorFieldArgs,
-        t: Array | None = None,
-    ) -> tuple[Array, Array]: ...
 
 
 def apply_variable_overrides_to_state(
@@ -114,7 +88,7 @@ def _apply_variable_overrides_to_derivative(
     return d_eta
 
 
-class CompositeVectorField(eqx.Module):
+class VectorField(eqx.Module):
     """Vector field as a sum of ``VectorFieldComponent`` contributions.
 
     Equivalent dense-matrix dynamics: a single ``DenseLinear`` component
@@ -122,7 +96,7 @@ class CompositeVectorField(eqx.Module):
     classic ``f(t, η) = A·η + c`` form exactly (and uses one matmul, not
     n² scatter-adds).
 
-    Composite primitive dynamics: typically one ``DiagonalDecay`` + one
+    Component primitive dynamics: typically one ``DiagonalDecay`` + one
     ``Intercept`` + per-edge ``LinearEdge`` / ``HillEdge`` /
     ``MultiplicativeEdge``. Each component reads its slice of
     ``args.params`` by position.

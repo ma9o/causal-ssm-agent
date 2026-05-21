@@ -178,17 +178,19 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         symbol="rho",
         count="One per endogenous time-varying construct",
         constraint="unit_interval",
-        ssm_location="Drift diagonal",
+        ssm_location="State-decay dynamics site",
         note="Stage 4 elicits baseline discrete-time persistence absent feedback; "
-        "[compilation](../compilation.md) converts to continuous-time base decay",
+        "[compilation](../compilation.md) binds it to the owning decay component "
+        "and converts to continuous-time decay scale",
     ),
     ParameterRoleSpec(
         role="fixed_effect",
         symbol="beta",
         count="One per causal edge",
         constraint="none",
-        ssm_location="Drift off-diagonal",
-        note="Causal effects can be positive or negative; unconstrained",
+        ssm_location="Dynamics edge or input-effect site",
+        note="Causal effects can be positive or negative; compiler binds each "
+        "coefficient to the owning edge component or known-input effect site",
     ),
     ParameterRoleSpec(
         role="dynamics_parameter",
@@ -196,8 +198,8 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         count="One per real-valued component-owned dynamics parameter",
         constraint="none",
         ssm_location="Component dynamics site",
-        note="Used for nonlinear dynamics components whose parameters are owned by "
-        "component sample sites rather than dense drift matrix entries.",
+        note="Used for component-owned dynamics parameters that are not authored "
+        "as interval-scale effect coefficients.",
     ),
     ParameterRoleSpec(
         role="dynamics_parameter_positive",
@@ -205,7 +207,7 @@ PARAMETER_ROLE_SPECS: Final[tuple[ParameterRoleSpec, ...]] = (
         count="One per positive component-owned dynamics parameter",
         constraint="positive",
         ssm_location="Component dynamics site",
-        note="Used for positive nonlinear dynamics parameters such as Hill Emax and EC50.",
+        note="Used for positive component-owned dynamics parameters such as Hill Emax and EC50.",
     ),
     ParameterRoleSpec(
         role="residual_sd",

@@ -10,7 +10,7 @@ Supports:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import jax
@@ -20,7 +20,7 @@ import numpyro
 import numpyro.distributions as dist
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.dynamics.composite import CompositeSpec
+    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
     from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.models.ssm.structure import (
@@ -116,11 +116,11 @@ class SSMSpec:
     n_manifest: int
 
     # Canonical block-spec params (required). Each block owns its
-    # structural masks, template, and per-prior settings; the SSMSpec
+    # structural support, template, and per-prior settings; the SSMSpec
     # itself stores no flat-field duplicates. Priors are typically
     # left None at construction time and attached at sample time from
     # the runtime PriorRuntimeBundle.
-    dynamics_spec: CompositeSpec
+    dynamics_spec: DynamicsSpec
     diffusion_block: DiffusionBlockSpec
     lambda_block: SparseMatrixBlockSpec
     manifest_means_block: SparseVectorBlockSpec
@@ -194,8 +194,8 @@ class SSMSpec:
                 f"!= SSMSpec.n_latent ({self.n_latent})"
             )
         _require_matrix(
-            "diffusion_chol_mask",
-            self.diffusion_block.diffusion_chol_mask,
+            "diffusion_chol_support",
+            self.diffusion_block.diffusion_chol_support,
             self.n_latent,
             self.n_latent,
         )
@@ -211,14 +211,23 @@ class SSMSpec:
                 f"{self.lambda_block.n_cols}) != "
                 f"({self.n_manifest}, {self.n_latent})"
             )
-        _require_matrix("lambda_mask", self.lambda_block.mask, self.n_manifest, self.n_latent)
+        _require_matrix(
+            "lambda_support",
+            self.lambda_block.free_support,
+            self.n_manifest,
+            self.n_latent,
+        )
         _require_matrix("lambda_mat", self.lambda_block.template, self.n_manifest, self.n_latent)
         if self.manifest_means_block.n != self.n_manifest:
             raise ValueError(
                 f"manifest_means_block.n ({self.manifest_means_block.n}) "
                 f"!= n_manifest ({self.n_manifest})"
             )
-        _require_vector("manifest_means_mask", self.manifest_means_block.mask, self.n_manifest)
+        _require_vector(
+            "manifest_means_support",
+            self.manifest_means_block.free_support,
+            self.n_manifest,
+        )
         _require_vector("manifest_means", self.manifest_means_block.template, self.n_manifest)
         if self.manifest_chol_block.n_manifest != self.n_manifest:
             raise ValueError(
@@ -227,8 +236,8 @@ class SSMSpec:
                 f"!= n_manifest ({self.n_manifest})"
             )
         _require_vector(
-            "manifest_chol_diag_mask",
-            self.manifest_chol_block.diag_mask,
+            "manifest_chol_diag_support",
+            self.manifest_chol_block.diag_support,
             self.n_manifest,
         )
         _require_matrix(
@@ -241,17 +250,17 @@ class SSMSpec:
             raise ValueError(
                 f"t0_means_block.n ({self.t0_means_block.n}) != n_latent ({self.n_latent})"
             )
-        _require_vector("t0_means_mask", self.t0_means_block.mask, self.n_latent)
+        _require_vector("t0_means_support", self.t0_means_block.free_support, self.n_latent)
         _require_vector("t0_means", self.t0_means_block.template, self.n_latent)
         if self.t0_chol_block.n_latent != self.n_latent:
             raise ValueError(
                 f"t0_chol_block.n_latent ({self.t0_chol_block.n_latent}) "
                 f"!= n_latent ({self.n_latent})"
             )
-        _require_vector("t0_chol_diag_mask", self.t0_chol_block.diag_mask, self.n_latent)
+        _require_vector("t0_chol_diag_support", self.t0_chol_block.diag_support, self.n_latent)
         _require_matrix(
-            "t0_correlation_mask",
-            self.t0_chol_block.correlation_mask,
+            "t0_correlation_support",
+            self.t0_chol_block.correlation_support,
             self.n_latent,
             self.n_latent,
         )
@@ -267,8 +276,8 @@ class SSMSpec:
                 f"!= n_latent ({self.n_latent}) or 0"
             )
         _require_matrix(
-            "input_effect_mask",
-            self.input_effect_block.mask,
+            "input_effect_support",
+            self.input_effect_block.free_support,
             self.input_effect_block.n_rows,
             self.input_effect_block.n_cols,
         )
@@ -283,7 +292,11 @@ class SSMSpec:
                 f"static_state_sd_block.n ({self.static_state_sd_block.n}) "
                 f"!= n_static_factor ({n_static_factor})"
             )
-        _require_vector("static_state_sd_mask", self.static_state_sd_block.mask, n_static_factor)
+        _require_vector(
+            "static_state_sd_support",
+            self.static_state_sd_block.free_support,
+            n_static_factor,
+        )
         _require_vector("static_state_sds", self.static_state_sd_block.template, n_static_factor)
 
         # Resolve n_input from input_effect_block, then canonicalize names.
@@ -379,7 +392,7 @@ class SSMSpec:
         """Flat iteration over every sample-site descriptor on this spec.
 
         Drift components receive their canonical vector-field component prefix
-        so their sample sites match ``compile_composite(prefix="vf")``.
+        so their sample sites match ``compile_dynamics(prefix="vf")``.
         Blocks with no free parameters yield nothing.
         """
         for idx, component in enumerate(self.dynamics_spec.components):
@@ -473,7 +486,7 @@ class SSMModel:
 
     @property
     def vector_field(self):
-        """Unified dynamics representation as a :class:`CompositeVectorField`.
+        """Unified dynamics representation as a :class:`VectorField`.
 
         Every spec carries a populated ``dynamics_spec``. The compiled vector
         field is what downstream consumers
@@ -483,9 +496,9 @@ class SSMModel:
         """
 
         def _build():
-            from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
+            from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
 
-            return compile_composite(self.spec.dynamics_spec).vector_field
+            return compile_dynamics(self.spec.dynamics_spec).vector_field
 
         return self.get_cached_artifact(("vector_field",), _build)
 
@@ -513,9 +526,8 @@ class SSMModel:
         return build_site_prior_distribution(site, runtime.prior_state[site_name])
 
     # Per-block sampling now lives in the unified ``_run_block_sampling``
-    # loop below — each block's ``with_runtime_priors`` + ``sample_params``
-    # pair handles dynamics, diffusion, cint, input_effect, lambda, manifest,
-    # and t0 in one declarative pass.
+    # loop below. Every sample site resolves its prior from the canonical
+    # site-prior runtime bundle.
 
     def make_likelihood_backend(self):
         """Construct or reuse the default Laplace likelihood backend."""
@@ -614,7 +626,7 @@ class SSMModel:
         static_state_sds) and raw free-site names (t0_var_diag_free,
         t0_var_lower_free) to their sampled values.
 
-        Dynamics parameters are always sampled through ``compile_composite`` so
+        Dynamics parameters are always sampled through ``compile_dynamics`` so
         all dynamics components share one vector-field runtime path.
         """
         sampled: dict[str, jnp.ndarray] = {}
@@ -628,20 +640,8 @@ class SSMModel:
             self.spec.input_effect_block,
             self.spec.static_state_sd_block,
         ):
-            with_priors = getattr(block, "with_runtime_priors", None)
-            sample_params = getattr(block, "sample_params", None)
-            if with_priors is None or sample_params is None:
-                continue
-            sampled.update(with_priors(self._prior_distribution).sample_params())
+            sampled.update(block.sample_params(self._prior_distribution))
         return sampled
-
-    def _dynamics_spec_with_runtime_priors(self):
-        """Bind runtime prior distributions to component-owned sample sites."""
-        components = tuple(
-            component.with_runtime_priors(self._prior_distribution, prefix=f"vf_{idx}")
-            for idx, component in enumerate(self.spec.dynamics_spec.components)
-        )
-        return replace(self.spec.dynamics_spec, components=components)
 
     def _sample_runtime_dynamics(
         self,
@@ -649,13 +649,12 @@ class SSMModel:
         input_effect: jnp.ndarray,
     ) -> RuntimeDynamics:
         """Sample vector-field parameters inside the NumPyro trace."""
-        from nof1_causal_lab.models.ssm.dynamics.composite import compile_composite
+        from nof1_causal_lab.models.ssm.dynamics.runtime import sample_vector_field_runtime
 
-        compiled = compile_composite(self._dynamics_spec_with_runtime_priors())
-        vf_params = compiled.sample_params()
+        runtime = sample_vector_field_runtime(self.spec, self._prior_distribution)
         return RuntimeDynamics(
-            vector_field=compiled.vector_field,
-            vf_params=vf_params,
+            vector_field=runtime.vector_field,
+            vf_params=runtime.vf_params,
             diffusion_cov=diffusion_cov,
             input_effect=input_effect,
         )

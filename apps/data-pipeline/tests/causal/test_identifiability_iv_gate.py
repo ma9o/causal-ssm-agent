@@ -1,9 +1,7 @@
 """Tests for the ``iv_allowed`` gate on ``check_identifiability``.
 
-Linear-SEM regime keeps the IV fallback; composite non-linear regime
-should pass ``iv_allowed=False`` to skip it (IV identification requires
-parametric assumptions that don't generally hold for Hill / multiplicative
-dynamics).
+The flag controls whether graph-theoretic IV candidates can be reported under
+an explicit parametric linearity assumption.
 """
 
 from __future__ import annotations
@@ -45,9 +43,9 @@ def _measurement_model_observing_xyz():
 
 
 class TestIVAllowedDefault:
-    def test_linear_path_finds_iv(self):
-        """Default ``iv_allowed=True`` (linear path) should mark X as
-        identifiable via Z when U blocks backdoor identification."""
+    def test_default_gate_finds_iv(self):
+        """Default ``iv_allowed=True`` may mark X as identifiable via Z
+        when U blocks backdoor identification."""
         latent_model = _iv_structure_latent_model()
         measurement_model = _measurement_model_observing_xyz()
 
@@ -57,7 +55,7 @@ class TestIVAllowedDefault:
         assert "X" in result["identifiable_treatments"]
         info = result["identifiable_treatments"]["X"]
         # Either do-calculus (front-door / backdoor via Z) OR instrumental_variable
-        # is acceptable — what matters is X is identifiable in the linear regime.
+        # is acceptable — what matters is that IV was considered when available.
         # We at least want to record that IV was *available* when it's used.
         if info["method"] == "instrumental_variable":
             assert "Z" in info["instruments"]
@@ -65,38 +63,31 @@ class TestIVAllowedDefault:
 
 
 class TestIVAllowedFalse:
-    def test_composite_path_skips_iv(self):
+    def test_disabled_iv_gate_skips_iv(self):
         """With ``iv_allowed=False`` and only-IV-identification structure,
-        the treatment must end up non-identifiable. This is the
-        composite-spec safety: IV identification requires linearity,
-        so we don't claim identifiability we can't validate."""
+        the treatment must end up non-identifiable."""
         latent_model = _iv_structure_latent_model()
         measurement_model = _measurement_model_observing_xyz()
 
-        result_with_iv = check_identifiability(
-            latent_model, measurement_model, iv_allowed=True
-        )
-        result_no_iv = check_identifiability(
-            latent_model, measurement_model, iv_allowed=False
-        )
+        result_with_iv = check_identifiability(latent_model, measurement_model, iv_allowed=True)
+        result_no_iv = check_identifiability(latent_model, measurement_model, iv_allowed=False)
 
         assert result_no_iv["graph_info"]["iv_allowed"] is False
 
-        # If the linear path used IV to identify X, the composite path must
-        # have dropped X to the non-identifiable set.
-        linear_x = result_with_iv["identifiable_treatments"].get("X")
-        composite_x = result_no_iv["identifiable_treatments"].get("X")
+        # If IV identified X, disabling IV must drop X to the non-identifiable set.
+        iv_enabled_x = result_with_iv["identifiable_treatments"].get("X")
+        iv_disabled_x = result_no_iv["identifiable_treatments"].get("X")
 
-        if linear_x is not None and linear_x.get("method") == "instrumental_variable":
+        if iv_enabled_x is not None and iv_enabled_x.get("method") == "instrumental_variable":
             # Was IV-only identified → must be dropped without IV.
-            assert composite_x is None
+            assert iv_disabled_x is None
             assert "X" in result_no_iv["non_identifiable_treatments"]
         else:
             # If do-calculus alone identifies X (e.g., front-door), both paths agree.
-            assert composite_x is not None
-            assert composite_x.get("method") == "do_calculus"
+            assert iv_disabled_x is not None
+            assert iv_disabled_x.get("method") == "do_calculus"
 
-    def test_composite_path_preserves_do_calculus_identifications(self):
+    def test_disabled_iv_gate_preserves_do_calculus_identifications(self):
         """Treatments identified via do-calculus (backdoor/front-door) should
         be unchanged when IV is disabled — IV is a fallback, not a primary."""
         # Simpler DAG: X → Y, no confounders. Backdoor trivially identifiable.
@@ -114,12 +105,8 @@ class TestIVAllowedFalse:
             ],
         }
 
-        result_with_iv = check_identifiability(
-            latent_model, measurement_model, iv_allowed=True
-        )
-        result_no_iv = check_identifiability(
-            latent_model, measurement_model, iv_allowed=False
-        )
+        result_with_iv = check_identifiability(latent_model, measurement_model, iv_allowed=True)
+        result_no_iv = check_identifiability(latent_model, measurement_model, iv_allowed=False)
 
         assert "X" in result_with_iv["identifiable_treatments"]
         assert "X" in result_no_iv["identifiable_treatments"]

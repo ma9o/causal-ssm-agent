@@ -31,14 +31,14 @@ from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     assert_recovery_ci,
     block_ssm_spec,
-    full_diagonal_mask,
+    dense_matrix_dynamics_spec,
+    full_diagonal_support,
     make_lgss_data,
     prior_registry,
-    structural_dense_drift_spec,
-    zero_diagonal_mask,
-    zero_loading_mask,
-    zero_square_mask,
-    zero_vector_mask,
+    zero_diagonal_support,
+    zero_loading_support,
+    zero_square_support,
+    zero_vector_support,
 )
 
 pytestmark = pytest.mark.slow
@@ -46,9 +46,9 @@ pytestmark = pytest.mark.slow
 
 def _assert_lgss_recovery(samples: dict[str, jnp.ndarray], data: dict) -> None:
     assert_recovery_ci(
-        samples["vf_0_base_decay"][:, 0],
-        data["true_drift_diag"],
-        "Drift",
+        samples["vf_0_decay"][:, 0],
+        data["true_decay_diag"],
+        "Dynamics",
         transform=lambda s: -jnp.abs(s),
     )
     assert_recovery_ci(
@@ -69,7 +69,7 @@ def _make_map_recovery_data() -> dict:
     The longer T and tighter noise make mode-finding and the local Gaussian
     approximation reliable enough for parameter-recovery checks.
     """
-    return make_lgss_data(T=250, drift_diag=-0.3, diff_sd=0.2, obs_sd=0.25)
+    return make_lgss_data(T=250, decay_diag=-0.3, diff_sd=0.2, obs_sd=0.25)
 
 
 def _build_mixed_support_runtime(
@@ -172,7 +172,7 @@ def _sample_student_t_noise(
 
 def _simulate_mixed_continuous_observations(
     *,
-    drift_diag: jnp.ndarray,
+    decay_diag: jnp.ndarray,
     diffusion_diag: jnp.ndarray,
     lambda_mat: jnp.ndarray,
     manifest_scales: jnp.ndarray,
@@ -183,12 +183,12 @@ def _simulate_mixed_continuous_observations(
     obs_df: float,
 ) -> jnp.ndarray:
     """Simulate continuous observations with mixed Gaussian and Student-t noise."""
-    n_latent = int(drift_diag.shape[0])
+    n_latent = int(decay_diag.shape[0])
     n_manifest = int(lambda_mat.shape[0])
     dt = float(times[1] - times[0]) if times.shape[0] > 1 else 1.0
 
     Ad, Qd, _ = discretize_system(
-        jnp.diag(drift_diag),
+        jnp.diag(decay_diag),
         jnp.diag(diffusion_diag**2),
         None,
         dt,
@@ -229,7 +229,7 @@ def _make_map_mixed_support_recovery_data() -> dict:
     """Build a recoverable mixed-support mixed-family 10-latent benchmark."""
     n_latent, T = 10, 40
     n_manifest = 2 * n_latent
-    true_drift_diag = -jnp.linspace(0.18, 0.45, n_latent, dtype=jnp.float32)
+    true_decay_diag = -jnp.linspace(0.18, 0.45, n_latent, dtype=jnp.float32)
     true_diff_diag = jnp.linspace(0.10, 0.18, n_latent, dtype=jnp.float32)
     point_obs_scale = jnp.linspace(0.08, 0.14, n_latent, dtype=jnp.float32)
     interval_obs_scale = jnp.linspace(0.08, 0.14, n_latent, dtype=jnp.float32)
@@ -250,7 +250,7 @@ def _make_map_mixed_support_recovery_data() -> dict:
         *(f"y{i}_interval" for i in range(n_latent)),
     ]
     point_observations = _simulate_mixed_continuous_observations(
-        drift_diag=true_drift_diag,
+        decay_diag=true_decay_diag,
         diffusion_diag=true_diff_diag,
         lambda_mat=lambda_mat,
         manifest_scales=true_obs_scale,
@@ -266,23 +266,23 @@ def _make_map_mixed_support_recovery_data() -> dict:
     spec = block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=structural_dense_drift_spec(
+        dynamics_spec=dense_matrix_dynamics_spec(
             n_latent=n_latent,
-            drift_diag_mask=full_diagonal_mask(n_latent),
-            drift_offdiag_mask=zero_square_mask(n_latent),
-            drift_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
-            cint_mask=zero_vector_mask(n_latent),
+            decay_support=full_diagonal_support(n_latent),
+            edge_support=zero_square_support(n_latent),
+            coupling_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
+            intercept_support=zero_vector_support(n_latent),
             cint_template=jnp.zeros(n_latent, dtype=jnp.float32),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
-            diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+            diffusion_chol_support=np.diag(full_diagonal_support(n_latent)),
             diffusion_chol_template=jnp.eye(n_latent, dtype=jnp.float32),
         ),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=n_manifest,
             n_cols=n_latent,
-            mask=zero_loading_mask(n_manifest, n_latent),
+            free_support=zero_loading_support(n_manifest, n_latent),
             template=lambda_mat,
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -294,7 +294,7 @@ def _make_map_mixed_support_recovery_data() -> dict:
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
-            mask=zero_vector_mask(n_manifest),
+            free_support=zero_vector_support(n_manifest),
             template=jnp.zeros(n_manifest, dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -306,12 +306,12 @@ def _make_map_mixed_support_recovery_data() -> dict:
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
-            diag_mask=full_diagonal_mask(n_manifest),
+            diag_support=full_diagonal_support(n_manifest),
             template=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float32),
         ),
         t0_means_block=SparseVectorBlockSpec(
             n=n_latent,
-            mask=zero_vector_mask(n_latent),
+            free_support=zero_vector_support(n_latent),
             template=jnp.zeros(n_latent, dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -323,8 +323,8 @@ def _make_map_mixed_support_recovery_data() -> dict:
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
-            diag_mask=zero_diagonal_mask(n_latent),
-            correlation_mask=zero_square_mask(n_latent),
+            diag_support=zero_diagonal_support(n_latent),
+            correlation_support=zero_square_support(n_latent),
             template=jnp.diag(true_t0_sd),
         ),
         latent_names=[f"x{i}" for i in range(n_latent)],
@@ -342,7 +342,7 @@ def _make_map_mixed_support_recovery_data() -> dict:
         "spec": spec,
         "priors": priors,
         "observation_support": observation_support,
-        "true_drift_diag": true_drift_diag,
+        "true_decay_diag": true_decay_diag,
         "true_diff_diag": true_diff_diag,
         "true_obs_scale": true_obs_scale,
         "true_obs_df": true_obs_df,
@@ -354,7 +354,7 @@ def _summarize_family_recovery(
 ) -> dict[str, dict[str, float]]:
     """Summarize mean error, interval width, and empirical coverage by parameter family."""
     families = [
-        ("drift", -jnp.abs(samples["vf_0_base_decay"]), data["true_drift_diag"]),
+        ("dynamics", -jnp.abs(samples["vf_0_decay"]), data["true_decay_diag"]),
         ("diffusion_sd", samples["diffusion_diag_free"], data["true_diff_diag"]),
         ("obs_scale", samples["manifest_var_diag_free"], data["true_obs_scale"]),
         ("obs_df", samples["obs_df"], data["true_obs_df"]),
@@ -416,11 +416,11 @@ class TestMapLaplaceRecovery:
         samples = result.get_samples()
         _assert_lgss_recovery(samples, data)
 
-        drift_mean = float(jnp.mean(-jnp.abs(samples["vf_0_base_decay"][:, 0])))
+        dynamics_mean = float(jnp.mean(-jnp.abs(samples["vf_0_decay"][:, 0])))
         diff_mean = float(jnp.mean(samples["diffusion_diag_free"][:, 0]))
         obs_mean = float(jnp.mean(samples["manifest_var_diag_free"][:, 0]))
 
-        assert abs(drift_mean - data["true_drift_diag"]) < 0.12
+        assert abs(dynamics_mean - data["true_decay_diag"]) < 0.12
         assert abs(diff_mean - data["true_diff_diag"]) < 0.08
         assert abs(obs_mean - data["true_obs_sd"]) < 0.05
 
@@ -454,17 +454,17 @@ class TestMapLaplaceRecovery:
 
         summary = _summarize_family_recovery(result.get_samples(), data)
 
-        assert summary["drift"]["coverage"] >= 0.9
+        assert summary["dynamics"]["coverage"] >= 0.9
         assert summary["diffusion_sd"]["coverage"] >= 0.9
         assert summary["obs_scale"]["coverage"] >= 0.8
         assert summary["obs_df"]["coverage"] == 1.0
 
-        assert summary["drift"]["mean_abs_error"] < 0.12
+        assert summary["dynamics"]["mean_abs_error"] < 0.12
         assert summary["diffusion_sd"]["mean_abs_error"] < 0.16
         assert summary["obs_scale"]["mean_abs_error"] < 0.10
         assert summary["obs_df"]["mean_abs_error"] < 3.5
 
-        assert summary["drift"]["mean_ci_width"] < 0.75
+        assert summary["dynamics"]["mean_ci_width"] < 0.75
         assert summary["diffusion_sd"]["mean_ci_width"] < 1.0
         assert summary["obs_scale"]["mean_ci_width"] < 0.5
         assert summary["obs_df"]["mean_ci_width"] < 20.0
@@ -509,7 +509,7 @@ class TestAuxKalmanMCMC:
         assert float(jnp.mean(extra["latent_accept_prob"])) >= 0.35
         assert float(jnp.mean(extra["parameter_accept_prob"])) >= 0.45
 
-        assert summary["drift"]["mean_abs_error"] < 0.15
+        assert summary["dynamics"]["mean_abs_error"] < 0.15
         assert summary["diffusion_sd"]["mean_abs_error"] < 0.10
         assert summary["obs_scale"]["mean_abs_error"] < 0.10
         assert summary["obs_df"]["mean_abs_error"] < 3.0

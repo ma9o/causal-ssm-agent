@@ -48,12 +48,12 @@ from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     default_input_effect_block,
     default_static_state_sd_block,
-    full_diagonal_mask,
-    structural_dense_drift_spec,
-    zero_diagonal_mask,
-    zero_loading_mask,
-    zero_square_mask,
-    zero_vector_mask,
+    dense_matrix_dynamics_spec,
+    full_diagonal_support,
+    zero_diagonal_support,
+    zero_loading_support,
+    zero_square_support,
+    zero_vector_support,
 )
 
 _JITTER = 1e-6
@@ -197,23 +197,23 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=structural_dense_drift_spec(
+        dynamics_spec=dense_matrix_dynamics_spec(
             n_latent=n_latent,
-            drift_diag_mask=full_diagonal_mask(n_latent),
-            drift_offdiag_mask=zero_square_mask(n_latent),
-            drift_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float64),
-            cint_mask=zero_vector_mask(n_latent),
+            decay_support=full_diagonal_support(n_latent),
+            edge_support=zero_square_support(n_latent),
+            coupling_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float64),
+            intercept_support=zero_vector_support(n_latent),
             cint_template=jnp.zeros(n_latent, dtype=jnp.float64),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
-            diffusion_chol_mask=np.diag(full_diagonal_mask(n_latent)),
+            diffusion_chol_support=np.diag(full_diagonal_support(n_latent)),
             diffusion_chol_template=jnp.eye(n_latent, dtype=jnp.float64),
         ),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=n_manifest,
             n_cols=n_latent,
-            mask=zero_loading_mask(n_manifest, n_latent),
+            free_support=zero_loading_support(n_manifest, n_latent),
             template=lambda_mat,
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -225,7 +225,7 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
         ),
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
-            mask=zero_vector_mask(n_manifest),
+            free_support=zero_vector_support(n_manifest),
             template=jnp.zeros(n_manifest, dtype=jnp.float64),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
@@ -237,12 +237,12 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
         ),
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
-            diag_mask=full_diagonal_mask(n_manifest),
+            diag_support=full_diagonal_support(n_manifest),
             template=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float64),
         ),
         t0_means_block=SparseVectorBlockSpec(
             n=n_latent,
-            mask=zero_vector_mask(n_latent),
+            free_support=zero_vector_support(n_latent),
             template=jnp.zeros(n_latent, dtype=jnp.float64),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
@@ -254,8 +254,8 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
         ),
         t0_chol_block=T0CholBlockSpec(
             n_latent=n_latent,
-            diag_mask=zero_diagonal_mask(n_latent),
-            correlation_mask=zero_square_mask(n_latent),
+            diag_support=zero_diagonal_support(n_latent),
+            correlation_support=zero_square_support(n_latent),
             template=jnp.eye(n_latent, dtype=jnp.float64),
         ),
         input_effect_block=default_input_effect_block(n_latent),
@@ -331,7 +331,7 @@ def test_filter_matches_sequential_interval_summary():
     times = data["times"]
     time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
 
-    drift = -0.3 * jnp.eye(spec.n_latent, dtype=jnp.float64)
+    dynamics = -0.3 * jnp.eye(spec.n_latent, dtype=jnp.float64)
     diffusion_cov = 0.04 * jnp.eye(spec.n_latent, dtype=jnp.float64)
     cint = jnp.zeros(spec.n_latent, dtype=jnp.float64)
     H = jnp.asarray(spec.lambda_block.assemble(), dtype=jnp.float64)
@@ -350,7 +350,7 @@ def test_filter_matches_sequential_interval_summary():
     ) = build_linear_summary_augmented_system(
         plan=plan,
         time_intervals=time_intervals,
-        drift=drift,
+        drift=dynamics,
         diffusion_cov=diffusion_cov,
         cint=cint,
         H=H,

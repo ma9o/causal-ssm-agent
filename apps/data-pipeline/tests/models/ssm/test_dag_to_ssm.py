@@ -1,8 +1,8 @@
 """Tests for DAG-to-SSM constraint propagation (Fixes 1-3).
 
 Tests that:
-1. drift_mask constrains off-diagonal sampling to causal edges only
-2. lambda_mask + template constrains factor loadings to measurement model
+1. dynamics_support constrains off-diagonal sampling to causal edges only
+2. lambda_support + template constrains factor loadings to measurement model
 3. Per-element priors align with mask positions
 4. Builder constructs structural support from CausalSpec
 5. Pipeline threading passes causal_spec through
@@ -29,10 +29,10 @@ from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     block_ssm_spec,
-    full_vector_mask,
+    dense_matrix_dynamics_spec,
+    full_vector_support,
     prior_registry,
-    structural_dense_drift_spec,
-    zero_loading_mask,
+    zero_loading_support,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -41,19 +41,19 @@ from tests.ssm_test_utils import (
 
 
 def _make_3latent_spec(
-    drift_offdiag_mask: np.ndarray | None = None,
+    edge_support: np.ndarray | None = None,
     lambda_block: SparseMatrixBlockSpec | None = None,
 ) -> SSMSpec:
     """3 latent, 4 manifest spec with optional masks."""
     n_l, n_m = 3, 4
-    if drift_offdiag_mask is None:
-        drift_offdiag_mask = np.ones((n_l, n_l), dtype=bool)
-        np.fill_diagonal(drift_offdiag_mask, False)
+    if edge_support is None:
+        edge_support = np.ones((n_l, n_l), dtype=bool)
+        np.fill_diagonal(edge_support, False)
     if lambda_block is None:
         lambda_block = SparseMatrixBlockSpec(
             n_rows=n_m,
             n_cols=n_l,
-            mask=zero_loading_mask(n_m, n_l),
+            free_support=zero_loading_support(n_m, n_l),
             template=jnp.eye(n_m, n_l),
             free_site_name="lambda_free",
             det_site_name="lambda",
@@ -66,12 +66,12 @@ def _make_3latent_spec(
     return block_ssm_spec(
         n_latent=n_l,
         n_manifest=n_m,
-        dynamics_spec=structural_dense_drift_spec(
+        dynamics_spec=dense_matrix_dynamics_spec(
             n_latent=n_l,
-            drift_diag_mask=np.ones(n_l, dtype=bool),
-            drift_offdiag_mask=drift_offdiag_mask,
-            drift_template=jnp.zeros((n_l, n_l)),
-            cint_mask=np.zeros(n_l, dtype=bool),
+            decay_support=np.ones(n_l, dtype=bool),
+            edge_support=edge_support,
+            coupling_template=jnp.zeros((n_l, n_l)),
+            intercept_support=np.zeros(n_l, dtype=bool),
             cint_template=jnp.zeros(n_l),
         ),
         lambda_block=lambda_block,
@@ -179,20 +179,20 @@ def _make_causal_spec_dict() -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Fix 1: DAG-constrained drift
+# Fix 1: DAG-constrained dynamics
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestDriftMask:
+class TestDynamicsMask:
     """Test that component translation constrains linear edge sampling."""
 
-    def test_drift_mask_zeros_non_edges(self):
-        """Drift entries where mask is False should be zero."""
-        offdiag_mask = np.zeros((3, 3), dtype=bool)
-        offdiag_mask[1, 0] = True  # X→Y
-        offdiag_mask[2, 1] = True  # Y→Z
+    def test_dynamics_support_zeros_non_edges(self):
+        """Dynamics entries where mask is False should be zero."""
+        offdiag_support = np.zeros((3, 3), dtype=bool)
+        offdiag_support[1, 0] = True  # X→Y
+        offdiag_support[2, 1] = True  # Y→Z
 
-        spec = _make_3latent_spec(drift_offdiag_mask=offdiag_mask)
+        spec = _make_3latent_spec(edge_support=offdiag_support)
         model = SSMModel(spec)
 
         rng = random.PRNGKey(42)
@@ -208,7 +208,7 @@ class TestDriftMask:
         assert weight_sites == ["vf_1_weight", "vf_2_weight"]
 
     def test_no_mask_fully_free(self):
-        """Default drift mask expands to a fully free drift structure."""
+        """Default dynamics mask expands to a fully free dynamics structure."""
         spec = _make_3latent_spec()
         model = SSMModel(spec)
 
@@ -224,17 +224,17 @@ class TestDriftMask:
         ]
         assert len(weight_sites) == 6
 
-    def test_drift_mask_single_latent(self):
+    def test_dynamics_support_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=1,
-                drift_diag_mask=np.ones(1, dtype=bool),
-                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
-                drift_template=jnp.zeros((1, 1)),
-                cint_mask=np.zeros(1, dtype=bool),
+                decay_support=np.ones(1, dtype=bool),
+                edge_support=np.zeros((1, 1), dtype=bool),
+                coupling_template=jnp.zeros((1, 1)),
+                intercept_support=np.zeros(1, dtype=bool),
                 cint_template=jnp.zeros(1),
             ),
         )
@@ -256,7 +256,7 @@ class TestDriftMask:
 
 
 class TestLambdaMask:
-    """Test that lambda_mask constrains factor loadings."""
+    """Test that lambda_support constrains factor loadings."""
 
     def test_lambda_template_plus_mask(self):
         """Template+mask mode: fixed reference + free additional loadings."""
@@ -266,14 +266,14 @@ class TestLambdaMask:
         lambda_mat = lambda_mat.at[2, 1].set(1.0)  # y1→Y (ref)
         lambda_mat = lambda_mat.at[3, 2].set(1.0)  # z1→Z (ref)
 
-        lambda_mask = np.zeros((4, 3), dtype=bool)
-        lambda_mask[1, 0] = True  # x2→X (free)
+        lambda_support = np.zeros((4, 3), dtype=bool)
+        lambda_support[1, 0] = True  # x2→X (free)
 
         spec = _make_3latent_spec(
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=4,
                 n_cols=3,
-                mask=lambda_mask,
+                free_support=lambda_support,
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",
@@ -310,7 +310,7 @@ class TestLambdaMask:
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=4,
                 n_cols=3,
-                mask=zero_loading_mask(4, 3),
+                free_support=zero_loading_support(4, 3),
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",
@@ -416,19 +416,19 @@ class TestPerElementPriors:
             build_prior_runtime_state([site], priors)
 
     def test_per_element_prior_in_model(self):
-        """Per-element drift priors are used in sampling."""
-        offdiag_mask = np.zeros((2, 2), dtype=bool)
-        offdiag_mask[1, 0] = True  # X→Y
+        """Per-element dynamics priors are used in sampling."""
+        offdiag_support = np.zeros((2, 2), dtype=bool)
+        offdiag_support[1, 0] = True  # X→Y
 
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=2,
-                drift_diag_mask=np.ones(2, dtype=bool),
-                drift_offdiag_mask=offdiag_mask,
-                drift_template=jnp.zeros((2, 2)),
-                cint_mask=np.zeros(2, dtype=bool),
+                decay_support=np.ones(2, dtype=bool),
+                edge_support=offdiag_support,
+                coupling_template=jnp.zeros((2, 2)),
+                intercept_support=np.zeros(2, dtype=bool),
                 cint_template=jnp.zeros(2),
             ),
             latent_names=["X", "Y"],
@@ -465,7 +465,7 @@ class TestRuntimeStructuralSupport:
     """Test that compilation constructs correct block support from CausalSpec."""
 
     def test_build_structural_support_from_causal_spec(self):
-        """Compilation constructs drift/lambda support from CausalSpec."""
+        """Compilation constructs dynamics/lambda support from CausalSpec."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
             build_structural_support_from_causal_spec,
         )
@@ -475,33 +475,33 @@ class TestRuntimeStructuralSupport:
         latent_names = ["X", "Y", "Z"]
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
-        drift_mask, _input_effect_mask, lambda_mat, lambda_mask, _edge_lag_days = (
+        dynamics_support, _input_effect_support, lambda_mat, lambda_support, _edge_lag_days = (
             build_structural_support_from_causal_spec(
                 latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
             )
         )
 
-        # Drift mask: baseline persistence diagonals + X→Y + Y→Z
-        assert drift_mask is not None
-        assert drift_mask[0, 0]  # X baseline persistence
-        assert drift_mask[1, 1]  # Y self
-        assert drift_mask[2, 2]  # Z self
-        assert drift_mask[1, 0]  # X→Y (effect=Y row, cause=X col)
-        assert drift_mask[2, 1]  # Y→Z (effect=Z row, cause=Y col)
-        assert not drift_mask[0, 1]  # No Y→X edge
-        assert not drift_mask[0, 2]  # No Z→X edge
-        assert not drift_mask[1, 2]  # No Z→Y edge
-        assert not drift_mask[2, 0]  # No X→Z edge
+        # Dynamics mask: baseline persistence diagonals + X→Y + Y→Z
+        assert dynamics_support is not None
+        assert dynamics_support[0, 0]  # X baseline persistence
+        assert dynamics_support[1, 1]  # Y self
+        assert dynamics_support[2, 2]  # Z self
+        assert dynamics_support[1, 0]  # X→Y (effect=Y row, cause=X col)
+        assert dynamics_support[2, 1]  # Y→Z (effect=Z row, cause=Y col)
+        assert not dynamics_support[0, 1]  # No Y→X edge
+        assert not dynamics_support[0, 2]  # No Z→X edge
+        assert not dynamics_support[1, 2]  # No Z→Y edge
+        assert not dynamics_support[2, 0]  # No X→Z edge
 
         # Lambda: x1 fixed ref for X, x2 free for X, y1 fixed ref for Y, z1 fixed ref for Z
         assert float(lambda_mat[0, 0]) == 1.0  # x1→X
         assert float(lambda_mat[2, 1]) == 1.0  # y1→Y
         assert float(lambda_mat[3, 2]) == 1.0  # z1→Z
 
-        assert lambda_mask is not None
-        assert lambda_mask[1, 0]  # x2→X is free
-        assert not lambda_mask[0, 0]  # x1→X is fixed
-        assert not lambda_mask[2, 1]  # y1→Y is fixed
+        assert lambda_support is not None
+        assert lambda_support[1, 0]  # x2→X is free
+        assert not lambda_support[0, 0]  # x1→X is fixed
+        assert not lambda_support[2, 1]  # y1→Y is fixed
 
     def test_no_causal_spec_materializes_explicit_default_masks(self):
         """Without causal_spec, structural defaults are still explicit."""
@@ -509,15 +509,15 @@ class TestRuntimeStructuralSupport:
             build_structural_support_from_causal_spec,
         )
 
-        drift_mask, input_effect_mask, _lambda_mat, lambda_mask, _edge_lag_days = (
+        dynamics_support, input_effect_support, _lambda_mat, lambda_support, _edge_lag_days = (
             build_structural_support_from_causal_spec(None, ["x1"], 1, 1, causal_spec=None)
         )
-        np.testing.assert_array_equal(drift_mask, np.array([[True]]))
-        np.testing.assert_array_equal(input_effect_mask, np.zeros((1, 0), dtype=bool))
-        np.testing.assert_array_equal(lambda_mask, np.array([[False]]))
+        np.testing.assert_array_equal(dynamics_support, np.array([[True]]))
+        np.testing.assert_array_equal(input_effect_support, np.zeros((1, 0), dtype=bool))
+        np.testing.assert_array_equal(lambda_support, np.array([[False]]))
 
-    def test_known_input_edge_compiles_to_input_effect_mask(self):
-        """Known inputs are transition drivers, not latent drift columns."""
+    def test_known_input_edge_compiles_to_input_effect_support(self):
+        """Known inputs are transition drivers, not latent dynamics columns."""
         from nof1_causal_lab.models.ssm.compile.inputs import (
             build_structural_support_from_causal_spec,
         )
@@ -590,7 +590,7 @@ class TestRuntimeStructuralSupport:
             },
         }
 
-        drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
+        dynamics_support, input_effect_support, lambda_mat, lambda_support, edge_lag_days = (
             build_structural_support_from_causal_spec(
                 ["mood"],
                 ["mood_rating"],
@@ -600,10 +600,10 @@ class TestRuntimeStructuralSupport:
             )
         )
 
-        np.testing.assert_array_equal(drift_mask, np.array([[True]]))
-        np.testing.assert_array_equal(input_effect_mask, np.array([[True]]))
+        np.testing.assert_array_equal(dynamics_support, np.array([[True]]))
+        np.testing.assert_array_equal(input_effect_support, np.array([[True]]))
         np.testing.assert_array_equal(lambda_mat, np.array([[1.0]]))
-        np.testing.assert_array_equal(lambda_mask, np.array([[False]]))
+        np.testing.assert_array_equal(lambda_support, np.array([[False]]))
         assert edge_lag_days == {}
 
     @pytest.mark.parametrize(
@@ -614,7 +614,7 @@ class TestRuntimeStructuralSupport:
                     "lambda_block": SparseMatrixBlockSpec(
                         n_rows=4,
                         n_cols=3,
-                        mask=None,
+                        free_support=None,
                         template=jnp.eye(4, 3),
                         free_site_name="lambda_free",
                         det_site_name="lambda",
@@ -625,15 +625,15 @@ class TestRuntimeStructuralSupport:
                         priors_field="lambda_free",
                     )
                 },
-                "lambda_mask must have shape",
-                id="lambda_mask_none",
+                "lambda_support must have shape",
+                id="lambda_support_none",
             ),
             pytest.param(
                 {
                     "lambda_block": SparseMatrixBlockSpec(
                         n_rows=4,
                         n_cols=3,
-                        mask=np.ones((4, 4), dtype=bool),
+                        free_support=np.ones((4, 4), dtype=bool),
                         template=jnp.eye(4, 3),
                         free_site_name="lambda_free",
                         det_site_name="lambda",
@@ -644,8 +644,8 @@ class TestRuntimeStructuralSupport:
                         priors_field="lambda_free",
                     )
                 },
-                r"lambda_mask must have shape \(4, 3\)",
-                id="lambda_mask_wrong_shape",
+                r"lambda_support must have shape \(4, 3\)",
+                id="lambda_support_wrong_shape",
             ),
             pytest.param(
                 {"diffusion_dists": [DistributionFamily.GAUSSIAN] * 2},
@@ -677,18 +677,18 @@ class TestRuntimeStructuralSupport:
         base = {
             "n_latent": 3,
             "n_manifest": 4,
-            "dynamics_spec": structural_dense_drift_spec(
+            "dynamics_spec": dense_matrix_dynamics_spec(
                 n_latent=3,
-                drift_diag_mask=np.ones(3, dtype=bool),
-                drift_offdiag_mask=np.ones((3, 3), dtype=bool),
-                drift_template=jnp.zeros((3, 3)),
-                cint_mask=np.zeros(3, dtype=bool),
+                decay_support=np.ones(3, dtype=bool),
+                edge_support=np.ones((3, 3), dtype=bool),
+                coupling_template=jnp.zeros((3, 3)),
+                intercept_support=np.zeros(3, dtype=bool),
                 cint_template=jnp.zeros(3),
             ),
             "lambda_block": SparseMatrixBlockSpec(
                 n_rows=4,
                 n_cols=3,
-                mask=zero_loading_mask(4, 3),
+                free_support=zero_loading_support(4, 3),
                 template=jnp.eye(4, 3),
                 free_site_name="lambda_free",
                 det_site_name="lambda",
@@ -710,18 +710,18 @@ class TestRuntimeStructuralSupport:
             block_ssm_spec(
                 n_latent=2,
                 n_manifest=2,
-                dynamics_spec=structural_dense_drift_spec(
+                dynamics_spec=dense_matrix_dynamics_spec(
                     n_latent=2,
-                    drift_diag_mask=np.ones(2, dtype=bool),
-                    drift_offdiag_mask=np.ones((2, 2), dtype=bool),
-                    drift_template=jnp.zeros((2, 2)),
-                    cint_mask=np.zeros(2, dtype=bool),
+                    decay_support=np.ones(2, dtype=bool),
+                    edge_support=np.ones((2, 2), dtype=bool),
+                    coupling_template=jnp.zeros((2, 2)),
+                    intercept_support=np.zeros(2, dtype=bool),
                     cint_template=jnp.zeros(2),
                 ),
                 lambda_block=SparseMatrixBlockSpec(
                     n_rows=2,
                     n_cols=2,
-                    mask=zero_loading_mask(2, 2),
+                    free_support=zero_loading_support(2, 2),
                     template="free",
                     free_site_name="lambda_free",
                     det_site_name="lambda",
@@ -870,7 +870,7 @@ class TestRuntimeStructuralSupport:
 
         spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
 
-        np.testing.assert_array_equal(spec.static_state_sd_block.mask, np.array([True]))
+        np.testing.assert_array_equal(spec.static_state_sd_block.free_support, np.array([True]))
         np.testing.assert_allclose(np.asarray(spec.static_state_sd_block.template), np.zeros(1))
         np.testing.assert_allclose(
             np.asarray(spec.static_factor_loadings),
@@ -878,11 +878,11 @@ class TestRuntimeStructuralSupport:
         )
         assert spec.static_factor_names == ["tau_u_shared"]
         np.testing.assert_array_equal(
-            spec.t0_chol_block.correlation_mask,
+            spec.t0_chol_block.correlation_support,
             np.zeros((2, 2), dtype=bool),
         )
-        np.testing.assert_array_equal(spec.t0_means_block.mask, np.array([False, False]))
-        np.testing.assert_array_equal(spec.t0_chol_block.diag_mask, np.array([False, False]))
+        np.testing.assert_array_equal(spec.t0_means_block.free_support, np.array([False, False]))
+        np.testing.assert_array_equal(spec.t0_chol_block.diag_support, np.array([False, False]))
 
     def test_translate_spec_marks_centerable_gaussian_mean_indicators(self):
         """Gaussian identity indicators with interval means should be auto-centered."""
@@ -1032,7 +1032,7 @@ class TestRuntimeStructuralSupport:
 
         assert isinstance(spec.manifest_chol_block.template, jnp.ndarray)
         np.testing.assert_array_equal(
-            spec.manifest_chol_block.diag_mask,
+            spec.manifest_chol_block.diag_support,
             np.array([True, True, False, False]),
         )
         np.testing.assert_allclose(np.asarray(spec.manifest_chol_block.template), np.zeros((4, 4)))
@@ -1265,7 +1265,7 @@ class TestRuntimeStructuralSupport:
             site for site in spec.iter_sample_sites() if site.assembly_group == "dynamics"
         ]
         assert sum(site.site_kind == SiteKind.DYNAMICS_DECAY for site in dynamics_sites) == 3
-        assert spec.lambda_block.mask is not None
+        assert spec.lambda_block.free_support is not None
         assert spec.n_latent == 3
         assert spec.n_manifest == 4
 
@@ -1278,24 +1278,24 @@ class TestRuntimeStructuralSupport:
 class TestSiteRegistryMasks:
     """Test that the canonical site registry respects SSM masks."""
 
-    def test_site_registry_with_drift_mask(self):
-        """Site registry should size masked drift entries correctly."""
+    def test_site_registry_with_dynamics_support(self):
+        """Site registry should size masked dynamics entries correctly."""
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
         # 3 latent, X→Y and Y→Z = 2 off-diagonal entries
-        offdiag_mask = np.zeros((3, 3), dtype=bool)
-        offdiag_mask[1, 0] = True
-        offdiag_mask[2, 1] = True
+        offdiag_support = np.zeros((3, 3), dtype=bool)
+        offdiag_support[1, 0] = True
+        offdiag_support[2, 1] = True
 
         spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=3,
-                drift_diag_mask=np.ones(3, dtype=bool),
-                drift_offdiag_mask=offdiag_mask,
-                drift_template=jnp.zeros((3, 3)),
-                cint_mask=full_vector_mask(3),
+                decay_support=np.ones(3, dtype=bool),
+                edge_support=offdiag_support,
+                coupling_template=jnp.zeros((3, 3)),
+                intercept_support=full_vector_support(3),
                 cint_template=jnp.zeros(3),
             ),
         )
@@ -1306,28 +1306,28 @@ class TestSiteRegistryMasks:
         assert weight_sites == ["vf_1_weight", "vf_2_weight"]
         assert registry["vf_0_decay"].shape == (3,)
 
-    def test_site_registry_with_lambda_mask(self):
+    def test_site_registry_with_lambda_support(self):
         """Site registry should size masked loading entries correctly."""
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
         lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
-        lambda_mask = np.array([[False, False], [False, False], [True, False]])
+        lambda_support = np.array([[False, False], [False, False], [True, False]])
 
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=3,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=2,
-                drift_diag_mask=np.ones(2, dtype=bool),
-                drift_offdiag_mask=np.ones((2, 2), dtype=bool),
-                drift_template=jnp.zeros((2, 2)),
-                cint_mask=np.zeros(2, dtype=bool),
+                decay_support=np.ones(2, dtype=bool),
+                edge_support=np.ones((2, 2), dtype=bool),
+                coupling_template=jnp.zeros((2, 2)),
+                intercept_support=np.zeros(2, dtype=bool),
                 cint_template=jnp.zeros(2),
             ),
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=3,
                 n_cols=2,
-                mask=lambda_mask,
+                free_support=lambda_support,
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",
@@ -1353,24 +1353,24 @@ class TestTraceVerification:
 
     def test_masked_model_trace(self):
         """Full model trace with component edge sites."""
-        offdiag_mask = np.zeros((3, 3), dtype=bool)
-        offdiag_mask[1, 0] = True  # X→Y
-        offdiag_mask[2, 1] = True  # Y→Z
+        offdiag_support = np.zeros((3, 3), dtype=bool)
+        offdiag_support[1, 0] = True  # X→Y
+        offdiag_support[2, 1] = True  # Y→Z
 
         lambda_mat = jnp.zeros((4, 3))
         lambda_mat = lambda_mat.at[0, 0].set(1.0)
         lambda_mat = lambda_mat.at[2, 1].set(1.0)
         lambda_mat = lambda_mat.at[3, 2].set(1.0)
 
-        lambda_mask = np.zeros((4, 3), dtype=bool)
-        lambda_mask[1, 0] = True
+        lambda_support = np.zeros((4, 3), dtype=bool)
+        lambda_support[1, 0] = True
 
         spec = _make_3latent_spec(
-            drift_offdiag_mask=offdiag_mask,
+            edge_support=offdiag_support,
             lambda_block=SparseMatrixBlockSpec(
                 n_rows=4,
                 n_cols=3,
-                mask=lambda_mask,
+                free_support=lambda_support,
                 template=lambda_mat,
                 free_site_name="lambda_free",
                 det_site_name="lambda",

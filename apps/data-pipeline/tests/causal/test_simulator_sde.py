@@ -20,22 +20,22 @@ import jax.random as jr
 import pytest
 
 from nof1_causal_lab.models.ssm.dynamics import (
-    CompositeVectorField,
     Intervention,
     SimulationConfig,
+    VectorField,
     simulate,
 )
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 
 
-def _dense_linear_vector_field(n_latent: int) -> CompositeVectorField:
-    return CompositeVectorField(n_latent=n_latent, components=(DenseLinear(),))
+def _dense_matrix_vector_field(n_latent: int) -> VectorField:
+    return VectorField(n_latent=n_latent, components=(DenseLinear(),))
 
 
 def _linear_setup(decay: float = 1.0, c: float = 0.5):
     A = jnp.array([[-decay]])
     cint = jnp.array([c])
-    vf = _dense_linear_vector_field(n_latent=1)
+    vf = _dense_matrix_vector_field(n_latent=1)
     params = ({"drift": A, "cint": cint},)
     init_state = jnp.array([0.0])
     time_grid = jnp.linspace(0.0, 5.0, 21)

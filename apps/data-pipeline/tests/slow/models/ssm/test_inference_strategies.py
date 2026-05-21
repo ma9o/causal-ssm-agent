@@ -15,7 +15,7 @@ from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
-from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
+from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
 from nof1_causal_lab.models.ssm.inference import _eval_model
 from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 from nof1_causal_lab.models.ssm.inference.shared import _apply_reparam
@@ -40,26 +40,26 @@ from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     block_ssm_spec,
+    dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
-    structural_dense_drift_spec,
 )
 
 pytestmark = pytest.mark.slow
 
 
-def _default_linear_spec(n_latent: int, n_manifest: int):
+def _dense_matrix_ssm_spec(n_latent: int, n_manifest: int):
     offdiag = np.ones((n_latent, n_latent), dtype=bool)
     np.fill_diagonal(offdiag, False)
     return block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        dynamics_spec=structural_dense_drift_spec(
+        dynamics_spec=dense_matrix_dynamics_spec(
             n_latent=n_latent,
-            drift_diag_mask=np.ones(n_latent, dtype=bool),
-            drift_offdiag_mask=offdiag,
-            drift_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
-            cint_mask=np.zeros(n_latent, dtype=bool),
+            decay_support=np.ones(n_latent, dtype=bool),
+            edge_support=offdiag,
+            coupling_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
+            intercept_support=np.zeros(n_latent, dtype=bool),
             cint_template=jnp.zeros(n_latent, dtype=jnp.float32),
         ),
         diffusion_block=diagonal_diffusion_block(n_latent),
@@ -68,17 +68,17 @@ def _default_linear_spec(n_latent: int, n_manifest: int):
 
 def _runtime_dynamics(
     *,
-    drift: jnp.ndarray,
+    dynamics: jnp.ndarray,
     diffusion_cov: jnp.ndarray,
     cint: jnp.ndarray | None = None,
     input_effect: jnp.ndarray | None = None,
 ) -> RuntimeDynamics:
-    params = {"drift": drift}
+    params = {"drift": dynamics}
     if cint is not None:
         params["cint"] = cint
     return RuntimeDynamics(
-        vector_field=CompositeVectorField(
-            n_latent=int(drift.shape[0]),
+        vector_field=VectorField(
+            n_latent=int(dynamics.shape[0]),
             components=(DenseLinear(),),
         ),
         vf_params=(params,),
@@ -109,7 +109,7 @@ class TestLaplaceSupportAware:
             observation_support=support,
         )
         ct_params = _runtime_dynamics(
-            drift=jnp.array([[-0.4]], dtype=jnp.float32),
+            dynamics=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
         )
@@ -156,7 +156,7 @@ class TestLaplaceSupportAware:
             observation_support=support,
         )
         ct_params = _runtime_dynamics(
-            drift=jnp.array([[-0.4]], dtype=jnp.float32),
+            dynamics=jnp.array([[-0.4]], dtype=jnp.float32),
             diffusion_cov=jnp.array([[0.1]], dtype=jnp.float32),
             cint=jnp.array([0.0], dtype=jnp.float32),
         )
@@ -173,7 +173,7 @@ class TestLaplaceSupportAware:
         time_intervals = jnp.array([1.0, 1.0, 1.0], dtype=jnp.float32)
 
         Ad, Qd, cd = discretize_system_batched(
-            derive_affine_dynamics(ct_params).drift,
+            derive_affine_dynamics(ct_params).dynamics,
             derive_affine_dynamics(ct_params).diffusion_cov,
             derive_affine_dynamics(ct_params).cint,
             time_intervals,
@@ -218,14 +218,14 @@ class TestLaplaceSupportAware:
 class TestParameterRecoveryMAP:
     """Parameter recovery tests using MAP."""
 
-    def test_drift_diagonal_recovery(self):
-        true_drift_diag = jnp.array([-0.6, -0.9])
+    def test_decay_diagonal_recovery(self):
+        true_decay_diag = jnp.array([-0.6, -0.9])
 
         key = random.PRNGKey(42)
         T = 60
         n_latent = 2
         dt = 0.5
-        discrete_coef = jnp.diag(jnp.exp(true_drift_diag * dt))
+        discrete_coef = jnp.diag(jnp.exp(true_decay_diag * dt))
         process_noise = 0.3
 
         states = [jnp.zeros(n_latent)]
@@ -239,7 +239,7 @@ class TestParameterRecoveryMAP:
         observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.1
         times = jnp.arange(T, dtype=float) * dt
 
-        spec = _default_linear_spec(2, 2)
+        spec = _dense_matrix_ssm_spec(2, 2)
         model = SSMModel(spec)
 
         result = fit_map(
@@ -252,24 +252,24 @@ class TestParameterRecoveryMAP:
         )
 
         samples = result.get_samples()
-        drift_diag_samples = -jnp.abs(samples["vf_0_base_decay"])
+        decay_diag_samples = -jnp.abs(samples["vf_0_decay"])
 
-        for i, true_val in enumerate(true_drift_diag):
-            posterior_mean = jnp.mean(drift_diag_samples[:, i])
+        for i, true_val in enumerate(true_decay_diag):
+            posterior_mean = jnp.mean(decay_diag_samples[:, i])
             assert abs(posterior_mean - true_val) < 0.5, (
-                f"Drift[{i}] posterior mean {float(posterior_mean):.3f} "
+                f"Dynamics[{i}] posterior mean {float(posterior_mean):.3f} "
                 f"far from true {float(true_val):.3f}"
             )
 
     def test_diffusion_recovery(self):
         true_diffusion_diag = jnp.array([0.4, 0.4])
-        true_drift_diag = jnp.array([-0.5, -0.5])
+        true_decay_diag = jnp.array([-0.5, -0.5])
 
         key = random.PRNGKey(123)
         T = 80
         n_latent = 2
         dt = 0.5
-        discrete_coef = jnp.diag(jnp.exp(true_drift_diag * dt))
+        discrete_coef = jnp.diag(jnp.exp(true_decay_diag * dt))
 
         states = [jnp.zeros(n_latent)]
         for _ in range(T - 1):
@@ -282,7 +282,7 @@ class TestParameterRecoveryMAP:
         observations = jnp.stack(states) + random.normal(subkey, (T, n_latent)) * 0.05
         times = jnp.arange(T, dtype=float) * dt
 
-        spec = _default_linear_spec(2, 2)
+        spec = _dense_matrix_ssm_spec(2, 2)
         model = SSMModel(spec)
 
         result = fit_map(
@@ -313,18 +313,18 @@ class TestPureJaxLikelihoodEvaluator:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=1,
-                drift_diag_mask=np.ones(1, dtype=bool),
-                drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
-                drift_template=jnp.zeros((1, 1), dtype=jnp.float32),
-                cint_mask=np.zeros(1, dtype=bool),
+                decay_support=np.ones(1, dtype=bool),
+                edge_support=np.zeros((1, 1), dtype=bool),
+                coupling_template=jnp.zeros((1, 1), dtype=jnp.float32),
+                intercept_support=np.zeros(1, dtype=bool),
                 cint_template=jnp.zeros(1, dtype=jnp.float32),
             ),
             diffusion_block=diagonal_diffusion_block(1),
             manifest_means_block=SparseVectorBlockSpec(
                 n=1,
-                mask=np.zeros(1, dtype=bool),
+                free_support=np.zeros(1, dtype=bool),
                 template=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
                 free_site_name="manifest_means_free",
                 det_site_name="manifest_means",

@@ -74,5 +74,3 @@ def indicator_requires_observation_intercept(
         )
 
     return False
-
-

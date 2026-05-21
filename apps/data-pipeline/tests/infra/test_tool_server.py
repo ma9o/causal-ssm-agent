@@ -90,12 +90,12 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
 
 def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch):
     import nof1_causal_lab.flows.run_store as run_store
-    from tests.ssm_test_utils import block_ssm_spec, full_structural_dense_drift_spec
+    from tests.ssm_test_utils import block_ssm_spec, full_dense_matrix_dynamics_spec
 
     spec = block_ssm_spec(
         n_latent=2,
         n_manifest=1,
-        dynamics_spec=full_structural_dense_drift_spec(2),
+        dynamics_spec=full_dense_matrix_dynamics_spec(2),
         latent_names=["screen_time", "sleep_quality"],
         manifest_names=["sleep_obs"],
     )
@@ -241,24 +241,19 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         def get_latent_paths(self):
             return self._latent_paths
 
-    import numpyro.distributions as ndist
-
     from nof1_causal_lab.models.ssm.dynamics import (
-        CompositeSpec,
         DiagonalDecaySpec,
+        DynamicsSpec,
         HillEdgeSpec,
     )
 
-    spec = CompositeSpec(
+    spec = DynamicsSpec(
         n_latent=2,
         components=(
-            DiagonalDecaySpec(decay_prior=ndist.LogNormal(0.0, 0.1)),
+            DiagonalDecaySpec(),
             HillEdgeSpec(
                 source=0,
                 target=1,
-                emax_prior=ndist.LogNormal(0.0, 0.1),
-                ec50_prior=ndist.LogNormal(0.0, 0.1),
-                n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.1, low=1.5, high=2.5),
             ),
         ),
     )
@@ -295,9 +290,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         counterfactual = baseline + effect
         return baseline, counterfactual, effect
 
-    monkeypatch.setattr(
-        tool_server, "vmap_simulate_action_from_state_composite", fake_vmap_simulate
-    )
+    monkeypatch.setattr(tool_server, "vmap_simulate_action_from_state_dynamics", fake_vmap_simulate)
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
@@ -390,33 +383,29 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     }
 
 
-def test_simulate_intervention_dispatches_to_composite_path():
-    """End-to-end: a composite-fitted InferenceResult flows through
+def test_simulate_intervention_dispatches_to_vector_field_path():
+    """End-to-end: a vector-field-fitted InferenceResult flows through
     ``_prepare_stage6_simulation`` and ``_execute_simulate_intervention``
     without touching the affine deterministic sample shape.
 
     Pins the Phase E dispatch: the tool_server endpoint inspects
-    ``result.method`` and routes to ``vmap_*_composite`` helpers when
-    the fit came from the composite driver.
+    ``result.method`` and routes to ``vmap_*_dynamics`` helpers when
+    the fit came from the vector-field driver.
     """
-    import numpyro.distributions as ndist
 
     from nof1_causal_lab.models.ssm.dynamics import (
-        CompositeSpec,
         DiagonalDecaySpec,
+        DynamicsSpec,
         HillEdgeSpec,
     )
 
-    spec = CompositeSpec(
+    spec = DynamicsSpec(
         n_latent=2,
         components=(
-            DiagonalDecaySpec(decay_prior=ndist.LogNormal(0.0, 0.1)),
+            DiagonalDecaySpec(),
             HillEdgeSpec(
                 source=0,
                 target=1,
-                emax_prior=ndist.LogNormal(0.0, 0.1),
-                ec50_prior=ndist.LogNormal(0.0, 0.1),
-                n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.1, low=1.5, high=2.5),
             ),
         ),
     )
@@ -465,7 +454,7 @@ def test_simulate_intervention_dispatches_to_composite_path():
 
     response = tool_server._execute_simulate_intervention(ctx, args)
     result = response["result"]
-    assert "error" not in result, f"composite dispatch failed: {result}"
+    assert "error" not in result, f"vector-field dispatch failed: {result}"
     assert result["rung"] == 2
     assert result["estimand"] == "steady_state"
     # Effect on tgt from shifting src up should be positive (Hill saturates).
@@ -475,26 +464,22 @@ def test_simulate_intervention_dispatches_to_composite_path():
     assert summary["prob_positive"] == pytest.approx(1.0)
 
 
-def test_simulate_counterfactual_dispatches_to_composite_path():
-    """Rung-3 on composite starts from retained fitted trajectory draws."""
-    import numpyro.distributions as ndist
+def test_simulate_counterfactual_dispatches_to_vector_field_path():
+    """Rung-3 on vector-field starts from retained fitted trajectory draws."""
 
     from nof1_causal_lab.models.ssm.dynamics import (
-        CompositeSpec,
         DiagonalDecaySpec,
+        DynamicsSpec,
         HillEdgeSpec,
     )
 
-    spec = CompositeSpec(
+    spec = DynamicsSpec(
         n_latent=2,
         components=(
-            DiagonalDecaySpec(decay_prior=ndist.LogNormal(0.0, 0.1)),
+            DiagonalDecaySpec(),
             HillEdgeSpec(
                 source=0,
                 target=1,
-                emax_prior=ndist.LogNormal(0.0, 0.1),
-                ec50_prior=ndist.LogNormal(0.0, 0.1),
-                n_prior=ndist.TruncatedNormal(loc=2.0, scale=0.1, low=1.5, high=2.5),
             ),
         ),
     )
@@ -545,7 +530,7 @@ def test_simulate_counterfactual_dispatches_to_composite_path():
 
     response = tool_server._execute_simulate_counterfactual(ctx, args)
     result = response["result"]
-    assert "error" not in result, f"composite rung-3 failed: {result}"
+    assert "error" not in result, f"vector-field rung-3 failed: {result}"
     assert result["rung"] == 3
     assert result["estimand"] == "end_state"
     assert result["start"] == {
@@ -555,63 +540,6 @@ def test_simulate_counterfactual_dispatches_to_composite_path():
     }
     # Shift on src should produce a positive effect on tgt via the Hill chain
     assert result["summary"]["mean"] > 0
-
-
-def test_validate_composite_spec_runs_dry_run_validation():
-    """Round 29 — Stage 4 has a new public tool ``validate_composite_spec``
-    that dry-runs ``validate_composite_assembly`` on a JSON-encoded
-    composite-spec dict-config. Doesn't commit any state; returns the
-    diagnostic dict the LLM (or any caller) can inspect."""
-    import json as _json
-
-    config = {
-        "n_latent": 2,
-        "components": [
-            {
-                "kind": "DiagonalDecay",
-                "priors": {
-                    "decay": {
-                        "family": "Gamma",
-                        "params": {"concentration": 2.0, "rate": 4.0},
-                        "shape": [2],
-                    }
-                },
-            },
-        ],
-    }
-    args = {"composite_spec_json": _json.dumps(config), "n_draws": 5}
-    response = tool_server._execute_validate_composite_spec({}, args)
-    result = response["result"]
-    assert result["is_valid"] is True
-    assert result["compile_ok"] is True
-    assert result["pp_checked"] is True
-
-
-def test_validate_composite_spec_surfaces_compile_errors():
-    """Malformed composite spec (unknown component kind) returns
-    ``is_valid=False`` with a clear compile_error message."""
-    import json as _json
-
-    args = {
-        "composite_spec_json": _json.dumps(
-            {"n_latent": 1, "components": [{"kind": "BogusComponent"}]}
-        ),
-        "n_draws": 3,
-    }
-    response = tool_server._execute_validate_composite_spec({}, args)
-    result = response["result"]
-    assert result["is_valid"] is False
-    assert result["compile_ok"] is False
-    assert "BogusComponent" in result.get("compile_error", "")
-
-
-def test_validate_composite_spec_rejects_invalid_json():
-    """Non-JSON input returns a clean error message instead of crashing."""
-    args = {"composite_spec_json": "not a valid json", "n_draws": 3}
-    response = tool_server._execute_validate_composite_spec({}, args)
-    result = response["result"]
-    assert result["is_valid"] is False
-    assert "JSON" in result.get("error", "") or "json" in result.get("error", "")
 
 
 def test_get_tool_schemas_exposes_declared_result_schema():

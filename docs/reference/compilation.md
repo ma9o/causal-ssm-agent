@@ -93,12 +93,12 @@ Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the artifact that pe
 
 ## Stage 2: Prior Index Mapping (`ssm_prior_indexing.py`)
 
-Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_mood_stress"`) to flat array indices in the SSM matrices.
+Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_mood_stress"`) to canonical sample-site indices in the SSM structure and dynamics components.
 
 **What it does:**
 
 - For each parameter in `ModelSpec`, determines its role (AR coefficient, fixed effect, loading, residual SD, state intercept, observation intercept, static baseline-factor SD, correlation, and observation-family auxiliary site)
-- Maps it to the correct SSM field (`drift_base_decay`, `drift_offdiag`, `lambda_free`, `manifest_means`, `cint`, `static_state_sd`, etc.) and flat index
+- Maps it to the correct SSM site (`vf_0_decay`, `vf_2_weight`, `lambda_free`, `manifest_means_free`, `static_state_sd_free`, etc.) and flat index
 - Derives the canonical free-entry order from block and dynamics `SiteDescriptor`s so the compiler, runtime assembly, and posterior name resolution all share one site registry.
 - Uses `split_compound_name()` to parse compound names like `"beta_mood_stress"` into (cause, effect)
 
@@ -148,7 +148,7 @@ Creates the mapping from semantic parameter names to NumPyro sample sites — th
 
 **Key function:** `bind_parameters(index_maps) -> list[dict]`
 
-Each binding is: `{parameter: "rho_mood", site_name: "vf_0_base_decay", flat_index: 0}`
+Each binding is: `{parameter: "rho_mood", site_name: "vf_0_decay", flat_index: 0}`
 
 This allows `InferenceResult` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `PriorIndexMaps` from Stage 3 rather than rebuilding them, and only the compile entrypoints decide whether semantic bindings should exist at all.
 

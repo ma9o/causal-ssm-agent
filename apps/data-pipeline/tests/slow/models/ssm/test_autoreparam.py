@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from tests.ssm_test_utils import block_ssm_spec, structural_dense_drift_spec
+from tests.ssm_test_utils import block_ssm_spec, dense_matrix_dynamics_spec
 
 pytestmark = pytest.mark.slow
 
@@ -16,12 +16,12 @@ def _make_simple_ssm():
         spec=block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            dynamics_spec=structural_dense_drift_spec(
+            dynamics_spec=dense_matrix_dynamics_spec(
                 n_latent=2,
-                drift_diag_mask=np.ones(2, dtype=bool),
-                drift_offdiag_mask=np.array([[False, True], [True, False]]),
-                drift_template=jnp.zeros((2, 2)),
-                cint_mask=np.zeros(2, dtype=bool),
+                decay_support=np.ones(2, dtype=bool),
+                edge_support=np.array([[False, True], [True, False]]),
+                coupling_template=jnp.zeros((2, 2)),
+                intercept_support=np.zeros(2, dtype=bool),
                 cint_template=jnp.zeros(2),
             ),
         )
@@ -47,7 +47,7 @@ class TestAutoReparamSSM:
         )
 
         sample_names = set(result.get_samples())
-        assert "vf_0_base_decay" in sample_names
+        assert "vf_0_decay" in sample_names
         assert "diffusion_diag_free" in sample_names
         assert all("_decentered" not in name for name in sample_names)
 

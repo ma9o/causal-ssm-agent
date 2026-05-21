@@ -349,6 +349,11 @@ def fit_aux_kalman_mcmc(
     auto_preconditioner_method: str = "pathfinder",
     initial_positions_override: jnp.ndarray | None = None,
     emit_per_t_log_alpha: bool = False,
+    enable_polya_gamma: bool = True,
+    polya_gamma_num_terms: int = 64,
+    polya_gamma_sampler: str = "truncated_sum",
+    rbpf_mode: str = "none",
+    rbpf_marginalized_latent_indices: tuple[int, ...] | list[int] | None = None,
     reparam=None,
     **_kwargs,
 ) -> InferenceResult:
@@ -483,6 +488,11 @@ def fit_aux_kalman_mcmc(
         times,
         trace_key=trace_key,
         reparam=reparam,
+        polya_gamma_num_terms=polya_gamma_num_terms,
+        polya_gamma_sampler=polya_gamma_sampler,
+        enable_polya_gamma=enable_polya_gamma,
+        rbpf_mode=rbpf_mode,
+        rbpf_marginalized_latent_indices=rbpf_marginalized_latent_indices,
     )
     logger.info(
         "phase 1/6: bundle ready in %.1fs (dim=%d, public_sites=%d)",
@@ -836,6 +846,9 @@ def fit_aux_kalman_mcmc(
         num_chains=num_chains,
         num_samples=num_samples,
     )
+    polya_gamma_plan = bundle["polya_gamma_plan"]
+    rbpf_partition = bundle["rbpf_partition"]
+    rbpf_observation_plan = bundle["rbpf_observation_plan"]
     diagnostics = {
         "mcmc": mcmc,
         "public_sites": sorted(bundle["public_sites"]),
@@ -847,6 +860,23 @@ def fit_aux_kalman_mcmc(
             "adaptation_scheme": adaptation_scheme,
             "parallel_filter": parallel_filter,
             "latent_delta_profile": latent_delta_profile,
+            "polya_gamma_enabled": bool(bundle["polya_gamma_enabled"]),
+            "polya_gamma_sampler": str(bundle["polya_gamma_sampler"]),
+            "polya_gamma_channels": int(jnp.sum(polya_gamma_plan.channel_mask)),
+            "polya_gamma_num_terms": int(polya_gamma_plan.num_terms),
+            "rbpf_enabled": bool(bundle["rbpf_enabled"]),
+            "rbpf_requested": bool(bundle["rbpf_requested"]),
+            "rbpf_mode": str(bundle["rbpf_mode"]),
+            "rbpf_structure": str(bundle["rbpf_structure"]),
+            "rbpf_carried_latent_indices": list(rbpf_partition.carried_latent_indices),
+            "rbpf_marginalized_latent_indices": list(rbpf_partition.marginalized_latent_indices),
+            "rbpf_observation_channels": int(jnp.sum(rbpf_observation_plan.channel_mask)),
+            "rbpf_gaussian_observation_channels": int(
+                jnp.sum(rbpf_observation_plan.gaussian_channel_mask)
+            ),
+            "rbpf_polya_gamma_observation_channels": int(
+                jnp.sum(rbpf_observation_plan.polya_gamma_channel_mask)
+            ),
             "latent_accept_rate": float(
                 jnp.mean(run_result["chain_extra_fields"]["latent_accept_prob"])
             ),

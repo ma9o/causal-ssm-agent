@@ -1,7 +1,7 @@
 """Vector-field components — edges and full-vector terms.
 
 A ``VectorFieldComponent`` is anything that contributes to ``dη/dt``. Components
-are composed by ``CompositeVectorField`` into the system vector field. Two
+are composed by ``VectorField`` into the system vector field. Two
 broad kinds live here:
 
 - **Single-target edges** with explicit source / target indices:
@@ -18,7 +18,7 @@ broad kinds live here:
   used by compiler-produced component specs.
 
 Every component implements the same ``contribute`` signature, so
-``CompositeVectorField`` is a single uniform loop. Each component reads
+``VectorField`` is a single uniform loop. Each component reads
 its own slice of ``args.params`` (matched by position in the components
 tuple), which keeps parameter shapes scoped to the component that owns
 them.
@@ -90,7 +90,7 @@ class DenseLinear(eqx.Module):
 class DiagonalDecay(eqx.Module):
     """Per-latent relaxation term ``-decay · η``.
 
-    Used in the composite primitive case where the user has explicit
+    Used in the vector-field primitive case where the user has explicit
     natural timescales (decay rate ``ρ_i`` for each latent). For the
     effect-compartment pattern, set ``decay[target] = k_e0`` to match
     a ``LinearEdge`` with weight ``k_e0`` and obtain
