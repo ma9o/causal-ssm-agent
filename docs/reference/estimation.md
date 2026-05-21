@@ -2,7 +2,7 @@
 
 This document describes what `SSMModel.model()` computes when the [compilation pipeline](compilation.md) hands off a ready-to-fit [`SSMModel`](compilation.md#stage-6-builder--runtime-ssm_compilerpy-ssm_builderpy-ssm_observation_metadatapy). The entry point is a compiled artifact containing `SSMSpec`, `compiled_prior_semantics`, `edge_lag_days`, and parameter bindings — everything before this point is covered in [compilation.md](compilation.md). For inference strategy selection rationale, see [inference-routing.md](inference-routing.md).
 
-**Reader map:**
+**Reader guide:**
 
 - **Sections 1–3** are math: the continuous-time SDE that the model encodes, how it gets discretized per observation interval, and how the runtime builds state-side objectives using IEKS/Laplace likelihoods.
 - **Section 4** is runtime: the library stack (JAX / NumPyro / cuthbert) and the data flow from compiled artifact through fitting to `InferenceResult`.
@@ -62,7 +62,7 @@ For a time series with T observations and potentially irregular intervals, the d
 
 ## 3. State-Side Objectives
 
-The marginalization backend implements a shared `compute_log_likelihood()` protocol and injects log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. The `map` backend uses an IEKS/Laplace approximate marginal likelihood, and the blocked MCMC methods update latent trajectories directly. The routing details live in [inference-routing.md](inference-routing.md).
+The IEKS/Laplace machinery implements a shared `compute_log_likelihood()` protocol and can inject log p(y | theta) into the NumPyro model via `numpyro.factor()`, which adds the log-likelihood scalar directly to the model's log-joint density. The public blocked MCMC methods update latent trajectories directly. The routing details live in [inference-routing.md](inference-routing.md).
 
 ### IEKS/Laplace backend
 
@@ -74,9 +74,8 @@ Approximate marginal likelihood for non-Gaussian observation models and support-
 
 ### Method-specific inner objectives
 
-Some methods do not use only the generic `models/likelihoods` package as their inner objective:
+Some method internals do not use only the generic `models/likelihoods` package as their inner objective:
 
-- **`map`** uses the IEKS/Laplace approximate marginal likelihood before local Gaussian parameter sampling.
 - **`aux_kalman_mcmc`** and **`pit_particle_mgrad`** update latent trajectories as part of blocked complete-data MCMC rather than sampling only from a marginalized parameter target.
 
 ### Missing data handling

@@ -160,12 +160,14 @@ class TestLOODiagnostics:
             "sigma": 0.5 + 0.04 * random.normal(k_sigma, (200,)),
         }
 
-        map_result = InferenceResult(
+        inference_result = InferenceResult(
             _samples=samples,
-            method="map",
+            method="aux_kalman_mcmc",
             diagnostics={},
         )
-        loo = map_result.get_loo_diagnostics(model_fn=_ssm_style_model, observations=x, times=y)
+        loo = inference_result.get_loo_diagnostics(
+            model_fn=_ssm_style_model, observations=x, times=y
+        )
         assert loo is not None
         assert "elpd_loo" in loo
         assert "p_loo" in loo

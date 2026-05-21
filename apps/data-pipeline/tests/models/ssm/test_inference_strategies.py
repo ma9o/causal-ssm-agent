@@ -31,7 +31,6 @@ from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import AutoReparam, InferenceResult, SSMModel, fit
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
 from nof1_causal_lab.models.ssm.inference.methods.map import (
@@ -102,10 +101,11 @@ from tests.ssm_test_utils import (
     block_ssm_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
+    structural_dense_drift_spec,
 )
 
 
-def _linear_drift_spec(
+def _structural_dense_drift_spec(
     n_latent: int,
     *,
     drift_diag_mask: np.ndarray | None = None,
@@ -119,7 +119,7 @@ def _linear_drift_spec(
     if drift_offdiag_mask is None:
         drift_offdiag_mask = np.ones((n_latent, n_latent), dtype=bool)
         np.fill_diagonal(drift_offdiag_mask, False)
-    return linear_drift_spec(
+    return structural_dense_drift_spec(
         n_latent=n_latent,
         drift_diag_mask=drift_diag_mask,
         drift_offdiag_mask=drift_offdiag_mask,
@@ -160,7 +160,7 @@ def _one_dim_block_spec():
     return block_ssm_spec(
         n_latent=1,
         n_manifest=1,
-        drift_spec=_linear_drift_spec(1),
+        drift_spec=_structural_dense_drift_spec(1),
         diffusion_block=diagonal_diffusion_block(1),
     )
 
@@ -2081,35 +2081,22 @@ class TestDefaultMethodRouting:
 
         assert result.method == "aux_kalman_mcmc"
 
-    def test_non_point_support_allows_map(self, monkeypatch):
+    def test_public_fit_rejects_map(self):
         spec = _one_dim_block_spec()
         model = SSMModel(spec)
         model.set_observation_support(self._non_point_support())
         observations = jnp.array([[jnp.nan], [0.2]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
-        def fake_fit_map(_model, _observations, _times, **kwargs):
-            return InferenceResult(
-                _samples={"vf_0_base_decay": jnp.zeros((1, 1), dtype=jnp.float32)},
-                method="map",
-                diagnostics={"kwargs": kwargs},
-            )
-
-        monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm.inference.methods.map.fit_map",
-            fake_fit_map,
-        )
-
-        result = fit(model, observations=observations, times=times, method="map")
-
-        assert result.method == "map"
+        with pytest.raises(ValueError, match="Unknown inference method"):
+            fit(model, observations=observations, times=times, method="map")
 
 
 def test_map_optimizer_smoke_on_small_kalman_model():
     spec = block_ssm_spec(
         n_latent=1,
         n_manifest=1,
-        drift_spec=_linear_drift_spec(
+        drift_spec=_structural_dense_drift_spec(
             1,
             drift_diag_mask=np.array([False]),
             drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -2169,11 +2156,10 @@ def test_map_optimizer_smoke_on_small_kalman_model():
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
-    result = fit(
+    result = fit_map(
         model,
         observations=observations,
         times=times,
-        method="map",
         num_samples=6,
         n_ieks_iters=2,
         maxiter=5,
@@ -2199,7 +2185,7 @@ def _make_aux_kalman_mcmc_smoke_spec(**overrides):
     kwargs = {
         "n_latent": 1,
         "n_manifest": 1,
-        "drift_spec": _linear_drift_spec(
+        "drift_spec": _structural_dense_drift_spec(
             1,
             drift_diag_mask=np.array([False]),
             drift_offdiag_mask=np.zeros((1, 1), dtype=bool),

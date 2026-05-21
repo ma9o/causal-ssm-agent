@@ -11,9 +11,9 @@ export interface EdgePosterior {
 
 export type EdgeAnimState = "normal" | "cut" | "flowing" | "dimmed";
 
-export type NodeAnimPhase = "idle" | "clamped" | "receiving" | "active" | "abducted" | "dimmed";
+export type NodeAnimPhase = "idle" | "clamped" | "receiving" | "active" | "start_state" | "dimmed";
 
-export type ActionReferenceKind = "baseline_steady_state" | "abducted_state";
+export type ActionReferenceKind = "baseline_steady_state" | "fitted_start_state";
 
 export type Stage6SimulationResult =
   | SimulateInterventionResult

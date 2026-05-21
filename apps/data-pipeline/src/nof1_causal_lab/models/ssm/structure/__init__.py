@@ -6,14 +6,6 @@ from nof1_causal_lab.models.ssm.structure.blocks import (
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
-    default_diffusion_block,
-    default_input_effect_block,
-    default_lambda_block,
-    default_manifest_chol_block,
-    default_manifest_means_block,
-    default_static_state_sd_block,
-    default_t0_chol_block,
-    default_t0_means_block,
 )
 from nof1_causal_lab.models.ssm.structure.sites import (
     PriorAuthoringTransform,
@@ -36,12 +28,4 @@ __all__ = [
     "SupportClass",
     "T0CholBlockSpec",
     "TransformKind",
-    "default_diffusion_block",
-    "default_input_effect_block",
-    "default_lambda_block",
-    "default_manifest_chol_block",
-    "default_manifest_means_block",
-    "default_static_state_sd_block",
-    "default_t0_chol_block",
-    "default_t0_means_block",
 ]

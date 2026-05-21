@@ -22,6 +22,7 @@ import numpyro.distributions as dist
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.dynamics.composite import CompositeSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
@@ -57,7 +58,6 @@ from nof1_causal_lab.models.ssm.parameterization import (
     build_prior_runtime_bundle,
     build_site_prior_distribution,
 )
-from nof1_causal_lab.models.ssm.priors import PriorRegistry, default_prior_registry
 
 
 @jax.custom_vjp
@@ -83,59 +83,12 @@ def _sample_prior_array(site_name: str, prior: dist.Distribution) -> jnp.ndarray
     return jnp.asarray(numpyro.sample(site_name, prior))
 
 
-def full_drift_offdiag_mask(n_latent: int) -> np.ndarray:
-    """Return the fully free off-diagonal structural support mask for a drift matrix."""
-    mask = np.ones((n_latent, n_latent), dtype=bool)
-    np.fill_diagonal(mask, False)
-    return mask
-
-
-def zero_loading_mask(n_manifest: int, n_latent: int) -> np.ndarray:
-    """Return the zero free-loading mask for a fixed loading template."""
-    return np.zeros((n_manifest, n_latent), dtype=bool)
-
-
-def full_vector_mask(n: int) -> np.ndarray:
-    """Return a fully free vector support mask."""
-    return np.ones(n, dtype=bool)
-
-
-def zero_vector_mask(n: int) -> np.ndarray:
-    """Return a zero vector support mask."""
-    return np.zeros(n, dtype=bool)
-
-
-def full_diagonal_mask(n: int) -> np.ndarray:
-    """Return a fully free diagonal support mask."""
-    return np.ones(n, dtype=bool)
-
-
-def zero_diagonal_mask(n: int) -> np.ndarray:
-    """Return a zero diagonal support mask."""
-    return np.zeros(n, dtype=bool)
-
-
-def full_cholesky_mask(n: int) -> np.ndarray:
-    """Return the fully free lower-Cholesky support mask."""
-    return np.tri(n, dtype=bool)
-
-
-def strict_lower_triangle_mask(n: int) -> np.ndarray:
-    """Return the strict lower-triangle support mask."""
-    return np.tri(n, k=-1, dtype=bool)
-
-
-def zero_square_mask(n: int) -> np.ndarray:
-    """Return the zero square support mask."""
-    return np.zeros((n, n), dtype=bool)
-
-
 @dataclass
 class SSMSpec:
     """Specification for a state-space model.
 
-    Matrices:
-    - drift (A): n_latent x n_latent continuous-time auto/cross effects
+    Blocks:
+    - drift_spec: component-owned continuous-time latent vector field
     - diffusion_chol (L_Q): n_latent x n_latent process noise Cholesky factor
     - cint (c): n_latent x 1 continuous intercept
     - lambda_mat (Λ): n_manifest x n_latent factor loadings
@@ -150,7 +103,7 @@ class SSMSpec:
     - manifest_links (gᵢ): per-channel link
     - hᵢ: extra observation parameters required by Fᵢ (for example df, shape, r, concentration, cutpoints, or categorical logits)
 
-    State:       dη(t) = (A η(t) + c) dt + L_Q dNₛ(t)
+    State:       dη(t) = f(t, η(t), θ) dt + L_Q dNₛ(t)
                  η(0) ~ N(t0_means, L_0 L_0ᵀ)
 
     Linear pred: ξᵢ(t) = (Λ η(t) + μ)ᵢ
@@ -198,6 +151,7 @@ class SSMSpec:
 
     def __post_init__(self) -> None:
         """Validate block-spec shape agreement and canonicalize metadata."""
+
         def _shape_tuple(shape: tuple[int, ...]) -> str:
             return "(" + ", ".join(str(dim) for dim in shape) + ")"
 
@@ -206,9 +160,7 @@ class SSMSpec:
                 raise ValueError(f"{name} must have shape {_shape_tuple(shape)}, got None.")
             actual = np.asarray(value).shape
             if actual != shape:
-                raise ValueError(
-                    f"{name} must have shape {_shape_tuple(shape)}, got {actual}."
-                )
+                raise ValueError(f"{name} must have shape {_shape_tuple(shape)}, got {actual}.")
 
         def _require_vector(name: str, value: Any, n: int) -> None:
             _require_shape(name, value, (n,))
@@ -276,10 +228,7 @@ class SSMSpec:
             self.n_latent,
             self.n_latent,
         )
-        if (
-            self.lambda_block.n_rows != self.n_manifest
-            or self.lambda_block.n_cols != self.n_latent
-        ):
+        if self.lambda_block.n_rows != self.n_manifest or self.lambda_block.n_cols != self.n_latent:
             raise ValueError(
                 f"lambda_block shape ({self.lambda_block.n_rows}, "
                 f"{self.lambda_block.n_cols}) != "
@@ -313,8 +262,7 @@ class SSMSpec:
         )
         if self.t0_means_block.n != self.n_latent:
             raise ValueError(
-                f"t0_means_block.n ({self.t0_means_block.n}) "
-                f"!= n_latent ({self.n_latent})"
+                f"t0_means_block.n ({self.t0_means_block.n}) != n_latent ({self.n_latent})"
             )
         _require_vector("t0_means_mask", self.t0_means_block.mask, self.n_latent)
         _require_vector("t0_means", self.t0_means_block.template, self.n_latent)
@@ -512,7 +460,7 @@ class SSMModel:
             priors: Prior registry (uses compiler defaults if None)
         """
         self.spec = spec
-        self.priors = priors or default_prior_registry()
+        self.priors = priors
         self._parameter_layout = SSMParameterLayout.from_spec(spec)
         self._artifact_cache: dict[tuple[Any, ...], Any] = {}
         self.observation_support: ObservationSupportRuntime | None = None
@@ -550,12 +498,8 @@ class SSMModel:
     def vector_field(self):
         """Unified drift representation as a :class:`CompositeVectorField`.
 
-        After :class:`SSMSpec` auto-builds ``drift_spec`` in
-        ``__post_init__``, every spec has a populated ``drift_spec`` — the
-        affine dynamics are represented by a structural composite
-        (``StructuralDenseLinear`` + ``StructuralIntercept``), the composite
-        path stays whatever the user / Stage 4 declared. The compiled
-        vector field is what downstream consumers
+        Every spec carries a populated ``drift_spec``. The compiled vector
+        field is what downstream consumers
         (``compute_steady_state``, ``simulate``,
         ``check_jacobian_stability``, the per-step linearisation in the
         auxiliary Kalman MH, …) all consume uniformly.
@@ -694,7 +638,7 @@ class SSMModel:
         t0_var_lower_free) to their sampled values.
 
         Drift parameters are always sampled through ``compile_composite`` so
-        linear and nonlinear dynamics share one vector-field runtime path.
+        all dynamics components share one vector-field runtime path.
         """
         sampled: dict[str, jnp.ndarray] = {}
         for block in (
@@ -739,9 +683,7 @@ class SSMModel:
             input_effect=input_effect,
         )
 
-    def _compose_t0_cov(
-        self, sampled: dict[str, jnp.ndarray]
-    ) -> jnp.ndarray:
+    def _compose_t0_cov(self, sampled: dict[str, jnp.ndarray]) -> jnp.ndarray:
         """Assemble t0 covariance from the t0_chol block's raw free samples
         plus the static-factor contribution (loadings @ diag(sds^2) @ loadingsᵀ),
         then stabilize for Cholesky decomposition.

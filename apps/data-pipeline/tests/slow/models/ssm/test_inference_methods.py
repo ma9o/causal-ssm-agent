@@ -16,13 +16,8 @@ from nof1_causal_lab.models.ssm import (
     SSMModel,
     discretize_system,
     fit,
-    full_diagonal_mask,
-    zero_diagonal_mask,
-    zero_loading_mask,
-    zero_square_mask,
-    zero_vector_mask,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import (
@@ -33,7 +28,18 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.ssm_test_utils import assert_recovery_ci, block_ssm_spec, make_lgss_data, prior_registry
+from tests.ssm_test_utils import (
+    assert_recovery_ci,
+    block_ssm_spec,
+    full_diagonal_mask,
+    make_lgss_data,
+    prior_registry,
+    structural_dense_drift_spec,
+    zero_diagonal_mask,
+    zero_loading_mask,
+    zero_square_mask,
+    zero_vector_mask,
+)
 
 pytestmark = pytest.mark.slow
 
@@ -260,7 +266,7 @@ def _make_map_mixed_support_recovery_data() -> dict:
     spec = block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=full_diagonal_mask(n_latent),
             drift_offdiag_mask=zero_square_mask(n_latent),
@@ -390,11 +396,10 @@ class TestMapLaplaceRecovery:
         data = _make_map_recovery_data()
         model = SSMModel(data["spec"])
 
-        result = fit(
+        result = fit_map(
             model,
             observations=data["observations"],
             times=data["times"],
-            method="map",
             num_samples=1000,
             n_ieks_iters=5,
             maxiter=100,
@@ -431,11 +436,10 @@ class TestMapLaplaceRecovery:
         model = SSMModel(data["spec"], data["priors"])
         model.set_observation_support(data["observation_support"])
 
-        result = fit(
+        result = fit_map(
             model,
             observations=data["observations"],
             times=data["times"],
-            method="map",
             num_samples=150,
             n_ieks_iters=5,
             maxiter=60,

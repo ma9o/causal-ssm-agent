@@ -20,30 +20,33 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 
 
+# Substring keys mapping a diagnostic's `parameter` field to the user-facing
+# model-parameter keyword set it implicates. The matcher in
+# ``prior_predictive.get_failed_parameters`` does ``if site_prefix in
+# result_param:`` so each key must cover one variant the diagnostic can use:
+# prior_field forms (``"drift_offdiag"``), block-runtime site names
+# (``"diffusion_lower_free"``, ``"t0_var_lower_free"``), and the composite
+# drift runtime suffixes (``"base_decay"``, ``"offdiag"``) that appear inside
+# the prefixed component site names ``"vf_<i>_base_decay"`` and
+# ``"vf_<i>_offdiag"``.
 SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "drift_base_decay": ["rho", "ar"],
     "base_decay": ["rho", "ar"],
     "drift_offdiag": ["beta"],
     "offdiag": ["beta"],
     "input_effect": ["beta"],
-    "input_effect_free": ["beta"],
     "diffusion_diag": ["sigma", "sd"],
-    "diffusion_diag_free": ["sigma", "sd"],
+    "diffusion_offdiag": ["cor"],
     "diffusion_lower_free": ["cor"],
     "cint": ["cint"],
     "static_state_sd": ["tau", "baseline_factor"],
-    "static_state_sd_free": ["tau", "baseline_factor"],
     "lambda_free": ["lambda", "loading"],
-    "manifest_means_free": ["manifest_mean"],
+    "manifest_means": ["manifest_mean"],
     "manifest_var_diag": ["obs_sd", "measurement_error"],
-    "manifest_var_diag_free": ["obs_sd", "measurement_error"],
     "t0_means": ["t0_mean"],
-    "t0_means_free": ["t0_mean"],
     "t0_var_diag": ["t0_sd"],
-    "t0_var_diag_free": ["t0_sd"],
     "t0_var_offdiag": list(INITIAL_STATE_CORRELATION_KEYWORDS),
     "t0_var_lower_free": list(INITIAL_STATE_CORRELATION_KEYWORDS),
-    "diffusion_offdiag": ["cor"],
     "obs_df": ["obs_df"],
     "obs_shape": ["obs_shape"],
     "obs_r": ["obs_r"],
@@ -52,10 +55,10 @@ SITE_TO_KEYWORDS: dict[str, list[str]] = {
     "obs_ordered_gaps": ["obs_ordered_gaps"],
     "obs_cat_intercepts": ["obs_cat_intercepts"],
     "obs_cat_slopes": ["obs_cat_slopes"],
+    # dynamics_stability is a synthetic validation parameter (not a prior
+    # field) that covers both drift and diffusion parameters.
+    "dynamics_stability": ["rho", "ar", "sigma", "sd"],
 }
-# dynamics_stability is a synthetic validation site (not a prior field) that
-# covers both drift and diffusion parameters.
-SITE_TO_KEYWORDS["dynamics_stability"] = ["rho", "ar", "sigma", "sd"]
 
 # SSM parameters with fixed default priors that are not in ModelSpec and
 # cannot be re-elicited.  Used to filter validation failures before mapping

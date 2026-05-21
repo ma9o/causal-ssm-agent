@@ -127,11 +127,7 @@ function getToolInput(scenario: FollowUpScenario) {
   }
 
   return {
-    evidence: {
-      start_time: counterfactualResult.evidence.start_time,
-      end_time: counterfactualResult.evidence.end_time,
-      variables: counterfactualResult.evidence.variables,
-    },
+    start: counterfactualResult.start,
     action: counterfactualResult.action,
     outcome: counterfactualResult.outcome,
     query: {
@@ -147,7 +143,7 @@ function getAssistantSummary(scenario: FollowUpScenario): string {
     return "Rung 2 completed. Shifting serotonergic exposure upward improves affective state, with downstream movement through sleep quality and physical activity.";
   }
 
-  return "Rung 3 completed. Conditioning on the observed history and then increasing adherence improves the projected affective-state trajectory relative to the factual forecast.";
+  return "Rung 3 completed. Starting from the retained fitted state and then increasing adherence improves the projected affective-state trajectory relative to the factual forecast.";
 }
 
 function createUserMessage(id: string, prompt: string): UIMessage {
@@ -166,7 +162,7 @@ function getFollowUpSuggestions(scenario: FollowUpScenario): SuggestionChip[] {
         action: {
           tool: "simulate_counterfactual",
           input: {
-            evidence: counterfactualResult.evidence,
+            start: counterfactualResult.start,
             action: counterfactualResult.action,
             outcome: counterfactualResult.outcome,
             query: {

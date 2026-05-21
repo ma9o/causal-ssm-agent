@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import jax.numpy as jnp
 import jax.random as random
 import jax.scipy.linalg as jla
 import numpy as np
 
-from nof1_causal_lab.models.ssm import SSMModel, SSMSpec, discretize_system
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
+from nof1_causal_lab.models.ssm import SSMSpec, discretize_system
+from nof1_causal_lab.models.ssm.dynamics.composite import (
+    CompositeSpec,
+    StructuralDenseLinearSpec,
+    StructuralInterceptSpec,
+)
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 from nof1_causal_lab.models.ssm.structure import (
@@ -19,19 +23,189 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
-    default_diffusion_block,
-    default_input_effect_block,
-    default_lambda_block,
-    default_manifest_chol_block,
-    default_manifest_means_block,
-    default_static_state_sd_block,
-    default_t0_chol_block,
-    default_t0_means_block,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 
-if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.dynamics.composite import CompositeSpec
+
+def zero_loading_mask(n_manifest: int, n_latent: int) -> np.ndarray:
+    return np.zeros((n_manifest, n_latent), dtype=bool)
+
+
+def full_vector_mask(n: int) -> np.ndarray:
+    return np.ones(n, dtype=bool)
+
+
+def zero_vector_mask(n: int) -> np.ndarray:
+    return np.zeros(n, dtype=bool)
+
+
+def full_diagonal_mask(n: int) -> np.ndarray:
+    return np.ones(n, dtype=bool)
+
+
+def zero_diagonal_mask(n: int) -> np.ndarray:
+    return np.zeros(n, dtype=bool)
+
+
+def full_cholesky_mask(n: int) -> np.ndarray:
+    return np.tri(n, dtype=bool)
+
+
+def zero_square_mask(n: int) -> np.ndarray:
+    return np.zeros((n, n), dtype=bool)
+
+
+def default_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
+    return DiffusionBlockSpec(
+        n_latent=n_latent,
+        diffusion_chol_mask=np.tri(n_latent, dtype=bool),
+        diffusion_chol_template=jnp.eye(n_latent),
+    )
+
+
+def default_lambda_block(n_manifest: int, n_latent: int) -> SparseMatrixBlockSpec:
+    return SparseMatrixBlockSpec(
+        n_rows=n_manifest,
+        n_cols=n_latent,
+        mask=np.zeros((n_manifest, n_latent), dtype=bool),
+        template=jnp.eye(n_manifest, n_latent),
+        free_site_name="lambda_free",
+        det_site_name="lambda",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.LOADING,
+        assembly_group="lambda",
+        fixed_spec_field="lambda_mat",
+        priors_field="lambda_free",
+    )
+
+
+def default_manifest_means_block(n_manifest: int) -> SparseVectorBlockSpec:
+    return SparseVectorBlockSpec(
+        n=n_manifest,
+        mask=np.zeros(n_manifest, dtype=bool),
+        template=jnp.zeros(n_manifest),
+        free_site_name="manifest_means_free",
+        det_site_name="manifest_means",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.MANIFEST_MEANS,
+        assembly_group="manifest",
+        fixed_spec_field="manifest_means",
+        priors_field="manifest_means",
+    )
+
+
+def default_manifest_chol_block(n_manifest: int) -> ManifestCholBlockSpec:
+    return ManifestCholBlockSpec(
+        n_manifest=n_manifest,
+        diag_mask=np.ones(n_manifest, dtype=bool),
+        template=jnp.zeros((n_manifest, n_manifest)),
+    )
+
+
+def default_t0_means_block(n_latent: int) -> SparseVectorBlockSpec:
+    return SparseVectorBlockSpec(
+        n=n_latent,
+        mask=np.ones(n_latent, dtype=bool),
+        template=jnp.zeros(n_latent),
+        free_site_name="t0_means_free",
+        det_site_name="t0_means",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.T0_MEANS,
+        assembly_group="t0",
+        fixed_spec_field="t0_means",
+        priors_field="t0_means",
+    )
+
+
+def default_t0_chol_block(n_latent: int) -> T0CholBlockSpec:
+    return T0CholBlockSpec(
+        n_latent=n_latent,
+        diag_mask=np.ones(n_latent, dtype=bool),
+        correlation_mask=np.tri(n_latent, k=-1, dtype=bool),
+        template=jnp.eye(n_latent),
+    )
+
+
+def default_input_effect_block(n_latent: int) -> SparseMatrixBlockSpec:
+    return SparseMatrixBlockSpec(
+        n_rows=n_latent,
+        n_cols=0,
+        mask=np.zeros((n_latent, 0), dtype=bool),
+        template=jnp.zeros((n_latent, 0)),
+        free_site_name="input_effect_free",
+        det_site_name="input_effect",
+        support=SupportClass.REAL,
+        site_kind=SiteKind.INPUT_EFFECT,
+        assembly_group="input_effect",
+        fixed_spec_field="input_effect",
+        priors_field="input_effect",
+    )
+
+
+def default_static_state_sd_block() -> SparseVectorBlockSpec:
+    return SparseVectorBlockSpec(
+        n=0,
+        mask=np.zeros(0, dtype=bool),
+        template=jnp.zeros(0),
+        free_site_name="static_state_sd_free",
+        det_site_name="static_state_sds",
+        support=SupportClass.POSITIVE,
+        site_kind=SiteKind.STATIC_STATE_SD,
+        assembly_group="t0",
+        fixed_spec_field="static_state_sds",
+        priors_field="static_state_sd",
+    )
+
+
+def structural_dense_drift_spec(
+    *,
+    n_latent: int,
+    drift_diag_mask: np.ndarray,
+    drift_offdiag_mask: np.ndarray,
+    drift_template: jnp.ndarray,
+    cint_mask: np.ndarray,
+    cint_template: jnp.ndarray,
+    time_invariant_mask: np.ndarray | None = None,
+    stability_margin: float = 0.05,
+    base_decay_prior: Any = None,
+    offdiag_prior: Any = None,
+    cint_prior: Any = None,
+) -> CompositeSpec:
+    """Build an explicit structural dense drift fixture for tests."""
+    return CompositeSpec(
+        n_latent=n_latent,
+        components=(
+            StructuralDenseLinearSpec(
+                n_latent=n_latent,
+                drift_diag_mask=drift_diag_mask,
+                drift_offdiag_mask=drift_offdiag_mask,
+                drift_template=drift_template,
+                time_invariant_mask=time_invariant_mask,
+                stability_margin=stability_margin,
+                base_decay_prior=base_decay_prior,
+                offdiag_prior=offdiag_prior,
+            ),
+            StructuralInterceptSpec(
+                n_latent=n_latent,
+                cint_mask=cint_mask,
+                cint_template=cint_template,
+                cint_prior=cint_prior,
+            ),
+        ),
+    )
+
+
+def full_structural_dense_drift_spec(n_latent: int) -> CompositeSpec:
+    """Build a full-free structural dense drift fixture for tests."""
+    return structural_dense_drift_spec(
+        n_latent=n_latent,
+        drift_diag_mask=np.ones(n_latent, dtype=bool),
+        drift_offdiag_mask=np.ones((n_latent, n_latent), dtype=bool)
+        & ~np.eye(n_latent, dtype=bool),
+        drift_template=jnp.zeros((n_latent, n_latent)),
+        cint_mask=np.zeros(n_latent, dtype=bool),
+        cint_template=jnp.zeros(n_latent),
+    )
 
 
 def make_lgss_data(
@@ -74,7 +248,7 @@ def make_lgss_data(
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=np.zeros((n_latent, n_latent), dtype=bool),
@@ -184,105 +358,6 @@ def diagonal_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
         diffusion_chol_mask=np.diag(np.ones(n_latent, dtype=bool)),
         diffusion_chol_template=jnp.eye(n_latent),
     )
-
-
-def make_composite_ssm_model(
-    drift_spec: CompositeSpec,
-    *,
-    n_latent: int,
-    n_manifest: int,
-    H: jnp.ndarray,
-    d_meas: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    R: jnp.ndarray,
-    manifest_dists: list | None = None,
-    manifest_links: list | None = None,
-) -> SSMModel:
-    """Wrap a ``CompositeSpec`` plus runtime hyperparams into an ``SSMModel``.
-
-    Cholesky-factors the covariance arrays into the templates the
-    corresponding block-specs require. The non-drift blocks are fully
-    fixed (zero masks) since this helper exists for composite tests
-    that condition on these values rather than sample them.
-    """
-    init_cov = jnp.asarray(init_cov)
-    diffusion_cov = jnp.asarray(diffusion_cov)
-    R = jnp.asarray(R)
-
-    t0_chol = jnp.linalg.cholesky(init_cov)
-    diffusion_chol = jnp.linalg.cholesky(diffusion_cov)
-    manifest_chol = jnp.linalg.cholesky(R)
-
-    extra: dict[str, Any] = {}
-    if manifest_dists is not None:
-        extra["manifest_dists"] = manifest_dists
-    if manifest_links is not None:
-        extra["manifest_links"] = manifest_links
-
-    spec = SSMSpec(
-        n_latent=n_latent,
-        n_manifest=n_manifest,
-        drift_spec=drift_spec,
-        diffusion_block=DiffusionBlockSpec(
-            n_latent=n_latent,
-            diffusion_chol_mask=np.tri(n_latent, dtype=bool),
-            diffusion_chol_template=diffusion_chol,
-        ),
-        lambda_block=SparseMatrixBlockSpec(
-            n_rows=n_manifest,
-            n_cols=n_latent,
-            mask=np.zeros((n_manifest, n_latent), dtype=bool),
-            template=jnp.asarray(H),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        ),
-        manifest_means_block=SparseVectorBlockSpec(
-            n=n_manifest,
-            mask=np.zeros(n_manifest, dtype=bool),
-            template=jnp.asarray(d_meas),
-            free_site_name="manifest_means_free",
-            det_site_name="manifest_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.MANIFEST_MEANS,
-            assembly_group="manifest",
-            fixed_spec_field="manifest_means",
-            priors_field="manifest_means",
-        ),
-        manifest_chol_block=ManifestCholBlockSpec(
-            n_manifest=n_manifest,
-            diag_mask=np.ones(n_manifest, dtype=bool),
-            template=manifest_chol,
-        ),
-        t0_means_block=SparseVectorBlockSpec(
-            n=n_latent,
-            mask=np.ones(n_latent, dtype=bool),
-            template=jnp.asarray(init_mean),
-            free_site_name="t0_means_free",
-            det_site_name="t0_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.T0_MEANS,
-            assembly_group="t0",
-            fixed_spec_field="t0_means",
-            priors_field="t0_means",
-        ),
-        t0_chol_block=T0CholBlockSpec(
-            n_latent=n_latent,
-            diag_mask=np.ones(n_latent, dtype=bool),
-            correlation_mask=np.tri(n_latent, k=-1, dtype=bool),
-            template=t0_chol,
-        ),
-        input_effect_block=default_input_effect_block(n_latent),
-        static_state_sd_block=default_static_state_sd_block(),
-        **extra,
-    )
-    return SSMModel(spec)
 
 
 def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime:

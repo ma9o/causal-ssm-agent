@@ -1,6 +1,6 @@
 # Inference Routing for State-Space Models
 
-The implemented inference surface is deliberately small: `map`, `aux_kalman_mcmc`, and `pit_particle_mgrad`. For the CT-SDE formulation and likelihood backends, see [estimation.md](estimation.md).
+The implemented inference surface is deliberately small: `aux_kalman_mcmc` and `pit_particle_mgrad`. For the CT-SDE formulation and likelihood backends, see [estimation.md](estimation.md).
 
 ## The Marginalization Challenge
 
@@ -10,19 +10,18 @@ Given a state-space model with latent states **x**_1:T and observations **y**_1:
 p(y_1:T | theta) = integral p(y_1:T, x_1:T | theta) dx_1:T
 ```
 
-For SSMs with T timesteps and n latent dimensions, this integral is over an `(n x T)`-dimensional space. The implemented methods either approximate this marginal likelihood for parameter-only inference or use blocked complete-data MCMC updates over parameters and latent trajectories.
+For SSMs with T timesteps and n latent dimensions, this integral is over an `(n x T)`-dimensional space. The public methods use blocked complete-data MCMC updates over parameters and latent trajectories.
 
 ## Method Taxonomy
 
 | Method | Coupling | State-side objective | Parameter update | Primary use |
 |---|---|---|---|---|
-| `map` | Marginalized | IEKS/Laplace approximate marginal likelihood | L-BFGS-B mode plus local Gaussian posterior | Deterministic local fit |
 | `aux_kalman_mcmc` | Blocked complete-data MCMC | Auxiliary Kalman latent trajectory proposal | MALA parameter kernel | Default blocked MCMC fit |
 | `pit_particle_mgrad` | Blocked complete-data MCMC | PIT dSMC Particle-mGRAD latent trajectory proposal | MALA parameter kernel | Particle latent trajectory updates |
 
 ## Structural Routing
 
-The default routing resolves to `aux_kalman_mcmc`. Users can override the method with `map` or `pit_particle_mgrad` when they need a different approximation or MCMC behavior.
+The default routing resolves to `aux_kalman_mcmc`. Users can override the method with `pit_particle_mgrad` when they need particle latent trajectory updates instead of the auxiliary Kalman proposal.
 
 Routing still records the structural backend for runtime/frontend diagnostics:
 
@@ -36,14 +35,6 @@ Routing still records the structural backend for runtime/frontend diagnostics:
 | Blocked MCMC with particle latent proposals | `pit_particle_mgrad` | Uses the retained PIT Particle-mGRAD latent kernel with divide-and-conquer conditional particle smoothing. |
 
 ## Method Reference
-
-### MAP
-
-`map` optimizes the approximate marginal posterior over parameters, then samples a local Gaussian approximation in unconstrained parameter space. The likelihood side uses the IEKS/Laplace backend.
-
-**When to use:** Deterministic geometry diagnostics and local posterior approximations.
-
-**Limitations:** Local and unimodal by construction. Posterior skewness and separated modes are not represented.
 
 ### Auxiliary Kalman MCMC
 

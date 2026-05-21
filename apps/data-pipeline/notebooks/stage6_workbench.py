@@ -17,8 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 import nof1_causal_lab.tool_server as tool_server
 from nof1_causal_lab.flows.stages.stage6.contracts import (
-    CounterfactualEvidenceInput,
     CounterfactualQueryInput,
+    CounterfactualStartInput,
     GetModelInfoInput,
     InterventionActionInput,
     InterventionQueryInput,
@@ -52,7 +52,7 @@ class CounterfactualScenarioSpec(BaseModel):
 
     kind: Literal["counterfactual"] = "counterfactual"
     name: str | None = None
-    evidence: CounterfactualEvidenceInput = Field(default_factory=CounterfactualEvidenceInput)
+    start: CounterfactualStartInput = Field(default_factory=CounterfactualStartInput)
     action: InterventionActionInput
     outcome: str | None = None
     query: CounterfactualQueryInput = Field(default_factory=CounterfactualQueryInput)
@@ -60,7 +60,7 @@ class CounterfactualScenarioSpec(BaseModel):
     def tool_input(self) -> dict[str, Any]:
         """Return the Stage 6 tool payload."""
         return {
-            "evidence": self.evidence.model_dump(mode="json"),
+            "start": self.start.model_dump(mode="json"),
             "action": self.action.model_dump(mode="json"),
             "outcome": self.outcome,
             "query": self.query.model_dump(mode="json"),
@@ -82,7 +82,7 @@ class VariableActionBuilder:
         return InterventionActionInput(variable=self.variable, mode="set", value=value)
 
     def shift(self, amount: float) -> InterventionActionInput:
-        """Clamp the variable to baseline/abducted value plus ``amount``."""
+        """Clamp the variable to baseline/start-state value plus ``amount``."""
         return InterventionActionInput(variable=self.variable, mode="shift", amount=amount)
 
 
@@ -177,6 +177,14 @@ class Stage6Session:
         spec = artifact.builder.spec
         return list(spec.latent_names or [])
 
+    @property
+    def fitted_time_count(self) -> int:
+        runtime = self._ctx.get("_prepared_runtime")
+        times = getattr(runtime, "times", None)
+        if times is not None:
+            return len(times)
+        return len(self._ctx.get("_observation_timestamps") or [])
+
     def variable(self, name: str) -> VariableActionBuilder:
         """Return a builder for single-variable Stage 6 actions."""
         return VariableActionBuilder(name)
@@ -239,9 +247,8 @@ class Stage6Session:
         action: InterventionActionInput,
         name: str | None = None,
         outcome: str | None = None,
-        start_time: str | None = None,
-        end_time: str | None = None,
-        variables: list[str] | None = None,
+        time_index: int | None = None,
+        time: str | None = None,
         estimand: Literal["end_state", "trajectory"] = "trajectory",
         horizon_days: int = 30,
         projection: Literal["latent", "manifest", "both"] = "latent",
@@ -249,11 +256,7 @@ class Stage6Session:
         """Build a rung-3 counterfactual scenario."""
         return CounterfactualScenarioSpec(
             name=name,
-            evidence=CounterfactualEvidenceInput(
-                start_time=start_time,
-                end_time=end_time,
-                variables=variables or [],
-            ),
+            start=CounterfactualStartInput(time_index=time_index, time=time),
             action=action,
             outcome=outcome,
             query=CounterfactualQueryInput(
@@ -309,6 +312,7 @@ class Stage6Workbench:
         outcome = self.session.outcome
         outcome_options = latent_names or ([outcome] if outcome else [])
         treatment_options = treatments or latent_names
+        max_time_index = max(0, self.session.fitted_time_count - 1)
 
         self.kind = widgets.ToggleButtons(
             options=[("Intervention", "intervention"), ("Counterfactual", "counterfactual")],
@@ -349,21 +353,13 @@ class Stage6Workbench:
             options=[("Latent", "latent"), ("Manifest", "manifest"), ("Both", "both")],
             description="Projection",
         )
-        self.start_time = widgets.Text(
-            value="",
-            description="Start",
-            placeholder="optional ISO-8601",
-            disabled=True,
-        )
-        self.end_time = widgets.Text(
-            value="",
-            description="End",
-            placeholder="optional ISO-8601",
-            disabled=True,
-        )
-        self.evidence_variables = widgets.SelectMultiple(
-            options=latent_names,
-            description="Evidence",
+        self.start_index = widgets.IntSlider(
+            value=max_time_index,
+            min=0,
+            max=max_time_index,
+            step=1,
+            description="Start idx",
+            continuous_update=False,
             disabled=True,
         )
         self.run_button = widgets.Button(description="Run", button_style="primary")
@@ -384,10 +380,8 @@ class Stage6Workbench:
                 widgets.HBox([self.mode, self.amount, self.value]),
                 widgets.HBox([self.estimand, self.horizon, self.projection]),
                 widgets.Accordion(
-                    children=[
-                        widgets.VBox([self.start_time, self.end_time, self.evidence_variables])
-                    ],
-                    titles=("Counterfactual evidence",),
+                    children=[widgets.VBox([self.start_index])],
+                    titles=("Counterfactual start",),
                 ),
                 widgets.HBox([self.run_button, self.clear_button]),
             ]
@@ -405,9 +399,7 @@ class Stage6Workbench:
     def _on_kind_change(self, change: dict[str, Any]) -> None:
         kind = change["new"]
         is_counterfactual = kind == "counterfactual"
-        self.start_time.disabled = not is_counterfactual
-        self.end_time.disabled = not is_counterfactual
-        self.evidence_variables.disabled = not is_counterfactual
+        self.start_index.disabled = not is_counterfactual
         self.estimand.options = (
             [("Trajectory", "trajectory"), ("End state", "end_state")]
             if is_counterfactual
@@ -441,9 +433,7 @@ class Stage6Workbench:
         if self.kind.value == "counterfactual":
             return self.session.counterfactual(
                 **common,
-                start_time=self.start_time.value.strip() or None,
-                end_time=self.end_time.value.strip() or None,
-                variables=[str(value) for value in self.evidence_variables.value],
+                time_index=int(self.start_index.value),
                 estimand=self.estimand.value,
             )
         return self.session.intervention(

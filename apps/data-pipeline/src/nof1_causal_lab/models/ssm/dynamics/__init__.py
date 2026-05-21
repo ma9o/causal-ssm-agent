@@ -1,9 +1,9 @@
 """Continuous-time vector-field dynamics for SSMs.
 
-This package owns the dynamics vocabulary and runtime objects:
+This package owns the dynamics vocabulary:
 vector-field components, composite drift specs, interventions,
-stability checks, steady states, simulation, runtime envelopes, and
-composite-spec serialization.
+stability checks, steady states, simulation, and composite-spec
+serialization.
 
 Block-level SSM parameter structure lives in ``ssm.structure``.
 CT-to-DT matrix discretization lives in ``ssm.discretization``.
@@ -25,9 +25,7 @@ from .composite import (
     StructuralDenseLinearSpec,
     StructuralInterceptSpec,
     compile_composite,
-    default_linear_drift_spec,
     iter_component_semantic_bindings,
-    linear_drift_spec,
 )
 from .edges import (
     DenseLinear,
@@ -47,6 +45,7 @@ from .intervention import (
     constant_value,
     linear_ramp,
 )
+from .linearisation import Linearisation, infer_linearisation
 from .posterior import (
     PosteriorDynamicsSamples,
     component_param_samples_from_site_samples,
@@ -61,13 +60,6 @@ from .priors import (
     hill_n_prior,
     linear_edge_weight_prior,
     multiplicative_weight_prior,
-)
-from .runtime import (
-    RuntimeSSM,
-    infer_linearisation,
-    runtime_from_composite,
-    runtime_from_dense_linear,
-    runtime_from_ssm_model,
 )
 from .serialization import (
     composite_spec_from_dict,
@@ -94,13 +86,13 @@ __all__ = [
     "Intercept",
     "InterceptSpec",
     "Intervention",
+    "Linearisation",
     "LinearEdge",
     "LinearEdgeSpec",
     "MultiplicativeEdge",
     "MultiplicativeEdgeSpec",
     "Override",
     "PosteriorDynamicsSamples",
-    "RuntimeSSM",
     "SimulationConfig",
     "StabilityReport",
     "StructuralDenseLinearSpec",
@@ -116,7 +108,6 @@ __all__ = [
     "component_param_samples_from_site_samples",
     "compute_steady_state",
     "constant_value",
-    "default_linear_drift_spec",
     "diagonal_decay_prior",
     "effect_compartment_rate_prior",
     "hill_ec50_prior",
@@ -124,15 +115,11 @@ __all__ = [
     "hill_n_prior",
     "infer_linearisation",
     "iter_component_semantic_bindings",
-    "linear_drift_spec",
     "linear_edge_weight_prior",
     "linear_ramp",
     "multiplicative_weight_prior",
     "posterior_dynamics_from_result",
     "posterior_dynamics_from_samples",
-    "runtime_from_composite",
-    "runtime_from_dense_linear",
-    "runtime_from_ssm_model",
     "simulate",
     "simulate_pair",
 ]

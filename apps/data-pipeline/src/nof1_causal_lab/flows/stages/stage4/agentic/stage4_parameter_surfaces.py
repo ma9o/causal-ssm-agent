@@ -238,17 +238,26 @@ def _build_parameter_surface(
         if not construct_names and isinstance(cause, str) and isinstance(effect, str):
             construct_names = (cause, effect)
         owner_key = construct_names[-1] if construct_names else str(parameter["name"])
+        if role in {
+            "ar_coefficient",
+            "residual_sd",
+            "state_intercept",
+            "initial_state_mean",
+            "initial_state_sd",
+        } and isinstance(construct_name, str):
+            structural_context = {"construct": construct_name}
+        else:
+            structural_context = {
+                "construct_names": list(construct_names),
+                "component_kind": parameter.get("component_kind"),
+                "component_parameter": parameter.get("component_parameter"),
+            }
         return Stage4ParameterSurface(
             parameter=parameter,
             block_kind="dynamics_prior",
             owner_key=owner_key,
             construct_names=construct_names,
-            structural_context={
-                "construct_names": list(construct_names),
-                "component_kind": parameter.get("component_kind"),
-                "component_parameter": parameter.get("component_parameter"),
-                **_compiled_binding_context(parameter),
-            },
+            structural_context=structural_context,
         )
 
     if role == "measurement_error_sd":
@@ -281,7 +290,6 @@ def _build_parameter_surface(
                 "lagged": lagged,
                 "expected_lag_days": model_interval_days if lagged else 0.0,
                 "feedback_loop": lagged and (effect, cause) in lagged_edges,
-                **_compiled_binding_context(parameter),
             },
         )
 
@@ -363,17 +371,3 @@ def _build_parameter_surface(
         )
 
     raise ValueError(f"Unsupported Stage 4 parameter role {role!r}")
-
-
-def _compiled_binding_context(parameter: dict[str, Any]) -> dict[str, Any]:
-    """Return compiler binding fields for prompt-local structural context."""
-    keys = (
-        "compiled_site_name",
-        "compiled_prior_field",
-        "compiled_flat_index",
-        "compiled_site_kind",
-        "prior_transform",
-        "component_index",
-        "component_parameter",
-    )
-    return {key: parameter[key] for key in keys if parameter.get(key) is not None}

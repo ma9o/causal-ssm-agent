@@ -168,13 +168,13 @@ export const interventionResult: SimulateInterventionResult = {
     reference_node_trajectories: rung2ReferenceTrajectories,
     action_node_trajectories: rung2ActionTrajectories,
     node_effect_trajectories: rung2NodeEffects,
-    abducted_state: null,
+    start_state: null,
   },
   warnings: [],
 };
 
 const rung3Days = buildDailyGrid(60);
-const abductedState: Record<string, number> = {
+const startState: Record<string, number> = {
   affective_state: 0.34,
   serotonergic_exposure: 0.58,
   adherence: 0.74,
@@ -214,13 +214,13 @@ const cfTargets: Record<string, number> = {
   baseline_extraversion: 0.57,
 };
 const factualTrajectories = Object.fromEntries(
-  Object.entries(abductedState).map(([node, start]) => [
+  Object.entries(startState).map(([node, start]) => [
     node,
     driftToward(start, factualEq[node] ?? start, 60, rung3Days),
   ]),
 );
 const counterfactualTrajectories = Object.fromEntries(
-  Object.entries(abductedState).map(([node, start]) => {
+  Object.entries(startState).map(([node, start]) => {
     if (node === "adherence") {
       return [node, constantArray(cfTargets.adherence, rung3Days.length)];
     }
@@ -229,7 +229,7 @@ const counterfactualTrajectories = Object.fromEntries(
   }),
 );
 const rung3NodeEffects = Object.fromEntries(
-  Object.keys(abductedState).map((node) => [
+  Object.keys(startState).map((node) => [
     node,
     subtractSeries(
       counterfactualTrajectories[node] ?? constantArray(0, rung3Days.length),
@@ -240,12 +240,10 @@ const rung3NodeEffects = Object.fromEntries(
 
 export const counterfactualResult: SimulateCounterfactualResult = {
   rung: 3,
-  evidence: {
-    start_time: "2025-12-01T00:00:00+00:00",
-    end_time: "2026-02-28T00:00:00+00:00",
-    n_timepoints: 90,
-    variables: ["adherence", "serotonergic_exposure", "affective_state"],
-    conditioning_method: "posterior_smoother",
+  start: {
+    time_index: 89,
+    time: "2026-02-28T00:00:00+00:00",
+    state_source: "fitted_latent_paths",
   },
   action: {
     variable: "adherence",
@@ -267,7 +265,7 @@ export const counterfactualResult: SimulateCounterfactualResult = {
     reference_node_trajectories: factualTrajectories,
     action_node_trajectories: counterfactualTrajectories,
     node_effect_trajectories: rung3NodeEffects,
-    abducted_state: abductedState,
+    start_state: startState,
   },
   warnings: [],
 };

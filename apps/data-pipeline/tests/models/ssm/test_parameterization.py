@@ -15,17 +15,10 @@ from nof1_causal_lab.distributions import (
     DistributionFamily,
     PriorDistributionFamily,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import (
-    default_linear_drift_spec,
-    linear_drift_spec,
-)
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.model import (
     SSMModel,
     SSMSpec,
-    full_cholesky_mask,
-    full_diagonal_mask,
-    full_vector_mask,
 )
 from nof1_causal_lab.models.ssm.parameterization import (
     SupportClass,
@@ -52,6 +45,9 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
+)
+from nof1_causal_lab.models.ssm.structure.sites import SiteKind
+from tests.ssm_test_utils import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -60,9 +56,13 @@ from nof1_causal_lab.models.ssm.structure import (
     default_static_state_sd_block,
     default_t0_chol_block,
     default_t0_means_block,
+    full_cholesky_mask,
+    full_diagonal_mask,
+    full_structural_dense_drift_spec,
+    full_vector_mask,
+    prior_registry,
+    structural_dense_drift_spec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind
-from tests.ssm_test_utils import prior_registry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -86,7 +86,7 @@ def _make_spec(
 ) -> SSMSpec:
     """Build an SSMSpec from explicit block specs for tests."""
     if drift_spec is None:
-        drift_spec = default_linear_drift_spec(n_latent)
+        drift_spec = full_structural_dense_drift_spec(n_latent)
     return SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
@@ -122,7 +122,7 @@ def _linear_drift(
         cint_mask = np.zeros(n_latent, dtype=bool)
     if cint_template is None:
         cint_template = jnp.zeros(n_latent, dtype=jnp.float32)
-    return linear_drift_spec(
+    return structural_dense_drift_spec(
         n_latent=n_latent,
         drift_diag_mask=drift_diag_mask,
         drift_offdiag_mask=drift_offdiag_mask,

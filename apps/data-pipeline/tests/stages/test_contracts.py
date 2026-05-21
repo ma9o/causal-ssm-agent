@@ -223,7 +223,7 @@ def valid_stage_payloads() -> dict[str, dict]:
                 "test_stats": [],
             },
             "inference_metadata": {
-                "method": "map",
+                "method": "aux_kalman_mcmc",
                 "n_samples": 1000,
                 "duration_seconds": 1.2,
             },

@@ -11,13 +11,13 @@ from jax.flatten_util import ravel_pytree
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm import SSMModel, fit
+from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import CompositeVectorField
 from nof1_causal_lab.models.ssm.inference import _eval_model
+from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 from nof1_causal_lab.models.ssm.inference.shared import _apply_reparam
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
@@ -42,6 +42,7 @@ from tests.ssm_test_utils import (
     block_ssm_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
+    structural_dense_drift_spec,
 )
 
 pytestmark = pytest.mark.slow
@@ -53,7 +54,7 @@ def _default_linear_spec(n_latent: int, n_manifest: int):
     return block_ssm_spec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=np.ones(n_latent, dtype=bool),
             drift_offdiag_mask=offdiag,
@@ -241,11 +242,10 @@ class TestParameterRecoveryMAP:
         spec = _default_linear_spec(2, 2)
         model = SSMModel(spec)
 
-        result = fit(
+        result = fit_map(
             model,
             observations=observations,
             times=times,
-            method="map",
             num_warmup=200,
             num_samples=200,
             num_chains=1,
@@ -285,11 +285,10 @@ class TestParameterRecoveryMAP:
         spec = _default_linear_spec(2, 2)
         model = SSMModel(spec)
 
-        result = fit(
+        result = fit_map(
             model,
             observations=observations,
             times=times,
-            method="map",
             num_warmup=200,
             num_samples=200,
             num_chains=1,
@@ -314,7 +313,7 @@ class TestPureJaxLikelihoodEvaluator:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=np.ones(1, dtype=bool),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),

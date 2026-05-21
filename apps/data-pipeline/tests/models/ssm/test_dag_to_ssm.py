@@ -4,7 +4,7 @@ Tests that:
 1. drift_mask constrains off-diagonal sampling to causal edges only
 2. lambda_mask + template constrains factor loadings to measurement model
 3. Per-element priors align with mask positions
-4. Builder constructs masks from CausalSpec
+4. Builder constructs structural support from CausalSpec
 5. Pipeline threading passes causal_spec through
 """
 
@@ -17,13 +17,7 @@ import pytest
 
 from nof1_causal_lab.artifacts import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
-from nof1_causal_lab.models.ssm.model import (
-    SSMModel,
-    SSMSpec,
-    full_vector_mask,
-    zero_loading_mask,
-)
+from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 from nof1_causal_lab.models.ssm.parameterization import (
     SiteDescriptor,
     TransformKind,
@@ -35,7 +29,10 @@ from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (
     block_ssm_spec,
+    full_vector_mask,
     prior_registry,
+    structural_dense_drift_spec,
+    zero_loading_mask,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -69,7 +66,7 @@ def _make_3latent_spec(
     return block_ssm_spec(
         n_latent=n_l,
         n_manifest=n_m,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_l,
             drift_diag_mask=np.ones(n_l, dtype=bool),
             drift_offdiag_mask=drift_offdiag_mask,
@@ -236,7 +233,7 @@ class TestDriftMask:
         spec = block_ssm_spec(
             n_latent=1,
             n_manifest=1,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=1,
                 drift_diag_mask=np.ones(1, dtype=bool),
                 drift_offdiag_mask=np.zeros((1, 1), dtype=bool),
@@ -431,7 +428,7 @@ class TestPerElementPriors:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=2,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.ones(2, dtype=bool),
                 drift_offdiag_mask=offdiag_mask,
@@ -465,16 +462,18 @@ class TestPerElementPriors:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Builder mask construction
+# Builder structural-support construction
 # ═══════════════════════════════════════════════════════════════════════
 
 
-class TestBuilderMasks:
-    """Test that SSMModelBuilder constructs correct masks from CausalSpec."""
+class TestBuilderStructuralSupport:
+    """Test that SSMModelBuilder constructs correct block support from CausalSpec."""
 
-    def test_build_masks_from_causal_spec(self):
-        """Builder constructs drift_mask and lambda_mask from CausalSpec."""
-        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
+    def test_build_structural_support_from_causal_spec(self):
+        """Builder constructs drift/lambda support from CausalSpec."""
+        from nof1_causal_lab.models.ssm.compile.inputs import (
+            build_structural_support_from_causal_spec,
+        )
 
         causal_spec = _make_causal_spec_dict()
 
@@ -482,7 +481,9 @@ class TestBuilderMasks:
         manifest_cols = ["x1", "x2", "y1", "z1"]
 
         drift_mask, _input_effect_mask, lambda_mat, lambda_mask, _edge_lag_days = (
-            build_masks_from_causal_spec(latent_names, manifest_cols, 3, 4, causal_spec=causal_spec)
+            build_structural_support_from_causal_spec(
+                latent_names, manifest_cols, 3, 4, causal_spec=causal_spec
+            )
         )
 
         # Drift mask: baseline persistence diagonals + X→Y + Y→Z
@@ -509,10 +510,12 @@ class TestBuilderMasks:
 
     def test_no_causal_spec_materializes_explicit_default_masks(self):
         """Without causal_spec, structural defaults are still explicit."""
-        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import (
+            build_structural_support_from_causal_spec,
+        )
 
         drift_mask, input_effect_mask, _lambda_mat, lambda_mask, _edge_lag_days = (
-            build_masks_from_causal_spec(None, ["x1"], 1, 1, causal_spec=None)
+            build_structural_support_from_causal_spec(None, ["x1"], 1, 1, causal_spec=None)
         )
         np.testing.assert_array_equal(drift_mask, np.array([[True]]))
         np.testing.assert_array_equal(input_effect_mask, np.zeros((1, 0), dtype=bool))
@@ -520,7 +523,9 @@ class TestBuilderMasks:
 
     def test_known_input_edge_compiles_to_input_effect_mask(self):
         """Known inputs are transition drivers, not latent drift columns."""
-        from nof1_causal_lab.models.ssm.compile.inputs import build_masks_from_causal_spec
+        from nof1_causal_lab.models.ssm.compile.inputs import (
+            build_structural_support_from_causal_spec,
+        )
 
         causal_spec = {
             "latent": {
@@ -591,7 +596,7 @@ class TestBuilderMasks:
         }
 
         drift_mask, input_effect_mask, lambda_mat, lambda_mask, edge_lag_days = (
-            build_masks_from_causal_spec(
+            build_structural_support_from_causal_spec(
                 ["mood"],
                 ["mood_rating"],
                 1,
@@ -611,7 +616,7 @@ class TestBuilderMasks:
         [
             pytest.param(
                 {
-                    "drift_spec": linear_drift_spec(
+                    "drift_spec": structural_dense_drift_spec(
                         n_latent=3,
                         drift_diag_mask=np.ones(2, dtype=bool),
                         drift_offdiag_mask=np.ones((3, 3), dtype=bool),
@@ -691,7 +696,7 @@ class TestBuilderMasks:
         base = {
             "n_latent": 3,
             "n_manifest": 4,
-            "drift_spec": linear_drift_spec(
+            "drift_spec": structural_dense_drift_spec(
                 n_latent=3,
                 drift_diag_mask=np.ones(3, dtype=bool),
                 drift_offdiag_mask=np.ones((3, 3), dtype=bool),
@@ -724,7 +729,7 @@ class TestBuilderMasks:
             block_ssm_spec(
                 n_latent=2,
                 n_manifest=2,
-                drift_spec=linear_drift_spec(
+                drift_spec=structural_dense_drift_spec(
                     n_latent=2,
                     drift_diag_mask=np.ones(2, dtype=bool),
                     drift_offdiag_mask=np.ones((2, 2), dtype=bool),
@@ -785,9 +790,7 @@ class TestBuilderMasks:
             }
         )
 
-        with pytest.raises(
-            ValueError, match="Cannot auto-detect an SSMSpec when causal_spec is provided"
-        ):
+        with pytest.raises(ValueError, match="without an explicit specification source"):
             builder.build_model(X)
 
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(self):
@@ -892,9 +895,7 @@ class TestBuilderMasks:
         spec, _edge_lag_days = translate_spec(model_spec, causal_spec=causal_spec)
 
         np.testing.assert_array_equal(spec.static_state_sd_block.mask, np.array([True]))
-        np.testing.assert_allclose(
-            np.asarray(spec.static_state_sd_block.template), np.zeros(1)
-        )
+        np.testing.assert_allclose(np.asarray(spec.static_state_sd_block.template), np.zeros(1))
         np.testing.assert_allclose(
             np.asarray(spec.static_factor_loadings),
             np.array([[1.0], [1.0]]),
@@ -1058,9 +1059,7 @@ class TestBuilderMasks:
             spec.manifest_chol_block.diag_mask,
             np.array([True, True, False, False]),
         )
-        np.testing.assert_allclose(
-            np.asarray(spec.manifest_chol_block.template), np.zeros((4, 4))
-        )
+        np.testing.assert_allclose(np.asarray(spec.manifest_chol_block.template), np.zeros((4, 4)))
 
     def test_translate_spec_rejects_initial_state_correlation_parameters_with_causal_spec(self):
         """Causal-spec compilation no longer accepts pairwise cor0 parameters."""
@@ -1322,7 +1321,7 @@ class TestSiteRegistryMasks:
         spec = block_ssm_spec(
             n_latent=3,
             n_manifest=3,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=3,
                 drift_diag_mask=np.ones(3, dtype=bool),
                 drift_offdiag_mask=offdiag_mask,
@@ -1348,7 +1347,7 @@ class TestSiteRegistryMasks:
         spec = block_ssm_spec(
             n_latent=2,
             n_manifest=3,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=np.ones(2, dtype=bool),
                 drift_offdiag_mask=np.ones((2, 2), dtype=bool),

@@ -25,7 +25,7 @@ export interface DagAnimationState {
   nodePhases: Record<string, NodeAnimPhase>;
   nodeEffects: Record<string, number>;
   edgeStates: Record<string, EdgeAnimState>;
-  abductedValues: Record<string, number | null>;
+  startStateValues: Record<string, number | null>;
 }
 
 export interface DagAnimationControls {
@@ -37,7 +37,7 @@ export interface DagAnimationControls {
 
 type GraphAnimationFrame = Pick<
   DagAnimationState,
-  "nodePhases" | "nodeEffects" | "edgeStates" | "abductedValues"
+  "nodePhases" | "nodeEffects" | "edgeStates" | "startStateValues"
 >;
 
 function getDownstreamNodes(treatment: string, edges: CausalEdge[]): string[] {
@@ -94,18 +94,18 @@ function createEmptyState(
 ): GraphAnimationFrame {
   const nodePhases: Record<string, NodeAnimPhase> = {};
   const nodeEffects: Record<string, number> = {};
-  const abductedValues: Record<string, number | null> = {};
+  const startStateValues: Record<string, number | null> = {};
   for (const construct of constructs) {
     nodePhases[construct.name] = "idle";
     nodeEffects[construct.name] = 0;
-    abductedValues[construct.name] = null;
+    startStateValues[construct.name] = null;
   }
 
   const edgeStates: Record<string, EdgeAnimState> = {};
   for (const edge of edges) {
     edgeStates[edgeKey(edge.cause, edge.effect)] = "normal";
   }
-  return { nodePhases, nodeEffects, edgeStates, abductedValues };
+  return { nodePhases, nodeEffects, edgeStates, startStateValues };
 }
 
 function clampTreatmentNode(
@@ -124,10 +124,10 @@ function cutIncomingEdges(frame: GraphAnimationFrame, incoming: Set<string>): vo
   }
 }
 
-function revealAbductedNodes(
+function revealStartStateNodes(
   frame: GraphAnimationFrame,
   nodeNames: string[],
-  abductedState: Record<string, number>,
+  startState: Record<string, number>,
   showCount = nodeNames.length,
 ): void {
   for (let index = 0; index < Math.min(showCount, nodeNames.length); index++) {
@@ -135,8 +135,8 @@ function revealAbductedNodes(
     if (!name) {
       continue;
     }
-    frame.nodePhases[name] = "abducted";
-    frame.abductedValues[name] = abductedState[name] ?? null;
+    frame.nodePhases[name] = "start_state";
+    frame.startStateValues[name] = startState[name] ?? null;
   }
 }
 
@@ -248,7 +248,7 @@ function deriveRung3(
   const downstreamKeys = new Set(downstream.flatMap((node) => outgoingKeys(node, config.edges)));
   const base = createEmptyState(config.constructs, config.edges);
   const timelineDays = getEffectTrajectoryDays(config.result);
-  const abductedState = (config.result.visualization?.abducted_state ?? {}) as Record<
+  const startState = (config.result.visualization?.start_state ?? {}) as Record<
     string,
     number
   >;
@@ -256,22 +256,22 @@ function deriveRung3(
   let timeIndex = 0;
 
   if (progress < 0.2) {
-    phase = "abduction";
-    revealAbductedNodes(
+    phase = "start_state";
+    revealStartStateNodes(
       base,
       config.constructs.map((construct) => construct.name),
-      abductedState,
+      startState,
       Math.ceil((progress / 0.2) * config.constructs.length),
     );
   } else if (progress < 0.35) {
     phase = "surgery";
     clampTreatmentNode(base, config.result, treatment, 0);
-    revealAbductedNodes(
+    revealStartStateNodes(
       base,
       config.constructs
         .map((construct) => construct.name)
         .filter((name) => name !== treatment),
-      abductedState,
+      startState,
     );
     cutIncomingEdges(base, incoming);
   } else if (timelineDays.length > 0) {
@@ -387,7 +387,7 @@ export function useDagAnimation(
       nodePhases: {},
       nodeEffects: {},
       edgeStates: {},
-      abductedValues: {},
+      startStateValues: {},
       play,
       pause,
       reset,

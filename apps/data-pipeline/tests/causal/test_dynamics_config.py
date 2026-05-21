@@ -28,6 +28,15 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.ssm_test_utils import (
+    default_diffusion_block,
+    default_input_effect_block,
+    default_manifest_chol_block,
+    default_manifest_means_block,
+    default_static_state_sd_block,
+    default_t0_chol_block,
+    default_t0_means_block,
+)
 
 
 class TestMaterializePrior:
@@ -87,10 +96,16 @@ class TestCompositeSpecFromDict:
                 {
                     "kind": "DenseLinear",
                     "priors": {
-                        "drift": {"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0},
-                                  "shape": [2, 2]},
-                        "cint": {"family": "Normal", "params": {"mu": 0.0, "sigma": 0.5},
-                                 "shape": [2]},
+                        "drift": {
+                            "family": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "shape": [2, 2],
+                        },
+                        "cint": {
+                            "family": "Normal",
+                            "params": {"mu": 0.0, "sigma": 0.5},
+                            "shape": [2],
+                        },
                     },
                 },
             ],
@@ -116,40 +131,49 @@ class TestCompositeSpecFromDict:
                 {
                     "kind": "DiagonalDecay",
                     "priors": {
-                        "decay": {"family": "Gamma",
-                                  "params": {"concentration": 2.0, "rate": 4.0},
-                                  "shape": [5]},
+                        "decay": {
+                            "family": "Gamma",
+                            "params": {"concentration": 2.0, "rate": 4.0},
+                            "shape": [5],
+                        },
                     },
                 },
                 {
                     "kind": "Intercept",
-                    "priors": {"cint": {"family": "Normal",
-                                        "params": {"mu": 0.0, "sigma": 1.0},
-                                        "shape": [5]}},
+                    "priors": {
+                        "cint": {
+                            "family": "Normal",
+                            "params": {"mu": 0.0, "sigma": 1.0},
+                            "shape": [5],
+                        }
+                    },
                 },
                 {
                     "kind": "MultiplicativeEdge",
-                    "source_a": DOSE, "source_b": ADHERENCE, "target": C_P,
-                    "priors": {"weight": {"family": "Normal",
-                                          "params": {"mu": 0.0, "sigma": 1.0}}},
+                    "source_a": DOSE,
+                    "source_b": ADHERENCE,
+                    "target": C_P,
+                    "priors": {"weight": {"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0}}},
                 },
                 {
                     "kind": "LinearEdge",
-                    "source": C_P, "target": C_E,
-                    "priors": {"weight": {"family": "LogNormal",
-                                          "params": {"mu": 0.0, "sigma": 0.5}}},
+                    "source": C_P,
+                    "target": C_E,
+                    "priors": {
+                        "weight": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}}
+                    },
                 },
                 {
                     "kind": "HillEdge",
-                    "source": C_E, "target": AFFECTIVE,
+                    "source": C_E,
+                    "target": AFFECTIVE,
                     "priors": {
-                        "Emax": {"family": "LogNormal",
-                                 "params": {"mu": 0.0, "sigma": 0.5}},
-                        "EC50": {"family": "LogNormal",
-                                 "params": {"mu": 0.0, "sigma": 0.5}},
-                        "n":    {"family": "TruncatedNormal",
-                                 "params": {"mu": 2.0, "sigma": 0.5,
-                                            "lower": 1.0, "upper": 4.0}},
+                        "Emax": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}},
+                        "EC50": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}},
+                        "n": {
+                            "family": "TruncatedNormal",
+                            "params": {"mu": 2.0, "sigma": 0.5, "lower": 1.0, "upper": 4.0},
+                        },
                     },
                 },
             ],
@@ -157,8 +181,11 @@ class TestCompositeSpecFromDict:
         compiled = compile_composite(composite_spec_from_dict(config))
         kinds = [type(c).__name__ for c in compiled.vector_field.components]
         assert kinds == [
-            "DiagonalDecay", "Intercept", "MultiplicativeEdge",
-            "LinearEdge", "HillEdge",
+            "DiagonalDecay",
+            "Intercept",
+            "MultiplicativeEdge",
+            "LinearEdge",
+            "HillEdge",
         ]
         # Indices preserved
         mult = compiled.vector_field.components[2]
@@ -176,14 +203,18 @@ class TestEndToEndDriftFromDict:
         config = {
             "n_latent": 2,
             "components": [
-                {"kind": "DiagonalDecay",
-                 "priors": {"decay": {"family": "Delta",
-                                      "params": {"value": 1.0},
-                                      "shape": [2]}}},
-                {"kind": "LinearEdge",
-                 "source": 0, "target": 1,
-                 "priors": {"weight": {"family": "Delta",
-                                       "params": {"value": 0.3}}}},
+                {
+                    "kind": "DiagonalDecay",
+                    "priors": {
+                        "decay": {"family": "Delta", "params": {"value": 1.0}, "shape": [2]}
+                    },
+                },
+                {
+                    "kind": "LinearEdge",
+                    "source": 0,
+                    "target": 1,
+                    "priors": {"weight": {"family": "Delta", "params": {"value": 0.3}}},
+                },
             ],
         }
         compiled = compile_composite(composite_spec_from_dict(config))
@@ -209,10 +240,14 @@ class TestErrorPaths:
         config = {
             "n_latent": 2,
             "components": [
-                {"kind": "HillEdge",
-                 "source": 0, "target": 1,
-                 "priors": {"Emax": {"family": "LogNormal",
-                                     "params": {"mu": 0.0, "sigma": 0.5}}}},
+                {
+                    "kind": "HillEdge",
+                    "source": 0,
+                    "target": 1,
+                    "priors": {
+                        "Emax": {"family": "LogNormal", "params": {"mu": 0.0, "sigma": 0.5}}
+                    },
+                },
             ],
         }
         with pytest.raises(ValueError, match=r"EC50|missing required prior 'n'"):
@@ -236,29 +271,23 @@ class TestBlockSpecEquivalence:
             StructuralDenseLinearSpec,
             StructuralInterceptSpec,
             compile_composite,
-            linear_drift_spec,
-        )
-        from nof1_causal_lab.models.ssm.model import (
-            full_diagonal_mask,
-            zero_diagonal_mask,
-            zero_square_mask,
-            zero_vector_mask,
         )
         from nof1_causal_lab.models.ssm.structure import (
             DiffusionBlockSpec,
             SparseMatrixBlockSpec,
-            default_input_effect_block,
-            default_manifest_chol_block,
-            default_manifest_means_block,
-            default_static_state_sd_block,
-            default_t0_chol_block,
-            default_t0_means_block,
+        )
+        from tests.ssm_test_utils import (
+            full_diagonal_mask,
+            structural_dense_drift_spec,
+            zero_diagonal_mask,
+            zero_square_mask,
+            zero_vector_mask,
         )
 
         spec = SSMSpec(
             n_latent=2,
             n_manifest=1,
-            drift_spec=linear_drift_spec(
+            drift_spec=structural_dense_drift_spec(
                 n_latent=2,
                 drift_diag_mask=zero_diagonal_mask(2),
                 drift_offdiag_mask=zero_square_mask(2),
@@ -272,10 +301,12 @@ class TestBlockSpecEquivalence:
                 diffusion_chol_template=jnp.eye(2),
             ),
             lambda_block=SparseMatrixBlockSpec(
-                n_rows=1, n_cols=2,
+                n_rows=1,
+                n_cols=2,
                 mask=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
-                free_site_name="lambda_free", det_site_name="lambda",
+                free_site_name="lambda_free",
+                det_site_name="lambda",
                 support=SupportClass.REAL,
                 site_kind=SiteKind.LOADING,
                 assembly_group="lambda",
@@ -295,9 +326,7 @@ class TestBlockSpecEquivalence:
         block = DiffusionBlockSpec(
             n_latent=2,
             diffusion_chol_mask=spec.diffusion_block.diffusion_chol_mask,
-            diffusion_chol_template=jnp.asarray(
-                spec.diffusion_block.diffusion_chol_template
-            ),
+            diffusion_chol_template=jnp.asarray(spec.diffusion_block.diffusion_chol_template),
             time_invariant_mask=spec.diffusion_block.time_invariant_mask,
             diag_prior=ndist.LogNormal(0.0, 1.0),
         )
@@ -330,29 +359,24 @@ class TestBlockSpecEquivalence:
         from numpyro.handlers import condition, seed
 
         from nof1_causal_lab.models.ssm import SSMSpec
-        from nof1_causal_lab.models.ssm.dynamics import default_linear_drift_spec
-        from nof1_causal_lab.models.ssm.model import full_vector_mask
         from nof1_causal_lab.models.ssm.structure import (
             SparseMatrixBlockSpec,
             SparseVectorBlockSpec,
-            default_diffusion_block,
-            default_input_effect_block,
-            default_manifest_chol_block,
-            default_manifest_means_block,
-            default_static_state_sd_block,
-            default_t0_chol_block,
         )
+        from tests.ssm_test_utils import full_structural_dense_drift_spec, full_vector_mask
 
         spec = SSMSpec(
             n_latent=3,
             n_manifest=1,
-            drift_spec=default_linear_drift_spec(3),
+            drift_spec=full_structural_dense_drift_spec(3),
             diffusion_block=default_diffusion_block(3),
             lambda_block=SparseMatrixBlockSpec(
-                n_rows=1, n_cols=3,
+                n_rows=1,
+                n_cols=3,
                 mask=np.zeros((1, 3), dtype=bool),
                 template=jnp.array([[0.0, 1.0, 0.0]]),
-                free_site_name="lambda_free", det_site_name="lambda",
+                free_site_name="lambda_free",
+                det_site_name="lambda",
                 support=SupportClass.REAL,
                 site_kind=SiteKind.LOADING,
                 assembly_group="lambda",
@@ -365,7 +389,8 @@ class TestBlockSpecEquivalence:
                 n=3,
                 mask=full_vector_mask(3),
                 template=jnp.zeros(3),
-                free_site_name="t0_means_free", det_site_name="t0_means",
+                free_site_name="t0_means_free",
+                det_site_name="t0_means",
                 support=SupportClass.REAL,
                 site_kind=SiteKind.T0_MEANS,
                 assembly_group="t0",
@@ -437,9 +462,7 @@ class TestCompositeSpecRoundTrip:
                     "source_a": DOSE,
                     "source_b": ADHERENCE,
                     "target": C_P,
-                    "priors": {
-                        "weight": {"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0}}
-                    },
+                    "priors": {"weight": {"family": "Normal", "params": {"mu": 0.0, "sigma": 1.0}}},
                 },
                 {
                     "kind": "LinearEdge",
@@ -547,13 +570,6 @@ class TestCompositeSpecRoundTrip:
         )
         from nof1_causal_lab.models.ssm.structure import (
             SparseMatrixBlockSpec,
-            default_diffusion_block,
-            default_input_effect_block,
-            default_manifest_chol_block,
-            default_manifest_means_block,
-            default_static_state_sd_block,
-            default_t0_chol_block,
-            default_t0_means_block,
         )
 
         drift_spec = CompositeSpec(
@@ -574,10 +590,12 @@ class TestCompositeSpecRoundTrip:
             drift_spec=drift_spec,
             diffusion_block=default_diffusion_block(2),
             lambda_block=SparseMatrixBlockSpec(
-                n_rows=1, n_cols=2,
+                n_rows=1,
+                n_cols=2,
                 mask=np.zeros((1, 2), dtype=bool),
                 template=jnp.array([[0.0, 1.0]]),
-                free_site_name="lambda_free", det_site_name="lambda",
+                free_site_name="lambda_free",
+                det_site_name="lambda",
                 support=SupportClass.REAL,
                 site_kind=SiteKind.LOADING,
                 assembly_group="lambda",

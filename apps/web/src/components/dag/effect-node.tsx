@@ -14,7 +14,7 @@ interface EffectNodeData extends Construct {
   indicators?: Indicator[];
   animPhase?: NodeAnimPhase;
   effectMagnitude?: number | null;
-  abductedValue?: number | null;
+  startStateValue?: number | null;
   timeIndex?: number;
   timeStepsDays?: number[] | null;
   referenceTimeSeries?: number[] | null;
@@ -42,11 +42,11 @@ function EffectNodeInner({ data, selected }: NodeProps) {
   const indicators = d.indicators ?? [];
   const phase = d.animPhase ?? "idle";
   const effect = d.effectMagnitude;
-  const abducted = d.abductedValue;
+  const startState = d.startStateValue;
 
   const isClamped = phase === "clamped";
   const isActive = phase === "active";
-  const isAbducted = phase === "abducted";
+  const isStartState = phase === "start_state";
   const isDimmed = phase === "dimmed";
   const isReceiving = phase === "receiving";
 
@@ -84,7 +84,7 @@ function EffectNodeInner({ data, selected }: NodeProps) {
         isActive &&
           hasRenderableEffect &&
           (positive ? "border-teal-500" : "border-rose-500"),
-        isAbducted && "border-amber-400 ring-2 ring-amber-400/20",
+        isStartState && "border-amber-400 ring-2 ring-amber-400/20",
         isDimmed && "opacity-40",
         phase === "idle" &&
           (d.role === "endogenous"
@@ -93,7 +93,7 @@ function EffectNodeInner({ data, selected }: NodeProps) {
         d.is_outcome &&
           !isClamped &&
           !isActive &&
-          !isAbducted &&
+          !isStartState &&
           "ring-2 ring-foreground/75 ring-offset-1",
         selected && "shadow-lg ring-2 ring-primary ring-offset-2",
       )}
@@ -204,9 +204,9 @@ function EffectNodeInner({ data, selected }: NodeProps) {
               </div>
             )}
 
-            {isAbducted && abducted != null && (
+            {isStartState && startState != null && (
               <div className="mt-2 text-xs font-mono font-semibold text-amber-600 dark:text-amber-400">
-                {"\u03B7"} = {abducted.toFixed(2)}
+                {"\u03B7"} = {startState.toFixed(2)}
               </div>
             )}
           </>

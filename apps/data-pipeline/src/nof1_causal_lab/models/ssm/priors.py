@@ -59,28 +59,6 @@ class PriorRegistry:
         return self.priors_by_site.get(site_name)
 
 
-SITE_NAME_FOR_PRIOR_FIELD: dict[str, str] = {
-    "diffusion_diag": "diffusion_diag_free",
-    "diffusion_offdiag": "diffusion_lower_free",
-    "input_effect": "input_effect_free",
-    "static_state_sd": "static_state_sd_free",
-    "lambda_free": "lambda_free",
-    "manifest_means": "manifest_means_free",
-    "manifest_var_diag": "manifest_var_diag_free",
-    "t0_means": "t0_means_free",
-    "t0_var_diag": "t0_var_diag_free",
-    "t0_var_offdiag": "t0_var_lower_free",
-    "obs_df": "obs_df",
-    "obs_shape": "obs_shape",
-    "obs_r": "obs_r",
-    "obs_concentration": "obs_concentration",
-    "obs_ordered_base": "obs_ordered_base",
-    "obs_ordered_gaps": "obs_ordered_gaps",
-    "obs_cat_intercepts": "obs_cat_intercepts",
-    "obs_cat_slopes": "obs_cat_slopes",
-    "proc_df": "proc_df",
-}
-
 DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
     "drift_base_decay": PriorSpec(
         PriorDistributionFamily.GAMMA,
@@ -204,29 +182,13 @@ DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
     ),
 }
 
-DEFAULT_PRIOR_SPECS_BY_SITE: dict[str, PriorSpec] = {
-    site_name: DEFAULT_PRIOR_SPECS_BY_FIELD[prior_field]
-    for prior_field, site_name in SITE_NAME_FOR_PRIOR_FIELD.items()
-}
-
-
-def default_prior_registry() -> PriorRegistry:
-    """Return the compiler-owned default prior registry."""
-    return PriorRegistry(dict(DEFAULT_PRIOR_SPECS_BY_SITE))
-
-
-def default_prior_for_site(site_name: str) -> PriorSpec:
-    """Return the compiler-owned default prior for a sample site."""
-    try:
-        return DEFAULT_PRIOR_SPECS_BY_SITE[site_name]
-    except KeyError as exc:
-        raise KeyError(f"No default prior registered for sample site {site_name!r}") from exc
-
 
 def default_prior_for_descriptor(site: SiteDescriptor) -> PriorSpec:
     """Return the default prior for a descriptor-owned sample site."""
     if site.priors_field is None:
-        return default_prior_for_site(site.name)
+        raise KeyError(
+            f"Sample site {site.name!r} is missing priors_field; cannot resolve a default prior."
+        )
     try:
         return DEFAULT_PRIOR_SPECS_BY_FIELD[site.priors_field]
     except KeyError as exc:
@@ -234,6 +196,13 @@ def default_prior_for_descriptor(site: SiteDescriptor) -> PriorSpec:
             f"No default prior registered for prior field {site.priors_field!r} "
             f"on sample site {site.name!r}"
         ) from exc
+
+
+def default_prior_registry_for_sites(
+    sites: list[SiteDescriptor] | tuple[SiteDescriptor, ...],
+) -> PriorRegistry:
+    """Build a default prior registry keyed by descriptor name for the given active sites."""
+    return PriorRegistry({site.name: default_prior_for_descriptor(site) for site in sites})
 
 
 def _broadcast_prior_param(value: Any, shape: tuple[int, ...]):

@@ -29,16 +29,8 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily
-from nof1_causal_lab.models.ssm import (
-    SSMSpec,
-    full_diagonal_mask,
-    zero_diagonal_mask,
-    zero_loading_mask,
-    zero_square_mask,
-    zero_vector_mask,
-)
+from nof1_causal_lab.models.ssm import SSMSpec
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.inference.parallel_kalman import (
     aux_filter_lgssm,
     filter_lgssm,
@@ -51,10 +43,18 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseMatrixBlockSpec,
     SparseVectorBlockSpec,
     T0CholBlockSpec,
-    default_input_effect_block,
-    default_static_state_sd_block,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
+from tests.ssm_test_utils import (
+    default_input_effect_block,
+    default_static_state_sd_block,
+    full_diagonal_mask,
+    structural_dense_drift_spec,
+    zero_diagonal_mask,
+    zero_loading_mask,
+    zero_square_mask,
+    zero_vector_mask,
+)
 
 _JITTER = 1e-6
 
@@ -197,7 +197,7 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
     spec = SSMSpec(
         n_latent=n_latent,
         n_manifest=n_manifest,
-        drift_spec=linear_drift_spec(
+        drift_spec=structural_dense_drift_spec(
             n_latent=n_latent,
             drift_diag_mask=full_diagonal_mask(n_latent),
             drift_offdiag_mask=zero_square_mask(n_latent),

@@ -5,6 +5,7 @@ Biometrika
 Corenflos
 Duolingo
 Dynamax
+Emax
 Gaussianity
 Lyapunov
 Megaprompt

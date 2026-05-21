@@ -38,7 +38,7 @@ from nof1_causal_lab.flows.stages.stage5b.contracts import (
 )
 from nof1_causal_lab.flows.stages.stage6.contracts import (
     EXPORTED_TOOL_RESULT_MODELS,
-    CounterfactualEvidenceResultContract,
+    CounterfactualStartResultContract,
     EffectSummaryContract,
     EffectTrajectoryPointContract,
     SavedScenarioContract,
@@ -83,7 +83,7 @@ def validate_stage_payload(stage_id: str, data: dict[str, Any]) -> dict[str, Any
 
 __all__ = [
     "BaseStageContract",
-    "CounterfactualEvidenceResultContract",
+    "CounterfactualStartResultContract",
     "EffectSummaryContract",
     "EffectTrajectoryPointContract",
     "EXPORTED_TOOL_RESULT_MODELS",

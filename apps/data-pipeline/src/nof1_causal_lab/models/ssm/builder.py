@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
-import numpy as np
 import polars as pl
 
 from nof1_causal_lab.models.ssm import (
@@ -17,20 +16,12 @@ from nof1_causal_lab.models.ssm import (
     SSMParameterLayout,
     SSMSpec,
     fit,
-    full_cholesky_mask,
-    full_diagonal_mask,
-    full_drift_offdiag_mask,
-    full_vector_mask,
-    strict_lower_triangle_mask,
-    zero_loading_mask,
-    zero_vector_mask,
 )
 from nof1_causal_lab.models.ssm.compile.common import dump_prior_payloads
 from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_ssm_inputs_from_model_spec,
     compile_ssm_inputs_from_spec,
 )
-from nof1_causal_lab.models.ssm.dynamics.composite import linear_drift_spec
 from nof1_causal_lab.models.ssm.inference.structure import (
     InferenceStructurePlan,
     plan_inference_structure,
@@ -47,17 +38,11 @@ from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     load_prior_runtime_bundle,
 )
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-)
-from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from nof1_causal_lab.utils.data import pivot_to_wide
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.workers.schemas_prior import PriorProposal
 
@@ -134,7 +119,7 @@ class SSMModelBuilder:
             sampler_config: Override sampler configuration
             causal_spec: CausalSpec dict with latent model edges and measurement
                 model indicators. When provided, spec translation builds
-                drift_mask and lambda_mask from the DAG structure.
+                block/component support from the DAG structure.
         """
         if model_spec is not None and (ssm_spec is not None or prior_registry is not None):
             raise ValueError(
@@ -259,112 +244,12 @@ class SSMModelBuilder:
                 "the causal structure is encoded explicitly in the spec masks."
             )
         if self._spec is None and self._model_spec is None:
-            if self._causal_spec is not None:
-                raise ValueError(
-                    "Cannot auto-detect an SSMSpec when causal_spec is provided. "
-                    "Pass ModelSpec + CausalSpec or a compiled Stage 4 artifact so "
-                    "drift/loading masks come from the retained causal structure."
-                )
-            # Auto-detect from data
-            manifest_cols = default_manifest_columns(X)
-            n = len(manifest_cols)
-            spec = SSMSpec(
-                n_latent=n,
-                n_manifest=n,
-                drift_spec=linear_drift_spec(
-                    n_latent=n,
-                    drift_diag_mask=full_diagonal_mask(n),
-                    drift_offdiag_mask=full_drift_offdiag_mask(n),
-                    drift_template=jnp.zeros((n, n)),
-                    cint_mask=zero_vector_mask(n),
-                    cint_template=jnp.zeros(n),
-                ),
-                diffusion_block=DiffusionBlockSpec(
-                    n_latent=n,
-                    diffusion_chol_mask=full_cholesky_mask(n),
-                    diffusion_chol_template=jnp.eye(n),
-                ),
-                lambda_block=SparseMatrixBlockSpec(
-                    n_rows=n,
-                    n_cols=n,
-                    mask=zero_loading_mask(n, n),
-                    template=jnp.eye(n),
-                    free_site_name="lambda_free",
-                    det_site_name="lambda",
-                    support=SupportClass.REAL,
-                    site_kind=SiteKind.LOADING,
-                    assembly_group="lambda",
-                    fixed_spec_field="lambda_mat",
-                    priors_field="lambda_free",
-                ),
-                manifest_means_block=SparseVectorBlockSpec(
-                    n=n,
-                    mask=zero_vector_mask(n),
-                    template=jnp.zeros(n),
-                    free_site_name="manifest_means_free",
-                    det_site_name="manifest_means",
-                    support=SupportClass.REAL,
-                    site_kind=SiteKind.MANIFEST_MEANS,
-                    assembly_group="manifest",
-                    fixed_spec_field="manifest_means",
-                    priors_field="manifest_means",
-                ),
-                manifest_chol_block=ManifestCholBlockSpec(
-                    n_manifest=n,
-                    diag_mask=full_diagonal_mask(n),
-                    template=jnp.zeros((n, n)),
-                ),
-                t0_means_block=SparseVectorBlockSpec(
-                    n=n,
-                    mask=full_vector_mask(n),
-                    template=jnp.zeros(n),
-                    free_site_name="t0_means_free",
-                    det_site_name="t0_means",
-                    support=SupportClass.REAL,
-                    site_kind=SiteKind.T0_MEANS,
-                    assembly_group="t0",
-                    fixed_spec_field="t0_means",
-                    priors_field="t0_means",
-                ),
-                t0_chol_block=T0CholBlockSpec(
-                    n_latent=n,
-                    diag_mask=full_diagonal_mask(n),
-                    correlation_mask=strict_lower_triangle_mask(n),
-                    template=jnp.eye(n),
-                ),
-                input_effect_block=SparseMatrixBlockSpec(
-                    n_rows=n,
-                    n_cols=0,
-                    mask=np.zeros((n, 0), dtype=bool),
-                    template=jnp.zeros((n, 0)),
-                    free_site_name="input_effect_free",
-                    det_site_name="input_effect",
-                    support=SupportClass.REAL,
-                    site_kind=SiteKind.INPUT_EFFECT,
-                    assembly_group="input_effect",
-                    fixed_spec_field="input_effect",
-                    priors_field="input_effect",
-                ),
-                static_state_sd_block=SparseVectorBlockSpec(
-                    n=0,
-                    mask=np.zeros(0, dtype=bool),
-                    template=jnp.zeros(0),
-                    free_site_name="static_state_sd_free",
-                    det_site_name="static_state_sds",
-                    support=SupportClass.POSITIVE,
-                    site_kind=SiteKind.STATIC_STATE_SD,
-                    assembly_group="t0",
-                    fixed_spec_field="static_state_sds",
-                    priors_field="static_state_sd",
-                ),
+            raise ValueError(
+                "Cannot build an SSMModel without an explicit specification source. "
+                "Pass ModelSpec-driven inputs, a direct SSMSpec, or a compiled Stage 4 "
+                "artifact."
             )
-            spec, priors, _bindings, _diagnostics, _edge_lag_days = compile_ssm_inputs_from_spec(
-                ssm_spec=spec,
-                priors=dump_prior_payloads(self._priors),
-                causal_spec=self._causal_spec,
-            )
-        else:
-            spec, priors = self.compile_inputs()
+        spec, priors = self.compile_inputs()
 
         spec = hydrate_discrete_manifest_metadata(spec, X)
         validate_observation_support(spec, X)

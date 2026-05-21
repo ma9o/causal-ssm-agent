@@ -25,9 +25,6 @@ from __future__ import annotations
 
 from .abduction import (
     approximate_abducted_state,
-    approximate_abducted_state_composite,
-    approximate_abducted_state_composite_eks,
-    approximate_abducted_state_composite_ieks,
 )
 from .estimands import (
     build_time_grid,
@@ -46,9 +43,6 @@ from .orchestration import (
 
 __all__ = [
     "approximate_abducted_state",
-    "approximate_abducted_state_composite",
-    "approximate_abducted_state_composite_eks",
-    "approximate_abducted_state_composite_ieks",
     "build_time_grid",
     "compute_interventions",
     "compute_interventions_composite",

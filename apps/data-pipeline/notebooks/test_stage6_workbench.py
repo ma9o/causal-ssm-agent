@@ -82,12 +82,10 @@ def test_stage6_session_runs_counterfactual_scenario(monkeypatch):
         return {
             "result": {
                 "rung": 3,
-                "evidence": {
-                    "start_time": "2026-01-01T00:00:00+00:00",
-                    "end_time": "2026-01-07T00:00:00+00:00",
-                    "n_timepoints": 7,
-                    "variables": ["screen_time"],
-                    "conditioning_method": "kalman_smoother",
+                "start": {
+                    "time_index": 6,
+                    "time": "2026-01-07T00:00:00+00:00",
+                    "state_source": "fitted_latent_paths",
                 },
                 "action": args["action"],
                 "outcome": args["outcome"],
@@ -111,9 +109,7 @@ def test_stage6_session_runs_counterfactual_scenario(monkeypatch):
         name="what if lower screen time",
         action=session.variable("screen_time").set(0.0),
         outcome="sleep_quality",
-        start_time="2026-01-01T00:00:00Z",
-        end_time="2026-01-07T00:00:00Z",
-        variables=["screen_time"],
+        time_index=6,
         estimand="end_state",
         horizon_days=30,
         projection="latent",
@@ -121,11 +117,7 @@ def test_stage6_session_runs_counterfactual_scenario(monkeypatch):
     result = session.run(scenario)
 
     assert captured == {
-        "evidence": {
-            "start_time": "2026-01-01T00:00:00Z",
-            "end_time": "2026-01-07T00:00:00Z",
-            "variables": ["screen_time"],
-        },
+        "start": {"time_index": 6, "time": None},
         "action": {
             "variable": "screen_time",
             "mode": "set",

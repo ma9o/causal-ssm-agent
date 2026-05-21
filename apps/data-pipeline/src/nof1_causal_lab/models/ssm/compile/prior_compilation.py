@@ -35,7 +35,6 @@ from nof1_causal_lab.models.ssm.priors import (
     PriorRegistry,
     PriorSpec,
     default_prior_for_descriptor,
-    default_prior_registry,
     prior_spec_from_normalized_params,
     prior_spec_to_normalized_params,
 )
@@ -1048,11 +1047,9 @@ def compile_priors(
 ) -> tuple[PriorRegistry, SemanticBindingRegistry, list[CompileDiagnostic]]:
     """Compile prior proposals into a site-keyed prior registry with explicit index maps."""
     active_sites = build_site_registry(ssm_spec) if ssm_spec is not None else []
-    prior_entries: dict[str, PriorSpec] = (
-        {site.name: default_prior_for_descriptor(site) for site in active_sites}
-        if active_sites
-        else dict(default_prior_registry().priors_by_site)
-    )
+    prior_entries: dict[str, PriorSpec] = {
+        site.name: default_prior_for_descriptor(site) for site in active_sites
+    }
     site_by_name = {site.name: site for site in active_sites}
     role_by_name = _collect_role_lookup(model_spec)
     per_site: dict[str, list[tuple[int, dict[str, float | int]]]] = {}

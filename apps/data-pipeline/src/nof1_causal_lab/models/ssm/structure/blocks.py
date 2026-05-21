@@ -131,8 +131,12 @@ class DiffusionBlockSpec:
     def with_runtime_priors(self, prior_fn: PriorFn) -> DiffusionBlockSpec:
         return replace(
             self,
-            diag_prior=prior_fn("diffusion_diag_free") if self.n_diffusion_diag > 0 else self.diag_prior,
-            lower_prior=prior_fn("diffusion_lower_free") if self.n_diffusion_lower > 0 else self.lower_prior,
+            diag_prior=prior_fn("diffusion_diag_free")
+            if self.n_diffusion_diag > 0
+            else self.diag_prior,
+            lower_prior=prior_fn("diffusion_lower_free")
+            if self.n_diffusion_lower > 0
+            else self.lower_prior,
         )
 
     def assemble(
@@ -156,9 +160,7 @@ class DiffusionBlockSpec:
         if self.n_diffusion_diag > 0:
             dist = resolve_prior_distribution(self.diag_prior)
             if dist is None:
-                raise ValueError(
-                    "DiffusionBlockSpec requires diag_prior when n_diffusion_diag > 0"
-                )
+                raise ValueError("DiffusionBlockSpec requires diag_prior when n_diffusion_diag > 0")
             diag_free = numpyro.sample("diffusion_diag_free", dist)
 
         lower_free = None
@@ -413,9 +415,7 @@ class ManifestCholBlockSpec:
         if self.n_free > 0:
             dist = resolve_prior_distribution(self.diag_prior)
             if dist is None:
-                raise ValueError(
-                    "ManifestCholBlockSpec requires diag_prior when n_free > 0"
-                )
+                raise ValueError("ManifestCholBlockSpec requires diag_prior when n_free > 0")
             free = numpyro.sample("manifest_var_diag_free", dist)
 
         chol = self.assemble(free)
@@ -549,7 +549,9 @@ class T0CholBlockSpec:
         return replace(
             self,
             diag_prior=prior_fn("t0_var_diag_free") if self.n_diag_free > 0 else self.diag_prior,
-            correlation_prior=prior_fn("t0_var_lower_free") if self.n_correlation_free > 0 else self.correlation_prior,
+            correlation_prior=prior_fn("t0_var_lower_free")
+            if self.n_correlation_free > 0
+            else self.correlation_prior,
         )
 
     def sample_params(self, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
@@ -565,9 +567,7 @@ class T0CholBlockSpec:
         if self.n_diag_free > 0:
             dist = resolve_prior_distribution(self.diag_prior)
             if dist is None:
-                raise ValueError(
-                    "T0CholBlockSpec requires diag_prior when n_diag_free > 0"
-                )
+                raise ValueError("T0CholBlockSpec requires diag_prior when n_diag_free > 0")
             diag_free = numpyro.sample("t0_var_diag_free", dist)
 
         correlation_free = None
@@ -583,146 +583,3 @@ class T0CholBlockSpec:
             "t0_var_diag_free": diag_free,
             "t0_var_lower_free": correlation_free,
         }
-
-
-# ---------------------------------------------------------------------------
-# Default factories — single-purpose constructors for the "standard test
-# default" shape of each block. Tests that don't care about a particular
-# block's structure call these; tests that do care construct the block
-# inline. Production code uses these only for trivial bootstrap paths
-# (e.g. ``ssm.builder`` auto-detect).
-# ---------------------------------------------------------------------------
-
-
-def default_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
-    """Full lower-Cholesky free entries, identity template, no time-invariant mask."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return DiffusionBlockSpec(
-        n_latent=n_latent,
-        diffusion_chol_mask=_np.tri(n_latent, dtype=bool),
-        diffusion_chol_template=_jnp.eye(n_latent),
-    )
-
-
-def default_lambda_block(n_manifest: int, n_latent: int) -> SparseMatrixBlockSpec:
-    """Zero free mask, identity loading template."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return SparseMatrixBlockSpec(
-        n_rows=n_manifest,
-        n_cols=n_latent,
-        mask=_np.zeros((n_manifest, n_latent), dtype=bool),
-        template=_jnp.eye(n_manifest, n_latent),
-        free_site_name="lambda_free",
-        det_site_name="lambda",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.LOADING,
-        assembly_group="lambda",
-        fixed_spec_field="lambda_mat",
-        priors_field="lambda_free",
-    )
-
-
-def default_manifest_means_block(n_manifest: int) -> SparseVectorBlockSpec:
-    """Zero free mask, zeros template."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return SparseVectorBlockSpec(
-        n=n_manifest,
-        mask=_np.zeros(n_manifest, dtype=bool),
-        template=_jnp.zeros(n_manifest),
-        free_site_name="manifest_means_free",
-        det_site_name="manifest_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.MANIFEST_MEANS,
-        assembly_group="manifest",
-        fixed_spec_field="manifest_means",
-        priors_field="manifest_means",
-    )
-
-
-def default_manifest_chol_block(n_manifest: int) -> ManifestCholBlockSpec:
-    """Full diagonal free mask, zeros template."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return ManifestCholBlockSpec(
-        n_manifest=n_manifest,
-        diag_mask=_np.ones(n_manifest, dtype=bool),
-        template=_jnp.zeros((n_manifest, n_manifest)),
-    )
-
-
-def default_t0_means_block(n_latent: int) -> SparseVectorBlockSpec:
-    """Full free mask, zeros template."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return SparseVectorBlockSpec(
-        n=n_latent,
-        mask=_np.ones(n_latent, dtype=bool),
-        template=_jnp.zeros(n_latent),
-        free_site_name="t0_means_free",
-        det_site_name="t0_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.T0_MEANS,
-        assembly_group="t0",
-        fixed_spec_field="t0_means",
-        priors_field="t0_means",
-    )
-
-
-def default_t0_chol_block(n_latent: int) -> T0CholBlockSpec:
-    """Full diagonal free, full strict-lower correlation free, identity template."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return T0CholBlockSpec(
-        n_latent=n_latent,
-        diag_mask=_np.ones(n_latent, dtype=bool),
-        correlation_mask=_np.tri(n_latent, k=-1, dtype=bool),
-        template=_jnp.eye(n_latent),
-    )
-
-
-def default_input_effect_block(n_latent: int) -> SparseMatrixBlockSpec:
-    """Empty input-effect block (no inputs)."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return SparseMatrixBlockSpec(
-        n_rows=n_latent,
-        n_cols=0,
-        mask=_np.zeros((n_latent, 0), dtype=bool),
-        template=_jnp.zeros((n_latent, 0)),
-        free_site_name="input_effect_free",
-        det_site_name="input_effect",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.INPUT_EFFECT,
-        assembly_group="input_effect",
-        fixed_spec_field="input_effect",
-        priors_field="input_effect",
-    )
-
-
-def default_static_state_sd_block() -> SparseVectorBlockSpec:
-    """Empty static-state-sd block (no static factors)."""
-    import jax.numpy as _jnp
-    import numpy as _np
-
-    return SparseVectorBlockSpec(
-        n=0,
-        mask=_np.zeros(0, dtype=bool),
-        template=_jnp.zeros(0),
-        free_site_name="static_state_sd_free",
-        det_site_name="static_state_sds",
-        support=SupportClass.POSITIVE,
-        site_kind=SiteKind.STATIC_STATE_SD,
-        assembly_group="t0",
-        fixed_spec_field="static_state_sds",
-        priors_field="static_state_sd",
-    )
