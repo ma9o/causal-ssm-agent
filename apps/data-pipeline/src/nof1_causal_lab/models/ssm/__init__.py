@@ -3,7 +3,7 @@
 This module implements Bayesian state-space models with:
 - Continuous-time dynamics via stochastic differential equations
 - Automatic CT→DT discretization for irregular time intervals
-- Two public inference backends: auxiliary Kalman MCMC and PIT Particle-mGRAD
+- Two public inference backends: auxiliary Kalman MCMC and Particle-mGRAD
 - Automatic reparameterization via AutoReparam
 """
 

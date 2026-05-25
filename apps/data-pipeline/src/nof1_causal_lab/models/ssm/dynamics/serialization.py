@@ -81,6 +81,12 @@ def dynamics_spec_to_dict(spec: DynamicsSpec) -> dict[str, Any]:
                 "source": int(component.source),
                 "target": int(component.target),
             }
+            if component.fixed_emax is not None:
+                entry["fixed_emax"] = float(component.fixed_emax)
+            if component.fixed_ec50 is not None:
+                entry["fixed_ec50"] = float(component.fixed_ec50)
+            if component.fixed_n is not None:
+                entry["fixed_n"] = float(component.fixed_n)
         elif isinstance(component, MultiplicativeEdgeSpec):
             entry = {
                 "kind": "MultiplicativeEdge",
@@ -117,6 +123,9 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
         return HillEdgeSpec(
             source=int(component["source"]),
             target=int(component["target"]),
+            fixed_emax=(None if "fixed_emax" not in component else float(component["fixed_emax"])),
+            fixed_ec50=(None if "fixed_ec50" not in component else float(component["fixed_ec50"])),
+            fixed_n=None if "fixed_n" not in component else float(component["fixed_n"]),
         )
     if kind == "MultiplicativeEdge":
         return MultiplicativeEdgeSpec(

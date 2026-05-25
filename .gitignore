@@ -60,4 +60,5 @@ node_modules/
 .vercel
 .playwright-mcp/
 
-apps/data-pipeline/notebooks/sweeps
+apps/data-pipeline/notebooks/.jax_cache/
+apps/data-pipeline/notebooks/artifacts/

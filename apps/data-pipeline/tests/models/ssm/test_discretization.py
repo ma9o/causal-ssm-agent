@@ -129,14 +129,14 @@ class TestDiscreteDiffusion:
         Q_large = compute_discrete_diffusion(A, Q, dt=1.0)
         assert Q_large[0, 0] > Q_small[0, 0]
 
-    def test_reuses_precomputed_dynamics(self):
-        """Passing discrete_dynamics should preserve results."""
+    def test_reuses_precomputed_drift(self):
+        """Passing discrete_drift should preserve results."""
         A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
         Q = jnp.eye(2)
         dt = 0.5
         Ad = jla.expm(A * dt)
         Q_dt_1 = compute_discrete_diffusion(A, Q, dt)
-        Q_dt_2 = compute_discrete_diffusion(A, Q, dt, discrete_dynamics=Ad)
+        Q_dt_2 = compute_discrete_diffusion(A, Q, dt, discrete_drift=Ad)
         assert jnp.allclose(Q_dt_1, Q_dt_2, atol=1e-10)
 
     def test_matches_lyapunov_reference(self):
@@ -268,6 +268,36 @@ class TestDiscretizeSystemBatched:
             ]
         )
         assert jnp.allclose(cd[:, 0], expected, atol=1e-6)
+
+    def test_batched_handles_singular_static_latent(self):
+        """The public batched path should handle static/singular drift blocks."""
+        A = jnp.array([[-0.5, 0.0], [0.0, 0.0]])
+        Q = jnp.diag(jnp.array([0.2, 1e-12]))
+        dts = jnp.array([0.25, 1.0])
+
+        Ad, Qd, cd = discretize_system_batched(A, Q, None, dts)
+
+        assert cd is None
+        assert jnp.all(jnp.isfinite(Ad))
+        assert jnp.all(jnp.isfinite(Qd))
+        assert jnp.allclose(Ad[:, 1, 1], 1.0, atol=1e-12)
+        assert jnp.allclose(Qd[:, 1, 1], dts * 1e-12, atol=1e-18)
+
+    def test_known_inputs_with_singular_static_latent_are_finite(self):
+        """Known-input offsets should remain finite with singular drift."""
+        A = jnp.array([[-0.5, 0.0], [0.0, 0.0]])
+        Q = jnp.diag(jnp.array([0.2, 1e-12]))
+        B = jnp.array([[2.0], [0.0]])
+        u = jnp.array([[1.0], [3.0]])
+        dts = jnp.array([0.25, 1.0])
+
+        Ad, Qd, cd = discretize_system_with_inputs_batched(A, Q, None, B, u, dts)
+
+        assert cd is not None
+        assert jnp.all(jnp.isfinite(Ad))
+        assert jnp.all(jnp.isfinite(Qd))
+        assert jnp.all(jnp.isfinite(cd))
+        assert jnp.allclose(cd[:, 1], 0.0, atol=1e-12)
 
     def test_no_cint_batched(self):
         """Batched without cint should return None."""

@@ -8,7 +8,17 @@ from nof1_causal_lab.models.ssm.inference.methods.scipy_pathfinder import scipy_
 
 
 def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch):
+    call_counts = {"value_batch": 0, "value_and_grad": 0}
+    batch_sizes: list[int] = []
+
+    def log_post_batch_fn(x: np.ndarray) -> np.ndarray:
+        call_counts["value_batch"] += 1
+        x_np = np.asarray(x, dtype=np.float64)
+        batch_sizes.append(int(x_np.shape[0]))
+        return -0.5 * np.sum(x_np * x_np, axis=1)
+
     def log_post_and_grad_fn(x: np.ndarray) -> tuple[float, np.ndarray]:
+        call_counts["value_and_grad"] += 1
         x_np = np.asarray(x, dtype=np.float64)
         return float(-0.5 * np.dot(x_np, x_np)), -x_np
 
@@ -39,10 +49,12 @@ def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch)
     monkeypatch.setattr(scipy_pathfinder_module.scipy.optimize, "minimize", fake_minimize)
 
     result = scipy_pathfinder(
+        log_post_batch_fn,
         log_post_and_grad_fn,
         [np.array([1.0], dtype=np.float64)],
         maxiter=5,
         elbo_samples=8,
+        elbo_candidate_batch_size=4,
         seed=0,
     )
 
@@ -50,6 +62,11 @@ def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch)
     assert per_start["n_trajectory_points"] == 3
     assert per_start["n_lbfgs_iterations"] == 2
     assert per_start["n_valid_iterates"] == 2
+    assert per_start["n_elbo_candidates"] == 2
+    assert per_start["n_elbo_batch_evaluations"] == 1
+    assert call_counts["value_batch"] == 1
+    assert batch_sizes == [32]
+    assert call_counts["value_and_grad"] > call_counts["value_batch"]
     assert np.isfinite(result.best_elbo)
 
 
@@ -83,6 +100,10 @@ def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
         x_np = np.asarray(x, dtype=np.float64)
         return float(-0.5 * np.dot(x_np, x_np)), -x_np
 
+    def log_post_batch_fn(x: np.ndarray) -> np.ndarray:
+        x_np = np.asarray(x, dtype=np.float64)
+        return -0.5 * np.sum(x_np * x_np, axis=1)
+
     def fake_minimize(fun, x0, jac, method, callback=None, options=None):
         del jac, options
         assert method == "L-BFGS-B"
@@ -103,6 +124,7 @@ def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
     monkeypatch.setattr(scipy_pathfinder_module.scipy.optimize, "minimize", fake_minimize)
 
     result = scipy_pathfinder(
+        log_post_batch_fn,
         log_post_and_grad_fn,
         [
             np.array([1.0], dtype=np.float64),
@@ -111,6 +133,7 @@ def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
         ],
         maxiter=2,
         elbo_samples=4,
+        elbo_candidate_batch_size=2,
         parallel_workers=2,
         seed=0,
     )
@@ -125,15 +148,21 @@ def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
 def test_scipy_pathfinder_finds_valid_custom_iterates_on_gaussian_target():
     precision = np.array([[4.0, 1.0], [1.0, 3.0]], dtype=np.float64)
 
+    def log_post_batch_fn(x: np.ndarray) -> np.ndarray:
+        x_np = np.asarray(x, dtype=np.float64)
+        return -0.5 * np.einsum("bi,ij,bj->b", x_np, precision, x_np)
+
     def log_post_and_grad_fn(x: np.ndarray) -> tuple[float, np.ndarray]:
         x_np = np.asarray(x, dtype=np.float64)
         return float(-0.5 * x_np @ precision @ x_np), -(precision @ x_np)
 
     result = scipy_pathfinder(
+        log_post_batch_fn,
         log_post_and_grad_fn,
         [np.array([3.0, -2.0], dtype=np.float64)],
         maxiter=10,
         elbo_samples=20,
+        elbo_candidate_batch_size=4,
         seed=0,
     )
 

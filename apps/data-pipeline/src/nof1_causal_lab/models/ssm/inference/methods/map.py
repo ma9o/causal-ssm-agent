@@ -984,7 +984,7 @@ def fit_map(
         "covariance_diag": np.asarray(jnp.diag(covariance)).tolist(),
         # Full parameter covariance in the flat unconstrained layout used by
         # the auxiliary-Kalman bundle. Downstream MCMC methods can use this as
-        # a preconditioner / mass matrix for MALA (see `build_mala_parameter_kernel`).
+        # the residual-NUTS mass matrix for `hybrid_gibbs_nuts`.
         "parameter_covariance": np.asarray(covariance),
         "likelihood_backend": backend,
     }

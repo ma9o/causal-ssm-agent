@@ -12,22 +12,25 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
 
-PolyaGammaSampler = Literal["truncated_sum", "devroye"]
+PolyaGammaSampler = Literal["truncated_sum", "devroye", "devroye_integer"]
 SUPPORTED_POLYA_GAMMA_SAMPLERS: tuple[PolyaGammaSampler, ...] = (
     "truncated_sum",
     "devroye",
+    "devroye_integer",
 )
 _DEVROYE_TRUNC = 0.64
 
 
 class PolyaGammaAuxiliaryState(NamedTuple):
-    """Per-observation PG auxiliary variables and fixed sufficient stats."""
+    """Per-observation PG auxiliary variables and sufficient stats."""
 
     omega: jnp.ndarray
     active_mask: jnp.ndarray
     kappa: jnp.ndarray
     shape: jnp.ndarray
     linear_offset: jnp.ndarray
+    observed_values: jnp.ndarray
+    gamma_base_terms: jnp.ndarray
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,7 @@ class PolyaGammaObservationPlan:
     sampler: PolyaGammaSampler
     enabled: bool
     consumes_all_channels: bool
+    max_integer_shape: int | None = None
 
 
 def normalize_polya_gamma_sampler(sampler: str) -> PolyaGammaSampler:
@@ -61,6 +65,7 @@ def build_polya_gamma_observation_plan(
     num_terms: int,
     sampler: str = "truncated_sum",
     enabled: bool = True,
+    max_integer_shape: int | None = None,
 ) -> PolyaGammaObservationPlan:
     """Identify manifest channels with exact PG-conditionable likelihoods."""
     if num_terms < 1:
@@ -89,11 +94,29 @@ def build_polya_gamma_observation_plan(
     else:
         bernoulli_channel_mask = jnp.zeros((len(manifest_dists),), dtype=bool)
         negative_binomial_channel_mask = jnp.zeros((len(manifest_dists),), dtype=bool)
-    if normalized_sampler == "devroye" and bool(np.any(np.asarray(negative_binomial_channel_mask))):
+    has_negative_binomial_channels = bool(np.any(np.asarray(negative_binomial_channel_mask)))
+    if normalized_sampler == "devroye" and has_negative_binomial_channels:
         raise ValueError(
             "polya_gamma_sampler='devroye' currently supports only Bernoulli-logit PG(1, eta) "
             "channels. Use polya_gamma_sampler='truncated_sum' for negative-binomial log-link "
             "channels."
+        )
+    integer_shape_max = None
+    if normalized_sampler == "devroye_integer":
+        if has_negative_binomial_channels and max_integer_shape is None:
+            raise ValueError(
+                "polya_gamma_sampler='devroye_integer' for negative-binomial log-link channels "
+                "requires max_integer_shape from validated integer counts and fixed integer obs_r."
+            )
+        integer_shape_max = int(max_integer_shape) if max_integer_shape is not None else 1
+        if integer_shape_max < 1:
+            raise ValueError(
+                "max_integer_shape must be >= 1 for polya_gamma_sampler='devroye_integer', "
+                f"got {integer_shape_max}."
+            )
+    elif max_integer_shape is not None:
+        raise ValueError(
+            "max_integer_shape is only valid with polya_gamma_sampler='devroye_integer'."
         )
     channel_mask = bernoulli_channel_mask | negative_binomial_channel_mask
     host_mask = np.asarray(channel_mask)
@@ -105,6 +128,7 @@ def build_polya_gamma_observation_plan(
         sampler=normalized_sampler,
         enabled=bool(np.any(host_mask)),
         consumes_all_channels=bool(np.all(host_mask)) if host_mask.size else False,
+        max_integer_shape=integer_shape_max,
     )
 
 
@@ -178,20 +202,53 @@ def sample_polya_gamma_truncated_sum(
     return jnp.sum(gamma_draws / denom, axis=-1) / (2.0 * jnp.pi * jnp.pi)
 
 
-def sample_pg1_truncated_sum(
-    key: jax.Array,
+def _truncated_sum_base_denominators(*, num_terms: int, dtype) -> jnp.ndarray:
+    term_idx = jnp.arange(num_terms, dtype=dtype) + 0.5
+    return 2.0 * jnp.pi * jnp.pi * term_idx * term_idx
+
+
+def _truncated_sum_conditional_mean_terms(
+    shape: jnp.ndarray,
     eta: jnp.ndarray,
     *,
     num_terms: int,
-) -> jnp.ndarray:
-    """Sample the standard finite-sum approximation to PG(1, eta)."""
+) -> tuple[jnp.ndarray, jnp.ndarray]:
     eta = jnp.asarray(eta)
-    return sample_polya_gamma_truncated_sum(
-        key,
-        jnp.ones_like(eta),
-        eta,
-        num_terms=num_terms,
-    )
+    shape = jnp.broadcast_to(jnp.asarray(shape, dtype=eta.dtype), eta.shape)
+    base_denom = _truncated_sum_base_denominators(num_terms=num_terms, dtype=eta.dtype)
+    rate = 1.0 + eta[..., None] * eta[..., None] / (2.0 * base_denom)
+    terms = shape[..., None] / rate
+    omega = jnp.sum(terms / base_denom, axis=-1)
+    return omega, terms
+
+
+def sample_polya_gamma_truncated_sum_base_terms(
+    key: jax.Array,
+    shape: jnp.ndarray,
+    eta: jnp.ndarray,
+    *,
+    num_terms: int,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Sample zero-tilt Gamma-series terms and their PG sum under finite truncation.
+
+    The stored terms are the auxiliary variables under the PG(b, 0) series.  Given
+    eta, their conditional law is Gamma(b, rate=1 + eta^2 / (2 d_k)), which keeps
+    the latent target Gaussian while exposing the b-dependent density for
+    parameter updates.
+
+    TODO: Replace this finite-sum NB path with a JAX-native Windle/Polson/Scott
+    hybrid PG sampler and matching log-density terms when arbitrary-shape PG
+    becomes a bottleneck.
+    """
+    eta = jnp.asarray(eta)
+    shape = jnp.broadcast_to(jnp.asarray(shape, dtype=eta.dtype), eta.shape)
+    base_denom = _truncated_sum_base_denominators(num_terms=num_terms, dtype=eta.dtype)
+    rate = 1.0 + eta[..., None] * eta[..., None] / (2.0 * base_denom)
+    gamma_shape = jnp.broadcast_to(shape[..., None], (*eta.shape, num_terms))
+    unit_rate_terms = jax.random.gamma(key, gamma_shape)
+    terms = unit_rate_terms / rate
+    omega = jnp.sum(terms / base_denom, axis=-1)
+    return omega, terms
 
 
 def _devroye_a(n: jnp.ndarray, x: jnp.ndarray) -> jnp.ndarray:
@@ -338,19 +395,25 @@ def sample_pg1_devroye(key: jax.Array, eta: jnp.ndarray) -> jnp.ndarray:
     return jnp.reshape(flat_samples, eta.shape)
 
 
-def sample_pg1(
+def sample_polya_gamma_integer_shape_devroye(
     key: jax.Array,
+    shape: jnp.ndarray,
     eta: jnp.ndarray,
     *,
-    sampler: PolyaGammaSampler,
-    num_terms: int,
+    max_shape: int,
 ) -> jnp.ndarray:
-    """Sample PG(1, eta) with the selected backend."""
-    if sampler == "truncated_sum":
-        return sample_pg1_truncated_sum(key, eta, num_terms=num_terms)
-    if sampler == "devroye":
-        return sample_pg1_devroye(key, eta)
-    raise ValueError(f"Unsupported Polya-Gamma sampler {sampler!r}.")
+    """Sample PG(n, eta) exactly for validated positive integer n by summing PG(1, eta)."""
+    if max_shape < 1:
+        raise ValueError(f"max_shape must be >= 1 for integer-shape PG sampling, got {max_shape}.")
+    eta = jnp.asarray(eta)
+    shape_int = jnp.rint(jnp.broadcast_to(jnp.asarray(shape), eta.shape)).astype(jnp.int32)
+    keys = jax.random.split(key, int(max_shape))
+    draws = jax.vmap(lambda draw_key: sample_pg1_devroye(draw_key, eta))(keys)
+    arange_shape = (int(max_shape),) + (1,) * eta.ndim
+    include_draw = (
+        jnp.reshape(jnp.arange(int(max_shape), dtype=jnp.int32), arange_shape) < shape_int
+    )
+    return jnp.sum(jnp.where(include_draw, draws, 0.0), axis=0)
 
 
 def sample_polya_gamma(
@@ -360,12 +423,22 @@ def sample_polya_gamma(
     *,
     sampler: PolyaGammaSampler,
     num_terms: int,
+    max_integer_shape: int | None = None,
 ) -> jnp.ndarray:
     """Sample PG(shape, eta) with the selected backend."""
     if sampler == "truncated_sum":
         return sample_polya_gamma_truncated_sum(key, shape, eta, num_terms=num_terms)
     if sampler == "devroye":
         return sample_pg1_devroye(key, eta)
+    if sampler == "devroye_integer":
+        if max_integer_shape is None:
+            raise ValueError("max_integer_shape is required for devroye_integer PG sampling.")
+        return sample_polya_gamma_integer_shape_devroye(
+            key,
+            shape,
+            eta,
+            max_shape=max_integer_shape,
+        )
     raise ValueError(f"Unsupported Polya-Gamma sampler {sampler!r}.")
 
 
@@ -425,6 +498,92 @@ def polya_gamma_sufficient_statistics(
     return shape.astype(dtype), kappa.astype(dtype), linear_offset.astype(dtype)
 
 
+def _empty_gamma_base_terms(reference: jnp.ndarray, *, num_terms: int) -> jnp.ndarray:
+    return jnp.zeros((*reference.shape, int(num_terms)), dtype=reference.dtype)
+
+
+def negative_binomial_finite_sum_base_log_terms(
+    observations: jnp.ndarray,
+    obs_r: jnp.ndarray,
+    gamma_base_terms: jnp.ndarray,
+    active_mask: jnp.ndarray,
+) -> jnp.ndarray:
+    """Return NB PG finite-sum terms that depend on the dispersion parameter."""
+    dtype = observations.dtype
+    active = active_mask.astype(bool)
+    y = jnp.nan_to_num(observations, nan=0.0).astype(dtype)
+    r = jnp.broadcast_to(jnp.asarray(obs_r, dtype=dtype), y.shape)
+    safe_r = jnp.maximum(r, jnp.asarray(1e-8, dtype=dtype))
+    shape = y + safe_r
+    combinatorial = jax.lax.lgamma(shape) - jax.lax.lgamma(safe_r) - jax.lax.lgamma(y + 1.0)
+    nb_terms = combinatorial - shape * jnp.log(jnp.asarray(2.0, dtype=dtype))
+    if gamma_base_terms.shape[-1] > 0:
+        safe_shape = jnp.where(active, shape, jnp.ones_like(shape))
+        safe_terms = jnp.where(
+            active[..., None],
+            jnp.maximum(gamma_base_terms.astype(dtype), jnp.asarray(1e-30, dtype=dtype)),
+            jnp.ones_like(gamma_base_terms, dtype=dtype),
+        )
+        gamma_terms = (
+            (safe_shape[..., None] - 1.0) * jnp.log(safe_terms)
+            - safe_terms
+            - jax.lax.lgamma(safe_shape[..., None])
+        )
+        nb_terms = nb_terms + jnp.sum(gamma_terms, axis=-1)
+    return jnp.where(active, nb_terms, 0.0)
+
+
+def polya_gamma_gaussian_logpdf_correction(
+    kappa: jnp.ndarray,
+    omega: jnp.ndarray,
+    active_mask: jnp.ndarray,
+) -> jnp.ndarray:
+    """Convert Gaussian pseudo-observation logpdf terms back to PG quadratics."""
+    dtype = omega.dtype
+    omega_safe = jnp.maximum(omega, jnp.asarray(1e-8, dtype=dtype))
+    correction = (
+        0.5 * kappa * kappa / omega_safe
+        - 0.5 * jnp.log(omega_safe)
+        + 0.5 * jnp.log(jnp.asarray(2.0 * jnp.pi, dtype=dtype))
+    )
+    return jnp.where(active_mask.astype(bool), correction, 0.0)
+
+
+def _current_sufficient_statistics(
+    plan: PolyaGammaObservationPlan,
+    state: PolyaGammaAuxiliaryState,
+    context,
+    dtype,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    return polya_gamma_sufficient_statistics(
+        plan,
+        context,
+        state.observed_values,
+        dtype,
+    )
+
+
+def _negative_binomial_auxiliary_log_terms(
+    plan: PolyaGammaObservationPlan,
+    state: PolyaGammaAuxiliaryState,
+    context,
+    dtype,
+) -> jnp.ndarray:
+    n_channels = int(state.observed_values.shape[-1])
+    obs_r = _channel_param(context, "obs_r", default=5.0, n_channels=n_channels, dtype=dtype)
+    active_nb = (
+        (state.active_mask > 0.0)
+        & plan.negative_binomial_channel_mask[None, :]
+        & plan.channel_mask[None, :]
+    )
+    return negative_binomial_finite_sum_base_log_terms(
+        state.observed_values.astype(dtype),
+        obs_r[None, :],
+        state.gamma_base_terms.astype(dtype),
+        active_nb,
+    )
+
+
 def initialize_polya_gamma_auxiliary_state(
     plan: PolyaGammaObservationPlan,
     context,
@@ -433,6 +592,7 @@ def initialize_polya_gamma_auxiliary_state(
 ) -> PolyaGammaAuxiliaryState:
     """Build a deterministic valid initial PG state from conditional means."""
     active = active_polya_gamma_mask(plan, observations)
+    clean_observations = jnp.nan_to_num(observations, nan=0.0).astype(latent_trajectory.dtype)
     shape, kappa, linear_offset = polya_gamma_sufficient_statistics(
         plan,
         context,
@@ -441,13 +601,25 @@ def initialize_polya_gamma_auxiliary_state(
     )
     eta = _linear_predictor_trajectory(context, latent_trajectory)
     psi = eta + linear_offset
-    omega = jnp.where(active, expected_polya_gamma(shape, psi), 0.0)
+    if plan.sampler == "truncated_sum":
+        omega, gamma_base_terms = _truncated_sum_conditional_mean_terms(
+            shape,
+            psi,
+            num_terms=plan.num_terms,
+        )
+    else:
+        omega = expected_polya_gamma(shape, psi)
+        gamma_base_terms = _empty_gamma_base_terms(omega, num_terms=0)
+    omega = jnp.where(active, omega, 0.0)
+    gamma_base_terms = jnp.where(active[..., None], gamma_base_terms, 0.0)
     return PolyaGammaAuxiliaryState(
         omega=omega.astype(latent_trajectory.dtype),
         active_mask=active.astype(latent_trajectory.dtype),
         kappa=kappa.astype(latent_trajectory.dtype),
         shape=shape.astype(latent_trajectory.dtype),
         linear_offset=linear_offset.astype(latent_trajectory.dtype),
+        observed_values=clean_observations.astype(latent_trajectory.dtype),
+        gamma_base_terms=gamma_base_terms.astype(latent_trajectory.dtype),
     )
 
 
@@ -460,6 +632,7 @@ def refresh_polya_gamma_auxiliary_state(
 ) -> PolyaGammaAuxiliaryState:
     """Refresh omega once from the current trajectory and parameters."""
     active = active_polya_gamma_mask(plan, observations)
+    clean_observations = jnp.nan_to_num(observations, nan=0.0).astype(latent_trajectory.dtype)
     shape, kappa, linear_offset = polya_gamma_sufficient_statistics(
         plan,
         context,
@@ -468,20 +641,33 @@ def refresh_polya_gamma_auxiliary_state(
     )
     eta = _linear_predictor_trajectory(context, latent_trajectory)
     psi = eta + linear_offset
-    omega = sample_polya_gamma(
-        key,
-        shape,
-        psi,
-        sampler=plan.sampler,
-        num_terms=plan.num_terms,
-    )
+    if plan.sampler == "truncated_sum":
+        omega, gamma_base_terms = sample_polya_gamma_truncated_sum_base_terms(
+            key,
+            shape,
+            psi,
+            num_terms=plan.num_terms,
+        )
+    else:
+        omega = sample_polya_gamma(
+            key,
+            shape,
+            psi,
+            sampler=plan.sampler,
+            num_terms=plan.num_terms,
+            max_integer_shape=plan.max_integer_shape,
+        )
+        gamma_base_terms = _empty_gamma_base_terms(omega, num_terms=0)
     omega = jnp.where(active, omega, 0.0)
+    gamma_base_terms = jnp.where(active[..., None], gamma_base_terms, 0.0)
     return PolyaGammaAuxiliaryState(
         omega=omega.astype(latent_trajectory.dtype),
         active_mask=active.astype(latent_trajectory.dtype),
         kappa=kappa.astype(latent_trajectory.dtype),
         shape=shape.astype(latent_trajectory.dtype),
         linear_offset=linear_offset.astype(latent_trajectory.dtype),
+        observed_values=clean_observations.astype(latent_trajectory.dtype),
+        gamma_base_terms=gamma_base_terms.astype(latent_trajectory.dtype),
     )
 
 
@@ -493,9 +679,21 @@ def polya_gamma_quadratic_log_prob(
 ) -> jnp.ndarray:
     """Return the eta-dependent PG joint log-kernel."""
     eta = _linear_predictor_trajectory(context, latent_trajectory)
-    psi = eta + state.linear_offset
+    _shape, kappa, linear_offset = _current_sufficient_statistics(
+        plan,
+        state,
+        context,
+        latent_trajectory.dtype,
+    )
+    psi = eta + linear_offset
     active = state.active_mask * plan.channel_mask[None, :].astype(latent_trajectory.dtype)
-    terms = active * (state.kappa * psi - 0.5 * state.omega * psi * psi)
+    terms = active * (kappa * psi - 0.5 * state.omega * psi * psi)
+    terms = terms + _negative_binomial_auxiliary_log_terms(
+        plan,
+        state,
+        context,
+        latent_trajectory.dtype,
+    )
     return jnp.asarray(jnp.sum(terms), dtype=latent_trajectory.dtype)
 
 
@@ -507,9 +705,21 @@ def polya_gamma_quadratic_log_probs(
 ) -> jnp.ndarray:
     """Return per-time eta-dependent PG joint log-kernels."""
     eta = _linear_predictor_trajectory(context, latent_trajectory)
-    psi = eta + state.linear_offset
+    _shape, kappa, linear_offset = _current_sufficient_statistics(
+        plan,
+        state,
+        context,
+        latent_trajectory.dtype,
+    )
+    psi = eta + linear_offset
     active = state.active_mask * plan.channel_mask[None, :].astype(latent_trajectory.dtype)
-    terms = active * (state.kappa * psi - 0.5 * state.omega * psi * psi)
+    terms = active * (kappa * psi - 0.5 * state.omega * psi * psi)
+    terms = terms + _negative_binomial_auxiliary_log_terms(
+        plan,
+        state,
+        context,
+        latent_trajectory.dtype,
+    )
     return jnp.asarray(jnp.sum(terms, axis=-1), dtype=latent_trajectory.dtype)
 
 
@@ -522,9 +732,24 @@ def polya_gamma_increment_log_prob(
 ) -> jnp.ndarray:
     """Return the PG log-kernel contribution for one model row."""
     eta_t = _linear_predictor_at(context, latent_state, time_idx)
-    psi_t = eta_t + state.linear_offset[time_idx]
+    _shape, kappa, linear_offset = _current_sufficient_statistics(
+        plan,
+        state,
+        context,
+        latent_state.dtype,
+    )
+    psi_t = eta_t + linear_offset[time_idx]
     mask_t = state.active_mask[time_idx] * plan.channel_mask.astype(latent_state.dtype)
-    kappa_t = state.kappa[time_idx]
+    kappa_t = kappa[time_idx]
     omega_t = state.omega[time_idx]
     terms = mask_t * (kappa_t * psi_t - 0.5 * omega_t * psi_t * psi_t)
+    terms = (
+        terms
+        + _negative_binomial_auxiliary_log_terms(
+            plan,
+            state,
+            context,
+            latent_state.dtype,
+        )[time_idx]
+    )
     return jnp.asarray(jnp.sum(terms), dtype=latent_state.dtype)

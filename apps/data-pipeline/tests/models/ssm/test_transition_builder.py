@@ -655,3 +655,25 @@ def test_map_laplace_bundle_evaluates_nonlinear_point_model():
 
     assert bundle["dim"] > 0
     assert bool(jnp.isfinite(log_posterior))
+
+
+def test_map_laplace_bundle_has_finite_gradient_for_nonlinear_point_model():
+    model = SSMModel(_nonlinear_point_ssm_spec())
+    observations = jnp.array([[0.05], [0.20], [0.12]], dtype=jnp.float32)
+    times = jnp.array([0.0, 0.50, 1.25], dtype=jnp.float32)
+    backend = model.make_laplace_backend(n_ieks_iters=2)
+
+    bundle = _build_map_laplace_bundle(
+        model,
+        observations,
+        times,
+        jax.random.PRNGKey(0),
+        backend,
+        reparam=None,
+    )
+    log_posterior, grad = jax.value_and_grad(
+        lambda z: bundle["log_posterior_fn"](z, observations, times)
+    )(bundle["flat_example"])
+
+    assert bool(jnp.isfinite(log_posterior))
+    assert bool(jnp.all(jnp.isfinite(grad)))

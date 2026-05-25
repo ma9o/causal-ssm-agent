@@ -585,7 +585,9 @@ def _build_eval_fns(
             registry=runtime_registry,
             parameter_layout=parameter_layout,
         )
-        time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
+        time_intervals = (
+            jnp.diff(times, prepend=times[0]).at[0].set(jnp.asarray(MIN_DT, dtype=times.dtype))
+        )
         if latent_mode_init is None:
             lnc = likelihood_backend.compute_log_likelihood(
                 dynamics,
@@ -620,7 +622,11 @@ def _build_eval_fns(
             registry=runtime_registry,
             parameter_layout=parameter_layout,
         )
-        time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
+        time_intervals = (
+            jnp.diff(runtime_times, prepend=runtime_times[0])
+            .at[0]
+            .set(jnp.asarray(MIN_DT, dtype=runtime_times.dtype))
+        )
         runtime_transition_inputs = (
             None
             if bound_transition_inputs is None
@@ -665,7 +671,9 @@ def _build_eval_fns(
             registry=runtime_registry,
             parameter_layout=parameter_layout,
         )
-        time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
+        time_intervals = (
+            jnp.diff(times, prepend=times[0]).at[0].set(jnp.asarray(MIN_DT, dtype=times.dtype))
+        )
         if latent_mode_init is None:
             lnc, aux = likelihood_backend.compute_log_likelihood_with_aux(
                 dynamics,
@@ -706,7 +714,11 @@ def _build_eval_fns(
             registry=runtime_registry,
             parameter_layout=parameter_layout,
         )
-        time_intervals = jnp.diff(runtime_times, prepend=runtime_times[0]).at[0].set(MIN_DT)
+        time_intervals = (
+            jnp.diff(runtime_times, prepend=runtime_times[0])
+            .at[0]
+            .set(jnp.asarray(MIN_DT, dtype=runtime_times.dtype))
+        )
         runtime_transition_inputs = (
             None
             if bound_transition_inputs is None

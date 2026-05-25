@@ -1,8 +1,7 @@
-"""Auxiliary Kalman MCMC sampler: blocked aux-Kalman latent + MALA parameter."""
+"""Auxiliary Kalman MCMC sampler: blocked aux-Kalman latent + hybrid Gibbs/NUTS parameter."""
 
 from __future__ import annotations
 
-import functools
 import logging
 import time
 from typing import Any
@@ -12,20 +11,21 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from nof1_causal_lab.models.ssm.inference.methods.map import (
-    _build_map_laplace_bundle,
-    fit_map,
+from nof1_causal_lab.models.ssm.inference.latent_trace import (
+    LatentTraceConfig,
+    build_latent_trace_diagnostics,
+    validate_latent_trace_config,
 )
-from nof1_causal_lab.models.ssm.inference.methods.scipy_pathfinder import (
-    ScipyPathfinderResult,
-    scipy_pathfinder,
+from nof1_causal_lab.models.ssm.inference.methods.parameter_warmup import (
+    DEFAULT_PRIOR_RELEASED_SITE_NAMES,
+    prepare_parameter_warmup,
 )
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
     AuxKalmanMCMCResult,
     build_auxiliary_kalman_bundle,
     build_auxiliary_kalman_latent_kernel,
-    build_mala_parameter_kernel,
+    build_hybrid_gibbs_nuts_parameter_kernel,
     initialize_ieks_latents,
     initialize_particle_smoother_latents,
     run_aux_kalman_mcmc,
@@ -38,277 +38,6 @@ logger = logging.getLogger(__name__)
 
 def _phase_elapsed(t0: float) -> float:
     return time.monotonic() - t0
-
-
-# Sites whose posterior geometry is usually too weak for Pathfinder's Gaussian
-# approximation to initialise well, so they inherit the prior-median
-# flat-layout value plus a small per-chain jitter.
-_PRIOR_RELEASED_SITE_NAMES: tuple[str, ...] = ("obs_df",)
-
-
-@functools.partial(jax.jit, static_argnames=("runtime_log_posterior_fn",))
-def _pathfinder_value_and_grad_runtime(
-    z: jnp.ndarray,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    *,
-    runtime_log_posterior_fn,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    return jax.value_and_grad(
-        lambda z_arg: runtime_log_posterior_fn(
-            z_arg,
-            observations,
-            times,
-            latent_mode_init=None,
-        )
-    )(z)
-
-
-def _flat_indices_for_sites(
-    flat_example: jnp.ndarray,
-    unravel_fn,
-    site_names: tuple[str, ...],
-) -> list[int]:
-    """Return flat indices in the aux-Kalman layout that belong to the given sites."""
-    dim = int(flat_example.shape[0])
-    site_for_idx: list[str | None] = [None] * dim
-    for idx in range(dim):
-        onehot = np.zeros(dim, dtype=np.float64)
-        onehot[idx] = 1.0
-        unraveled = unravel_fn(jnp.asarray(onehot, dtype=flat_example.dtype))
-        for name, value in unraveled.items():
-            if np.any(np.abs(np.asarray(value)) > 1e-10):
-                site_for_idx[idx] = name
-                break
-    return [idx for idx, name in enumerate(site_for_idx) if name is not None and name in site_names]
-
-
-def _laplace_preconditioner_chol_from_map_result(
-    map_result: InferenceResult, jitter: float = 1e-6
-) -> jnp.ndarray:
-    """Build a MALA preconditioner Cholesky from a ``fit_map`` Laplace cov."""
-    covariance = np.asarray(map_result.diagnostics["parameter_covariance"])
-    covariance = 0.5 * (covariance + covariance.T)
-    covariance = covariance + jitter * np.eye(covariance.shape[0], dtype=covariance.dtype)
-    return jnp.asarray(np.linalg.cholesky(covariance))
-
-
-def _pathfinder_preconditioner_chol_from_state(
-    pathfinder_state: ScipyPathfinderResult, jitter: float = 1e-6
-) -> jnp.ndarray:
-    """Return the MALA preconditioner Cholesky carried by a scipy Pathfinder result.
-
-    ``scipy_pathfinder`` already computes a PSD lower-triangular Cholesky of
-    the L-BFGS quasi-Newton inverse-Hessian at the best-ELBO iterate (with a
-    jitter addend for numerical safety). Re-symmetrising here would require
-    reconstructing the full covariance and re-factorising; instead we take
-    the chol directly and cast to the sampler dtype.
-    """
-    del jitter  # jitter already applied inside scipy_pathfinder
-    return jnp.asarray(pathfinder_state.chol)
-
-
-def _run_pathfinder_approximation(
-    model,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    *,
-    trace_key: jnp.ndarray,
-    pathfinder_key: jnp.ndarray,
-    reparam,
-    n_ieks_iters: int,
-    num_elbo_samples: int,
-    maxiter: int,
-    n_pathfinder_starts: int = 2,
-    pathfinder_parallel_workers: int | None = None,
-    init_scale: float = 0.1,
-) -> tuple[ScipyPathfinderResult, dict[str, Any]]:
-    """Multi-start scipy-driven Pathfinder; returns best-ELBO Gaussian + diagnostics.
-
-    Uses :func:`scipy_pathfinder` under the hood. Compared to
-    ``blackjax.vi.pathfinder`` the whole L-BFGS optimisation + per-iterate
-    ELBO evaluation happens in Python/numpy; only the log-posterior + grad
-    is jit-compiled (same compile cost as ``fit_map``). Avoids blackjax's
-    ``lax.while_loop``-driven graph explosion that took ~1700 s to compile
-    and 25 GiB HBM at T=1000 on A100.
-
-    Start positions are ``n_pathfinder_starts`` independent Gaussian
-    perturbations of the bundle's ``flat_example`` (typically the prior
-    median), scaled by ``init_scale``. The RNG seed is derived from
-    ``pathfinder_key`` so repeat runs are reproducible.
-    """
-    if n_pathfinder_starts < 1:
-        raise ValueError("n_pathfinder_starts must be >= 1.")
-    backend = model.make_laplace_backend(n_ieks_iters)
-    laplace_bundle = _build_map_laplace_bundle(
-        model, observations, times, trace_key, backend, reparam
-    )
-    runtime_log_post_fn = laplace_bundle["log_posterior_fn"]
-    flat_example = laplace_bundle["flat_example"]
-    flat_dtype = flat_example.dtype
-
-    def log_post_and_grad_np(x: np.ndarray) -> tuple[float, np.ndarray]:
-        xj = jnp.asarray(x, dtype=flat_dtype)
-        fx, gx = _pathfinder_value_and_grad_runtime(
-            xj,
-            observations,
-            times,
-            runtime_log_posterior_fn=runtime_log_post_fn,
-        )
-        return float(fx), np.asarray(jax.device_get(gx), dtype=np.float64)
-
-    # Derive a reproducible int seed from the JAX PRNG key.
-    seed_int = int(jax.device_get(random.randint(pathfinder_key, (), 0, 2**31 - 1)))
-    rng = np.random.default_rng(seed_int)
-    base_np = np.asarray(jax.device_get(flat_example), dtype=np.float64)
-    x0_starts = [
-        base_np + float(init_scale) * rng.standard_normal(base_np.shape)
-        for _ in range(int(n_pathfinder_starts))
-    ]
-
-    result = scipy_pathfinder(
-        log_post_and_grad_np,
-        x0_starts,
-        maxiter=int(maxiter),
-        elbo_samples=int(num_elbo_samples),
-        seed=seed_int,
-        parallel_workers=pathfinder_parallel_workers,
-    )
-    diagnostics = {
-        "n_pathfinder_starts": int(n_pathfinder_starts),
-        "n_pathfinder_starts_finite": int(result.diagnostics["n_starts_finite"]),
-        "pathfinder_parallel_workers": int(result.diagnostics["parallel_workers"]),
-        "best_pathfinder_elbo": float(result.best_elbo),
-        "pathfinder_elbo": float(result.best_elbo),  # backwards-compat
-        "pathfinder_elbo_min": float(result.diagnostics["elbo_min"]),
-        "pathfinder_elbo_max": float(result.diagnostics["elbo_max"]),
-        "pathfinder_elbo_spread": float(result.diagnostics["elbo_spread"]),
-        "pathfinder_maxiter": int(result.diagnostics["maxiter"]),
-        "pathfinder_lbfgs_memory": int(result.diagnostics["lbfgs_memory"]),
-        "pathfinder_elbo_samples": int(result.diagnostics["elbo_samples"]),
-        "pathfinder_per_start": result.diagnostics["per_start"],
-    }
-    return result, diagnostics
-
-
-def _pathfinder_init_positions(
-    model,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    *,
-    trace_key: jnp.ndarray,
-    pathfinder_key: jnp.ndarray,
-    sample_key: jnp.ndarray,
-    reparam,
-    n_ieks_iters: int,
-    num_chains: int,
-    num_elbo_samples: int,
-    maxiter: int,
-    dtype,
-    n_pathfinder_starts: int = 2,
-    pathfinder_parallel_workers: int | None = None,
-    pathfinder_init_scale: float | None = None,
-    aux_bundle: dict[str, Any] | None = None,
-    prior_released_sites: tuple[str, ...] = _PRIOR_RELEASED_SITE_NAMES,
-    prior_release_scale: float = 0.05,
-    release_jitter_key: jnp.ndarray | None = None,
-    best_state: Any | None = None,
-    pathfinder_diagnostics: dict[str, Any] | None = None,
-) -> tuple[jnp.ndarray, dict[str, Any], Any]:
-    """Run Pathfinder on the IEKS-marginal log-posterior for theta.
-
-    Returns ``(init_positions_per_chain, diagnostics, best_state)``. The
-    laplace bundle uses the same ``_discover_sites`` + ``ravel_pytree`` layout
-    as ``build_auxiliary_kalman_bundle``, so the flat positions are directly
-    consumable by :func:`run_aux_kalman_mcmc`.
-
-    When ``n_pathfinder_starts > 1`` this runs K independent Pathfinder
-    approximations, picks the one with the highest ELBO, and samples the
-    ``num_chains`` initial positions from that top-ELBO approximation.
-
-    ``pathfinder_init_scale``:
-        * ``None`` (default) — sample ``num_chains`` positions from the fitted
-          scipy Pathfinder Gaussian: ``x = mean + chol @ zeta``.
-        * ``float`` — take Pathfinder's best-ELBO ``mean`` as the common centre
-          and perturb each chain with ``pathfinder_init_scale * randn``.
-          Works around occasional over-wide Gaussian covariance that scatters
-          chains into distant basins on ill-conditioned posteriors.
-
-    Per-parameter init: when ``aux_bundle`` is provided, flat indices that
-    belong to ``prior_released_sites`` are overridden with the prior-median
-    value (``aux_bundle["flat_example"]``) plus ``prior_release_scale * randn``
-    per chain. This is the literature-standard pattern for weak-curvature sites
-    such as Student-t ``obs_df``: Pathfinder's Gaussian approximation can't
-    meaningfully initialise them, so they start at the prior mode and let the
-    parameter-MALA kernel explore from there.
-    """
-    if best_state is None or pathfinder_diagnostics is None:
-        best_state, pathfinder_diagnostics = _run_pathfinder_approximation(
-            model,
-            observations,
-            times,
-            trace_key=trace_key,
-            pathfinder_key=pathfinder_key,
-            reparam=reparam,
-            n_ieks_iters=n_ieks_iters,
-            num_elbo_samples=num_elbo_samples,
-            maxiter=maxiter,
-            n_pathfinder_starts=n_pathfinder_starts,
-            pathfinder_parallel_workers=pathfinder_parallel_workers,
-        )
-    mean_np = np.asarray(best_state.mean, dtype=np.float64)
-    chol_np = np.asarray(best_state.chol, dtype=np.float64)
-    p_dim = mean_np.shape[0]
-    zeta = random.normal(sample_key, (num_chains, p_dim), dtype=dtype)
-    zeta_np = np.asarray(jax.device_get(zeta), dtype=np.float64)
-    if pathfinder_init_scale is None:
-        # Draw from Pathfinder's fitted Gaussian: x = mean + chol @ zeta.
-        positions_np = mean_np[None, :] + zeta_np @ chol_np.T
-        sampling_mode = "pathfinder_gaussian"
-    else:
-        # Scaled isotropic perturbation around the mode — useful when the
-        # fitted covariance is suspiciously wide.
-        positions_np = mean_np[None, :] + float(pathfinder_init_scale) * zeta_np
-        sampling_mode = "mode_plus_scaled_normal"
-    positions = jnp.asarray(positions_np, dtype=dtype)
-    if not bool(jax.device_get(jnp.all(jnp.isfinite(positions)))):
-        raise RuntimeError(
-            "Pathfinder returned non-finite chain-init positions for aux_kalman_mcmc."
-        )
-
-    prior_site_indices: list[int] = []
-    if aux_bundle is not None and prior_released_sites:
-        prior_site_indices = _flat_indices_for_sites(
-            aux_bundle["flat_example"],
-            aux_bundle["unravel_fn"],
-            prior_released_sites,
-        )
-        if prior_site_indices:
-            flat_example = jnp.asarray(aux_bundle["flat_example"], dtype=dtype)
-            dim = int(flat_example.shape[0])
-            mask = np.zeros(dim, dtype=bool)
-            for idx in prior_site_indices:
-                mask[idx] = True
-            mask_j = jnp.asarray(mask)
-            jitter_key = (
-                release_jitter_key
-                if release_jitter_key is not None
-                else random.fold_in(sample_key, 0xC0FFEE)
-            )
-            noise = random.normal(jitter_key, (num_chains, dim), dtype=dtype)
-            prior_values = flat_example[None, :] + float(prior_release_scale) * noise
-            positions = jnp.where(mask_j[None, :], prior_values, positions)
-
-    diag = {
-        "init_method": "pathfinder",
-        "pathfinder_sampling_mode": sampling_mode,
-        "pathfinder_init_scale": pathfinder_init_scale,
-        **pathfinder_diagnostics,
-        "prior_released_site_names": list(prior_released_sites) if prior_site_indices else [],
-        "prior_released_site_indices": prior_site_indices,
-        "prior_release_scale": float(prior_release_scale) if prior_site_indices else 0.0,
-    }
-    return positions, diag, best_state
 
 
 def fit_aux_kalman_mcmc(
@@ -324,9 +53,10 @@ def fit_aux_kalman_mcmc(
     latent_proposal_family: str = "eq8",
     latent_delta: float = 1e-3,
     latent_target_accept: float = 0.5,
-    parameter_kernel: str = "mala",
+    parameter_kernel: str = "hybrid_gibbs_nuts",
     param_step_size: float = 0.02,
-    param_target_accept: float = 0.57,
+    param_target_accept: float = 0.65,
+    param_max_num_doublings: int = 10,
     adaptation_rate: float = 0.05,
     init_scale: float = 0.05,
     retain_latent_paths: bool = False,
@@ -339,7 +69,7 @@ def fit_aux_kalman_mcmc(
     n_ieks_iters: int = 6,
     pathfinder_num_elbo_samples: int = 20,
     pathfinder_maxiter: int = 20,
-    n_pathfinder_starts: int = 2,
+    n_pathfinder_starts: int = 8,
     pathfinder_parallel_workers: int | None = None,
     pathfinder_init_scale: float | None = None,
     parallel_filter: bool = True,
@@ -349,6 +79,7 @@ def fit_aux_kalman_mcmc(
     auto_preconditioner_method: str = "pathfinder",
     initial_positions_override: jnp.ndarray | None = None,
     emit_per_t_log_alpha: bool = False,
+    debug_particle_trace: bool = False,
     enable_polya_gamma: bool = True,
     polya_gamma_num_terms: int = 64,
     polya_gamma_sampler: str = "truncated_sum",
@@ -357,7 +88,7 @@ def fit_aux_kalman_mcmc(
     reparam=None,
     **_kwargs,
 ) -> InferenceResult:
-    """Fit an SSM with blocked aux-Kalman/MALA MCMC.
+    """Fit an SSM with blocked aux-Kalman plus hybrid Gibbs/NUTS MCMC.
 
     ``parallel_filter`` toggles the Corenflos/Särkkä O(log T) associative
     Kalman filter and RTS sampler used inside the auxiliary-Kalman latent
@@ -374,7 +105,7 @@ def fit_aux_kalman_mcmc(
       shipping default; closest to the plain eq-8 sampler).
     * ``"T_minus_one_third"`` — a single scalar δ fixed at
       ``latent_delta * T**(-1/3)`` and held frozen (Remark 3.1's worst-case
-      MALA rate bound; expects ``adaptation_scheme="simple"`` +
+      MALA-rate bound; expects ``adaptation_scheme="simple"`` +
       ``adaptation_rate=0`` to actually hold the scale).
     * ``"informativeness"`` — a per-time-step δ_t ∝ 1 / n_observed_t, rescaled
       so the mean matches ``latent_delta``. Slots with many observed channels
@@ -393,19 +124,20 @@ def fit_aux_kalman_mcmc(
       literal raw-gradient Eq. 10/11 kernel.
 
     Auto-preconditioner: when ``parameter_preconditioner_chol`` is ``None``,
-    ``auto_preconditioner_method`` selects how the MALA preconditioner is
+    ``auto_preconditioner_method`` selects how the residual-NUTS mass matrix is
     built. The default ``"pathfinder"`` reuses the same best-ELBO Pathfinder
     Gaussian approximation built for per-chain initialisation — so only one
     L-BFGS-style fit is driven, not two.
 
     * ``"pathfinder"`` (default) — reuse Pathfinder's fitted Gaussian
       approximation and pass its covariance Cholesky directly to the
-      parameter-MALA kernel.
+      residual-NUTS kernel.
     * ``"map"`` — run a separate internal MAP+IEKS fit and use the
       L-BFGS-B inverse-Hessian approximation. ``auto_preconditioner_maxiter``
       controls the inner optimiser budget. Heavier than ``"pathfinder"``
       because it is a full second L-BFGS on the same objective; kept for
       callers that need exact Laplace covariance at the posterior mode.
+    * ``"none"`` — leave the parameter kernel unpreconditioned.
 
     Provide a precomputed Cholesky to skip the auto-preconditioner step
     entirely.
@@ -426,9 +158,10 @@ def fit_aux_kalman_mcmc(
             f"Unsupported aux_kalman_mcmc latent proposal family {latent_proposal_family!r}. "
             "Supported: 'eq8' or 'eq10_11'."
         )
-    if parameter_kernel != "mala":
+    if parameter_kernel != "hybrid_gibbs_nuts":
         raise ValueError(
-            f"Unsupported aux_kalman_mcmc parameter kernel {parameter_kernel!r}. Supported: 'mala'."
+            "Unsupported aux_kalman_mcmc parameter kernel "
+            f"{parameter_kernel!r}. Supported: 'hybrid_gibbs_nuts'."
         )
     if init_method not in {"random", "pathfinder"}:
         raise ValueError(
@@ -450,19 +183,18 @@ def fit_aux_kalman_mcmc(
             f"Unsupported latent_delta_profile {latent_delta_profile!r}. "
             "Supported: 'scalar', 'T_minus_one_third', 'informativeness'."
         )
-    if auto_preconditioner_method not in {"map", "pathfinder"}:
-        raise ValueError(
-            f"Unsupported auto_preconditioner_method {auto_preconditioner_method!r}. "
-            "Supported: 'map' or 'pathfinder'."
-        )
-
+    latent_trace_config = LatentTraceConfig(
+        emit_per_t_log_alpha=emit_per_t_log_alpha,
+        debug_particle_trace=debug_particle_trace,
+    )
+    validate_latent_trace_config("aux_kalman_mcmc", latent_trace_config)
     overall_t0 = time.monotonic()
     T_time_log = int(observations.shape[0])
     n_manifest_log = int(observations.shape[1]) if observations.ndim >= 2 else 0
     logger.info(
         "aux_kalman_mcmc entry: chains=%d warmup=%d samples=%d T=%d n_manifest=%d "
         "init_method=%s parallel_filter=%s latent_kernel=%s parameter_kernel=%s "
-        "auto_preconditioner_method=%s",
+        "auto_preconditioner_method=%s emit_per_t_log_alpha=%s",
         num_chains,
         num_warmup,
         num_samples,
@@ -473,6 +205,7 @@ def fit_aux_kalman_mcmc(
         latent_kernel,
         parameter_kernel,
         auto_preconditioner_method,
+        emit_per_t_log_alpha,
     )
 
     base_key = random.PRNGKey(seed)
@@ -501,97 +234,40 @@ def fit_aux_kalman_mcmc(
         len(bundle.get("public_sites", [])),
     )
 
-    init_positions = None
-    init_diagnostics: dict[str, Any] = {"init_method": init_method}
-    shared_pathfinder_state: Any | None = None
-    shared_pathfinder_diagnostics: dict[str, Any] | None = None
     phase_t0 = time.monotonic()
-    if initial_positions_override is not None:
-        init_positions = jnp.asarray(initial_positions_override, dtype=bundle["flat_example"].dtype)
-        if init_positions.shape != (num_chains, int(bundle["flat_example"].shape[0])):
-            raise ValueError(
-                "initial_positions_override must have shape (num_chains, dim); got "
-                f"{init_positions.shape}"
-            )
-        init_diagnostics = {"init_method": "user_provided"}
-        logger.info(
-            "phase 2/6: init positions = user_provided override (%.1fs)",
-            _phase_elapsed(phase_t0),
-        )
-    elif init_method == "pathfinder":
-        logger.info(
-            "phase 2/6: running scipy_pathfinder warmup (n_starts=%d, maxiter=%d, "
-            "n_ieks_iters=%d, elbo_samples=%d, parallel_workers=%s)...",
-            n_pathfinder_starts,
-            pathfinder_maxiter,
-            n_ieks_iters,
-            pathfinder_num_elbo_samples,
-            pathfinder_parallel_workers if pathfinder_parallel_workers is not None else "starts",
-        )
-        if parameter_preconditioner_chol is None and auto_preconditioner_method == "pathfinder":
-            shared_pathfinder_state, shared_pathfinder_diagnostics = _run_pathfinder_approximation(
-                model,
-                observations,
-                times,
-                trace_key=trace_key,
-                pathfinder_key=pathfinder_key,
-                reparam=reparam,
-                n_ieks_iters=n_ieks_iters,
-                num_elbo_samples=pathfinder_num_elbo_samples,
-                maxiter=pathfinder_maxiter,
-                n_pathfinder_starts=n_pathfinder_starts,
-                pathfinder_parallel_workers=pathfinder_parallel_workers,
-            )
-        init_positions, init_diagnostics, shared_pathfinder_state = _pathfinder_init_positions(
-            model,
-            observations,
-            times,
-            trace_key=trace_key,
-            pathfinder_key=pathfinder_key,
-            sample_key=pf_sample_key,
-            reparam=reparam,
-            n_ieks_iters=n_ieks_iters,
-            num_chains=num_chains,
-            num_elbo_samples=pathfinder_num_elbo_samples,
-            maxiter=pathfinder_maxiter,
-            dtype=bundle["flat_example"].dtype,
-            n_pathfinder_starts=n_pathfinder_starts,
-            pathfinder_parallel_workers=pathfinder_parallel_workers,
-            pathfinder_init_scale=pathfinder_init_scale,
-            aux_bundle=bundle,
-            release_jitter_key=release_key,
-            best_state=shared_pathfinder_state,
-            pathfinder_diagnostics=shared_pathfinder_diagnostics,
-        )
-        best_elbo_log = (
-            shared_pathfinder_diagnostics.get("best_pathfinder_elbo")
-            if shared_pathfinder_diagnostics
-            else None
-        )
-        elbo_spread_log = (
-            shared_pathfinder_diagnostics.get("pathfinder_elbo_spread")
-            if shared_pathfinder_diagnostics
-            else None
-        )
-        logger.info(
-            "phase 2/6: pathfinder init complete in %.1fs (best_elbo=%s, elbo_spread=%s, "
-            "n_starts_finite=%s, sampling_mode=%s)",
-            _phase_elapsed(phase_t0),
-            f"{best_elbo_log:.2f}" if isinstance(best_elbo_log, (int, float)) else "n/a",
-            f"{elbo_spread_log:.2f}" if isinstance(elbo_spread_log, (int, float)) else "n/a",
-            (
-                shared_pathfinder_diagnostics.get("n_pathfinder_starts_finite")
-                if shared_pathfinder_diagnostics
-                else "n/a"
-            ),
-            init_diagnostics.get("init_sampling_mode") or init_diagnostics.get("init_method"),
-        )
-    else:
-        logger.info(
-            "phase 2/6: init_method=%s — skipped pathfinder warmup (%.1fs)",
-            init_method,
-            _phase_elapsed(phase_t0),
-        )
+    warmup_result = prepare_parameter_warmup(
+        model,
+        observations,
+        times,
+        bundle=bundle,
+        method_label="aux_kalman_mcmc",
+        phase_label="phase 2/6",
+        trace_key=trace_key,
+        pathfinder_key=pathfinder_key,
+        sample_key=pf_sample_key,
+        reparam=reparam,
+        seed=seed,
+        n_ieks_iters=n_ieks_iters,
+        num_chains=num_chains,
+        init_method=init_method,
+        initial_positions_override=initial_positions_override,
+        init_scale=init_scale,
+        parameter_preconditioner_chol=parameter_preconditioner_chol,
+        auto_preconditioner_method=auto_preconditioner_method,
+        auto_preconditioner_maxiter=auto_preconditioner_maxiter,
+        pathfinder_num_elbo_samples=pathfinder_num_elbo_samples,
+        pathfinder_maxiter=pathfinder_maxiter,
+        n_pathfinder_starts=n_pathfinder_starts,
+        pathfinder_parallel_workers=pathfinder_parallel_workers,
+        pathfinder_init_scale=pathfinder_init_scale,
+        prior_released_sites=DEFAULT_PRIOR_RELEASED_SITE_NAMES,
+        release_jitter_key=release_key,
+    )
+    init_positions = warmup_result.init_positions
+    init_diagnostics = warmup_result.init_diagnostics
+    parameter_preconditioner_chol = warmup_result.preconditioner_chol
+    preconditioner_diagnostics = warmup_result.preconditioner_diagnostics
+    logger.info("phase 2/6: parameter warmup ready in %.1fs", _phase_elapsed(phase_t0))
 
     initial_latent_trajectories = None
     if latent_init_method in {"particle_smoother", "ieks"}:
@@ -653,84 +329,6 @@ def fit_aux_kalman_mcmc(
             "latent_init_method": "predictive",
         }
 
-    # Auto-build the Laplace preconditioner when the caller did not provide
-    # one. The MAP path remains the default; the Pathfinder path reuses the
-    # same best-state Gaussian approximation used for initialisation.
-    preconditioner_diagnostics: dict[str, Any] = {}
-    phase_t0 = time.monotonic()
-    if parameter_preconditioner_chol is None:
-        logger.info(
-            "phase 3/6: building MALA preconditioner via %s...",
-            auto_preconditioner_method,
-        )
-        if auto_preconditioner_method == "pathfinder":
-            if shared_pathfinder_state is None or shared_pathfinder_diagnostics is None:
-                shared_pathfinder_state, shared_pathfinder_diagnostics = (
-                    _run_pathfinder_approximation(
-                        model,
-                        observations,
-                        times,
-                        trace_key=trace_key,
-                        pathfinder_key=pathfinder_key,
-                        reparam=reparam,
-                        n_ieks_iters=n_ieks_iters,
-                        num_elbo_samples=pathfinder_num_elbo_samples,
-                        maxiter=pathfinder_maxiter,
-                        n_pathfinder_starts=n_pathfinder_starts,
-                        pathfinder_parallel_workers=pathfinder_parallel_workers,
-                    )
-                )
-            parameter_preconditioner_chol = _pathfinder_preconditioner_chol_from_state(
-                shared_pathfinder_state
-            )
-            parameter_preconditioner_chol = jax.device_put(parameter_preconditioner_chol)
-            preconditioner_diagnostics = {
-                "auto_preconditioner": True,
-                "auto_preconditioner_method": "pathfinder",
-                "auto_preconditioner_device": jax.default_backend(),
-                "auto_preconditioner_n_pathfinder_starts": int(
-                    shared_pathfinder_diagnostics["n_pathfinder_starts"]
-                ),
-                "auto_preconditioner_n_pathfinder_starts_finite": int(
-                    shared_pathfinder_diagnostics["n_pathfinder_starts_finite"]
-                ),
-                "auto_preconditioner_best_pathfinder_elbo": float(
-                    shared_pathfinder_diagnostics["best_pathfinder_elbo"]
-                ),
-                "auto_preconditioner_pathfinder_elbo_spread": float(
-                    shared_pathfinder_diagnostics["pathfinder_elbo_spread"]
-                ),
-            }
-        else:
-            map_result = fit_map(
-                model,
-                observations,
-                times,
-                num_samples=1,
-                seed=seed,
-                n_ieks_iters=n_ieks_iters,
-                maxiter=auto_preconditioner_maxiter,
-                parameter_covariance_method="optimizer_hess_inv",
-                reparam=reparam,
-            )
-            parameter_preconditioner_chol = _laplace_preconditioner_chol_from_map_result(map_result)
-            preconditioner_diagnostics = {
-                "auto_preconditioner": True,
-                "auto_preconditioner_method": "map",
-                "auto_preconditioner_maxiter": int(auto_preconditioner_maxiter),
-            }
-        logger.info(
-            "phase 3/6: preconditioner ready in %.1fs (method=%s)",
-            _phase_elapsed(phase_t0),
-            auto_preconditioner_method,
-        )
-    else:
-        preconditioner_diagnostics = {"auto_preconditioner": False}
-        logger.info(
-            "phase 3/6: preconditioner = caller-provided (skipped, %.1fs)",
-            _phase_elapsed(phase_t0),
-        )
-
     # Resolve the δ profile. "scalar" keeps a single global δ; the other two
     # variants freeze per-time step sizes — for them, the simple exponential
     # adapter at rate 0 is the "don't touch it" path.
@@ -765,10 +363,11 @@ def fit_aux_kalman_mcmc(
         delta_profile=delta_profile,
         emit_per_t_log_alpha=emit_per_t_log_alpha,
     )
-    parameter_kernel_spec = build_mala_parameter_kernel(
+    parameter_kernel_spec = build_hybrid_gibbs_nuts_parameter_kernel(
         bundle,
         step_size=param_step_size,
         target_accept=param_target_accept,
+        max_num_doublings=param_max_num_doublings,
         preconditioner_chol=parameter_preconditioner_chol,
     )
     logger.info("phase 4/6: kernel specs ready in %.1fs", _phase_elapsed(phase_t0))
@@ -776,7 +375,8 @@ def fit_aux_kalman_mcmc(
     phase_t0 = time.monotonic()
     logger.info(
         "phase 5/6: starting MCMC kernel — first call triggers JAX JIT compile of the "
-        "parallel-Kalman scan + MALA step (this can take 1-5 min on a fresh container) "
+        "parallel-Kalman scan + hybrid Gibbs/NUTS step "
+        "(this can take 1-5 min on a fresh container) "
         "before any sampling iteration begins...",
     )
     run_result = run_aux_kalman_mcmc(
@@ -798,6 +398,10 @@ def fit_aux_kalman_mcmc(
     )
     latent_acc = float(jnp.mean(run_result["chain_extra_fields"]["latent_accept_prob"]))
     param_acc = float(jnp.mean(run_result["chain_extra_fields"]["parameter_accept_prob"]))
+    latent_trace_diagnostics = build_latent_trace_diagnostics(
+        run_result["chain_extra_fields"],
+        latent_trace_config,
+    )
 
     def _scalar_or_summary(value: Any) -> str:
         # Latent / parameter step sizes can be scalar OR per-time-step / per-chain
@@ -864,12 +468,14 @@ def fit_aux_kalman_mcmc(
             "polya_gamma_sampler": str(bundle["polya_gamma_sampler"]),
             "polya_gamma_channels": int(jnp.sum(polya_gamma_plan.channel_mask)),
             "polya_gamma_num_terms": int(polya_gamma_plan.num_terms),
+            "polya_gamma_max_integer_shape": polya_gamma_plan.max_integer_shape,
             "rbpf_enabled": bool(bundle["rbpf_enabled"]),
             "rbpf_requested": bool(bundle["rbpf_requested"]),
             "rbpf_mode": str(bundle["rbpf_mode"]),
             "rbpf_structure": str(bundle["rbpf_structure"]),
             "rbpf_carried_latent_indices": list(rbpf_partition.carried_latent_indices),
             "rbpf_marginalized_latent_indices": list(rbpf_partition.marginalized_latent_indices),
+            "rbpf_partition_diagnostics": bundle["rbpf_partition_diagnostics"],
             "rbpf_observation_channels": int(jnp.sum(rbpf_observation_plan.channel_mask)),
             "rbpf_gaussian_observation_channels": int(
                 jnp.sum(rbpf_observation_plan.gaussian_channel_mask)
@@ -883,11 +489,40 @@ def fit_aux_kalman_mcmc(
             "parameter_accept_rate": float(
                 jnp.mean(run_result["chain_extra_fields"]["parameter_accept_prob"])
             ),
+            "initial_param_step_size": run_result["initial_param_step_size"],
+            "param_step_size_initial_guess": run_result["param_step_size_initial_guess"],
+            "param_step_size_auto_tuned": run_result["param_step_size_auto_tuned"],
+            "param_step_size_tuning_accept_prob": run_result[
+                "param_step_size_tuning_accept_prob"
+            ],
+            "param_step_size_tuning_steps": run_result["param_step_size_tuning_steps"],
+            "param_step_size_tuning_candidate_accept_prob": run_result[
+                "param_step_size_tuning_candidate_accept_prob"
+            ],
+            "param_step_size_tuning_previous_accept_prob": run_result[
+                "param_step_size_tuning_previous_accept_prob"
+            ],
+            "param_step_size_tuning_selected_previous": run_result[
+                "param_step_size_tuning_selected_previous"
+            ],
+            "param_step_size_tuning_crossed": run_result["param_step_size_tuning_crossed"],
+            "latent_adaptation_method": run_result["latent_adaptation_method"],
+            "latent_window_adaptation_window_size": run_result[
+                "latent_window_adaptation_window_size"
+            ],
+            "latent_window_acceptance_mean": run_result["latent_window_acceptance_mean"],
+            "latent_window_acceptance_min": run_result["latent_window_acceptance_min"],
+            "latent_window_acceptance_max": run_result["latent_window_acceptance_max"],
             "final_latent_delta": run_result["final_latent_delta"],
             "final_param_step_size": run_result["final_param_step_size"],
+            "parameter_gibbs_block_count": int(parameter_kernel_spec["gibbs_block_count"]),
+            "parameter_residual_dim": int(parameter_kernel_spec["residual_dim"]),
             "chain_post_warmup_complete_log_posterior_mean": jax.device_get(
                 run_result["post_warmup_complete_log_posterior_mean"]
             ).tolist(),
+            "emit_per_t_log_alpha": bool(emit_per_t_log_alpha),
+            "latent_trace": latent_trace_diagnostics,
+            "parameter_warmup": warmup_result.warmup_diagnostics,
             **init_diagnostics,
             **preconditioner_diagnostics,
         },

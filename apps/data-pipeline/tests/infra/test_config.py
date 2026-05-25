@@ -5,6 +5,8 @@ import textwrap
 import pytest
 
 from nof1_causal_lab.utils.config import (
+    PARTICLE_MGRAD_TARGET_ACCEPT,
+    PIT_AUX_CSMC_TARGET_ACCEPT,
     AuxKalmanMCMCConfig,
     AuxKalmanMCMCLatentKernelConfig,
     AuxKalmanMCMCParameterKernelConfig,
@@ -48,20 +50,23 @@ class TestToSamplerConfig:
         assert result["latent_delta"] == 0.2
         assert result["latent_delta_min"] is None
         assert result["latent_delta_max"] is None
-        assert result["latent_target_accept"] == 0.5
+        assert result["latent_target_accept"] == PARTICLE_MGRAD_TARGET_ACCEPT
         assert result["n_particles"] == 64
-        assert result["adaptation_scheme"] == "simple"
+        assert result["adaptation_scheme"] == "dual_averaging"
         assert result["init_method"] == "pathfinder"
         assert result["latent_init_method"] == "ieks"
         assert result["latent_init_num_particles"] == 64
         assert result["latent_init_guidance"] == "bffg"
         assert result["pathfinder_num_elbo_samples"] == 20
         assert result["pathfinder_maxiter"] == 20
-        assert result["n_pathfinder_starts"] == 4
+        assert result["n_pathfinder_starts"] == 8
         assert result["pathfinder_init_scale"] == 0.1
-        assert result["parameter_kernel"] == "mala"
+        assert result["auto_preconditioner_method"] == "pathfinder"
+        assert result["auto_preconditioner_maxiter"] == 200
+        assert result["debug_particle_trace"] is False
+        assert result["parameter_kernel"] == "hybrid_gibbs_nuts"
         assert result["param_step_size"] == 0.05
-        assert result["param_target_accept"] == 0.57
+        assert result["param_target_accept"] == 0.65
         assert result["param_max_num_doublings"] == 10
         assert result["adaptation_rate"] == 0.05
         assert result["init_scale"] == 0.05
@@ -71,6 +76,15 @@ class TestToSamplerConfig:
         assert "learning_rate" not in result
         assert "guide_type" not in result
 
+    def test_pit_aux_csmc_default_target_accept(self):
+        cfg = InferenceConfig(
+            pit_particle_mgrad=PITParticleMGradConfig(
+                latent_kernel_algorithm="pit_aux_csmc",
+            )
+        )
+        result = cfg.to_sampler_config()
+        assert result["latent_target_accept"] == PIT_AUX_CSMC_TARGET_ACCEPT
+
     def test_aux_kalman_mcmc_explicit(self):
         cfg = InferenceConfig(method="aux_kalman_mcmc")
         result = cfg.to_sampler_config()
@@ -79,10 +93,12 @@ class TestToSamplerConfig:
         assert result["num_samples"] == 1000
         assert result["num_chains"] == 4
         assert result["latent_kernel"] == "kalman"
-        assert result["parameter_kernel"] == "mala"
+        assert result["parameter_kernel"] == "hybrid_gibbs_nuts"
         assert result["param_max_num_doublings"] == 10
+        assert result["adaptation_scheme"] == "dual_averaging"
         assert result["retain_latent_paths"] is True
         assert result["compute_latent_posterior_summary"] is True
+        assert result["emit_per_t_log_alpha"] is False
 
     def test_method_override(self):
         cfg = InferenceConfig(method="pit_particle_mgrad")
@@ -104,9 +120,11 @@ class TestToSamplerConfig:
             method="aux_kalman_mcmc",
             aux_kalman_mcmc=AuxKalmanMCMCConfig(
                 adaptation_rate=0.07,
+                adaptation_scheme="simple",
                 init_scale=0.02,
                 retain_latent_paths=True,
                 compute_latent_posterior_summary=False,
+                emit_per_t_log_alpha=True,
                 latent_kernel=AuxKalmanMCMCLatentKernelConfig(
                     kernel="kalman",
                     proposal_family="eq10_11",
@@ -114,7 +132,7 @@ class TestToSamplerConfig:
                     target_accept=0.45,
                 ),
                 parameter_kernel=AuxKalmanMCMCParameterKernelConfig(
-                    kernel="mala",
+                    kernel="hybrid_gibbs_nuts",
                     step_size=0.03,
                     target_accept=0.61,
                     max_num_doublings=8,
@@ -127,14 +145,16 @@ class TestToSamplerConfig:
         assert result["latent_proposal_family"] == "eq10_11"
         assert result["latent_delta"] == 0.15
         assert result["latent_target_accept"] == 0.45
-        assert result["parameter_kernel"] == "mala"
+        assert result["parameter_kernel"] == "hybrid_gibbs_nuts"
         assert result["param_step_size"] == 0.03
         assert result["param_target_accept"] == 0.61
         assert result["param_max_num_doublings"] == 8
+        assert result["adaptation_scheme"] == "simple"
         assert result["adaptation_rate"] == 0.07
         assert result["init_scale"] == 0.02
         assert result["retain_latent_paths"] is True
         assert result["compute_latent_posterior_summary"] is False
+        assert result["emit_per_t_log_alpha"] is True
 
     def test_unknown_method_raises(self):
         cfg = InferenceConfig(method="hmc")
@@ -151,7 +171,7 @@ class TestToSamplerConfig:
         cfg = InferenceConfig(
             aux_kalman_mcmc=AuxKalmanMCMCConfig(
                 parameter_kernel=AuxKalmanMCMCParameterKernelConfig(
-                    kernel="nuts",
+                    kernel="hybrid_gibbs_nuts",
                     step_size=0.04,
                     target_accept=0.8,
                     max_num_doublings=7,
@@ -160,7 +180,7 @@ class TestToSamplerConfig:
         )
         result = cfg.to_sampler_config()
         assert result["method"] == "pit_particle_mgrad"
-        assert result["parameter_kernel"] == "nuts"
+        assert result["parameter_kernel"] == "hybrid_gibbs_nuts"
         assert result["param_step_size"] == 0.04
         assert result["param_target_accept"] == 0.8
         assert result["param_max_num_doublings"] == 7
@@ -172,6 +192,7 @@ class TestToSamplerConfig:
                 latent_delta_min=1e-5,
                 latent_delta_max=0.3,
                 latent_target_accept=0.47,
+                latent_kernel_algorithm="pit_aux_csmc",
                 n_particles=32,
                 adaptation_scheme="simple",
                 init_method="random",
@@ -182,6 +203,9 @@ class TestToSamplerConfig:
                 pathfinder_maxiter=13,
                 n_pathfinder_starts=3,
                 pathfinder_init_scale=None,
+                auto_preconditioner_method="map",
+                auto_preconditioner_maxiter=17,
+                debug_particle_trace=True,
             ),
         )
         result = cfg.to_sampler_config()
@@ -190,6 +214,7 @@ class TestToSamplerConfig:
         assert result["latent_delta_min"] == 1e-5
         assert result["latent_delta_max"] == 0.3
         assert result["latent_target_accept"] == 0.47
+        assert result["latent_kernel_algorithm"] == "pit_aux_csmc"
         assert result["n_particles"] == 32
         assert result["adaptation_scheme"] == "simple"
         assert result["init_method"] == "random"
@@ -200,6 +225,9 @@ class TestToSamplerConfig:
         assert result["pathfinder_maxiter"] == 13
         assert result["n_pathfinder_starts"] == 3
         assert result["pathfinder_init_scale"] is None
+        assert result["auto_preconditioner_method"] == "map"
+        assert result["auto_preconditioner_maxiter"] == 17
+        assert result["debug_particle_trace"] is True
 
 
 # =============================================================================
@@ -307,9 +335,13 @@ FULL_CONFIG = textwrap.dedent("""\
         pathfinder_maxiter: 12
         n_pathfinder_starts: 5
         pathfinder_init_scale:
+        auto_preconditioner_method: none
+        auto_preconditioner_maxiter: 19
+        debug_particle_trace: true
       aux_kalman_mcmc:
+        emit_per_t_log_alpha: true
         parameter_kernel:
-          kernel: nuts
+          kernel: hybrid_gibbs_nuts
           target_accept: 0.8
           max_num_doublings: 9
 """)
@@ -376,6 +408,7 @@ class TestLoadConfig:
         assert cfg.inference.pit_particle_mgrad.latent_delta_min == 1e-5
         assert cfg.inference.pit_particle_mgrad.latent_delta_max == 0.2
         assert cfg.inference.pit_particle_mgrad.latent_target_accept == 0.49
+        assert cfg.inference.pit_particle_mgrad.latent_kernel_algorithm == "particle_mgrad"
         assert cfg.inference.pit_particle_mgrad.n_particles == 48
         assert cfg.inference.pit_particle_mgrad.adaptation_scheme == "simple"
         assert cfg.inference.pit_particle_mgrad.init_method == "random"
@@ -386,7 +419,12 @@ class TestLoadConfig:
         assert cfg.inference.pit_particle_mgrad.pathfinder_maxiter == 12
         assert cfg.inference.pit_particle_mgrad.n_pathfinder_starts == 5
         assert cfg.inference.pit_particle_mgrad.pathfinder_init_scale is None
-        assert cfg.inference.aux_kalman_mcmc.parameter_kernel.kernel == "nuts"
+        assert cfg.inference.pit_particle_mgrad.auto_preconditioner_method == "none"
+        assert cfg.inference.pit_particle_mgrad.auto_preconditioner_maxiter == 19
+        assert cfg.inference.pit_particle_mgrad.debug_particle_trace is True
+        assert cfg.inference.aux_kalman_mcmc.emit_per_t_log_alpha is True
+        assert cfg.inference.aux_kalman_mcmc.adaptation_scheme == "dual_averaging"
+        assert cfg.inference.aux_kalman_mcmc.parameter_kernel.kernel == "hybrid_gibbs_nuts"
         assert cfg.inference.aux_kalman_mcmc.parameter_kernel.target_accept == 0.8
         assert cfg.inference.aux_kalman_mcmc.parameter_kernel.max_num_doublings == 9
         assert cfg.llm.embedded.max_tokens == 4096
