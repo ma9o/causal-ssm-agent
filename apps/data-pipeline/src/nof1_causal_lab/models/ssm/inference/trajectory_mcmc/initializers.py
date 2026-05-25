@@ -500,9 +500,15 @@ def initialize_ieks_latents(
 
     observations = bundle["observations"]
     times = bundle["times"]
-    trajectory_log_prob_fn = bundle["trajectory_log_prob_from_context_fn"]
+    trajectory_log_prob_fn = bundle["trajectory_log_prob_conditioned_from_context_fn"]
     prior_terms_fn = bundle["prior_terms_from_context_fn"]
     latent_context_runtime_fn = bundle["latent_context_runtime_fn"]
+    laplace_mode_to_runtime_latent_trajectory_fn = bundle[
+        "laplace_mode_to_runtime_latent_trajectory_fn"
+    ]
+    initial_observation_auxiliary_from_context_fn = bundle[
+        "initial_observation_auxiliary_from_context_fn"
+    ]
 
     if trace_key is None:
         trace_key = random.PRNGKey(seed)
@@ -531,7 +537,9 @@ def initialize_ieks_latents(
                 "IEKS init is unsupported for this likelihood. Use "
                 "latent_init_method='particle_smoother' instead."
             )
-        z_mode = jnp.asarray(aux["latent_mode"], dtype=bundle["flat_example"].dtype)
+        z_mode = laplace_mode_to_runtime_latent_trajectory_fn(
+            jnp.asarray(aux["latent_mode"], dtype=bundle["flat_example"].dtype)
+        )
         trajectories_list.append(z_mode)
         log_posteriors.append(float(jax.device_get(-_neg)))
     trajectories = jnp.stack(trajectories_list, axis=0)
@@ -549,8 +557,21 @@ def initialize_ieks_latents(
     for c in range(num_chains):
         context = latent_context_runtime_fn(init_positions[c], times)
         prior_terms = prior_terms_fn(context)
+        observation_auxiliary = initial_observation_auxiliary_from_context_fn(
+            context,
+            trajectories[c],
+        )
         traj_lps.append(
-            float(jax.device_get(trajectory_log_prob_fn(context, trajectories[c], prior_terms)))
+            float(
+                jax.device_get(
+                    trajectory_log_prob_fn(
+                        context,
+                        trajectories[c],
+                        observation_auxiliary,
+                        prior_terms,
+                    )
+                )
+            )
         )
 
     diagnostics = {

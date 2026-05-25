@@ -377,6 +377,48 @@ class TestDynamicsSpecRoundTrip:
 
         assert dynamics_spec_to_dict(restored) == payload
 
+    def test_fixed_hill_shape_round_trips_and_removes_sites(self):
+        from nof1_causal_lab.models.ssm.dynamics import (
+            DynamicsSpec,
+            HillEdgeSpec,
+            compile_dynamics,
+            dynamics_spec_from_dict,
+            dynamics_spec_to_dict,
+        )
+
+        spec = DynamicsSpec(
+            n_latent=2,
+            components=(
+                HillEdgeSpec(
+                    source=0,
+                    target=1,
+                    fixed_ec50=1.2,
+                    fixed_n=2.0,
+                ),
+            ),
+        )
+        payload = dynamics_spec_to_dict(spec)
+        assert payload["components"][0] == {
+            "kind": "HillEdge",
+            "source": 0,
+            "target": 1,
+            "fixed_ec50": 1.2,
+            "fixed_n": 2.0,
+        }
+
+        restored = dynamics_spec_from_dict(payload)
+        compiled = compile_dynamics(restored)
+        assert [site.name for site in compiled.site_registry] == ["vf_0_Emax"]
+
+        with seed(rng_seed=0):
+            params = compiled.sample_params(
+                _delta_prior_fn(compiled, {"vf_0_Emax": jnp.asarray(0.8)})
+            )
+
+        np.testing.assert_allclose(float(params[0]["Emax"]), 0.8, rtol=1e-6)
+        np.testing.assert_allclose(float(params[0]["EC50"]), 1.2, rtol=1e-6)
+        np.testing.assert_allclose(float(params[0]["n"]), 2.0, rtol=1e-6)
+
     def test_ssm_compiler_serializes_dynamics_spec(self):
         """``serialize_ssm_spec`` / ``deserialize_ssm_spec`` round-trip a
         populated ``dynamics_spec`` via the dict-config layer."""

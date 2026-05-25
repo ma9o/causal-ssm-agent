@@ -1128,9 +1128,13 @@ def _support_dynamic_transition_ieks_laplace(
             final_step_norm = jnp.where(active, step_norm, final_step_norm)
             active = active & next_active
 
-    Ad_final, Qd_final, cd_final = _transitions_at(z_est)
+    # Treat the IEKS solve as the latent fixed point for the outer parameter
+    # objective. This avoids differentiating through rejected line-search
+    # branches while preserving gradients through the final local model.
+    z_mode = jax.lax.stop_gradient(z_est)
+    Ad_final, Qd_final, cd_final = _transitions_at(z_mode)
     log_lik, mode_log_joint, laplace_logdet, min_chol_diag = _support_aware_laplace_terms_from_mode(
-        z_est,
+        z_mode,
         observations,
         obs_mask,
         Ad_final,
@@ -1166,8 +1170,8 @@ def _support_dynamic_transition_ieks_laplace(
         laplace_logdet=laplace_logdet,
         min_chol_diag=min_chol_diag,
     )
-    inner_eval_aux["latent_mode"] = z_est
-    return log_lik, z_est, inner_eval_aux
+    inner_eval_aux["latent_mode"] = z_mode
+    return log_lik, z_mode, inner_eval_aux
 
 
 def _support_aware_ieks_laplace_core(

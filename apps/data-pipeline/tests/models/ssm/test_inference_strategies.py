@@ -88,6 +88,11 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
     trajectory_observation_log_prob,
     trajectory_observation_log_probs,
 )
+from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.pit_particle_mgrad import (
+    _gaussian_log_prob_full,
+    _mgrad_gain_and_covariance,
+    _mgrad_log_q_minus,
+)
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.structure import (
@@ -2563,6 +2568,9 @@ def test_aux_kalman_mcmc_dual_averaging_smoke_on_small_kalman_model():
 
     diag = result.diagnostics["aux_kalman_mcmc"]
     assert diag["adaptation_scheme"] == "dual_averaging"
+    assert diag["param_step_size_auto_tuned"] is True
+    assert np.asarray(diag["initial_param_step_size"]).shape == (2,)
+    assert np.all(np.asarray(diag["initial_param_step_size"]) > 0.0)
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
 
 
@@ -2589,7 +2597,7 @@ def test_aux_kalman_mcmc_pathfinder_auto_preconditioner_reuses_pathfinder_run(mo
     )
     pathfinder_runs = {"count": 0}
 
-    def _fake_run_pathfinder_approximations(*_args, **_kwargs):
+    def _fake_run_scipy_pathfinder_approximation(*_args, **_kwargs):
         pathfinder_runs["count"] += 1
         return fake_state, {
             "n_pathfinder_starts": 2,
@@ -2605,11 +2613,11 @@ def test_aux_kalman_mcmc_pathfinder_auto_preconditioner_reuses_pathfinder_run(mo
         raise AssertionError("fit_map should not run when auto_preconditioner_method='pathfinder'.")
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc._run_pathfinder_approximation",
-        _fake_run_pathfinder_approximations,
+        "nof1_causal_lab.models.ssm.inference.methods.parameter_warmup.run_scipy_pathfinder_approximation",
+        _fake_run_scipy_pathfinder_approximation,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc.fit_map",
+        "nof1_causal_lab.models.ssm.inference.methods.map.fit_map",
         _unexpected_fit_map,
     )
 
@@ -2639,6 +2647,8 @@ def test_aux_kalman_mcmc_pathfinder_auto_preconditioner_reuses_pathfinder_run(mo
     assert aux_diag["auto_preconditioner_n_pathfinder_starts"] == 2
     assert aux_diag["auto_preconditioner_n_pathfinder_starts_finite"] == 1
     assert aux_diag["auto_preconditioner_best_pathfinder_elbo"] == pytest.approx(3.0)
+    assert aux_diag["parameter_warmup"]["pathfinder_run_count"] == 1
+    assert aux_diag["parameter_warmup"]["pathfinder_consumers"] == ["init", "preconditioner"]
 
 
 def test_aux_kalman_mcmc_pathfinder_init_scale_switches_sampling_mode(monkeypatch):
@@ -2664,7 +2674,7 @@ def test_aux_kalman_mcmc_pathfinder_init_scale_switches_sampling_mode(monkeypatc
     )
     pathfinder_runs = {"count": 0}
 
-    def _fake_run_pathfinder_approximations(*_args, **_kwargs):
+    def _fake_run_scipy_pathfinder_approximation(*_args, **_kwargs):
         pathfinder_runs["count"] += 1
         return fake_state, {
             "n_pathfinder_starts": 3,
@@ -2680,11 +2690,11 @@ def test_aux_kalman_mcmc_pathfinder_init_scale_switches_sampling_mode(monkeypatc
         raise AssertionError("fit_map should not run when auto_preconditioner_method='pathfinder'.")
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc._run_pathfinder_approximation",
-        _fake_run_pathfinder_approximations,
+        "nof1_causal_lab.models.ssm.inference.methods.parameter_warmup.run_scipy_pathfinder_approximation",
+        _fake_run_scipy_pathfinder_approximation,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc.fit_map",
+        "nof1_causal_lab.models.ssm.inference.methods.map.fit_map",
         _unexpected_fit_map,
     )
 
@@ -2713,7 +2723,145 @@ def test_aux_kalman_mcmc_pathfinder_init_scale_switches_sampling_mode(monkeypatc
     assert aux_diag["auto_preconditioner_n_pathfinder_starts_finite"] == 3
     assert aux_diag["auto_preconditioner_best_pathfinder_elbo"] == pytest.approx(3.0)
     assert aux_diag["auto_preconditioner_pathfinder_elbo_spread"] == pytest.approx(0.2)
+    assert aux_diag["parameter_warmup"]["pathfinder_run_count"] == 1
+    assert aux_diag["parameter_warmup"]["pathfinder_consumers"] == ["init", "preconditioner"]
     assert bool(jnp.isfinite(result.get_samples()["diffusion_diag_free"]).all())
+
+
+def test_aux_kalman_mcmc_emit_per_t_log_alpha_records_trace_fields():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="aux_kalman_mcmc",
+        num_warmup=2,
+        num_samples=3,
+        num_chains=1,
+        seed=19,
+        latent_delta=0.2,
+        param_step_size=0.03,
+        init_scale=0.01,
+        init_method="random",
+        auto_preconditioner_method="none",
+        latent_init_method="predictive",
+        compute_latent_posterior_summary=False,
+        emit_per_t_log_alpha=True,
+    )
+
+    diag = result.diagnostics["aux_kalman_mcmc"]
+    assert diag["emit_per_t_log_alpha"] is True
+    assert diag["latent_trace"]["emit_per_t_log_alpha"] is True
+    assert diag["latent_trace"]["debug_particle_trace"] is False
+    expected_fields = {
+        "log_alpha",
+        "log_alpha_per_t",
+        "log_alpha_obs_per_t",
+        "log_alpha_fwd_minus_rev_per_t",
+        "log_alpha_q_per_t",
+    }
+    assert set(diag["latent_trace"]["log_alpha_fields"]) == expected_fields
+    assert diag["latent_trace"]["particle_trace_fields"] == []
+
+    extra = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
+    for field_name in expected_fields - {"log_alpha"}:
+        assert field_name in extra
+        assert np.asarray(extra[field_name]).shape == (1, 3, 3)
+    assert np.asarray(extra["log_alpha"]).shape == (1, 3)
+
+
+def test_aux_kalman_mcmc_rejects_pit_particle_trace_flag():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="debug_particle_trace"):
+        fit(
+            model,
+            observations=observations,
+            times=times,
+            method="aux_kalman_mcmc",
+            debug_particle_trace=True,
+        )
+
+
+def test_particle_mgrad_log_q_minus_matches_direct_marginal_gaussian():
+    """Lock Particle-mGRAD weights to the marginal proposal in Lemma 3."""
+    particles = jnp.asarray(
+        [
+            [0.15, -0.20],
+            [0.55, 0.05],
+            [-0.30, 0.40],
+            [0.25, 0.35],
+        ],
+        dtype=jnp.float32,
+    )
+    prior_means = jnp.asarray(
+        [
+            [0.10, -0.10],
+            [0.45, 0.15],
+            [-0.25, 0.20],
+            [0.20, 0.45],
+        ],
+        dtype=jnp.float32,
+    )
+    prior_cov = jnp.asarray([[0.70, 0.18], [0.18, 0.50]], dtype=jnp.float32)
+    auxiliary_var = jnp.asarray(0.13, dtype=jnp.float32)
+    gradients = jnp.asarray(
+        [
+            [0.20, -0.15],
+            [-0.05, 0.30],
+            [0.12, 0.08],
+            [-0.22, -0.10],
+        ],
+        dtype=jnp.float32,
+    )
+    candidate_shifts = particles + auxiliary_var * gradients
+    gain, proposal_cov = _mgrad_gain_and_covariance(prior_cov, auxiliary_var)
+
+    log_q_minus = _mgrad_log_q_minus(
+        particles,
+        prior_means,
+        candidate_shifts,
+        gain,
+        proposal_cov,
+        auxiliary_var,
+    )
+
+    dim = particles.shape[-1]
+    num_particles = particles.shape[0]
+    identity_particles = jnp.eye(num_particles - 1, dtype=particles.dtype)
+    shared_cov = auxiliary_var * (gain @ gain.T)
+    direct_values = []
+    v_terms = prior_means @ (jnp.eye(dim, dtype=particles.dtype) - gain).T
+    for idx in range(num_particles):
+        keep = jnp.asarray([item for item in range(num_particles) if item != idx])
+        residual = jnp.ravel(particles[keep] - v_terms[keep])
+        mean = jnp.ravel(
+            jnp.broadcast_to(
+                candidate_shifts[idx] @ gain.T,
+                (num_particles - 1, dim),
+            )
+        )
+        covariance = jnp.kron(identity_particles, proposal_cov)
+        covariance = covariance + jnp.kron(
+            jnp.ones((num_particles - 1, num_particles - 1), dtype=particles.dtype),
+            shared_cov,
+        )
+        direct_values.append(_gaussian_log_prob_full(residual, mean, covariance))
+    direct_log_q_minus = jnp.stack(direct_values)
+
+    np.testing.assert_allclose(
+        np.asarray(log_q_minus - log_q_minus[0]),
+        np.asarray(direct_log_q_minus - direct_log_q_minus[0]),
+        rtol=2e-5,
+        atol=2e-5,
+    )
 
 
 @pytest.mark.slow
@@ -2749,8 +2897,12 @@ def test_pit_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_s
     )
 
     final_latent_delta = np.asarray(result.diagnostics["pit_particle_mgrad"]["final_latent_delta"])
-    assert result.diagnostics["pit_particle_mgrad"]["latent_kernel_algorithm"] == "pit_dsmc"
-    assert result.diagnostics["pit_particle_mgrad"]["parallel_time"] is True
+    assert (
+        result.diagnostics["pit_particle_mgrad"]["latent_kernel_algorithm"]
+        == "sequential_particle_mgrad"
+    )
+    assert result.diagnostics["pit_particle_mgrad"]["latent_kernel_family"] == "particle_mgrad"
+    assert result.diagnostics["pit_particle_mgrad"]["parallel_time"] is False
     assert final_latent_delta.shape == (2, 3)
     assert np.all(np.isfinite(final_latent_delta))
     extra_fields = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
@@ -2766,31 +2918,131 @@ def test_pit_particle_mgrad_per_t_latent_delta_adapts_independently(adaptation_s
     )
 
 
-def test_pit_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch):
+def test_pit_particle_mgrad_debug_particle_trace_records_per_t_summaries():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="pit_particle_mgrad",
+        num_warmup=2,
+        num_samples=3,
+        num_chains=1,
+        seed=22,
+        latent_delta=0.2,
+        latent_target_accept=0.5,
+        n_particles=5,
+        param_step_size=0.03,
+        init_scale=0.01,
+        init_method="random",
+        auto_preconditioner_method="none",
+        latent_init_method="predictive",
+        compute_latent_posterior_summary=False,
+        debug_particle_trace=True,
+    )
+
+    diag = result.diagnostics["pit_particle_mgrad"]
+    assert diag["debug_particle_trace"] is True
+    assert diag["latent_trace"]["emit_per_t_log_alpha"] is False
+    assert diag["latent_trace"]["debug_particle_trace"] is True
+    expected_fields = {
+        "particle_mgrad_updated_mask_per_t",
+        "particle_mgrad_selected_origin_per_t",
+        "particle_mgrad_ref_grad_norm_per_t",
+        "particle_mgrad_auxiliary_shift_norm_per_t",
+        "particle_mgrad_auxiliary_noise_rms_per_t",
+        "particle_mgrad_delta_per_t",
+        "particle_mgrad_resampling_entropy_per_t",
+        "particle_mgrad_resampling_ess_per_t",
+        "particle_mgrad_resampling_log_normalizer_per_t",
+    }
+    assert set(diag["debug_particle_trace_fields"]) == expected_fields
+    assert set(diag["latent_trace"]["particle_trace_fields"]) == expected_fields
+    assert set(diag["latent_trace"]["latent_move_fields"]) == {
+        "latent_move_rms",
+        "latent_move_max_abs",
+        "latent_move_rms_per_t",
+    }
+
+    extra = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
+    for field_name in expected_fields:
+        assert field_name in extra
+        assert np.asarray(extra[field_name]).shape == (1, 3, 3)
+
+    assert np.allclose(
+        np.asarray(extra["particle_mgrad_updated_mask_per_t"]),
+        np.asarray(extra["latent_accept_prob"]),
+    )
+    selected_origin = np.asarray(extra["particle_mgrad_selected_origin_per_t"])
+    assert selected_origin.min() >= 0
+    assert selected_origin.max() < 5
+    for field_name in expected_fields - {"pit_selected_origin_per_t"}:
+        values = np.asarray(extra[field_name])
+        assert np.all(np.isfinite(values)), field_name
+
+
+def test_pit_particle_mgrad_rejects_mh_log_alpha_trace_flag():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
+    times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
+
+    with pytest.raises(ValueError, match="emit_per_t_log_alpha"):
+        fit(
+            model,
+            observations=observations,
+            times=times,
+            method="pit_particle_mgrad",
+            emit_per_t_log_alpha=True,
+        )
+
+
+def test_pit_particle_mgrad_dual_averaging_reuses_pathfinder_for_init_and_preconditioner(
+    monkeypatch,
+):
+    from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import build_auxiliary_kalman_bundle
+
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
     times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
     latent_delta_min = 0.05
     latent_delta_max = 0.12
-
-    def _fake_pathfinder_approximate(_key, _log_posterior_fn, flat_example, **_kwargs):
-        return SimpleNamespace(
-            position=flat_example, elbo=jnp.array(0.0, dtype=flat_example.dtype)
-        ), {}
-
-    def _fake_pathfinder_sample(_key, state, *, num_samples):
-        base = jnp.broadcast_to(state.position, (num_samples, state.position.shape[0]))
-        offsets = jnp.arange(num_samples, dtype=base.dtype)[:, None] * 0.01
-        return base + offsets, jnp.zeros((num_samples,), dtype=base.dtype)
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.pit_particle_mgrad.pathfinder.approximate",
-        _fake_pathfinder_approximate,
+    aux_bundle = build_auxiliary_kalman_bundle(
+        model,
+        observations,
+        times,
+        trace_key=random.PRNGKey(0),
+        reparam=None,
     )
+    flat_example = aux_bundle["flat_example"]
+
+    pathfinder_runs = {"count": 0}
+
+    def _fake_run_scipy_pathfinder_approximation(*_args, **_kwargs):
+        pathfinder_runs["count"] += 1
+        fake_state = SimpleNamespace(
+            mean=flat_example,
+            chol=jnp.eye(flat_example.shape[0], dtype=flat_example.dtype) * 0.2,
+        )
+        return fake_state, {
+            "n_pathfinder_starts": 1,
+            "n_pathfinder_starts_finite": 1,
+            "best_pathfinder_elbo": 0.0,
+            "pathfinder_elbo": 0.0,
+            "pathfinder_elbo_min": 0.0,
+            "pathfinder_elbo_max": 0.0,
+            "pathfinder_elbo_spread": 0.0,
+            "pathfinder_elbos": [0.0],
+        }
+
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.pit_particle_mgrad.pathfinder.sample",
-        _fake_pathfinder_sample,
+        "nof1_causal_lab.models.ssm.inference.methods.parameter_warmup.run_scipy_pathfinder_approximation",
+        _fake_run_scipy_pathfinder_approximation,
     )
 
     result = fit(
@@ -2814,15 +3066,20 @@ def test_pit_particle_mgrad_dual_averaging_supports_pathfinder_init(monkeypatch)
     )
 
     diag = result.diagnostics["pit_particle_mgrad"]
+    assert pathfinder_runs["count"] == 1
     assert diag["adaptation_scheme"] == "dual_averaging"
     assert diag["init_method"] == "pathfinder"
+    assert diag["auto_preconditioner"] is True
+    assert diag["auto_preconditioner_method"] == "pathfinder"
+    assert diag["parameter_warmup"]["pathfinder_run_count"] == 1
+    assert diag["parameter_warmup"]["pathfinder_consumers"] == ["init", "preconditioner"]
     final_latent_delta = np.asarray(diag["final_latent_delta"])
     assert final_latent_delta.shape == (2, 3)
     assert np.all(final_latent_delta >= latent_delta_min)
     assert np.all(final_latent_delta <= latent_delta_max)
 
 
-def test_pit_particle_mgrad_accepts_nuts_parameter_kernel():
+def test_pit_particle_mgrad_accepts_hybrid_gibbs_nuts_parameter_kernel():
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)
     observations = jnp.array([[0.05], [0.12], [-0.03]], dtype=jnp.float32)
@@ -2840,17 +3097,24 @@ def test_pit_particle_mgrad_accepts_nuts_parameter_kernel():
         latent_delta=0.2,
         latent_target_accept=0.5,
         n_particles=5,
-        parameter_kernel="nuts",
+        parameter_kernel="hybrid_gibbs_nuts",
         param_step_size=0.02,
         param_target_accept=0.8,
         param_max_num_doublings=2,
         init_method="random",
+        auto_preconditioner_method="none",
         latent_init_method="predictive",
         compute_latent_posterior_summary=False,
     )
 
     diag = result.diagnostics["pit_particle_mgrad"]
-    assert diag["parameter_kernel"] == "nuts"
+    assert diag["parameter_kernel"] == "hybrid_gibbs_nuts"
+    assert diag["adaptation_scheme"] == "dual_averaging"
+    assert diag["param_step_size_auto_tuned"] is True
+    assert np.asarray(diag["initial_param_step_size"]).shape == (1,)
+    assert np.all(np.asarray(diag["initial_param_step_size"]) > 0.0)
+    assert diag["parameter_gibbs_block_count"] == 0
+    assert diag["parameter_residual_dim"] > 0
     extra = result.diagnostics["mcmc"].get_extra_fields(group_by_chain=True)
     assert "accept_prob" in extra
     assert "diverging" in extra

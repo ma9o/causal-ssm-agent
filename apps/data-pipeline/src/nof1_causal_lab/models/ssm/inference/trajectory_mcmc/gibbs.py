@@ -15,10 +15,24 @@ from blackjax.adaptation.step_size import (
     dual_averaging_adaptation,
 )
 
+from nof1_causal_lab.models.ssm.inference.latent_trace import (
+    LATENT_MOVE_FIELD_NAMES,
+    MH_LOG_ALPHA_FIELD_NAMES,
+    PIT_PARTICLE_TRACE_FIELD_NAMES,
+)
 from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
     _latent_mh_step_eq8_runtime,
     _latent_mh_step_eq10_11_runtime,
 )
+
+_DEFAULT_MIN_SCALE = 1e-6
+_DEFAULT_MAX_SCALE = 1e3
+_MAX_INITIAL_PARAM_STEP_SIZE_ITERS = 20
+_PARTICLE_LATENT_ADAPTATION_WINDOW = 100
+_PARTICLE_LATENT_ADAPTATION_TOLERANCE = 0.05
+_PARTICLE_LATENT_ADAPTATION_RHO = 0.5
+_PARTICLE_LATENT_ADAPTATION_GAMMA = -0.5
+_PARTICLE_LATENT_ADAPTATION_MIN_RATE = 1e-3
 
 
 class AuxKalmanMCMCState(NamedTuple):
@@ -113,7 +127,11 @@ def _clip_scale(
 ) -> jnp.ndarray:
     clipped = scale
     if min_scale is not None:
-        clipped = jnp.maximum(clipped, jnp.asarray(min_scale, dtype=clipped.dtype))
+        min_value = jnp.nextafter(
+            jnp.asarray(min_scale, dtype=clipped.dtype),
+            jnp.asarray(jnp.inf, dtype=clipped.dtype),
+        )
+        clipped = jnp.maximum(clipped, min_value)
     if max_scale is not None:
         clipped = jnp.minimum(clipped, jnp.asarray(max_scale, dtype=clipped.dtype))
     return clipped
@@ -183,32 +201,23 @@ def _identity_project_latent_trajectory(latent_trajectory: jnp.ndarray) -> jnp.n
     return latent_trajectory
 
 
-_PER_T_FIELD_NAMES = (
-    "log_alpha_per_t",
-    "log_alpha_obs_per_t",
-    "log_alpha_fwd_minus_rev_per_t",
-    "log_alpha_q_per_t",
-    "log_alpha_global",
-    "log_alpha",
-)
+_PER_T_FIELD_NAMES = MH_LOG_ALPHA_FIELD_NAMES
 
-_LATENT_FIELD_NAMES = (
-    "latent_move_rms",
-    "latent_move_max_abs",
-    "latent_move_rms_per_t",
-)
+_LATENT_FIELD_NAMES = LATENT_MOVE_FIELD_NAMES + PIT_PARTICLE_TRACE_FIELD_NAMES
 
 _PARAMETER_FIELD_NAMES = (
     "accept_prob",
     "diverging",
     "num_steps",
     "energy",
+    "gibbs_block_count",
+    "residual_dim",
 )
 
 
 @dataclass(frozen=True)
 class _AuxKalmanMCMCRunnerStatic:
-    project_latent_trajectory_fn: Any
+    public_latent_trajectory_runtime_fn: Any
     latent_context_runtime_fn: Any
     initial_latent_from_context_fn: Any
     initial_observation_auxiliary_from_context_runtime_fn: Any
@@ -236,7 +245,11 @@ class _AuxKalmanMCMCRunnerStatic:
     initial_latent_scale_mode: str
     latent_min_scale: float | None
     latent_max_scale: float | None
+    param_min_scale: float
+    param_max_scale: float
+    parameter_residual_dim: int
     use_dual_averaging: bool
+    use_windowed_latent_adaptation: bool
     retain_latent_paths: bool
     emit_per_t_log_alpha: bool
     compute_latent_posterior_summary: bool
@@ -318,6 +331,11 @@ def _initialize_aux_kalman_mcmc_chain_state(
         latent_min_scale=static.latent_min_scale,
         latent_max_scale=static.latent_max_scale,
     )
+    init_param_step_size = _clip_scale(
+        jnp.asarray(static.initial_param_scale, dtype=scale_dtype),
+        min_scale=static.param_min_scale,
+        max_scale=static.param_max_scale,
+    )
 
     da_latent_init, _da_latent_update, _ = dual_averaging_adaptation(
         target=float(static.latent_target_accept)
@@ -333,12 +351,12 @@ def _initialize_aux_kalman_mcmc_chain_state(
         trajectory_log_prob=init_traj,
         complete_log_posterior=init_complete,
         latent_delta=init_latent_delta,
-        param_step_size=jnp.asarray(static.initial_param_scale, dtype=scale_dtype),
+        param_step_size=init_param_step_size,
         latent_da=_normalize_dual_averaging_state_shape(
             da_latent_init(init_latent_delta),
             init_latent_delta,
         ),
-        param_da=da_param_init(static.initial_param_scale),
+        param_da=da_param_init(init_param_step_size),
     )
 
 
@@ -346,13 +364,23 @@ def _stack_chain_states(states: list[AuxKalmanMCMCState]) -> AuxKalmanMCMCState:
     return jax.tree_util.tree_map(lambda *values: jnp.stack(values, axis=0), *states)
 
 
-@functools.partial(jax.jit, static_argnames=("project_latent_trajectory_fn",))
-def _project_public_latent_batch(
-    latent_trajectories: jnp.ndarray,
+@functools.partial(jax.jit, static_argnames=("static",))
+def _sample_public_latent_batch(
+    states: AuxKalmanMCMCState,
+    keys: jnp.ndarray,
+    observations: jnp.ndarray,
     *,
-    project_latent_trajectory_fn,
+    static: _AuxKalmanMCMCRunnerStatic,
 ) -> jnp.ndarray:
-    return jax.vmap(project_latent_trajectory_fn)(latent_trajectories)
+    return jax.vmap(
+        lambda state, key: static.public_latent_trajectory_runtime_fn(
+            state.latent_context,
+            state.latent_trajectory,
+            state.observation_auxiliary,
+            observations,
+            key,
+        )
+    )(states, keys)
 
 
 @functools.partial(jax.jit, static_argnames=("static",))
@@ -456,6 +484,250 @@ def _run_batched_aux_kalman_mcmc_parameter_step(
     return jax.vmap(static.parameter_step_fn)(states, step_keys)
 
 
+@functools.partial(jax.jit, static_argnames=("static",))
+def _auto_tune_initial_param_step_size_batched(
+    states: AuxKalmanMCMCState,
+    step_keys: jnp.ndarray,
+    *,
+    static: _AuxKalmanMCMCRunnerStatic,
+) -> tuple[AuxKalmanMCMCState, dict[str, jnp.ndarray]]:
+    """Find a reasonable initial residual-NUTS step size for each chain."""
+    if static.parameter_residual_dim == 0:
+        return states, {
+            "accept_prob": jnp.ones_like(states.param_step_size),
+            "num_search_steps": jnp.zeros_like(states.param_step_size),
+        }
+
+    target_accept = jnp.asarray(static.param_target_accept, dtype=states.param_step_size.dtype)
+
+    def _one_chain(state, key):
+        initial_scale = _clip_scale(
+            state.param_step_size,
+            min_scale=static.param_min_scale,
+            max_scale=static.param_max_scale,
+        )
+
+        def _accept_prob(search_idx: jnp.ndarray, scale: jnp.ndarray) -> jnp.ndarray:
+            trial_state = state._replace(param_step_size=scale)
+            _next_state, info = static.parameter_step_fn(
+                trial_state,
+                random.fold_in(key, search_idx),
+            )
+            accept = jnp.asarray(info["accept_prob"], dtype=scale.dtype)
+            accept = jnp.where(jnp.isfinite(accept), accept, jnp.asarray(0.0, dtype=scale.dtype))
+            return jnp.clip(accept, 0.0, 1.0)
+
+        initial_accept = _accept_prob(jnp.asarray(0, dtype=jnp.int32), initial_scale)
+        initial_direction = jnp.where(
+            target_accept < initial_accept,
+            jnp.asarray(1, dtype=jnp.int32),
+            jnp.asarray(-1, dtype=jnp.int32),
+        )
+
+        def _continue(carry) -> jnp.ndarray:
+            (
+                search_idx,
+                direction,
+                previous_direction,
+                _previous_scale,
+                _previous_accept,
+                scale,
+                _accept,
+            ) = carry
+            not_too_large = (scale < static.param_max_scale) | (direction <= 0)
+            not_too_small = (scale > static.param_min_scale) | (direction >= 0)
+            not_crossed = (previous_direction == 0) | (direction == previous_direction)
+            return (
+                (search_idx < _MAX_INITIAL_PARAM_STEP_SIZE_ITERS)
+                & not_too_large
+                & not_too_small
+                & not_crossed
+            )
+
+        def _update(carry):
+            (
+                search_idx,
+                direction,
+                _previous_direction,
+                _previous_scale,
+                _previous_accept,
+                scale,
+                accept_current,
+            ) = carry
+            proposed_scale = jnp.where(direction > 0, 2.0 * scale, 0.5 * scale)
+            proposed_scale = _clip_scale(
+                proposed_scale,
+                min_scale=static.param_min_scale,
+                max_scale=static.param_max_scale,
+            )
+            accept = _accept_prob(search_idx, proposed_scale)
+            next_direction = jnp.where(
+                target_accept < accept,
+                jnp.asarray(1, dtype=jnp.int32),
+                jnp.asarray(-1, dtype=jnp.int32),
+            )
+            return (
+                search_idx + 1,
+                next_direction,
+                direction,
+                scale,
+                accept_current,
+                proposed_scale,
+                accept,
+            )
+
+        (
+            final_search_idx,
+            final_direction,
+            previous_direction,
+            previous_scale,
+            previous_accept,
+            candidate_scale,
+            candidate_accept,
+        ) = (
+            jax.lax.while_loop(
+                _continue,
+                _update,
+                (
+                    jnp.asarray(1, dtype=jnp.int32),
+                    initial_direction,
+                    jnp.asarray(0, dtype=jnp.int32),
+                    initial_scale,
+                    initial_accept,
+                    initial_scale,
+                    initial_accept,
+                ),
+            )
+        )
+        has_previous = previous_direction != 0
+        previous_error = jnp.abs(previous_accept - target_accept)
+        candidate_error = jnp.abs(candidate_accept - target_accept)
+        selected_previous = has_previous & (previous_error <= candidate_error)
+        tuned_scale = jnp.where(selected_previous, previous_scale, candidate_scale)
+        tuned_accept = jnp.where(selected_previous, previous_accept, candidate_accept)
+        crossed = has_previous & (final_direction != previous_direction)
+        return (
+            tuned_scale,
+            tuned_accept,
+            final_search_idx,
+            candidate_accept,
+            previous_accept,
+            selected_previous.astype(tuned_scale.dtype),
+            crossed.astype(tuned_scale.dtype),
+        )
+
+    (
+        tuned_scale,
+        accept_prob,
+        num_search_steps,
+        candidate_accept_prob,
+        previous_accept_prob,
+        selected_previous,
+        crossed,
+    ) = jax.vmap(_one_chain)(states, step_keys)
+    return states._replace(param_step_size=tuned_scale), {
+        "accept_prob": accept_prob,
+        "num_search_steps": num_search_steps.astype(states.param_step_size.dtype),
+        "candidate_accept_prob": candidate_accept_prob,
+        "previous_accept_prob": previous_accept_prob,
+        "selected_previous": selected_previous,
+        "crossed": crossed,
+    }
+
+
+def _reset_param_dual_averaging_state(
+    states: AuxKalmanMCMCState,
+    *,
+    target_accept: float,
+) -> AuxKalmanMCMCState:
+    da_param_init, _da_param_update, _ = dual_averaging_adaptation(target=float(target_accept))
+    return states._replace(param_da=jax.vmap(da_param_init)(states.param_step_size))
+
+
+@functools.partial(jax.jit, static_argnames=("static",))
+def _apply_windowed_latent_update_batched(
+    states: AuxKalmanMCMCState,
+    latent_accept: jnp.ndarray,
+    latent_accept_window: jnp.ndarray,
+    warmup_step: jnp.ndarray,
+    *,
+    static: _AuxKalmanMCMCRunnerStatic,
+) -> tuple[AuxKalmanMCMCState, jnp.ndarray, jnp.ndarray]:
+    """mGRAD released-code per-time multiplicative latent delta adaptation."""
+    accept = jnp.asarray(latent_accept, dtype=states.latent_delta.dtype)
+    if accept.shape != states.latent_delta.shape:
+        accept = _expand_chain_statistic(accept, states.latent_delta)
+
+    window_idx = jnp.mod(warmup_step, latent_accept_window.shape[1])
+    latent_accept_window = latent_accept_window.at[:, window_idx, ...].set(accept)
+    denominator = jnp.minimum(
+        warmup_step + jnp.asarray(1, dtype=warmup_step.dtype),
+        jnp.asarray(latent_accept_window.shape[1], dtype=warmup_step.dtype),
+    )
+    window_accept_rate = jnp.sum(latent_accept_window, axis=1) / jnp.asarray(
+        denominator,
+        dtype=states.latent_delta.dtype,
+    )
+    target_accept = jnp.asarray(static.latent_target_accept, dtype=states.latent_delta.dtype)
+    error = window_accept_rate - target_accept
+    normalized_error = error / jnp.maximum(target_accept, jnp.asarray(1e-6, dtype=target_accept.dtype))
+    learning_rate = jnp.maximum(
+        jnp.asarray(_PARTICLE_LATENT_ADAPTATION_RHO, dtype=states.latent_delta.dtype)
+        * jnp.power(
+            jnp.asarray(warmup_step + 1, dtype=states.latent_delta.dtype),
+            jnp.asarray(_PARTICLE_LATENT_ADAPTATION_GAMMA, dtype=states.latent_delta.dtype),
+        ),
+        jnp.asarray(_PARTICLE_LATENT_ADAPTATION_MIN_RATE, dtype=states.latent_delta.dtype),
+    )
+    current_delta = _clip_scale(
+        states.latent_delta,
+        min_scale=static.latent_min_scale,
+        max_scale=static.latent_max_scale,
+    )
+    next_delta = jnp.where(
+        jnp.abs(error) < jnp.asarray(
+            _PARTICLE_LATENT_ADAPTATION_TOLERANCE,
+            dtype=states.latent_delta.dtype,
+        ),
+        current_delta,
+        current_delta + learning_rate * current_delta * normalized_error,
+    )
+    next_latent_delta = _clip_scale(
+        next_delta,
+        min_scale=static.latent_min_scale,
+        max_scale=static.latent_max_scale,
+    )
+    return states._replace(latent_delta=next_latent_delta), latent_accept_window, window_accept_rate
+
+
+def _apply_param_dual_averaging_update_batched(
+    states: AuxKalmanMCMCState,
+    param_accept: jnp.ndarray,
+    *,
+    static: _AuxKalmanMCMCRunnerStatic,
+    da_param_update,
+    is_final_warmup: bool,
+) -> AuxKalmanMCMCState:
+    updated_param_da = jax.vmap(
+        lambda da_state, accepted: _clip_dual_averaging_state(
+            da_param_update(da_state, accepted),
+            min_scale=static.param_min_scale,
+            max_scale=static.param_max_scale,
+        )
+    )(states.param_da, param_accept)
+    scale_dtype = states.latent_delta.dtype
+    param_live = jnp.exp(updated_param_da.log_step_size).astype(scale_dtype)
+    param_frozen = jnp.exp(updated_param_da.log_step_size_avg).astype(scale_dtype)
+    return states._replace(
+        param_step_size=_clip_scale(
+            jnp.where(is_final_warmup, param_frozen, param_live),
+            min_scale=static.param_min_scale,
+            max_scale=static.param_max_scale,
+        ),
+        param_da=updated_param_da,
+    )
+
+
 def _apply_dual_averaging_update_batched(
     states: AuxKalmanMCMCState,
     latent_accept: jnp.ndarray,
@@ -476,12 +748,16 @@ def _apply_dual_averaging_update_batched(
             max_scale=static.latent_max_scale,
         )
     )(states.latent_da, latent_accept, states.latent_delta)
-    updated_param_da = jax.vmap(da_param_update)(states.param_da, param_accept)
+    states = _apply_param_dual_averaging_update_batched(
+        states,
+        param_accept,
+        static=static,
+        da_param_update=da_param_update,
+        is_final_warmup=is_final_warmup,
+    )
     scale_dtype = states.latent_delta.dtype
     latent_live = jnp.exp(updated_latent_da.log_step_size).astype(scale_dtype)
     latent_frozen = jnp.exp(updated_latent_da.log_step_size_avg).astype(scale_dtype)
-    param_live = jnp.exp(updated_param_da.log_step_size).astype(scale_dtype)
-    param_frozen = jnp.exp(updated_param_da.log_step_size_avg).astype(scale_dtype)
     next_latent_delta = _clip_scale(
         jnp.where(is_final_warmup, latent_frozen, latent_live),
         min_scale=static.latent_min_scale,
@@ -489,9 +765,7 @@ def _apply_dual_averaging_update_batched(
     )
     return states._replace(
         latent_delta=next_latent_delta,
-        param_step_size=jnp.where(is_final_warmup, param_frozen, param_live),
         latent_da=updated_latent_da,
-        param_da=updated_param_da,
     )
 
 
@@ -552,7 +826,7 @@ def run_aux_kalman_mcmc(
     emit_per_t_log_alpha: bool = False,
     compute_latent_posterior_summary: bool = True,
 ) -> dict[str, Any]:
-    """Blocked MCMC: eq-8 aux-Kalman latent step + MALA parameter step.
+    """Blocked MCMC: latent trajectory step + hybrid Gibbs/NUTS parameter step.
 
     Each block has its own accept signal so ``latent_delta`` and
     ``param_step_size`` adapt against their own target acceptances, avoiding
@@ -562,11 +836,10 @@ def run_aux_kalman_mcmc(
     Parameters
     ----------
     adaptation_scheme:
-        ``"simple"`` (default) — the original exponential update on the raw
-        per-step binary accept. ``"dual_averaging"`` — Hoffman & Gelman (2014)
-        dual averaging on log step size, with √t damping and a decaying
-        running-mean weight. Dual averaging converges in ~100 steps where the
-        simple scheme takes ~2000.
+        ``"dual_averaging"`` (default) — Hoffman & Gelman (2014) dual
+        averaging on log step size, with √t damping and a decaying running-mean
+        weight. ``"simple"`` keeps the original exponential update on the raw
+        per-step binary accept for ablations and reproduction runs.
     init_positions:
         Optional ``(num_chains, dim)`` array of unconstrained parameter
         positions. When ``None`` the sampler perturbs ``bundle["flat_example"]``
@@ -597,11 +870,11 @@ def run_aux_kalman_mcmc(
     if latent_kernel_name == "pit_particle_mgrad" and latent_kernel.get("step_fn") is None:
         raise ValueError("pit_particle_mgrad latent kernel requires a 'step_fn'.")
     latent_target_accept = latent_kernel["target_accept"]
-    parameter_kernel_name = parameter_kernel.get("name", "mala")
-    if parameter_kernel_name not in {"mala", "nuts"}:
+    parameter_kernel_name = parameter_kernel.get("name", "hybrid_gibbs_nuts")
+    if parameter_kernel_name != "hybrid_gibbs_nuts":
         raise ValueError(
             f"Unsupported parameter kernel name {parameter_kernel_name!r}; "
-            "expected 'mala' or 'nuts'."
+            "expected 'hybrid_gibbs_nuts'."
         )
     if parameter_kernel.get("step_fn") is None:
         raise ValueError(f"{parameter_kernel_name} parameter kernel requires a 'step_fn'.")
@@ -613,8 +886,16 @@ def run_aux_kalman_mcmc(
     initial_latent_scale_mode = latent_kernel.get("initial_scale_mode", "direct")
     initial_param_scale = float(parameter_kernel["initial_scale"])
     use_dual_averaging = adaptation_scheme == "dual_averaging"
+    use_windowed_latent_adaptation = use_dual_averaging and latent_kernel_name == "pit_particle_mgrad"
+    parameter_residual_dim = int(parameter_kernel.get("residual_dim", 0))
     latent_min_scale = latent_kernel.get("min_scale")
     latent_max_scale = latent_kernel.get("max_scale")
+    if latent_min_scale is None:
+        latent_min_scale = _DEFAULT_MIN_SCALE
+    if latent_max_scale is None:
+        latent_max_scale = _DEFAULT_MAX_SCALE
+    param_min_scale = float(parameter_kernel.get("min_scale", _DEFAULT_MIN_SCALE))
+    param_max_scale = float(parameter_kernel.get("max_scale", _DEFAULT_MAX_SCALE))
     if initial_latent_scale_mode not in {"direct", "per_time_constant"}:
         raise ValueError(
             "Unknown latent initial scale mode "
@@ -629,11 +910,21 @@ def run_aux_kalman_mcmc(
             "latent_kernel min_scale must be <= max_scale; got "
             f"{latent_min_scale} > {latent_max_scale}."
         )
+    if param_min_scale > param_max_scale:
+        raise ValueError(
+            "parameter_kernel min_scale must be <= max_scale; got "
+            f"{param_min_scale} > {param_max_scale}."
+        )
 
     observations = bundle["observations"]
     times = bundle["times"]
     static = _AuxKalmanMCMCRunnerStatic(
-        project_latent_trajectory_fn=project_latent_trajectory,
+        public_latent_trajectory_runtime_fn=bundle.get(
+            "public_latent_trajectory_runtime_fn",
+            lambda _context, latent_trajectory, _observation_auxiliary, _observations, _key: (
+                project_latent_trajectory(latent_trajectory)
+            ),
+        ),
         latent_context_runtime_fn=bundle.get(
             "latent_context_runtime_fn",
             lambda z, _runtime_times: bundle["latent_context_fn"](z),
@@ -678,14 +969,18 @@ def run_aux_kalman_mcmc(
         initial_latent_scale_mode=initial_latent_scale_mode,
         latent_min_scale=latent_min_scale,
         latent_max_scale=latent_max_scale,
+        param_min_scale=param_min_scale,
+        param_max_scale=param_max_scale,
+        parameter_residual_dim=parameter_residual_dim,
         use_dual_averaging=use_dual_averaging,
+        use_windowed_latent_adaptation=use_windowed_latent_adaptation,
         retain_latent_paths=retain_latent_paths,
         emit_per_t_log_alpha=emit_per_t_log_alpha,
         compute_latent_posterior_summary=compute_latent_posterior_summary,
     )
 
     base_key = random.PRNGKey(seed)
-    init_key, chain_key = random.split(base_key)
+    init_key, tune_key, chain_key = random.split(base_key, 3)
     if init_positions is None:
         init_keys = random.split(init_key, num_chains)
         init_noise = jax.vmap(
@@ -732,6 +1027,55 @@ def run_aux_kalman_mcmc(
             for chain_idx in range(num_chains)
         ]
     )
+    param_step_size_initial_guess = states.param_step_size
+    param_step_size_auto_tuned = bool(use_dual_averaging and parameter_residual_dim > 0)
+    if param_step_size_auto_tuned:
+        states, param_step_size_tuning_info = _auto_tune_initial_param_step_size_batched(
+            states,
+            random.split(tune_key, num_chains),
+            static=static,
+        )
+        states = _reset_param_dual_averaging_state(
+            states,
+            target_accept=param_target_accept,
+        )
+        print(
+            "aux_kalman_mcmc progress: "
+            "parameter initial step-size auto-tuned "
+            f"guess_range=[{float(jnp.min(param_step_size_initial_guess)):.3g},"
+            f"{float(jnp.max(param_step_size_initial_guess)):.3g}] "
+            f"tuned_range=[{float(jnp.min(states.param_step_size)):.3g},"
+            f"{float(jnp.max(states.param_step_size)):.3g}] "
+            "accept_range="
+            f"[{float(jnp.min(param_step_size_tuning_info['accept_prob'])):.3g},"
+            f"{float(jnp.max(param_step_size_tuning_info['accept_prob'])):.3g}] "
+            "search_steps_range="
+            f"[{float(jnp.min(param_step_size_tuning_info['num_search_steps'])):.0f},"
+            f"{float(jnp.max(param_step_size_tuning_info['num_search_steps'])):.0f}] "
+            "selected_previous="
+            f"{int(jnp.sum(param_step_size_tuning_info['selected_previous']))}/"
+            f"{num_chains}",
+            flush=True,
+        )
+    else:
+        param_step_size_tuning_info = {
+            "accept_prob": jnp.zeros_like(states.param_step_size),
+            "num_search_steps": jnp.zeros_like(states.param_step_size),
+            "candidate_accept_prob": jnp.zeros_like(states.param_step_size),
+            "previous_accept_prob": jnp.zeros_like(states.param_step_size),
+            "selected_previous": jnp.zeros_like(states.param_step_size),
+            "crossed": jnp.zeros_like(states.param_step_size),
+        }
+    initial_param_step_size = states.param_step_size
+    latent_accept_window = jnp.zeros(
+        (
+            num_chains,
+            _PARTICLE_LATENT_ADAPTATION_WINDOW,
+            *states.latent_delta.shape[1:],
+        ),
+        dtype=states.latent_delta.dtype,
+    )
+    latent_window_accept_rate = jnp.zeros_like(states.latent_delta)
     step_keys = random.split(chain_key, total_steps * num_chains).reshape(
         total_steps, num_chains, 2
     )
@@ -741,9 +1085,11 @@ def run_aux_kalman_mcmc(
         _, da_param_update, _ = dual_averaging_adaptation(target=float(param_target_accept))
 
     if compute_latent_posterior_summary:
-        public_example = _project_public_latent_batch(
-            states.latent_trajectory,
-            project_latent_trajectory_fn=project_latent_trajectory,
+        public_example = _sample_public_latent_batch(
+            states,
+            random.split(init_key, num_chains),
+            observations,
+            static=static,
         )
         latent_sum = jnp.zeros_like(public_example)
         latent_sumsq = jnp.zeros_like(public_example)
@@ -766,16 +1112,18 @@ def run_aux_kalman_mcmc(
         "aux_kalman_mcmc progress: "
         f"chains={num_chains} warmup={num_warmup} samples={num_samples} "
         f"total_steps={total_steps} adaptation={adaptation_scheme} "
+        f"latent_adaptation={'windowed' if use_windowed_latent_adaptation else adaptation_scheme} "
         f"latent_kernel={latent_kernel_name} parameter_kernel={parameter_kernel_name} "
         f"progress_every={progress_every}",
         flush=True,
     )
 
     for step_idx in range(total_steps):
-        aux_latent_param_keys = jax.vmap(lambda key: random.split(key, 3))(step_keys[step_idx])
+        aux_latent_param_keys = jax.vmap(lambda key: random.split(key, 4))(step_keys[step_idx])
         obs_aux_keys = aux_latent_param_keys[:, 0, :]
         latent_keys = aux_latent_param_keys[:, 1, :]
         param_keys = aux_latent_param_keys[:, 2, :]
+        public_latent_keys = aux_latent_param_keys[:, 3, :]
         states, _obs_aux_info = _run_batched_observation_auxiliary_step(
             states,
             obs_aux_keys,
@@ -822,15 +1170,33 @@ def run_aux_kalman_mcmc(
 
         if step_idx < num_warmup:
             if use_dual_averaging:
-                states = _apply_dual_averaging_update_batched(
-                    states,
-                    latent_info["accepted"],
-                    param_info["accepted"],
-                    static=static,
-                    da_latent_update=da_latent_update,
-                    da_param_update=da_param_update,
-                    is_final_warmup=step_idx == (num_warmup - 1),
-                )
+                if use_windowed_latent_adaptation:
+                    states, latent_accept_window, latent_window_accept_rate = (
+                        _apply_windowed_latent_update_batched(
+                            states,
+                            latent_info["accepted"],
+                            latent_accept_window,
+                            jnp.asarray(step_idx, dtype=jnp.int32),
+                            static=static,
+                        )
+                    )
+                    states = _apply_param_dual_averaging_update_batched(
+                        states,
+                        param_info["accepted"],
+                        static=static,
+                        da_param_update=da_param_update,
+                        is_final_warmup=step_idx == (num_warmup - 1),
+                    )
+                else:
+                    states = _apply_dual_averaging_update_batched(
+                        states,
+                        latent_info["accepted"],
+                        param_info["accepted"],
+                        static=static,
+                        da_latent_update=da_latent_update,
+                        da_param_update=da_param_update,
+                        is_final_warmup=step_idx == (num_warmup - 1),
+                    )
             else:
                 states = _apply_simple_adaptation_update_batched(
                     states,
@@ -852,9 +1218,11 @@ def run_aux_kalman_mcmc(
                 parameter_extra_history[param_field_name].append(param_info[param_field_name])
 
         if need_public_latent:
-            public_latent = _project_public_latent_batch(
-                states.latent_trajectory,
-                project_latent_trajectory_fn=project_latent_trajectory,
+            public_latent = _sample_public_latent_batch(
+                states,
+                public_latent_keys,
+                observations,
+                static=static,
             )
             if compute_latent_posterior_summary:
                 latent_sum = latent_sum + public_latent
@@ -934,18 +1302,22 @@ def run_aux_kalman_mcmc(
             tuple(latent_paths_history[0].shape[1:])
             if latent_paths_history
             else tuple(
-                _project_public_latent_batch(
-                    states.latent_trajectory,
-                    project_latent_trajectory_fn=project_latent_trajectory,
+                _sample_public_latent_batch(
+                    states,
+                    random.split(init_key, num_chains),
+                    observations,
+                    static=static,
                 ).shape[1:]
             )
         )
         latent_dtype = (
             latent_paths_history[0].dtype
             if latent_paths_history
-            else _project_public_latent_batch(
-                states.latent_trajectory,
-                project_latent_trajectory_fn=project_latent_trajectory,
+            else _sample_public_latent_batch(
+                states,
+                random.split(init_key, num_chains),
+                observations,
+                static=static,
             ).dtype
         )
         latent_paths = _stack_sample_history(
@@ -958,6 +1330,38 @@ def run_aux_kalman_mcmc(
     return {
         "grouped_positions": grouped_positions,
         "chain_extra_fields": chain_extra_fields,
+        "initial_param_step_size": _hostify_chain_array(initial_param_step_size),
+        "param_step_size_initial_guess": _hostify_chain_array(param_step_size_initial_guess),
+        "param_step_size_auto_tuned": param_step_size_auto_tuned,
+        "param_step_size_tuning_accept_prob": _hostify_chain_array(
+            param_step_size_tuning_info["accept_prob"]
+        ),
+        "param_step_size_tuning_steps": _hostify_chain_array(
+            param_step_size_tuning_info["num_search_steps"]
+        ),
+        "param_step_size_tuning_candidate_accept_prob": _hostify_chain_array(
+            param_step_size_tuning_info["candidate_accept_prob"]
+        ),
+        "param_step_size_tuning_previous_accept_prob": _hostify_chain_array(
+            param_step_size_tuning_info["previous_accept_prob"]
+        ),
+        "param_step_size_tuning_selected_previous": _hostify_chain_array(
+            param_step_size_tuning_info["selected_previous"]
+        ),
+        "param_step_size_tuning_crossed": _hostify_chain_array(
+            param_step_size_tuning_info["crossed"]
+        ),
+        "latent_adaptation_method": (
+            "windowed_multiplicative_per_time"
+            if use_windowed_latent_adaptation
+            else adaptation_scheme
+        ),
+        "latent_window_adaptation_window_size": (
+            _PARTICLE_LATENT_ADAPTATION_WINDOW if use_windowed_latent_adaptation else 0
+        ),
+        "latent_window_acceptance_mean": float(jnp.mean(latent_window_accept_rate)),
+        "latent_window_acceptance_min": float(jnp.min(latent_window_accept_rate)),
+        "latent_window_acceptance_max": float(jnp.max(latent_window_accept_rate)),
         "final_latent_delta": _hostify_chain_array(states.latent_delta),
         "final_param_step_size": _hostify_chain_array(states.param_step_size),
         "latent_posterior_summary": latent_summary,

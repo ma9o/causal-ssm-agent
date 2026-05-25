@@ -45,22 +45,22 @@ def derive_affine_dynamics(dynamics: RuntimeDynamics) -> AffineDynamicsParams:
 
     for component, params in zip(components, dynamics.vf_params, strict=True):
         if isinstance(component, DenseLinear):
-            drift = drift + params["drift"]
+            drift = drift + params["drift"].astype(dtype)
             if "cint" in params:
-                cint = cint + params["cint"]
+                cint = cint + params["cint"].astype(dtype)
                 has_cint = True
         elif isinstance(component, DiagonalDecay):
-            drift = drift - jnp.diag(params["decay"])
+            drift = drift - jnp.diag(params["decay"].astype(dtype))
         elif isinstance(component, StateDecay):
-            drift = drift.at[component.target, component.target].add(-params["decay"])
+            drift = drift.at[component.target, component.target].add(-params["decay"].astype(dtype))
         elif isinstance(component, Intercept):
-            cint = cint + params["cint"]
+            cint = cint + params["cint"].astype(dtype)
             has_cint = True
         elif isinstance(component, StateIntercept):
-            cint = cint.at[component.target].add(params["cint"])
+            cint = cint.at[component.target].add(params["cint"].astype(dtype))
             has_cint = True
         elif isinstance(component, LinearEdge):
-            drift = drift.at[component.target, component.source].add(params["weight"])
+            drift = drift.at[component.target, component.source].add(params["weight"].astype(dtype))
         else:
             raise NotImplementedError(
                 "This inference backend requires affine vector-field dynamics. "

@@ -146,7 +146,7 @@ def compile_runtime_conditioning_metadata(spec: SSMSpec) -> dict[str, Any]:
             "channels": pg_channels,
             "consumed_observation_family": "bernoulli_logit_or_negative_binomial_log",
             "default_sampler": "truncated_sum",
-            "supported_samplers": ["truncated_sum", "devroye"],
+            "supported_samplers": ["truncated_sum", "devroye", "devroye_integer"],
         },
         "rbpf": {
             "active": False,

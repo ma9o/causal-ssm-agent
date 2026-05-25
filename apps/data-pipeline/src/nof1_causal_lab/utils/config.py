@@ -25,6 +25,8 @@ load_dotenv(Path(__file__).parent.parent.parent.parent.parent.parent / ".env")
 HARNESS_VALUES = ("none", "claude-code", "codex")
 EMBEDDED_REASONING_EFFORT_VALUES = ("none", "minimal", "low", "medium", "high", "xhigh")
 HARNESS_EFFORT_VALUES = ("low", "medium", "high", "xhigh", "max")
+PARTICLE_MGRAD_TARGET_ACCEPT = 0.75
+PIT_AUX_CSMC_TARGET_ACCEPT = 0.50
 
 
 @dataclass(frozen=True)
@@ -206,9 +208,9 @@ class AuxKalmanMCMCLatentKernelConfig:
 class AuxKalmanMCMCParameterKernelConfig:
     """Parameter-kernel settings for auxiliary Kalman MCMC inference."""
 
-    kernel: str = "mala"
+    kernel: str = "hybrid_gibbs_nuts"
     step_size: float = 0.05
-    target_accept: float = 0.57
+    target_accept: float = 0.65
     max_num_doublings: int = 10
 
 
@@ -216,10 +218,12 @@ class AuxKalmanMCMCParameterKernelConfig:
 class AuxKalmanMCMCConfig:
     """Auxiliary Kalman MCMC inference settings."""
 
+    adaptation_scheme: Literal["simple", "dual_averaging"] = "dual_averaging"
     adaptation_rate: float = 0.05
     init_scale: float = 0.05
     retain_latent_paths: bool = True
     compute_latent_posterior_summary: bool = True
+    emit_per_t_log_alpha: bool = False
     latent_kernel: AuxKalmanMCMCLatentKernelConfig = field(
         default_factory=AuxKalmanMCMCLatentKernelConfig
     )
@@ -230,22 +234,27 @@ class AuxKalmanMCMCConfig:
 
 @dataclass(frozen=True)
 class PITParticleMGradConfig:
-    """PIT Particle-mGRAD inference settings."""
+    """Particle latent inference settings."""
 
     latent_delta: float = 0.2
     latent_delta_min: float | None = None
     latent_delta_max: float | None = None
-    latent_target_accept: float = 0.5
+    latent_target_accept: float | None = None
+    latent_kernel_algorithm: Literal["particle_mgrad", "pit_aux_csmc"] = "particle_mgrad"
     n_particles: int = 64
-    adaptation_scheme: Literal["simple", "dual_averaging"] = "simple"
+    adaptation_scheme: Literal["simple", "dual_averaging"] = "dual_averaging"
     init_method: Literal["random", "pathfinder"] = "pathfinder"
     latent_init_method: Literal["predictive", "particle_smoother", "ieks"] = "ieks"
     latent_init_num_particles: int = 64
     latent_init_guidance: Literal["bootstrap", "bffg"] = "bffg"
     pathfinder_num_elbo_samples: int = 20
     pathfinder_maxiter: int = 20
-    n_pathfinder_starts: int = 4
+    n_pathfinder_starts: int = 8
+    pathfinder_parallel_workers: int | None = None
     pathfinder_init_scale: float | None = 0.1
+    auto_preconditioner_method: Literal["map", "none", "pathfinder"] = "pathfinder"
+    auto_preconditioner_maxiter: int = 200
+    debug_particle_trace: bool = False
 
 
 @dataclass(frozen=True)
@@ -285,19 +294,28 @@ class InferenceConfig:
                     "param_max_num_doublings": (
                         self.aux_kalman_mcmc.parameter_kernel.max_num_doublings
                     ),
+                    "adaptation_scheme": self.aux_kalman_mcmc.adaptation_scheme,
                     "adaptation_rate": self.aux_kalman_mcmc.adaptation_rate,
                     "init_scale": self.aux_kalman_mcmc.init_scale,
                     "retain_latent_paths": self.aux_kalman_mcmc.retain_latent_paths,
                     "compute_latent_posterior_summary": (
                         self.aux_kalman_mcmc.compute_latent_posterior_summary
                     ),
+                    "emit_per_t_log_alpha": self.aux_kalman_mcmc.emit_per_t_log_alpha,
                 }
             )
         elif method == "pit_particle_mgrad":
+            particle_config = dataclasses.asdict(self.pit_particle_mgrad)
+            if particle_config["latent_target_accept"] is None:
+                particle_config["latent_target_accept"] = (
+                    PARTICLE_MGRAD_TARGET_ACCEPT
+                    if particle_config["latent_kernel_algorithm"] == "particle_mgrad"
+                    else PIT_AUX_CSMC_TARGET_ACCEPT
+                )
             config.update(
                 {
                     "n_ieks_iters": self.map.n_ieks_iters,
-                    **dataclasses.asdict(self.pit_particle_mgrad),
+                    **particle_config,
                     "parameter_kernel": self.aux_kalman_mcmc.parameter_kernel.kernel,
                     "param_step_size": self.aux_kalman_mcmc.parameter_kernel.step_size,
                     "param_target_accept": self.aux_kalman_mcmc.parameter_kernel.target_accept,

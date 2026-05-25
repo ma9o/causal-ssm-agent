@@ -32,6 +32,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+import jax.numpy as jnp
 import numpyro
 
 from nof1_causal_lab.models.ssm.structure.sites import (
@@ -430,13 +431,25 @@ class LinearEdgeSpec:
 class HillEdgeSpec:
     """``HillEdge`` component spec. Priors over ``Emax``, ``EC50``, ``n``.
 
-    All three should be over positive supports — typical choices are
-    ``LogNormal`` for ``Emax`` and ``EC50``, ``TruncatedNormal`` for
-    ``n`` (Hill coefficient, biologically ≥ 1, rarely > 4).
+    Any parameter can be structurally fixed; free parameters should use
+    positive supports — typical choices are ``LogNormal`` for ``Emax`` and
+    ``EC50``, ``TruncatedNormal`` for ``n`` (Hill coefficient, biologically
+    ≥ 1, rarely > 4).
     """
 
     source: int
     target: int
+    fixed_emax: float | None = None
+    fixed_ec50: float | None = None
+    fixed_n: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.fixed_emax is not None and self.fixed_emax <= 0.0:
+            raise ValueError(f"fixed_emax must be positive; got {self.fixed_emax}.")
+        if self.fixed_ec50 is not None and self.fixed_ec50 <= 0.0:
+            raise ValueError(f"fixed_ec50 must be positive; got {self.fixed_ec50}.")
+        if self.fixed_n is not None and self.fixed_n <= 0.0:
+            raise ValueError(f"fixed_n must be positive; got {self.fixed_n}.")
 
     def build(self) -> HillEdge:
         return HillEdge(source=self.source, target=self.target)
@@ -457,33 +470,36 @@ class HillEdgeSpec:
         n_latent: int | None = None,  # noqa: ARG002 - scalar edge parameters
     ) -> Iterator[SiteDescriptor]:
         positions = ((self.target, self.source),)
-        yield make_site(
-            self.emax_site_name(prefix),
-            (),
-            SupportClass.POSITIVE,
-            "dynamics",
-            SiteKind.HILL_EMAX,
-            positions=positions,
-            priors_field="hill_emax",
-        )
-        yield make_site(
-            self.ec50_site_name(prefix),
-            (),
-            SupportClass.POSITIVE,
-            "dynamics",
-            SiteKind.HILL_EC50,
-            positions=positions,
-            priors_field="hill_ec50",
-        )
-        yield make_site(
-            self.n_site_name(prefix),
-            (),
-            SupportClass.REAL,
-            "dynamics",
-            SiteKind.HILL_N,
-            positions=positions,
-            priors_field="hill_n",
-        )
+        if self.fixed_emax is None:
+            yield make_site(
+                self.emax_site_name(prefix),
+                (),
+                SupportClass.POSITIVE,
+                "dynamics",
+                SiteKind.HILL_EMAX,
+                positions=positions,
+                priors_field="hill_emax",
+            )
+        if self.fixed_ec50 is None:
+            yield make_site(
+                self.ec50_site_name(prefix),
+                (),
+                SupportClass.POSITIVE,
+                "dynamics",
+                SiteKind.HILL_EC50,
+                positions=positions,
+                priors_field="hill_ec50",
+            )
+        if self.fixed_n is None:
+            yield make_site(
+                self.n_site_name(prefix),
+                (),
+                SupportClass.REAL,
+                "dynamics",
+                SiteKind.HILL_N,
+                positions=positions,
+                priors_field="hill_n",
+            )
 
     def iter_semantic_bindings(
         self,
@@ -494,26 +510,31 @@ class HillEdgeSpec:
     ) -> Iterator[SemanticBinding]:
         cause_name = latent_names[self.source]
         effect_name = latent_names[self.target]
-        for parameter_prefix, site_name, site_kind, transform in (
+        for parameter_prefix, site_name, site_kind, transform, fixed_value in (
             (
                 "hill_emax",
                 self.emax_site_name(prefix),
                 SiteKind.HILL_EMAX,
                 PriorAuthoringTransform.POSITIVE_IDENTITY,
+                self.fixed_emax,
             ),
             (
                 "hill_ec50",
                 self.ec50_site_name(prefix),
                 SiteKind.HILL_EC50,
                 PriorAuthoringTransform.POSITIVE_IDENTITY,
+                self.fixed_ec50,
             ),
             (
                 "hill_n",
                 self.n_site_name(prefix),
                 SiteKind.HILL_N,
                 PriorAuthoringTransform.IDENTITY,
+                self.fixed_n,
             ),
         ):
+            if fixed_value is not None:
+                continue
             yield SemanticBinding(
                 parameter_name=f"{parameter_prefix}_{cause_name}_{effect_name}",
                 site_name=site_name,
@@ -529,17 +550,29 @@ class HillEdgeSpec:
 
     def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
         return {
-            "Emax": numpyro.sample(
-                self.emax_site_name(prefix),
-                prior_fn(self.emax_site_name(prefix)),
+            "Emax": (
+                jnp.asarray(self.fixed_emax)
+                if self.fixed_emax is not None
+                else numpyro.sample(
+                    self.emax_site_name(prefix),
+                    prior_fn(self.emax_site_name(prefix)),
+                )
             ),
-            "EC50": numpyro.sample(
-                self.ec50_site_name(prefix),
-                prior_fn(self.ec50_site_name(prefix)),
+            "EC50": (
+                jnp.asarray(self.fixed_ec50)
+                if self.fixed_ec50 is not None
+                else numpyro.sample(
+                    self.ec50_site_name(prefix),
+                    prior_fn(self.ec50_site_name(prefix)),
+                )
             ),
-            "n": numpyro.sample(
-                self.n_site_name(prefix),
-                prior_fn(self.n_site_name(prefix)),
+            "n": (
+                jnp.asarray(self.fixed_n)
+                if self.fixed_n is not None
+                else numpyro.sample(
+                    self.n_site_name(prefix),
+                    prior_fn(self.n_site_name(prefix)),
+                )
             ),
         }
 
@@ -710,9 +743,21 @@ def pack_component_params_from_samples(
         elif isinstance(component_spec, HillEdgeSpec):
             packed.append(
                 {
-                    "Emax": samples[component_spec.emax_site_name(site_prefix)],
-                    "EC50": samples[component_spec.ec50_site_name(site_prefix)],
-                    "n": samples[component_spec.n_site_name(site_prefix)],
+                    "Emax": (
+                        jnp.asarray(component_spec.fixed_emax)
+                        if component_spec.fixed_emax is not None
+                        else samples[component_spec.emax_site_name(site_prefix)]
+                    ),
+                    "EC50": (
+                        jnp.asarray(component_spec.fixed_ec50)
+                        if component_spec.fixed_ec50 is not None
+                        else samples[component_spec.ec50_site_name(site_prefix)]
+                    ),
+                    "n": (
+                        jnp.asarray(component_spec.fixed_n)
+                        if component_spec.fixed_n is not None
+                        else samples[component_spec.n_site_name(site_prefix)]
+                    ),
                 }
             )
         elif isinstance(component_spec, MultiplicativeEdgeSpec):

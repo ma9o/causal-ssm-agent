@@ -11,8 +11,8 @@ The [Stage 4 skeleton](../../pipeline/04-model-specification-priors.md) creates 
 
 | Role | Symbol | Count | Constraint | SSM location |
 |---|---|---|---|---|
-| `ar_coefficient` | `rho` | One per endogenous time-varying construct | `unit_interval` `[0, 1]` | Drift diagonal |
-| `fixed_effect` | `beta` | One per causal edge | `none` `(-inf, +inf)` | Drift off-diagonal |
+| `ar_coefficient` | `rho` | One per endogenous time-varying construct | `unit_interval` `[0, 1]` | State-decay dynamics site |
+| `fixed_effect` | `beta` | One per causal edge | `none` `(-inf, +inf)` | Dynamics edge or input-effect site |
 | `dynamics_parameter` | `theta` | One per real-valued component-owned dynamics parameter | `none` `(-inf, +inf)` | Component dynamics site |
 | `dynamics_parameter_positive` | `theta+` | One per positive component-owned dynamics parameter | `positive` `(0, +inf)` | Component dynamics site |
 | `residual_sd` | `sigma` | One per construct | `positive` `(0, +inf)` | Diffusion diagonal |
@@ -29,10 +29,10 @@ The [Stage 4 skeleton](../../pipeline/04-model-specification-priors.md) creates 
 
 Constraint notes:
 
-- `ar_coefficient`: Stage 4 elicits baseline discrete-time persistence absent feedback; [compilation](../compilation.md) converts to continuous-time base decay
-- `fixed_effect`: Causal effects can be positive or negative; unconstrained
-- `dynamics_parameter`: Used for nonlinear dynamics components whose parameters are owned by component sample sites rather than dense drift matrix entries.
-- `dynamics_parameter_positive`: Used for positive nonlinear dynamics parameters such as Hill Emax and EC50.
+- `ar_coefficient`: Stage 4 elicits baseline discrete-time persistence absent feedback; [compilation](../compilation.md) binds it to the owning decay component and converts to continuous-time decay scale
+- `fixed_effect`: Causal effects can be positive or negative; compiler binds each coefficient to the owning edge component or known-input effect site
+- `dynamics_parameter`: Used for component-owned dynamics parameters that are not authored as interval-scale effect coefficients.
+- `dynamics_parameter_positive`: Used for positive component-owned dynamics parameters such as Hill Emax and EC50.
 - `static_state_sd`: Used to build low-rank initial-state covariance contributions of the form `B diag(tau^2) B^T`.
 - `loading`: Stage 1b indicator polarity fixes each loading sign as either `positive` or `negative`; Stage 4 no longer chooses loading orientation
 - `measurement_error_sd`: Surfaced only when measurement error is separately estimated (multi-indicator constructs).

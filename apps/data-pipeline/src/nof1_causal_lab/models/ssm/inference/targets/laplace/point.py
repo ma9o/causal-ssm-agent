@@ -1160,9 +1160,13 @@ def _point_dynamic_transition_ieks_laplace(
         final_step_norm = jnp.where(active, step_norm, final_step_norm)
         active = active & next_active
 
-    Ad_final, Qd_final, cd_final = _transitions_at(z_est)
+    # The IEKS iterations solve a latent fixed point. The outer parameter
+    # gradient should not backpropagate through the discrete line-search path;
+    # evaluate the final local-linearized system at the solved mode instead.
+    z_mode = jax.lax.stop_gradient(z_est)
+    Ad_final, Qd_final, cd_final = _transitions_at(z_mode)
     log_lik, mode_log_joint, laplace_logdet, min_chol_diag = _point_laplace_terms_from_mode(
-        z_est,
+        z_mode,
         observations,
         obs_mask,
         Ad_final,
@@ -1189,8 +1193,8 @@ def _point_dynamic_transition_ieks_laplace(
         laplace_logdet=laplace_logdet,
         min_chol_diag=min_chol_diag,
     )
-    inner_eval_aux["latent_mode"] = z_est
-    return z_est, log_lik, inner_eval_aux
+    inner_eval_aux["latent_mode"] = z_mode
+    return z_mode, log_lik, inner_eval_aux
 
 
 def _ieks_smooth(
