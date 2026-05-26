@@ -1850,44 +1850,6 @@ def build_auxiliary_kalman_bundle(
     }
 
 
-@functools.partial(jax.jit, static_argnames=("runtime_complete_log_posterior_fn",))
-def _complete_log_posterior_grad_runtime(
-    z: jnp.ndarray,
-    latent_trajectory: jnp.ndarray,
-    observation_auxiliary,
-    runtime_observations: jnp.ndarray,
-    runtime_times: jnp.ndarray,
-    *,
-    runtime_complete_log_posterior_fn,
-) -> jnp.ndarray:
-    return jax.grad(runtime_complete_log_posterior_fn, argnums=0)(
-        z,
-        latent_trajectory,
-        observation_auxiliary,
-        runtime_observations,
-        runtime_times,
-    )
-
-
-@functools.partial(jax.jit, static_argnames=("runtime_complete_log_posterior_fn",))
-def _complete_log_posterior_value_and_grad_runtime(
-    z: jnp.ndarray,
-    latent_trajectory: jnp.ndarray,
-    observation_auxiliary,
-    runtime_observations: jnp.ndarray,
-    runtime_times: jnp.ndarray,
-    *,
-    runtime_complete_log_posterior_fn,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
-    return jax.value_and_grad(runtime_complete_log_posterior_fn, argnums=0)(
-        z,
-        latent_trajectory,
-        observation_auxiliary,
-        runtime_observations,
-        runtime_times,
-    )
-
-
 def _prepare_latent_step_runtime(
     state,
     runtime_observations: jnp.ndarray,

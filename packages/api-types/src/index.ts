@@ -116,13 +116,13 @@ export type Stage4Data = Stage4PersistedData & {
     [k: string]: Stage4LikelihoodDiagnostics | undefined;
   };
 };
-// Tool definitions (codegen'd from Python ToolContract)
-export type { ToolDefinition } from "./generated/tools";
-export { INTERACTIVE_STAGES, STAGE_TOOLS } from "./generated/tools";
 
 // Distribution catalog metadata (codegen'd from Python)
 export type { ObservationHyperparameter } from "./generated/metadata";
 export { OBSERVATION_HYPERPARAMETERS_BY_DISTRIBUTION } from "./generated/metadata";
+// Tool definitions (codegen'd from Python ToolContract)
+export type { ToolDefinition } from "./generated/tools";
+export { INTERACTIVE_STAGES, STAGE_TOOLS } from "./generated/tools";
 
 export interface StageData<T = unknown> {
   stage: string;

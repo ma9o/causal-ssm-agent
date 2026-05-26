@@ -492,9 +492,7 @@ def fit_aux_kalman_mcmc(
             "initial_param_step_size": run_result["initial_param_step_size"],
             "param_step_size_initial_guess": run_result["param_step_size_initial_guess"],
             "param_step_size_auto_tuned": run_result["param_step_size_auto_tuned"],
-            "param_step_size_tuning_accept_prob": run_result[
-                "param_step_size_tuning_accept_prob"
-            ],
+            "param_step_size_tuning_accept_prob": run_result["param_step_size_tuning_accept_prob"],
             "param_step_size_tuning_steps": run_result["param_step_size_tuning_steps"],
             "param_step_size_tuning_candidate_accept_prob": run_result[
                 "param_step_size_tuning_candidate_accept_prob"

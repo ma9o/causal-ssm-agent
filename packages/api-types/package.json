@@ -16,7 +16,7 @@
     "codegen:docs": "cd ../../apps/data-pipeline && uv run python scripts/export_distribution_docs.py",
     "codegen:schemas": "cd ../../apps/data-pipeline && uv run python scripts/export_schemas.py && cd ../../packages/api-types && bun run scripts/generate.ts",
     "codegen": "bun run codegen:docs && bun run codegen:schemas",
-    "check": "bun run codegen:check && bun run type-check",
+    "check": "bun run codegen:check && bun run lint && bun run type-check",
     "codegen:check": "cd ../../apps/data-pipeline && uv run python scripts/export_schemas.py --check && cd ../../packages/api-types && bun run scripts/generate.ts --check"
   },
   "devDependencies": {
