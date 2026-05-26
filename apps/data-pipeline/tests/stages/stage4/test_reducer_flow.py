@@ -658,7 +658,7 @@ class TestStage4Mechanics:
         assert runtime.domain.block_status["effects:sleep"] == "accepted"
         assert "beta_activity_sleep" in runtime.domain.accepted.authored_priors
 
-    def test_compute_stage4_validate_step_reopens_dynamics_block_on_partial_dynamics_guard(
+    def test_compute_stage4_validate_step_reopens_dynamics_block_on_partial_drift_guard(
         self, monkeypatch
     ):
         causal_spec, skeleton, plan, runtime, data_for_model = _make_stage4_mechanics_context(
@@ -734,12 +734,12 @@ class TestStage4Mechanics:
             }, "BLOCK ACCEPTED"
 
         monkeypatch.setattr(
-            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_partial_dynamics.validate_dynamics_block_partial_dynamics",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_partial_drift.validate_dynamics_block_partial_drift",
             lambda **_kwargs: (
                 PriorValidationResult(
                     parameter="rho_sleep",
                     is_valid=False,
-                    code="partial_dynamics_budget_exhausted",
+                    code="partial_drift_stability",
                     origin="prior_predictive",
                     issue="The sleep row has no conservative damping headroom yet.",
                     suggested_adjustment="Tighten rho_sleep toward faster decay.",
@@ -779,11 +779,11 @@ class TestStage4Mechanics:
         assert "rho_sleep" not in runtime.domain.accepted.authored_priors
         assert "sigma_sleep" not in runtime.domain.accepted.authored_priors
         assert runtime.interaction.last_validation_packet is not None
-        assert runtime.interaction.last_validation_packet.status == "partial_dynamics_failure"
+        assert runtime.interaction.last_validation_packet.status == "partial_drift_failure"
         assert runtime.interaction.last_validation_packet.failing_parameters == ("rho_sleep",)
         assert runtime.interaction.last_validation_packet.coupled_parameters == ("sigma_sleep",)
         assert runtime.interaction.last_validation_packet.diagnostic_codes == (
-            "partial_dynamics_budget_exhausted",
+            "partial_drift_stability",
         )
 
     def test_global_review_can_reopen_model_block_set(self):
@@ -1480,7 +1480,7 @@ class TestStage4Mechanics:
             stub_validate_assembly,
         )
         monkeypatch.setattr(
-            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_partial_dynamics.validate_effect_block_partial_dynamics",
+            "nof1_causal_lab.flows.stages.stage4.agentic.stage4_partial_drift.validate_effect_block_partial_drift",
             lambda **_kwargs: None,
         )
 
@@ -1611,7 +1611,7 @@ class TestStage4Mechanics:
 
         assert stage_output is not None
         assert feedback.startswith("REPAIR CAMPAIGN ACTIVE:\n")
-        assert "scope: `local_dynamics_motif:activity|sleep|beta_activity_sleep`" in feedback
+        assert "scope: `local_drift_motif:activity|sleep|beta_activity_sleep`" in feedback
         assert runtime.domain.block_status["effects:sleep"] == "accepted"
         assert runtime.domain.block_status["dynamics:activity"] == "reopened"
         assert runtime.domain.block_status["dynamics:sleep"] == "reopened"
@@ -1633,8 +1633,8 @@ class TestStage4Mechanics:
                 ("dt_ct_approximation_warning",),
                 ("activity", "sleep"),
             ),
-            scope_kind="local_dynamics_motif",
-            scope_key="local_dynamics_motif:activity|sleep|beta_activity_sleep",
+            scope_kind="local_drift_motif",
+            scope_key="local_drift_motif:activity|sleep|beta_activity_sleep",
             scope_rank=0,
             scope_block_ids=("dynamics:activity", "dynamics:sleep", "effects:sleep"),
             completed_block_ids=frozenset(("dynamics:activity", "dynamics:sleep", "effects:sleep")),
@@ -1687,10 +1687,8 @@ class TestStage4Mechanics:
             runtime,
         )
 
-        assert repair_plan.scope.scope_kind == "local_dynamics_motif"
-        assert (
-            repair_plan.scope.scope_key == "local_dynamics_motif:activity|sleep|beta_activity_sleep"
-        )
+        assert repair_plan.scope.scope_kind == "local_drift_motif"
+        assert repair_plan.scope.scope_key == "local_drift_motif:activity|sleep|beta_activity_sleep"
 
     def test_prior_failure_classification_uses_review_block_retry_budget_for_global_prior_review(
         self,
@@ -1915,7 +1913,7 @@ class TestStage4Mechanics:
             runtime,
         )
 
-        assert repair_plan.scope.scope_kind == "local_dynamics_motif"
+        assert repair_plan.scope.scope_kind == "local_drift_motif"
         assert repair_plan.block_ids == ("dynamics:activity+sleep", "effects:sleep")
 
     def test_scc_repair_plan_narrows_effect_prompt_to_internal_scc_parameters(self):
@@ -1990,9 +1988,9 @@ class TestStage4Mechanics:
         repair_plan = build_repair_plan(
             plan,
             ResolvedRepairScope(
-                scope_kind="scc_dynamics_subsystem",
+                scope_kind="scc_drift_subsystem",
                 scope_rank=2,
-                scope_key="scc_dynamics_subsystem:activity|sleep",
+                scope_key="scc_drift_subsystem:activity|sleep",
                 reason="repair internal SCC dynamics subsystem",
                 failure_family=("dynamics_stability",),
                 construct_names=("activity", "sleep"),
@@ -2008,7 +2006,7 @@ class TestStage4Mechanics:
         assert "stress_vas" not in sleep_prompt.variable_names
         assert sleep_prompt.expand_neighbor_topology is False
 
-    def test_prior_failure_classification_treats_partial_dynamics_codes_as_dynamics_related(self):
+    def test_prior_failure_classification_treats_partial_drift_codes_as_drift_related(self):
         _causal_spec, _skeleton, plan, runtime, _data_for_model = _make_stage4_mechanics_context()
         _set_runtime_block(plan, runtime, "dynamics:sleep")
 
@@ -2020,7 +2018,7 @@ class TestStage4Mechanics:
                 PriorValidationResult(
                     parameter="dynamics_stability",
                     is_valid=False,
-                    code="partial_dynamics_budget_exhausted",
+                    code="partial_drift_stability",
                     origin="prior_predictive",
                     issue="The sleep row has no conservative damping headroom yet.",
                     related_parameters=["rho_sleep", "sigma_sleep"],
@@ -2040,17 +2038,17 @@ class TestStage4Mechanics:
             runtime,
         )
 
-        assert repair_plan.scope.scope_kind == "local_dynamics_motif"
+        assert repair_plan.scope.scope_kind == "local_drift_motif"
         assert repair_plan.block_ids == ("dynamics:sleep",)
 
-    def test_validate_dynamics_block_partial_dynamics_treats_budget_overrun_as_advisory(
+    def test_validate_dynamics_block_partial_drift_treats_budget_overrun_as_advisory(
         self, monkeypatch
     ):
         from nof1_causal_lab.flows.stages.stage4.agentic import (
-            stage4_partial_dynamics as partial_dynamics_module,
+            stage4_partial_drift as partial_drift_module,
         )
 
-        state = partial_dynamics_module._PartialDynamicsState(
+        state = partial_drift_module._PartialDriftState(
             latent_names=("activity", "sleep"),
             diag_mu=np.array([0.4, 0.6]),
             diag_sigma=np.array([0.1, 0.2]),
@@ -2064,12 +2062,12 @@ class TestStage4Mechanics:
         )
 
         monkeypatch.setattr(
-            partial_dynamics_module,
-            "_build_partial_dynamics_state",
+            partial_drift_module,
+            "_build_partial_drift_state",
             lambda **_kwargs: state,
         )
 
-        result = partial_dynamics_module.validate_dynamics_block_partial_dynamics(
+        result = partial_drift_module.validate_dynamics_block_partial_drift(
             model_spec={"parameters": [{"name": "rho_sleep"}]},
             authored_priors={
                 "rho_sleep": {"distribution": "Beta"},
@@ -2083,14 +2081,14 @@ class TestStage4Mechanics:
 
         assert result is None
 
-    def test_validate_effect_block_partial_dynamics_treats_budget_overrun_as_advisory(
+    def test_validate_effect_block_partial_drift_treats_budget_overrun_as_advisory(
         self, monkeypatch
     ):
         from nof1_causal_lab.flows.stages.stage4.agentic import (
-            stage4_partial_dynamics as partial_dynamics_module,
+            stage4_partial_drift as partial_drift_module,
         )
 
-        state = partial_dynamics_module._PartialDynamicsState(
+        state = partial_drift_module._PartialDriftState(
             latent_names=("activity", "sleep"),
             diag_mu=np.array([0.4, 0.6]),
             diag_sigma=np.array([0.1, 0.2]),
@@ -2104,12 +2102,12 @@ class TestStage4Mechanics:
         )
 
         monkeypatch.setattr(
-            partial_dynamics_module,
-            "_build_partial_dynamics_state",
+            partial_drift_module,
+            "_build_partial_drift_state",
             lambda **_kwargs: state,
         )
 
-        result = partial_dynamics_module.validate_effect_block_partial_dynamics(
+        result = partial_drift_module.validate_effect_block_partial_drift(
             model_spec={"parameters": [{"name": "beta_activity_sleep"}]},
             authored_priors={
                 "rho_activity": {"distribution": "Beta"},

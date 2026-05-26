@@ -27,6 +27,8 @@ const ELK_OPTIONS: Record<string, string> = {
   "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
 };
 
+const NODE_SPACING = Number.parseFloat(ELK_OPTIONS["elk.spacing.nodeNode"]);
+
 function computeNodeHeight(indicatorCount: number): number {
   if (indicatorCount === 0) return CONSTRUCT_BASE_HEIGHT;
   return CONSTRUCT_BASE_HEIGHT + INDICATOR_SECTION_PADDING + indicatorCount * INDICATOR_ROW_HEIGHT;
@@ -68,6 +70,20 @@ export async function layoutDag(
     elkEdges.push({ id: `causal-contemp-${i}`, sources: [e.cause], targets: [e.effect] });
   }
 
+  if (elkEdges.length === 0) {
+    const nodes = constructs.map((c, index) => {
+      const constructIndicators = indicatorsByConstruct.get(c.name) ?? [];
+      return {
+        id: c.name,
+        type: "construct",
+        position: { x: index * (nodeWidth + NODE_SPACING), y: 0 },
+        data: { ...c, indicators: constructIndicators },
+      };
+    });
+
+    return { nodes, edges: buildCausalFlowEdges(causalEdges) };
+  }
+
   const graph: ElkNode = {
     id: "root",
     layoutOptions: ELK_OPTIONS,
@@ -96,10 +112,14 @@ export async function layoutDag(
     });
   }
 
-  // Build edges — contemporaneous edges use smoothstep (orthogonal feel),
-  // lagged edges use bezier (curved arcs that float over the layout).
-  const edges: Edge[] = [];
+  const edges = buildCausalFlowEdges(causalEdges);
+  return { nodes, edges };
+}
 
+function buildCausalFlowEdges(causalEdges: CausalEdge[]): Edge[] {
+  // Contemporaneous edges use smoothstep (orthogonal feel), while lagged edges
+  // use bezier arcs that float over the layout.
+  const edges: Edge[] = [];
   for (let i = 0; i < causalEdges.length; i++) {
     const e = causalEdges[i];
     edges.push({
@@ -122,6 +142,5 @@ export async function layoutDag(
       },
     });
   }
-
-  return { nodes, edges };
+  return edges;
 }

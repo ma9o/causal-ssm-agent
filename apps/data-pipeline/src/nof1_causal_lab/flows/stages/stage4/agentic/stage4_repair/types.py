@@ -29,10 +29,7 @@ _VALIDATOR_SCOPE_RANK = 2
 _DRIFT_RELATED_CODES = frozenset(
     {
         "dt_ct_approximation_warning",
-        "partial_dynamics_budget_exhausted",
-        "partial_dynamics_row_budget_exceeded",
-        "partial_dynamics_stability",
-        "partial_row_budget_exceeded",
+        "partial_drift_stability",
     }
 )
 

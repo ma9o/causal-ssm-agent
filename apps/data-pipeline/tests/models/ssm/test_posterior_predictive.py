@@ -80,7 +80,7 @@ class TestForwardSimulation:
     def test_forward_simulate_support_aware_window_average_respects_emission_schedule(self):
         """Interval-summary PPC emits only on anchor rows and uses aggregated means."""
         samples = {
-            "dynamics": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
+            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
             "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
             "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
             "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
@@ -108,7 +108,7 @@ class TestForwardSimulation:
     def test_forward_simulate_uses_t0_for_first_observation(self, monkeypatch):
         """The first observation is emitted from the initial state, not a fake transition."""
         samples = {
-            "dynamics": jnp.array([[[-0.1]]]),
+            "drift": jnp.array([[[-0.1]]]),
             "diffusion": jnp.zeros((1, 1, 1)),
             "lambda": jnp.array([[[1.0]]]),
             "manifest_cov": jnp.array([[[0.0]]]),
@@ -263,7 +263,7 @@ class TestForwardSimulation:
     def test_forward_simulate_raises_on_log_link_mean_overflow(self):
         """Overflowing log-link means fail before observation sampling."""
         samples = {
-            "dynamics": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
+            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
             "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
             "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
             "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),

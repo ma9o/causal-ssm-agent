@@ -79,7 +79,7 @@ def make_samples(
         lambda_mat = lambda_mat.at[i, 0].set(0.5)
 
     samples = {
-        "dynamics": dynamics_draws,
+        "drift": dynamics_draws,
         "diffusion": diffusion_draws,
         "lambda": lambda_mat,
         "manifest_cov": jnp.eye(n_manifest) * obs_sd**2,
