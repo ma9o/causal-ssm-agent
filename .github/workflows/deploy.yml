@@ -50,7 +50,7 @@ jobs:
               - '.github/workflows/ci.yml'
               - '.github/workflows/deploy.yml'
 
-  web:
+  ci-web:
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
@@ -92,7 +92,7 @@ jobs:
 
       - run: bun run ci:web
 
-  api-types:
+  ci-api-types:
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -125,7 +125,7 @@ jobs:
 
       - run: bun run ci:api-types
 
-  python:
+  ci-python:
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
@@ -154,7 +154,7 @@ jobs:
 
       - run: bun run ci:data-pipeline
 
-  docs:
+  ci-docs:
     needs: changes
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
@@ -192,8 +192,8 @@ jobs:
   # GitHub secrets → Modal secret block → env vars inside containers
   # ---------------------------------------------------------------------------
   deploy-modal:
-    needs: [changes, python]
-    if: always() && needs.changes.outputs.python == 'true' && needs.python.result == 'success'
+    needs: [changes, ci-python]
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -227,8 +227,8 @@ jobs:
   # GitHub secrets → Vercel env vars → available at runtime
   # ---------------------------------------------------------------------------
   deploy-vercel:
-    needs: [changes, web]
-    if: always() && needs.changes.outputs.web == 'true' && needs.web.result == 'success'
+    needs: [changes, ci-web]
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
