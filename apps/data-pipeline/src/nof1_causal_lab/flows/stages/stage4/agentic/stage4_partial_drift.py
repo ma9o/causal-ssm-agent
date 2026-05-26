@@ -286,7 +286,7 @@ def _check_eigenvalue_stability(
     diagnostic = PriorValidationResult(
         parameter="dynamics_stability",
         is_valid=False,
-        code="partial_dynamics_stability",
+        code="partial_drift_stability",
         origin="prior_predictive",
         issue=(
             "Partial drift guard detected an unstable mean CT operator "
