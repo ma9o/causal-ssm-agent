@@ -36,11 +36,13 @@ jobs:
               - 'tsconfig.json'
               - 'package.json'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy.yml'
             python:
               - 'apps/data-pipeline/**'
               - 'packages/api-types/**'
               - 'package.json'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy.yml'
             docs:
               - 'README.md'
               - 'docs/**'
@@ -52,6 +54,7 @@ jobs:
               - 'bun.lock'
               - 'package.json'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy.yml'
 
   web:
     needs: changes
