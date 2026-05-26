@@ -10,17 +10,190 @@ concurrency:
   cancel-in-progress: false # let deploys finish
 
 jobs:
-  ci:
-    uses: ./.github/workflows/ci.yml
-    secrets: inherit
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      python: ${{ steps.filter.outputs.python }}
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'apps/web/**'
+              - 'packages/**'
+              - 'bun.lock'
+              - 'turbo.json'
+              - 'tsconfig.json'
+              - 'package.json'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy.yml'
+            python:
+              - 'apps/data-pipeline/**'
+              - 'packages/api-types/**'
+              - 'package.json'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy.yml'
+            docs:
+              - 'README.md'
+              - 'docs/**'
+              - '.markdownlint-docs.json'
+              - 'cspell.config.json'
+              - 'scripts/codegen_docs_latex.js'
+              - 'apps/data-pipeline/**'
+              - 'packages/api-types/**'
+              - 'bun.lock'
+              - 'package.json'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy.yml'
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-
+
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-web-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-web-${{ runner.os }}-
+
+      - name: Cache Next.js build
+        uses: actions/cache@v4
+        with:
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('bun.lock') }}-${{ hashFiles('apps/web/src/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('bun.lock') }}-
+            nextjs-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run ci:web
+
+  api-types:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-
+
+      - run: uv sync --frozen
+        working-directory: apps/data-pipeline
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run ci:api-types
+
+  python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+
+      - name: Cache JAX compilations
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/nof1-causal-lab/jax
+          key: jax-${{ runner.os }}-${{ hashFiles('apps/data-pipeline/uv.lock') }}-${{ hashFiles('apps/data-pipeline/src/**/*.py') }}
+          restore-keys: |
+            jax-${{ runner.os }}-${{ hashFiles('apps/data-pipeline/uv.lock') }}-
+            jax-${{ runner.os }}-
+
+      - run: uv sync --frozen --group dev
+        working-directory: apps/data-pipeline
+
+      - run: bun run ci:data-pipeline
+
+  docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.23"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
+      - name: Cache bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-install-${{ runner.os }}-
+
+      - run: uv sync --frozen
+        working-directory: apps/data-pipeline
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run ci:docs
 
   # ---------------------------------------------------------------------------
   # Deploy Modal functions (stages 2, 4, 5b)
   # GitHub secrets → Modal secret block → env vars inside containers
   # ---------------------------------------------------------------------------
   deploy-modal:
-    needs: ci
-    if: needs.ci.outputs.python == 'true'
+    needs: [changes, python]
+    if: always() && needs.changes.outputs.python == 'true' && needs.python.result == 'success'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -54,8 +227,8 @@ jobs:
   # GitHub secrets → Vercel env vars → available at runtime
   # ---------------------------------------------------------------------------
   deploy-vercel:
-    needs: ci
-    if: needs.ci.outputs.web == 'true'
+    needs: [changes, web]
+    if: always() && needs.changes.outputs.web == 'true' && needs.web.result == 'success'
     runs-on: ubuntu-latest
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
