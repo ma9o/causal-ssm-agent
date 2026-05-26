@@ -584,20 +584,18 @@ def _auto_tune_initial_param_step_size_batched(
             previous_accept,
             candidate_scale,
             candidate_accept,
-        ) = (
-            jax.lax.while_loop(
-                _continue,
-                _update,
-                (
-                    jnp.asarray(1, dtype=jnp.int32),
-                    initial_direction,
-                    jnp.asarray(0, dtype=jnp.int32),
-                    initial_scale,
-                    initial_accept,
-                    initial_scale,
-                    initial_accept,
-                ),
-            )
+        ) = jax.lax.while_loop(
+            _continue,
+            _update,
+            (
+                jnp.asarray(1, dtype=jnp.int32),
+                initial_direction,
+                jnp.asarray(0, dtype=jnp.int32),
+                initial_scale,
+                initial_accept,
+                initial_scale,
+                initial_accept,
+            ),
         )
         has_previous = previous_direction != 0
         previous_error = jnp.abs(previous_accept - target_accept)
@@ -670,7 +668,9 @@ def _apply_windowed_latent_update_batched(
     )
     target_accept = jnp.asarray(static.latent_target_accept, dtype=states.latent_delta.dtype)
     error = window_accept_rate - target_accept
-    normalized_error = error / jnp.maximum(target_accept, jnp.asarray(1e-6, dtype=target_accept.dtype))
+    normalized_error = error / jnp.maximum(
+        target_accept, jnp.asarray(1e-6, dtype=target_accept.dtype)
+    )
     learning_rate = jnp.maximum(
         jnp.asarray(_PARTICLE_LATENT_ADAPTATION_RHO, dtype=states.latent_delta.dtype)
         * jnp.power(
@@ -685,7 +685,8 @@ def _apply_windowed_latent_update_batched(
         max_scale=static.latent_max_scale,
     )
     next_delta = jnp.where(
-        jnp.abs(error) < jnp.asarray(
+        jnp.abs(error)
+        < jnp.asarray(
             _PARTICLE_LATENT_ADAPTATION_TOLERANCE,
             dtype=states.latent_delta.dtype,
         ),
@@ -886,7 +887,9 @@ def run_aux_kalman_mcmc(
     initial_latent_scale_mode = latent_kernel.get("initial_scale_mode", "direct")
     initial_param_scale = float(parameter_kernel["initial_scale"])
     use_dual_averaging = adaptation_scheme == "dual_averaging"
-    use_windowed_latent_adaptation = use_dual_averaging and latent_kernel_name == "pit_particle_mgrad"
+    use_windowed_latent_adaptation = (
+        use_dual_averaging and latent_kernel_name == "pit_particle_mgrad"
+    )
     parameter_residual_dim = int(parameter_kernel.get("residual_dim", 0))
     latent_min_scale = latent_kernel.get("min_scale")
     latent_max_scale = latent_kernel.get("max_scale")

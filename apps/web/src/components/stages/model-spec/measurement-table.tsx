@@ -197,27 +197,32 @@ const MeasurementSparkline = memo(function MeasurementSparkline({ row }: { row: 
     [row.diagnostics?.histogram],
   );
 
-  if (bins.length === 0 || nObs === 0) {
-    return <span className="text-xs text-muted-foreground">--</span>;
-  }
+  const hasHistogram = bins.length > 0 && nObs > 0;
 
   const prior = useMemo(
     () =>
-      row.priorSamples && row.priorSamples.length > 0
+      hasHistogram && row.priorSamples && row.priorSamples.length > 0
         ? getCachedPriorSamples(row.priorSamples, bins, nObs, isDiscrete)
         : [],
-    [bins, isDiscrete, nObs, row.priorSamples],
+    [bins, hasHistogram, isDiscrete, nObs, row.priorSamples],
   );
 
   const hasPrior = prior.length > 0;
 
   const chartData = useMemo(() => {
+    if (!hasHistogram) {
+      return [];
+    }
     const priorByCenter = new Map(prior.map((entry) => [entry.binCenter, entry.prior]));
     return bins.map((bin) => ({
       ...bin,
       ...(hasPrior ? { prior: priorByCenter.get(bin.binCenter) ?? 0 } : {}),
     }));
-  }, [bins, hasPrior, prior]);
+  }, [bins, hasHistogram, hasPrior, prior]);
+
+  if (!hasHistogram) {
+    return <span className="text-xs text-muted-foreground">--</span>;
+  }
 
   return (
     <div className="h-20 w-48">

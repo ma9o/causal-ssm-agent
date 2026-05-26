@@ -109,6 +109,7 @@ export function LLMTracePanel({
   // Consume prefill: inject prompt text into the input field
   useEffect(() => {
     if (prefill && stageId && prefill.stageId === stageId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- prefill is external refinement context state that must populate this controlled input when targeted.
       setInput(prefill.prompt);
       clearPrefill();
     }
@@ -119,6 +120,7 @@ export function LLMTracePanel({
     if (refiningStageId === stageId && queuedMessageRef.current) {
       const text = queuedMessageRef.current;
       queuedMessageRef.current = null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the modal confirmed refinement, so the queued controlled input should clear before dispatch.
       setInput("");
       sendMessage({ text });
     }

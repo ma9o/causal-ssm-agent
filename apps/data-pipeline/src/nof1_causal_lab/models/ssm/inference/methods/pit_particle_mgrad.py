@@ -448,9 +448,7 @@ def _fit_particle_latent_mcmc(
         "initial_param_step_size": run_result["initial_param_step_size"],
         "param_step_size_initial_guess": run_result["param_step_size_initial_guess"],
         "param_step_size_auto_tuned": run_result["param_step_size_auto_tuned"],
-        "param_step_size_tuning_accept_prob": run_result[
-            "param_step_size_tuning_accept_prob"
-        ],
+        "param_step_size_tuning_accept_prob": run_result["param_step_size_tuning_accept_prob"],
         "param_step_size_tuning_steps": run_result["param_step_size_tuning_steps"],
         "param_step_size_tuning_candidate_accept_prob": run_result[
             "param_step_size_tuning_candidate_accept_prob"
@@ -463,9 +461,7 @@ def _fit_particle_latent_mcmc(
         ],
         "param_step_size_tuning_crossed": run_result["param_step_size_tuning_crossed"],
         "latent_adaptation_method": run_result["latent_adaptation_method"],
-        "latent_window_adaptation_window_size": run_result[
-            "latent_window_adaptation_window_size"
-        ],
+        "latent_window_adaptation_window_size": run_result["latent_window_adaptation_window_size"],
         "latent_window_acceptance_mean": run_result["latent_window_acceptance_mean"],
         "latent_window_acceptance_min": run_result["latent_window_acceptance_min"],
         "latent_window_acceptance_max": run_result["latent_window_acceptance_max"],

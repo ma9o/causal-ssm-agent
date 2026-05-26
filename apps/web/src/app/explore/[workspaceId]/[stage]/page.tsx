@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState, use } from "react";
 
+type PerspectiveViewerElement = HTMLElement & {
+  load: (table: unknown) => Promise<void> | void;
+};
+
 export default function ExplorePage({
   params,
 }: {
@@ -85,13 +89,13 @@ export default function ExplorePage({
         const worker = await perspective.worker();
         const table = worker.table(rows);
 
-        const viewer = document.createElement("perspective-viewer");
+        const viewer = document.createElement("perspective-viewer") as PerspectiveViewerElement;
         viewer.setAttribute("theme", "Pro Dark");
         viewer.style.width = "100%";
         viewer.style.height = "100%";
         containerRef.current.innerHTML = "";
         containerRef.current.appendChild(viewer);
-        await (viewer as any).load(table);
+        await viewer.load(table);
 
         if (!cancelled) setStatus("ready");
       } catch (err) {
