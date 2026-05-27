@@ -191,7 +191,7 @@ afterEach(() => {
 });
 
 describe("buildAnalysisManifest", () => {
-  it("builds a static manifest from persisted artifacts when no Prefect run exists", async () => {
+  it("builds a shared workspace manifest from persisted artifacts without contacting Prefect", async () => {
     vi.mocked(readData).mockImplementation(async (path: string) => {
       if (path === "DEMO/query.txt") {
         return "Did escitalopram help?";
@@ -208,21 +208,10 @@ describe("buildAnalysisManifest", () => {
       async (path: string) =>
         path === "DEMO/run/stage-1a.json" || path === "DEMO/run/stage-1b.json",
     );
-    globalThis.fetch = vi.fn(async (input, init) => {
-      const url = String(input);
-      if (url === "http://localhost:4200/api/flow_runs/filter") {
-        const body = parseBody(init);
-        const tags = (
-          (body.flow_runs as Record<string, unknown> | undefined)?.tags as
-            | { all_?: string[] }
-            | undefined
-        )?.all_;
-        if (tags?.[0] === "workspace:DEMO") {
-          return jsonResponse([]);
-        }
-      }
-      throw new Error(`Unexpected fetch: ${url}`);
-    }) as typeof fetch;
+    const fetchMock = vi.fn(async (input) => {
+      throw new Error(`Unexpected fetch: ${String(input)}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
 
     const manifest = await buildAnalysisManifest("DEMO");
 
@@ -244,18 +233,19 @@ describe("buildAnalysisManifest", () => {
       endTime: "2026-05-07T00:00:00.000Z",
     });
     expect(manifest?.stages["stage-0"].execution).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("supplements Prefect lineage with persisted artifacts for stages without events", async () => {
     vi.mocked(readData).mockImplementation(async (path: string) => {
-      if (path === "DEMO/query.txt") {
+      if (path === "user-123/query.txt") {
         return "Did escitalopram help?";
       }
       throw new Error("missing");
     });
     vi.mocked(prefixExists).mockImplementation(
       async (path: string) =>
-        path === "DEMO/run/stage-1a.json" || path === "DEMO/run/stage-1b.json",
+        path === "user-123/run/stage-1a.json" || path === "user-123/run/stage-1b.json",
     );
     globalThis.fetch = vi.fn(async (input) => {
       const url = String(input);
@@ -281,7 +271,7 @@ describe("buildAnalysisManifest", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     }) as typeof fetch;
 
-    const manifest = await buildAnalysisManifest("DEMO");
+    const manifest = await buildAnalysisManifest("user-123");
 
     expect(manifest?.rootFlowRunIds).toEqual(["run-abc"]);
     expect(manifest?.stages["stage-0"]).toMatchObject({

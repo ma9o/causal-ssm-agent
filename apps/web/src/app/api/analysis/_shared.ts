@@ -20,6 +20,7 @@ import {
 } from "@/lib/stage-runtime";
 import { getStageLogScopePolicy } from "@/lib/stage-observability";
 import { prefectFetch } from "@/lib/server/prefect-runs";
+import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
 import { isStorageNotFoundError, prefixExists, readData } from "@/lib/storage";
 import { STAGES, type StageId } from "@nof1-causal-lab/api-types";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
@@ -457,6 +458,10 @@ export async function buildAnalysisManifest(
   workspaceId: string,
   bootstrapRootFlowRunIds: string[] = [],
 ): Promise<AnalysisManifest | null> {
+  if (isSharedWorkspaceId(workspaceId)) {
+    return buildPersistedArtifactManifest(workspaceId, bootstrapRootFlowRunIds);
+  }
+
   let prefectRootFlowRunIds: string[];
   try {
     prefectRootFlowRunIds = await fetchWorkspaceRootFlowRunIds(workspaceId);
