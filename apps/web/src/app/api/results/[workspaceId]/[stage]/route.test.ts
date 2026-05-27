@@ -67,6 +67,30 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     });
   });
 
+  it("adds public CDN caching to shared workspace result responses", async () => {
+    vi.mocked(readData).mockResolvedValue('{"outcome":"success"}');
+
+    const response = await GET(new Request("http://localhost/api/results/DEMO/stage-5b"), {
+      params: Promise.resolve({ workspaceId: "DEMO", stage: "stage-5b" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe(
+      "public, max-age=120, s-maxage=86400, stale-while-revalidate=604800",
+    );
+  });
+
+  it("keeps non-shared workspace result responses uncached", async () => {
+    vi.mocked(readData).mockResolvedValue('{"outcome":"success"}');
+
+    const response = await GET(new Request("http://localhost/api/results/user/stage-5b"), {
+      params: Promise.resolve({ workspaceId: "user", stage: "stage-5b" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBeNull();
+  });
+
   it("returns a parse error when the persisted payload is invalid", async () => {
     vi.mocked(readData).mockResolvedValue('{"metadata":{},"result":"{"}');
 

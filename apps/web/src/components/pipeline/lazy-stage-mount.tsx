@@ -7,7 +7,7 @@ const useIsoLayoutEffect = typeof window === "undefined" ? useEffect : useLayout
 
 export function LazyStageMount({
   stage,
-  rootMarginPx = 800,
+  rootMarginPx = 300,
   minHeight = 400,
   children,
 }: {
