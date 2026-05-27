@@ -13,6 +13,10 @@ from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.initializers import (
     initialize_ieks_latents,
     initialize_particle_smoother_latents,
 )
+from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs import (
+    build_marginal_particle_gibbs_kernel,
+    run_marginal_particle_gibbs,
+)
 from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.pit_particle_mgrad import (
     build_pit_particle_mgrad_latent_kernel,
 )
@@ -20,10 +24,12 @@ from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.pit_particle_mgrad imp
 __all__ = [
     "AuxKalmanMCMCResult",
     "build_pit_particle_mgrad_latent_kernel",
+    "build_marginal_particle_gibbs_kernel",
     "build_auxiliary_kalman_bundle",
     "build_auxiliary_kalman_latent_kernel",
     "build_hybrid_gibbs_nuts_parameter_kernel",
     "initialize_ieks_latents",
     "initialize_particle_smoother_latents",
+    "run_marginal_particle_gibbs",
     "run_aux_kalman_mcmc",
 ]

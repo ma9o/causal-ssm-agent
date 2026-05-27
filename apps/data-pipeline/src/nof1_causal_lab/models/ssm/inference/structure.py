@@ -13,10 +13,12 @@ StructuralBackend = Literal["laplace"]
 RequestedMethod = Literal[
     "pit_particle_mgrad",
     "aux_kalman_mcmc",
+    "marginal_particle_gibbs",
 ]
 ResolvedMethod = Literal[
     "pit_particle_mgrad",
     "aux_kalman_mcmc",
+    "marginal_particle_gibbs",
 ]
 
 
@@ -34,10 +36,15 @@ def _normalize_method_override(
 ) -> ResolvedMethod | None:
     if method_override is None:
         return None
-    if method_override not in {"pit_particle_mgrad", "aux_kalman_mcmc"}:
+    if method_override not in {
+        "pit_particle_mgrad",
+        "aux_kalman_mcmc",
+        "marginal_particle_gibbs",
+    }:
         raise ValueError(
             "Unsupported inference method override "
-            f"{method_override!r}; expected 'pit_particle_mgrad' or 'aux_kalman_mcmc'."
+            f"{method_override!r}; expected 'pit_particle_mgrad', 'aux_kalman_mcmc', "
+            "or 'marginal_particle_gibbs'."
         )
     return cast("ResolvedMethod", method_override)
 

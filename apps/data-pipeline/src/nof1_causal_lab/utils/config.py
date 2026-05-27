@@ -258,10 +258,37 @@ class PITParticleMGradConfig:
 
 
 @dataclass(frozen=True)
+class MarginalParticleGibbsConfig:
+    """Marginalized Particle Gibbs inference settings."""
+
+    n_particles: int = 64
+    n_parameter_particles: int = 2
+    latent_block_size: int = 256
+    param_step_size: float = 0.02
+    param_step_size_min: float = 1e-6
+    param_step_size_max: float = 1e3
+    param_target_accept: float = 0.35
+    adaptation_rate: float = 0.05
+    init_method: Literal["random", "pathfinder"] = "pathfinder"
+    latent_init_method: Literal["predictive"] = "predictive"
+    pathfinder_num_elbo_samples: int = 20
+    pathfinder_maxiter: int = 20
+    n_pathfinder_starts: int = 8
+    pathfinder_parallel_workers: int | None = None
+    pathfinder_init_scale: float | None = 0.1
+    auto_preconditioner_method: Literal["map", "none", "pathfinder"] = "pathfinder"
+    auto_preconditioner_maxiter: int = 200
+
+
+@dataclass(frozen=True)
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
-    method: Literal["aux_kalman_mcmc", "pit_particle_mgrad"] = "pit_particle_mgrad"
+    method: Literal[
+        "aux_kalman_mcmc",
+        "pit_particle_mgrad",
+        "marginal_particle_gibbs",
+    ] = "pit_particle_mgrad"
     num_warmup: int = 4000
     num_samples: int = 1000
     num_chains: int = 4
@@ -270,6 +297,9 @@ class InferenceConfig:
     map: MAPConfig = field(default_factory=MAPConfig)
     aux_kalman_mcmc: AuxKalmanMCMCConfig = field(default_factory=AuxKalmanMCMCConfig)
     pit_particle_mgrad: PITParticleMGradConfig = field(default_factory=PITParticleMGradConfig)
+    marginal_particle_gibbs: MarginalParticleGibbsConfig = field(
+        default_factory=MarginalParticleGibbsConfig
+    )
 
     def to_sampler_config(self, method_override: str | None = None) -> dict:
         """Build a flat sampler config dict for SSM inference."""
@@ -330,10 +360,25 @@ class InferenceConfig:
                     ),
                 }
             )
+        elif method == "marginal_particle_gibbs":
+            config.update(
+                {
+                    "n_ieks_iters": self.map.n_ieks_iters,
+                    **dataclasses.asdict(self.marginal_particle_gibbs),
+                    "init_scale": self.aux_kalman_mcmc.init_scale,
+                    "retain_latent_paths": self.aux_kalman_mcmc.retain_latent_paths,
+                    "compute_latent_posterior_summary": (
+                        self.aux_kalman_mcmc.compute_latent_posterior_summary
+                    ),
+                    "enable_polya_gamma": False,
+                    "rbpf_mode": "none",
+                }
+            )
         else:
             raise ValueError(
                 "Unsupported inference method "
-                f"{method!r}; expected 'aux_kalman_mcmc' or 'pit_particle_mgrad'."
+                f"{method!r}; expected 'aux_kalman_mcmc', 'pit_particle_mgrad', "
+                "or 'marginal_particle_gibbs'."
             )
         return config
 
@@ -423,6 +468,7 @@ def _parse_inference(raw: dict) -> InferenceConfig:
     map_raw = inference_raw.pop("map", {}) or {}
     aux_kalman_mcmc_raw = dict(inference_raw.pop("aux_kalman_mcmc", {}) or {})
     pit_particle_mgrad_raw = inference_raw.pop("pit_particle_mgrad", {}) or {}
+    marginal_particle_gibbs_raw = inference_raw.pop("marginal_particle_gibbs", {}) or {}
     aux_kalman_mcmc_latent_raw = aux_kalman_mcmc_raw.pop("latent_kernel", {}) or {}
     aux_kalman_mcmc_parameter_raw = aux_kalman_mcmc_raw.pop("parameter_kernel", {}) or {}
     return InferenceConfig(
@@ -432,6 +478,11 @@ def _parse_inference(raw: dict) -> InferenceConfig:
             PITParticleMGradConfig(**pit_particle_mgrad_raw)
             if pit_particle_mgrad_raw
             else PITParticleMGradConfig()
+        ),
+        marginal_particle_gibbs=(
+            MarginalParticleGibbsConfig(**marginal_particle_gibbs_raw)
+            if marginal_particle_gibbs_raw
+            else MarginalParticleGibbsConfig()
         ),
         aux_kalman_mcmc=AuxKalmanMCMCConfig(
             **aux_kalman_mcmc_raw,

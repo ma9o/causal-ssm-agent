@@ -16,6 +16,7 @@ from nof1_causal_lab.utils.config import (
     InferenceConfig,
     LLMDefaults,
     MAPConfig,
+    MarginalParticleGibbsConfig,
     PipelineBehaviorConfig,
     PipelineConfig,
     PITParticleMGradConfig,
@@ -99,6 +100,20 @@ class TestToSamplerConfig:
         assert result["retain_latent_paths"] is True
         assert result["compute_latent_posterior_summary"] is True
         assert result["emit_per_t_log_alpha"] is False
+
+    def test_marginal_particle_gibbs_explicit(self):
+        cfg = InferenceConfig(method="marginal_particle_gibbs")
+        result = cfg.to_sampler_config()
+        assert result["method"] == "marginal_particle_gibbs"
+        assert result["n_particles"] == 64
+        assert result["n_parameter_particles"] == 2
+        assert result["latent_block_size"] == 256
+        assert result["param_step_size"] == 0.02
+        assert result["param_target_accept"] == 0.35
+        assert result["latent_init_method"] == "predictive"
+        assert result["enable_polya_gamma"] is False
+        assert result["rbpf_mode"] == "none"
+        assert result["retain_latent_paths"] is True
 
     def test_method_override(self):
         cfg = InferenceConfig(method="pit_particle_mgrad")
@@ -229,6 +244,46 @@ class TestToSamplerConfig:
         assert result["auto_preconditioner_maxiter"] == 17
         assert result["debug_particle_trace"] is True
 
+    def test_marginal_particle_gibbs_settings(self):
+        cfg = InferenceConfig(
+            method="marginal_particle_gibbs",
+            marginal_particle_gibbs=MarginalParticleGibbsConfig(
+                n_particles=17,
+                n_parameter_particles=3,
+                latent_block_size=5,
+                param_step_size=0.04,
+                param_step_size_min=1e-5,
+                param_step_size_max=0.5,
+                param_target_accept=0.42,
+                adaptation_rate=0.08,
+                init_method="random",
+                pathfinder_num_elbo_samples=9,
+                pathfinder_maxiter=10,
+                n_pathfinder_starts=2,
+                pathfinder_init_scale=None,
+                auto_preconditioner_method="none",
+                auto_preconditioner_maxiter=11,
+            ),
+        )
+        result = cfg.to_sampler_config()
+        assert result["method"] == "marginal_particle_gibbs"
+        assert result["n_particles"] == 17
+        assert result["n_parameter_particles"] == 3
+        assert result["latent_block_size"] == 5
+        assert result["param_step_size"] == 0.04
+        assert result["param_step_size_min"] == 1e-5
+        assert result["param_step_size_max"] == 0.5
+        assert result["param_target_accept"] == 0.42
+        assert result["adaptation_rate"] == 0.08
+        assert result["init_method"] == "random"
+        assert result["latent_init_method"] == "predictive"
+        assert result["pathfinder_num_elbo_samples"] == 9
+        assert result["pathfinder_maxiter"] == 10
+        assert result["n_pathfinder_starts"] == 2
+        assert result["pathfinder_init_scale"] is None
+        assert result["auto_preconditioner_method"] == "none"
+        assert result["auto_preconditioner_maxiter"] == 11
+
 
 # =============================================================================
 # load_config (with temp config file)
@@ -338,6 +393,22 @@ FULL_CONFIG = textwrap.dedent("""\
         auto_preconditioner_method: none
         auto_preconditioner_maxiter: 19
         debug_particle_trace: true
+      marginal_particle_gibbs:
+        n_particles: 24
+        n_parameter_particles: 3
+        latent_block_size: 6
+        param_step_size: 0.03
+        param_step_size_min: 0.000001
+        param_step_size_max: 0.7
+        param_target_accept: 0.4
+        adaptation_rate: 0.03
+        init_method: random
+        pathfinder_num_elbo_samples: 7
+        pathfinder_maxiter: 8
+        n_pathfinder_starts: 2
+        pathfinder_init_scale:
+        auto_preconditioner_method: none
+        auto_preconditioner_maxiter: 13
       aux_kalman_mcmc:
         emit_per_t_log_alpha: true
         parameter_kernel:
@@ -422,6 +493,22 @@ class TestLoadConfig:
         assert cfg.inference.pit_particle_mgrad.auto_preconditioner_method == "none"
         assert cfg.inference.pit_particle_mgrad.auto_preconditioner_maxiter == 19
         assert cfg.inference.pit_particle_mgrad.debug_particle_trace is True
+        assert cfg.inference.marginal_particle_gibbs.n_particles == 24
+        assert cfg.inference.marginal_particle_gibbs.n_parameter_particles == 3
+        assert cfg.inference.marginal_particle_gibbs.latent_block_size == 6
+        assert cfg.inference.marginal_particle_gibbs.param_step_size == 0.03
+        assert cfg.inference.marginal_particle_gibbs.param_step_size_min == 1e-6
+        assert cfg.inference.marginal_particle_gibbs.param_step_size_max == 0.7
+        assert cfg.inference.marginal_particle_gibbs.param_target_accept == 0.4
+        assert cfg.inference.marginal_particle_gibbs.adaptation_rate == 0.03
+        assert cfg.inference.marginal_particle_gibbs.init_method == "random"
+        assert cfg.inference.marginal_particle_gibbs.latent_init_method == "predictive"
+        assert cfg.inference.marginal_particle_gibbs.pathfinder_num_elbo_samples == 7
+        assert cfg.inference.marginal_particle_gibbs.pathfinder_maxiter == 8
+        assert cfg.inference.marginal_particle_gibbs.n_pathfinder_starts == 2
+        assert cfg.inference.marginal_particle_gibbs.pathfinder_init_scale is None
+        assert cfg.inference.marginal_particle_gibbs.auto_preconditioner_method == "none"
+        assert cfg.inference.marginal_particle_gibbs.auto_preconditioner_maxiter == 13
         assert cfg.inference.aux_kalman_mcmc.emit_per_t_log_alpha is True
         assert cfg.inference.aux_kalman_mcmc.adaptation_scheme == "dual_averaging"
         assert cfg.inference.aux_kalman_mcmc.parameter_kernel.kernel == "hybrid_gibbs_nuts"

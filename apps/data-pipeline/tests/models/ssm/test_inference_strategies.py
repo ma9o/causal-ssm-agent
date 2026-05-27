@@ -2332,6 +2332,45 @@ def test_particle_mcmc_smoke_on_small_kalman_model(
     _assert_small_particle_mcmc_result(result, method=method, num_samples=num_samples)
 
 
+def test_marginal_particle_gibbs_smoke_on_small_kalman_model():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=2,
+        num_chains=1,
+        seed=23,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_block_size=2,
+        param_step_size=0.001,
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=2,
+    )
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["parameter_kernel"] == "symmetric_auxiliary_barker"
+    assert diag["latent_kernel"] == "blocked_posterior_mixture_backward_csmc"
+    assert diag["latent_backward_sampling"] is True
+    assert diag["latent_block_size"] == 2
+    assert diag["polya_gamma_enabled"] is False
+    assert diag["rbpf_enabled"] is False
+
+
 def test_aux_kalman_mcmc_eq10_11_smoke_on_small_kalman_model():
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)

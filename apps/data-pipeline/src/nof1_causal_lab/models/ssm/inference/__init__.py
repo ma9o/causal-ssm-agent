@@ -7,6 +7,8 @@ Available methods:
 - Particle-mGRAD: blocked complete-data updates with sequential prior-informed
   particle latent proposals.
 - Auxiliary Kalman MCMC: blocked complete-data updates with auxiliary Kalman latent proposals.
+- Marginalized Particle Gibbs: collapsed joint parameter/trajectory updates
+  using posterior-mixture conditional SMC.
 """
 
 from __future__ import annotations
@@ -57,7 +59,8 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method: "pit_particle_mgrad" or "aux_kalman_mcmc".
+        method: Inference method: "pit_particle_mgrad", "aux_kalman_mcmc",
+            or "marginal_particle_gibbs".
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
               centering.
@@ -80,8 +83,15 @@ def fit(
         from nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc import fit_aux_kalman_mcmc
 
         return fit_aux_kalman_mcmc(model, observations, times, reparam=reparam, **kwargs)
+    if method == "marginal_particle_gibbs":
+        from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
+            fit_marginal_particle_gibbs,
+        )
+
+        return fit_marginal_particle_gibbs(model, observations, times, reparam=reparam, **kwargs)
     raise ValueError(
-        f"Unknown inference method: {method!r}. Use 'pit_particle_mgrad' or 'aux_kalman_mcmc'."
+        f"Unknown inference method: {method!r}. Use 'pit_particle_mgrad', "
+        "'aux_kalman_mcmc', or 'marginal_particle_gibbs'."
     )
 
 

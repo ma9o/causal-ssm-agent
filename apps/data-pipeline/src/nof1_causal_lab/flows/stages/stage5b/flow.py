@@ -112,7 +112,11 @@ def run_stage5b(
     config = get_config()
     data_for_model = load_parquet(stage2["_data_for_model_path"])
     sampler_config = config.inference.to_sampler_config(method_override=inference_method)
-    if sampler_config.get("method") in {"aux_kalman_mcmc", "pit_particle_mgrad"}:
+    if sampler_config.get("method") in {
+        "aux_kalman_mcmc",
+        "pit_particle_mgrad",
+        "marginal_particle_gibbs",
+    }:
         sampler_config["retain_latent_paths"] = True
 
     return run_stage5b_with_data(
