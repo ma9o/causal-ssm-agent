@@ -253,8 +253,17 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Sync runtime secrets to Vercel
         run: |
-          sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force --token="$VERCEL_TOKEN" 2>&1 || true; }
+          sync_required_env() {
+            if [ -z "$2" ]; then
+              echo "$1 is required for Vercel deployment" >&2
+              exit 1
+            fi
+            printf '%s' "$2" | bunx vercel env add "$1" production --yes --force --token="$VERCEL_TOKEN"
+          }
+          sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force --token="$VERCEL_TOKEN"; }
           sync_env DEPLOYMENT_ENV           production
+          sync_required_env APP_SECRET           "${{ secrets.APP_SECRET }}"
+          sync_required_env OPENROUTER_API_KEY   "${{ secrets.OPENROUTER_API_KEY }}"
           sync_env R2_ENDPOINT_URL          "${{ secrets.R2_ENDPOINT_URL }}"
           sync_env R2_ACCESS_KEY_ID         "${{ secrets.R2_ACCESS_KEY_ID }}"
           sync_env R2_SECRET_ACCESS_KEY     "${{ secrets.R2_SECRET_ACCESS_KEY }}"
