@@ -26,6 +26,16 @@ from nof1_causal_lab.utils.config import (
 from tests.helpers import run_async as _run
 
 
+@pytest.fixture(autouse=True)
+def _embedded_harness_prereqs(monkeypatch):
+    from nof1_causal_lab.utils.config import _reset_verified_harnesses_for_testing
+
+    _reset_verified_harnesses_for_testing()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    yield
+    _reset_verified_harnesses_for_testing()
+
+
 def _defaults() -> LLMDefaults:
     return LLMDefaults(
         embedded=EmbeddedLLMDefaults(max_tokens=12345, timeout=60, reasoning_effort="low"),

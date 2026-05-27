@@ -15,6 +15,16 @@ from tests.agent._support import valid_worker_output_json as _valid_worker_outpu
 from tests.helpers import run_async as _run
 
 
+@pytest.fixture(autouse=True)
+def _embedded_harness_prereqs(monkeypatch):
+    from nof1_causal_lab.utils.config import _reset_verified_harnesses_for_testing
+
+    _reset_verified_harnesses_for_testing()
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    yield
+    _reset_verified_harnesses_for_testing()
+
+
 def _tool_call_message(call_id: str, tool_name: str, arguments: dict) -> dict:
     return {
         "role": "assistant",
