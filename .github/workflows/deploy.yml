@@ -29,6 +29,7 @@ jobs:
               - 'turbo.json'
               - 'tsconfig.json'
               - 'package.json'
+              - 'data/DEMO/**'
               - '.github/workflows/ci.yml'
               - '.github/workflows/deploy.yml'
             python:
@@ -251,6 +252,14 @@ jobs:
           restore-keys: bun-install-${{ runner.os }}-
 
       - run: bun install --frozen-lockfile
+      - name: Upload demo workspace to R2
+        run: bun run --cwd apps/web sync-demo-r2
+        env:
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PREFIX: data
       - name: Sync runtime secrets to Vercel
         run: |
           sync_required_env() {

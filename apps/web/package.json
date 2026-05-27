@@ -14,6 +14,7 @@
     "check": "bun run lint && bun run test && bun run build && bun run type-check",
     "test": "vitest run",
     "test:prefect-logs": "vitest run --config vitest.integration.config.ts",
+    "sync-demo-r2": "bun scripts/sync-demo-workspace-to-r2.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "postinstall": "node scripts/copy-perspective-assets.mjs"
