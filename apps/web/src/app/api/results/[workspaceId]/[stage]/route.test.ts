@@ -20,6 +20,7 @@ vi.mock("@/lib/storage", () => ({
 import { deriveStage2Data } from "@/lib/stage2-data";
 import { deriveStage4Data } from "@/lib/stage4-derived-data";
 import { readBinary, readData } from "@/lib/storage";
+import { SHARED_WORKSPACE_CACHE_CONTROL } from "@/lib/shared-workspace-cache";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { GET } from "./route";
 
@@ -75,9 +76,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     });
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toBe(
-      "public, max-age=120, s-maxage=86400, stale-while-revalidate=604800",
-    );
+    expect(response.headers.get("Cache-Control")).toBe(SHARED_WORKSPACE_CACHE_CONTROL);
   });
 
   it("keeps non-shared workspace result responses uncached", async () => {

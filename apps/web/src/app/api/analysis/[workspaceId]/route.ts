@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { SHARED_WORKSPACE_CACHE_CONTROL } from "@/lib/shared-workspace-cache";
+import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { buildAnalysisManifest } from "../_shared";
 
@@ -15,7 +17,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ work
     const bootstrapRootFlowRunIds = url.searchParams.getAll("rootFlowRunId").filter(Boolean);
     const manifest = await buildAnalysisManifest(normalizedWorkspaceId, bootstrapRootFlowRunIds);
     if (manifest) {
-      return NextResponse.json(manifest);
+      const response = NextResponse.json(manifest);
+      if (isSharedWorkspaceId(normalizedWorkspaceId) && bootstrapRootFlowRunIds.length === 0) {
+        response.headers.set("Cache-Control", SHARED_WORKSPACE_CACHE_CONTROL);
+      }
+      return response;
     }
   } catch {
     // Fall through
