@@ -261,11 +261,8 @@ jobs:
           sync_env R2_BUCKET                "${{ secrets.R2_BUCKET }}"
           sync_env R2_PREFIX                data
       - run: bunx vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-        working-directory: apps/web
       - run: bunx vercel build --prod --token="$VERCEL_TOKEN"
-        working-directory: apps/web
       - run: bunx vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
-        working-directory: apps/web
 
   # ---------------------------------------------------------------------------
   # Deploy Prefect flows
