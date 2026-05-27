@@ -2332,7 +2332,18 @@ def test_particle_mcmc_smoke_on_small_kalman_model(
     _assert_small_particle_mcmc_result(result, method=method, num_samples=num_samples)
 
 
-def test_marginal_particle_gibbs_smoke_on_small_kalman_model():
+@pytest.mark.parametrize(
+    ("parameter_proposal", "expected_kernel", "expected_target"),
+    # Both proposals resolve to 0.35: the target ceiling is the M=2 ensemble
+    # move-rate (~0.5), a property of the selection, not the proposal drift.
+    [
+        ("random_walk", "m_pgibbs_random_walk", 0.35),
+        ("pseudo_langevin", "m_pgibbs_pseudo_langevin", 0.35),
+    ],
+)
+def test_marginal_particle_gibbs_smoke_on_small_kalman_model(
+    parameter_proposal, expected_kernel, expected_target
+):
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)
     observations, times = _small_kalman_observations_and_times()
@@ -2350,6 +2361,7 @@ def test_marginal_particle_gibbs_smoke_on_small_kalman_model():
         n_parameter_particles=2,
         latent_block_size=2,
         param_step_size=0.001,
+        parameter_proposal=parameter_proposal,
         init_method="random",
         auto_preconditioner_method="none",
         init_scale=0.0,
@@ -2363,12 +2375,80 @@ def test_marginal_particle_gibbs_smoke_on_small_kalman_model():
         num_samples=2,
     )
     diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["parameter_kernel"] == "symmetric_auxiliary_barker"
+    assert diag["parameter_kernel"] == expected_kernel
+    assert diag["parameter_proposal"] == parameter_proposal
+    assert diag["adaptation_scheme"] == "dual_averaging"
+    assert diag["param_target_accept"] == pytest.approx(expected_target)
     assert diag["latent_kernel"] == "blocked_posterior_mixture_backward_csmc"
     assert diag["latent_backward_sampling"] is True
     assert diag["latent_block_size"] == 2
     assert diag["polya_gamma_enabled"] is False
     assert diag["rbpf_enabled"] is False
+
+
+def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
+    from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
+        build_marginal_particle_gibbs_kernel,
+    )
+
+    # Validation fires before any bundle access, so an empty bundle is fine here.
+    with pytest.raises(ValueError, match="parameter_proposal"):
+        build_marginal_particle_gibbs_kernel(
+            {},
+            num_particles=2,
+            num_parameter_particles=2,
+            param_step_size=0.1,
+            target_accept=0.3,
+            parameter_proposal="bogus",
+        )
+
+
+def test_marginal_particle_gibbs_rejects_unknown_adaptation_scheme():
+    # adaptation_scheme is validated early in fit, before the bundle build.
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+    with pytest.raises(ValueError, match="adaptation_scheme"):
+        fit(
+            model,
+            observations=observations,
+            times=times,
+            method="marginal_particle_gibbs",
+            num_warmup=1,
+            num_samples=1,
+            num_chains=1,
+            seed=0,
+            adaptation_scheme="bogus",
+        )
+
+
+def test_marginal_particle_gibbs_simple_adaptation_scheme_runs():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=2,
+        num_chains=1,
+        seed=23,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_block_size=2,
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        adaptation_scheme="simple",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+    _assert_small_particle_mcmc_result(result, method="marginal_particle_gibbs", num_samples=2)
+    assert result.diagnostics["marginal_particle_gibbs"]["adaptation_scheme"] == "simple"
 
 
 def test_aux_kalman_mcmc_eq10_11_smoke_on_small_kalman_model():

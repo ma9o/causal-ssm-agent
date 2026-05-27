@@ -264,6 +264,7 @@ class MarginalParticleGibbsConfig:
     n_particles: int = 64
     n_parameter_particles: int = 2
     latent_block_size: int = 256
+    parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin"
     param_step_size: float = 0.02
     param_step_size_min: float = 1e-6
     param_step_size_max: float = 1e3

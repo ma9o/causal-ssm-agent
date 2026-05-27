@@ -3,13 +3,25 @@
 Implements the M=2-by-default collapsed Particle Gibbs construction from
 Corenflos (2025), "Particle Gibbs without the Gibbs bit", for directly
 evaluable SSM potentials. The parameter proposal is formed in unconstrained
-space via the symmetric auxiliary decomposition
+space via the auxiliary decomposition
 
-    u | theta ~ N(theta, 2 delta Sigma)
+    u | theta  ~ N(theta + 2 delta Sigma g(theta), 2 delta Sigma)
     theta' | u ~ N(u, 2 delta Sigma)
 
-and the latent trajectory is updated by conditional SMC against the posterior
-mixture over the current/proposed parameter ensemble.
+where ``g`` is a conditional parameter-gradient oracle. ``parameter_proposal``
+selects the drift: ``random_walk`` sets ``g = 0`` (the symmetric special case),
+while the default ``pseudo_langevin`` (Corenflos 2025, §3.1) drifts the
+theta->u half by ``g`` so the two halves reproduce preconditioned MALA. The
+resulting asymmetry is corrected exactly in the Barker label-selection weights
+(identically zero in the random-walk case). The latent trajectory is updated by
+conditional SMC against the posterior mixture over the parameter ensemble.
+
+Step-size convention. ``delta`` here (``param_step_size``) is the variance
+coefficient of each half, not the conventional MALA step. The combined kernel
+has variance ``4 delta Sigma`` (and drift ``2 delta Sigma g`` for pseudo-Langevin),
+so ``param_step_size`` maps to MALA's ``h`` and to the RW variance coefficient
+via ``h = 4 * param_step_size`` in both branches. Tune accordingly: a familiar
+MALA step of ``h = 0.1`` corresponds to ``param_step_size = 0.025`` here.
 """
 
 from __future__ import annotations
@@ -33,6 +45,7 @@ from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.gibbs import (
     AuxKalmanMCMCResult,
     AuxKalmanMCMCState,
     _adapt_scale,
+    _clip_dual_averaging_state,
     _clip_scale,
     _latent_summary_from_chain_moments,
     _stack_chain_states,
@@ -41,6 +54,15 @@ from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.gibbs import (
 
 _DEFAULT_MIN_SCALE = 1e-6
 _DEFAULT_MAX_SCALE = 1e3
+# Target acceptance for the M=2 ensemble Barker selection. Its move-rate is
+# bounded above by ~0.5 -- the step->0 coin-flip limit, (M-1)/M for M ensemble
+# candidates -- so MALA-style optima (~0.574) do NOT transfer: a target above
+# that ceiling makes dual averaging chase an unreachable rate and collapse the
+# step size to the floor (observed empirically at 0.57). 0.35 sits safely below
+# the ceiling, is reachable under dual averaging, and matches the long-standing
+# baseline. The ceiling is a property of the M=2 selection, not of the proposal
+# drift, so this default is shared by random_walk and pseudo_langevin.
+_DEFAULT_PARAM_TARGET_ACCEPT = 0.35
 
 
 @dataclass(frozen=True)
@@ -206,11 +228,12 @@ def build_marginal_particle_gibbs_kernel(
     num_particles: int,
     num_parameter_particles: int,
     param_step_size: float,
-    target_accept: float,
+    target_accept: float | None = None,
     min_scale: float = _DEFAULT_MIN_SCALE,
     max_scale: float = _DEFAULT_MAX_SCALE,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
     latent_block_size: int = 256,
+    parameter_proposal: str = "pseudo_langevin",
 ) -> MarginalParticleGibbsKernel:
     """Build a marginalized Particle Gibbs joint state update."""
     if num_particles < 2:
@@ -226,6 +249,14 @@ def build_marginal_particle_gibbs_kernel(
         raise ValueError(
             f"marginal_particle_gibbs latent_block_size must be positive; got {latent_block_size}."
         )
+    if parameter_proposal not in ("random_walk", "pseudo_langevin"):
+        raise ValueError(
+            "marginal_particle_gibbs parameter_proposal must be 'random_walk' or "
+            f"'pseudo_langevin'; got {parameter_proposal!r}."
+        )
+    use_gradient_drift = parameter_proposal == "pseudo_langevin"
+    if target_accept is None:
+        target_accept = _DEFAULT_PARAM_TARGET_ACCEPT
 
     latent_context_runtime_fn = bundle["latent_context_runtime_fn"]
     log_prior_unc_fn = bundle["log_prior_unc_fn"]
@@ -238,6 +269,18 @@ def build_marginal_particle_gibbs_kernel(
     ]
     runtime_observations = bundle["observations"]
     runtime_times = bundle["times"]
+    complete_log_posterior_runtime_fn = bundle["complete_log_posterior_runtime_fn"]
+
+    def _theta_logpost_grad(z: jnp.ndarray, latent_trajectory: jnp.ndarray) -> jnp.ndarray:
+        # Conditional parameter-gradient oracle g(z) ≈ ∇_z log π(z): the gradient of the
+        # complete log-posterior at the current latent trajectory. Used only to drift the
+        # pseudo-Langevin proposal; exactness is preserved by the Barker weight correction
+        # regardless of this oracle's accuracy (a single reverse pass, not second-order).
+        return jax.grad(
+            lambda zz: complete_log_posterior_runtime_fn(
+                zz, latent_trajectory, runtime_observations, runtime_times
+            )
+        )(z)
 
     preconditioner = (
         None
@@ -252,24 +295,35 @@ def build_marginal_particle_gibbs_kernel(
         current_position: jnp.ndarray,
         key: jnp.ndarray,
         step_size: jnp.ndarray,
-    ) -> jnp.ndarray:
+        latent_trajectory: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         dim = int(current_position.shape[0])
-        proposal_scale = jnp.sqrt(
-            jnp.asarray(2.0, dtype=current_position.dtype)
-            * jnp.asarray(step_size, dtype=current_position.dtype)
-        )
+        step = jnp.asarray(step_size, dtype=current_position.dtype)
+        proposal_scale = jnp.sqrt(jnp.asarray(2.0, dtype=current_position.dtype) * step)
         if preconditioner is None:
             chol = jnp.eye(dim, dtype=current_position.dtype)
         else:
             chol = jnp.asarray(preconditioner, dtype=current_position.dtype)
         aux_key, proposal_key = random.split(key)
-        u = current_position + proposal_scale * (
-            random.normal(
-                aux_key,
-                current_position.shape,
-                dtype=current_position.dtype,
+
+        # Pseudo-Langevin (Corenflos 2025, §3.1): drift the θ→u half by 2·step·Σ·g(θ),
+        # with Σ = chol·cholᵀ and g the conditional parameter-gradient oracle. The θ'←u
+        # half stays a plain Gaussian, so only u carries the drift. Combined, the two
+        # halves reproduce preconditioned MALA; random-walk is the zero-drift case.
+        if use_gradient_drift:
+            grad_ref = _theta_logpost_grad(current_position, latent_trajectory)
+            drift = (jnp.asarray(2.0, dtype=step.dtype) * step) * (chol @ (chol.T @ grad_ref))
+        else:
+            drift = jnp.zeros_like(current_position)
+
+        u = (
+            current_position
+            + drift
+            + proposal_scale
+            * (
+                random.normal(aux_key, current_position.shape, dtype=current_position.dtype)
+                @ chol.T
             )
-            @ chol.T
         )
         proposal_eps = random.normal(
             proposal_key,
@@ -277,7 +331,27 @@ def build_marginal_particle_gibbs_kernel(
             dtype=current_position.dtype,
         )
         proposed = u[None, :] + proposal_scale * (proposal_eps @ chol.T)
-        return jnp.concatenate([current_position[None, :], proposed], axis=0)
+        ensemble = jnp.concatenate([current_position[None, :], proposed], axis=0)
+
+        # Barker label-prior correction Δ_l = log q(u|θˡ) − log q(θˡ|u). With the drift
+        # only in q(u|·), Δ_l = g(θˡ)·(u−θˡ) − step·‖cholᵀ g(θˡ)‖². It is identically 0
+        # in the random-walk (symmetric) case, recovering eq. (14). Added to the label
+        # prior so the marginalized-PGibbs selection stays exact under the asymmetry.
+        if use_gradient_drift:
+            grads = jnp.concatenate(
+                [
+                    grad_ref[None, :],
+                    jax.vmap(lambda th: _theta_logpost_grad(th, latent_trajectory))(proposed),
+                ],
+                axis=0,
+            )
+            whitened_sq = jnp.sum((grads @ chol) ** 2, axis=1)  # gᵀΣg per candidate
+            drift_dot = jnp.sum(grads * (u[None, :] - ensemble), axis=1)  # g·(u−θˡ)
+            label_correction = drift_dot - step * whitened_sq
+        else:
+            label_correction = jnp.zeros((num_parameter_particles,), dtype=current_position.dtype)
+
+        return ensemble, label_correction
 
     def _step_fn(state: AuxKalmanMCMCState, key: jnp.ndarray):
         param_key, block_key, label_key = random.split(key, 3)
@@ -290,7 +364,7 @@ def build_marginal_particle_gibbs_kernel(
         num_blocks = (num_steps + block_size - 1) // block_size
         num_free_particles = num_particles - 1
 
-        parameter_particles = _propose_parameter_ensemble(
+        parameter_particles, label_correction = _propose_parameter_ensemble(
             state.position,
             param_key,
             _clip_scale(
@@ -298,11 +372,14 @@ def build_marginal_particle_gibbs_kernel(
                 min_scale=min_scale,
                 max_scale=max_scale,
             ),
+            x_ref,
         )
         contexts = jax.vmap(lambda z: latent_context_runtime_fn(z, runtime_times))(
             parameter_particles
         )
-        parameter_log_probs = jax.vmap(log_prior_unc_fn)(parameter_particles).astype(traj_dtype)
+        parameter_log_probs = (
+            jax.vmap(log_prior_unc_fn)(parameter_particles) + label_correction
+        ).astype(traj_dtype)
         initial_label_log_probs = _normalize_log_probs(parameter_log_probs)
 
         init_means, init_covs = jax.vmap(initial_latent_moments_fn)(contexts)
@@ -940,8 +1017,19 @@ def run_marginal_particle_gibbs(
     init_positions: jnp.ndarray | None = None,
     initial_latent_trajectories: jnp.ndarray | None = None,
     compute_latent_posterior_summary: bool = True,
+    adaptation_scheme: str = "dual_averaging",
 ) -> dict[str, Any]:
     """Run marginalized Particle Gibbs chains."""
+    if adaptation_scheme not in {"simple", "dual_averaging"}:
+        raise ValueError(
+            f"Unknown adaptation_scheme {adaptation_scheme!r}; expected 'simple' or 'dual_averaging'."
+        )
+    use_dual_averaging = adaptation_scheme == "dual_averaging"
+    da_param_update = (
+        dual_averaging_adaptation(target=float(kernel.target_accept))[1]
+        if use_dual_averaging
+        else None
+    )
     total_steps = num_warmup + num_samples
     if total_steps <= 0:
         raise ValueError("marginal_particle_gibbs requires at least one MCMC step.")
@@ -1077,16 +1165,42 @@ def run_marginal_particle_gibbs(
             first_step_seconds = time.monotonic() - step_started
 
         if step_idx < num_warmup:
-            states = states._replace(
-                param_step_size=_adapt_scale(
-                    states.param_step_size,
-                    accepted=step_info["parameter_accepted"],
-                    target_accept=kernel.target_accept,
-                    adaptation_rate=adaptation_rate,
-                    min_scale=kernel.min_scale,
-                    max_scale=kernel.max_scale,
+            if use_dual_averaging:
+                # Dual averaging converges (unlike the constant-rate scheme), and we
+                # freeze to the Polyak-averaged step at the final warmup step rather
+                # than keeping a noisy live value — so per-chain steps no longer
+                # scatter across orders of magnitude.
+                updated_param_da = jax.vmap(
+                    lambda da_state, accepted: _clip_dual_averaging_state(
+                        da_param_update(da_state, accepted),
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    )
+                )(states.param_da, step_info["parameter_accepted"])
+                scale_dtype = states.param_step_size.dtype
+                if step_idx == num_warmup - 1:
+                    next_param_step = jnp.exp(updated_param_da.log_step_size_avg)
+                else:
+                    next_param_step = jnp.exp(updated_param_da.log_step_size)
+                states = states._replace(
+                    param_step_size=_clip_scale(
+                        next_param_step.astype(scale_dtype),
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    ),
+                    param_da=updated_param_da,
                 )
-            )
+            else:
+                states = states._replace(
+                    param_step_size=_adapt_scale(
+                        states.param_step_size,
+                        accepted=step_info["parameter_accepted"],
+                        target_accept=kernel.target_accept,
+                        adaptation_rate=adaptation_rate,
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    )
+                )
             continue
 
         position_history.append(states.position)

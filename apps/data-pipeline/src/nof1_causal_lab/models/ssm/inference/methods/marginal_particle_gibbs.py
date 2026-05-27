@@ -48,11 +48,13 @@ def fit_marginal_particle_gibbs(
     n_particles: int = 64,
     n_parameter_particles: int = 2,
     latent_block_size: int = 256,
+    parameter_proposal: str = "pseudo_langevin",
     param_step_size: float = 0.02,
     param_step_size_min: float = _DEFAULT_PARAM_STEP_SIZE_MIN,
     param_step_size_max: float = _DEFAULT_PARAM_STEP_SIZE_MAX,
-    param_target_accept: float = 0.35,
+    param_target_accept: float | None = None,
     adaptation_rate: float = 0.05,
+    adaptation_scheme: str = "dual_averaging",
     init_scale: float = 0.05,
     retain_latent_paths: bool = False,
     compute_latent_posterior_summary: bool = True,
@@ -97,6 +99,11 @@ def fit_marginal_particle_gibbs(
         raise ValueError("marginal_particle_gibbs requires enable_polya_gamma=False.")
     if rbpf_mode != "none" or rbpf_marginalized_latent_indices:
         raise ValueError("marginal_particle_gibbs requires rbpf_mode='none'.")
+    if adaptation_scheme not in {"simple", "dual_averaging"}:
+        raise ValueError(
+            "Unsupported marginal_particle_gibbs adaptation_scheme "
+            f"{adaptation_scheme!r}. Supported: 'simple' or 'dual_averaging'."
+        )
 
     overall_t0 = time.monotonic()
     logger.info(
@@ -180,6 +187,7 @@ def fit_marginal_particle_gibbs(
         max_scale=param_step_size_max,
         parameter_preconditioner_chol=parameter_preconditioner_chol,
         latent_block_size=latent_block_size,
+        parameter_proposal=parameter_proposal,
     )
     run_result = run_marginal_particle_gibbs(
         bundle,
@@ -195,6 +203,7 @@ def fit_marginal_particle_gibbs(
         init_positions=init_positions,
         initial_latent_trajectories=None,
         compute_latent_posterior_summary=compute_latent_posterior_summary,
+        adaptation_scheme=adaptation_scheme,
     )
     mcmc_phase_seconds = _phase_elapsed(phase_t0)
     logger.info("phase 3/4: MCMC complete in %.1fs", mcmc_phase_seconds)
@@ -227,7 +236,11 @@ def fit_marginal_particle_gibbs(
     chain_extra_fields = run_result["chain_extra_fields"]
     kernel_diagnostics = {
         "latent_kernel": "blocked_posterior_mixture_backward_csmc",
-        "parameter_kernel": "symmetric_auxiliary_barker",
+        "parameter_kernel": (
+            "m_pgibbs_random_walk"
+            if parameter_proposal == "random_walk"
+            else "m_pgibbs_pseudo_langevin"
+        ),
         "mcmc_phase_seconds": float(mcmc_phase_seconds),
         "num_warmup": int(num_warmup),
         "num_samples": int(num_samples),
@@ -235,11 +248,13 @@ def fit_marginal_particle_gibbs(
         "n_particles": int(n_particles),
         "n_parameter_particles": int(n_parameter_particles),
         "latent_block_size": int(latent_block_size),
+        "parameter_proposal": parameter_proposal,
         "latent_backward_sampling": True,
         "param_step_size_initial": float(param_step_size),
         "param_step_size_min": float(param_step_size_min),
         "param_step_size_max": float(param_step_size_max),
-        "param_target_accept": float(param_target_accept),
+        "param_target_accept": float(kernel.target_accept),
+        "adaptation_scheme": adaptation_scheme,
         "parameter_preconditioned": bool(kernel.preconditioned),
         "parameter_accept_rate": float(jnp.mean(chain_extra_fields["parameter_accept_prob"])),
         "latent_update_fraction": float(jnp.mean(chain_extra_fields["latent_accept_prob"])),
