@@ -1,5 +1,6 @@
 type EnvMap = Partial<Record<string, string | undefined>>;
 
+// Runtime URL defaults are intentionally centralized for deployment builds.
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
