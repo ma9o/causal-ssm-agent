@@ -1,0 +1,5 @@
+# Local papers are not tracked — only the manifest and this folder's metadata are.
+*
+!.gitignore
+!papers.txt
+!README.md
