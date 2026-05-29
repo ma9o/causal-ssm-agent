@@ -28,7 +28,7 @@ from tests.ssm_test_utils import (
 
 class _FakeResult(InferenceResult):
     def __init__(self) -> None:
-        self.method = "aux_kalman_mcmc"
+        self.method = "marginal_particle_gibbs"
         self.diagnostics = {"likelihood_backend": object()}
         self._samples = {"theta": jnp.zeros((4, 1), dtype=jnp.float32)}
 
@@ -109,7 +109,7 @@ def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
         model=model,
         spec=model.spec,
         parameter_layout=model.parameter_layout,
-        sampler_config={"method": "aux_kalman_mcmc"},
+        sampler_config={"method": "marginal_particle_gibbs"},
         wide_data=pl.DataFrame(
             {
                 "time": [0.0, 1.5],
@@ -121,7 +121,7 @@ def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
         observation_support=_make_observation_support_runtime(),
         inference_structure=InferenceStructurePlan(
             structural_backend="laplace",
-            resolved_method="aux_kalman_mcmc",
+            resolved_method="marginal_particle_gibbs",
             method_override=None,
         ),
         observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
@@ -155,7 +155,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
         result = stage5_inference.fit_model.fn(
             None,
             data_for_model,
-            sampler_config={"method": "aux_kalman_mcmc"},
+            sampler_config={"method": "marginal_particle_gibbs"},
             model=fake_model,
         )
 
@@ -164,7 +164,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "support=interval(1: sleep_avg) max_active_windows=2" in caplog.text
     assert "Manifest order: sleep_avg, energy" in caplog.text
     assert (
-        "Inference route: requested_method=aux_kalman_mcmc resolved_method=aux_kalman_mcmc "
+        "Inference route: requested_method=marginal_particle_gibbs resolved_method=marginal_particle_gibbs "
         "structural_backend=laplace method_override=none"
     ) in caplog.text
     assert "Starting inference kernel..." in caplog.text
@@ -194,7 +194,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
         result = stage5_inference.fit_model.fn(
             None,
             data_for_model,
-            sampler_config={"method": "aux_kalman_mcmc"},
+            sampler_config={"method": "marginal_particle_gibbs"},
             model=fake_model,
             compute_loo_diagnostics=False,
         )
@@ -233,7 +233,7 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
     result = stage5_inference.fit_model.fn(
         compiled_ssm,
         data_for_model,
-        sampler_config={"method": "aux_kalman_mcmc"},
+        sampler_config={"method": "marginal_particle_gibbs"},
         workspace_id="workspace-123",
         wait_for_compile_cache=True,
     )

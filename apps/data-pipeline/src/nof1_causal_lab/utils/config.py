@@ -25,8 +25,6 @@ load_dotenv(Path(__file__).parent.parent.parent.parent.parent.parent / ".env")
 HARNESS_VALUES = ("none", "claude-code", "codex")
 EMBEDDED_REASONING_EFFORT_VALUES = ("none", "minimal", "low", "medium", "high", "xhigh")
 HARNESS_EFFORT_VALUES = ("low", "medium", "high", "xhigh", "max")
-PARTICLE_MGRAD_TARGET_ACCEPT = 0.75
-PIT_AUX_CSMC_TARGET_ACCEPT = 0.50
 
 
 @dataclass(frozen=True)
@@ -195,76 +193,20 @@ class MAPConfig:
 
 
 @dataclass(frozen=True)
-class AuxKalmanMCMCLatentKernelConfig:
-    """Latent-kernel settings for auxiliary Kalman MCMC inference."""
-
-    kernel: str = "kalman"
-    proposal_family: str = "eq8"
-    delta: float = 0.2
-    target_accept: float = 0.5
-
-
-@dataclass(frozen=True)
-class AuxKalmanMCMCParameterKernelConfig:
-    """Parameter-kernel settings for auxiliary Kalman MCMC inference."""
-
-    kernel: str = "hybrid_gibbs_nuts"
-    step_size: float = 0.05
-    target_accept: float = 0.65
-    max_num_doublings: int = 10
-
-
-@dataclass(frozen=True)
-class AuxKalmanMCMCConfig:
-    """Auxiliary Kalman MCMC inference settings."""
-
-    adaptation_scheme: Literal["simple", "dual_averaging"] = "dual_averaging"
-    adaptation_rate: float = 0.05
-    init_scale: float = 0.05
-    retain_latent_paths: bool = True
-    compute_latent_posterior_summary: bool = True
-    emit_per_t_log_alpha: bool = False
-    latent_kernel: AuxKalmanMCMCLatentKernelConfig = field(
-        default_factory=AuxKalmanMCMCLatentKernelConfig
-    )
-    parameter_kernel: AuxKalmanMCMCParameterKernelConfig = field(
-        default_factory=AuxKalmanMCMCParameterKernelConfig
-    )
-
-
-@dataclass(frozen=True)
-class PITParticleMGradConfig:
-    """Particle latent inference settings."""
-
-    latent_delta: float = 0.2
-    latent_delta_min: float | None = None
-    latent_delta_max: float | None = None
-    latent_target_accept: float | None = None
-    latent_kernel_algorithm: Literal["particle_mgrad", "pit_aux_csmc"] = "particle_mgrad"
-    n_particles: int = 64
-    adaptation_scheme: Literal["simple", "dual_averaging"] = "dual_averaging"
-    init_method: Literal["random", "pathfinder"] = "pathfinder"
-    latent_init_method: Literal["predictive", "particle_smoother", "ieks"] = "ieks"
-    latent_init_num_particles: int = 64
-    latent_init_guidance: Literal["bootstrap", "bffg"] = "bffg"
-    pathfinder_num_elbo_samples: int = 20
-    pathfinder_maxiter: int = 20
-    n_pathfinder_starts: int = 8
-    pathfinder_parallel_workers: int | None = None
-    pathfinder_init_scale: float | None = 0.1
-    auto_preconditioner_method: Literal["map", "none", "pathfinder"] = "pathfinder"
-    auto_preconditioner_maxiter: int = 200
-    debug_particle_trace: bool = False
-
-
-@dataclass(frozen=True)
 class MarginalParticleGibbsConfig:
     """Marginalized Particle Gibbs inference settings."""
 
     n_particles: int = 64
     n_parameter_particles: int = 2
     latent_block_size: int = 256
+    latent_smoother: Literal["plain", "amala", "mgrad"] = "plain"
+    latent_delta: float = 0.2
     parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin"
+    amala_q_scale: float = 1.0
+    amala_kappa: float = 0.5
+    amala_grad_clip: float = 1000.0
+    diagnostic_metrics_all: bool = False
+    diagnostic_metrics: tuple[str, ...] = ()
     param_step_size: float = 0.02
     param_step_size_min: float = 1e-6
     param_step_size_max: float = 1e3
@@ -279,25 +221,22 @@ class MarginalParticleGibbsConfig:
     pathfinder_init_scale: float | None = 0.1
     auto_preconditioner_method: Literal["map", "none", "pathfinder"] = "pathfinder"
     auto_preconditioner_maxiter: int = 200
+    init_scale: float = 0.05
+    retain_latent_paths: bool = True
+    compute_latent_posterior_summary: bool = True
 
 
 @dataclass(frozen=True)
 class InferenceConfig:
     """Inference configuration (method + sampler settings)."""
 
-    method: Literal[
-        "aux_kalman_mcmc",
-        "pit_particle_mgrad",
-        "marginal_particle_gibbs",
-    ] = "pit_particle_mgrad"
+    method: Literal["marginal_particle_gibbs"] = "marginal_particle_gibbs"
     num_warmup: int = 4000
     num_samples: int = 1000
     num_chains: int = 4
     seed: int = 0
     compute_loo_diagnostics: bool = True
     map: MAPConfig = field(default_factory=MAPConfig)
-    aux_kalman_mcmc: AuxKalmanMCMCConfig = field(default_factory=AuxKalmanMCMCConfig)
-    pit_particle_mgrad: PITParticleMGradConfig = field(default_factory=PITParticleMGradConfig)
     marginal_particle_gibbs: MarginalParticleGibbsConfig = field(
         default_factory=MarginalParticleGibbsConfig
     )
@@ -305,6 +244,10 @@ class InferenceConfig:
     def to_sampler_config(self, method_override: str | None = None) -> dict:
         """Build a flat sampler config dict for SSM inference."""
         method = method_override or self.method
+        if method != "marginal_particle_gibbs":
+            raise ValueError(
+                f"Unsupported inference method {method!r}; expected 'marginal_particle_gibbs'."
+            )
         config: dict = {
             "method": method,
             "num_warmup": self.num_warmup,
@@ -312,75 +255,14 @@ class InferenceConfig:
             "num_chains": self.num_chains,
             "seed": self.seed,
         }
-        if method == "aux_kalman_mcmc":
-            config.update(
-                {
-                    "latent_kernel": self.aux_kalman_mcmc.latent_kernel.kernel,
-                    "latent_proposal_family": self.aux_kalman_mcmc.latent_kernel.proposal_family,
-                    "latent_delta": self.aux_kalman_mcmc.latent_kernel.delta,
-                    "latent_target_accept": self.aux_kalman_mcmc.latent_kernel.target_accept,
-                    "parameter_kernel": self.aux_kalman_mcmc.parameter_kernel.kernel,
-                    "param_step_size": self.aux_kalman_mcmc.parameter_kernel.step_size,
-                    "param_target_accept": self.aux_kalman_mcmc.parameter_kernel.target_accept,
-                    "param_max_num_doublings": (
-                        self.aux_kalman_mcmc.parameter_kernel.max_num_doublings
-                    ),
-                    "adaptation_scheme": self.aux_kalman_mcmc.adaptation_scheme,
-                    "adaptation_rate": self.aux_kalman_mcmc.adaptation_rate,
-                    "init_scale": self.aux_kalman_mcmc.init_scale,
-                    "retain_latent_paths": self.aux_kalman_mcmc.retain_latent_paths,
-                    "compute_latent_posterior_summary": (
-                        self.aux_kalman_mcmc.compute_latent_posterior_summary
-                    ),
-                    "emit_per_t_log_alpha": self.aux_kalman_mcmc.emit_per_t_log_alpha,
-                }
-            )
-        elif method == "pit_particle_mgrad":
-            particle_config = dataclasses.asdict(self.pit_particle_mgrad)
-            if particle_config["latent_target_accept"] is None:
-                particle_config["latent_target_accept"] = (
-                    PARTICLE_MGRAD_TARGET_ACCEPT
-                    if particle_config["latent_kernel_algorithm"] == "particle_mgrad"
-                    else PIT_AUX_CSMC_TARGET_ACCEPT
-                )
-            config.update(
-                {
-                    "n_ieks_iters": self.map.n_ieks_iters,
-                    **particle_config,
-                    "parameter_kernel": self.aux_kalman_mcmc.parameter_kernel.kernel,
-                    "param_step_size": self.aux_kalman_mcmc.parameter_kernel.step_size,
-                    "param_target_accept": self.aux_kalman_mcmc.parameter_kernel.target_accept,
-                    "param_max_num_doublings": (
-                        self.aux_kalman_mcmc.parameter_kernel.max_num_doublings
-                    ),
-                    "adaptation_rate": self.aux_kalman_mcmc.adaptation_rate,
-                    "init_scale": self.aux_kalman_mcmc.init_scale,
-                    "retain_latent_paths": self.aux_kalman_mcmc.retain_latent_paths,
-                    "compute_latent_posterior_summary": (
-                        self.aux_kalman_mcmc.compute_latent_posterior_summary
-                    ),
-                }
-            )
-        elif method == "marginal_particle_gibbs":
-            config.update(
-                {
-                    "n_ieks_iters": self.map.n_ieks_iters,
-                    **dataclasses.asdict(self.marginal_particle_gibbs),
-                    "init_scale": self.aux_kalman_mcmc.init_scale,
-                    "retain_latent_paths": self.aux_kalman_mcmc.retain_latent_paths,
-                    "compute_latent_posterior_summary": (
-                        self.aux_kalman_mcmc.compute_latent_posterior_summary
-                    ),
-                    "enable_polya_gamma": False,
-                    "rbpf_mode": "none",
-                }
-            )
-        else:
-            raise ValueError(
-                "Unsupported inference method "
-                f"{method!r}; expected 'aux_kalman_mcmc', 'pit_particle_mgrad', "
-                "or 'marginal_particle_gibbs'."
-            )
+        config.update(
+            {
+                "n_ieks_iters": self.map.n_ieks_iters,
+                **dataclasses.asdict(self.marginal_particle_gibbs),
+                "enable_polya_gamma": False,
+                "rbpf_mode": "none",
+            }
+        )
         return config
 
 
@@ -467,39 +349,15 @@ def _parse_inference(raw: dict) -> InferenceConfig:
     """Parse the inference: section into InferenceConfig."""
     inference_raw = dict(raw)
     map_raw = inference_raw.pop("map", {}) or {}
-    aux_kalman_mcmc_raw = dict(inference_raw.pop("aux_kalman_mcmc", {}) or {})
-    pit_particle_mgrad_raw = inference_raw.pop("pit_particle_mgrad", {}) or {}
     marginal_particle_gibbs_raw = inference_raw.pop("marginal_particle_gibbs", {}) or {}
-    aux_kalman_mcmc_latent_raw = aux_kalman_mcmc_raw.pop("latent_kernel", {}) or {}
-    aux_kalman_mcmc_parameter_raw = aux_kalman_mcmc_raw.pop("parameter_kernel", {}) or {}
     return InferenceConfig(
         **inference_raw,
         map=MAPConfig(**map_raw) if map_raw else MAPConfig(),
-        pit_particle_mgrad=(
-            PITParticleMGradConfig(**pit_particle_mgrad_raw)
-            if pit_particle_mgrad_raw
-            else PITParticleMGradConfig()
-        ),
         marginal_particle_gibbs=(
             MarginalParticleGibbsConfig(**marginal_particle_gibbs_raw)
             if marginal_particle_gibbs_raw
             else MarginalParticleGibbsConfig()
         ),
-        aux_kalman_mcmc=AuxKalmanMCMCConfig(
-            **aux_kalman_mcmc_raw,
-            latent_kernel=(
-                AuxKalmanMCMCLatentKernelConfig(**aux_kalman_mcmc_latent_raw)
-                if aux_kalman_mcmc_latent_raw
-                else AuxKalmanMCMCLatentKernelConfig()
-            ),
-            parameter_kernel=(
-                AuxKalmanMCMCParameterKernelConfig(**aux_kalman_mcmc_parameter_raw)
-                if aux_kalman_mcmc_parameter_raw
-                else AuxKalmanMCMCParameterKernelConfig()
-            ),
-        )
-        if aux_kalman_mcmc_raw or aux_kalman_mcmc_latent_raw or aux_kalman_mcmc_parameter_raw
-        else AuxKalmanMCMCConfig(),
     )
 
 

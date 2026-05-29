@@ -1428,7 +1428,7 @@ class TestCompiledArtifactIntegration:
         runtime = prepare_wide_model_runtime(
             pivot_to_wide(data_for_model),
             compiled_ssm=artifact,
-            sampler_config={"method": "aux_kalman_mcmc"},
+            sampler_config={"method": "marginal_particle_gibbs"},
         )
         samples = sample_prior_predictive(
             runtime.model,

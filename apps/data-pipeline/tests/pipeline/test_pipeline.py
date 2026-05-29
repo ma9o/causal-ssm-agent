@@ -161,7 +161,7 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
             power_scaling=[],
             ppc={"checked": False, "per_variable_warnings": []},
             inference_metadata={
-                "method": "aux_kalman_mcmc",
+                "method": "marginal_particle_gibbs",
                 "n_samples": 0,
                 "duration_seconds": 0.0,
             },
@@ -1006,7 +1006,7 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         power_scaling=[],
         ppc={"checked": True, "per_variable_warnings": []},
         inference_metadata={
-            "method": "aux_kalman_mcmc",
+            "method": "marginal_particle_gibbs",
             "n_samples": 100,
             "duration_seconds": 1.0,
         },
@@ -1278,7 +1278,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     )
     result = InferenceResult(
         _samples={"dynamics": jnp.array([[[-0.5, 0.1], [0.0, -0.3]]], dtype=jnp.float32)},
-        method="aux_kalman_mcmc",
+        method="marginal_particle_gibbs",
         diagnostics={"likelihood_backend": _Unpicklable()},
     )
     artifact = FittedArtifact(
@@ -1293,7 +1293,7 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
     restored = cloudpickle.loads(cloudpickle.dumps(artifact))
 
     assert restored.result is not None
-    assert restored.result.method == "aux_kalman_mcmc"
+    assert restored.result.method == "marginal_particle_gibbs"
     np.testing.assert_allclose(
         np.asarray(restored.result.get_samples()["dynamics"]),
         np.asarray(result.get_samples()["dynamics"]),
@@ -1601,7 +1601,7 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
                 ],
             },
             "inference_metadata": {
-                "method": "aux_kalman_mcmc",
+                "method": "marginal_particle_gibbs",
                 "n_samples": 100,
                 "duration_seconds": 5.0,
             },
@@ -1635,7 +1635,7 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
             "fitted": True,
             "n_samples": 654,
             "duration_seconds": 7.5,
-            "inference_type": "aux_kalman_mcmc",
+            "inference_type": "marginal_particle_gibbs",
             "result": None,
             "builder": None,
             "runtime": SimpleNamespace(observation_support=None),
@@ -1660,7 +1660,7 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
                 to_sampler_config=lambda method_override=None: {
-                    "method": method_override or "aux_kalman_mcmc"
+                    "method": method_override or "marginal_particle_gibbs"
                 },
                 compute_loo_diagnostics=False,
             )
@@ -1690,13 +1690,13 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
         _s4,
         _s2,
         workspace_id="test-workspace",
-        inference_method="aux_kalman_mcmc",
+        inference_method="marginal_particle_gibbs",
     )
 
     assert isinstance(result, Stage5bContract)
     result_dict = result.model_dump(mode="json")
     assert result_dict["inference_metadata"] == {
-        "method": "aux_kalman_mcmc",
+        "method": "marginal_particle_gibbs",
         "n_samples": 654,
         "duration_seconds": 7.5,
     }
@@ -1739,7 +1739,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         lambda: SimpleNamespace(
             inference=SimpleNamespace(
                 to_sampler_config=lambda method_override=None: {
-                    "method": method_override or "aux_kalman_mcmc"
+                    "method": method_override or "marginal_particle_gibbs"
                 },
                 compute_loo_diagnostics=False,
             )
@@ -1769,7 +1769,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         _s4,
         _s2,
         workspace_id="test-workspace",
-        inference_method="aux_kalman_mcmc",
+        inference_method="marginal_particle_gibbs",
     )
 
     assert isinstance(result, Stage5bContract)
@@ -1785,7 +1785,7 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         "n_subsample": None,
     }
     assert result_dict["inference_metadata"] == {
-        "method": "aux_kalman_mcmc",
+        "method": "marginal_particle_gibbs",
         "n_samples": 0,
         "duration_seconds": 2.5,
     }

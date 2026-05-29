@@ -324,7 +324,7 @@ def prepare_model_runtime(
 def fit_prepared_model(runtime: PreparedModelRuntime, **kwargs: Any) -> InferenceResult:
     """Run public SSM inference against a prepared runtime."""
     sampler_config = {**runtime.sampler_config, **kwargs}
-    method = sampler_config.get("method", "aux_kalman_mcmc")
+    method = sampler_config.get("method", "marginal_particle_gibbs")
     fit_kwargs = {key: value for key, value in sampler_config.items() if key != "method"}
     return fit(
         runtime.model,

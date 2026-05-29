@@ -953,7 +953,7 @@ class TestPrepareModelRuntime:
             runtime = prepare_model_runtime(
                 data_for_model,
                 model=StubModel(),
-                sampler_config={"method": "aux_kalman_mcmc"},
+                sampler_config={"method": "marginal_particle_gibbs"},
             )
 
         assert runtime.observation_data is not None
@@ -984,8 +984,8 @@ class TestPrepareModelRuntime:
         assert runtime.manifest_names == ["stress_score"]
         assert runtime.model.observation_support is runtime.observation_support
         assert runtime.inference_structure.structural_backend == "laplace"
-        assert runtime.inference_structure.resolved_method == "aux_kalman_mcmc"
-        assert runtime.inference_structure.method_override == "aux_kalman_mcmc"
+        assert runtime.inference_structure.resolved_method == "marginal_particle_gibbs"
+        assert runtime.inference_structure.method_override == "marginal_particle_gibbs"
         assert "support-aware observation semantics" in caplog.text
 
     def test_compiles_overlapping_interval_windows_into_concurrent_slots(self):
@@ -1022,14 +1022,14 @@ class TestPrepareModelRuntime:
         runtime = prepare_model_runtime(
             data_for_model,
             model=StubModel(),
-            sampler_config={"method": "aux_kalman_mcmc"},
+            sampler_config={"method": "marginal_particle_gibbs"},
         )
 
         assert runtime.wide_data["time"].to_list() == [-2.0, -1.0, 0.0, 1.0]
         assert runtime.observation_support is not None
         assert runtime.observation_support.max_active_windows == 2
         assert runtime.inference_structure.structural_backend == "laplace"
-        assert runtime.inference_structure.resolved_method == "aux_kalman_mcmc"
+        assert runtime.inference_structure.resolved_method == "marginal_particle_gibbs"
         assert runtime.observation_support.emission_slot_indices.tolist() == [[-1], [-1], [0], [1]]
         assert runtime.observation_support.interval_weights.shape == (4, 1, 2)
         assert runtime.observation_support.interval_weights[1, 0, 0] == pytest.approx(1.0)
@@ -1067,7 +1067,7 @@ class TestPrepareModelRuntime:
         runtime = prepare_model_runtime(
             data_for_model,
             model=model,
-            sampler_config={"method": "aux_kalman_mcmc"},
+            sampler_config={"method": "marginal_particle_gibbs"},
         )
 
         samples = sample_prior_predictive(

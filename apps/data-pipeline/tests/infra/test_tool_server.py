@@ -224,7 +224,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     class FakeResult:
         def __init__(self, samples):
             self._samples = samples
-            self.method = "aux_kalman_mcmc"
+            self.method = "marginal_particle_gibbs"
             self._latent_paths = jnp.array(
                 [
                     [[0.0, 0.0], [1.0, 1.0], [2.0, 3.0]],
@@ -418,7 +418,7 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
     }
 
     fake_result = SimpleNamespace(
-        method="aux_kalman_mcmc",
+        method="marginal_particle_gibbs",
         diagnostics={},
         get_samples=lambda: samples,
     )
@@ -492,7 +492,7 @@ def test_simulate_counterfactual_dispatches_to_vector_field_path():
     }
     latent_paths = jnp.tile(jnp.array([[1.0, 0.5], [0.9, 0.6], [0.8, 0.7]]), (n_draws, 1, 1))
     fake_result = SimpleNamespace(
-        method="aux_kalman_mcmc",
+        method="marginal_particle_gibbs",
         diagnostics={
             "latent_paths": latent_paths,
         },
@@ -638,7 +638,7 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
                 },
             }
         },
-        "stage-5b": {"inference_metadata": {"method": "aux_kalman_mcmc"}},
+        "stage-5b": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
         "stage-6": {},
         "_prepared_runtime": SimpleNamespace(
             manifest_names=["daily_event_count", "sleep_issue_searches"]

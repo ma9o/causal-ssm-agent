@@ -12,7 +12,7 @@ pytestmark = pytest.mark.slow
 
 
 class _FakeBlockedMCMC:
-    backend = "aux_kalman_mcmc"
+    backend = "marginal_particle_gibbs"
 
     def __init__(self, chain_samples, extra_fields):
         self._chain_samples = chain_samples
@@ -61,7 +61,7 @@ def mcmc_result():
 
     return InferenceResult(
         _samples=mcmc.get_samples(),
-        method="aux_kalman_mcmc",
+        method="marginal_particle_gibbs",
         diagnostics={"mcmc": mcmc},
     )
 
@@ -162,7 +162,7 @@ class TestLOODiagnostics:
 
         inference_result = InferenceResult(
             _samples=samples,
-            method="aux_kalman_mcmc",
+            method="marginal_particle_gibbs",
             diagnostics={},
         )
         loo = inference_result.get_loo_diagnostics(

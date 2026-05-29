@@ -15,7 +15,6 @@ from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm import (
     SSMModel,
     discretize_system,
-    fit,
 )
 from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
@@ -468,48 +467,3 @@ class TestMapLaplaceRecovery:
         assert summary["diffusion_sd"]["mean_ci_width"] < 1.0
         assert summary["obs_scale"]["mean_ci_width"] < 0.5
         assert summary["obs_df"]["mean_ci_width"] < 20.0
-
-
-class TestAuxKalmanMCMC:
-    """Recovery tests for the auxiliary Kalman MCMC trajectory sampler."""
-
-    @pytest.mark.slow
-    @pytest.mark.timeout(900)
-    def test_aux_kalman_mcmc_mixed_support_laplace_recovery(self):
-        """Default aux-Kalman MCMC recipe on the mixed-support 10-latent benchmark.
-
-        Exercises the out-of-the-box configuration: paper-scale
-        ``num_warmup=2500`` + ``num_samples=1000``, dual-averaging adaptation,
-        ``latent_delta=1e-3``, auto-built MAP+Laplace preconditioner, and the
-        per-parameter init that releases ``obs_df`` to prior median + jitter.
-        Checks support-aware mixed-family execution, target acceptance, and
-        useful posterior-mean recovery.
-        """
-        data = _make_map_mixed_support_recovery_data()
-        model = SSMModel(data["spec"], data["priors"])
-        model.set_observation_support(data["observation_support"])
-
-        result = fit(
-            model,
-            observations=data["observations"],
-            times=data["times"],
-            method="aux_kalman_mcmc",
-            seed=0,
-        )
-
-        summary = _summarize_family_recovery(result.get_samples(), data)
-        extra = result.diagnostics["mcmc"].get_extra_fields()
-        aux_diag = result.diagnostics["aux_kalman_mcmc"]
-
-        assert data["observation_support"].requires_interval_summary_handling is True
-        assert aux_diag["adaptation_scheme"] == "dual_averaging"
-        assert aux_diag["auto_preconditioner"] is True
-        assert aux_diag["prior_released_site_names"] == ["obs_df"]
-
-        assert float(jnp.mean(extra["latent_accept_prob"])) >= 0.35
-        assert float(jnp.mean(extra["parameter_accept_prob"])) >= 0.45
-
-        assert summary["dynamics"]["mean_abs_error"] < 0.15
-        assert summary["diffusion_sd"]["mean_abs_error"] < 0.10
-        assert summary["obs_scale"]["mean_abs_error"] < 0.10
-        assert summary["obs_df"]["mean_abs_error"] < 3.0

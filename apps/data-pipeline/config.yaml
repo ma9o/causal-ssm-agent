@@ -86,7 +86,7 @@ stage6_commentary:
 
 # --- Inference -------------------------------------------------------------
 inference:
-  method: pit_particle_mgrad
+  method: marginal_particle_gibbs
   num_warmup: 4000
   num_samples: 1000
   num_chains: 4
@@ -94,27 +94,15 @@ inference:
   compute_loo_diagnostics: false
   map:
     n_ieks_iters: 6
-  pit_particle_mgrad:
-    latent_delta: 0.2
-    latent_delta_min:
-    latent_delta_max:
-    latent_target_accept:
-    latent_kernel_algorithm: particle_mgrad
+  marginal_particle_gibbs:
     n_particles: 64
-    adaptation_scheme: dual_averaging
+    n_parameter_particles: 2
+    latent_block_size: 256
+    latent_smoother: plain
+    latent_delta: 0.2
+    parameter_proposal: pseudo_langevin
+    param_step_size: 0.02
+    param_target_accept: 0.35
+    adaptation_rate: 0.05
     init_method: pathfinder
-    latent_init_method: ieks
-    latent_init_num_particles: 64
-    latent_init_guidance: bffg
-    pathfinder_num_elbo_samples: 20
-    pathfinder_maxiter: 20
-    n_pathfinder_starts: 8
-    pathfinder_init_scale: 0.1
-    debug_particle_trace: false
-  aux_kalman_mcmc:
-    adaptation_scheme: dual_averaging
-    parameter_kernel:
-      kernel: hybrid_gibbs_nuts
-      step_size: 0.05
-      target_accept: 0.65
-      max_num_doublings: 10
+    auto_preconditioner_method: pathfinder

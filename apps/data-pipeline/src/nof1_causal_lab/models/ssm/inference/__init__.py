@@ -3,12 +3,10 @@
 Separates inference from model definition. SSMModel defines the probabilistic
 model; this module provides fit() to run inference with the supported backends.
 
-Available methods:
-- Particle-mGRAD: blocked complete-data updates with sequential prior-informed
-  particle latent proposals.
-- Auxiliary Kalman MCMC: blocked complete-data updates with auxiliary Kalman latent proposals.
+Method:
 - Marginalized Particle Gibbs: collapsed joint parameter/trajectory updates
-  using posterior-mixture conditional SMC.
+  using posterior-mixture conditional SMC, with selectable latent smoother
+  (plain CSMC, particle-aMALA, or particle-mGRAD).
 """
 
 from __future__ import annotations
@@ -49,7 +47,7 @@ def fit(
     model: SSMModel,
     observations: jnp.ndarray,
     times: jnp.ndarray,
-    method: InferenceMethod = "aux_kalman_mcmc",
+    method: InferenceMethod = "marginal_particle_gibbs",
     reparam=_AUTO_REPARAM,
     **kwargs: Any,
 ) -> InferenceResult:
@@ -59,8 +57,7 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method: "pit_particle_mgrad", "aux_kalman_mcmc",
-            or "marginal_particle_gibbs".
+        method: Inference method. Only "marginal_particle_gibbs" is supported.
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
               centering.
@@ -73,26 +70,13 @@ def fit(
         InferenceResult with posterior samples and diagnostics
     """
     reparam = _resolve_reparam(reparam, method)
-    if method == "pit_particle_mgrad":
-        from nof1_causal_lab.models.ssm.inference.methods.pit_particle_mgrad import (
-            fit_pit_particle_mgrad,
-        )
-
-        return fit_pit_particle_mgrad(model, observations, times, reparam=reparam, **kwargs)
-    if method == "aux_kalman_mcmc":
-        from nof1_causal_lab.models.ssm.inference.methods.aux_kalman_mcmc import fit_aux_kalman_mcmc
-
-        return fit_aux_kalman_mcmc(model, observations, times, reparam=reparam, **kwargs)
     if method == "marginal_particle_gibbs":
         from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
             fit_marginal_particle_gibbs,
         )
 
         return fit_marginal_particle_gibbs(model, observations, times, reparam=reparam, **kwargs)
-    raise ValueError(
-        f"Unknown inference method: {method!r}. Use 'pit_particle_mgrad', "
-        "'aux_kalman_mcmc', or 'marginal_particle_gibbs'."
-    )
+    raise ValueError(f"Unknown inference method: {method!r}. Use 'marginal_particle_gibbs'.")
 
 
 def prior_predictive(

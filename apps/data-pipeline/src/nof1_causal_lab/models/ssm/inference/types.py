@@ -29,17 +29,8 @@ from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 logger = get_prefect_logger(__name__)
 
 
-InferenceMethod = Literal[
-    "pit_particle_mgrad",
-    "aux_kalman_mcmc",
-    "marginal_particle_gibbs",
-]
-InferenceResultMethod = Literal[
-    "pit_particle_mgrad",
-    "aux_kalman_mcmc",
-    "marginal_particle_gibbs",
-    "map",
-]
+InferenceMethod = Literal["marginal_particle_gibbs"]
+InferenceResultMethod = Literal["marginal_particle_gibbs", "map"]
 
 
 @dataclass

@@ -10,16 +10,8 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 StructuralBackend = Literal["laplace"]
-RequestedMethod = Literal[
-    "pit_particle_mgrad",
-    "aux_kalman_mcmc",
-    "marginal_particle_gibbs",
-]
-ResolvedMethod = Literal[
-    "pit_particle_mgrad",
-    "aux_kalman_mcmc",
-    "marginal_particle_gibbs",
-]
+RequestedMethod = Literal["marginal_particle_gibbs"]
+ResolvedMethod = Literal["marginal_particle_gibbs"]
 
 
 @dataclass(frozen=True)
@@ -36,15 +28,10 @@ def _normalize_method_override(
 ) -> ResolvedMethod | None:
     if method_override is None:
         return None
-    if method_override not in {
-        "pit_particle_mgrad",
-        "aux_kalman_mcmc",
-        "marginal_particle_gibbs",
-    }:
+    if method_override != "marginal_particle_gibbs":
         raise ValueError(
             "Unsupported inference method override "
-            f"{method_override!r}; expected 'pit_particle_mgrad', 'aux_kalman_mcmc', "
-            "or 'marginal_particle_gibbs'."
+            f"{method_override!r}; expected 'marginal_particle_gibbs'."
         )
     return cast("ResolvedMethod", method_override)
 
@@ -56,7 +43,7 @@ def _resolve_default_method(
     n_timepoints: int | None,
 ) -> ResolvedMethod:
     del structural_backend, observation_support, n_timepoints
-    return "aux_kalman_mcmc"
+    return "marginal_particle_gibbs"
 
 
 def plan_inference_structure(
