@@ -289,7 +289,9 @@ export async function POST(req: Request) {
   if (stageId && (!safeStageId || /[\\/]/.test(safeStageId))) {
     return NextResponse.json({ error: "Invalid stageId format" }, { status: 400 });
   }
-  const workspaceAccess = hasWorkspaceId ? await requireWorkspaceAccess(req, workspaceId) : null;
+  const workspaceAccess = hasWorkspaceId
+    ? await requireWorkspaceAccess(req, workspaceId, { requireMutable: true })
+    : null;
   if (workspaceAccess && !workspaceAccess.ok) {
     return workspaceAccess.response;
   }

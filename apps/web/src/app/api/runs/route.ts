@@ -33,7 +33,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "query is required" }, { status: 400 });
   }
 
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
+    requireMutable: true,
+  });
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }

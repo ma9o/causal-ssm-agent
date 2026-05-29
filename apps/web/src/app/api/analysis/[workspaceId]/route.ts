@@ -10,14 +10,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ work
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }
-  const { workspaceId: normalizedWorkspaceId } = workspaceAccess;
+  const { workspaceId: normalizedWorkspaceId, readOnly } = workspaceAccess;
 
   try {
     const url = new URL(request.url);
     const bootstrapRootFlowRunIds = url.searchParams.getAll("rootFlowRunId").filter(Boolean);
     const manifest = await buildAnalysisManifest(normalizedWorkspaceId, bootstrapRootFlowRunIds);
     if (manifest) {
-      const response = NextResponse.json(manifest);
+      const response = NextResponse.json({ ...manifest, readOnly });
       if (isSharedWorkspaceId(normalizedWorkspaceId) && bootstrapRootFlowRunIds.length === 0) {
         response.headers.set("Cache-Control", SHARED_WORKSPACE_CACHE_CONTROL);
       }

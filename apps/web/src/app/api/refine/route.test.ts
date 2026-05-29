@@ -153,7 +153,9 @@ describe("POST /api/refine", () => {
       },
     });
     expect(readData).toHaveBeenCalledWith("user-123/run/stage-6.json");
-    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123");
+    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123", {
+      requireMutable: true,
+    });
   });
 
   it("returns the merged stage patch to the client after tool execution", async () => {

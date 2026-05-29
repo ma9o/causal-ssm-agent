@@ -14,7 +14,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No workspaceId provided" }, { status: 400 });
   }
 
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, { allowCreate: true });
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
+    allowCreate: true,
+    requireMutable: true,
+  });
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }

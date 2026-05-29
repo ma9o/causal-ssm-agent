@@ -215,7 +215,9 @@ describe("POST /api/replay", () => {
     });
     expect(createBody.idempotency_key).toMatch(/^replay:user-123:stage-1a:[0-9a-f]{64}$/);
     expect(releaseWorkspaceRunSlot).toHaveBeenCalledWith("user-123", "slot-1");
-    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123");
+    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123", {
+      requireMutable: true,
+    });
   });
 
   it("skips cancellation when the tracked flow run is already terminal", async () => {

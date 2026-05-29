@@ -73,7 +73,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const workspaceAccess = await requireWorkspaceAccess(req, workspaceId);
+  const workspaceAccess = await requireWorkspaceAccess(req, workspaceId, {
+    requireMutable: true,
+  });
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }

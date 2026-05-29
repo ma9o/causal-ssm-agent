@@ -25,6 +25,7 @@ describe("POST /api/upload", () => {
       ok: true,
       workspaceId: "NEWSPACE",
       creationPending: true,
+      readOnly: false,
     });
 
     const file = new File(["hello"], "data.csv", { type: "text/csv" });
@@ -53,6 +54,7 @@ describe("POST /api/upload", () => {
       ok: true,
       workspaceId: "BROKEN",
       creationPending: true,
+      readOnly: false,
     });
 
     const file = new File(["hello"], "", { type: "text/csv" });
@@ -78,6 +80,7 @@ describe("POST /api/upload", () => {
       ok: true,
       workspaceId: "BROKEN",
       creationPending: true,
+      readOnly: false,
     });
     vi.mocked(finalizeWorkspaceCreate).mockRejectedValue(
       new Error("finalize failed"),

@@ -48,6 +48,7 @@ describe("requireWorkspaceAccess", () => {
       ok: true,
       workspaceId: "DEFAULT",
       creationPending: false,
+      readOnly: true,
     });
     expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
   });
@@ -59,6 +60,7 @@ describe("requireWorkspaceAccess", () => {
       ok: true,
       workspaceId: "DEMO",
       creationPending: false,
+      readOnly: true,
     });
     expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
   });
@@ -74,6 +76,18 @@ describe("requireWorkspaceAccess", () => {
     }
   });
 
+  it("rejects mutation on shared (read-only) fixture workspaces", async () => {
+    const result = await requireWorkspaceAccess(new Request("http://localhost"), "DEMO", {
+      requireMutable: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
+    }
+    expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
+  });
+
   it("allows workspaces already present in the browser session", async () => {
     vi.mocked(resolveWorkspaceOwnershipContext).mockResolvedValue({ mode: "anonymous" });
     vi.mocked(hasWorkspaceSessionAccess).mockResolvedValue(true);
@@ -84,6 +98,7 @@ describe("requireWorkspaceAccess", () => {
       ok: true,
       workspaceId: "USER123",
       creationPending: false,
+      readOnly: false,
     });
     expect(prefixExists).not.toHaveBeenCalled();
   });
@@ -101,6 +116,7 @@ describe("requireWorkspaceAccess", () => {
       ok: true,
       workspaceId: "NEWSPACE",
       creationPending: true,
+      readOnly: false,
     });
     expect(prefixExists).toHaveBeenCalledWith("NEWSPACE/");
     expect(authorizeWorkspaceInSession).not.toHaveBeenCalled();
@@ -135,6 +151,7 @@ describe("requireWorkspaceAccess", () => {
       ok: true,
       workspaceId: "OWNED123",
       creationPending: false,
+      readOnly: false,
     });
     expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
   });
@@ -155,6 +172,7 @@ describe("requireWorkspaceAccess", () => {
       ok: true,
       workspaceId: "USERSPACE",
       creationPending: true,
+      readOnly: false,
     });
     expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
     expect(authorizeWorkspaceForOpenRouterUser).not.toHaveBeenCalled();
@@ -171,6 +189,7 @@ describe("requireWorkspaceAccess", () => {
       ok: true,
       workspaceId: "LOCAL123",
       creationPending: false,
+      readOnly: false,
     });
     expect(hasWorkspaceSessionAccess).not.toHaveBeenCalled();
   });

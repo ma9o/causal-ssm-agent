@@ -152,7 +152,9 @@ export async function POST(request: Request) {
   if (safeRootFlowRunId && /[\\/]/.test(safeRootFlowRunId)) {
     return NextResponse.json({ error: "Invalid rootFlowRunId format" }, { status: 400 });
   }
-  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
+  const workspaceAccess = await requireWorkspaceAccess(request, workspaceId, {
+    requireMutable: true,
+  });
   if (!workspaceAccess.ok) {
     return workspaceAccess.response;
   }

@@ -133,7 +133,9 @@ describe("POST /api/refine/apply", () => {
         },
       },
     });
-    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123");
+    expect(requireWorkspaceAccess).toHaveBeenCalledWith(expect.any(Request), "user-123", {
+      requireMutable: true,
+    });
   });
 
   it("replays non-terminal stages from the client-held materialization payload", async () => {

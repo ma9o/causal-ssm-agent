@@ -81,6 +81,7 @@ describe("POST /api/runs", () => {
       ok: true,
       workspaceId: "USER123",
       creationPending: false,
+      readOnly: false,
     });
     vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue(null);
 
@@ -107,6 +108,7 @@ describe("POST /api/runs", () => {
       ok: true,
       workspaceId: "USER123",
       creationPending: false,
+      readOnly: false,
     });
     vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
     vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue("run-existing");
@@ -135,6 +137,7 @@ describe("POST /api/runs", () => {
       ok: true,
       workspaceId: "USER123",
       creationPending: false,
+      readOnly: false,
     });
     vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
     vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
@@ -168,6 +171,7 @@ describe("POST /api/runs", () => {
       ok: true,
       workspaceId: "USER123",
       creationPending: false,
+      readOnly: false,
     });
     vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
     vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
@@ -208,6 +212,7 @@ describe("POST /api/runs", () => {
       ok: true,
       workspaceId: "USER123",
       creationPending: false,
+      readOnly: false,
     });
     vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
     vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);
@@ -238,6 +243,7 @@ describe("POST /api/runs", () => {
       ok: true,
       workspaceId: "USER123",
       creationPending: false,
+      readOnly: false,
     });
     vi.mocked(findCausalInferenceDeploymentId).mockResolvedValue("dep-123");
     vi.mocked(findFlowRunIdByIdempotencyKey).mockResolvedValue(null);

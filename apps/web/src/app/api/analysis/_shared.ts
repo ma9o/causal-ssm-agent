@@ -249,7 +249,7 @@ async function listPersistedStageIds(workspaceId: string): Promise<StageId[]> {
 async function buildPersistedArtifactManifest(
   workspaceId: string,
   bootstrapRootFlowRunIds: string[] = [],
-): Promise<AnalysisManifest | null> {
+): Promise<Omit<AnalysisManifest, "readOnly"> | null> {
   const [storedQuestion, session, persistedStageIds] = await Promise.all([
     readWorkspaceQuestion(workspaceId),
     readPersistedSession(workspaceId),
@@ -457,7 +457,7 @@ async function buildStageRuns(
 export async function buildAnalysisManifest(
   workspaceId: string,
   bootstrapRootFlowRunIds: string[] = [],
-): Promise<AnalysisManifest | null> {
+): Promise<Omit<AnalysisManifest, "readOnly"> | null> {
   if (isSharedWorkspaceId(workspaceId)) {
     return buildPersistedArtifactManifest(workspaceId, bootstrapRootFlowRunIds);
   }

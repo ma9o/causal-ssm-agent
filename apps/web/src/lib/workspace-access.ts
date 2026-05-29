@@ -16,14 +16,16 @@ const MAX_WORKSPACE_ID_LENGTH = 200;
 
 export type WorkspaceAccessOptions = {
   allowCreate?: boolean;
+  /** Reject read-only (shared) workspaces with 403. Mutation routes must set this. */
+  requireMutable?: boolean;
 };
 
 export type WorkspaceAccessRequirement =
-  | { ok: true; workspaceId: string; creationPending: boolean }
+  | { ok: true; workspaceId: string; creationPending: boolean; readOnly: boolean }
   | { ok: false; response: NextResponse };
 
 type AuthorizedWorkspaceRequestResult =
-  | { ok: true; workspaceId: string; creationPending: boolean }
+  | { ok: true; workspaceId: string; creationPending: boolean; readOnly: boolean }
   | { ok: false; response: NextResponse };
 
 export function normalizeWorkspaceId(value: string): string | null {
@@ -43,6 +45,13 @@ function deny403(): { ok: false; response: NextResponse } {
   return {
     ok: false,
     response: NextResponse.json({ error: "Workspace access denied" }, { status: 403 }),
+  };
+}
+
+function denyReadOnly(): { ok: false; response: NextResponse } {
+  return {
+    ok: false,
+    response: NextResponse.json({ error: "This workspace is read-only" }, { status: 403 }),
   };
 }
 
@@ -78,19 +87,22 @@ export async function authorizeWorkspaceRequest(
   workspaceId: string,
   options: WorkspaceAccessOptions = {},
 ): Promise<AuthorizedWorkspaceRequestResult> {
-  const { allowCreate = false } = options;
+  const { allowCreate = false, requireMutable = false } = options;
 
   const sharedWorkspaceId = resolveSharedWorkspaceId(workspaceId);
   if (sharedWorkspaceId) {
-    return allowCreate
-      ? deny403()
-      : { ok: true, workspaceId: sharedWorkspaceId, creationPending: false };
+    // Shared workspaces (DEMO, GOLDEN, ...) are curated read-only artifacts:
+    // viewable by anyone, never created or mutated through the web app.
+    if (allowCreate || requireMutable) {
+      return denyReadOnly();
+    }
+    return { ok: true, workspaceId: sharedWorkspaceId, creationPending: false, readOnly: true };
   }
 
   const ownership = await resolveWorkspaceOwnershipContext();
 
   if (await hasExistingAccess(ownership, workspaceId)) {
-    return { ok: true, workspaceId, creationPending: false };
+    return { ok: true, workspaceId, creationPending: false, readOnly: false };
   }
 
   if (!allowCreate) {
@@ -107,13 +119,13 @@ export async function authorizeWorkspaceRequest(
     return deny403();
   }
 
-  return { ok: true, workspaceId, creationPending: true };
+  return { ok: true, workspaceId, creationPending: true, readOnly: false };
 }
 
 export async function requireWorkspaceAccess(
   request: Request,
   rawWorkspaceId: string | null | undefined,
-  { allowCreate }: WorkspaceAccessOptions = {},
+  { allowCreate, requireMutable }: WorkspaceAccessOptions = {},
 ): Promise<WorkspaceAccessRequirement> {
   const workspaceId =
     typeof rawWorkspaceId === "string" ? normalizeWorkspaceId(rawWorkspaceId) : null;
@@ -126,7 +138,10 @@ export async function requireWorkspaceAccess(
 
   let authorization: AuthorizedWorkspaceRequestResult;
   try {
-    authorization = await authorizeWorkspaceRequest(request, workspaceId, { allowCreate });
+    authorization = await authorizeWorkspaceRequest(request, workspaceId, {
+      allowCreate,
+      requireMutable,
+    });
   } catch {
     return {
       ok: false,
@@ -145,6 +160,7 @@ export async function requireWorkspaceAccess(
     ok: true,
     workspaceId: authorization.workspaceId,
     creationPending: authorization.creationPending,
+    readOnly: authorization.readOnly,
   };
 }
 

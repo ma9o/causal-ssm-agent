@@ -55,6 +55,8 @@ export interface AnalysisManifest {
   rootFlowRunIds: string[];
   latestRootFlowRunId: string | null;
   stages: AnalysisStageRuns;
+  /** Read-only artifact (e.g. a shared workspace): the UI hides LLM interaction. */
+  readOnly: boolean;
 }
 
 export function getAnalysisManifestQueryKey(workspaceId: string, rootFlowRunId?: string | null) {
