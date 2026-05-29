@@ -48,6 +48,7 @@ export function LLMTracePanel({
 
   const normalizedStageId = stageId as StageId | undefined;
   const {
+    readOnly,
     refiningStageId,
     pendingStagePatches,
     refinementMessages: savedRefinementMessages,
@@ -58,7 +59,8 @@ export function LLMTracePanel({
     clearPrefill,
   } = useRefinement();
 
-  const canRefine = interactive && !!workspaceId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
+  const canRefine =
+    !readOnly && interactive && !!workspaceId && !!stageId && INTERACTIVE_STAGES.includes(stageId);
   const pendingStagePatch = normalizedStageId
     ? (pendingStagePatches[normalizedStageId] ?? EMPTY_STAGE_PATCH)
     : EMPTY_STAGE_PATCH;

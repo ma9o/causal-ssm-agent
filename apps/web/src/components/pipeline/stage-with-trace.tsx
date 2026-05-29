@@ -142,7 +142,7 @@ export function StageWithTrace({
   defaultOpen?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
-  const { prefill } = useRefinement();
+  const { prefill, readOnly } = useRefinement();
 
   useEffect(() => {
     if (stageId && prefill?.stageId === stageId) {
@@ -153,7 +153,7 @@ export function StageWithTrace({
 
   return (
     <StageWithTraceView
-      interactive={interactive}
+      interactive={interactive && !readOnly}
       open={isOpen}
       onOpenChange={setIsOpen}
       panelContent={panelContent}

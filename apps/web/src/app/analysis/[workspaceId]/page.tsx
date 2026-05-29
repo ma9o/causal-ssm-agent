@@ -106,6 +106,7 @@ export default function AnalysisPage({
       stageRuns={manifest?.stages}
       progress={progress}
       latestRootFlowRunId={manifest?.latestRootFlowRunId}
+      readOnly={manifest?.readOnly ?? false}
     />
   );
 

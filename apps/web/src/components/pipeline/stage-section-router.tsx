@@ -92,7 +92,8 @@ function StageSectionRouterInner({
   stageRun,
 }: StageSectionRouterProps) {
   const queryClient = useQueryClient();
-  const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill } = useRefinement();
+  const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill, readOnly } =
+    useRefinement();
   const invalidated = isInvalidated(stage.id);
   const effectiveStatus = resolveStageObservedStatus(status, stageRun);
   const isCompleted = effectiveStatus === "completed";
@@ -163,7 +164,7 @@ function StageSectionRouterInner({
       outcome={outcome}
       loadingHint={stage.loadingHint}
       actions={
-        stage.id === "stage-3" && isCompleted && projectedStageData ? (
+        stage.id === "stage-3" && isCompleted && projectedStageData && !readOnly ? (
           <Stage3FixAction data={projectedStageData as Stage3Data} onFix={handleFixMeasurements} />
         ) : undefined
       }

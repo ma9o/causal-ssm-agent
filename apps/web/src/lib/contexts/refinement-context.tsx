@@ -11,6 +11,8 @@ export interface RefinementPrefill {
 }
 
 interface RefinementState {
+  /** When true the workspace is a read-only artifact: no LLM interaction or mutation is allowed. */
+  readOnly: boolean;
   /** Stage currently being refined (null if none). */
   refiningStageId: StageId | null;
   /** All stages after this index are visually invalidated. */
@@ -81,7 +83,13 @@ export function useRefinement() {
   return ctx;
 }
 
-export function RefinementProvider({ children }: { children: ReactNode }) {
+export function RefinementProvider({
+  children,
+  readOnly = false,
+}: {
+  children: ReactNode;
+  readOnly?: boolean;
+}) {
   const [refiningStageId, setRefiningStageId] = useState<StageId | null>(null);
   const [invalidatedAfter, setInvalidatedAfter] = useState<StageId | null>(null);
   const [settled, setSettled] = useState(false);
@@ -182,6 +190,7 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<RefinementState>(
     () => ({
+      readOnly,
       refiningStageId,
       invalidatedAfter,
       settled,
@@ -201,6 +210,7 @@ export function RefinementProvider({ children }: { children: ReactNode }) {
       clearPrefill,
     }),
     [
+      readOnly,
       refiningStageId,
       invalidatedAfter,
       settled,

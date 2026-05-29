@@ -81,12 +81,14 @@ export function AnalysisFeed({
   question,
   progress,
   latestRootFlowRunId,
+  readOnly = false,
 }: {
   workspaceId: string;
   stageRuns?: AnalysisStageRuns;
   question?: string;
   progress: PipelineProgress | undefined;
   latestRootFlowRunId?: string | null;
+  readOnly?: boolean;
 }) {
   if (!progress) {
     return (
@@ -107,7 +109,7 @@ export function AnalysisFeed({
   }
 
   return (
-    <RefinementProvider>
+    <RefinementProvider readOnly={readOnly}>
       <FeedContent
         workspaceId={workspaceId}
         stageRuns={stageRuns}
