@@ -1,0 +1,21 @@
+# Reference papers — arxiv manifest
+#
+# One paper per line:  <arxiv-id><TAB or spaces><slug>
+# The slug is used as the local filename (<slug>.pdf) and is optional
+# (defaults to the arxiv id).  Blank lines and lines starting with # are
+# ignored, so a "# <title>" comment above each entry is fine.
+#
+# PDFs themselves are gitignored; only this manifest is tracked.
+# Run `scripts/fetch_papers.sh` to download everything listed here.
+#
+# Auxiliary MCMC samplers for parallelisable inference in high-dimensional latent dynamical systems
+2303.00301	auxiliary-kalman-samplers
+
+# Particle-MALA and Particle-mGRAD: gradient-based MCMC for high-dimensional state-space models
+2401.14868	particle-mala-mgrad
+
+# De-Sequentialized Monte Carlo: a parallel-in-time particle smoother
+2202.02264	desequentialized-smc
+
+# Particle Gibbs without the Gibbs bit
+2505.04611	particle-gibbs-no-gibbs-bit
