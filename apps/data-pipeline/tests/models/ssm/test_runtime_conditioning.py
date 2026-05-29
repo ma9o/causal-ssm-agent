@@ -8,6 +8,9 @@ import pytest
 from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.compile.artifact import compile_runtime_conditioning_metadata
+from nof1_causal_lab.models.ssm.inference.bundle import (
+    build_auxiliary_kalman_bundle,
+)
 from nof1_causal_lab.models.ssm.inference.targets.polya_gamma import (
     build_polya_gamma_observation_plan,
     expected_pg1,
@@ -28,9 +31,6 @@ from nof1_causal_lab.models.ssm.inference.targets.rao_blackwell import (
     rbpf_marginal_log_likelihood,
     validate_rbpf_mode,
     validate_rbpf_partition,
-)
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
-    build_auxiliary_kalman_bundle,
 )
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.priors import PriorSpec

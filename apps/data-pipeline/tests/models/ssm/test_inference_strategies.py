@@ -33,9 +33,10 @@ from nof1_causal_lab.models.ssm import InferenceResult, SSMModel, fit
 from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.inference.methods.map import (
-    _build_map_laplace_bundle,
-    fit_map,
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers._mgrad_kernel import (
+    _gaussian_log_prob_full,
+    _mgrad_gain_and_covariance,
+    _mgrad_log_q_minus,
 )
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
@@ -88,12 +89,11 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
     trajectory_observation_log_prob,
     trajectory_observation_log_probs,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.pit_particle_mgrad import (
-    _gaussian_log_prob_full,
-    _mgrad_gain_and_covariance,
-    _mgrad_log_q_minus,
-)
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
+from nof1_causal_lab.models.ssm.inference.warmup.map import (
+    _build_map_laplace_bundle,
+    fit_map,
+)
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.structure import (
     ManifestCholBlockSpec,
@@ -2279,6 +2279,13 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
     assert latent_paths.shape == (1, num_samples, 3, 1)
 
 
+@pytest.mark.parametrize(
+    ("parameter_proposal", "expected_kernel", "expected_target"),
+    [
+        ("random_walk", "m_pgibbs_random_walk", 0.35),
+        ("pseudo_langevin", "m_pgibbs_pseudo_langevin", 0.35),
+    ],
+)
 def test_marginal_particle_gibbs_smoke_on_small_kalman_model(
     parameter_proposal, expected_kernel, expected_target
 ):
@@ -2425,7 +2432,7 @@ def test_marginal_particle_gibbs_mgrad_smoke_on_small_kalman_model():
 
 
 def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
-    from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
         build_marginal_particle_gibbs_kernel,
     )
 
@@ -2442,7 +2449,7 @@ def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
 
 
 def test_marginal_particle_gibbs_rejects_unknown_latent_smoother():
-    from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
+    from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
         build_marginal_particle_gibbs_kernel,
     )
 
@@ -2506,41 +2513,6 @@ def test_marginal_particle_gibbs_dual_averaging_adaptation_scheme_runs():
     )
     _assert_small_particle_mcmc_result(result, method="marginal_particle_gibbs", num_samples=2)
     assert result.diagnostics["marginal_particle_gibbs"]["adaptation_scheme"] == "dual_averaging"
-
-
-def test_particle_smoother_latent_initializer_smoke_on_small_kalman_model():
-    from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
-        build_auxiliary_kalman_bundle,
-        initialize_particle_smoother_latents,
-    )
-
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-    bundle = build_auxiliary_kalman_bundle(
-        model,
-        observations,
-        times,
-        trace_key=random.PRNGKey(0),
-        reparam=None,
-    )
-    init_positions = jnp.broadcast_to(bundle["flat_example"], (2, bundle["dim"]))
-
-    trajectories, diagnostics = initialize_particle_smoother_latents(
-        bundle,
-        init_positions,
-        seed=23,
-        num_particles=6,
-        guidance="bffg",
-    )
-
-    assert trajectories.shape == (2, 3, 1)
-    assert bool(jnp.isfinite(trajectories).all())
-    assert diagnostics["latent_init_method"] == "particle_smoother"
-    assert diagnostics["latent_init_algorithm"] == "ffbsi"
-    assert diagnostics["latent_init_guidance"] == "bffg"
-    assert diagnostics["latent_init_num_particles"] == 6
-    assert len(diagnostics["latent_init_min_ess"]) == 2
 
 
 def test_particle_mgrad_log_q_minus_matches_direct_marginal_gaussian():
@@ -2757,23 +2729,23 @@ def test_map_support_aware_uses_exact_gradient_outer_optimizer(monkeypatch):
         return unc_samples, covariance, eigvals
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._build_map_laplace_bundle",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
         fake_build_bundle,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._draw_laplace_init_candidates",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
         forbidden_draw,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.spo.minimize",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
         fake_gradient_minimize,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._sample_laplace_parameter_posterior",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
         fake_sample_posterior,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.extract_constrained_samples",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
         lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
     )
 
@@ -2931,23 +2903,23 @@ def test_map_generic_path_uses_multistart_lbfgsb(monkeypatch):
         return unc_samples, covariance, eigvals
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._build_map_laplace_bundle",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
         fake_build_bundle,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._draw_laplace_init_candidates",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
         fake_draw_candidates,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.spo.minimize",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
         fake_gradient_minimize,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._sample_laplace_parameter_posterior",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
         fake_sample_posterior,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.extract_constrained_samples",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
         lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
     )
 
@@ -3099,29 +3071,29 @@ def test_map_emits_prefect_progress_logs(monkeypatch, caplog):
         return unc_samples, covariance, eigvals
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._build_map_laplace_bundle",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
         fake_build_bundle,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._draw_laplace_init_candidates",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
         fake_draw_candidates,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.spo.minimize",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
         fake_gradient_minimize,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._sample_laplace_parameter_posterior",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
         fake_sample_posterior,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.extract_constrained_samples",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
         lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
     )
 
     with caplog.at_level(
         logging.INFO,
-        logger="nof1_causal_lab.models.ssm.inference.methods.map",
+        logger="nof1_causal_lab.models.ssm.inference.warmup.map",
     ):
         fit_map(
             _FakeModel(),
@@ -3246,25 +3218,25 @@ def test_map_can_skip_parameter_hessian(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._build_map_laplace_bundle",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
         fake_build_bundle,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._draw_laplace_init_candidates",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
         fake_draw_candidates,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.spo.minimize",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
         fake_gradient_minimize,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._sample_laplace_parameter_posterior",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("parameter hessian path should be skipped")
         ),
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.extract_constrained_samples",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
         lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
     )
 
@@ -3398,25 +3370,25 @@ def test_map_can_use_optimizer_hess_inv_covariance(monkeypatch):
         )
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._build_map_laplace_bundle",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._build_map_laplace_bundle",
         fake_build_bundle,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._draw_laplace_init_candidates",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._draw_laplace_init_candidates",
         fake_draw_candidates,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.spo.minimize",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.spo.minimize",
         fake_gradient_minimize,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._sample_laplace_parameter_posterior",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._sample_laplace_parameter_posterior",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             AssertionError("exact parameter Hessian path should be skipped")
         ),
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map.extract_constrained_samples",
+        "nof1_causal_lab.models.ssm.inference.warmup.map.extract_constrained_samples",
         lambda unc_samples, *_args, **_kwargs: {"theta": unc_samples},
     )
 
@@ -3524,11 +3496,11 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         return log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn
 
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._discover_sites",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._discover_sites",
         fake_discover_sites,
     )
     monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.inference.methods.map._build_eval_fns",
+        "nof1_causal_lab.models.ssm.inference.warmup.map._build_eval_fns",
         fake_build_eval_fns,
     )
 

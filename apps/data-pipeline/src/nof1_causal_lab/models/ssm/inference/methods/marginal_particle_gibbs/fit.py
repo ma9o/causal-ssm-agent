@@ -10,21 +10,21 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.models.ssm.inference.methods.parameter_warmup import (
-    DEFAULT_PRIOR_RELEASED_SITE_NAMES,
-    prepare_parameter_warmup,
-)
-from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc import (
+from nof1_causal_lab.models.ssm.inference.bundle import (
     build_auxiliary_kalman_bundle,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
     build_marginal_particle_gibbs_kernel,
     build_marginal_particle_gibbs_mcmc_result,
     run_marginal_particle_gibbs,
 )
+from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 from nof1_causal_lab.models.ssm.inference.types import InferenceResult
 from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
+from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
+    DEFAULT_PRIOR_RELEASED_SITE_NAMES,
+    prepare_parameter_warmup,
+)
 
 logger = logging.getLogger(__name__)
 

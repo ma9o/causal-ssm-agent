@@ -12,10 +12,10 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._contract import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     MPGibbsLatentSmootherResult,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._math import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _categorical_entropy_from_log_probs,
     _categorical_max_prob_from_log_probs,
     _categorical_rows,
@@ -30,7 +30,7 @@ from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibb
     _transition_log_probs_by_param,
     _transition_log_probs_to_next_by_param,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs.diagnostics import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagnostics import (
     build_mpgibbs_diagnostic_flags,
 )
 

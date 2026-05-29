@@ -41,9 +41,9 @@ import jax.numpy as jnp
 import jax.random as random
 from blackjax.adaptation.step_size import dual_averaging_adaptation
 
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.gibbs import (
-    AuxKalmanMCMCResult,
-    AuxKalmanMCMCState,
+from nof1_causal_lab.models.ssm.inference.mcmc_state import (
+    TrajectoryMCMCResult,
+    TrajectoryMCMCState,
     _adapt_scale,
     _clip_dual_averaging_state,
     _clip_scale,
@@ -51,27 +51,27 @@ from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.gibbs import (
     _stack_chain_states,
     _stack_sample_history,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._context import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._context import (
     build_smoother_context,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._contract import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _LATENT_SMOOTHER_MGRAD,
     _LATENT_SMOOTHER_PLAIN,
     MPGibbsLatentSmoother,
     MPGibbsStatic,
     _resolve_latent_smoother,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._math import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _select_pytree,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs.diagnostics import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagnostics import (
     build_mpgibbs_diagnostic_flags,
     resolve_mpgibbs_diagnostic_metrics,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs.smoothers import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers import (
     SMOOTHERS,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.pit_particle_mgrad import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers._mgrad_kernel import (
     build_pit_particle_mgrad_latent_kernel,
 )
 
@@ -306,7 +306,7 @@ def build_marginal_particle_gibbs_kernel(
         diagnostic_metrics=resolved_diagnostic_metrics,
     )
 
-    def _step_fn(state: AuxKalmanMCMCState, key: jnp.ndarray):
+    def _step_fn(state: TrajectoryMCMCState, key: jnp.ndarray):
         param_key, block_key, label_key = random.split(key, 3)
         x_ref = state.latent_trajectory
         traj_dtype = state.trajectory_log_prob.dtype
@@ -515,7 +515,7 @@ def _initialize_chain_state(
     param_max_scale: float,
     param_target_accept: float,
     initial_latent_trajectory: jnp.ndarray | None,
-) -> AuxKalmanMCMCState:
+) -> TrajectoryMCMCState:
     context = bundle["latent_context_runtime_fn"](init_position, times)
     predictive_latent = bundle["initial_latent_from_context_fn"](context)
     latent_trajectory = (
@@ -544,7 +544,7 @@ def _initialize_chain_state(
         max_scale=param_max_scale,
     )
     da_init, _da_update, _ = dual_averaging_adaptation(target=float(param_target_accept))
-    return AuxKalmanMCMCState(
+    return TrajectoryMCMCState(
         position=init_position,
         latent_context=context,
         latent_trajectory=latent_trajectory,
@@ -560,17 +560,17 @@ def _initialize_chain_state(
 
 @functools.partial(jax.jit, static_argnames=("step_fn",))
 def _run_batched_step(
-    states: AuxKalmanMCMCState,
+    states: TrajectoryMCMCState,
     step_keys: jnp.ndarray,
     *,
     step_fn,
-) -> tuple[AuxKalmanMCMCState, dict[str, jnp.ndarray]]:
+) -> tuple[TrajectoryMCMCState, dict[str, jnp.ndarray]]:
     return jax.vmap(lambda state, key: step_fn(state, key))(states, step_keys)
 
 
 @functools.partial(jax.jit, static_argnames=("public_latent_fn",))
 def _sample_public_latent_batch(
-    states: AuxKalmanMCMCState,
+    states: TrajectoryMCMCState,
     keys: jnp.ndarray,
     observations: jnp.ndarray,
     *,
@@ -1173,8 +1173,8 @@ def build_marginal_particle_gibbs_mcmc_result(
     chain_extra_fields: dict[str, jnp.ndarray],
     num_chains: int,
     num_samples: int,
-) -> AuxKalmanMCMCResult:
-    return AuxKalmanMCMCResult(
+) -> TrajectoryMCMCResult:
+    return TrajectoryMCMCResult(
         chain_samples=chain_samples,
         chain_extra_fields=chain_extra_fields,
         num_chains=num_chains,

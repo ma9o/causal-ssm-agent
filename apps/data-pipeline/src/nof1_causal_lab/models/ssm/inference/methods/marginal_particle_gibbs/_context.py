@@ -12,11 +12,11 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._contract import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     MPGibbsStatic,
     SmootherContext,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._math import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _cholesky_batch,
     _gaussian_log_prob_shared_cholesky,
     _logdet_from_cholesky,

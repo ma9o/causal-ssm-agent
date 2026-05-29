@@ -726,7 +726,7 @@ def run_scipy_pathfinder_approximation(
     """Run scipy Pathfinder on the IEKS-marginal log-posterior for parameters."""
     if n_pathfinder_starts < 1:
         raise ValueError("n_pathfinder_starts must be >= 1.")
-    from nof1_causal_lab.models.ssm.inference.methods.map import _build_map_laplace_bundle
+    from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
 
     total_t0 = time.monotonic()
     setup_t0 = time.monotonic()

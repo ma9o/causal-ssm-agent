@@ -21,7 +21,7 @@ _PARTICLE_LATENT_ADAPTATION_GAMMA = -0.5
 _PARTICLE_LATENT_ADAPTATION_MIN_RATE = 1e-3
 
 
-class AuxKalmanMCMCState(NamedTuple):
+class TrajectoryMCMCState(NamedTuple):
     position: jnp.ndarray
     latent_context: Any
     latent_trajectory: jnp.ndarray
@@ -37,7 +37,7 @@ class AuxKalmanMCMCState(NamedTuple):
 
 
 @dataclass(frozen=True)
-class AuxKalmanMCMCResult:
+class TrajectoryMCMCResult:
     """Minimal MCMC-compatible wrapper for auxiliary Kalman MCMC outputs."""
 
     chain_samples: dict[str, jnp.ndarray]
@@ -149,7 +149,7 @@ def _clip_dual_averaging_state(
     )
 
 
-def _stack_chain_states(states: list[AuxKalmanMCMCState]) -> AuxKalmanMCMCState:
+def _stack_chain_states(states: list[TrajectoryMCMCState]) -> TrajectoryMCMCState:
     return jax.tree_util.tree_map(lambda *values: jnp.stack(values, axis=0), *states)
 
 

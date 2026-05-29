@@ -31,7 +31,6 @@ from nof1_causal_lab.models.ssm.dynamics.vector_field import (
     VectorField,
     VectorFieldArgs,
 )
-from nof1_causal_lab.models.ssm.inference.methods.map import _build_map_laplace_bundle
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
@@ -45,6 +44,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace.point import (
     _transition_start_linearization_states,
 )
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
+from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
 from nof1_causal_lab.models.ssm.model import SSMModel, SSMSpec
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.structure import (

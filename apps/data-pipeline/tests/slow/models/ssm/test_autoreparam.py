@@ -30,7 +30,7 @@ def _make_simple_ssm():
 
 class TestAutoReparamSSM:
     def test_fit_map_filters_auxiliary_sites(self):
-        from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
+        from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 
         model = _make_simple_ssm()
         observations = jnp.zeros((8, 2))

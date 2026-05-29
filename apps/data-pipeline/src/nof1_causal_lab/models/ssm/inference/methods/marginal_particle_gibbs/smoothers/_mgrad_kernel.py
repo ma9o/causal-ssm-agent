@@ -12,7 +12,7 @@ import jax.scipy.linalg as jla
 import numpy as np
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.auxiliary_kalman import (
+from nof1_causal_lab.models.ssm.inference.bundle import (
     AUX_JITTER,
     _initial_latent_moments,
     gaussian_log_prob_isotropic,

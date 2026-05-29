@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from nof1_causal_lab.models.ssm.inference.methods.scipy_pathfinder import (
+from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
     ScipyPathfinderResult,
     run_scipy_pathfinder_approximation,
     sample_scipy_pathfinder_init_positions,
@@ -260,7 +260,7 @@ def prepare_parameter_warmup(
             )
             preconditioner_source = "pathfinder"
         elif auto_preconditioner_method == "map":
-            from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
+            from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 
             map_result = fit_map(
                 model,

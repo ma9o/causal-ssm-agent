@@ -3,8 +3,8 @@ from typing import ClassVar
 
 import numpy as np
 
-import nof1_causal_lab.models.ssm.inference.methods.scipy_pathfinder as scipy_pathfinder_module
-from nof1_causal_lab.models.ssm.inference.methods.scipy_pathfinder import scipy_pathfinder
+import nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder as scipy_pathfinder_module
+from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import scipy_pathfinder
 
 
 def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch):

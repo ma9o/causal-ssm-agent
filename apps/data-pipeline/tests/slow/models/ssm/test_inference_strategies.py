@@ -17,7 +17,6 @@ from nof1_causal_lab.models.ssm.discretization import discretize_system_batched
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
 from nof1_causal_lab.models.ssm.inference import _eval_model
-from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
 from nof1_causal_lab.models.ssm.inference.shared import _apply_reparam
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.base import (
@@ -36,6 +35,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     _dense_support_laplace_log_lik,
 )
 from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, _discover_sites
+from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
 from tests.ssm_test_utils import (

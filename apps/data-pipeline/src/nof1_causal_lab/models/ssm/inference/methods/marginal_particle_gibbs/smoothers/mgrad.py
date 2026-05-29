@@ -10,10 +10,10 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._contract import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     MPGibbsLatentSmootherResult,
 )
-from nof1_causal_lab.models.ssm.inference.trajectory_mcmc.marginal_particle_gibbs._math import (
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _select_pytree,
 )
 

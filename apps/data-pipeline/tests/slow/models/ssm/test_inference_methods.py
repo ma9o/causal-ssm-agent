@@ -16,7 +16,7 @@ from nof1_causal_lab.models.ssm import (
     SSMModel,
     discretize_system,
 )
-from nof1_causal_lab.models.ssm.inference.methods.map import fit_map
+from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import (
