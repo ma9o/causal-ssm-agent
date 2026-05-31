@@ -41,6 +41,7 @@ import jax.numpy as jnp
 import jax.random as random
 from blackjax.adaptation.step_size import dual_averaging_adaptation
 
+from nof1_causal_lab.models.ssm.inference import _profiling
 from nof1_causal_lab.models.ssm.inference.mcmc_state import (
     TrajectoryMCMCResult,
     TrajectoryMCMCState,
@@ -55,6 +56,12 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._conte
     build_smoother_context,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
+    _DSMC_LEAF_PROPOSAL_AMALA,
+    _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+    _DSMC_LEAF_PROPOSALS,
+    _LATENT_SMOOTHER_AMALA,
+    _LATENT_SMOOTHER_AMALA_PLUS,
+    _LATENT_SMOOTHER_DSMC,
     _LATENT_SMOOTHER_MGRAD,
     _LATENT_SMOOTHER_PLAIN,
     MPGibbsLatentSmoother,
@@ -77,6 +84,16 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smooth
 
 _DEFAULT_MIN_SCALE = 1e-6
 _DEFAULT_MAX_SCALE = 1e3
+_DEFAULT_AMALA_DELTA_INIT = 1e-2
+_DEFAULT_AMALA_DELTA_MIN = 1e-5
+_DEFAULT_AMALA_DELTA_MAX = 1e1
+_DEFAULT_AMALA_TARGET_ACCEPT = 0.75
+_DEFAULT_AMALA_ADAPTATION_WINDOW = 100
+_DEFAULT_AMALA_ADAPTATION_TOLERANCE = 0.05
+_DEFAULT_AMALA_ADAPTATION_RHO = 0.5
+_DEFAULT_AMALA_ADAPTATION_RHO_MIN = 1e-3
+_DEFAULT_AMALA_ADAPTATION_GAMMA = -0.5
+_DEFAULT_AMALA_GRAD_CLIP = float("inf")
 # Target acceptance for the M=2 ensemble Barker selection. Its move-rate is
 # bounded above by ~0.5 -- the step->0 coin-flip limit, (M-1)/M for M ensemble
 # candidates -- so MALA-style optima (~0.574) do NOT transfer: a target above
@@ -86,6 +103,20 @@ _DEFAULT_MAX_SCALE = 1e3
 # baseline. The ceiling is a property of the M=2 selection, not of the proposal
 # drift, so this default is shared by random_walk and pseudo_langevin.
 _DEFAULT_PARAM_TARGET_ACCEPT = 0.35
+
+
+def _uses_amala_delta(latent_smoother: MPGibbsLatentSmoother, dsmc_leaf_proposal: str) -> bool:
+    return latent_smoother.name in {
+        _LATENT_SMOOTHER_AMALA,
+        _LATENT_SMOOTHER_AMALA_PLUS,
+    } or (
+        latent_smoother.name == _LATENT_SMOOTHER_DSMC
+        and dsmc_leaf_proposal
+        in {
+            _DSMC_LEAF_PROPOSAL_AMALA,
+            _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -103,9 +134,20 @@ class MarginalParticleGibbsKernel:
     latent_block_size: int
     latent_smoother: MPGibbsLatentSmoother
     latent_delta: float
-    amala_q_scale: float
+    amala_delta_init: float
+    amala_delta_min: float
+    amala_delta_max: float
+    amala_target_accept: float
+    amala_adaptation_window: int
+    amala_adaptation_tolerance: float
+    amala_adaptation_rho: float
+    amala_adaptation_rho_min: float
+    amala_adaptation_gamma: float
+    adapt_amala_delta: bool
     amala_kappa: float
     amala_grad_clip: float
+    dsmc_leaf_proposal: str
+    mgrad_grad_clip: float
     diagnostic_metrics: frozenset[str]
 
 
@@ -123,9 +165,19 @@ def build_marginal_particle_gibbs_kernel(
     parameter_proposal: str = "pseudo_langevin",
     latent_smoother: str = _LATENT_SMOOTHER_PLAIN,
     latent_delta: float = 0.2,
-    amala_q_scale: float = 1.0,
-    amala_kappa: float = 0.5,
-    amala_grad_clip: float = 1000.0,
+    amala_delta_init: float = _DEFAULT_AMALA_DELTA_INIT,
+    amala_delta_min: float = _DEFAULT_AMALA_DELTA_MIN,
+    amala_delta_max: float = _DEFAULT_AMALA_DELTA_MAX,
+    amala_target_accept: float = _DEFAULT_AMALA_TARGET_ACCEPT,
+    amala_adaptation_window: int = _DEFAULT_AMALA_ADAPTATION_WINDOW,
+    amala_adaptation_tolerance: float = _DEFAULT_AMALA_ADAPTATION_TOLERANCE,
+    amala_adaptation_rho: float = _DEFAULT_AMALA_ADAPTATION_RHO,
+    amala_adaptation_rho_min: float = _DEFAULT_AMALA_ADAPTATION_RHO_MIN,
+    amala_adaptation_gamma: float = _DEFAULT_AMALA_ADAPTATION_GAMMA,
+    amala_kappa: float = 0.75,
+    amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
+    dsmc_leaf_proposal: str = "prior_predictive",
+    mgrad_grad_clip: float = 10.0,
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
 ) -> MarginalParticleGibbsKernel:
@@ -161,9 +213,39 @@ def build_marginal_particle_gibbs_kernel(
         raise ValueError(
             f"marginal_particle_gibbs latent_delta must be positive for mgrad; got {latent_delta}."
         )
-    if amala_q_scale <= 0.0:
+    if amala_delta_init <= 0.0:
         raise ValueError(
-            f"marginal_particle_gibbs amala_q_scale must be positive; got {amala_q_scale}."
+            f"marginal_particle_gibbs amala_delta_init must be positive; got {amala_delta_init}."
+        )
+    if amala_delta_min <= 0.0 or amala_delta_max <= 0.0 or amala_delta_min > amala_delta_max:
+        raise ValueError(
+            "marginal_particle_gibbs requires 0 < amala_delta_min <= amala_delta_max; "
+            f"got {amala_delta_min} and {amala_delta_max}."
+        )
+    if not (amala_delta_min <= amala_delta_init <= amala_delta_max):
+        raise ValueError(
+            "marginal_particle_gibbs requires amala_delta_init inside "
+            f"[amala_delta_min, amala_delta_max]; got {amala_delta_init}."
+        )
+    if not (0.0 < amala_target_accept < 1.0):
+        raise ValueError(
+            "marginal_particle_gibbs amala_target_accept must be in (0, 1); "
+            f"got {amala_target_accept}."
+        )
+    if amala_adaptation_window < 1:
+        raise ValueError(
+            "marginal_particle_gibbs amala_adaptation_window must be positive; "
+            f"got {amala_adaptation_window}."
+        )
+    if amala_adaptation_tolerance < 0.0:
+        raise ValueError(
+            "marginal_particle_gibbs amala_adaptation_tolerance must be non-negative; "
+            f"got {amala_adaptation_tolerance}."
+        )
+    if amala_adaptation_rho <= 0.0 or amala_adaptation_rho_min <= 0.0:
+        raise ValueError(
+            "marginal_particle_gibbs amala adaptation rates must be positive; "
+            f"got rho={amala_adaptation_rho}, rho_min={amala_adaptation_rho_min}."
         )
     if amala_kappa < 0.0:
         raise ValueError(
@@ -172,6 +254,16 @@ def build_marginal_particle_gibbs_kernel(
     if amala_grad_clip <= 0.0:
         raise ValueError(
             f"marginal_particle_gibbs amala_grad_clip must be positive; got {amala_grad_clip}."
+        )
+    if dsmc_leaf_proposal not in _DSMC_LEAF_PROPOSALS:
+        allowed = ", ".join(repr(candidate) for candidate in _DSMC_LEAF_PROPOSALS)
+        raise ValueError(
+            "marginal_particle_gibbs dsmc_leaf_proposal must be one of "
+            f"{allowed}; got {dsmc_leaf_proposal!r}."
+        )
+    if mgrad_grad_clip <= 0.0:
+        raise ValueError(
+            f"marginal_particle_gibbs mgrad_grad_clip must be positive; got {mgrad_grad_clip}."
         )
     use_gradient_drift = parameter_proposal == "pseudo_langevin"
     if target_accept is None:
@@ -196,6 +288,7 @@ def build_marginal_particle_gibbs_kernel(
             target_accept=0.75,
             num_particles=num_particles,
             latent_kernel_algorithm="particle_mgrad",
+            grad_clip=mgrad_grad_clip,
         )
         if latent_smoother_spec.name == _LATENT_SMOOTHER_MGRAD
         else None
@@ -299,9 +392,9 @@ def build_marginal_particle_gibbs_kernel(
         num_parameter_particles=num_parameter_particles,
         latent_block_size=latent_block_size,
         latent_delta=latent_delta,
-        amala_q_scale=amala_q_scale,
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
+        dsmc_leaf_proposal=dsmc_leaf_proposal,
         mgrad_latent_kernel=mgrad_latent_kernel,
         diagnostic_metrics=resolved_diagnostic_metrics,
     )
@@ -496,9 +589,20 @@ def build_marginal_particle_gibbs_kernel(
         latent_block_size=latent_block_size,
         latent_smoother=latent_smoother_spec,
         latent_delta=latent_delta,
-        amala_q_scale=amala_q_scale,
+        amala_delta_init=amala_delta_init,
+        amala_delta_min=amala_delta_min,
+        amala_delta_max=amala_delta_max,
+        amala_target_accept=amala_target_accept,
+        amala_adaptation_window=amala_adaptation_window,
+        amala_adaptation_tolerance=amala_adaptation_tolerance,
+        amala_adaptation_rho=amala_adaptation_rho,
+        amala_adaptation_rho_min=amala_adaptation_rho_min,
+        amala_adaptation_gamma=amala_adaptation_gamma,
+        adapt_amala_delta=_uses_amala_delta(latent_smoother_spec, dsmc_leaf_proposal),
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
+        mgrad_grad_clip=mgrad_grad_clip,
+        dsmc_leaf_proposal=dsmc_leaf_proposal,
         diagnostic_metrics=resolved_diagnostic_metrics,
     )
 
@@ -509,7 +613,7 @@ def _initialize_chain_state(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     bundle: dict[str, Any],
-    latent_delta: float,
+    initial_latent_delta: jnp.ndarray,
     param_step_size: float,
     param_min_scale: float,
     param_max_scale: float,
@@ -537,7 +641,7 @@ def _initialize_chain_state(
         observation_auxiliary,
         observations,
     )
-    latent_delta_value = jnp.asarray(latent_delta, dtype=latent_trajectory.dtype)
+    latent_delta_value = jnp.asarray(initial_latent_delta, dtype=latent_trajectory.dtype)
     param_step_value = _clip_scale(
         jnp.asarray(param_step_size, dtype=latent_trajectory.dtype),
         min_scale=param_min_scale,
@@ -553,7 +657,7 @@ def _initialize_chain_state(
         complete_log_posterior=complete_lp,
         latent_delta=latent_delta_value,
         param_step_size=param_step_value,
-        latent_da=da_init(latent_delta_value),
+        latent_da=da_init(jnp.mean(latent_delta_value)),
         param_da=da_init(param_step_value),
     )
 
@@ -610,6 +714,7 @@ def run_marginal_particle_gibbs(
     # is the right choice for aux_kalman_mcmc, whose acceptance is a smooth MALA
     # accept-probability.
     adaptation_scheme: str = "simple",
+    profile_dir: str | None = None,
 ) -> dict[str, Any]:
     """Run marginalized Particle Gibbs chains."""
     if adaptation_scheme not in {"simple", "dual_averaging"}:
@@ -627,6 +732,7 @@ def run_marginal_particle_gibbs(
         raise ValueError("marginal_particle_gibbs requires at least one MCMC step.")
     observations = bundle["observations"]
     times = bundle["times"]
+    num_steps = int(observations.shape[0])
     base_key = random.PRNGKey(seed)
     init_key, chain_key = random.split(base_key)
     dim = int(bundle["flat_example"].shape[0])
@@ -658,6 +764,13 @@ def run_marginal_particle_gibbs(
     else:
         chain_initial_latents = None
 
+    initial_latent_delta_value = (
+        kernel.amala_delta_init if kernel.adapt_amala_delta else latent_delta
+    )
+    initial_latent_delta = jnp.full(
+        (num_steps,),
+        jnp.asarray(initial_latent_delta_value, dtype=observations.dtype),
+    )
     states = _stack_chain_states(
         [
             _initialize_chain_state(
@@ -665,7 +778,7 @@ def run_marginal_particle_gibbs(
                 observations=observations,
                 times=times,
                 bundle=bundle,
-                latent_delta=latent_delta,
+                initial_latent_delta=initial_latent_delta,
                 param_step_size=kernel.initial_param_step_size,
                 param_min_scale=kernel.min_scale,
                 param_max_scale=kernel.max_scale,
@@ -678,6 +791,16 @@ def run_marginal_particle_gibbs(
         ]
     )
     initial_param_step_size = states.param_step_size
+    initial_latent_delta = states.latent_delta
+    latent_acceptance_window = jnp.zeros(
+        (
+            num_chains,
+            int(kernel.amala_adaptation_window),
+            num_steps,
+        ),
+        dtype=states.latent_delta.dtype,
+    )
+    latent_acceptance_window_count = 0
     step_keys = random.split(chain_key, total_steps * num_chains * 2).reshape(
         total_steps,
         num_chains,
@@ -743,14 +866,31 @@ def run_marginal_particle_gibbs(
         f"total_steps={total_steps} n_particles={kernel.num_particles} "
         f"n_parameter_particles={kernel.num_parameter_particles} "
         f"latent_smoother={kernel.latent_smoother.name} "
+        f"dsmc_leaf_proposal={kernel.dsmc_leaf_proposal} "
         f"latent_block_size={kernel.latent_block_size} progress_every={progress_every}",
         flush=True,
     )
 
+    resolved_profile_dir = _profiling.resolve_profile_dir(profile_dir)
+    _profiling.dump_compiled_analysis(
+        _run_batched_step,
+        states,
+        step_keys[0, :, 0, :],
+        step_fn=kernel.step_fn,
+        profile_dir=resolved_profile_dir,
+        label="run_batched_step",
+    )
+
     sampling_loop_started = time.monotonic()
     first_step_seconds: float | None = None
+    _profiling.start_trace(resolved_profile_dir, label="run_loop")
     for step_idx in range(total_steps):
         step_started = time.monotonic()
+        if step_idx == 0:
+            print(
+                "marginal_particle_gibbs progress: first step compile/run start",
+                flush=True,
+            )
         states, step_info = _run_batched_step(
             states,
             step_keys[step_idx, :, 0, :],
@@ -765,9 +905,16 @@ def run_marginal_particle_gibbs(
             param_accept_now = jax.device_get(jnp.mean(step_info["parameter_accepted"]))
             latent_accept_now = jax.device_get(jnp.mean(step_info["latent_accepted"]))
             param_step_now = jax.device_get(states.param_step_size)
+            latent_delta_now = jax.device_get(states.latent_delta)
             complete_lp_now = jax.device_get(states.complete_log_posterior)
             phase = "warmup" if step_idx < num_warmup else "sample"
             elapsed = time.monotonic() - progress_started
+            latent_delta_status = (
+                f"amala_delta_range=[{float(jnp.min(latent_delta_now)):.3g},"
+                f"{float(jnp.max(latent_delta_now)):.3g}] "
+                if kernel.adapt_amala_delta
+                else ""
+            )
             print(
                 "marginal_particle_gibbs progress: "
                 f"step={step_idx + 1}/{total_steps} phase={phase} elapsed={elapsed:.1f}s "
@@ -775,6 +922,7 @@ def run_marginal_particle_gibbs(
                 f"latent_update_now={float(latent_accept_now):.3f} "
                 f"param_step_range=[{float(jnp.min(param_step_now)):.3g},"
                 f"{float(jnp.max(param_step_now)):.3g}] "
+                f"{latent_delta_status}"
                 f"complete_lp_range=[{float(jnp.min(complete_lp_now)):.3g},"
                 f"{float(jnp.max(complete_lp_now)):.3g}]",
                 flush=True,
@@ -783,45 +931,11 @@ def run_marginal_particle_gibbs(
         if step_idx == 0:
             states.complete_log_posterior.block_until_ready()
             first_step_seconds = time.monotonic() - step_started
-
-        if step_idx < num_warmup:
-            if use_dual_averaging:
-                # Dual averaging converges (unlike the constant-rate scheme), and we
-                # freeze to the Polyak-averaged step at the final warmup step rather
-                # than keeping a noisy live value — so per-chain steps no longer
-                # scatter across orders of magnitude.
-                updated_param_da = jax.vmap(
-                    lambda da_state, accepted: _clip_dual_averaging_state(
-                        da_param_update(da_state, accepted),
-                        min_scale=kernel.min_scale,
-                        max_scale=kernel.max_scale,
-                    )
-                )(states.param_da, step_info["parameter_accepted"])
-                scale_dtype = states.param_step_size.dtype
-                if step_idx == num_warmup - 1:
-                    next_param_step = jnp.exp(updated_param_da.log_step_size_avg)
-                else:
-                    next_param_step = jnp.exp(updated_param_da.log_step_size)
-                states = states._replace(
-                    param_step_size=_clip_scale(
-                        next_param_step.astype(scale_dtype),
-                        min_scale=kernel.min_scale,
-                        max_scale=kernel.max_scale,
-                    ),
-                    param_da=updated_param_da,
-                )
-            else:
-                states = states._replace(
-                    param_step_size=_adapt_scale(
-                        states.param_step_size,
-                        accepted=step_info["parameter_accepted"],
-                        target_accept=kernel.target_accept,
-                        adaptation_rate=adaptation_rate,
-                        min_scale=kernel.min_scale,
-                        max_scale=kernel.max_scale,
-                    )
-                )
-            continue
+            print(
+                "marginal_particle_gibbs progress: "
+                f"first step compile/run complete elapsed={first_step_seconds:.1f}s",
+                flush=True,
+            )
 
         position_history.append(states.position)
         parameter_accept_history.append(step_info["parameter_accepted"])
@@ -888,23 +1002,120 @@ def run_marginal_particle_gibbs(
                 observations,
                 public_latent_fn=public_latent_fn,
             )
-            if compute_latent_posterior_summary:
+            if step_idx >= num_warmup and compute_latent_posterior_summary:
                 latent_sum = latent_sum + public_latent
                 latent_sumsq = latent_sumsq + public_latent * public_latent
                 sample_count = sample_count + 1
             if retain_latent_paths:
                 latent_paths_history.append(public_latent)
 
+        if step_idx < num_warmup:
+            if kernel.adapt_amala_delta:
+                window_slot = step_idx % int(kernel.amala_adaptation_window)
+                latent_acceptance_window = latent_acceptance_window.at[:, window_slot, :].set(
+                    step_info["latent_accepted"].astype(latent_acceptance_window.dtype)
+                )
+                latent_acceptance_window_count = min(
+                    latent_acceptance_window_count + 1,
+                    int(kernel.amala_adaptation_window),
+                )
+                latent_acceptance_rate = jnp.sum(latent_acceptance_window, axis=1) / jnp.asarray(
+                    latent_acceptance_window_count,
+                    dtype=latent_acceptance_window.dtype,
+                )
+                target_accept = jnp.asarray(
+                    kernel.amala_target_accept,
+                    dtype=states.latent_delta.dtype,
+                )
+                learning_rate = jnp.maximum(
+                    jnp.asarray(step_idx + 1, dtype=states.latent_delta.dtype)
+                    ** jnp.asarray(
+                        kernel.amala_adaptation_gamma,
+                        dtype=states.latent_delta.dtype,
+                    )
+                    * jnp.asarray(kernel.amala_adaptation_rho, dtype=states.latent_delta.dtype),
+                    jnp.asarray(
+                        kernel.amala_adaptation_rho_min,
+                        dtype=states.latent_delta.dtype,
+                    ),
+                )
+                delta_update = (
+                    learning_rate
+                    * states.latent_delta
+                    * (latent_acceptance_rate - target_accept)
+                    / target_accept
+                )
+                should_adapt_latent_delta = jnp.abs(
+                    latent_acceptance_rate - target_accept
+                ) >= jnp.asarray(
+                    kernel.amala_adaptation_tolerance,
+                    dtype=states.latent_delta.dtype,
+                )
+                should_adapt_latent_delta = should_adapt_latent_delta & (
+                    (step_idx + 1) > int(kernel.amala_adaptation_window)
+                )
+                next_latent_delta = jnp.where(
+                    should_adapt_latent_delta,
+                    states.latent_delta + delta_update,
+                    states.latent_delta,
+                )
+                states = states._replace(
+                    latent_delta=_clip_scale(
+                        next_latent_delta,
+                        min_scale=kernel.amala_delta_min,
+                        max_scale=kernel.amala_delta_max,
+                    )
+                )
+            if use_dual_averaging:
+                # Dual averaging converges (unlike the constant-rate scheme), and we
+                # freeze to the Polyak-averaged step at the final warmup step rather
+                # than keeping a noisy live value — so per-chain steps no longer
+                # scatter across orders of magnitude.
+                updated_param_da = jax.vmap(
+                    lambda da_state, accepted: _clip_dual_averaging_state(
+                        da_param_update(da_state, accepted),
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    )
+                )(states.param_da, step_info["parameter_accepted"])
+                scale_dtype = states.param_step_size.dtype
+                if step_idx == num_warmup - 1:
+                    next_param_step = jnp.exp(updated_param_da.log_step_size_avg)
+                else:
+                    next_param_step = jnp.exp(updated_param_da.log_step_size)
+                states = states._replace(
+                    param_step_size=_clip_scale(
+                        next_param_step.astype(scale_dtype),
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    ),
+                    param_da=updated_param_da,
+                )
+            else:
+                states = states._replace(
+                    param_step_size=_adapt_scale(
+                        states.param_step_size,
+                        accepted=step_info["parameter_accepted"],
+                        target_accept=kernel.target_accept,
+                        adaptation_rate=adaptation_rate,
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    )
+                )
+            continue
+
     states.complete_log_posterior.block_until_ready()
+    _profiling.stop_trace(resolved_profile_dir)
     sampling_loop_seconds = time.monotonic() - sampling_loop_started
 
-    grouped_positions = _stack_sample_history(
+    all_grouped_positions = _stack_sample_history(
         position_history,
         num_chains=num_chains,
         trailing_shape=(dim,),
         dtype=chain_init_positions.dtype,
     )
-    chain_extra_fields = {
+    grouped_positions = all_grouped_positions[:, num_warmup:]
+    all_chain_extra_fields = {
         "parameter_accept_prob": _stack_sample_history(
             parameter_accept_history,
             num_chains=num_chains,
@@ -975,7 +1186,7 @@ def run_marginal_particle_gibbs(
         ),
     }
     if diagnostic_flags.particle_identity:
-        chain_extra_fields.update(
+        all_chain_extra_fields.update(
             {
                 "selected_particle_per_t": _stack_sample_history(
                     selected_particle_per_t_history,
@@ -998,14 +1209,14 @@ def run_marginal_particle_gibbs(
             }
         )
     if diagnostic_flags.parameter_movement:
-        chain_extra_fields["parameter_jump_rms"] = _stack_sample_history(
+        all_chain_extra_fields["parameter_jump_rms"] = _stack_sample_history(
             parameter_jump_rms_history,
             num_chains=num_chains,
             trailing_shape=(),
             dtype=chain_init_positions.dtype,
         )
     if diagnostic_flags.particle_filter:
-        chain_extra_fields.update(
+        all_chain_extra_fields.update(
             {
                 "forward_particle_ess_by_t": _stack_sample_history(
                     forward_particle_ess_history,
@@ -1028,7 +1239,7 @@ def run_marginal_particle_gibbs(
             }
         )
     if diagnostic_flags.backward_selection:
-        chain_extra_fields.update(
+        all_chain_extra_fields.update(
             {
                 "backward_selection_ess_by_t": _stack_sample_history(
                     backward_selection_ess_history,
@@ -1051,7 +1262,7 @@ def run_marginal_particle_gibbs(
             }
         )
     if diagnostic_flags.amala_proposal:
-        chain_extra_fields.update(
+        all_chain_extra_fields.update(
             {
                 "amala_grad_clip_fraction": _stack_sample_history(
                     amala_grad_clip_fraction_history,
@@ -1115,12 +1326,20 @@ def run_marginal_particle_gibbs(
                 ),
             }
         )
-    complete_log_posterior_history = _stack_sample_history(
+    chain_extra_fields = {
+        name: values[:, num_warmup:] for name, values in all_chain_extra_fields.items()
+    }
+    warmup_chain_extra_fields = {
+        name: values[:, :num_warmup] for name, values in all_chain_extra_fields.items()
+    }
+    all_complete_log_posterior_history = _stack_sample_history(
         complete_lp_history,
         num_chains=num_chains,
         trailing_shape=(),
         dtype=states.complete_log_posterior.dtype,
     )
+    complete_log_posterior_history = all_complete_log_posterior_history[:, num_warmup:]
+    warmup_complete_log_posterior_history = all_complete_log_posterior_history[:, :num_warmup]
 
     latent_summary = None
     if compute_latent_posterior_summary:
@@ -1130,6 +1349,8 @@ def run_marginal_particle_gibbs(
         latent_summary = _latent_summary_from_chain_moments(chain_mean, jnp.sqrt(chain_var))
 
     latent_paths = None
+    all_latent_paths = None
+    warmup_latent_paths = None
     if retain_latent_paths:
         latent_trailing_shape = (
             tuple(latent_paths_history[0].shape[1:])
@@ -1143,27 +1364,40 @@ def run_marginal_particle_gibbs(
                 ).shape[1:]
             )
         )
-        latent_paths = _stack_sample_history(
+        all_latent_paths = _stack_sample_history(
             latent_paths_history,
             num_chains=num_chains,
             trailing_shape=latent_trailing_shape,
             dtype=states.latent_trajectory.dtype,
         )
+        latent_paths = all_latent_paths[:, num_warmup:]
+        warmup_latent_paths = all_latent_paths[:, :num_warmup]
+
+    post_warmup_complete_log_posterior_mean = (
+        jnp.mean(complete_log_posterior_history, axis=1)
+        if num_samples > 0
+        else jnp.full((num_chains,), jnp.nan, dtype=states.complete_log_posterior.dtype)
+    )
 
     return {
         "grouped_positions": grouped_positions,
         "chain_extra_fields": chain_extra_fields,
+        "warmup_chain_extra_fields": warmup_chain_extra_fields,
+        "all_chain_extra_fields": all_chain_extra_fields,
         "complete_log_posterior_history": complete_log_posterior_history,
+        "warmup_complete_log_posterior_history": warmup_complete_log_posterior_history,
+        "all_complete_log_posterior_history": all_complete_log_posterior_history,
         "latent_posterior_summary": latent_summary,
         "latent_paths": latent_paths,
+        "warmup_latent_paths": warmup_latent_paths,
+        "all_latent_paths": all_latent_paths,
         "initial_param_step_size": initial_param_step_size,
         "final_param_step_size": states.param_step_size,
+        "initial_latent_delta": initial_latent_delta,
+        "final_latent_delta": states.latent_delta,
         "first_step_seconds": 0.0 if first_step_seconds is None else first_step_seconds,
         "sampling_loop_seconds": sampling_loop_seconds,
-        "post_warmup_complete_log_posterior_mean": jnp.mean(
-            complete_log_posterior_history,
-            axis=1,
-        ),
+        "post_warmup_complete_log_posterior_mean": post_warmup_complete_log_posterior_mean,
     }
 
 

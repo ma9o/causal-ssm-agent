@@ -7,6 +7,9 @@ Method:
 - Marginalized Particle Gibbs: collapsed joint parameter/trajectory updates
   using posterior-mixture conditional SMC, with selectable latent smoother
   (plain CSMC, particle-aMALA, or particle-mGRAD).
+- Particle marginal Metropolis-Hastings: parameter-space pseudo-marginal MH
+  using the same discretized runtime bundle and bootstrap particle likelihood
+  estimator.
 """
 
 from __future__ import annotations
@@ -57,7 +60,7 @@ def fit(
         model: SSMModel instance defining the probabilistic model
         observations: (N, n_manifest) observed data
         times: (N,) observation times
-        method: Inference method. Only "marginal_particle_gibbs" is supported.
+        method: Inference method.
         reparam: Reparameterization config. Can be:
             - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
               centering.
@@ -76,7 +79,16 @@ def fit(
         )
 
         return fit_marginal_particle_gibbs(model, observations, times, reparam=reparam, **kwargs)
-    raise ValueError(f"Unknown inference method: {method!r}. Use 'marginal_particle_gibbs'.")
+    if method == "particle_marginal_mh":
+        from nof1_causal_lab.models.ssm.inference.methods.particle_marginal_mh import (
+            fit_particle_marginal_mh,
+        )
+
+        return fit_particle_marginal_mh(model, observations, times, reparam=reparam, **kwargs)
+    raise ValueError(
+        "Unknown inference method: "
+        f"{method!r}. Use 'marginal_particle_gibbs' or 'particle_marginal_mh'."
+    )
 
 
 def prior_predictive(

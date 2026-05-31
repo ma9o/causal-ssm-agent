@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import os
 import shutil
 from dataclasses import dataclass, field
@@ -199,12 +200,22 @@ class MarginalParticleGibbsConfig:
     n_particles: int = 64
     n_parameter_particles: int = 2
     latent_block_size: int = 256
-    latent_smoother: Literal["plain", "amala", "mgrad"] = "plain"
+    latent_smoother: Literal["plain", "amala", "amala_plus", "mgrad", "dsmc"] = "plain"
     latent_delta: float = 0.2
     parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin"
-    amala_q_scale: float = 1.0
-    amala_kappa: float = 0.5
-    amala_grad_clip: float = 1000.0
+    amala_delta_init: float = 1e-2
+    amala_delta_min: float = 1e-5
+    amala_delta_max: float = 1e1
+    amala_target_accept: float = 0.75
+    amala_adaptation_window: int = 100
+    amala_adaptation_tolerance: float = 0.05
+    amala_adaptation_rho: float = 0.5
+    amala_adaptation_rho_min: float = 1e-3
+    amala_adaptation_gamma: float = -0.5
+    amala_kappa: float = 0.75
+    amala_grad_clip: float = math.inf
+    dsmc_leaf_proposal: Literal["prior_predictive", "amala", "amala_plus"] = "prior_predictive"
+    mgrad_grad_clip: float = 10.0
     diagnostic_metrics_all: bool = False
     diagnostic_metrics: tuple[str, ...] = ()
     param_step_size: float = 0.02

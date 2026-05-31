@@ -60,13 +60,16 @@ def build_mpgibbs_diagnostic_flags(
 ) -> MPGibbsDiagnosticFlags:
     """Build static booleans for optional diagnostic groups."""
     is_particle_smoother = latent_smoother != "mgrad"
+    # dsmc builds the smoothing path by a divide-and-conquer tree, so it has neither a
+    # sequential forward filter nor a backward-sampling pass to instrument.
+    is_sequential_particle_smoother = latent_smoother in {"plain", "amala", "amala_plus"}
     return MPGibbsDiagnosticFlags(
         particle_filter=(
-            is_particle_smoother
+            is_sequential_particle_smoother
             and MPGibbsDiagnosticMetric.PARTICLE_FILTER.value in diagnostic_metrics
         ),
         backward_selection=(
-            is_particle_smoother
+            is_sequential_particle_smoother
             and MPGibbsDiagnosticMetric.BACKWARD_SELECTION.value in diagnostic_metrics
         ),
         particle_identity=(
@@ -75,7 +78,7 @@ def build_mpgibbs_diagnostic_flags(
         ),
         parameter_movement=(MPGibbsDiagnosticMetric.PARAMETER_MOVEMENT.value in diagnostic_metrics),
         amala_proposal=(
-            latent_smoother == "amala"
+            latent_smoother in {"amala", "amala_plus"}
             and MPGibbsDiagnosticMetric.AMALA_PROPOSAL.value in diagnostic_metrics
         ),
     )

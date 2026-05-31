@@ -22,7 +22,6 @@ def smooth(ctx, key, x_ref):
     """Forced-move particle-mGRAD proposal evaluated against the parameter mixture."""
     contexts = ctx.contexts
     parameter_particles = ctx.parameter_particles
-    initial_label_log_probs = ctx.initial_label_log_probs
     state = ctx.state
     runtime_observations = ctx.runtime_observations
     initial_observation_auxiliary_fn = ctx.initial_observation_auxiliary_fn
@@ -40,7 +39,7 @@ def smooth(ctx, key, x_ref):
     proposal_label_key, mgrad_key = random.split(smoother_key)
     proposal_label = random.categorical(
         proposal_label_key,
-        initial_label_log_probs,
+        _trajectory_label_log_probs(current_path),
     ).astype(jnp.int32)
     proposal_position = parameter_particles[proposal_label]
     proposal_context = _select_pytree(contexts, proposal_label)

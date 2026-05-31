@@ -2336,6 +2336,7 @@ def test_marginal_particle_gibbs_smoke_on_small_kalman_model(
     assert diag["amala_q_scale"] == 1.0
     assert diag["amala_kappa"] == 0.5
     assert diag["amala_grad_clip"] == 1000.0
+    assert diag["mgrad_grad_clip"] == 10.0
     assert diag["polya_gamma_enabled"] is False
     assert diag["rbpf_enabled"] is False
 
@@ -2379,7 +2380,56 @@ def test_marginal_particle_gibbs_amala_smoke_on_small_kalman_model():
     assert diag["latent_kernel"] == "sequential_particle_amala_csmc"
     assert diag["latent_smoother"] == "amala"
     assert diag["latent_smoother_family"] == "posterior_mixture_particle_amala"
-    assert diag["latent_smoother_selection"] == "augmented_target_backward_sampling"
+    assert diag["latent_smoother_selection"] == "augmented_backward_sampling"
+    assert diag["latent_smoother_parallel"] is False
+    assert diag["amala_q_scale"] == 0.75
+    assert diag["amala_kappa"] == 0.25
+    assert diag["amala_grad_clip"] == 25.0
+    assert np.isfinite(diag["amala_grad_norm_mean"])
+    assert np.isfinite(diag["amala_grad_norm_max"])
+    assert diag["amala_grad_norm_max"] >= diag["amala_grad_norm_mean"] >= 0.0
+
+
+def test_marginal_particle_gibbs_amala_plus_smoke_on_small_kalman_model():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=2,
+        num_chains=1,
+        seed=37,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_block_size=2,
+        latent_smoother="amala_plus",
+        amala_q_scale=0.75,
+        amala_kappa=0.25,
+        amala_grad_clip=25.0,
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=2,
+    )
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["latent_kernel"] == "full_prefix_particle_amala_plus_csmc"
+    assert diag["latent_smoother"] == "amala_plus"
+    assert diag["latent_smoother_family"] == "posterior_mixture_particle_amala_plus"
+    assert diag["latent_smoother_selection"] == "full_prefix_augmented_backward_sampling"
     assert diag["latent_smoother_parallel"] is False
     assert diag["amala_q_scale"] == 0.75
     assert diag["amala_kappa"] == 0.25
@@ -2408,6 +2458,7 @@ def test_marginal_particle_gibbs_mgrad_smoke_on_small_kalman_model():
         latent_block_size=2,
         latent_smoother="mgrad",
         latent_delta=0.2,
+        mgrad_grad_clip=12.5,
         param_step_size=0.001,
         parameter_proposal="random_walk",
         init_method="random",
@@ -2429,6 +2480,49 @@ def test_marginal_particle_gibbs_mgrad_smoke_on_small_kalman_model():
     assert diag["latent_smoother_selection"] == "backward_sampling_forced_move"
     assert diag["latent_smoother_parallel"] is False
     assert diag["latent_delta"] == 0.2
+    assert diag["mgrad_grad_clip"] == 12.5
+
+
+def test_marginal_particle_gibbs_dsmc_smoke_on_small_kalman_model():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=2,
+        num_chains=1,
+        seed=41,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_block_size=2,
+        latent_smoother="dsmc",
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=2,
+    )
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["latent_kernel"] == "conditional_desequentialized_smc"
+    assert diag["latent_smoother"] == "dsmc"
+    assert diag["latent_smoother_algorithm"] == "conditional_desequentialized_smc"
+    assert diag["latent_smoother_family"] == "posterior_mixture_dsmc"
+    assert diag["latent_smoother_selection"] == "tree_stitch_combination"
+    assert diag["latent_smoother_parallel"] is True
+    assert diag["latent_backward_sampling"] is False
 
 
 def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():

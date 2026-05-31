@@ -15,8 +15,24 @@ if TYPE_CHECKING:
 
 _LATENT_SMOOTHER_PLAIN = "plain"
 _LATENT_SMOOTHER_AMALA = "amala"
+_LATENT_SMOOTHER_AMALA_PLUS = "amala_plus"
 _LATENT_SMOOTHER_MGRAD = "mgrad"
-_LATENT_SMOOTHERS = (_LATENT_SMOOTHER_PLAIN, _LATENT_SMOOTHER_AMALA, _LATENT_SMOOTHER_MGRAD)
+_LATENT_SMOOTHER_DSMC = "dsmc"
+_DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE = "prior_predictive"
+_DSMC_LEAF_PROPOSAL_AMALA = "amala"
+_DSMC_LEAF_PROPOSAL_AMALA_PLUS = "amala_plus"
+_DSMC_LEAF_PROPOSALS = (
+    _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE,
+    _DSMC_LEAF_PROPOSAL_AMALA,
+    _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+)
+_LATENT_SMOOTHERS = (
+    _LATENT_SMOOTHER_PLAIN,
+    _LATENT_SMOOTHER_AMALA,
+    _LATENT_SMOOTHER_AMALA_PLUS,
+    _LATENT_SMOOTHER_MGRAD,
+    _LATENT_SMOOTHER_DSMC,
+)
 
 
 @dataclass(frozen=True)
@@ -28,6 +44,7 @@ class MPGibbsLatentSmoother:
     family: str
     selection: str
     parallel: bool
+    backward_sampling: bool
 
 
 class MPGibbsLatentSmootherResult(NamedTuple):
@@ -47,14 +64,25 @@ def _resolve_latent_smoother(name: str) -> MPGibbsLatentSmoother:
             family="posterior_mixture_csmc",
             selection="blocked_backward_sampling",
             parallel=False,
+            backward_sampling=True,
         )
     if name == _LATENT_SMOOTHER_AMALA:
         return MPGibbsLatentSmoother(
             name=name,
             algorithm="sequential_particle_amala_csmc",
             family="posterior_mixture_particle_amala",
-            selection="augmented_target_backward_sampling",
+            selection="augmented_backward_sampling",
             parallel=False,
+            backward_sampling=True,
+        )
+    if name == _LATENT_SMOOTHER_AMALA_PLUS:
+        return MPGibbsLatentSmoother(
+            name=name,
+            algorithm="full_prefix_particle_amala_plus_csmc",
+            family="posterior_mixture_particle_amala_plus",
+            selection="full_prefix_augmented_backward_sampling",
+            parallel=False,
+            backward_sampling=True,
         )
     if name == _LATENT_SMOOTHER_MGRAD:
         return MPGibbsLatentSmoother(
@@ -63,6 +91,16 @@ def _resolve_latent_smoother(name: str) -> MPGibbsLatentSmoother:
             family="particle_mgrad",
             selection="backward_sampling_forced_move",
             parallel=False,
+            backward_sampling=True,
+        )
+    if name == _LATENT_SMOOTHER_DSMC:
+        return MPGibbsLatentSmoother(
+            name=name,
+            algorithm="conditional_desequentialized_smc",
+            family="posterior_mixture_dsmc",
+            selection="tree_stitch_combination",
+            parallel=True,
+            backward_sampling=False,
         )
     allowed = ", ".join(repr(candidate) for candidate in _LATENT_SMOOTHERS)
     raise ValueError(
@@ -87,9 +125,9 @@ class MPGibbsStatic:
     num_parameter_particles: int
     latent_block_size: int
     latent_delta: float
-    amala_q_scale: float
     amala_kappa: float
     amala_grad_clip: float
+    dsmc_leaf_proposal: str
     mgrad_latent_kernel: Any
     diagnostic_metrics: frozenset[str]
 
@@ -128,9 +166,10 @@ class SmootherContext:
     prior_terms_from_context_fn: Any
     log_prior_unc_fn: Any
     mgrad_latent_kernel: Any
-    amala_q_scale: float
+    amala_delta: jnp.ndarray
     amala_kappa: float
     amala_grad_clip: float
+    dsmc_leaf_proposal: str
     diagnostic_metrics: frozenset[str]
     transition_log_probs_from_fixed_prev: Callable
     segment_terminal_label_log_probs: Callable

@@ -46,6 +46,8 @@ In practice, the framework is designed for longitudinal consumer datasets that a
 
 ## Demo
 
+[https://project-n98yx.vercel.app/analysis/DEMO](https://project-n98yx.vercel.app/analysis/DEMO)
+
 | <img src="docs/assets/stage1b.png" width="400" alt="stage2"><br>Structural causal model specification | <img src="docs/assets/stage2.gif" width="400" alt="stage2"><br>Parallel data extraction |
 |:--:|:--:|
 | <img src="docs/assets/stage4-loading.gif" width="400" alt="stage2"><br>**Functional modeling state machine** | <img src="docs/assets/stage4-done.gif" width="400" alt="stage4"><br>**Functional model specification** <tr></tr> |

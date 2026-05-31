@@ -22,7 +22,6 @@ the MCMC driver API.
 from __future__ import annotations
 
 import functools
-import os
 from typing import Any, NamedTuple
 
 import jax
@@ -98,8 +97,8 @@ from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 # the target trajectory log-prob agree on the covariance being evaluated.
 AUX_JITTER = 1e-6
 
-# Gradient taming scale for the TULAc-style proposal drift bound (Particle-mGRAD).
-TULAC_H = float(os.environ.get("TULAC_H", "0.1"))
+# Default coordinatewise saturation level for TULAc-style gradient taming.
+DEFAULT_TULAC_GRAD_CLIP = 10.0
 
 
 def _augment_rbpf_partition_for_linear_summaries(
@@ -348,21 +347,24 @@ def _initial_latent_moments(context: LatentContext) -> tuple[jnp.ndarray, jnp.nd
     return init_pred_mean, init_pred_cov
 
 
-def tame_gradient_tulac(grad: jnp.ndarray) -> jnp.ndarray:
-    """Coordinatewise tamed gradient (TULAc, Brosse et al. 2017): ``g_i / (1 + h * |g_i|)``.
+def tame_gradient_tulac(
+    grad: jnp.ndarray,
+    *,
+    grad_clip: float = DEFAULT_TULAC_GRAD_CLIP,
+) -> jnp.ndarray:
+    """Coordinatewise tamed gradient with saturation at ``grad_clip``.
 
-    Recovers ``grad`` when ``h * |grad| ≪ 1`` and saturates each component at
-    ``sign(g_i) / h`` when ``|g_i|`` is huge. With fixed ``h = TULAC_H``
-    (currently 0.1), the resulting pseudo-observation perturbation
-    ``(δ/2) * T(grad)`` is bounded by ``5 * δ`` per coordinate — proportional
-    to the step size so adaptation can actually shrink it.
+    This is TULAc's ``g_i / (1 + h * |g_i|)`` with ``h = 1 / grad_clip``.
+    It recovers ``grad`` when ``|grad| / grad_clip`` is small and saturates
+    each component at ``sign(g_i) * grad_clip`` when ``|g_i|`` is huge.
 
     Prevents superlinear blow-up from log-link observations (Poisson / NB /
     Gamma with ``exp`` link) from poisoning the MH ratio. Applied identically
     on forward and reverse passes, so the auxiliary-Kalman MH ratio remains
     correct — the proposal kernel is just a different (still valid) kernel.
     """
-    return grad / (1.0 + TULAC_H * jnp.abs(grad))
+    clip = jnp.asarray(grad_clip, dtype=grad.dtype)
+    return grad / (1.0 + jnp.abs(grad) / clip)
 
 
 def build_auxiliary_kalman_bundle(

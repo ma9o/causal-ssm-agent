@@ -29,8 +29,8 @@ from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 logger = get_prefect_logger(__name__)
 
 
-InferenceMethod = Literal["marginal_particle_gibbs"]
-InferenceResultMethod = Literal["marginal_particle_gibbs", "map"]
+InferenceMethod = Literal["marginal_particle_gibbs", "particle_marginal_mh"]
+InferenceResultMethod = Literal["marginal_particle_gibbs", "particle_marginal_mh", "map"]
 
 
 @dataclass
@@ -102,6 +102,7 @@ class InferenceResult:
             "aux_kalman_mcmc",
             "pit_particle_mgrad",
             "marginal_particle_gibbs",
+            "particle_marginal_mh",
         }:
             idata = _arviz_idata_from_posterior(chain_samples)
         else:
@@ -226,6 +227,7 @@ class InferenceResult:
                     "aux_kalman_mcmc",
                     "pit_particle_mgrad",
                     "marginal_particle_gibbs",
+                    "particle_marginal_mh",
                 }:
                     chain_samples = mcmc.get_samples(group_by_chain=True)
                     if public_sites is not None:
@@ -257,6 +259,7 @@ class InferenceResult:
                 "aux_kalman_mcmc",
                 "pit_particle_mgrad",
                 "marginal_particle_gibbs",
+                "particle_marginal_mh",
             }:
                 chain_samples = mcmc.get_samples(group_by_chain=True)
                 if public_sites is not None:

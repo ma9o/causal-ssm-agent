@@ -14,6 +14,7 @@ import numpy as np
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.inference.bundle import (
     AUX_JITTER,
+    DEFAULT_TULAC_GRAD_CLIP,
     _initial_latent_moments,
     gaussian_log_prob_isotropic,
     tame_gradient_tulac,
@@ -377,6 +378,7 @@ def build_pit_particle_mgrad_latent_kernel(
     max_scale: float | None = None,
     debug_particle_trace: bool = False,
     latent_kernel_algorithm: str = "particle_mgrad",
+    grad_clip: float = DEFAULT_TULAC_GRAD_CLIP,
 ) -> dict[str, Any]:
     """Build the particle latent update.
 
@@ -422,7 +424,7 @@ def build_pit_particle_mgrad_latent_kernel(
     _raw_obs_increment_grad_fn = jax.grad(obs_increment_fn, argnums=1)
 
     def obs_increment_grad_fn(context, latent_t, observation_auxiliary, time_idx):
-        """TULAc-tamed observation log-prob gradient (fixed h, see TULAC_H).
+        """TULAc-tamed observation log-prob gradient.
 
         Same fix as `tame_gradient_tulac` used in aux_kalman_mcmc: bounds the
         gradient-augmented pseudo-observation perturbation so it can shrink
@@ -430,7 +432,8 @@ def build_pit_particle_mgrad_latent_kernel(
         density used in the particle weights matches the generated particles.
         """
         return tame_gradient_tulac(
-            _raw_obs_increment_grad_fn(context, latent_t, observation_auxiliary, time_idx)
+            _raw_obs_increment_grad_fn(context, latent_t, observation_auxiliary, time_idx),
+            grad_clip=grad_clip,
         )
 
     ref_particle_index = 0
@@ -730,7 +733,10 @@ def build_pit_particle_mgrad_latent_kernel(
         auxiliary_std = jnp.sqrt(auxiliary_var)[:, None]
         u = x_ref + auxiliary_std * random.normal(aux_key, x_ref.shape, dtype=latent_dtype)
         proposal_grads = jnp.asarray(
-            tame_gradient_tulac(obs_full_grad_fn(context, u, observation_auxiliary)),
+            tame_gradient_tulac(
+                obs_full_grad_fn(context, u, observation_auxiliary),
+                grad_clip=grad_clip,
+            ),
             dtype=latent_dtype,
         )
         proposal_mean = u + auxiliary_var[:, None] * proposal_grads
@@ -1221,6 +1227,7 @@ def build_pit_particle_mgrad_latent_kernel(
         "initial_scale_mode": "per_time_constant",
         "min_scale": min_scale,
         "max_scale": max_scale,
+        "grad_clip": float(grad_clip),
         "target_accept": target_accept,
         "step_fn": _latent_pit_particle_mgrad_step,
     }
