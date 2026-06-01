@@ -13,7 +13,7 @@ const stage = STAGES.find((s) => s.id === "stage-1b")!;
 const data = fixture as unknown as Stage1bData;
 
 const meta = {
-  title: "Pipeline/Stages/1b – Measurement",
+  title: "Pipeline/Stages/1b – Measurement/Panel",
   component: Stage1bContent,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage1bContent>;

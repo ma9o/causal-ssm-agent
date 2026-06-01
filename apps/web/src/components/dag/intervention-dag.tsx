@@ -25,7 +25,6 @@ import { buildInterventionDagViewModel } from "./intervention-dag-view-model";
 import { AnimationTimeline } from "./animation-timeline";
 import { DAG_ZOOM_CONTROLS_INSET, DagZoomControls } from "./dag-zoom-controls";
 import { EffectNode } from "./effect-node";
-import { NoiseNode } from "./noise-node";
 import { useMeasuredElement } from "./use-measured-element";
 import { WeightedEdge } from "./weighted-edge";
 
@@ -36,8 +35,6 @@ export interface InterventionDagProps {
   edges: CausalEdge[];
   indicators?: Indicator[];
   edgePosteriors?: Record<string, EdgePosterior>;
-  processNoise?: Record<string, number>;
-  showNoiseNodes?: boolean;
   requestedHorizonDays?: number;
   simulationResult?: Stage6SimulationResult | null;
   height?: string;
@@ -47,16 +44,12 @@ export interface InterventionDagProps {
 
 const nodeTypes: NodeTypes = {
   effect: EffectNode,
-  noise: NoiseNode,
 };
 
 const edgeTypes: EdgeTypes = {
   weighted: WeightedEdge,
 };
 
-const NOISE_OFFSET_X = 20;
-const NOISE_OFFSET_Y = -10;
-const ASSUMED_NODE_WIDTH = 240;
 const OVERLAY_GAP = 12;
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -84,8 +77,6 @@ function InterventionDagCanvas({
   edges,
   indicators,
   edgePosteriors = {},
-  processNoise,
-  showNoiseNodes = false,
   requestedHorizonDays,
   simulationResult = null,
   height = "600px",
@@ -135,27 +126,8 @@ function InterventionDagCanvas({
       },
     }));
 
-    if (showNoiseNodes && processNoise) {
-      for (const n of layoutNodes) {
-        const variance = processNoise[n.id];
-        if (variance == null) continue;
-        nodes.push({
-          id: `noise-${n.id}`,
-          type: "noise",
-          position: {
-            x: (n.position?.x ?? 0) + ASSUMED_NODE_WIDTH + NOISE_OFFSET_X,
-            y: (n.position?.y ?? 0) + NOISE_OFFSET_Y,
-          },
-          data: { constructName: n.id, variance },
-          draggable: false,
-          selectable: false,
-          connectable: false,
-        });
-      }
-    }
-
     return nodes;
-  }, [layoutNodes, showNoiseNodes, processNoise, viewModel.nodeData]);
+  }, [layoutNodes, viewModel.nodeData]);
 
   // ── Edges ───────────────────────────────────────────────────────────
   const maxAbsPosterior = useMemo(() => {
@@ -209,7 +181,7 @@ function InterventionDagCanvas({
   // ── Drag state (controlled mode) ───────────────────────────────────
   // localNodes holds React Flow's internal state (measured dimensions, drag
   // positions, etc.). We NEVER replace it with enrichedNodes except when the
-  // node-id set changes (layout recalc / noise toggle). Animation data is
+  // node-id set changes (layout recalc). Animation data is
   // merged on top via the styledNodes derivation below.
   const [localNodes, setLocalNodes] = useState<Node[]>(enrichedNodes);
   const [prevKey, setPrevKey] = useState(() =>
@@ -239,7 +211,7 @@ function InterventionDagCanvas({
         return { ...n, data: enriched.data, type: enriched.type };
       });
 
-    // Append new nodes not yet in localNodes (freshly toggled noise nodes)
+    // Append new nodes not yet tracked in localNodes (e.g. after a layout recalc)
     const localIds = new Set(localNodes.map((n) => n.id));
     for (const n of enrichedNodes) {
       if (!localIds.has(n.id)) nodes.push(n);

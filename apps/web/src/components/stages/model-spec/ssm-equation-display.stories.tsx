@@ -4,7 +4,7 @@ import { SSMEquationDisplay } from "./ssm-equation-display";
 import { indicators, likelihoods, parameters, priors } from "./__fixtures__/model-spec-fixtures";
 
 const meta = {
-  title: "Stages/ModelSpec/SSMEquationDisplay",
+  title: "Pipeline/Stages/4 – Model Specification/SSMEquationDisplay",
   component: SSMEquationDisplay,
   decorators: [withContainer()],
 } satisfies Meta<typeof SSMEquationDisplay>;

@@ -14,8 +14,12 @@ import {
   type SuggestionAction,
   type SuggestionChip,
 } from "@/lib/utils/trace-to-core";
+import type {
+  SimulateCounterfactualResult,
+  SimulateInterventionResult,
+} from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
-import { Bot, User, Wrench } from "lucide-react";
+import { Bot, Check, Eye, User, Wrench } from "lucide-react";
 import { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -24,6 +28,23 @@ const remarkPlugins = [remarkGfm];
 type DynamicToolMessagePart = Extract<UIMessage["parts"][number], { type: "dynamic-tool" }>;
 type StaticToolMessagePart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
 type ToolMessagePart = DynamicToolMessagePart | StaticToolMessagePart;
+
+export type SimulationResult = SimulateInterventionResult | SimulateCounterfactualResult;
+
+const SIMULATION_TOOLS = new Set(["simulate_intervention", "simulate_counterfactual"]);
+
+function asSimulationResult(output: unknown): SimulationResult | null {
+  if (typeof output !== "object" || output === null) return null;
+  const candidate = output as { rung?: unknown; outcome?: unknown };
+  return (candidate.rung === 2 || candidate.rung === 3) && typeof candidate.outcome === "string"
+    ? (output as SimulationResult)
+    : null;
+}
+
+function simulationHeadline(result: SimulationResult): string {
+  const { mean } = result.summary;
+  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.outcome}`;
+}
 
 const TextPart = memo(function TextPart({
   text,
@@ -97,10 +118,16 @@ function ToolPart({
   part,
   idx,
   className,
+  selected,
+  onSelect,
+  headline,
 }: {
   part: ToolMessagePart;
   idx: number;
   className?: string;
+  selected?: boolean;
+  onSelect?: () => void;
+  headline?: string;
 }) {
   const hasOutput = part.state === "output-available";
   const hasError = part.state === "output-error";
@@ -128,7 +155,32 @@ function ToolPart({
         {!isFinished && (
           <span className="text-[11px] text-muted-foreground italic">pending</span>
         )}
+        {onSelect ? (
+          <button
+            type="button"
+            onClick={onSelect}
+            className={cn(
+              "ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors",
+              selected
+                ? "bg-primary text-primary-foreground"
+                : "border text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {selected ? (
+              <>
+                <Check className="h-3 w-3" /> Viewing
+              </>
+            ) : (
+              <>
+                <Eye className="h-3 w-3" /> View
+              </>
+            )}
+          </button>
+        ) : null}
       </div>
+      {headline ? (
+        <div className="mt-1 font-mono text-[11px] text-muted-foreground">{headline}</div>
+      ) : null}
 
       {/* Input arguments */}
       {part.input != null && (
@@ -236,10 +288,14 @@ function AssistantMessage({
   msg,
   streaming = false,
   onSuggestionClick,
+  selectedSimulationKey,
+  onSelectSimulation,
 }: {
   msg: UIMessage;
   streaming?: boolean;
   onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
+  selectedSimulationKey?: string;
+  onSelectSimulation?: (key: string, result: SimulationResult) => void;
 }) {
   const suggestions = msg.parts
     .filter(isSuggestionsDataPart)
@@ -261,7 +317,27 @@ function AssistantMessage({
             return <TextPart key={key} text={part.text} streaming={streaming} />;
           case "reasoning":
             return <ReasoningPart key={key} text={part.text} idx={i} />;
-          case "dynamic-tool":
+          case "dynamic-tool": {
+            const simulation =
+              part.state === "output-available" && SIMULATION_TOOLS.has(part.toolName)
+                ? asSimulationResult(part.output)
+                : null;
+            if (simulation && onSelectSimulation) {
+              const callKey = part.toolCallId;
+              return (
+                <ToolPart
+                  key={key}
+                  part={part}
+                  idx={i}
+                  className="mt-2"
+                  selected={callKey === selectedSimulationKey}
+                  onSelect={() => onSelectSimulation(callKey, simulation)}
+                  headline={simulationHeadline(simulation)}
+                />
+              );
+            }
+            return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
+          }
           case "tool-validate_measurement_model":
           case "tool-stage1b_grounding":
           case "tool-search_literature":
@@ -285,10 +361,14 @@ export const ChatMessages = memo(function ChatMessages({
   messages,
   streaming = false,
   onSuggestionClick,
+  selectedSimulationKey,
+  onSelectSimulation,
 }: {
   messages: UIMessage[];
   streaming?: boolean;
   onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
+  selectedSimulationKey?: string;
+  onSelectSimulation?: (key: string, result: SimulationResult) => void;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -308,6 +388,8 @@ export const ChatMessages = memo(function ChatMessages({
                 msg={msg}
                 streaming={isStreamingMessage}
                 onSuggestionClick={onSuggestionClick}
+                selectedSimulationKey={selectedSimulationKey}
+                onSelectSimulation={onSelectSimulation}
               />
             );
           default:

@@ -7,7 +7,7 @@ import fixture from "../../../../../../data/DEMO/run/stage-3.json";
 const data = normalizeStage3Data(fixture);
 
 const meta = {
-  title: "Stages/Validation/IndicatorHealthTable",
+  title: "Pipeline/Stages/3 – Validation/IndicatorHealthTable",
   component: IndicatorHealthTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof IndicatorHealthTable>;

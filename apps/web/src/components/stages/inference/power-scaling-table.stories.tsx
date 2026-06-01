@@ -5,7 +5,7 @@ import { stage5bAuxKalmanMCMC } from "@/components/__fixtures__/inference-data";
 import { PowerScalingTable } from "./power-scaling-table";
 
 const meta = {
-  title: "Stages/Inference/PowerScalingTable",
+  title: "Pipeline/Stages/5b – Inference & Diagnostics/PowerScalingTable",
   component: PowerScalingTable,
   decorators: [withContainer("max-w-3xl")],
 } satisfies Meta<typeof PowerScalingTable>;

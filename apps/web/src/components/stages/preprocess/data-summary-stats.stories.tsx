@@ -7,7 +7,7 @@ import fixture from "../../../../../../data/DEMO/run/stage-0.json";
 const data = fixture as Stage0Data;
 
 const meta = {
-  title: "Stages/Preprocess/DataSummaryStats",
+  title: "Pipeline/Stages/0 – Preprocess/DataSummaryStats",
   component: DataSummaryStats,
   decorators: [withContainer("max-w-3xl")],
 } satisfies Meta<typeof DataSummaryStats>;

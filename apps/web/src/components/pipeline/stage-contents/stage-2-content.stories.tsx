@@ -513,7 +513,7 @@ function AnimatedStage2Running() {
 }
 
 const meta = {
-  title: "Pipeline/Stages/2 – Data Extraction",
+  title: "Pipeline/Stages/2 – Data Extraction/Panel",
   component: Stage2Content,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage2Content>;

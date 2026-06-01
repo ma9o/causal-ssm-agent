@@ -4,7 +4,7 @@ import { ObsModelTable } from "./obs-model-table";
 import { indicators, likelihoods, parameters, priors } from "./__fixtures__/model-spec-fixtures";
 
 const meta = {
-  title: "Stages/ModelSpec/ObsModelTable",
+  title: "Pipeline/Stages/4 – Model Specification/ObsModelTable",
   component: ObsModelTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof ObsModelTable>;

@@ -14,7 +14,7 @@ const data = fixture as Stage0Data;
 const workspaceId = "demo-user";
 
 const meta = {
-  title: "Pipeline/Stages/0 – Preprocess",
+  title: "Pipeline/Stages/0 – Preprocess/Panel",
   component: Stage0Content,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage0Content>;

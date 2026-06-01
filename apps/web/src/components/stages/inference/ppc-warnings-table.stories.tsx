@@ -6,7 +6,7 @@ import { PPCWarningsTable } from "./ppc-warnings-table";
 const ppc = stage5bAuxKalmanMCMC.ppc!;
 
 const meta = {
-  title: "Stages/Inference/PPCWarningsTable",
+  title: "Pipeline/Stages/5b – Inference & Diagnostics/PPCWarningsTable",
   component: PPCWarningsTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof PPCWarningsTable>;

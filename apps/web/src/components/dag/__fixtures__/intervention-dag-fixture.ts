@@ -89,20 +89,6 @@ export const edgePosteriors: Record<string, EdgePosterior> = {
   },
 };
 
-export const processNoise: Record<string, number> = {
-  affective_state: 0.18,
-  serotonergic_exposure: 0.12,
-  adherence: 0.16,
-  sleep_quality: 0.22,
-  physical_activity: 0.31,
-  social_engagement: 0.2,
-  prescription_event: 0.08,
-  seasonal_load: 0.04,
-  life_events_load: 0.14,
-  cyp2c19_metabolizer_status: 0.02,
-  baseline_extraversion: 0.02,
-};
-
 const rung2Days = buildDailyGrid(60);
 const rung2BaselineState: Record<string, number> = {
   affective_state: 0.38,

@@ -8,7 +8,7 @@ import {
 } from "./__fixtures__/model-spec-fixtures";
 
 const meta = {
-  title: "Stages/ModelSpec/MeasurementTable",
+  title: "Pipeline/Stages/4 – Model Specification/MeasurementTable",
   component: MeasurementTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof MeasurementTable>;

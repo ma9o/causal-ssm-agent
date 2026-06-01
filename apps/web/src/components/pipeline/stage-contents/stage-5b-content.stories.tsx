@@ -15,7 +15,7 @@ const data = fixture as Stage5bData;
 const auxKalmanMCMCData = auxKalmanMCMCFixture as Stage5bData;
 
 const meta = {
-  title: "Pipeline/Stages/5b – Inference & Diagnostics",
+  title: "Pipeline/Stages/5b – Inference & Diagnostics/Panel",
   component: Stage5bContent,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage5bContent>;

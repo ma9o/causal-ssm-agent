@@ -14,7 +14,7 @@ const stage = STAGES.find((s) => s.id === "stage-3")!;
 const data = normalizeStage3Data(fixture);
 
 const meta = {
-  title: "Pipeline/Stages/3 – Validation",
+  title: "Pipeline/Stages/3 – Validation/Panel",
   component: Stage3Content,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage3Content>;

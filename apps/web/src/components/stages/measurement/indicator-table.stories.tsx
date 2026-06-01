@@ -8,7 +8,7 @@ const data = fixture as unknown as Stage1bData;
 const indicators = data.causal_spec.measurement.indicators;
 
 const meta = {
-  title: "Stages/Measurement/IndicatorTable",
+  title: "Pipeline/Stages/1b – Measurement/IndicatorTable",
   component: IndicatorTable,
   decorators: [withContainer("max-w-3xl")],
 } satisfies Meta<typeof IndicatorTable>;

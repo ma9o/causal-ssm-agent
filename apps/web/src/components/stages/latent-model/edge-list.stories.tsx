@@ -8,7 +8,7 @@ const data = fixture as unknown as Stage1aData;
 const edges = data.latent_model.edges;
 
 const meta = {
-  title: "Stages/LatentModel/EdgeList",
+  title: "Pipeline/Stages/1a – Latent Model/EdgeList",
   component: EdgeList,
   decorators: [withContainer("max-w-md")],
 } satisfies Meta<typeof EdgeList>;

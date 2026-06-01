@@ -13,7 +13,7 @@ const stage = STAGES.find((s) => s.id === "stage-1a")!;
 const data = fixture as unknown as Stage1aData;
 
 const meta = {
-  title: "Pipeline/Stages/1a – Latent Model",
+  title: "Pipeline/Stages/1a – Latent Model/Panel",
   component: Stage1aContent,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage1aContent>;

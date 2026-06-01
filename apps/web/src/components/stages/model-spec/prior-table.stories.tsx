@@ -4,7 +4,7 @@ import { PriorTable } from "./prior-table";
 import { priors, parameters } from "./__fixtures__/model-spec-fixtures";
 
 const meta = {
-  title: "Stages/ModelSpec/PriorTable",
+  title: "Pipeline/Stages/4 – Model Specification/PriorTable",
   component: PriorTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof PriorTable>;

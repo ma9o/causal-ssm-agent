@@ -11,7 +11,7 @@ import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";
 import { Clock, Cpu, Loader2, MessageSquare, Send } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef } from "react";
-import { ChatMessages } from "./chat-messages";
+import { ChatMessages, type SimulationResult } from "./chat-messages";
 
 function TraceSummary({ trace }: { trace: LLMTrace }) {
   const { usage } = trace;
@@ -50,6 +50,8 @@ export function LLMTracePanelView({
   onInputChange,
   onSubmit,
   onSuggestionClick,
+  selectedSimulationKey,
+  onSelectSimulation,
 }: {
   trace: LLMTrace;
   refinementMessages?: UIMessage[];
@@ -59,6 +61,8 @@ export function LLMTracePanelView({
   onInputChange?: (value: string) => void;
   onSubmit?: (e: FormEvent) => void;
   onSuggestionClick?: (action: SuggestionAction, chip: SuggestionChip) => void;
+  selectedSimulationKey?: string;
+  onSelectSimulation?: (key: string, result: SimulationResult) => void;
 }) {
   const traceMessages = useMemo(() => traceToUIMessages(trace), [trace]);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -118,7 +122,11 @@ export function LLMTracePanelView({
 
       {/* Trace messages — read-only */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-        <ChatMessages messages={traceMessages} />
+        <ChatMessages
+          messages={traceMessages}
+          selectedSimulationKey={selectedSimulationKey}
+          onSelectSimulation={onSelectSimulation}
+        />
 
         {/* Separator between trace and refinement */}
         {hasRefinement && (
@@ -136,6 +144,8 @@ export function LLMTracePanelView({
             messages={refinementMessages}
             streaming={isLoading}
             onSuggestionClick={onSuggestionClick}
+            selectedSimulationKey={selectedSimulationKey}
+            onSelectSimulation={onSelectSimulation}
           />
         )}
       </div>

@@ -19,7 +19,7 @@ import { useEffect, useState } from "react";
 const stage = STAGES.find((s) => s.id === "stage-4")!;
 
 const meta = {
-  title: "Pipeline/Stages/4 – Model Specification",
+  title: "Pipeline/Stages/4 – Model Specification/Panel",
   component: Stage4RunningView,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage4RunningView>;

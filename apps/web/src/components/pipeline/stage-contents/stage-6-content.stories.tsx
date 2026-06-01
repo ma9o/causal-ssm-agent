@@ -461,7 +461,7 @@ function InteractiveFollowUpDemoView() {
 }
 
 const meta = {
-  title: "Pipeline/Stages/6 – Treatment Effects",
+  title: "Pipeline/Stages/6 – Treatment Effects/Panel",
   component: Stage6Showcase,
   decorators: stageStoryDecorators,
 } satisfies Meta<typeof Stage6Showcase>;

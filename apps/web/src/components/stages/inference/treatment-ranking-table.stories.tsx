@@ -7,7 +7,7 @@ import fixture from "../../../../../../data/DEMO/run/stage-6.json";
 const data = fixture as unknown as Stage6Data;
 
 const meta = {
-  title: "Stages/Inference/TreatmentRankingTable",
+  title: "Pipeline/Stages/5b – Inference & Diagnostics/TreatmentRankingTable",
   component: TreatmentRankingTable,
   decorators: [withContainer()],
 } satisfies Meta<typeof TreatmentRankingTable>;

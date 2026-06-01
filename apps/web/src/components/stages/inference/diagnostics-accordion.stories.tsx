@@ -4,7 +4,7 @@ import { stage5b, stage5bAuxKalmanMCMC } from "@/components/__fixtures__/inferen
 import { DiagnosticsAccordion } from "./diagnostics-accordion";
 
 const meta = {
-  title: "Stages/Inference/DiagnosticsAccordion",
+  title: "Pipeline/Stages/5b – Inference & Diagnostics/DiagnosticsAccordion",
   component: DiagnosticsAccordion,
   decorators: [withContainer()],
 } satisfies Meta<typeof DiagnosticsAccordion>;
