@@ -59,9 +59,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
     _observation_log_probs_by_param,
     _sample_gaussian_from_chol,
 )
-from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers._dsmc_combine_kernel import (
-    combine_log_joint,
-)
 
 _LOG_2PI = math.log(2.0 * math.pi)
 
@@ -86,9 +83,6 @@ def smooth(ctx, key, x_ref):
     latent_dtype = ctx.latent_dtype
     traj_dtype = ctx.traj_dtype
     latent_dim = int(init_means.shape[-1])
-    # GPU -> streaming Triton combine kernel (tf32 cross, benchmarked unbiased — see
-    # _dsmc_combine_kernel); CPU/tests -> exact-fp32 Pallas interpret mode.
-    combine_interpret = jax.default_backend() != "gpu"
     dsmc_leaf_proposal = ctx.dsmc_leaf_proposal
     amala_delta = jnp.asarray(ctx.amala_delta, dtype=latent_dtype)
     proposal_var_by_t = jnp.asarray(0.5, dtype=latent_dtype) * amala_delta
@@ -409,11 +403,11 @@ def smooth(ctx, key, x_ref):
         seam_clamped = jnp.minimum(seam, num_steps - 1)
         real_seam = seam < num_steps
 
-        # Per-parameter whitened vectors + scalar folds for the streaming combine kernel.
-        # The kernel returns logsumexp_p(a_p[m] + b_p[n] + <wm_p[m], wn_p[n]>), equal to
-        # logsumexp_p(logpi_p + left_psi + right_psi + transition_lp) but without ever
-        # materializing the (P,N,N) tensor. Phantom seams (real_seam False) carry no
-        # transition: zero wm and drop the Gaussian normalization so the term is logpi+psi.
+        # Per-parameter whitened vectors + scalar folds for the combine, which is
+        # logsumexp_p(a_p[m] + b_p[n] + <wm_p[m], wn_p[n]>), equal to
+        # logsumexp_p(logpi_p + left_psi + right_psi + transition_lp). Phantom seams
+        # (real_seam False) carry no transition: zero wm and drop the Gaussian
+        # normalization so the term is logpi+psi.
         def _per_param(drift_s, shift_s, chol_s, logdet_s, logpi_p, left_psi_p, right_psi_p):
             means = left_last @ drift_s.T + shift_s
             wm = jla.solve_triangular(chol_s, means.T, lower=True).T
@@ -435,7 +429,8 @@ def smooth(ctx, key, x_ref):
             jnp.swapaxes(left_psi, 0, 1),
             jnp.swapaxes(right_psi, 0, 1),
         )
-        log_joint = combine_log_joint(wm, wn, a, b, interpret=combine_interpret)
+        cross = jnp.einsum("pmd,pnd->pmn", wm, wn)
+        log_joint = jax.scipy.special.logsumexp(a[:, :, None] + b[:, None, :] + cross, axis=0)
         log_left = jax.scipy.special.logsumexp(logpi[None, :] + left_psi, axis=1)
         log_right = jax.scipy.special.logsumexp(logpi[None, :] + right_psi, axis=1)
         seam_coupling = log_joint - log_left[:, None] - log_right[None, :]

@@ -1,7 +1,7 @@
 """Modal GPU profiling harness for the MPGibbs latent smoothers.
 
-Runs a scaling sweep (ms/step vs N and T) for `plain` and `dsmc(amala_plus leaf)`
-on a Modal GPU of your choice, which *ranks* the wall-clock bottleneck:
+Runs a scaling sweep (ms/step vs N and T) for the configured methods on a Modal
+GPU of your choice, which *ranks* the wall-clock bottleneck:
 
   * dsmc ms/step ~16x when N quadruples  -> N^2 bridge bound (bandwidth/compute)
   * dsmc ms/step ~flat in N             -> kernel-launch bound
@@ -9,21 +9,21 @@ on a Modal GPU of your choice, which *ranks* the wall-clock bottleneck:
   * ms/step sublinear in T              -> span-bound (tree parallelism exploited)
 
 Each config runs in its own GPU container (fan-out via .map), so the grid runs in
-parallel and any large-N OOM is isolated to its own container. The headline config
-(dsmc+amala_plus, N=512, T=1024) also dumps a device-accurate HLO + cost-analysis
-+ access-pattern histogram and a jax.profiler trace onto a Modal Volume, namespaced
+parallel and any large-N OOM is isolated to its own container. The headline method
+at max(N_GRID) and max(T_GRID) also dumps a device-accurate HLO + cost-analysis +
+access-pattern histogram and a jax.profiler trace onto a Modal Volume, namespaced
 per GPU so traces from different cards do not collide.
 
 The GPU is selected via the BENCHMARK_GPU env var (Modal binds resources at decoration
-time, so it cannot be a runtime CLI flag). It defaults to L4; the image is
+time, so it cannot be a runtime CLI flag). It defaults to H100 (80GB); the image is
 GPU-agnostic and built once, reused across cards:
 
-  modal run scripts/benchmarks/benchmark_gpu.py                     # L4 (default)
+  modal run scripts/benchmarks/benchmark_gpu.py                     # H100 80GB (default)
   BENCHMARK_GPU=A100 modal run scripts/benchmarks/benchmark_gpu.py
   BENCHMARK_GPU=H100 modal run scripts/benchmarks/benchmark_gpu.py --comparison-only
   BENCHMARK_GPU=H100 modal run scripts/benchmarks/benchmark_gpu.py --headline-only
 
-  modal volume get nof1-mpgibbs-prof /A100/dsmc_amala_plus_N512_T1024 ./a100_trace
+  modal volume get nof1-mpgibbs-prof /H100/dsmc_amala_plus_N512_T1024 ./h100_trace
 
 The model is the ``scripts/benchmarks/synthetic_nonlinear.py`` fixture (3 latent
 states, mixed observation families), built with random init (no Pathfinder) —
@@ -34,10 +34,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import NamedTuple
 
 import modal
 
-DEFAULT_GPU = "L4"
+DEFAULT_GPU = "H100"
 # Modal 1.3 binds gpu= at decoration time, so the card is chosen at import via env var
 # (a main() CLI flag would be parsed too late to reach the @app.function spec).
 GPU = os.environ.get("BENCHMARK_GPU", DEFAULT_GPU)
@@ -55,7 +56,7 @@ def _build_image() -> modal.Image:
         .pip_install("uv")
         .uv_sync(uv_project_dir=str(root), groups=["dev", "cloud"], frozen=True)
         # CUDA 12 wheels (GPU-agnostic, one image for any card), pinned to uv.lock so the
-        # resolve can't drift jax off 0.9.0.1 — the Triton combine kernel needs backend=.
+        # resolve cannot drift JAX off 0.9.0.1 between benchmark runs.
         .uv_pip_install("jax[cuda12]==0.9.0.1")
         .env({"PYTHONPATH": "/root/src"})
         .add_local_file(root / "config.yaml", remote_path="/root/config.yaml")
@@ -72,43 +73,70 @@ image = _build_image() if modal.is_local() else modal.Image.debian_slim(python_v
 app = modal.App("nof1-mpgibbs-gpu-benchmark", image=image)
 volume = modal.Volume.from_name("nof1-mpgibbs-prof", create_if_missing=True)
 
-# (latent_smoother, dsmc_leaf_proposal, latent_block_size)
-PLAIN = ("plain", "prior_predictive", 256)
-DSMC_AMALA = ("dsmc", "amala_plus", 256)
-DSMC_PRIOR = ("dsmc", "prior_predictive", 256)
-AMALA_PLUS = ("amala_plus", "prior_predictive", 16)
 
-# dsmc's (num_pairs, N, N, P) level-0 materialization makes pure-JAX N=512 OOM on
-# memory-tight cards (e.g. L4 24GB; fine on A100/H100/B200) — the reason the Triton
-# kernel exists (per project_dsmc_scaling_regime). The grid centers on memory-safe N;
-# N=512 is a single large-N probe (expected OOM on small cards, ~300ms on big ones).
-N_GRID = (64, 128, 256)
-T_GRID = (256, 1024)
-SWEEP: list[tuple] = (
-    [(*PLAIN, n, t) for n in N_GRID for t in T_GRID]
-    + [(*DSMC_AMALA, n, t) for n in N_GRID for t in T_GRID]
-    + [
-        (*DSMC_AMALA, 512, 1024),  # large-N probe: OOM on <=24GB cards, ~300ms on >=40GB
-        (*DSMC_PRIOR, 256, 1024),  # leaf-choice control (leaf is cheap; tree dominates)
-        (*AMALA_PLUS, 128, 256),
-        (*AMALA_PLUS, 128, 1024),
-    ]
-)
-COMPARISON = [
-    (*PLAIN, 512, 1024),
-    (*DSMC_AMALA, 512, 1024),
-]
+class MethodSpec(NamedTuple):
+    smoother: str
+    leaf: str
+    block_size: int
+    trace: bool = False
 
-HEADLINE = (
-    "dsmc",
-    "amala_plus",
-    256,
-    512,
-    1024,
-)  # trace + HLO dump target; large-N production config
+
+class BenchmarkConfig(NamedTuple):
+    smoother: str
+    leaf: str
+    block_size: int
+    n_particles: int
+    t_steps: int
+
+    @property
+    def tag(self) -> str:
+        return (
+            f"{self.smoother}/{self.leaf}/N{self.n_particles}/T{self.t_steps}/bs{self.block_size}"
+        )
+
+    @property
+    def profile_name(self) -> str:
+        return f"{self.smoother}_{self.leaf}_N{self.n_particles}_T{self.t_steps}"
+
+
+DEFAULT_BLOCK_SIZE = 256
+
+# dsmc's pure-JAX (num_pairs, P, N, N) combine materialization can OOM on
+# memory-tight cards. The default sweep targets the H100 80GB large-N regime.
+N_GRID = (512,)
+T_GRID = (1024,)
+METHODS = (MethodSpec("dsmc", "amala_plus", DEFAULT_BLOCK_SIZE, trace=True),)
+
+
+def _config(method: MethodSpec, n_particles: int, t_steps: int) -> BenchmarkConfig:
+    return BenchmarkConfig(
+        method.smoother,
+        method.leaf,
+        method.block_size,
+        n_particles,
+        t_steps,
+    )
+
+
+def _grid_configs(methods: tuple[MethodSpec, ...]) -> tuple[BenchmarkConfig, ...]:
+    return tuple(
+        _config(method, n_particles, t_steps)
+        for method in methods
+        for n_particles in N_GRID
+        for t_steps in T_GRID
+    )
+
+
+def _max_grid_config(method: MethodSpec) -> BenchmarkConfig:
+    return _config(method, max(N_GRID), max(T_GRID))
+
+
+SWEEP_CONFIGS = _grid_configs(METHODS)
+COMPARISON_CONFIGS = tuple(_max_grid_config(method) for method in METHODS)
+HEADLINE_CONFIG = _max_grid_config(next(method for method in METHODS if method.trace))
 NUM_PARAMETER_PARTICLES = 8
-WARMUP_STEPS = 1
-SAMPLE_STEPS = 20
+WARMUP_STEPS = 150
+SAMPLE_STEPS = 150
 
 
 # gpu=GPU is import-time (Modal 1.3 binds resources at decoration); select via the
@@ -122,7 +150,7 @@ SAMPLE_STEPS = 20
     max_containers=10,
     volumes={"/prof": volume},
 )
-def run_config(cfg: tuple, gpu_tag: str) -> dict:
+def run_config(cfg: BenchmarkConfig, gpu_tag: str) -> dict:
     """Build the fixture, time steady-state ms/step for one config; trace if headline."""
     import sys
     import time
@@ -143,8 +171,12 @@ def run_config(cfg: tuple, gpu_tag: str) -> dict:
         run_marginal_particle_gibbs,
     )
 
-    smoother, leaf, block, n_particles, t_steps = cfg
-    tag = f"{smoother}/{leaf}/N{n_particles}/T{t_steps}/bs{block}"
+    smoother = cfg.smoother
+    leaf = cfg.leaf
+    block = cfg.block_size
+    n_particles = cfg.n_particles
+    t_steps = cfg.t_steps
+    tag = cfg.tag
     total_steps = WARMUP_STEPS + SAMPLE_STEPS
     try:
         print("JAX devices:", jax.devices(), "| config:", tag, flush=True)
@@ -174,11 +206,7 @@ def run_config(cfg: tuple, gpu_tag: str) -> dict:
             dsmc_leaf_proposal=leaf,
             latent_block_size=block,
         )
-        profile_dir = (
-            f"/prof/{gpu_tag}/{smoother}_{leaf}_N{n_particles}_T{t_steps}"
-            if cfg == HEADLINE
-            else None
-        )
+        profile_dir = f"/prof/{gpu_tag}/{cfg.profile_name}" if cfg == HEADLINE_CONFIG else None
         started = time.monotonic()
         run = run_marginal_particle_gibbs(
             bundle,
@@ -228,29 +256,53 @@ def run_config(cfg: tuple, gpu_tag: str) -> dict:
         }
 
 
-def _scaling(results: list[dict], smoother: str, leaf: str) -> None:
-    def ms(n, t):
-        for r in results:
-            if (
-                r.get("smoother") == smoother
-                and r.get("leaf") == leaf
-                and r.get("N") == n
-                and r.get("T") == t
-            ):
-                return r.get("steady_ms_per_step")
-        return None
+def _result_ms(
+    results: list[dict],
+    method: MethodSpec,
+    n_particles: int,
+    t_steps: int,
+) -> float | None:
+    for result in results:
+        if (
+            result.get("smoother") == method.smoother
+            and result.get("leaf") == method.leaf
+            and result.get("block") == method.block_size
+            and result.get("N") == n_particles
+            and result.get("T") == t_steps
+        ):
+            return result.get("steady_ms_per_step")
+    return None
 
-    print(f"\n  scaling for {smoother}({leaf}):")
-    if ms(64, 1024) and ms(256, 1024):
-        print(
-            f"    N 64->256 @T1024:  x{ms(256, 1024) / ms(64, 1024):.1f}"
-            "   (~16 => N^2-bound, ~1 => launch-bound)"
-        )
-    if ms(256, 256) and ms(256, 1024):
-        print(
-            f"    T 256->1024 @N256: x{ms(256, 1024) / ms(256, 256):.1f}"
-            "   (~4 => T-linear, ~1 => span-bound)"
-        )
+
+def _scaling(results: list[dict], method: MethodSpec) -> None:
+    lines = []
+    if len(N_GRID) > 1:
+        n_low = min(N_GRID)
+        n_high = max(N_GRID)
+        t_ref = max(T_GRID)
+        low_ms = _result_ms(results, method, n_low, t_ref)
+        high_ms = _result_ms(results, method, n_high, t_ref)
+        if low_ms is not None and high_ms is not None:
+            lines.append(
+                f"    N {n_low}->{n_high} @T{t_ref}:  x{high_ms / low_ms:.1f}"
+                "   (~quadratic => N^2-bound, ~1 => launch-bound)"
+            )
+    if len(T_GRID) > 1:
+        t_low = min(T_GRID)
+        t_high = max(T_GRID)
+        n_ref = max(N_GRID)
+        low_ms = _result_ms(results, method, n_ref, t_low)
+        high_ms = _result_ms(results, method, n_ref, t_high)
+        if low_ms is not None and high_ms is not None:
+            lines.append(
+                f"    T {t_low}->{t_high} @N{n_ref}: x{high_ms / low_ms:.1f}"
+                "   (~linear => T-linear, ~1 => span-bound)"
+            )
+    if not lines:
+        return
+    print(f"\n  scaling for {method.smoother}({method.leaf}, bs={method.block_size}):")
+    for line in lines:
+        print(line)
 
 
 @app.local_entrypoint()
@@ -258,11 +310,11 @@ def main(headline_only: bool = False, comparison_only: bool = False):
     # GPU is chosen via the BENCHMARK_GPU env var (see module docstring). --headline-only
     # re-runs just the trace target (1 GPU) once the grid is in hand.
     if comparison_only:
-        configs = COMPARISON
+        configs = COMPARISON_CONFIGS
     elif headline_only:
-        configs = [HEADLINE]
+        configs = (HEADLINE_CONFIG,)
     else:
-        configs = SWEEP
+        configs = SWEEP_CONFIGS
     gpu_tag = GPU.replace(":", "x")  # path-safe label (Modal allows multi-GPU "A100:2")
     results = list(run_config.map(configs, kwargs={"gpu_tag": gpu_tag}))
     print(f"\n================ MPGibbs GPU benchmark [{GPU}] ================")
@@ -283,9 +335,9 @@ def main(headline_only: bool = False, comparison_only: bool = False):
                 f"{r['smoother']:<11}{r['leaf']:<16}{r['N']:>5}{r['T']:>6}{r['block']:>5}"
                 f"{r['dim']:>5}{r['compile_s']:>11}{r['steady_ms_per_step']:>11}"
             )
-    _scaling(results, "plain", "prior_predictive")
-    _scaling(results, "dsmc", "amala_plus")
-    headline_path = f"{gpu_tag}/dsmc_amala_plus_N{HEADLINE[3]}_T{HEADLINE[4]}"
+    for method in METHODS:
+        _scaling(results, method)
+    headline_path = f"{gpu_tag}/{HEADLINE_CONFIG.profile_name}"
     print("\nTrace + HLO for the headline config on Volume 'nof1-mpgibbs-prof':")
     print(f"  modal volume get nof1-mpgibbs-prof /{headline_path} ./{gpu_tag.lower()}_trace")
     print(
