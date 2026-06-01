@@ -132,7 +132,7 @@ class SSMSpec:
 
     # Pure structural metadata (no sampled params).
     static_factor_loadings: jnp.ndarray = field(
-        default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float64)
+        default_factory=lambda: jnp.zeros((0, 0), dtype=jnp.float32)
     )
     diffusion_dists: list[DistributionFamily] = field(default_factory=list)
     manifest_dists: list[DistributionFamily] = field(default_factory=list)
@@ -173,7 +173,7 @@ class SSMSpec:
         if loadings.ndim != 2:
             raise ValueError("static_factor_loadings must be a rank-2 array.")
         if loadings.shape[0] == 0 and loadings.shape[1] == 0:
-            loadings = jnp.zeros((self.n_latent, 0), dtype=jnp.float64)
+            loadings = jnp.zeros((self.n_latent, 0), dtype=jnp.float32)
         elif loadings.shape[0] != self.n_latent:
             raise ValueError(
                 "static_factor_loadings must have shape "

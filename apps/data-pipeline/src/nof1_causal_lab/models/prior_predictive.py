@@ -1009,7 +1009,7 @@ def _check_lagged_response_plausibility(
             continue
         responses: list[float] = []
         for idx in sample_idx:
-            drift = jnp.asarray(drift_samples[idx], dtype=jnp.float64)
+            drift = jnp.asarray(drift_samples[idx], dtype=jnp.float32)
             transition = np.asarray(jla.expm(drift * lag_days))
             responses.append(float(transition[effect_idx, cause_idx]))
 

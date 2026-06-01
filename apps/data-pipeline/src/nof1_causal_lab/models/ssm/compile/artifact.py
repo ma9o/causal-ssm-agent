@@ -225,7 +225,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         return np.asarray(block[key], dtype=bool)
 
     def _float_array(block: dict[str, Any], key: str) -> jnp.ndarray:
-        return jnp.asarray(block[key], dtype=jnp.float64)
+        return jnp.asarray(block[key], dtype=jnp.float32)
 
     def _optional_bool_array(block: dict[str, Any], key: str) -> np.ndarray | None:
         value = block.get(key)
@@ -297,7 +297,7 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         "static_state_sd_block": _sparse_vector_block(payload["static_state_sd_block"]),
         "static_factor_loadings": jnp.asarray(
             payload["static_factor_loadings"],
-            dtype=jnp.float64,
+            dtype=jnp.float32,
         ),
     }
 

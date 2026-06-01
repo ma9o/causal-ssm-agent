@@ -1,6 +1,6 @@
 # Inference Routing for State-Space Models
 
-The implemented inference surface is deliberately small: `aux_kalman_mcmc` and `pit_particle_mgrad`. For the CT-SDE formulation and likelihood backends, see [estimation.md](estimation.md).
+The implemented inference surface is deliberately small: a single default method, `marginal_particle_gibbs`, plus `particle_marginal_mh` as a pseudo-marginal comparator. For the CT-SDE formulation and likelihood backends, see [estimation.md](estimation.md).
 
 ## The Marginalization Challenge
 
@@ -10,61 +10,56 @@ Given a state-space model with latent states **x**_1:T and observations **y**_1:
 p(y_1:T | theta) = integral p(y_1:T, x_1:T | theta) dx_1:T
 ```
 
-For SSMs with T timesteps and n latent dimensions, this integral is over an `(n x T)`-dimensional space. The public methods use blocked complete-data MCMC updates over parameters and latent trajectories.
+For SSMs with T timesteps and n latent dimensions, this integral is over an `(n x T)`-dimensional space. `marginal_particle_gibbs` avoids forming it directly: it targets the directly evaluable joint latent/parameter posterior with a collapsed Particle Gibbs sweep, alternating a conditional-SMC latent-trajectory update with a parameter move. `particle_marginal_mh` instead targets the parameter posterior alone, using a bootstrap particle filter to produce an unbiased estimate of the marginal likelihood inside a pseudo-marginal Metropolis-Hastings accept/reject.
 
 ## Method Taxonomy
 
-| Method | Coupling | State-side objective | Parameter update | Primary use |
+| Method | Strategy | Latent update | Parameter update | Primary use |
 |---|---|---|---|---|
-| `aux_kalman_mcmc` | Blocked complete-data MCMC | Auxiliary Kalman latent trajectory proposal | MALA parameter kernel | Default blocked MCMC fit |
-| `pit_particle_mgrad` | Blocked complete-data MCMC | Sequential Particle-mGRAD latent trajectory proposal | Hybrid Gibbs/NUTS parameter kernel | Prior-informed particle latent trajectory updates |
+| `marginal_particle_gibbs` | Collapsed Particle Gibbs over the joint latent/parameter posterior | Conditional SMC smoother (selectable: `plain`, `amala`, `amala_plus`, `mgrad`, `dsmc`) | Pseudo-Langevin or random-walk parameter proposal | Default fit |
+| `particle_marginal_mh` | Pseudo-marginal MH over parameters | Bootstrap particle-filter marginal-likelihood estimate; latent paths not retained | Preconditioned Metropolis-Hastings | Comparator / validation |
 
 ## Structural Routing
 
-The default routing resolves to `aux_kalman_mcmc`. Users can override the method with `pit_particle_mgrad` when they need particle latent trajectory updates instead of the auxiliary Kalman proposal.
+The default routing resolves to `marginal_particle_gibbs`. Routing also records the structural backend for runtime/frontend diagnostics:
 
-Routing still records the structural backend for runtime/frontend diagnostics:
-
-- **`laplace`**: non-Gaussian observations or support-aware summaries use the IEKS/Laplace approximate marginal likelihood.
+- **`laplace`**: non-Gaussian observations or support-aware summaries use the IEKS/Laplace approximate marginal likelihood when a method needs a marginal-likelihood objective.
 
 ## User Overrides
 
-| Need | Override to | Why |
+Selection happens on two axes. The method is chosen with the `method` argument to [`inference.fit()`](estimation.md#data-flow); within `marginal_particle_gibbs` the latent smoother and parameter proposal are chosen with keyword arguments.
+
+| Need | Override | Why |
 |---|---|---|
-| Blocked MCMC with Gaussian latent diffusion and Kalman-style auxiliary proposals | `aux_kalman_mcmc` | Alternates latent trajectory and parameter updates without relying on a marginal likelihood sampler. |
-| Blocked MCMC with prior-informed particle latent proposals | `pit_particle_mgrad` | Uses the retained Particle-mGRAD latent kernel with sequential conditional particle smoothing. |
+| Pseudo-marginal parameter inference with a bootstrap likelihood | `method="particle_marginal_mh"` | Targets the parameter posterior alone; an independent check on the collapsed sampler. |
+| A different latent-trajectory smoother | `latent_smoother=` `"plain"` \| `"amala"` \| `"amala_plus"` \| `"mgrad"` \| `"dsmc"` | Trades off mixing, gradient use, and parallel-in-time depth for the conditional-SMC latent update. |
+| A gradient-informed vs. gradient-free parameter move | `parameter_proposal=` `"pseudo_langevin"` (default) \| `"random_walk"` | Pseudo-Langevin uses a conditional parameter-gradient drift; random-walk is the gradient-free fallback. |
 
 ## Runtime Conditioning
 
-Runtime conditioning transforms the compiled state-space model before a latent kernel consumes it. Polya-Gamma augmentation is applied first for PG-able non-Gaussian observation rows, which can make those rows Gaussian for the downstream latent update. Rao-Blackwellized particle filtering (RBPF) then partitions the latent state into carried dimensions sampled by the latent kernel and marginalized dimensions integrated by Kalman updates.
-
-RBPF has two explicit modes because the computational contract is different:
-
-| Mode | Exactness target | Particle-time structure | Use when |
-|---|---|---|---|
-| `independent` | Exact for marginalized linear-Gaussian blocks that do not depend on the carried particle history. | Preserves the PIT dSMC tree and logarithmic parallel depth in `T`. | The collapsed block is independent enough that each time slice can be scored without carrying a path-dependent Kalman filter state. |
-| `conditional` | Exact for conditionally linear-Gaussian marginalized blocks whose dynamics or observations depend on the carried state. | Uses a sequential conditional RBPF particle kernel; the Kalman filter state is part of each particle prefix, so the old PIT increment interface is not valid. | The variance reduction from true conditional Rao-Blackwellization is worth giving up the `O(log T)` PIT structure. |
-
-The separation is intentional. Treating conditional RBPF as if it were independent would silently score the wrong target because the marginalized filtering distribution changes with the carried trajectory history. Conditional mode can still produce an independent partition when that is the maximal legal exact structure; the actual `rbpf_structure` diagnostic determines whether the PIT tree is preserved.
-
-When `rbpf_mode` is not `none`, the runtime derives the exact legal partition after Polya-Gamma planning. If `rbpf_marginalized_latent_indices` is omitted, every latent dimension is considered a candidate for marginalization. Residual non-Gaussian/non-PG observations force their loaded latents to remain carried; the carried set is then closed over dynamics dependencies, nonlinear marginalized dynamics, and process/initial covariance blocks. The resulting diagnostics record which latents were forced carried and why. If no nontrivial exact RBPF block remains, the final partition is the full carried path with `rbpf_requested=true` and `rbpf_enabled=false`.
+The runtime contains Polya-Gamma augmentation and Rao-Blackwellized particle filtering (RBPF) machinery, but neither is reachable through the current inference surface: both `marginal_particle_gibbs` and `particle_marginal_mh` require `enable_polya_gamma=False` and `rbpf_mode="none"` and raise otherwise. The collapsed Particle Gibbs target and the pseudo-marginal target are defined without those augmentations, so they are rejected explicitly rather than silently ignored.
 
 ## Method Reference
 
-### Auxiliary Kalman MCMC
+### Marginalized Particle Gibbs
 
-`aux_kalman_mcmc` alternates an auxiliary Kalman latent trajectory update with a MALA parameter update.
+`marginal_particle_gibbs` (default) targets the directly evaluable latent/parameter posterior with a collapsed Particle Gibbs update: a conditional-SMC latent-trajectory smoother conditioned on the retained reference path, alternated with a parameter move.
 
-**When to use:** Default complete-data MCMC when the latent diffusion path is Gaussian and the auxiliary Kalman proposal is appropriate.
+**Latent smoothers** (`latent_smoother`):
 
-**Limitations:** Requires Gaussian latent diffusion. Mixing depends on the latent step scale, parameter step size, and posterior coupling between states and parameters.
+- `plain` — plain conditional SMC (cSMC) over the latent trajectory. Default.
+- `amala` / `amala_plus` — particle-aMALA and particle-aMALA+ smoothers, which add a Metropolis-adjusted Langevin move to the conditional particle update.
+- `mgrad` — particle-mGRAD smoother, a prior-informed gradient proposal. Its `latent_kernel_algorithm` selects the sequential `particle_mgrad` construction or the parallel-in-time `pit_aux_csmc` construction.
+- `dsmc` — divide-and-conquer SMC smoother with logarithmic parallel depth in T.
 
-### Particle-mGRAD
+**Parameter proposals** (`parameter_proposal`): `pseudo_langevin` (default) uses a conditional parameter-gradient drift; `random_walk` is the gradient-free fallback.
 
-`pit_particle_mgrad` alternates a sequential Particle-mGRAD latent trajectory kernel with a hybrid Gibbs/NUTS parameter update. The latent block draws Gaussian auxiliary pseudo-observations from the current trajectory, proposes each non-reference particle from the Gaussian prior dynamics conditioned on its selected ancestor and pseudo-observation, and uses marginal Particle-mGRAD weights that integrate out the pseudo-observation.
+**When to use:** Default complete-data inference. The smoother and proposal knobs tune mixing and parallel-in-time cost without changing the target.
 
-The default `latent_kernel_algorithm="particle_mgrad"` is not parallel in time because the prior-informed proposal depends on the selected ancestor. The alternate `latent_kernel_algorithm="pit_aux_csmc"` keeps the separable PIT auxiliary cSMC construction, but that is a different kernel family.
+### Particle Marginal Metropolis-Hastings
 
-**When to use:** Complete-data MCMC when the retained particle latent trajectory kernel is needed.
+`particle_marginal_mh` targets the parameter posterior using a bootstrap particle-filter estimate of the marginal likelihood inside a pseudo-marginal MH accept/reject. It shares the discretized runtime bundle with the default method.
 
-**Limitations:** Requires tuning the latent step scale and particle count. The default Particle-mGRAD kernel is sequential in the number of time points. `latent_kernel_algorithm="particle_mgrad"` rejects `rbpf_mode="conditional"` because each particle prefix owns a different marginalized Kalman filter state. Use `latent_kernel_algorithm="pit_aux_csmc"` when conditional RBPF is required.
+**When to use:** As an independent comparator on the parameter posterior.
+
+**Limitations:** Does not retain latent paths or compute latent posterior summaries. Pseudo-marginal mixing degrades if the particle count is too low for the likelihood-estimator variance.

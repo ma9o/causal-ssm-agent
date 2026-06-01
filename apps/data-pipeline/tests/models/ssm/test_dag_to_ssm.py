@@ -27,7 +27,7 @@ from nof1_causal_lab.models.ssm.parameterization import (
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     full_vector_support,

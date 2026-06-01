@@ -166,7 +166,7 @@ def _slice_observation_extra_params(
         return None
 
     sliced: dict = {}
-    idx = jnp.array(ch_indices, dtype=jnp.int64)
+    idx = jnp.array(ch_indices, dtype=jnp.int32)
     for key, value in extra_params.items():
         if (
             hasattr(value, "ndim")

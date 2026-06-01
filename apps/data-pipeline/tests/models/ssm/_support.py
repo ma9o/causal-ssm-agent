@@ -25,7 +25,7 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     default_input_effect_block,
     default_static_state_sd_block,
     dense_matrix_dynamics_spec,

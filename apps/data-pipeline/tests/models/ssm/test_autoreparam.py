@@ -25,8 +25,7 @@ from nof1_causal_lab.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
-from tests.models.ssm._support import simple_normal_model
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,
@@ -37,6 +36,7 @@ from tests.ssm_test_utils import (
     default_t0_means_block,
     full_dense_matrix_dynamics_spec,
 )
+from tests.models.ssm._support import simple_normal_model
 
 # ---------------------------------------------------------------------------
 # Helpers (ported from NumPyro's test_reparam.py)

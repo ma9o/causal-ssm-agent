@@ -267,7 +267,7 @@ class TestForwardSimulation:
             "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
             "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
             "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
-            "t0_means": jnp.array([[1000.0]], dtype=jnp.float64),
+            "t0_means": jnp.array([[1000.0]], dtype=jnp.float32),
             "t0_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
             "obs_shape": jnp.array(2.0, dtype=jnp.float32),
         }

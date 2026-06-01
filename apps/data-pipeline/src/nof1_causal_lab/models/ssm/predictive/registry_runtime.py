@@ -110,7 +110,7 @@ def _assemble_extra_params_batched(
         }
         return assemble_extra_params_from_registry(spec, sampled_values, registry)
 
-    return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int64))
+    return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int32))
 
 
 def _ensure_gaussian_process_diffusion(spec: SSMSpec) -> None:

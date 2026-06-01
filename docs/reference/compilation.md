@@ -10,18 +10,18 @@ graph TD
 
     ModelSpec & PriorProposal & CausalSpec --> validate
 
-    subgraph compile_ssm_artifact ["compile_ssm_artifact() — ssm_compiler.py"]
+    subgraph compile_ssm_artifact ["compile_ssm_artifact() — compile/artifact.py"]
         validate["validate_model_spec_for_compilation()"]
         validate --> translate
 
-        subgraph compile_model_spec ["compile_ssm_inputs_from_model_spec() — ssm_compilation.py"]
-            translate["translate_spec() — ssm_spec_translation.py"]
+        subgraph compile_model_spec ["compile_ssm_inputs_from_model_spec() — compile/inputs.py"]
+            translate["translate_spec() — compile/spec_translation.py"]
             translate --> translate_out(["SSMSpec + edge_lag_days"])
-            translate_out --> prior_idx["build_prior_index_maps() — ssm_prior_indexing.py"]
-            prior_idx --> priors["compile_priors() — ssm_prior_compilation.py"]
+            translate_out --> prior_idx["build_semantic_prior_bindings() — compile/prior_indexing.py"]
+            prior_idx --> priors["compile_priors() — compile/prior_compilation.py"]
             translate_out --> priors
-            priors --> priors_out(["PriorRegistry + PriorIndexMaps"])
-            priors_out --> bind["bind_parameters() — ssm_prior_compilation.py"]
+            priors --> priors_out(["PriorRegistry + SemanticBindingRegistry"])
+            priors_out --> bind["bind_parameters() — compile/prior_compilation.py"]
             bind --> bind_out(["parameter_bindings"])
             priors_out --> attach_diag["_attach_compile_binding_provenance()"]
             bind_out --> attach_diag
@@ -67,12 +67,12 @@ graph TD
 | `SiteDescriptor` | `models/ssm/structure/sites.py` | Canonical sample-site identity: name, shape, support, semantic kind, assembly group, and prior binding field |
 | `PriorRegistry` | `models/ssm/priors.py` | Site-keyed canonical priors for both structure blocks and dynamics components |
 | `PriorRuntimeBundle` | `models/ssm/parameterization.py` | Runtime site registry, transforms, and prior-state arrays reconstructed without model tracing |
-| `PriorIndexMaps` | `models/ssm/compile/common.py` | 14-tuple mapping param names → (prior field, flat index) for semantic bindings |
+| `SemanticBindingRegistry` | `models/ssm/compile/prior_indexing.py` | Named registry of parameter-name → compiled sample-site bindings; replaces the old positional prior-index tuple |
 | `CompiledSSMArtifact` | `models/ssm/compile/artifact.py` | Serializable bundle: spec + edge lags + compiled prior semantics + bindings + diagnostics |
 | `SSMModel` | `models/ssm/model.py` | Executable NumPyro generative model |
 | `InferenceResult` | `models/ssm/inference/types.py` | Posterior samples + diagnostics |
 
-## Stage 1: Spec Translation (`ssm_spec_translation.py`)
+## Stage 1: Spec Translation (`compile/spec_translation.py`)
 
 Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the artifact that persists concrete numeric templates, structure blocks, and the composite drift spec.
 
@@ -91,7 +91,7 @@ Converts a `ModelSpec` + `CausalSpec` into an `SSMSpec` — the artifact that pe
 
 **Key function:** `translate_spec(model_spec, causal_spec) -> (SSMSpec, edge_lag_days)`
 
-## Stage 2: Prior Index Mapping (`ssm_prior_indexing.py`)
+## Stage 2: Semantic Prior Bindings (`compile/prior_indexing.py`)
 
 Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_mood_stress"`) to canonical sample-site indices in the SSM structure and dynamics components.
 
@@ -102,28 +102,23 @@ Builds the mapping from semantic parameter names (e.g., `"rho_mood"`, `"beta_moo
 - Derives the canonical free-entry order from block and dynamics `SiteDescriptor`s so the compiler, runtime assembly, and posterior name resolution all share one site registry.
 - Uses `split_compound_name()` to parse compound names like `"beta_mood_stress"` into (cause, effect)
 
-**Key function:** `build_prior_index_maps(ssm_spec, model_spec, causal_spec) -> PriorIndexMaps`
+**Key function:** `build_semantic_prior_bindings(ssm_spec, model_spec, *, causal_spec=None) -> SemanticBindingRegistry`
 
 This is now a strict internal helper: it requires both a translated `SSMSpec` and a semantic `ModelSpec`. Spec-only entrypoints decide explicitly when no semantic bindings should be produced; the indexer no longer falls back to all-empty maps.
 
-**Returns:** 14-tuple of `dict[param_name -> (prior_field, flat_index)]`:
+**Returns:** a `SemanticBindingRegistry` — an immutable, parameter-name-keyed collection of `SemanticBinding`s (queryable via `by_parameter` and `by_site_kind`) that replaces the old positional 14-tuple. Each binding records the parameter's site kind, canonical site name, and flat index. Bindings span the full set of site categories:
 
-1. `offdiag_index` — cross-lag effects (drift off-diagonal)
-2. `lambda_index` — factor loadings
-3. `diag_index` — AR coefficients (baseline decay for the derived drift diagonal)
-4. `diffusion_diag_index` — residual SDs
-5. `diffusion_offdiag_index` — residual correlations
-6. `input_effect_index` — transition input-effect entries
-7. `t0_offdiag_index` — initial-state correlations
-8. `t0_mean_index` — initial-state means
-9. `t0_sd_index` — initial-state standard deviations
-10. `manifest_mean_index` — manifest intercepts
-11. `manifest_var_index` — manifest noise terms
-12. `cint_index` — continuous-time state intercepts
-13. `static_state_sd_index` — compiled baseline-factor scales
-14. `observation_site_index` — observation-family hyperparameter sites
+- cross-lag effects (drift off-diagonal) and factor loadings
+- AR coefficients (baseline decay for the derived drift diagonal)
+- residual SDs and residual correlations
+- transition input-effect entries
+- initial-state means, standard deviations, and correlations
+- manifest intercepts and manifest noise terms
+- continuous-time state intercepts
+- compiled baseline-factor scales (static state SDs)
+- observation-family hyperparameter sites
 
-## Stage 3: Prior Compilation (`ssm_prior_compilation.py`)
+## Stage 3: Prior Compilation (`compile/prior_compilation.py`)
 
 Translates user-facing prior specifications into a site-keyed `PriorRegistry` with the correct parameterization.
 
@@ -134,7 +129,7 @@ Translates user-facing prior specifications into a site-keyed `PriorRegistry` wi
 - **Cross-lag effects:** Scaled by an explicitly resolved positive interval in this order: `reference_interval_days`, then compiled `edge_lag_days`, then the causal-spec model clock. If none exists, compilation now raises instead of silently assuming `1.0d`.
 - **Site binding:** compiled priors attach to canonical `SiteDescriptor`s. Structure blocks and dynamics components use the same prior materialization path.
 
-**Key function:** `compile_priors(raw_priors, model_spec, ssm_spec, edge_lag_days, causal_spec) -> (PriorRegistry, PriorIndexMaps, list[CompileDiagnostic])`
+**Key function:** `compile_priors(raw_priors, model_spec, ssm_spec, edge_lag_days, causal_spec) -> (PriorRegistry, SemanticBindingRegistry, list[CompileDiagnostic])`
 
 **Post-compilation diagnostics:**
 
@@ -142,7 +137,7 @@ Translates user-facing prior specifications into a site-keyed `PriorRegistry` wi
 - `collect_first_order_approximation_warnings()` — uses the full matrix logarithm `logm(A_dt) / dt` to flag cross-lag priors whose elementwise `beta_dt / dt` CT coupling materially differs from the full-system CT scale
 - `collect_compile_diagnostics()` — combines these warnings into the structured diagnostics payload persisted on the artifact
 
-## Stage 4: Parameter Bindings (`ssm_prior_compilation.py`)
+## Stage 4: Parameter Bindings (`compile/prior_compilation.py`)
 
 Creates the mapping from semantic parameter names to NumPyro sample sites — the bridge between the model specification and posterior extraction.
 
@@ -150,9 +145,9 @@ Creates the mapping from semantic parameter names to NumPyro sample sites — th
 
 Each binding is: `{parameter: "rho_mood", site_name: "vf_0_decay", flat_index: 0}`
 
-This allows `InferenceResult` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `PriorIndexMaps` from Stage 3 rather than rebuilding them, and only the compile entrypoints decide whether semantic bindings should exist at all.
+This allows `InferenceResult` to map posterior samples back to user-facing parameter names. `bind_parameters()` consumes the already-compiled `SemanticBindingRegistry` from Stage 3 rather than rebuilding it, and only the compile entrypoints decide whether semantic bindings should exist at all.
 
-## Stage 5: Artifact Serialization (`ssm_compiler.py`)
+## Stage 5: Artifact Serialization (`compile/artifact.py`)
 
 Bundles everything into a `CompiledSSMArtifact` — a JSON-serializable dict that can be persisted to disk and reconstructed later without re-running compilation.
 

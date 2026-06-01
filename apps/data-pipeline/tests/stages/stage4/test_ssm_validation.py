@@ -1,7 +1,7 @@
 """Stage 4 assembly, prior predictive, and SSM compilation tests."""
 
 from nof1_causal_lab.models.ssm import SSMSpec
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     default_diffusion_block,
     default_input_effect_block,
     default_lambda_block,

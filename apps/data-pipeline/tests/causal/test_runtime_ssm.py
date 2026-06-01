@@ -21,7 +21,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     default_input_effect_block,
     default_manifest_means_block,
     default_static_state_sd_block,
@@ -169,7 +169,7 @@ class TestSSMModelDynamicsDispatch:
         model = SSMModel(spec, priors=_decay_prior_registry([0.3, 0.5]))
         tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations=jnp.zeros((4, 1)),
-            times=jnp.arange(4, dtype=jnp.float64),
+            times=jnp.arange(4, dtype=jnp.float32),
             likelihood_backend=DynamicsAwareBackend(),
         )
 

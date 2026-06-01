@@ -396,7 +396,7 @@ def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarr
         key,
         jnp.log(jnp.maximum(probs, NUMERICAL_EPSILON)),
         axis=-1,
-    ).astype(jnp.float64)
+    ).astype(jnp.float32)
 
 
 def _ppc_gaussian(
@@ -419,7 +419,7 @@ def _ppc_poisson(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
     rate = jnp.exp(loc)
-    return jax.random.poisson(key, rate).astype(jnp.float64)
+    return jax.random.poisson(key, rate).astype(jnp.float32)
 
 
 def _ppc_gamma_log(
@@ -444,13 +444,13 @@ def _ppc_gamma_inverse(
 def _ppc_bernoulli_logit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return jax.random.bernoulli(key, jax.nn.sigmoid(loc)).astype(jnp.float64)
+    return jax.random.bernoulli(key, jax.nn.sigmoid(loc)).astype(jnp.float32)
 
 
 def _ppc_bernoulli_probit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
 ):
-    return jax.random.bernoulli(key, jax.scipy.stats.norm.cdf(loc)).astype(jnp.float64)
+    return jax.random.bernoulli(key, jax.scipy.stats.norm.cdf(loc)).astype(jnp.float32)
 
 
 def _ppc_negative_binomial(
@@ -462,7 +462,7 @@ def _ppc_negative_binomial(
     return jax.random.poisson(
         key_poisson,
         jnp.maximum(gamma_draw, NUMERICAL_EPSILON),
-    ).astype(jnp.float64)
+    ).astype(jnp.float32)
 
 
 def _ppc_beta_logit(
@@ -505,7 +505,7 @@ def _ppc_ordered_logistic(
     probs = ordered_logistic_probabilities(
         jnp.asarray([loc]),
         cutpoints[None, :],
-        jnp.asarray([level_count], dtype=jnp.int64),
+        jnp.asarray([level_count], dtype=jnp.int32),
     )[0]
     return _sample_discrete_from_probs(key, probs)
 
@@ -527,7 +527,7 @@ def _ppc_categorical(
         jnp.asarray([loc]),
         cat_intercepts[None, :],
         cat_slopes[None, :],
-        jnp.asarray([level_count], dtype=jnp.int64),
+        jnp.asarray([level_count], dtype=jnp.int32),
     )[0]
     return _sample_discrete_from_probs(key, probs)
 

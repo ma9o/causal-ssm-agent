@@ -45,7 +45,7 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     default_input_effect_block,
     default_static_state_sd_block,
     dense_matrix_dynamics_spec,
@@ -128,7 +128,7 @@ def _sequential_rts_smooth(filt_means, filt_covs, Fs, Qs, bs):
     return jnp.stack(smooth_means), jnp.stack(smooth_covs)
 
 
-def _make_random_lgssm(key, T, D, Dy, dtype=jnp.float64):
+def _make_random_lgssm(key, T, D, Dy, dtype=jnp.float32):
     """Build a stable per-step LGSSM with well-conditioned dynamics."""
     keys = random.split(key, 10)
     F_base = jnp.eye(D, dtype=dtype) + 0.05 * random.normal(keys[0], (D, D), dtype=dtype)
@@ -151,7 +151,7 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
     """Build a compact mixed point/interval support spec for Kalman augmentation."""
     n_latent = 4
     n_manifest = 2 * n_latent
-    times = jnp.arange(n_time, dtype=jnp.float64)
+    times = jnp.arange(n_time, dtype=jnp.float32)
     manifest_names = [
         *(f"y{i}_point" for i in range(n_latent)),
         *(f"y{i}_interval" for i in range(n_latent)),
@@ -189,8 +189,8 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
     )
     lambda_mat = jnp.concatenate(
         [
-            jnp.eye(n_latent, dtype=jnp.float64),
-            jnp.eye(n_latent, dtype=jnp.float64),
+            jnp.eye(n_latent, dtype=jnp.float32),
+            jnp.eye(n_latent, dtype=jnp.float32),
         ],
         axis=0,
     )
@@ -201,14 +201,14 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
             n_latent=n_latent,
             decay_support=full_diagonal_support(n_latent),
             edge_support=zero_square_support(n_latent),
-            coupling_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float64),
+            coupling_template=jnp.zeros((n_latent, n_latent), dtype=jnp.float32),
             intercept_support=zero_vector_support(n_latent),
-            cint_template=jnp.zeros(n_latent, dtype=jnp.float64),
+            cint_template=jnp.zeros(n_latent, dtype=jnp.float32),
         ),
         diffusion_block=DiffusionBlockSpec(
             n_latent=n_latent,
             diffusion_chol_support=np.diag(full_diagonal_support(n_latent)),
-            diffusion_chol_template=jnp.eye(n_latent, dtype=jnp.float64),
+            diffusion_chol_template=jnp.eye(n_latent, dtype=jnp.float32),
         ),
         lambda_block=SparseMatrixBlockSpec(
             n_rows=n_manifest,
@@ -226,7 +226,7 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
         manifest_means_block=SparseVectorBlockSpec(
             n=n_manifest,
             free_support=zero_vector_support(n_manifest),
-            template=jnp.zeros(n_manifest, dtype=jnp.float64),
+            template=jnp.zeros(n_manifest, dtype=jnp.float32),
             free_site_name="manifest_means_free",
             det_site_name="manifest_means",
             support=SupportClass.REAL,
@@ -238,12 +238,12 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
         manifest_chol_block=ManifestCholBlockSpec(
             n_manifest=n_manifest,
             diag_support=full_diagonal_support(n_manifest),
-            template=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float64),
+            template=jnp.zeros((n_manifest, n_manifest), dtype=jnp.float32),
         ),
         t0_means_block=SparseVectorBlockSpec(
             n=n_latent,
             free_support=zero_vector_support(n_latent),
-            template=jnp.zeros(n_latent, dtype=jnp.float64),
+            template=jnp.zeros(n_latent, dtype=jnp.float32),
             free_site_name="t0_means_free",
             det_site_name="t0_means",
             support=SupportClass.REAL,
@@ -256,7 +256,7 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
             n_latent=n_latent,
             diag_support=zero_diagonal_support(n_latent),
             correlation_support=zero_square_support(n_latent),
-            template=jnp.eye(n_latent, dtype=jnp.float64),
+            template=jnp.eye(n_latent, dtype=jnp.float32),
         ),
         input_effect_block=default_input_effect_block(n_latent),
         static_state_sd_block=default_static_state_sd_block(),
@@ -266,15 +266,6 @@ def _make_mixed_support_interval_summary_data(n_time: int) -> dict:
         + [DistributionFamily.GAUSSIAN] * n_latent,
     )
     return {"times": times, "spec": spec, "observation_support": observation_support}
-
-
-@pytest.fixture(autouse=True)
-def _enable_x64():
-    """Flip on float64 so the parallel-vs-sequential comparison is tight."""
-    prev = jax.config.read("jax_enable_x64")
-    jax.config.update("jax_enable_x64", True)
-    yield
-    jax.config.update("jax_enable_x64", prev)
 
 
 @pytest.mark.slow
@@ -331,13 +322,13 @@ def test_filter_matches_sequential_interval_summary():
     times = data["times"]
     time_intervals = jnp.diff(times, prepend=times[0]).at[0].set(MIN_DT)
 
-    dynamics = -0.3 * jnp.eye(spec.n_latent, dtype=jnp.float64)
-    diffusion_cov = 0.04 * jnp.eye(spec.n_latent, dtype=jnp.float64)
-    cint = jnp.zeros(spec.n_latent, dtype=jnp.float64)
-    H = jnp.asarray(spec.lambda_block.assemble(), dtype=jnp.float64)
-    d = jnp.zeros(spec.n_manifest, dtype=jnp.float64)
-    init_mean = jnp.zeros(spec.n_latent, dtype=jnp.float64)
-    init_cov = 0.1 * jnp.eye(spec.n_latent, dtype=jnp.float64)
+    dynamics = -0.3 * jnp.eye(spec.n_latent, dtype=jnp.float32)
+    diffusion_cov = 0.04 * jnp.eye(spec.n_latent, dtype=jnp.float32)
+    cint = jnp.zeros(spec.n_latent, dtype=jnp.float32)
+    H = jnp.asarray(spec.lambda_block.assemble(), dtype=jnp.float32)
+    d = jnp.zeros(spec.n_manifest, dtype=jnp.float32)
+    init_mean = jnp.zeros(spec.n_latent, dtype=jnp.float32)
+    init_cov = 0.1 * jnp.eye(spec.n_latent, dtype=jnp.float32)
 
     (
         Ad_aug,
@@ -365,7 +356,7 @@ def test_filter_matches_sequential_interval_summary():
     # Pseudo-observations: ``H = I``, ``R = (delta/2) I`` — exactly the
     # auxiliary-Kalman proposal used by gibbs for the augmented state.
     delta = 0.4
-    u = 0.3 * random.normal(random.PRNGKey(1), (T, aug_dim), dtype=jnp.float64)
+    u = 0.3 * random.normal(random.PRNGKey(1), (T, aug_dim), dtype=jnp.float32)
 
     state = aux_filter_lgssm(
         init_mean=init_mean_aug,
@@ -377,9 +368,9 @@ def test_filter_matches_sequential_interval_summary():
         aux_variance=0.5 * delta,
     )
 
-    Hs = jnp.broadcast_to(jnp.eye(aug_dim, dtype=jnp.float64), (T, aug_dim, aug_dim))
-    Rs = jnp.broadcast_to(0.5 * delta * jnp.eye(aug_dim, dtype=jnp.float64), (T, aug_dim, aug_dim))
-    cs = jnp.zeros((T, aug_dim), dtype=jnp.float64)
+    Hs = jnp.broadcast_to(jnp.eye(aug_dim, dtype=jnp.float32), (T, aug_dim, aug_dim))
+    Rs = jnp.broadcast_to(0.5 * delta * jnp.eye(aug_dim, dtype=jnp.float32), (T, aug_dim, aug_dim))
+    cs = jnp.zeros((T, aug_dim), dtype=jnp.float32)
     seq_pm, seq_pc, seq_fm, seq_fc, seq_ll = _sequential_filter(
         init_mean_aug, init_cov_aug, Ad_aug, Qd_aug, cd_aug, Hs, Rs, cs, u
     )
@@ -406,31 +397,31 @@ def test_filter_matches_sequential_block_diagonal():
     key = random.PRNGKey(7)
 
     def _block(subkey):
-        F = jnp.eye(Db, dtype=jnp.float64) + 0.05 * random.normal(
-            subkey, (Db, Db), dtype=jnp.float64
+        F = jnp.eye(Db, dtype=jnp.float32) + 0.05 * random.normal(
+            subkey, (Db, Db), dtype=jnp.float32
         )
         return 0.9 * F / jnp.linalg.norm(F, ord=2)
 
     block_Fs = [_block(random.fold_in(key, i)) for i in range(nblocks)]
     F_big = jnp.asarray(block_diag(*[np.asarray(Fb) for Fb in block_Fs]))
     Fs = jnp.broadcast_to(F_big, (T, D, D))
-    Qs = jnp.broadcast_to(0.03 * jnp.eye(D, dtype=jnp.float64), (T, D, D))
-    bs = jnp.zeros((T, D), dtype=jnp.float64)
+    Qs = jnp.broadcast_to(0.03 * jnp.eye(D, dtype=jnp.float32), (T, D, D))
+    bs = jnp.zeros((T, D), dtype=jnp.float32)
 
     H = jnp.concatenate(
         [
-            jnp.eye(Db, dtype=jnp.float64),
-            jnp.zeros((Db, D - Db), dtype=jnp.float64),
+            jnp.eye(Db, dtype=jnp.float32),
+            jnp.zeros((Db, D - Db), dtype=jnp.float32),
         ],
         axis=1,
     )
     Hs = jnp.broadcast_to(H, (T, Dy, D))
-    Rs = jnp.broadcast_to(0.15 * jnp.eye(Dy, dtype=jnp.float64), (T, Dy, Dy))
-    cs = jnp.zeros((T, Dy), dtype=jnp.float64)
-    ys = random.normal(random.fold_in(key, 100), (T, Dy), dtype=jnp.float64)
+    Rs = jnp.broadcast_to(0.15 * jnp.eye(Dy, dtype=jnp.float32), (T, Dy, Dy))
+    cs = jnp.zeros((T, Dy), dtype=jnp.float32)
+    ys = random.normal(random.fold_in(key, 100), (T, Dy), dtype=jnp.float32)
 
-    init_mean = jnp.zeros(D, dtype=jnp.float64)
-    init_cov = 0.2 * jnp.eye(D, dtype=jnp.float64)
+    init_mean = jnp.zeros(D, dtype=jnp.float32)
+    init_cov = 0.2 * jnp.eye(D, dtype=jnp.float32)
 
     parallel = filter_lgssm(init_mean, init_cov, Fs, Qs, bs, Hs, Rs, cs, ys)
     _seq_pm, _seq_pc, seq_fm, seq_fc, seq_ll = _sequential_filter(
@@ -503,7 +494,7 @@ def test_filter_matches_sequential_with_auxiliary_variance():
     T, D = 20, 5
     init_mean, init_cov, Fs, Qs, bs, *_ = _make_random_lgssm(random.PRNGKey(11), T, D, D)
     delta = 0.5
-    u = 0.4 * random.normal(random.PRNGKey(21), (T, D), dtype=jnp.float64)
+    u = 0.4 * random.normal(random.PRNGKey(21), (T, D), dtype=jnp.float32)
 
     state = aux_filter_lgssm(
         init_mean=init_mean,
@@ -514,9 +505,9 @@ def test_filter_matches_sequential_with_auxiliary_variance():
         pseudo_observations=u,
         aux_variance=0.5 * delta,
     )
-    Hs = jnp.broadcast_to(jnp.eye(D, dtype=jnp.float64), (T, D, D))
-    Rs = jnp.broadcast_to(0.5 * delta * jnp.eye(D, dtype=jnp.float64), (T, D, D))
-    cs = jnp.zeros((T, D), dtype=jnp.float64)
+    Hs = jnp.broadcast_to(jnp.eye(D, dtype=jnp.float32), (T, D, D))
+    Rs = jnp.broadcast_to(0.5 * delta * jnp.eye(D, dtype=jnp.float32), (T, D, D))
+    cs = jnp.zeros((T, D), dtype=jnp.float32)
     seq_pm, seq_pc, seq_fm, seq_fc, seq_ll = _sequential_filter(
         init_mean, init_cov, Fs, Qs, bs, Hs, Rs, cs, u
     )
@@ -530,8 +521,8 @@ def test_filter_matches_sequential_with_auxiliary_variance():
 def test_filter_matches_sequential_with_per_time_auxiliary_variance():
     T, D = 18, 4
     init_mean, init_cov, Fs, Qs, bs, *_ = _make_random_lgssm(random.PRNGKey(31), T, D, D)
-    variance = jnp.linspace(0.05, 0.35, T, dtype=jnp.float64)
-    u = 0.25 * random.normal(random.PRNGKey(41), (T, D), dtype=jnp.float64)
+    variance = jnp.linspace(0.05, 0.35, T, dtype=jnp.float32)
+    u = 0.25 * random.normal(random.PRNGKey(41), (T, D), dtype=jnp.float32)
 
     state = aux_filter_lgssm(
         init_mean=init_mean,
@@ -542,9 +533,9 @@ def test_filter_matches_sequential_with_per_time_auxiliary_variance():
         pseudo_observations=u,
         aux_variance=variance,
     )
-    Hs = jnp.broadcast_to(jnp.eye(D, dtype=jnp.float64), (T, D, D))
-    Rs = variance[:, None, None] * jnp.eye(D, dtype=jnp.float64)[None, :, :]
-    cs = jnp.zeros((T, D), dtype=jnp.float64)
+    Hs = jnp.broadcast_to(jnp.eye(D, dtype=jnp.float32), (T, D, D))
+    Rs = variance[:, None, None] * jnp.eye(D, dtype=jnp.float32)[None, :, :]
+    cs = jnp.zeros((T, D), dtype=jnp.float32)
     seq_pm, seq_pc, seq_fm, seq_fc, seq_ll = _sequential_filter(
         init_mean, init_cov, Fs, Qs, bs, Hs, Rs, cs, u
     )

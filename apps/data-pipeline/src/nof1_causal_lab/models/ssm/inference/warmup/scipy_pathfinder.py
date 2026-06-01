@@ -907,4 +907,4 @@ def scipy_pathfinder_preconditioner_chol(
 ) -> jnp.ndarray:
     """Return the covariance Cholesky carried by a scipy Pathfinder result."""
     del jitter
-    return jnp.asarray(pathfinder_state.chol)
+    return jnp.asarray(pathfinder_state.chol, dtype=jnp.float32)

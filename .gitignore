@@ -62,3 +62,5 @@ node_modules/
 
 apps/data-pipeline/notebooks/.jax_cache/
 apps/data-pipeline/notebooks/artifacts/
+
+apps/data-pipeline/scripts/**/*.csv

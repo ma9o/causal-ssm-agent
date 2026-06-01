@@ -576,7 +576,7 @@ def _real_log_prob(x, family_idx, loc, scale, low, high):
         1 — TruncatedNormal(loc, scale, low, high)
         2 — Uniform(low, high)
     """
-    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int64), jnp.shape(x))
+    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
     normal_terms = _normal_log_prob_terms(x, loc, scale)
     truncated_terms = _truncated_normal_log_prob_terms(x, loc, scale, low, high)
     uniform_terms = _uniform_log_prob_terms(x, low, high)
@@ -602,7 +602,7 @@ def _positive_log_prob(x, family_idx, loc, scale, concentration, rate, value):
         3 — Exponential(rate)
         4 — Delta(value)
     """
-    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int64), jnp.shape(x))
+    families = jnp.broadcast_to(jnp.asarray(family_idx, dtype=jnp.int32), jnp.shape(x))
     half_normal_terms = _half_normal_log_prob_terms(x, scale)
     gamma_terms = _gamma_log_prob_terms(x, concentration, rate)
     log_normal_terms = _log_normal_log_prob_terms(x, loc, scale)
@@ -739,7 +739,7 @@ def sample_prior_unconstrained(
     not inner-loop hot paths.
     """
     if not registry:
-        return jnp.zeros((n_samples, 0), dtype=jnp.float64), rng_key
+        return jnp.zeros((n_samples, 0), dtype=jnp.float32), rng_key
 
     all_samples = []
     for _ in range(n_samples):
@@ -759,7 +759,7 @@ def sample_prior_unconstrained(
         if parts:
             all_samples.append(jnp.concatenate(parts))
         else:
-            all_samples.append(jnp.zeros((0,), dtype=jnp.float64))
+            all_samples.append(jnp.zeros((0,), dtype=jnp.float32))
 
     return jnp.stack(all_samples), rng_key
 
@@ -785,12 +785,12 @@ def _make_positive_params(
     """Build canonical param dict for a POSITIVE-support site."""
     s = shape or ()
     return {
-        "family": jnp.array(family, dtype=jnp.int64),
-        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float64), s),
-        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
-        "concentration": jnp.broadcast_to(jnp.asarray(concentration, dtype=jnp.float64), s),
-        "rate": jnp.broadcast_to(jnp.asarray(rate, dtype=jnp.float64), s),
-        "value": jnp.broadcast_to(jnp.asarray(value, dtype=jnp.float64), s),
+        "family": jnp.array(family, dtype=jnp.int32),
+        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
+        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float32), s),
+        "concentration": jnp.broadcast_to(jnp.asarray(concentration, dtype=jnp.float32), s),
+        "rate": jnp.broadcast_to(jnp.asarray(rate, dtype=jnp.float32), s),
+        "value": jnp.broadcast_to(jnp.asarray(value, dtype=jnp.float32), s),
     }
 
 
@@ -808,11 +808,11 @@ def _make_real_params(
     low_value = _DEFAULT_REAL_LOW if low is None else low
     high_value = _DEFAULT_REAL_HIGH if high is None else high
     return {
-        "family": jnp.array(family, dtype=jnp.int64),
-        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float64), s),
-        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float64), s),
-        "low": jnp.broadcast_to(jnp.asarray(low_value, dtype=jnp.float64), s),
-        "high": jnp.broadcast_to(jnp.asarray(high_value, dtype=jnp.float64), s),
+        "family": jnp.array(family, dtype=jnp.int32),
+        "loc": jnp.broadcast_to(jnp.asarray(loc, dtype=jnp.float32), s),
+        "scale": jnp.broadcast_to(jnp.asarray(scale, dtype=jnp.float32), s),
+        "low": jnp.broadcast_to(jnp.asarray(low_value, dtype=jnp.float32), s),
+        "high": jnp.broadcast_to(jnp.asarray(high_value, dtype=jnp.float32), s),
     }
 
 
@@ -995,8 +995,8 @@ def deserialize_prior_runtime_state(
 ) -> PriorRuntimeState:
     """Restore prior runtime state from serialized form.
 
-    Uses the registry to determine correct dtypes (int64 for family,
-    float64 for all others).
+    Uses the registry to determine correct dtypes (int32 for family,
+    float32 for all others).
     """
     state: PriorRuntimeState = {}
     for site in registry:
@@ -1004,9 +1004,9 @@ def deserialize_prior_runtime_state(
         params: dict[str, jnp.ndarray] = {}
         for k, v in raw.items():
             if k == "family":
-                params[k] = jnp.array(v, dtype=jnp.int64)
+                params[k] = jnp.array(v, dtype=jnp.int32)
             else:
-                params[k] = jnp.asarray(v, dtype=jnp.float64)
+                params[k] = jnp.asarray(v, dtype=jnp.float32)
         state[site.name] = params
     return state
 

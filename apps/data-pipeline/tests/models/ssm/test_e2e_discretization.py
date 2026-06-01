@@ -39,7 +39,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import (
     StateInterceptSpec,
 )
 from nof1_causal_lab.models.ssm.runtime import build_ssm_model
-from tests.ssm_test_utils import block_ssm_spec, dense_matrix_dynamics_spec
+from nof1_causal_lab.models.ssm.testing import block_ssm_spec, dense_matrix_dynamics_spec
 
 
 def _block_spec_with_edge_support(

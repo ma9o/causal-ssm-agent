@@ -507,7 +507,7 @@ def build_auxiliary_kalman_bundle(
         support_kind_codes = (
             get_support_kind_codes(observation_support)
             if observation_support is not None
-            else jnp.zeros((model.spec.n_manifest,), dtype=jnp.int64)
+            else jnp.zeros((model.spec.n_manifest,), dtype=jnp.int32)
         )
         linear_summary_plan = _build_linear_summary_accumulator_plan(
             observation_support,

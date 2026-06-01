@@ -25,9 +25,6 @@ from synthetic_posteriors import (
     invariance,
 )
 
-jax.config.update("jax_enable_x64", True)
-
-
 # ----- base distributions -----
 
 
@@ -222,7 +219,7 @@ def test_soft_constraint_subtracts_penalty():
     x = jnp.array([0.3, -0.5])
     constrained = SoftConstraint(base=base, penalty=lambda xy: xy[..., 0] ** 2, weight=0.7)
     expected = float(base.log_prob(x)) - 0.7 * float(x[0] ** 2)
-    assert abs(float(constrained.log_prob(x)) - expected) < 1e-10
+    assert abs(float(constrained.log_prob(x)) - expected) < 1e-6
 
 
 def test_invariance_enforces_projection():

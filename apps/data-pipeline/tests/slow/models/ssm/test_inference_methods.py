@@ -27,8 +27,7 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.ssm_test_utils import (
-    assert_recovery_ci,
+from nof1_causal_lab.models.ssm.testing import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     full_diagonal_support,
@@ -39,6 +38,7 @@ from tests.ssm_test_utils import (
     zero_square_support,
     zero_vector_support,
 )
+from tests.ssm_test_utils import assert_recovery_ci
 
 pytestmark = pytest.mark.slow
 

@@ -100,7 +100,7 @@ def build_linear_summary_augmented_system(
 
     point_manifest_indices = np.flatnonzero(np.asarray(support_kind_codes) == 0)
     if point_manifest_indices.size > 0:
-        point_idx = jnp.asarray(point_manifest_indices, dtype=jnp.int64)
+        point_idx = jnp.asarray(point_manifest_indices, dtype=jnp.int32)
         H_rows = H_rows.at[:, point_idx, :n_latent].set(
             jnp.broadcast_to(H[point_idx], (T, point_idx.shape[0], n_latent))
         )
@@ -210,8 +210,8 @@ def lift_linear_summary_observation_trajectory(
         raise ValueError("Linear summary augmentation could not recover accumulator slots.")
 
     accumulator_manifest_indices = np.asarray(plan.accumulator_manifest_indices, dtype=np.int64)
-    accumulator_slots_jnp = jnp.asarray(accumulator_slots, dtype=jnp.int64)
-    accumulator_manifest_jnp = jnp.asarray(accumulator_manifest_indices, dtype=jnp.int64)
+    accumulator_slots_jnp = jnp.asarray(accumulator_slots, dtype=jnp.int32)
+    accumulator_manifest_jnp = jnp.asarray(accumulator_manifest_indices, dtype=jnp.int32)
 
     def _gather_state(accum_sum: jnp.ndarray) -> jnp.ndarray:
         return accum_sum[accumulator_manifest_jnp, accumulator_slots_jnp]
@@ -232,7 +232,7 @@ def lift_linear_summary_observation_trajectory(
     prev_coeffs = jnp.asarray(operator.prev_coeffs, dtype=dtype)
     curr_coeffs = jnp.asarray(operator.curr_coeffs, dtype=dtype)
     interval_weights = jnp.asarray(operator.interval_weights, dtype=dtype)
-    emission_slots_jax = jnp.asarray(operator.emission_slots, dtype=jnp.int64)
+    emission_slots_jax = jnp.asarray(operator.emission_slots, dtype=jnp.int32)
 
     def _scan_step(carry, inputs):
         response_prev, accum_sum, accum_sumsq, accum_weight = carry

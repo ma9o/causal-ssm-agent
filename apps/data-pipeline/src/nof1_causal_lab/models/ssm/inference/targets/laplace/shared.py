@@ -224,11 +224,11 @@ def _build_linear_summary_accumulator_plan(
             )
 
     return LinearSummaryAccumulatorPlan(
-        accumulator_manifest_indices=jnp.asarray(accumulator_manifest_indices, dtype=jnp.int64),
+        accumulator_manifest_indices=jnp.asarray(accumulator_manifest_indices, dtype=jnp.int32),
         row_reset_mask=jnp.asarray(row_reset_mask),
         row_emission_accumulator_indices=jnp.asarray(
             row_emission_accumulator_indices,
-            dtype=jnp.int64,
+            dtype=jnp.int32,
         ),
         row_emission_scales=jnp.asarray(row_emission_scales),
     )
@@ -1124,17 +1124,17 @@ def _infer_support_groups(
 
         return SupportObservationWindowBatch(
             max_state_len=batch_state_len,
-            state_lens=jnp.asarray(state_lens, dtype=jnp.int64),
-            anchor_indices=jnp.asarray(anchor_indices, dtype=jnp.int64),
-            start_indices=jnp.asarray(start_indices, dtype=jnp.int64),
+            state_lens=jnp.asarray(state_lens, dtype=jnp.int32),
+            anchor_indices=jnp.asarray(anchor_indices, dtype=jnp.int32),
+            start_indices=jnp.asarray(start_indices, dtype=jnp.int32),
             mask_full=jnp.asarray(mask_full),
             prev_coeffs=jnp.asarray(padded_prev),
             curr_coeffs=jnp.asarray(padded_curr),
             weights=jnp.asarray(padded_weights),
-            padded_state_indices=jnp.asarray(padded_state_indices, dtype=jnp.int64),
-            time_indices=jnp.asarray(time_indices, dtype=jnp.int64),
+            padded_state_indices=jnp.asarray(padded_state_indices, dtype=jnp.int32),
+            time_indices=jnp.asarray(time_indices, dtype=jnp.int32),
             valid_diag=jnp.asarray(valid_diag),
-            cross_time_indices=jnp.asarray(cross_time_indices, dtype=jnp.int64),
+            cross_time_indices=jnp.asarray(cross_time_indices, dtype=jnp.int32),
             valid_cross=jnp.asarray(valid_cross),
         )
 

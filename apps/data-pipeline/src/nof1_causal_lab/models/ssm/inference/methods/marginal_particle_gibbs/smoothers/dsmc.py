@@ -59,6 +59,9 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
     _observation_log_probs_by_param,
     _sample_gaussian_from_chol,
 )
+from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers._dsmc_combine_kernel import (
+    combine_log_joint,
+)
 
 _LOG_2PI = math.log(2.0 * math.pi)
 
@@ -83,6 +86,9 @@ def smooth(ctx, key, x_ref):
     latent_dtype = ctx.latent_dtype
     traj_dtype = ctx.traj_dtype
     latent_dim = int(init_means.shape[-1])
+    # GPU -> streaming Triton combine kernel (tf32 cross, benchmarked unbiased — see
+    # _dsmc_combine_kernel); CPU/tests -> exact-fp32 Pallas interpret mode.
+    combine_interpret = jax.default_backend() != "gpu"
     dsmc_leaf_proposal = ctx.dsmc_leaf_proposal
     amala_delta = jnp.asarray(ctx.amala_delta, dtype=latent_dtype)
     proposal_var_by_t = jnp.asarray(0.5, dtype=latent_dtype) * amala_delta
@@ -372,32 +378,6 @@ def smooth(ctx, key, x_ref):
         indices = jnp.searchsorted(cumulative, uniforms, side="right")
         return jnp.minimum(indices, logits.shape[0] - 1).astype(jnp.int32)
 
-    def _pair_transition_log_probs(prev_particles, next_particles, seam):
-        seam_clamped = jnp.minimum(seam, num_steps - 1)
-        real_seam = seam < num_steps
-
-        def _one_param(drift_s, shift_s, chol_s, logdet_s):
-            # Pairwise Mahalanobis ||L^-1 (x_next[n] - (A x_prev[m] + c))||^2 via the
-            # whiten-then-GEMM expansion: whiten both sides once, then a single GEMM
-            # for the cross term, instead of an N x N batch of triangular solves.
-            means = prev_particles @ drift_s.T + shift_s
-            whitened_means = jla.solve_triangular(chol_s, means.T, lower=True).T
-            whitened_next = jla.solve_triangular(chol_s, next_particles.T, lower=True).T
-            sq_means = jnp.sum(whitened_means * whitened_means, axis=1)
-            sq_next = jnp.sum(whitened_next * whitened_next, axis=1)
-            cross = whitened_means @ whitened_next.T
-            quadratic = sq_means[:, None] + sq_next[None, :] - 2.0 * cross
-            return -0.5 * (latent_dim * _LOG_2PI + logdet_s + quadratic)
-
-        transition_lp = jax.vmap(_one_param)(
-            contexts.Ad[:, seam_clamped],
-            contexts.cd[:, seam_clamped],
-            transition_chols[:, seam_clamped],
-            transition_logdets[:, seam_clamped],
-        )
-        transition_lp = jnp.where(real_seam, transition_lp, 0.0)
-        return jnp.transpose(transition_lp, (1, 2, 0))
-
     def _selected_transition_log_probs(prev_particles, next_particles, seam):
         seam_clamped = jnp.minimum(seam, num_steps - 1)
         real_seam = seam < num_steps
@@ -426,9 +406,36 @@ def smooth(ctx, key, x_ref):
     def _stitch_logits(left, right, seam):
         _, left_last, left_psi, _, left_weights = left
         right_first, _, right_psi, _, right_weights = right
-        transition_lp = _pair_transition_log_probs(left_last, right_first, seam)
-        stitched_psi = left_psi[:, None, :] + right_psi[None, :, :] + transition_lp
-        log_joint = jax.scipy.special.logsumexp(logpi[None, None, :] + stitched_psi, axis=2)
+        seam_clamped = jnp.minimum(seam, num_steps - 1)
+        real_seam = seam < num_steps
+
+        # Per-parameter whitened vectors + scalar folds for the streaming combine kernel.
+        # The kernel returns logsumexp_p(a_p[m] + b_p[n] + <wm_p[m], wn_p[n]>), equal to
+        # logsumexp_p(logpi_p + left_psi + right_psi + transition_lp) but without ever
+        # materializing the (P,N,N) tensor. Phantom seams (real_seam False) carry no
+        # transition: zero wm and drop the Gaussian normalization so the term is logpi+psi.
+        def _per_param(drift_s, shift_s, chol_s, logdet_s, logpi_p, left_psi_p, right_psi_p):
+            means = left_last @ drift_s.T + shift_s
+            wm = jla.solve_triangular(chol_s, means.T, lower=True).T
+            wn = jla.solve_triangular(chol_s, right_first.T, lower=True).T
+            sq_means = jnp.sum(wm * wm, axis=1)
+            sq_next = jnp.sum(wn * wn, axis=1)
+            base = jnp.where(real_seam, -0.5 * (latent_dim * _LOG_2PI + logdet_s), 0.0)
+            a = logpi_p + left_psi_p + jnp.where(real_seam, -0.5 * sq_means, 0.0) + base
+            b = right_psi_p + jnp.where(real_seam, -0.5 * sq_next, 0.0)
+            wm = jnp.where(real_seam, wm, 0.0)
+            return wm, wn, a, b
+
+        wm, wn, a, b = jax.vmap(_per_param)(
+            contexts.Ad[:, seam_clamped],
+            contexts.cd[:, seam_clamped],
+            transition_chols[:, seam_clamped],
+            transition_logdets[:, seam_clamped],
+            logpi,
+            jnp.swapaxes(left_psi, 0, 1),
+            jnp.swapaxes(right_psi, 0, 1),
+        )
+        log_joint = combine_log_joint(wm, wn, a, b, interpret=combine_interpret)
         log_left = jax.scipy.special.logsumexp(logpi[None, :] + left_psi, axis=1)
         log_right = jax.scipy.special.logsumexp(logpi[None, :] + right_psi, axis=1)
         seam_coupling = log_joint - log_left[:, None] - log_right[None, :]

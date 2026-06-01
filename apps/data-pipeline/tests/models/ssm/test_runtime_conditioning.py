@@ -41,14 +41,14 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.models.ssm.test_inference_strategies import _make_aux_kalman_mcmc_smoke_spec
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
     make_observation_support_runtime,
     prior_registry,
 )
+from tests.models.ssm.test_inference_strategies import _make_aux_kalman_mcmc_smoke_spec
 
 
 def _binary_pg_spec():

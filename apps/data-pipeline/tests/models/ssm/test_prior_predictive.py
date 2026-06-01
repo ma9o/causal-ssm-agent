@@ -38,14 +38,14 @@ from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
 from nof1_causal_lab.models.ssm.priors import PriorSpec
 from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec, T0CholBlockSpec
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     block_ssm_spec,
     dense_matrix_dynamics_spec,
     diagonal_diffusion_block,
     full_diagonal_support,
     prior_registry,
 )
+from nof1_causal_lab.workers.schemas_prior import PriorValidationResult
 
 
 def _require_result(result: PriorValidationResult | None) -> PriorValidationResult:

@@ -90,7 +90,7 @@ def run_pathfinder(target: Target, config: PathfinderConfig | None = None) -> Pa
 
     key = jax.random.PRNGKey(cfg.seed)
     fit_key, draw_key = jax.random.split(key)
-    init = jnp.asarray(cfg.initial_position, dtype=jnp.float64)
+    init = jnp.asarray(cfg.initial_position, dtype=jnp.float32)
 
     state, info = pathfinder.approximate(
         fit_key,

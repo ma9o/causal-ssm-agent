@@ -185,11 +185,11 @@ def prepare_fit_inputs(
     )
     manifest_centered = list(spec.manifest_centered) if spec.manifest_centered is not None else None
     centered_data = _center_manifest_columns(wide_data, manifest_cols, manifest_centered)
-    observations = jnp.array(centered_data.select(manifest_cols).to_numpy(), dtype=jnp.float64)
+    observations = jnp.array(centered_data.select(manifest_cols).to_numpy(), dtype=jnp.float32)
     if "time" in centered_data.columns:
-        times = jnp.array(centered_data["time"].to_numpy(), dtype=jnp.float64)
+        times = jnp.array(centered_data["time"].to_numpy(), dtype=jnp.float32)
     else:
-        times = jnp.arange(centered_data.height, dtype=jnp.float64)
+        times = jnp.arange(centered_data.height, dtype=jnp.float32)
     return observations, times, manifest_cols, centered_data
 
 
@@ -224,7 +224,7 @@ def prepare_transition_inputs(spec: SSMSpec, wide_data: pl.DataFrame) -> jnp.nda
             )
         else:
             raise ValueError(f"Unsupported known-input missing policy: {policy!r}")
-        columns.append(jnp.asarray(filled[source_indicator].to_numpy(), dtype=jnp.float64) / scale)
+        columns.append(jnp.asarray(filled[source_indicator].to_numpy(), dtype=jnp.float32) / scale)
 
     raw_inputs = jnp.stack(columns, axis=1)
     if raw_inputs.shape[0] <= 1:
@@ -360,7 +360,7 @@ def sample_prior_predictive(
         )
 
     if times is None:
-        times = jnp.arange(10, dtype=jnp.float64)
+        times = jnp.arange(10, dtype=jnp.float32)
     return sample_prior_predictive_from_runtime(
         spec,
         model.get_prior_runtime_bundle(),

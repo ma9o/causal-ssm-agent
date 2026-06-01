@@ -172,7 +172,7 @@ def _slice_extra_params_for_indices(
         return None
 
     sliced: dict[str, jnp.ndarray | float] = {}
-    idx = jnp.asarray(indices, dtype=jnp.int64)
+    idx = jnp.asarray(indices, dtype=jnp.int32)
     for key, value in extra_params.items():
         if isinstance(value, float):
             sliced[key] = value
@@ -297,7 +297,7 @@ def _sample_observations_for_draw(
     expected_means, semantic_mask = observation_operator.project_response_trajectory(responses)
 
     interval_summary_indices = list(observation_operator.interval_summary_indices)
-    interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int64)
+    interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
     assert interval_summary_sampler is not None
     sampled_interval_summary = interval_summary_sampler.sample_mean_trajectory(
         key_interval_summary,
@@ -395,7 +395,7 @@ def sample_predictive_observations_from_linear_predictors(
         else None
     )
     level_counts = (
-        jnp.asarray(manifest_level_counts, dtype=jnp.int64)
+        jnp.asarray(manifest_level_counts, dtype=jnp.int32)
         if manifest_level_counts is not None
         else None
     )
@@ -470,7 +470,7 @@ def sample_predictive_observations_from_linear_predictors(
         interval_summary_sampler: PredictiveObservationSampler | None = None
         if observation_operator.requires_interval_summary_handling:
             interval_summary_indices = list(observation_operator.interval_summary_indices)
-            interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int64)
+            interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
             interval_summary_sampler = build_predictive_observation_sampler(
                 [point_sampler.manifest_dists[idx] for idx in interval_summary_indices],
                 manifest_cov=manifest_cov_sub[i][
@@ -604,7 +604,7 @@ def _simulate_predictive_observations_with_mask(
         else None
     )
     level_counts = (
-        jnp.asarray(manifest_level_counts, dtype=jnp.int64)
+        jnp.asarray(manifest_level_counts, dtype=jnp.int32)
         if manifest_level_counts is not None
         else None
     )
@@ -715,7 +715,7 @@ def _simulate_predictive_observations_with_mask(
         interval_summary_sampler: PredictiveObservationSampler | None = None
         if observation_operator.requires_interval_summary_handling:
             interval_summary_indices = list(observation_operator.interval_summary_indices)
-            interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int64)
+            interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
             interval_summary_sampler = build_predictive_observation_sampler(
                 [point_sampler.manifest_dists[idx] for idx in interval_summary_indices],
                 manifest_cov=manifest_cov_sub[i][

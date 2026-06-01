@@ -90,7 +90,7 @@ def test_persist_stage_web_patch_uses_shared_persistence_helper(monkeypatch):
 
 def test_build_stage6_context_rehydrates_runtime_from_persisted_spec(monkeypatch):
     import nof1_causal_lab.flows.run_store as run_store
-    from tests.ssm_test_utils import block_ssm_spec, full_dense_matrix_dynamics_spec
+    from nof1_causal_lab.models.ssm.testing import block_ssm_spec, full_dense_matrix_dynamics_spec
 
     spec = block_ssm_spec(
         n_latent=2,

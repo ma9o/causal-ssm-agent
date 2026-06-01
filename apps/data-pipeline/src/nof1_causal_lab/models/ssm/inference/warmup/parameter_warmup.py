@@ -50,7 +50,7 @@ def _laplace_preconditioner_chol_from_map_result(
     covariance = np.asarray(map_result.diagnostics["parameter_covariance"])
     covariance = 0.5 * (covariance + covariance.T)
     covariance = covariance + jitter * np.eye(covariance.shape[0], dtype=covariance.dtype)
-    return jnp.asarray(np.linalg.cholesky(covariance))
+    return jnp.asarray(np.linalg.cholesky(covariance), dtype=jnp.float32)
 
 
 def _validate_initial_positions_override(

@@ -29,7 +29,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 from nof1_causal_lab.models.ssm.priors import materialize_prior_distribution
 from nof1_causal_lab.models.ssm.structure.sites import SiteKind, SupportClass
-from tests.ssm_test_utils import (
+from nof1_causal_lab.models.ssm.testing import (
     default_diffusion_block,
     default_input_effect_block,
     default_manifest_chol_block,
@@ -206,7 +206,7 @@ class TestBlockSpecEquivalence:
             DiffusionBlockSpec,
             SparseMatrixBlockSpec,
         )
-        from tests.ssm_test_utils import full_diagonal_support
+        from nof1_causal_lab.models.ssm.testing import full_diagonal_support
 
         spec = SSMSpec(
             n_latent=2,
@@ -260,7 +260,7 @@ class TestBlockSpecEquivalence:
             SparseMatrixBlockSpec,
             SparseVectorBlockSpec,
         )
-        from tests.ssm_test_utils import full_vector_support
+        from nof1_causal_lab.models.ssm.testing import full_vector_support
 
         spec = SSMSpec(
             n_latent=3,

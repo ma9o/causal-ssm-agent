@@ -1,6 +1,6 @@
-"""Prod-like particle MCMC inference check on the nonlinear DEMO-like fixture.
+"""Prod-like particle MCMC inference check on the synthetic nonlinear fixture.
 
-This script intentionally reuses ``scratchpad/demo_like_synthetic.py`` so the
+This script intentionally reuses ``scripts/benchmarks/synthetic_nonlinear.py`` so the
 stress model stays identical to the benchmarking notebooks: three latent states,
 mixed Gaussian/count/gamma observations, transition inputs, Hill saturation, and
 multiplicative nonlinear drift terms.
@@ -16,8 +16,8 @@ every smoother fit as shared initial positions plus a shared parameter
 preconditioner.
 
 Example:
-    uv run python scripts/benchmark.py
-    uv run python scripts/benchmark.py --support-mode both --T 24
+    uv run python scripts/benchmarks/benchmark.py
+    uv run python scripts/benchmarks/benchmark.py --support-mode both --T 24
 
 The default point-support mode is the nonlinear smoother smoke check. Interval
 mode is an explicit caveat probe for the same fixture and currently exercises
@@ -51,8 +51,7 @@ def _repo_root() -> Path:
 REPO_ROOT = _repo_root()
 for import_path in (
     REPO_ROOT / "apps/data-pipeline/src",
-    REPO_ROOT / "apps/data-pipeline",
-    REPO_ROOT / "scratchpad",
+    REPO_ROOT / "apps/data-pipeline/scripts/benchmarks",
 ):
     path = str(import_path)
     if path not in sys.path:
@@ -74,14 +73,14 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
-from demo_like_synthetic import (
+from synthetic_nonlinear import (
     MEASUREMENT_MEANS_FREE_POSITIONS,
     RECOVERY_TARGETS,
     TRUE_HILL_BY_SITE,
     TRUE_MANIFEST_SD,
     TRUE_MULTIPLICATIVE_BY_SITE,
-    build_demo_like_synthetic_model,
-    simulate_demo_like_synthetic_data,
+    build_synthetic_nonlinear_model,
+    simulate_synthetic_nonlinear_data,
 )
 
 from nof1_causal_lab.models.ssm.inference import fit
@@ -177,7 +176,7 @@ def _pathfinder_cache_config(
 ) -> dict[str, Any]:
     return {
         "version": PATHFINDER_CACHE_VERSION,
-        "target": "nonlinear_demo_like_synthetic",
+        "target": "synthetic_nonlinear",
         "support_mode": support_mode,
         "support_index": int(support_idx),
         "T": int(args.T),
@@ -298,7 +297,7 @@ def _run_pathfinder_cache(
         data.observations,
         data.times,
         bundle=bundle,
-        method_label="mpg_smoothers_demo_like_check",
+        method_label="mpg_smoothers_synthetic_nonlinear_check",
         phase_label=f"shared pathfinder cache ({support_mode})",
         trace_key=trace_key,
         pathfinder_key=pathfinder_key,
@@ -414,10 +413,10 @@ def _prepare_fixture_context(
         int(args.T),
         int(args.data_seed),
     )
-    data = simulate_demo_like_synthetic_data(
+    data = simulate_synthetic_nonlinear_data(
         T=args.T, seed=args.data_seed, diffusion_scale=args.diffusion_scale
     )
-    model = build_demo_like_synthetic_model(
+    model = build_synthetic_nonlinear_model(
         data,
         include_interval_support=include_interval_support,
         diffusion_scale=args.diffusion_scale,
@@ -623,7 +622,7 @@ def _parameter_recovery(result, *, elapsed_seconds: float) -> dict[str, Any]:
     rows = list(site_rows.values())
     return {
         "note": (
-            "Recovery is computed for every demo-like synthetic target from retained "
+            "Recovery is computed for every synthetic nonlinear target from retained "
             "posterior samples. target_scale is the observation-noise SD for manifest "
             "means and max(abs(true), 1) otherwise; use family summaries and "
             "scale_adjusted_abs_error when comparing heterogeneous parameter units."
@@ -1751,8 +1750,8 @@ def _production_diagnostic_metrics(selected_metrics: frozenset[str]) -> tuple[st
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Run MPGibbs smoothers and the optional PMMH baseline on the nonlinear "
-            "DEMO-like scratchpad fixture."
+            "Run MPGibbs smoothers and the optional PMMH baseline on the synthetic "
+            "nonlinear fixture."
         )
     )
     parser.add_argument("--T", type=int, default=32)
@@ -1817,7 +1816,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--pathfinder-cache-path",
         type=Path,
-        default=REPO_ROOT / "scratchpad" / "mpg_smoothers_demo_like_pathfinder_cache.npz",
+        default=REPO_ROOT / "scratchpad" / "mpg_smoothers_synthetic_nonlinear_pathfinder_cache.npz",
         help="Relative paths resolve against the repo root, not the CWD.",
     )
     parser.add_argument("--pathfinder-seed", type=int, default=None)
@@ -1862,7 +1861,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=REPO_ROOT / "scratchpad" / "mpg_smoothers_demo_like_check.json",
+        default=REPO_ROOT / "scratchpad" / "mpg_smoothers_synthetic_nonlinear_check.json",
         help="Relative paths resolve against the repo root, not the CWD.",
     )
     args = parser.parse_args()
@@ -1886,7 +1885,7 @@ def main() -> None:
     support_modes = _support_modes(args.support_mode)
     selected_metrics = _selected_diagnostic_metrics(args)
     if not TRUE_HILL_BY_SITE or not TRUE_MULTIPLICATIVE_BY_SITE:
-        raise AssertionError("demo-like fixture is not exercising nonlinear dynamics")
+        raise AssertionError("synthetic fixture is not exercising nonlinear dynamics")
     logger.info(
         "benchmark start: T=%d warmup=%d samples=%d smoothers=%s support_modes=%s "
         "pathfinder_cache_mode=%s all_metrics=%s",
@@ -1938,8 +1937,8 @@ def main() -> None:
             )
 
     payload = {
-        "artifact": "mpg_smoothers_demo_like_check",
-        "target": "nonlinear_demo_like_synthetic",
+        "artifact": "mpg_smoothers_synthetic_nonlinear_check",
+        "target": "synthetic_nonlinear",
         "config": {
             "T": args.T,
             "num_warmup": args.num_warmup,

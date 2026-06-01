@@ -121,8 +121,8 @@ class LaplaceLikelihood:
             self._support_kind_codes = get_support_kind_codes(observation_support)
             self._summary_operator_codes = get_summary_operator_codes(observation_support)
         else:
-            self._support_kind_codes = jnp.zeros((n_manifest,), dtype=jnp.int64)
-            self._summary_operator_codes = jnp.zeros((n_manifest,), dtype=jnp.int64)
+            self._support_kind_codes = jnp.zeros((n_manifest,), dtype=jnp.int32)
+            self._summary_operator_codes = jnp.zeros((n_manifest,), dtype=jnp.int32)
         if (
             observation_support is not None
             and observation_support.requires_interval_summary_handling
