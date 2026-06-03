@@ -82,14 +82,12 @@ export type {
 } from "./generated/models";
 
 export type {
-  CounterfactualStartResultContract as CounterfactualStartResult,
   EffectSummaryContract as EffectSummary,
   EffectTrajectoryPointContract as EffectTrajectoryPoint,
-  InterventionActionInput,
-  SimulateCounterfactualResultContract as SimulateCounterfactualResult,
-  SimulateCounterfactualToolResultContract as SimulateCounterfactualToolResult,
-  SimulateInterventionResultContract as SimulateInterventionResult,
-  SimulateInterventionToolResultContract as SimulateInterventionToolResult,
+  LatentClampInput,
+  ScenarioStartResultContract as ScenarioStartResult,
+  SimulateScenarioResultContract as SimulateScenarioResult,
+  SimulateScenarioToolResultContract as SimulateScenarioToolResult,
   Stage6VisualizationContract as Stage6Visualization,
   ToolErrorContract as ToolError,
 } from "./generated/tool-results";

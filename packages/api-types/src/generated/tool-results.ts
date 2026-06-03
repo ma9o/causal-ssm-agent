@@ -17,13 +17,10 @@ export type CausalSSMToolResults =
   | EffectSummaryContract
   | EffectTrajectoryPointContract
   | Stage6VisualizationContract
-  | CounterfactualStartResultContract
-  | SimulateInterventionResultContract
-  | SimulateCounterfactualResultContract
-  | SimulateInterventionToolResultContract
-  | SimulateCounterfactualToolResultContract;
-export type SimulateInterventionToolResultContract = SimulateInterventionResultContract | ToolErrorContract;
-export type SimulateCounterfactualToolResultContract = SimulateCounterfactualResultContract | ToolErrorContract;
+  | ScenarioStartResultContract
+  | SimulateScenarioResultContract
+  | SimulateScenarioToolResultContract;
+export type SimulateScenarioToolResultContract = SimulateScenarioResultContract | ToolErrorContract;
 
 export interface ToolErrorContract {
   error: string;
@@ -42,79 +39,96 @@ export interface EffectTrajectoryPointContract {
 }
 export interface Stage6VisualizationContract {
   /**
-   * Per-construct latent trajectories for the reference path aligned to effect_trajectory days. This is the no-action baseline forecast for rung-2 queries and the factual forecast from the fitted start state for rung-3 queries.
+   * Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.
    */
   reference_node_trajectories?: {
     [k: string]: number[] | undefined;
   } | null;
   /**
-   * Per-construct latent trajectories under the queried action aligned to effect_trajectory days.
+   * Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.
    */
   action_node_trajectories?: {
     [k: string]: number[] | undefined;
   } | null;
   /**
-   * Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the relevant reference path.
+   * Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.
    */
   node_effect_trajectories?: {
     [k: string]: number[] | undefined;
   } | null;
   /**
-   * Posterior mean fitted latent state used to start a rung-3 query.
+   * Posterior mean latent state the rollout started from.
    */
   start_state?: {
     [k: string]: number | undefined;
   } | null;
 }
-export interface CounterfactualStartResultContract {
-  time_index: number;
+export interface ScenarioStartResultContract {
+  kind: "baseline" | "abducted";
+  time_index?: number | null;
   time?: string | null;
-  state_source: "fitted_latent_paths";
+  state_source: "baseline_steady_state" | "fitted_latent_paths";
 }
-export interface SimulateInterventionResultContract {
-  action: InterventionActionInput;
+export interface SimulateScenarioResultContract {
+  start: ScenarioStartResultContract;
+  clamps: LatentClampInput[];
   outcome: string;
+  estimand: "end_state" | "trajectory";
   summary: EffectSummaryContract;
   effect_trajectory?: EffectTrajectoryPointContract[] | null;
   visualization?: Stage6VisualizationContract | null;
   manifest_effects?: {
     [k: string]: number | undefined;
   } | null;
-  warnings: string[];
-  rung: 2;
-  estimand: "steady_state" | "trajectory";
-  baseline_treatment_mean: number;
-}
-export interface InterventionActionInput {
   /**
-   * Latent construct to intervene on.
+   * Mean reference outcome (baseline steady state or factual forecast).
+   */
+  reference_mean: number;
+  warnings: string[];
+}
+/**
+ * A do-operator on one latent variable over a time window.
+ *
+ * The window is ``[from_day, to_day)`` in days relative to the rollout start; outside
+ * the window the variable evolves under its natural dynamics. ``set`` pins to an absolute
+ * value, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly
+ * interpolates across the window, and ``trajectory`` tracks a list of values across it.
+ */
+export interface LatentClampInput {
+  /**
+   * Latent construct to clamp.
    */
   variable: string;
   /**
-   * 'set' clamps the construct to a value; 'shift' adds an amount to baseline.
+   * How the clamped value is specified over the window.
    */
-  mode: "set" | "shift";
+  mode: "set" | "shift" | "ramp" | "trajectory";
   /**
-   * Required when mode='set'. Absolute latent-space value to clamp to.
+   * Required when mode='set'. Absolute latent-space value.
    */
   value?: number | null;
   /**
-   * Required when mode='shift'. Additive latent-space delta from baseline.
+   * Required when mode='shift'. Additive delta from the start-state value.
    */
   amount?: number | null;
-}
-export interface SimulateCounterfactualResultContract {
-  action: InterventionActionInput;
-  outcome: string;
-  summary: EffectSummaryContract;
-  effect_trajectory?: EffectTrajectoryPointContract[] | null;
-  visualization?: Stage6VisualizationContract | null;
-  manifest_effects?: {
-    [k: string]: number | undefined;
-  } | null;
-  warnings: string[];
-  rung: 3;
-  start: CounterfactualStartResultContract;
-  estimand: "end_state" | "trajectory";
-  baseline_forecast_mean: number;
+  /**
+   * Required when mode='ramp'. Value at from_day.
+   */
+  value_start?: number | null;
+  /**
+   * Required when mode='ramp'. Value at to_day.
+   */
+  value_end?: number | null;
+  /**
+   * Required when mode='trajectory'. Values sampled evenly across the window.
+   */
+  values?: number[] | null;
+  /**
+   * Window onset in days from the rollout start.
+   */
+  from_day: number;
+  /**
+   * Window end in days from the rollout start. Null runs through the horizon.
+   */
+  to_day?: number | null;
 }

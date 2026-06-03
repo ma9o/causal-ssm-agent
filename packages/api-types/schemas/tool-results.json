@@ -16,55 +16,16 @@
       "$ref": "#/$defs/Stage6VisualizationContract"
     },
     {
-      "$ref": "#/$defs/CounterfactualStartResultContract"
+      "$ref": "#/$defs/ScenarioStartResultContract"
     },
     {
-      "$ref": "#/$defs/SimulateInterventionResultContract"
+      "$ref": "#/$defs/SimulateScenarioResultContract"
     },
     {
-      "$ref": "#/$defs/SimulateCounterfactualResultContract"
-    },
-    {
-      "$ref": "#/$defs/SimulateInterventionToolResultContract"
-    },
-    {
-      "$ref": "#/$defs/SimulateCounterfactualToolResultContract"
+      "$ref": "#/$defs/SimulateScenarioToolResultContract"
     }
   ],
   "$defs": {
-    "CounterfactualStartResultContract": {
-      "additionalProperties": false,
-      "properties": {
-        "time_index": {
-          "title": "Time Index",
-          "type": "integer"
-        },
-        "time": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Time"
-        },
-        "state_source": {
-          "const": "fitted_latent_paths",
-          "default": "fitted_latent_paths",
-          "title": "State Source",
-          "type": "string"
-        }
-      },
-      "required": [
-        "state_source",
-        "time_index"
-      ],
-      "title": "CounterfactualStartResultContract",
-      "type": "object"
-    },
     "EffectSummaryContract": {
       "additionalProperties": false,
       "properties": {
@@ -118,19 +79,22 @@
       "title": "EffectTrajectoryPointContract",
       "type": "object"
     },
-    "InterventionActionInput": {
+    "LatentClampInput": {
       "additionalProperties": false,
+      "description": "A do-operator on one latent variable over a time window.\n\nThe window is ``[from_day, to_day)`` in days relative to the rollout start; outside\nthe window the variable evolves under its natural dynamics. ``set`` pins to an absolute\nvalue, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly\ninterpolates across the window, and ``trajectory`` tracks a list of values across it.",
       "properties": {
         "variable": {
-          "description": "Latent construct to intervene on.",
+          "description": "Latent construct to clamp.",
           "title": "Variable",
           "type": "string"
         },
         "mode": {
-          "description": "'set' clamps the construct to a value; 'shift' adds an amount to baseline.",
+          "description": "How the clamped value is specified over the window.",
           "enum": [
             "set",
-            "shift"
+            "shift",
+            "ramp",
+            "trajectory"
           ],
           "title": "Mode",
           "type": "string"
@@ -145,7 +109,7 @@
             }
           ],
           "default": null,
-          "description": "Required when mode='set'. Absolute latent-space value to clamp to.",
+          "description": "Required when mode='set'. Absolute latent-space value.",
           "title": "Value"
         },
         "amount": {
@@ -158,35 +122,40 @@
             }
           ],
           "default": null,
-          "description": "Required when mode='shift'. Additive latent-space delta from baseline.",
+          "description": "Required when mode='shift'. Additive delta from the start-state value.",
           "title": "Amount"
-        }
-      },
-      "required": [
-        "mode",
-        "variable"
-      ],
-      "title": "InterventionActionInput",
-      "type": "object"
-    },
-    "SimulateCounterfactualResultContract": {
-      "additionalProperties": false,
-      "properties": {
-        "action": {
-          "$ref": "#/$defs/InterventionActionInput"
         },
-        "outcome": {
-          "title": "Outcome",
-          "type": "string"
+        "value_start": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required when mode='ramp'. Value at from_day.",
+          "title": "Value Start"
         },
-        "summary": {
-          "$ref": "#/$defs/EffectSummaryContract"
+        "value_end": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Required when mode='ramp'. Value at to_day.",
+          "title": "Value End"
         },
-        "effect_trajectory": {
+        "values": {
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/EffectTrajectoryPointContract"
+                "type": "number"
               },
               "type": "array"
             },
@@ -195,48 +164,105 @@
             }
           ],
           "default": null,
-          "title": "Effect Trajectory"
+          "description": "Required when mode='trajectory'. Values sampled evenly across the window.",
+          "title": "Values"
         },
-        "visualization": {
+        "from_day": {
+          "default": 0.0,
+          "description": "Window onset in days from the rollout start.",
+          "minimum": 0.0,
+          "title": "From Day",
+          "type": "number"
+        },
+        "to_day": {
           "anyOf": [
             {
-              "$ref": "#/$defs/Stage6VisualizationContract"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "manifest_effects": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
+              "type": "number"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Manifest Effects"
+          "description": "Window end in days from the rollout start. Null runs through the horizon.",
+          "title": "To Day"
+        }
+      },
+      "required": [
+        "from_day",
+        "mode",
+        "variable"
+      ],
+      "title": "LatentClampInput",
+      "type": "object"
+    },
+    "ScenarioStartResultContract": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "baseline",
+            "abducted"
+          ],
+          "title": "Kind",
+          "type": "string"
         },
-        "warnings": {
+        "time_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time Index"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        },
+        "state_source": {
+          "enum": [
+            "baseline_steady_state",
+            "fitted_latent_paths"
+          ],
+          "title": "State Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "state_source"
+      ],
+      "title": "ScenarioStartResultContract",
+      "type": "object"
+    },
+    "SimulateScenarioResultContract": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/ScenarioStartResultContract"
+        },
+        "clamps": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/LatentClampInput"
           },
-          "title": "Warnings",
+          "title": "Clamps",
           "type": "array"
         },
-        "rung": {
-          "const": 3,
-          "title": "Rung",
-          "type": "integer"
-        },
-        "start": {
-          "$ref": "#/$defs/CounterfactualStartResultContract"
+        "outcome": {
+          "title": "Outcome",
+          "type": "string"
         },
         "estimand": {
           "enum": [
@@ -246,45 +272,6 @@
           "title": "Estimand",
           "type": "string"
         },
-        "baseline_forecast_mean": {
-          "title": "Baseline Forecast Mean",
-          "type": "number"
-        }
-      },
-      "required": [
-        "action",
-        "baseline_forecast_mean",
-        "estimand",
-        "outcome",
-        "rung",
-        "start",
-        "summary",
-        "warnings"
-      ],
-      "title": "SimulateCounterfactualResultContract",
-      "type": "object"
-    },
-    "SimulateCounterfactualToolResultContract": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/SimulateCounterfactualResultContract"
-        },
-        {
-          "$ref": "#/$defs/ToolErrorContract"
-        }
-      ],
-      "title": "SimulateCounterfactualToolResultContract"
-    },
-    "SimulateInterventionResultContract": {
-      "additionalProperties": false,
-      "properties": {
-        "action": {
-          "$ref": "#/$defs/InterventionActionInput"
-        },
-        "outcome": {
-          "title": "Outcome",
-          "type": "string"
-        },
         "summary": {
           "$ref": "#/$defs/EffectSummaryContract"
         },
@@ -329,53 +316,41 @@
           "default": null,
           "title": "Manifest Effects"
         },
+        "reference_mean": {
+          "description": "Mean reference outcome (baseline steady state or factual forecast).",
+          "title": "Reference Mean",
+          "type": "number"
+        },
         "warnings": {
           "items": {
             "type": "string"
           },
           "title": "Warnings",
           "type": "array"
-        },
-        "rung": {
-          "const": 2,
-          "title": "Rung",
-          "type": "integer"
-        },
-        "estimand": {
-          "enum": [
-            "steady_state",
-            "trajectory"
-          ],
-          "title": "Estimand",
-          "type": "string"
-        },
-        "baseline_treatment_mean": {
-          "title": "Baseline Treatment Mean",
-          "type": "number"
         }
       },
       "required": [
-        "action",
-        "baseline_treatment_mean",
+        "clamps",
         "estimand",
         "outcome",
-        "rung",
+        "reference_mean",
+        "start",
         "summary",
         "warnings"
       ],
-      "title": "SimulateInterventionResultContract",
+      "title": "SimulateScenarioResultContract",
       "type": "object"
     },
-    "SimulateInterventionToolResultContract": {
+    "SimulateScenarioToolResultContract": {
       "anyOf": [
         {
-          "$ref": "#/$defs/SimulateInterventionResultContract"
+          "$ref": "#/$defs/SimulateScenarioResultContract"
         },
         {
           "$ref": "#/$defs/ToolErrorContract"
         }
       ],
-      "title": "SimulateInterventionToolResultContract"
+      "title": "SimulateScenarioToolResultContract"
     },
     "Stage6VisualizationContract": {
       "additionalProperties": false,
@@ -396,7 +371,7 @@
             }
           ],
           "default": null,
-          "description": "Per-construct latent trajectories for the reference path aligned to effect_trajectory days. This is the no-action baseline forecast for rung-2 queries and the factual forecast from the fitted start state for rung-3 queries.",
+          "description": "Per-construct latent trajectories for the reference (no-clamp) path aligned to effect_trajectory days.",
           "title": "Reference Node Trajectories"
         },
         "action_node_trajectories": {
@@ -415,7 +390,7 @@
             }
           ],
           "default": null,
-          "description": "Per-construct latent trajectories under the queried action aligned to effect_trajectory days.",
+          "description": "Per-construct latent trajectories under the composed clamps aligned to effect_trajectory days.",
           "title": "Action Node Trajectories"
         },
         "node_effect_trajectories": {
@@ -434,7 +409,7 @@
             }
           ],
           "default": null,
-          "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the relevant reference path.",
+          "description": "Per-construct latent effect trajectories aligned to effect_trajectory days. Values are causal deltas relative to the reference path.",
           "title": "Node Effect Trajectories"
         },
         "start_state": {
@@ -450,7 +425,7 @@
             }
           ],
           "default": null,
-          "description": "Posterior mean fitted latent state used to start a rung-3 query.",
+          "description": "Posterior mean latent state the rollout started from.",
           "title": "Start State"
         }
       },
