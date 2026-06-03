@@ -1,9 +1,9 @@
 "use client";
 
-import { STAGE_IDS } from "@nof1-causal-lab/api-types";
 import type { StageId } from "@nof1-causal-lab/api-types";
+import { STAGE_IDS } from "@nof1-causal-lab/api-types";
+import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react";
 import type { RefinementUIMessage } from "@/lib/utils/trace-to-core";
-import { type ReactNode, createContext, useCallback, useContext, useMemo, useState } from "react";
 
 export interface RefinementPrefill {
   stageId: StageId;
@@ -29,6 +29,8 @@ interface RefinementState {
   refinementMessages: Partial<Record<StageId, RefinementUIMessage[]>>;
   /** Prefilled prompt to inject into a target stage's refinement input. */
   prefill: RefinementPrefill | null;
+  /** Currently focused Stage 6 scenario key (simulation tool-call id or `baseline:<treatment>`). */
+  selectedScenarioKey: string | null;
 
   /** Called by LLMTracePanel on first refinement message. Opens the modal. */
   requestRefinement: (stageId: StageId) => void;
@@ -54,6 +56,8 @@ interface RefinementState {
   setPrefill: (stageId: StageId, prompt: string) => void;
   /** Clear the prefill after it has been consumed. */
   clearPrefill: () => void;
+  /** Focus a Stage 6 scenario in the viewer (null clears the selection). */
+  selectScenario: (key: string | null) => void;
 }
 
 const RefinementContext = createContext<RefinementState | null>(null);
@@ -102,6 +106,7 @@ export function RefinementProvider({
     Partial<Record<StageId, RefinementUIMessage[]>>
   >({});
   const [prefill, setPrefillState] = useState<RefinementPrefill | null>(null);
+  const [selectedScenarioKey, setSelectedScenarioKey] = useState<string | null>(null);
 
   const requestRefinement = useCallback((stageId: StageId) => {
     if (!stageHasDownstreamStages(stageId)) {
@@ -178,6 +183,8 @@ export function RefinementProvider({
 
   const clearPrefill = useCallback(() => setPrefillState(null), []);
 
+  const selectScenario = useCallback((key: string | null) => setSelectedScenarioKey(key), []);
+
   const isInvalidated = useCallback(
     (stageId: StageId) => {
       if (!invalidatedAfter) return false;
@@ -199,6 +206,7 @@ export function RefinementProvider({
       pendingStagePatches,
       refinementMessages,
       prefill,
+      selectedScenarioKey,
       requestRefinement,
       confirmRefinement,
       cancelRefinement,
@@ -208,6 +216,7 @@ export function RefinementProvider({
       isInvalidated,
       setPrefill,
       clearPrefill,
+      selectScenario,
     }),
     [
       readOnly,
@@ -219,6 +228,7 @@ export function RefinementProvider({
       pendingStagePatches,
       refinementMessages,
       prefill,
+      selectedScenarioKey,
       requestRefinement,
       confirmRefinement,
       cancelRefinement,
@@ -228,6 +238,7 @@ export function RefinementProvider({
       isInvalidated,
       setPrefill,
       clearPrefill,
+      selectScenario,
     ],
   );
 

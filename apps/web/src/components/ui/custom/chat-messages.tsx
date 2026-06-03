@@ -1,5 +1,11 @@
 "use client";
 
+import type { SimulateScenarioResult } from "@nof1-causal-lab/api-types";
+import type { UIMessage } from "ai";
+import { Bot, Check, Eye, User, Wrench } from "lucide-react";
+import { memo } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Accordion,
   AccordionContent,
@@ -14,30 +20,33 @@ import {
   type SuggestionAction,
   type SuggestionChip,
 } from "@/lib/utils/trace-to-core";
-import type {
-  SimulateCounterfactualResult,
-  SimulateInterventionResult,
-} from "@nof1-causal-lab/api-types";
-import type { UIMessage } from "ai";
-import { Bot, Check, Eye, User, Wrench } from "lucide-react";
-import { memo } from "react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 const remarkPlugins = [remarkGfm];
 type DynamicToolMessagePart = Extract<UIMessage["parts"][number], { type: "dynamic-tool" }>;
 type StaticToolMessagePart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
 type ToolMessagePart = DynamicToolMessagePart | StaticToolMessagePart;
 
-export type SimulationResult = SimulateInterventionResult | SimulateCounterfactualResult;
+export type SimulationResult = SimulateScenarioResult;
 
-const SIMULATION_TOOLS = new Set(["simulate_intervention", "simulate_counterfactual"]);
+const SIMULATION_TOOLS = new Set(["simulate"]);
 
 function asSimulationResult(output: unknown): SimulationResult | null {
-  if (typeof output !== "object" || output === null) return null;
-  const candidate = output as { rung?: unknown; outcome?: unknown };
-  return (candidate.rung === 2 || candidate.rung === 3) && typeof candidate.outcome === "string"
-    ? (output as SimulationResult)
+  // Live tool calls yield an object; a persisted trace stores the result as a
+  // JSON string in tool_result. Accept both.
+  let value = output;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as { outcome?: unknown; clamps?: unknown; summary?: unknown };
+  return typeof candidate.outcome === "string" &&
+    Array.isArray(candidate.clamps) &&
+    candidate.summary != null
+    ? (value as SimulationResult)
     : null;
 }
 
@@ -71,9 +80,7 @@ function ReasoningPart({ text, idx }: { text: string; idx: number }) {
         value={`reasoning-${idx}`}
         className="border-l-2 border-amber-400/50 pl-2.5 !border-b-0"
       >
-        <AccordionTrigger className="py-1.5 text-xs text-amber-600">
-          Thinking
-        </AccordionTrigger>
+        <AccordionTrigger className="py-1.5 text-xs text-amber-600">Thinking</AccordionTrigger>
         <AccordionContent>
           <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted/50 p-2 text-xs">
             {text}
@@ -94,9 +101,7 @@ function deepParseJson(value: unknown): unknown {
   }
   if (Array.isArray(value)) return value.map(deepParseJson);
   if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, deepParseJson(v)]),
-    );
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deepParseJson(v)]));
   }
   return value;
 }
@@ -152,9 +157,7 @@ function ToolPart({
             {hasError ? "ERROR" : "OK"}
           </Badge>
         )}
-        {!isFinished && (
-          <span className="text-[11px] text-muted-foreground italic">pending</span>
-        )}
+        {!isFinished && <span className="text-[11px] text-muted-foreground italic">pending</span>}
         {onSelect ? (
           <button
             type="button"
@@ -349,10 +352,7 @@ function AssistantMessage({
             ) : null;
         }
       })}
-      <SuggestionChips
-        suggestions={suggestions}
-        onSuggestionClick={onSuggestionClick}
-      />
+      <SuggestionChips suggestions={suggestions} onSuggestionClick={onSuggestionClick} />
     </div>
   );
 }

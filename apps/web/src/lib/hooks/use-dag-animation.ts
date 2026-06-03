@@ -1,14 +1,16 @@
 import type { CausalEdge, Construct } from "@nof1-causal-lab/api-types";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  getClampedVariables,
+  getEffectTrajectoryDays,
+  getNodeEffectSeries,
+  isAbductedStart,
+} from "@/components/dag/intervention-dag-semantics";
 import type {
   EdgeAnimState,
   NodeAnimPhase,
   Stage6SimulationResult,
 } from "@/components/dag/intervention-dag-types";
-import {
-  getEffectTrajectoryDays,
-  getNodeEffectSeries,
-} from "@/components/dag/intervention-dag-semantics";
 
 export interface DagAnimationConfig {
   edges: CausalEdge[];
@@ -40,7 +42,8 @@ type GraphAnimationFrame = Pick<
   "nodePhases" | "nodeEffects" | "edgeStates" | "startStateValues"
 >;
 
-function getDownstreamNodes(treatment: string, edges: CausalEdge[]): string[] {
+/** Union of all nodes causally downstream of any clamped variable. */
+function getDownstreamNodes(treatments: string[], edges: CausalEdge[]): string[] {
   const children = new Map<string, string[]>();
   for (const edge of edges) {
     const list = children.get(edge.cause) ?? [];
@@ -49,7 +52,7 @@ function getDownstreamNodes(treatment: string, edges: CausalEdge[]): string[] {
   }
   const order: string[] = [];
   const visited = new Set<string>();
-  const queue = [treatment];
+  const queue = [...treatments];
   while (queue.length > 0) {
     const node = queue.shift();
     if (!node || visited.has(node)) {
@@ -65,12 +68,13 @@ function getDownstreamNodes(treatment: string, edges: CausalEdge[]): string[] {
 }
 
 function edgeKey(cause: string, effect: string): string {
-  return `${cause}\u2192${effect}`;
+  return `${cause}→${effect}`;
 }
 
-function incomingKeys(target: string, edges: CausalEdge[]): string[] {
+function incomingKeys(targets: string[], edges: CausalEdge[]): string[] {
+  const targetSet = new Set(targets);
   return edges
-    .filter((edge) => edge.effect === target)
+    .filter((edge) => targetSet.has(edge.effect))
     .map((edge) => edgeKey(edge.cause, edge.effect));
 }
 
@@ -80,18 +84,11 @@ function outgoingKeys(source: string, edges: CausalEdge[]): string[] {
     .map((edge) => edgeKey(edge.cause, edge.effect));
 }
 
-function nodeEffectAt(
-  result: Stage6SimulationResult,
-  nodeName: string,
-  timeIndex: number,
-): number {
+function nodeEffectAt(result: Stage6SimulationResult, nodeName: string, timeIndex: number): number {
   return getNodeEffectSeries(result, nodeName)?.[timeIndex] ?? 0;
 }
 
-function createEmptyState(
-  constructs: Construct[],
-  edges: CausalEdge[],
-): GraphAnimationFrame {
+function createEmptyState(constructs: Construct[], edges: CausalEdge[]): GraphAnimationFrame {
   const nodePhases: Record<string, NodeAnimPhase> = {};
   const nodeEffects: Record<string, number> = {};
   const startStateValues: Record<string, number | null> = {};
@@ -108,14 +105,16 @@ function createEmptyState(
   return { nodePhases, nodeEffects, edgeStates, startStateValues };
 }
 
-function clampTreatmentNode(
+function clampNodes(
   frame: GraphAnimationFrame,
   result: Stage6SimulationResult,
-  treatment: string,
+  treatments: string[],
   timeIndex: number,
 ): void {
-  frame.nodePhases[treatment] = "clamped";
-  frame.nodeEffects[treatment] = nodeEffectAt(result, treatment, timeIndex);
+  for (const treatment of treatments) {
+    frame.nodePhases[treatment] = "clamped";
+    frame.nodeEffects[treatment] = nodeEffectAt(result, treatment, timeIndex);
+  }
 }
 
 function cutIncomingEdges(frame: GraphAnimationFrame, incoming: Set<string>): void {
@@ -194,10 +193,11 @@ function deriveRung2(
   config: DagAnimationConfig,
   downstream: string[],
 ): Omit<DagAnimationState, "isPlaying"> {
-  const treatment = config.result.action.variable;
+  const treatments = getClampedVariables(config.result);
   const downstreamNodes = new Set(downstream);
-  const incoming = new Set(incomingKeys(treatment, config.edges));
+  const incoming = new Set(incomingKeys(treatments, config.edges));
   const downstreamKeys = new Set(downstream.flatMap((node) => outgoingKeys(node, config.edges)));
+  const treatmentSet = new Set(treatments);
   const base = createEmptyState(config.constructs, config.edges);
   const timelineDays = getEffectTrajectoryDays(config.result);
   let phase = "idle";
@@ -205,22 +205,22 @@ function deriveRung2(
 
   if (progress < 0.1) {
     phase = "clamping";
-    clampTreatmentNode(base, config.result, treatment, 0);
+    clampNodes(base, config.result, treatments, 0);
   } else if (progress < 0.25) {
     phase = "surgery";
-    clampTreatmentNode(base, config.result, treatment, 0);
+    clampNodes(base, config.result, treatments, 0);
     cutIncomingEdges(base, incoming);
   } else if (timelineDays.length > 0) {
     const prop = (progress - 0.25) / 0.75;
     const maxIdx = timelineDays.length - 1;
     timeIndex = Math.min(maxIdx, Math.round(prop * maxIdx));
     phase = timeIndex >= maxIdx ? "settled" : "propagating";
-    clampTreatmentNode(base, config.result, treatment, timeIndex);
+    clampNodes(base, config.result, treatments, timeIndex);
     cutIncomingEdges(base, incoming);
     applyNodeEffects(
       base,
       config.result,
-      downstream.filter((node) => node !== treatment),
+      downstream.filter((node) => !treatmentSet.has(node)),
       timeIndex,
     );
     dimOutsideCausalCone(base, config.constructs, downstreamNodes);
@@ -242,16 +242,14 @@ function deriveRung3(
   config: DagAnimationConfig,
   downstream: string[],
 ): Omit<DagAnimationState, "isPlaying"> {
-  const treatment = config.result.action.variable;
+  const treatments = getClampedVariables(config.result);
   const downstreamNodes = new Set(downstream);
-  const incoming = new Set(incomingKeys(treatment, config.edges));
+  const incoming = new Set(incomingKeys(treatments, config.edges));
   const downstreamKeys = new Set(downstream.flatMap((node) => outgoingKeys(node, config.edges)));
+  const treatmentSet = new Set(treatments);
   const base = createEmptyState(config.constructs, config.edges);
   const timelineDays = getEffectTrajectoryDays(config.result);
-  const startState = (config.result.visualization?.start_state ?? {}) as Record<
-    string,
-    number
-  >;
+  const startState = (config.result.visualization?.start_state ?? {}) as Record<string, number>;
   let phase = "idle";
   let timeIndex = 0;
 
@@ -265,12 +263,12 @@ function deriveRung3(
     );
   } else if (progress < 0.35) {
     phase = "surgery";
-    clampTreatmentNode(base, config.result, treatment, 0);
+    clampNodes(base, config.result, treatments, 0);
     revealStartStateNodes(
       base,
       config.constructs
         .map((construct) => construct.name)
-        .filter((name) => name !== treatment),
+        .filter((name) => !treatmentSet.has(name)),
       startState,
     );
     cutIncomingEdges(base, incoming);
@@ -279,14 +277,14 @@ function deriveRung3(
     const maxIdx = timelineDays.length - 1;
     timeIndex = Math.min(maxIdx, Math.round(prop * maxIdx));
     phase = timeIndex >= maxIdx ? "settled" : "prediction";
-    clampTreatmentNode(base, config.result, treatment, timeIndex);
+    clampNodes(base, config.result, treatments, timeIndex);
     cutIncomingEdges(base, incoming);
     applyNodeEffects(
       base,
       config.result,
       config.constructs
         .map((construct) => construct.name)
-        .filter((name) => name !== treatment),
+        .filter((name) => !treatmentSet.has(name)),
       timeIndex,
     );
     dimOutsideCausalCone(base, config.constructs, downstreamNodes);
@@ -311,8 +309,8 @@ export function deriveDagAnimationFrame(
     return null;
   }
 
-  const downstream = getDownstreamNodes(config.result.action.variable, config.edges);
-  return config.result.rung === 3
+  const downstream = getDownstreamNodes(getClampedVariables(config.result), config.edges);
+  return isAbductedStart(config.result)
     ? deriveRung3(progress, config, downstream)
     : deriveRung2(progress, config, downstream);
 }
@@ -369,8 +367,9 @@ export function useDagAnimation(
       if (maxIdx <= 0) {
         return;
       }
-      const propStart = config.result.rung === 3 ? 0.35 : 0.25;
-      const propRange = config.result.rung === 3 ? 0.65 : 0.75;
+      const abducted = isAbductedStart(config.result);
+      const propStart = abducted ? 0.35 : 0.25;
+      const propRange = abducted ? 0.65 : 0.75;
       setProgress(Math.min(1, propStart + (timeIndex / maxIdx) * propRange));
     },
     [config],

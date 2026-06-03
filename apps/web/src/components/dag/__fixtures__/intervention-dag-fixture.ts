@@ -1,8 +1,4 @@
-import type {
-  LLMTrace,
-  SimulateCounterfactualResult,
-  SimulateInterventionResult,
-} from "@nof1-causal-lab/api-types";
+import type { LLMTrace, SimulateScenarioResult } from "@nof1-causal-lab/api-types";
 import type { EdgePosterior } from "../intervention-dag-types";
 
 function buildDailyGrid(length: number): number[] {
@@ -132,16 +128,17 @@ const rung2ActionTrajectories = Object.fromEntries(
   ]),
 );
 
-export const interventionResult: SimulateInterventionResult = {
-  rung: 2,
-  action: {
-    variable: "serotonergic_exposure",
-    mode: "shift",
-    amount: 1.0,
+export const interventionResult: SimulateScenarioResult = {
+  start: {
+    kind: "baseline",
+    time_index: null,
+    time: null,
+    state_source: "baseline_steady_state",
   },
+  clamps: [{ variable: "serotonergic_exposure", mode: "shift", amount: 1.0, from_day: 0 }],
   outcome: "affective_state",
   estimand: "trajectory",
-  baseline_treatment_mean: 0.62,
+  reference_mean: 0.38,
   summary: {
     mean: 0.31,
     median: 0.3,
@@ -156,6 +153,7 @@ export const interventionResult: SimulateInterventionResult = {
     node_effect_trajectories: rung2NodeEffects,
     start_state: null,
   },
+  manifest_effects: null,
   warnings: [],
 };
 
@@ -224,21 +222,17 @@ const rung3NodeEffects = Object.fromEntries(
   ]),
 );
 
-export const counterfactualResult: SimulateCounterfactualResult = {
-  rung: 3,
+export const counterfactualResult: SimulateScenarioResult = {
   start: {
+    kind: "abducted",
     time_index: 89,
     time: "2026-02-28T00:00:00+00:00",
     state_source: "fitted_latent_paths",
   },
-  action: {
-    variable: "adherence",
-    mode: "shift",
-    amount: 0.5,
-  },
+  clamps: [{ variable: "adherence", mode: "shift", amount: 0.5, from_day: 0 }],
   outcome: "affective_state",
   estimand: "trajectory",
-  baseline_forecast_mean: factualEq.affective_state,
+  reference_mean: factualEq.affective_state,
   summary: {
     mean: 0.24,
     median: 0.23,
@@ -253,6 +247,7 @@ export const counterfactualResult: SimulateCounterfactualResult = {
     node_effect_trajectories: rung3NodeEffects,
     start_state: startState,
   },
+  manifest_effects: null,
   warnings: [],
 };
 

@@ -1,10 +1,8 @@
 "use client";
 
-import { useElkLayout } from "@/lib/hooks/use-elk-layout";
-import { useDagAnimation } from "@/lib/hooks/use-dag-animation";
-import type { DagAnimationConfig } from "@/lib/hooks/use-dag-animation";
 import type { CausalEdge, Construct, Indicator } from "@nof1-causal-lab/api-types";
 import {
+  applyNodeChanges,
   Background,
   BackgroundVariant,
   type Edge,
@@ -13,18 +11,21 @@ import {
   type NodeChange,
   type NodeTypes,
   ReactFlow,
-  applyNodeChanges,
 } from "@xyflow/react";
 import { useCallback, useMemo, useState } from "react";
-import type {
-  EdgePosterior,
-  Stage6SimulationResult,
-} from "./intervention-dag-types";
-import { AutoFitView } from "./auto-fit-view";
-import { buildInterventionDagViewModel } from "./intervention-dag-view-model";
+import type { DagAnimationConfig } from "@/lib/hooks/use-dag-animation";
+import { useDagAnimation } from "@/lib/hooks/use-dag-animation";
+import { useElkLayout } from "@/lib/hooks/use-elk-layout";
 import { AnimationTimeline } from "./animation-timeline";
+import { AutoFitView } from "./auto-fit-view";
 import { DAG_ZOOM_CONTROLS_INSET, DagZoomControls } from "./dag-zoom-controls";
 import { EffectNode } from "./effect-node";
+import type { EdgePosterior, Stage6SimulationResult } from "./intervention-dag-types";
+import {
+  buildInterventionDagViewModel,
+  type DagMetric,
+  type StaticScenarioInput,
+} from "./intervention-dag-view-model";
 import { useMeasuredElement } from "./use-measured-element";
 import { WeightedEdge } from "./weighted-edge";
 
@@ -37,6 +38,10 @@ export interface InterventionDagProps {
   edgePosteriors?: Record<string, EdgePosterior>;
   requestedHorizonDays?: number;
   simulationResult?: Stage6SimulationResult | null;
+  /** Baseline scenario rendered statically (mutually exclusive with simulationResult). */
+  staticScenario?: StaticScenarioInput | null;
+  /** Which trajectory the node sparklines emphasise. */
+  metric?: DagMetric;
   height?: string;
 }
 
@@ -56,17 +61,24 @@ const OVERLAY_GAP = 12;
 
 export function InterventionDag({
   simulationResult,
+  staticScenario,
   ...props
 }: InterventionDagProps) {
   const animationKey = useMemo(
-    () => (simulationResult ? JSON.stringify(simulationResult) : "static"),
-    [simulationResult],
+    () =>
+      simulationResult
+        ? JSON.stringify(simulationResult)
+        : staticScenario
+          ? `static:${staticScenario.treatment}->${staticScenario.outcome}`
+          : "static",
+    [simulationResult, staticScenario],
   );
 
   return (
     <InterventionDagCanvas
       key={animationKey}
       simulationResult={simulationResult}
+      staticScenario={staticScenario}
       {...props}
     />
   );
@@ -79,6 +91,8 @@ function InterventionDagCanvas({
   edgePosteriors = {},
   requestedHorizonDays,
   simulationResult = null,
+  staticScenario = null,
+  metric = "effect",
   height = "600px",
 }: InterventionDagProps) {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
@@ -109,9 +123,11 @@ function InterventionDagCanvas({
         constructs,
         requestedHorizonDays,
         result: simulationResult,
+        staticScenario,
+        metric,
         animation: anim,
       }),
-    [constructs, requestedHorizonDays, simulationResult, anim],
+    [constructs, requestedHorizonDays, simulationResult, staticScenario, metric, anim],
   );
   const mode = viewModel.mode;
 
@@ -159,11 +175,7 @@ function InterventionDagCanvas({
   const fitViewKey = useMemo(
     () =>
       JSON.stringify(
-        enrichedNodes.map((node) => [
-          node.id,
-          node.position?.x ?? 0,
-          node.position?.y ?? 0,
-        ]),
+        enrichedNodes.map((node) => [node.id, node.position?.x ?? 0, node.position?.y ?? 0]),
       ),
     [enrichedNodes],
   );
@@ -241,8 +253,7 @@ function InterventionDagCanvas({
       ...e,
       style: {
         ...e.style,
-        opacity:
-          e.source === selectedNode || e.target === selectedNode ? 1 : 0.15,
+        opacity: e.source === selectedNode || e.target === selectedNode ? 1 : 0.15,
       },
     }));
   }, [enrichedEdges, selectedNode]);
@@ -268,10 +279,7 @@ function InterventionDagCanvas({
 
   return (
     <div className="relative w-full overflow-hidden rounded-lg border bg-card" style={{ height }}>
-      <div
-        ref={timelineOverlayRef}
-        className="absolute bottom-3 left-3 right-3 z-10"
-      >
+      <div ref={timelineOverlayRef} className="absolute bottom-3 left-3 right-3 z-10">
         {mode !== "static" && timeStepsDays.length > 0 ? (
           <AnimationTimeline
             isPlaying={anim.isPlaying}

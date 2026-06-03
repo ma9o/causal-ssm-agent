@@ -1,5 +1,5 @@
-import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@nof1-causal-lab/api-types";
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
+import { INTERACTIVE_STAGES, STAGE_TOOLS } from "@nof1-causal-lab/api-types";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
   addToolInputExamplesMiddleware,
@@ -13,8 +13,8 @@ import {
 import { NextResponse } from "next/server";
 
 import { getToolServerUrl } from "@/lib/runtime-urls";
-import { buildRefinementContextMessages } from "@/lib/server/refinement-prompts";
 import { noAccessMessage, resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
+import { buildRefinementContextMessages } from "@/lib/server/refinement-prompts";
 import { isStorageNotFoundError, readData } from "@/lib/storage";
 import {
   type RefinementMessageMetadata,
@@ -98,8 +98,11 @@ function getStringEncodedJsonFields(schema: unknown): string[] {
       return [];
     }
 
-    const description = typeof value.description === "string" ? value.description.toLowerCase() : "";
-    return key.endsWith("_json") || description.includes("json string") || description.includes("json object")
+    const description =
+      typeof value.description === "string" ? value.description.toLowerCase() : "";
+    return key.endsWith("_json") ||
+      description.includes("json string") ||
+      description.includes("json object")
       ? [key]
       : [];
   });
@@ -196,22 +199,20 @@ function getToolInputExamples(stageId: string, toolName: string): ToolInputExamp
           },
         },
       ];
-    case "stage-6/simulate_intervention":
+    case "stage-6/simulate":
       return [
         {
           input: {
-            action: { variable: "stress", mode: "shift", amount: -0.5 },
+            start: { kind: "baseline" },
+            clamps: [{ variable: "stress", mode: "shift", amount: -0.5, from_day: 0 }],
             outcome: "sleep_quality",
             query: { estimand: "trajectory", horizon_days: 30, projection: "latent" },
           },
         },
-      ];
-    case "stage-6/simulate_counterfactual":
-      return [
         {
           input: {
-            start: { time_index: 6 },
-            action: { variable: "stress", mode: "shift", amount: -0.5 },
+            start: { kind: "abducted", time_index: 6 },
+            clamps: [{ variable: "stress", mode: "set", value: 0.0, from_day: 0, to_day: 14 }],
             outcome: "sleep_quality",
             query: { estimand: "trajectory", horizon_days: 30, projection: "latent" },
           },
@@ -222,7 +223,10 @@ function getToolInputExamples(stageId: string, toolName: string): ToolInputExamp
   }
 }
 
-function logModelStepRequest(stageId: string, event: { stepNumber: number; request?: { body?: unknown }; warnings?: unknown }) {
+function logModelStepRequest(
+  stageId: string,
+  event: { stepNumber: number; request?: { body?: unknown }; warnings?: unknown },
+) {
   if (process.env.NODE_ENV === "test") {
     return;
   }
@@ -310,7 +314,7 @@ export async function POST(req: Request) {
   // Build tools if this is an interactive stage
   const toolDefs =
     normalizedWorkspaceId && safeStageId && INTERACTIVE_STAGES.includes(safeStageId)
-      ? STAGE_TOOLS[safeStageId] ?? []
+      ? (STAGE_TOOLS[safeStageId] ?? [])
       : [];
 
   const tools = Object.fromEntries(
@@ -329,17 +333,14 @@ export async function POST(req: Request) {
             throw new Error("Tool execution requires a workspace");
           }
           const normalizedArgs = normalizeToolArgsForSchema(args, t.parameters);
-          const res = await fetch(
-            `${TOOL_SERVER}/api/tools/${safeStageId}/${t.name}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                workspace_id: normalizedWorkspaceId,
-                input: normalizedArgs,
-              }),
-            },
-          );
+          const res = await fetch(`${TOOL_SERVER}/api/tools/${safeStageId}/${t.name}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workspace_id: normalizedWorkspaceId,
+              input: normalizedArgs,
+            }),
+          });
           if (!res.ok) {
             throw new Error(await readToolErrorMessage(res));
           }

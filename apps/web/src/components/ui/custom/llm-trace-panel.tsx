@@ -1,19 +1,16 @@
 "use client";
 
-import {
-  refinementNeedsActivation,
-  useRefinement,
-} from "@/lib/contexts/refinement-context";
-import type {
-  RefinementUIMessage,
-  SuggestionAction,
-  SuggestionChip,
-} from "@/lib/utils/trace-to-core";
 import { useChat } from "@ai-sdk/react";
 import type { LLMTrace, StageId } from "@nof1-causal-lab/api-types";
 import { INTERACTIVE_STAGES } from "@nof1-causal-lab/api-types";
 import { DefaultChatTransport } from "ai";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { refinementNeedsActivation, useRefinement } from "@/lib/contexts/refinement-context";
+import type {
+  RefinementUIMessage,
+  SuggestionAction,
+  SuggestionChip,
+} from "@/lib/utils/trace-to-core";
 import { LLMTracePanelView } from "./llm-trace-panel-view";
 
 export { LLMTracePanelView } from "./llm-trace-panel-view";
@@ -53,10 +50,12 @@ export function LLMTracePanel({
     pendingStagePatches,
     refinementMessages: savedRefinementMessages,
     prefill,
+    selectedScenarioKey,
     requestRefinement,
     markSettled,
     setPendingMaterialization,
     clearPrefill,
+    selectScenario,
   } = useRefinement();
 
   const canRefine =
@@ -181,9 +180,7 @@ export function LLMTracePanel({
           input: action.input,
         }),
       });
-      const payload = (await response.json()) as
-        | { output: unknown }
-        | { error: string };
+      const payload = (await response.json()) as { output: unknown } | { error: string };
 
       setMessages((prev) =>
         prev.map((msg) => {
@@ -259,6 +256,8 @@ export function LLMTracePanel({
       onInputChange={setInput}
       onSubmit={handleSubmit}
       onSuggestionClick={canRefine ? handleSuggestionClick : undefined}
+      selectedSimulationKey={selectedScenarioKey ?? undefined}
+      onSelectSimulation={(key) => selectScenario(key)}
     />
   );
 }

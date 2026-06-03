@@ -1,12 +1,5 @@
 "use client";
 
-import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
-import { ErrorBoundary } from "@/components/ui/error-boundary";
-import type { AnalysisStageRun } from "@/lib/api/analysis";
-import { useRefinement } from "@/lib/contexts/refinement-context";
-import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
-import { useStageLogs } from "@/lib/hooks/use-stage-logs";
-import { useStageData } from "@/lib/hooks/use-stage-data";
 import type {
   LLMTrace,
   Stage0Data,
@@ -22,20 +15,27 @@ import type {
 } from "@nof1-causal-lab/api-types";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Suspense,
+  type ComponentType,
   lazy,
   memo,
-  type ComponentType,
   type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
 } from "react";
+import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
+import type { AnalysisStageRun } from "@/lib/api/analysis";
+import { useRefinement } from "@/lib/contexts/refinement-context";
+import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
+import { useStageData } from "@/lib/hooks/use-stage-data";
+import { useStageLogs } from "@/lib/hooks/use-stage-logs";
+import { resolveStageObservedStatus } from "@/lib/stage-runtime";
+import { Stage3FixAction } from "./stage-contents/stage-3-content";
+import { buildEdgePosteriors, buildStage6Scenarios } from "./stage-contents/stage-6-scenarios";
 import { StageLogView } from "./stage-log-viewer";
 import { StagePresentationShell } from "./stage-presentation-shell";
-import { Stage3FixAction } from "./stage-contents/stage-3-content";
-import { buildStage6DagScene } from "./stage-contents/stage-6-presentation";
-import { resolveStageObservedStatus } from "@/lib/stage-runtime";
 
 const Stage0Content = lazy(() => import("./stage-contents/stage-0-content"));
 const Stage1aContent = lazy(() => import("./stage-contents/stage-1a-content"));
@@ -46,7 +46,11 @@ const Stage4RunningContent = lazy(() => import("./stage-contents/stage-4-running
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage5bContent = lazy(() => import("./stage-contents/stage-5b-content"));
-const Stage6Showcase = lazy(() => import("./stage-contents/stage-6-showcase"));
+const SimulationViewer = lazy(() =>
+  import("@/components/dag/simulation-viewer").then((module) => ({
+    default: module.SimulationViewer,
+  })),
+);
 
 type AnyStageData =
   | Stage0Data
@@ -250,25 +254,46 @@ function Stage5bConnectedContent({
 }
 
 function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage6Data }) {
-  const { refinementMessages } = useRefinement();
+  const { refinementMessages, selectedScenarioKey, selectScenario } = useRefinement();
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
   const { data: stage4 } = useStageData<Stage4Data>(workspaceId, "stage-4", true);
   const { data: stage5b } = useStageData<Stage5bData>(workspaceId, "stage-5b", true);
-  const dagScene = useMemo(
+
+  const outcomeName = useMemo(
+    () => stage1a?.latent_model.constructs.find((construct) => construct.is_outcome)?.name ?? null,
+    [stage1a],
+  );
+  const scenarios = useMemo(
     () =>
-      buildStage6DagScene({
-        stage1a,
-        stage1b,
-        stage4,
-        stage5b,
+      buildStage6Scenarios({
+        interventionResults: data.intervention_results,
+        outcomeName,
+        trace: data.llm_trace,
         refinementMessages: refinementMessages["stage-6"] ?? [],
-        height: "600px",
       }),
-    [refinementMessages, stage1a, stage1b, stage4, stage5b],
+    [data.intervention_results, data.llm_trace, outcomeName, refinementMessages],
+  );
+  const graph = useMemo(
+    () => ({
+      constructs: stage1a?.latent_model.constructs ?? [],
+      edges: stage1a?.latent_model.edges ?? [],
+      indicators: stage1b?.causal_spec.measurement.indicators,
+      edgePosteriors: buildEdgePosteriors({ stage1a, stage4, stage5b }),
+    }),
+    [stage1a, stage1b, stage4, stage5b],
   );
 
-  return <Stage6Showcase data={data} dagScene={dagScene} />;
+  return (
+    <SimulationViewer
+      scenarios={scenarios}
+      graph={graph}
+      finalSummary={data.final_summary}
+      selectedKey={selectedScenarioKey}
+      onSelect={selectScenario}
+      rankingResults={data.intervention_results}
+    />
+  );
 }
 
 const stageContentAdapters = {

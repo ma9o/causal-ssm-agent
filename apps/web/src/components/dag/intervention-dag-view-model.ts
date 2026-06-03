@@ -1,17 +1,35 @@
 import type { Construct } from "@nof1-causal-lab/api-types";
 import type { DagAnimationState } from "@/lib/hooks/use-dag-animation";
 import {
-  formatActionDescription,
-  formatActionReferenceLabel,
-  formatActionShortLabel,
-  formatCounterfactualStartLabel,
+  formatClampReferenceLabel,
+  formatClampShortLabel,
+  formatScenarioActionDescription,
+  formatScenarioStartLabel,
+  getClampByVariable,
   getEffectTrajectoryDays,
   getNodeActionSeries,
+  getNodeEffectSeries,
   getNodeReferenceSeries,
+  isAbductedStart,
 } from "./intervention-dag-semantics";
 import type { NodeAnimPhase, Stage6SimulationResult } from "./intervention-dag-types";
 
 export type DagMode = "static" | "rung2" | "rung3";
+
+/** Which trajectory the node sparklines emphasise (a presentational re-slice). */
+export type DagMetric = "effect" | "action" | "reference";
+
+/**
+ * A baseline (do(treatment += 1 SD)) scenario rendered statically on the DAG —
+ * treatment clamped, outcome highlighted with a scalar effect, no animation.
+ */
+export interface StaticScenarioInput {
+  treatment: string;
+  outcome: string;
+  effectMagnitude: number;
+  actionLabelShort: string;
+  actionReferenceLabel: string;
+}
 
 export interface TemporalMarker {
   day: number;
@@ -44,7 +62,7 @@ function getDagMode(result: Stage6SimulationResult | null): DagMode {
   if (!result) {
     return "static";
   }
-  return result.rung === 3 ? "rung3" : "rung2";
+  return isAbductedStart(result) ? "rung3" : "rung2";
 }
 
 function formatDayLabel(day: number): string {
@@ -86,17 +104,118 @@ function buildTemporalMarkers(
   );
 }
 
+function zeros(length: number): number[] {
+  return Array.from({ length }, () => 0);
+}
+
+/**
+ * Pick the node's emphasised (main) series and its dimmed baseline for a given
+ * metric. `effect`/`reference` plot against a flat zero baseline; `action` plots
+ * the action path against the reference path.
+ */
+function seriesForMetric(
+  result: Stage6SimulationResult,
+  nodeName: string,
+  metric: DagMetric,
+): { comparison: number[] | null; reference: number[] | null } {
+  if (metric === "effect") {
+    const effect = getNodeEffectSeries(result, nodeName);
+    return effect
+      ? { comparison: effect, reference: zeros(effect.length) }
+      : { comparison: null, reference: null };
+  }
+  if (metric === "reference") {
+    const reference = getNodeReferenceSeries(result, nodeName);
+    return reference
+      ? { comparison: reference, reference: zeros(reference.length) }
+      : { comparison: null, reference: null };
+  }
+  return {
+    comparison: getNodeActionSeries(result, nodeName),
+    reference: getNodeReferenceSeries(result, nodeName),
+  };
+}
+
+function emptyNodeViewModel(): EffectNodeViewModel {
+  return {
+    animPhase: "idle",
+    effectMagnitude: null,
+    startStateValue: null,
+    timeIndex: 0,
+    timeStepsDays: null,
+    referenceTimeSeries: null,
+    comparisonTimeSeries: null,
+    actionLabelShort: null,
+    actionReferenceLabel: null,
+  };
+}
+
+function buildStaticViewModel(
+  constructs: Construct[],
+  scenario: StaticScenarioInput,
+): InterventionDagViewModel {
+  return {
+    mode: "static",
+    actionDescription: null,
+    startDescription: null,
+    timeStepsDays: [],
+    nodeData: Object.fromEntries(
+      constructs.map((construct) => {
+        if (construct.name === scenario.treatment) {
+          return [
+            construct.name,
+            {
+              ...emptyNodeViewModel(),
+              rung: 2,
+              animPhase: "clamped",
+              actionLabelShort: scenario.actionLabelShort,
+              actionReferenceLabel: scenario.actionReferenceLabel,
+            },
+          ];
+        }
+        if (construct.name === scenario.outcome) {
+          return [
+            construct.name,
+            {
+              ...emptyNodeViewModel(),
+              rung: 2,
+              animPhase: "active",
+              effectMagnitude: scenario.effectMagnitude,
+            },
+          ];
+        }
+        return [construct.name, emptyNodeViewModel()];
+      }),
+    ),
+  };
+}
+
 export function buildInterventionDagViewModel(args: {
   constructs: Construct[];
   requestedHorizonDays?: number;
   result: Stage6SimulationResult | null;
-  animation: Pick<DagAnimationState, "phase" | "timeIndex" | "nodePhases" | "nodeEffects" | "startStateValues">;
+  staticScenario?: StaticScenarioInput | null;
+  metric?: DagMetric;
+  animation: Pick<
+    DagAnimationState,
+    "phase" | "timeIndex" | "nodePhases" | "nodeEffects" | "startStateValues"
+  >;
 }): InterventionDagViewModel {
-  const { constructs, requestedHorizonDays, result, animation } = args;
-  const mode = getDagMode(result);
+  const {
+    constructs,
+    requestedHorizonDays,
+    result,
+    staticScenario,
+    metric = "effect",
+    animation,
+  } = args;
+
   if (!result) {
+    if (staticScenario) {
+      return buildStaticViewModel(constructs, staticScenario);
+    }
     return {
-      mode,
+      mode: "static",
       actionDescription: null,
       startDescription: null,
       timeStepsDays: [],
@@ -104,32 +223,37 @@ export function buildInterventionDagViewModel(args: {
     };
   }
 
+  const mode = getDagMode(result);
   const timeStepsDays = getEffectTrajectoryDays(result);
-  const actionLabelShort = formatActionShortLabel(result.action);
-  const actionReferenceLabel = formatActionReferenceLabel(result);
+  const clampByVariable = getClampByVariable(result);
+  const rung: 2 | 3 = isAbductedStart(result) ? 3 : 2;
 
   return {
     mode,
-    actionDescription: formatActionDescription(result),
-    startDescription: formatCounterfactualStartLabel(result),
+    actionDescription: formatScenarioActionDescription(result),
+    startDescription: formatScenarioStartLabel(result),
     timeStepsDays,
     temporalMarkers: buildTemporalMarkers(timeStepsDays, requestedHorizonDays),
     nodeData: Object.fromEntries(
-      constructs.map((construct) => [
-        construct.name,
-        {
-          rung: result.rung,
-          animPhase: animation.nodePhases[construct.name] ?? "idle",
-          effectMagnitude: animation.nodeEffects[construct.name] ?? null,
-          startStateValue: animation.startStateValues[construct.name] ?? null,
-          timeIndex: animation.timeIndex,
-          timeStepsDays,
-          referenceTimeSeries: getNodeReferenceSeries(result, construct.name),
-          comparisonTimeSeries: getNodeActionSeries(result, construct.name),
-          actionLabelShort,
-          actionReferenceLabel,
-        },
-      ]),
+      constructs.map((construct) => {
+        const { comparison, reference } = seriesForMetric(result, construct.name, metric);
+        const clamp = clampByVariable.get(construct.name);
+        return [
+          construct.name,
+          {
+            rung,
+            animPhase: animation.nodePhases[construct.name] ?? "idle",
+            effectMagnitude: animation.nodeEffects[construct.name] ?? null,
+            startStateValue: animation.startStateValues[construct.name] ?? null,
+            timeIndex: animation.timeIndex,
+            timeStepsDays,
+            referenceTimeSeries: reference,
+            comparisonTimeSeries: comparison,
+            actionLabelShort: clamp ? formatClampShortLabel(clamp) : null,
+            actionReferenceLabel: clamp ? formatClampReferenceLabel(result, clamp) : null,
+          },
+        ];
+      }),
     ),
   };
 }
