@@ -32,19 +32,23 @@ from .estimands import (
     summarize_temporal_effect,
 )
 from .orchestration import (
+    ClampSpec,
+    build_segment_bounds,
     compute_interventions,
-    vmap_simulate_action_from_state_dynamics,
+    vmap_simulate_clamps_from_state,
     vmap_steady_state_effect_dynamics,
 )
 
 __all__ = [
+    "ClampSpec",
     "approximate_abducted_state",
+    "build_segment_bounds",
     "build_time_grid",
     "compute_interventions",
     "project_to_manifest",
     "resolve_action_value",
     "summarize_draws",
     "summarize_temporal_effect",
-    "vmap_simulate_action_from_state_dynamics",
+    "vmap_simulate_clamps_from_state",
     "vmap_steady_state_effect_dynamics",
 ]

@@ -41,9 +41,9 @@ from nof1_causal_lab.flows.stages.stage4.tool_registry import (
 )
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.counterfactual import (
+    ClampSpec,
     summarize_draws,
-    vmap_simulate_action_from_state_dynamics,
-    vmap_steady_state_effect_dynamics,
+    vmap_simulate_clamps_from_state,
 )
 from nof1_causal_lab.models.ssm.dynamics import (
     Intervention,
@@ -340,13 +340,11 @@ class Stage6SimulationSetup:
     samples: dict[str, Any]
     causal_spec: dict[str, Any]
     query: dict[str, Any]
-    action: dict[str, Any]
-    treatment: str
+    clamps: list[ClampSpec]
     outcome: str
     spec: Any
     latent_names: list[str]
     manifest_names: list[str]
-    treat_idx: int
     outcome_idx: int
     dt_days: float
     horizon_steps: int
@@ -386,24 +384,47 @@ def _prepare_stage6_simulation(
         return None, _tool_error_result("Fitted model artifact is unavailable for simulation.")
     samples = fitted_artifact.result.get_samples() or {}
 
-    action = dict(args.get("action") or {})
-    treatment = str(action.get("variable", ""))
-    if treatment not in ctx["_identifiable_treatments"]:
-        return None, _tool_error_result(
-            f"Treatment '{treatment}' is not an identifiable stage-6 intervention target.",
-            identifiable_treatments=ctx["_identifiable_treatments"],
-        )
-
     causal_spec = ctx["stage-1b"].get("causal_spec", {})
     outcome = str(args.get("outcome") or ctx.get("_outcome_name") or "")
     spec = fitted_artifact.spec
     latent_names = list(spec.latent_names or [])
     manifest_names = list(spec.manifest_names or [])
     name_to_idx = {name: idx for idx, name in enumerate(latent_names)}
-    treat_idx = name_to_idx.get(treatment)
     outcome_idx = name_to_idx.get(outcome)
-    if treat_idx is None or outcome_idx is None:
-        return None, _tool_error_result("Treatment or outcome not present in fitted latent model.")
+    if outcome_idx is None:
+        return None, _tool_error_result("Outcome not present in fitted latent model.")
+
+    raw_clamps = list(args.get("clamps") or [])
+    if not raw_clamps:
+        return None, _tool_error_result("At least one clamp is required.")
+    identifiable = ctx["_identifiable_treatments"]
+    clamps: list[ClampSpec] = []
+    for raw in raw_clamps:
+        variable = str(raw.get("variable", ""))
+        if variable not in identifiable:
+            return None, _tool_error_result(
+                f"Clamp target '{variable}' is not an identifiable stage-6 intervention target.",
+                identifiable_treatments=identifiable,
+            )
+        index = name_to_idx.get(variable)
+        if index is None:
+            return None, _tool_error_result(
+                f"Clamp target '{variable}' is not present in the fitted latent model."
+            )
+        values = raw.get("values")
+        clamps.append(
+            ClampSpec(
+                index=index,
+                mode=str(raw.get("mode")),
+                from_day=float(raw.get("from_day") or 0.0),
+                to_day=None if raw.get("to_day") is None else float(raw["to_day"]),
+                value=raw.get("value"),
+                amount=raw.get("amount"),
+                value_start=raw.get("value_start"),
+                value_end=raw.get("value_end"),
+                values=tuple(values) if values is not None else None,
+            )
+        )
 
     query = dict(args.get("query") or {})
     dt_days, horizon_steps = _stage6_time_config(
@@ -426,13 +447,11 @@ def _prepare_stage6_simulation(
             samples=samples,
             causal_spec=causal_spec,
             query=query,
-            action=action,
-            treatment=treatment,
+            clamps=clamps,
             outcome=outcome,
             spec=spec,
             latent_names=latent_names,
             manifest_names=manifest_names,
-            treat_idx=treat_idx,
             outcome_idx=outcome_idx,
             dt_days=dt_days,
             horizon_steps=horizon_steps,
@@ -531,17 +550,17 @@ def _build_effect_outputs(
 def _collect_stage6_warnings(
     ctx: dict[str, Any],
     *,
-    treatment: str | None = None,
+    treatments: list[str] | None = None,
     include_diagnostic_warnings: bool = False,
     extra_warnings: list[str] | None = None,
 ) -> list[str]:
     warnings: list[str] = []
-    if include_diagnostic_warnings and treatment is not None:
+    if include_diagnostic_warnings and treatments:
         stage5b = ctx.get("stage-5b", {})
         for item in stage5b.get("power_scaling", []):
             if item.get("diagnosis") == "prior_dominated":
                 param = item.get("parameter", "")
-                if treatment in param or param.startswith(
+                if any(treatment in param for treatment in treatments) or param.startswith(
                     ("linear_edge_weight", "dynamics_weight")
                 ):
                     warnings.append(
@@ -719,16 +738,12 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
         ]
     if "capabilities" in sections:
         payload["capabilities"] = {
-            "intervention": {
-                "rung": 2,
-                "supported_treatments": ctx["_identifiable_treatments"],
-                "actions": ["set", "shift"],
-                "estimands": ["steady_state", "trajectory"],
-            },
-            "counterfactual": {
-                "rung": 3,
-                "start_state": "retained_fitted_latent_paths",
+            "simulate": {
+                "supported_targets": ctx["_identifiable_treatments"],
+                "start": ["baseline", "abducted"],
+                "clamp_modes": ["set", "shift", "ramp", "trajectory"],
                 "estimands": ["end_state", "trajectory"],
+                "composable": True,
             },
         }
     return payload
@@ -738,148 +753,99 @@ def _execute_get_model_info(ctx: dict[str, Any], args: dict[str, Any]) -> dict[s
     return {"result": _build_model_info_payload(ctx, args)}
 
 
-def _execute_simulate_intervention(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+def _execute_simulate(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
+    """Run a composable scenario: a start state + a list of timed latent clamps.
+
+    The start is the population baseline steady state (interventional) or an abducted
+    fitted latent state (counterfactual); the clamps are do-operators over time windows.
+    The Pearl rung is emergent from the start rather than a separate query type.
+    """
     setup, error = _prepare_stage6_simulation(ctx, args)
     if error is not None:
         return error
     assert setup is not None
-
-    # ``setup.param_samples`` and ``setup.vector_field`` are reconstructed
-    # from the fitted ``SSMSpec`` and canonical posterior sample sites.
     assert setup.param_samples is not None
-    _stacked_params = jax.tree.map(lambda *xs: jnp.stack(xs), *setup.param_samples)
-    baseline_states = jax.vmap(
-        lambda params: compute_steady_state(setup.vector_field, params, Intervention.none())
-    )(_stacked_params)
-    baseline_treatment_mean = float(jnp.mean(baseline_states[:, setup.treat_idx]))
 
-    if setup.query.get("estimand", "steady_state") == "trajectory":
-        baseline_state_paths, action_state_paths, effect_state_paths = (
-            vmap_simulate_action_from_state_dynamics(
-                setup.vector_field,
-                setup.param_samples,
-                initial_states=baseline_states,
-                treat_idx=setup.treat_idx,
-                mode=str(setup.action["mode"]),
-                value=setup.action.get("value"),
-                amount=setup.action.get("amount"),
-                time_grid=setup.time_grid,
+    start_input = dict(args.get("start") or {})
+    kind = str(start_input.get("kind") or "baseline")
+    estimand = str(setup.query.get("estimand", "trajectory"))
+
+    if kind == "abducted":
+        latent_paths = _fitted_latent_paths_from_result(setup.fitted_artifact.result)
+        if latent_paths is None:
+            return _tool_error_result(
+                "Stage 5b fitted artifact is missing persisted latent state paths required "
+                "for an abducted start."
             )
+        start_index, start_meta = _resolve_counterfactual_start(
+            ctx, start_input, n_timepoints=int(latent_paths.shape[1])
         )
-        outputs = _build_effect_outputs(
-            setup,
-            effect_paths=effect_state_paths[:, :, setup.outcome_idx],
-            reference_node_paths=baseline_state_paths,
-            action_node_paths=action_state_paths,
-            node_effect_paths=effect_state_paths,
-        )
-    else:
-        effect_draws = vmap_steady_state_effect_dynamics(
-            setup.vector_field,
-            setup.param_samples,
-            treat_idx=setup.treat_idx,
-            outcome_idx=setup.outcome_idx,
-            mode=str(setup.action["mode"]),
-            value=setup.action.get("value"),
-            amount=setup.action.get("amount"),
-        )
-        outputs = _build_effect_outputs(setup, effect_draws=effect_draws)
-
-    return {
-        "result": {
-            "rung": 2,
-            "action": setup.action,
-            "outcome": setup.outcome,
-            "estimand": setup.query.get("estimand", "steady_state"),
-            "baseline_treatment_mean": baseline_treatment_mean,
-            "summary": outputs.summary,
-            "effect_trajectory": outputs.effect_trajectory,
-            "visualization": outputs.visualization,
-            "manifest_effects": outputs.manifest_effects,
-            "warnings": _collect_stage6_warnings(
-                ctx,
-                treatment=setup.treatment,
-                include_diagnostic_warnings=True,
-            ),
+        initial_states = latent_paths[:, start_index, :]
+        n_draws = len(setup.param_samples)
+        if int(initial_states.shape[0]) != n_draws:
+            return _tool_error_result(
+                "Persisted fitted latent path draw count does not match posterior dynamics "
+                f"draw count ({int(initial_states.shape[0])} != {n_draws})."
+            )
+        start_result = {
+            "kind": "abducted",
+            "time_index": start_meta["time_index"],
+            "time": start_meta.get("time"),
+            "state_source": "fitted_latent_paths",
         }
-    }
+    else:
+        stacked_params = jax.tree.map(lambda *xs: jnp.stack(xs), *setup.param_samples)
+        initial_states = jax.vmap(
+            lambda params: compute_steady_state(setup.vector_field, params, Intervention.none())
+        )(stacked_params)
+        start_result = {
+            "kind": "baseline",
+            "time_index": None,
+            "time": None,
+            "state_source": "baseline_steady_state",
+        }
 
-
-def _execute_simulate_counterfactual(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]:
-    setup, error = _prepare_stage6_simulation(ctx, args)
-    if error is not None:
-        return error
-    assert setup is not None
-
-    latent_paths = _fitted_latent_paths_from_result(setup.fitted_artifact.result)
-    if latent_paths is None:
-        return _tool_error_result(
-            "Stage 5b fitted artifact is missing persisted latent state paths required "
-            "for counterfactual simulation."
-        )
-
-    start_index, start_meta = _resolve_counterfactual_start(
-        ctx,
-        dict(args.get("start") or {}),
-        n_timepoints=int(latent_paths.shape[1]),
-    )
-
-    estimand = str(setup.query.get("estimand", "end_state"))
-    assert setup.param_samples is not None
-    n_draws = len(setup.param_samples)
-    initial_states = latent_paths[:, start_index, :]
-    if int(initial_states.shape[0]) != n_draws:
-        return _tool_error_result(
-            "Persisted fitted latent path draw count does not match posterior dynamics "
-            f"draw count ({int(initial_states.shape[0])} != {n_draws})."
-        )
     start_state = _serialize_latent_state(jnp.mean(initial_states, axis=0), setup.latent_names)
 
-    baseline_state_paths, counterfactual_state_paths, effect_state_paths = (
-        vmap_simulate_action_from_state_dynamics(
-            setup.vector_field,
-            setup.param_samples,
-            initial_states=initial_states,
-            treat_idx=setup.treat_idx,
-            mode=str(setup.action["mode"]),
-            value=setup.action.get("value"),
-            amount=setup.action.get("amount"),
-            time_grid=setup.time_grid,
-        )
+    baseline_state_paths, action_state_paths, effect_state_paths = vmap_simulate_clamps_from_state(
+        setup.vector_field,
+        setup.param_samples,
+        initial_states=initial_states,
+        clamps=setup.clamps,
+        time_grid=setup.time_grid,
     )
-    baseline_paths = baseline_state_paths[:, :, setup.outcome_idx]
+    outcome_effect = effect_state_paths[:, :, setup.outcome_idx]
+    reference_mean = float(jnp.mean(baseline_state_paths[:, -1, setup.outcome_idx]))
 
+    common_viz = {
+        "reference_node_paths": baseline_state_paths,
+        "action_node_paths": action_state_paths,
+        "node_effect_paths": effect_state_paths,
+        "start_state": start_state,
+    }
     if estimand == "trajectory":
-        outputs = _build_effect_outputs(
-            setup,
-            effect_paths=effect_state_paths[:, :, setup.outcome_idx],
-            reference_node_paths=baseline_state_paths,
-            action_node_paths=counterfactual_state_paths,
-            node_effect_paths=effect_state_paths,
-            start_state=start_state,
-        )
+        outputs = _build_effect_outputs(setup, effect_paths=outcome_effect, **common_viz)
     else:
-        outputs = _build_effect_outputs(
-            setup,
-            effect_draws=effect_state_paths[:, -1, setup.outcome_idx],
-            start_state=start_state,
-        )
+        outputs = _build_effect_outputs(setup, effect_draws=outcome_effect[:, -1], **common_viz)
 
-    mean_baseline = jnp.mean(baseline_paths[:, -1])
+    clamp_variables = [setup.latent_names[clamp.index] for clamp in setup.clamps]
 
     return {
         "result": {
-            "rung": 3,
-            "start": start_meta,
-            "action": setup.action,
+            "start": start_result,
+            "clamps": list(args.get("clamps") or []),
             "outcome": setup.outcome,
             "estimand": estimand,
-            "baseline_forecast_mean": float(mean_baseline),
             "summary": outputs.summary,
             "effect_trajectory": outputs.effect_trajectory,
             "visualization": outputs.visualization,
             "manifest_effects": outputs.manifest_effects,
-            "warnings": _collect_stage6_warnings(ctx),
+            "reference_mean": reference_mean,
+            "warnings": _collect_stage6_warnings(
+                ctx,
+                treatments=clamp_variables,
+                include_diagnostic_warnings=True,
+            ),
         }
     }
 
@@ -893,8 +859,7 @@ _TOOL_IMPLS: dict[tuple[str, str], Any] = {
     ("stage-4", "submit_priors"): _execute_submit_priors,
     ("stage-4", "search_literature"): _execute_search_literature,
     ("stage-6", "get_model_info"): _execute_get_model_info,
-    ("stage-6", "simulate_intervention"): _execute_simulate_intervention,
-    ("stage-6", "simulate_counterfactual"): _execute_simulate_counterfactual,
+    ("stage-6", "simulate"): _execute_simulate,
 }
 
 # Upstream dependencies: which stage results need to be loaded for context

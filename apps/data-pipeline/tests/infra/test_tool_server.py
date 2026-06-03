@@ -269,15 +269,12 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
     def fake_vmap_simulate(
         vector_field,
         param_samples,
-        *,
         initial_states,
-        treat_idx,
-        mode,
-        value=None,
-        amount=None,
+        clamps,
+        *,
         time_grid,
     ):
-        del vector_field, treat_idx, mode, value, amount
+        del vector_field, clamps
         captured_initial_states.append(initial_states)
         n_draws = len(param_samples)
         n_t = time_grid.shape[0]
@@ -290,7 +287,7 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         counterfactual = baseline + effect
         return baseline, counterfactual, effect
 
-    monkeypatch.setattr(tool_server, "vmap_simulate_action_from_state_dynamics", fake_vmap_simulate)
+    monkeypatch.setattr(tool_server, "vmap_simulate_clamps_from_state", fake_vmap_simulate)
 
     ctx = {
         "_fitted_artifact": SimpleNamespace(
@@ -317,56 +314,12 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         "stage-6": {},
     }
     args = {
-        "action": {"variable": "treat", "mode": "shift", "amount": 1.0},
+        "start": {"kind": "abducted"},
+        "clamps": [{"variable": "treat", "mode": "shift", "amount": 1.0}],
         "query": {"horizon_days": 3},
     }
 
-    end_state = tool_server._execute_simulate_counterfactual(
-        ctx,
-        {
-            **args,
-            "query": {**args["query"], "estimand": "end_state"},
-        },
-    )["result"]
-    trajectory = tool_server._execute_simulate_counterfactual(
-        ctx,
-        {
-            **args,
-            "query": {**args["query"], "estimand": "trajectory"},
-        },
-    )["result"]
-
-    assert end_state["estimand"] == "end_state"
-    assert end_state["summary"]["mean"] == pytest.approx(3.0)
-    assert end_state["baseline_forecast_mean"] == pytest.approx(5.0)
-    assert end_state["effect_trajectory"] is None
-    assert "counterfactual_forecast_mean" not in end_state
-    assert "temporal" not in end_state
-    assert end_state["start"] == {
-        "time_index": 2,
-        "time": "2024-01-03T00:00:00+00:00",
-        "state_source": "fitted_latent_paths",
-    }
-    assert end_state["visualization"] == {
-        "reference_node_trajectories": None,
-        "action_node_trajectories": None,
-        "node_effect_trajectories": None,
-        "start_state": {"treat": 4.0, "outcome": 5.0},
-    }
-    assert all(
-        jnp.array_equal(initial_states, jnp.array([[2.0, 3.0], [6.0, 7.0]]))
-        for initial_states in captured_initial_states
-    )
-
-    assert trajectory["estimand"] == "trajectory"
-    assert trajectory["summary"]["mean"] == pytest.approx(3.0)
-    assert trajectory["effect_trajectory"] == [
-        {"day": 1.0, "effect": 3.0},
-        {"day": 2.0, "effect": 3.0},
-        {"day": 3.0, "effect": 3.0},
-    ]
-    assert "temporal" not in trajectory
-    assert trajectory["visualization"] == {
+    expected_visualization = {
         "reference_node_trajectories": {
             "treat": [0.5, 0.5, 0.5],
             "outcome": [5.0, 5.0, 5.0],
@@ -381,6 +334,45 @@ def test_simulate_counterfactual_respects_estimand_shape(monkeypatch):
         },
         "start_state": {"treat": 4.0, "outcome": 5.0},
     }
+    expected_start = {
+        "kind": "abducted",
+        "time_index": 2,
+        "time": "2024-01-03T00:00:00+00:00",
+        "state_source": "fitted_latent_paths",
+    }
+
+    end_state = tool_server._execute_simulate(
+        ctx,
+        {**args, "query": {**args["query"], "estimand": "end_state"}},
+    )["result"]
+    trajectory = tool_server._execute_simulate(
+        ctx,
+        {**args, "query": {**args["query"], "estimand": "trajectory"}},
+    )["result"]
+
+    assert end_state["estimand"] == "end_state"
+    assert end_state["summary"]["mean"] == pytest.approx(3.0)
+    assert end_state["reference_mean"] == pytest.approx(5.0)
+    assert end_state["effect_trajectory"] is None
+    assert "rung" not in end_state
+    assert end_state["start"] == expected_start
+    assert end_state["clamps"] == args["clamps"]
+    assert end_state["visualization"] == expected_visualization
+    assert all(
+        jnp.array_equal(initial_states, jnp.array([[2.0, 3.0], [6.0, 7.0]]))
+        for initial_states in captured_initial_states
+    )
+
+    assert trajectory["estimand"] == "trajectory"
+    assert trajectory["summary"]["mean"] == pytest.approx(3.0)
+    assert trajectory["reference_mean"] == pytest.approx(5.0)
+    assert trajectory["effect_trajectory"] == [
+        {"day": 1.0, "effect": 3.0},
+        {"day": 2.0, "effect": 3.0},
+        {"day": 3.0, "effect": 3.0},
+    ]
+    assert trajectory["start"] == expected_start
+    assert trajectory["visualization"] == expected_visualization
 
 
 def test_simulate_intervention_dispatches_to_vector_field_path():
@@ -448,15 +440,16 @@ def test_simulate_intervention_dispatches_to_vector_field_path():
         "stage-6": {},
     }
     args = {
-        "action": {"variable": "src", "mode": "shift", "amount": 0.5},
-        "query": {"horizon_days": 3, "estimand": "steady_state"},
+        "start": {"kind": "baseline"},
+        "clamps": [{"variable": "src", "mode": "shift", "amount": 0.5}],
+        "query": {"horizon_days": 3, "estimand": "end_state"},
     }
 
-    response = tool_server._execute_simulate_intervention(ctx, args)
+    response = tool_server._execute_simulate(ctx, args)
     result = response["result"]
     assert "error" not in result, f"vector-field dispatch failed: {result}"
-    assert result["rung"] == 2
-    assert result["estimand"] == "steady_state"
+    assert result["start"]["kind"] == "baseline"
+    assert result["estimand"] == "end_state"
     # Effect on tgt from shifting src up should be positive (Hill saturates).
     summary = result["summary"]
     assert summary["mean"] > 0
@@ -524,16 +517,17 @@ def test_simulate_counterfactual_dispatches_to_vector_field_path():
         "stage-6": {},
     }
     args = {
-        "action": {"variable": "src", "mode": "shift", "amount": 0.5},
+        "start": {"kind": "abducted"},
+        "clamps": [{"variable": "src", "mode": "shift", "amount": 0.5}],
         "query": {"horizon_days": 3, "estimand": "end_state"},
     }
 
-    response = tool_server._execute_simulate_counterfactual(ctx, args)
+    response = tool_server._execute_simulate(ctx, args)
     result = response["result"]
-    assert "error" not in result, f"vector-field rung-3 failed: {result}"
-    assert result["rung"] == 3
+    assert "error" not in result, f"vector-field abducted start failed: {result}"
     assert result["estimand"] == "end_state"
     assert result["start"] == {
+        "kind": "abducted",
         "time_index": 2,
         "time": "2024-01-03T00:00:00+00:00",
         "state_source": "fitted_latent_paths",
@@ -550,8 +544,7 @@ def test_get_tool_schemas_exposes_declared_result_schema():
     assert response.status_code == 200
     tools = {tool["name"]: tool for tool in response.json()}
     assert tools["get_model_info"]["result"] is None
-    assert tools["simulate_intervention"]["result"] is not None
-    assert tools["simulate_counterfactual"]["result"] is not None
+    assert tools["simulate"]["result"] is not None
 
 
 def test_manifest_effects_include_interval_supported_outcome_indicators():
@@ -662,4 +655,4 @@ def test_get_model_info_uses_estimation_projection_for_variables_and_treatments(
         "daily_event_count",
         "sleep_issue_searches",
     ]
-    assert payload["capabilities"]["intervention"]["supported_treatments"] == ["screen_time"]
+    assert payload["capabilities"]["simulate"]["supported_targets"] == ["screen_time"]

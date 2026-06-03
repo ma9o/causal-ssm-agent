@@ -1,4 +1,17 @@
-"""Stage 6 contracts and tool metadata."""
+"""Stage 6 contracts and tool metadata.
+
+Stage 6 exposes a single composable simulation tool. A *scenario* is one
+operation on the fitted latent SSM:
+
+    start state  →  apply timed latent clamp(s)  →  roll forward  →  contrast vs reference
+
+The start is either the population baseline steady state or an abducted individual
+state (conditioning on observed evidence up to a boundary). A clamp is a do-operator
+on one latent variable over a time window; a clamp whose window opens at the start is a
+forward "intervention", and the same machinery expresses counterfactual "what-if" edits.
+The Pearl rung is therefore emergent from the start (baseline → rung 2, abducted →
+rung 3), not a separate query type.
+"""
 
 from __future__ import annotations
 
@@ -35,116 +48,126 @@ class GetModelInfoInput(BaseModel):
     )
 
 
-class InterventionActionInput(BaseModel):
+class ScenarioStartInput(BaseModel):
+    """Where the forward rollout begins (replaces the rung-2/rung-3 split)."""
+
     model_config = ConfigDict(extra="forbid")
 
-    variable: str = Field(description="Latent construct to intervene on.")
-    mode: Literal["set", "shift"] = Field(
-        description="'set' clamps the construct to a value; 'shift' adds an amount to baseline."
+    kind: Literal["baseline", "abducted"] = Field(
+        default="baseline",
+        description=(
+            "'baseline' starts from the population baseline steady state (an interventional, "
+            "rung-2 query). 'abducted' conditions on the individual's observed evidence and starts "
+            "from the recovered fitted latent state (a counterfactual, rung-3 query)."
+        ),
     )
-    value: float | None = Field(
-        default=None,
-        description="Required when mode='set'. Absolute latent-space value to clamp to.",
-    )
-    amount: float | None = Field(
-        default=None,
-        description="Required when mode='shift'. Additive latent-space delta from baseline.",
-    )
-
-    @model_validator(mode="after")
-    def validate_payload(self) -> InterventionActionInput:
-        if self.mode == "set" and self.value is None:
-            raise ValueError("mode='set' requires value")
-        if self.mode == "shift" and self.amount is None:
-            raise ValueError("mode='shift' requires amount")
-        return self
-
-
-class InterventionQueryInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    estimand: Literal["steady_state", "trajectory"] = Field(
-        default="steady_state",
-        description="Steady-state effect or forward trajectory effect.",
-    )
-    horizon_days: int = Field(
-        default=30,
-        ge=1,
-        le=365,
-        description="Forward horizon in days when estimand='trajectory'.",
-    )
-    projection: Literal["latent", "manifest", "both"] = Field(
-        default="latent",
-        description="Whether to report latent outcome effects, manifest projections, or both.",
-    )
-
-
-class SimulateInterventionInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    action: InterventionActionInput
-    outcome: str | None = Field(
-        default=None,
-        description="Outcome construct. Defaults to the stage-1a outcome.",
-    )
-    query: InterventionQueryInput = Field(default_factory=InterventionQueryInput)
-
-
-class CounterfactualStartInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
     time_index: int | None = Field(
         default=None,
         ge=0,
         description=(
-            "Observed fitted-state index to start the counterfactual forecast from. "
+            "Abducted start only: observed fitted-state index to begin from. "
             "Defaults to the final retained fitted latent state."
         ),
     )
     time: str | None = Field(
         default=None,
         description=(
-            "Optional ISO-8601 observed timestamp matching a retained fitted latent state. "
-            "Use either time_index or time, not both."
+            "Abducted start only: ISO-8601 observed timestamp matching a retained fitted latent "
+            "state. Use either time_index or time, not both."
         ),
     )
 
     @model_validator(mode="after")
-    def validate_payload(self) -> CounterfactualStartInput:
+    def validate_payload(self) -> ScenarioStartInput:
         if self.time_index is not None and self.time is not None:
             raise ValueError("Use either start.time_index or start.time, not both")
+        if self.kind == "baseline" and (self.time_index is not None or self.time is not None):
+            raise ValueError("start.kind='baseline' takes no time_index/time")
         return self
 
 
-class CounterfactualQueryInput(BaseModel):
+class LatentClampInput(BaseModel):
+    """A do-operator on one latent variable over a time window.
+
+    The window is ``[from_day, to_day)`` in days relative to the rollout start; outside
+    the window the variable evolves under its natural dynamics. ``set`` pins to an absolute
+    value, ``shift`` adds an amount to the variable's start-state value, ``ramp`` linearly
+    interpolates across the window, and ``trajectory`` tracks a list of values across it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    variable: str = Field(description="Latent construct to clamp.")
+    mode: Literal["set", "shift", "ramp", "trajectory"] = Field(
+        description="How the clamped value is specified over the window."
+    )
+    value: float | None = Field(
+        default=None, description="Required when mode='set'. Absolute latent-space value."
+    )
+    amount: float | None = Field(
+        default=None,
+        description="Required when mode='shift'. Additive delta from the start-state value.",
+    )
+    value_start: float | None = Field(
+        default=None, description="Required when mode='ramp'. Value at from_day."
+    )
+    value_end: float | None = Field(
+        default=None, description="Required when mode='ramp'. Value at to_day."
+    )
+    values: list[float] | None = Field(
+        default=None,
+        description="Required when mode='trajectory'. Values sampled evenly across the window.",
+    )
+    from_day: float = Field(
+        default=0.0, ge=0.0, description="Window onset in days from the rollout start."
+    )
+    to_day: float | None = Field(
+        default=None,
+        description="Window end in days from the rollout start. Null runs through the horizon.",
+    )
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> LatentClampInput:
+        if self.to_day is not None and self.to_day <= self.from_day:
+            raise ValueError("clamp to_day must be greater than from_day")
+        if self.mode == "set" and self.value is None:
+            raise ValueError("mode='set' requires value")
+        if self.mode == "shift" and self.amount is None:
+            raise ValueError("mode='shift' requires amount")
+        if self.mode == "ramp" and (self.value_start is None or self.value_end is None):
+            raise ValueError("mode='ramp' requires value_start and value_end")
+        if self.mode == "trajectory" and (self.values is None or len(self.values) < 2):
+            raise ValueError("mode='trajectory' requires values with at least two points")
+        return self
+
+
+class ScenarioQueryInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     estimand: Literal["end_state", "trajectory"] = Field(
-        default="end_state",
-        description="Compare the final forecasted outcome or the full effect trajectory.",
+        default="trajectory",
+        description="Report the final-horizon outcome effect or the full effect trajectory.",
     )
     horizon_days: int = Field(
-        default=30,
-        ge=1,
-        le=365,
-        description="Forward horizon in days for the counterfactual forecast.",
+        default=30, ge=1, le=365, description="Forward horizon in days from the rollout start."
     )
     projection: Literal["latent", "manifest", "both"] = Field(
         default="latent",
-        description="Whether to report latent outcome effects, manifest projections, or both.",
+        description="Report latent outcome effects, manifest projections, or both.",
     )
 
 
-class SimulateCounterfactualInput(BaseModel):
+class SimulateScenarioInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    start: CounterfactualStartInput = Field(default_factory=CounterfactualStartInput)
-    action: InterventionActionInput
-    outcome: str | None = Field(
-        default=None,
-        description="Outcome construct. Defaults to the stage-1a outcome.",
+    start: ScenarioStartInput = Field(default_factory=ScenarioStartInput)
+    clamps: list[LatentClampInput] = Field(
+        min_length=1, description="One or more timed latent clamps composing the scenario."
     )
-    query: CounterfactualQueryInput = Field(default_factory=CounterfactualQueryInput)
+    outcome: str | None = Field(
+        default=None, description="Outcome construct. Defaults to the stage-1a outcome."
+    )
+    query: ScenarioQueryInput = Field(default_factory=ScenarioQueryInput)
 
 
 class ToolErrorContract(BaseModel):
@@ -177,15 +200,14 @@ class Stage6VisualizationContract(BaseModel):
     reference_node_trajectories: dict[str, list[float]] | None = Field(
         default=None,
         description=(
-            "Per-construct latent trajectories for the reference path aligned to "
-            "effect_trajectory days. This is the no-action baseline forecast for rung-2 "
-            "queries and the factual forecast from the fitted start state for rung-3 queries."
+            "Per-construct latent trajectories for the reference (no-clamp) path aligned to "
+            "effect_trajectory days."
         ),
     )
     action_node_trajectories: dict[str, list[float]] | None = Field(
         default=None,
         description=(
-            "Per-construct latent trajectories under the queried action aligned to "
+            "Per-construct latent trajectories under the composed clamps aligned to "
             "effect_trajectory days."
         ),
     )
@@ -193,56 +215,43 @@ class Stage6VisualizationContract(BaseModel):
         default=None,
         description=(
             "Per-construct latent effect trajectories aligned to effect_trajectory days. "
-            "Values are causal deltas relative to the relevant reference path."
+            "Values are causal deltas relative to the reference path."
         ),
     )
     start_state: dict[str, float] | None = Field(
         default=None,
-        description="Posterior mean fitted latent state used to start a rung-3 query.",
+        description="Posterior mean latent state the rollout started from.",
     )
 
 
-class CounterfactualStartResultContract(BaseModel):
+class ScenarioStartResultContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    time_index: int
+    kind: Literal["baseline", "abducted"]
+    time_index: int | None = None
     time: str | None = None
-    state_source: Literal["fitted_latent_paths"] = "fitted_latent_paths"
+    state_source: Literal["baseline_steady_state", "fitted_latent_paths"]
 
 
-class BaseStage6SimulationResultContract(BaseModel):
+class SimulateScenarioResultContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    action: InterventionActionInput
+    start: ScenarioStartResultContract
+    clamps: list[LatentClampInput]
     outcome: str
+    estimand: Literal["end_state", "trajectory"]
     summary: EffectSummaryContract
     effect_trajectory: list[EffectTrajectoryPointContract] | None = None
     visualization: Stage6VisualizationContract | None = None
     manifest_effects: dict[str, float] | None = None
+    reference_mean: float = Field(
+        description="Mean reference outcome (baseline steady state or factual forecast)."
+    )
     warnings: list[str] = Field(default_factory=list)
 
 
-class SimulateInterventionResultContract(BaseStage6SimulationResultContract):
-    rung: Literal[2]
-    estimand: Literal["steady_state", "trajectory"]
-    baseline_treatment_mean: float
-
-
-class SimulateCounterfactualResultContract(BaseStage6SimulationResultContract):
-    rung: Literal[3]
-    start: CounterfactualStartResultContract
-    estimand: Literal["end_state", "trajectory"]
-    baseline_forecast_mean: float
-
-
-class SimulateInterventionToolResultContract(
-    RootModel[SimulateInterventionResultContract | ToolErrorContract]
-):
-    pass
-
-
-class SimulateCounterfactualToolResultContract(
-    RootModel[SimulateCounterfactualResultContract | ToolErrorContract]
+class SimulateScenarioToolResultContract(
+    RootModel[SimulateScenarioResultContract | ToolErrorContract]
 ):
     pass
 
@@ -257,19 +266,15 @@ STAGE6_TOOL_CONTRACTS: list[ToolContract] = [
         input_schema=GetModelInfoInput,
     ),
     ToolContract(
-        name="simulate_intervention",
-        description="Run a Pearl rung-2 interventional simulation on the fitted generative model.",
-        input_schema=SimulateInterventionInput,
-        output_schema=SimulateInterventionToolResultContract,
-    ),
-    ToolContract(
-        name="simulate_counterfactual",
+        name="simulate",
         description=(
-            "Run a Pearl rung-3 counterfactual forecast from a retained fitted latent "
-            "state, then applying an action."
+            "Run a composable causal scenario on the fitted generative model. Start from the "
+            "population baseline steady state (interventional) or an abducted fitted latent state "
+            "(counterfactual), apply one or more timed latent clamps (do-operators), and read the "
+            "effect on an outcome over a horizon."
         ),
-        input_schema=SimulateCounterfactualInput,
-        output_schema=SimulateCounterfactualToolResultContract,
+        input_schema=SimulateScenarioInput,
+        output_schema=SimulateScenarioToolResultContract,
     ),
 ]
 
@@ -279,11 +284,9 @@ EXPORTED_TOOL_RESULT_MODELS: tuple[type[BaseModel], ...] = (
     EffectSummaryContract,
     EffectTrajectoryPointContract,
     Stage6VisualizationContract,
-    CounterfactualStartResultContract,
-    SimulateInterventionResultContract,
-    SimulateCounterfactualResultContract,
-    SimulateInterventionToolResultContract,
-    SimulateCounterfactualToolResultContract,
+    ScenarioStartResultContract,
+    SimulateScenarioResultContract,
+    SimulateScenarioToolResultContract,
 )
 
 

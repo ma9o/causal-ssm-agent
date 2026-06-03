@@ -55,7 +55,21 @@ class LinearRampValueFn(eqx.Module):
         return self.value_start + frac * (self.value_end - self.value_start)
 
 
-ValueFn = ConstantValueFn | LinearRampValueFn
+class PrecomputedValueFn(eqx.Module):
+    """Piecewise-linear interpolation of ``values`` sampled at ``times``.
+
+    Holds the endpoints outside ``[times[0], times[-1]]`` (``jnp.interp``
+    semantics). Used for ``trajectory`` clamps where the caller supplies an
+    explicit list of values across a window."""
+
+    times: Array
+    values: Array
+
+    def __call__(self, t: Array) -> Array:
+        return jnp.interp(t, self.times, self.values)
+
+
+ValueFn = ConstantValueFn | LinearRampValueFn | PrecomputedValueFn
 
 
 class VariableOverride(eqx.Module):
@@ -118,3 +132,8 @@ def linear_ramp(
         value_start=value_start,
         value_end=value_end,
     )
+
+
+def precomputed_value(times: Array, values: Array) -> PrecomputedValueFn:
+    """Factory for ``PrecomputedValueFn``."""
+    return PrecomputedValueFn(times=times, values=values)

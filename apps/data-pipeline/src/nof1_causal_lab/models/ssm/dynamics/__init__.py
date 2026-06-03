@@ -25,10 +25,12 @@ from .intervention import (
     EdgeInputOverride,
     Intervention,
     Override,
+    PrecomputedValueFn,
     ValueFn,
     VariableOverride,
     constant_value,
     linear_ramp,
+    precomputed_value,
 )
 from .linearisation import Linearisation, infer_linearisation
 from .posterior import (
@@ -86,6 +88,7 @@ __all__ = [
     "MultiplicativeEdgeSpec",
     "Override",
     "PosteriorDynamicsSamples",
+    "PrecomputedValueFn",
     "SimulationConfig",
     "StabilityReport",
     "StateDecay",
@@ -111,6 +114,7 @@ __all__ = [
     "pack_vector_field_params_from_samples",
     "posterior_dynamics_from_result",
     "posterior_dynamics_from_samples",
+    "precomputed_value",
     "simulate",
     "simulate_pair",
     "sample_vector_field_runtime",

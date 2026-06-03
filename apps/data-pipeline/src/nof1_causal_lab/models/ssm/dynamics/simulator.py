@@ -91,9 +91,9 @@ def simulate(
     cfg = config or SimulationConfig()
     args = VectorFieldArgs(params=params, intervention=intervention)
 
-    y0 = vector_field.initial_condition(initial_state, args)
     t0 = time_grid[0]
     t1 = time_grid[-1]
+    y0 = vector_field.initial_condition(initial_state, args, t0)
 
     if key is None or diffusion_cov is None:
         if (key is None) != (diffusion_cov is None):

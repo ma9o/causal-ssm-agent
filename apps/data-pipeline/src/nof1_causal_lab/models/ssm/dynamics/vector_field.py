@@ -109,8 +109,10 @@ class VectorField(eqx.Module):
         d_eta = self._natural_derivative(t, eta, args)
         return _apply_variable_overrides_to_derivative(d_eta, t, args.intervention)
 
-    def initial_condition(self, eta0: Array, args: VectorFieldArgs) -> Array:
-        return apply_variable_overrides_to_state(eta0, jnp.asarray(0.0), args.intervention)
+    def initial_condition(
+        self, eta0: Array, args: VectorFieldArgs, t0: Array | float = 0.0
+    ) -> Array:
+        return apply_variable_overrides_to_state(eta0, jnp.asarray(t0), args.intervention)
 
     def steady_state_residual(self, eta: Array, args: VectorFieldArgs) -> Array:
         residual = self._natural_derivative(jnp.asarray(0.0), eta, args)
