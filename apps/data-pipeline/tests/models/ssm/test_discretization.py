@@ -87,8 +87,8 @@ class TestSolveLyapunov:
 
 
 class TestAsymptoticDiffusion:
-    def test_ou_process(self):
-        """OU process: A=-theta*I, G=sigma*I → Q_inf = sigma^2/(2*theta) * I."""
+    def test_scalar_linear_closed_form(self):
+        """Scalar linear SDE: A=-theta, G=sigma → Q_inf = sigma^2/(2*theta)."""
         theta = 2.0
         sigma = 1.0
         A = jnp.array([[-theta]])

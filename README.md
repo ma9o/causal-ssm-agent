@@ -1,9 +1,11 @@
 # nof1-causal-lab
 
 [![CI](https://github.com/ma9o/nof1-causal-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/ma9o/nof1-causal-lab/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776ab?logo=python&logoColor=white)
 ![Next.js 16](https://img.shields.io/badge/Next.js-16-000?logo=next.js)
 ![NumPyro + JAX](https://img.shields.io/badge/NumPyro-JAX-9b59b6)
+![Prefect](https://img.shields.io/badge/Prefect-3-070e10?logo=prefect&logoColor=white)
 
 **nof1-causal-lab** is an opinionated LLM harness for end-to-end Bayesian causal inference on N-of-1 time series data.
 

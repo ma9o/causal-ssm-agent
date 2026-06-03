@@ -57,7 +57,7 @@ export const STAGE4_SECTION_ORDER: Array<{
   {
     id: "dynamics_prior",
     label: "Dynamics Priors",
-    tooltip: "Sets priors on autoregressive and mean-reversion parameters for each latent construct.",
+    tooltip: "Sets priors on baseline decay rates and intercepts for each latent construct.",
   },
   {
     id: "effect_prior",
