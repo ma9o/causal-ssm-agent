@@ -103,6 +103,7 @@ For a study of classroom engagement and academic performance where Stage 1b posi
 | `likelihoods` | `list[LikelihoodSpec]` | One likelihood row per retained manifest indicator |
 | `parameters` | `list[ParameterSpec]` | Compiler-authoritative semantic prior surfaces that remain active after model decisions are locked |
 | `initialization_policy` | `\"stationary\" \| \"free\"` | Whether dynamic-state initial conditions are stationary-derived or exposed as free `t0_*` surfaces |
+| `observation_intercept_policy` | `\"free\" \| \"fixed\"` | Whether eligible manifest intercepts `manifest_mean_*` remain free or are fixed |
 | `equilibrium_forcing` | `bool` | Whether eligible centered dynamic constructs may expose a continuous-time intercept `cint_*` |
 
 [^gelman2020]: Gelman, A., Vehtari, A., Simpson, D., et al. (2020). Bayesian Workflow. arXiv:2011.01808. [Bibliography entry](../reference/bibliography.md)

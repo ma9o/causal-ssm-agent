@@ -8,15 +8,11 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.inference.bundle import AUX_JITTER
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
-    _cholesky_batch,
     _log_weight_range,
     _log_weight_variance,
     _normalize_log_probs,
     _particle_ess_from_log_weights,
-    _sample_gaussian_from_chol,
 )
 
 
@@ -48,31 +44,20 @@ def estimate_bootstrap_log_likelihood(
     runtime_observations = bundle["observations"]
     runtime_times = bundle["times"]
     context = bundle["latent_context_runtime_fn"](position, runtime_times)
-    latent_template = bundle["initial_latent_from_context_fn"](context)
-    observation_auxiliary = bundle["initial_observation_auxiliary_from_context_runtime_fn"](
-        context,
-        latent_template,
-        runtime_observations,
-    )
-    obs_increment_fn = bundle["observation_increment_log_prob_conditioned_from_context_runtime_fn"]
-    initial_moments_fn = bundle["initial_latent_moments_from_context_fn"]
-    initial_mean, initial_cov = initial_moments_fn(context)
-    initial_chol = jnp.linalg.cholesky(symmetrize_with_jitter(initial_cov, jitter=AUX_JITTER))
-    transition_chols = _cholesky_batch(context.Qd)
+    trajectory_target = bundle["trajectory_target"]
+    obs_increment_fn = bundle["observation_increment_log_prob_from_context_runtime_fn"]
     log_num_particles = jnp.log(jnp.asarray(num_particles, dtype=position.dtype))
 
     init_key, scan_key = random.split(key)
-    init_mean_particles = jnp.broadcast_to(initial_mean, (num_particles, initial_mean.shape[0]))
-    init_chol_particles = jnp.broadcast_to(
-        initial_chol,
-        (num_particles, initial_chol.shape[0], initial_chol.shape[1]),
+    particles0 = trajectory_target.sample_initial(
+        init_key,
+        context,
+        sample_shape=(num_particles,),
     )
-    particles0 = _sample_gaussian_from_chol(init_key, init_mean_particles, init_chol_particles)
     raw_log_weights0 = jax.vmap(
         lambda particle: obs_increment_fn(
             context,
             particle,
-            observation_auxiliary,
             jnp.asarray(0, dtype=jnp.int32),
             runtime_observations,
         )
@@ -96,17 +81,16 @@ def estimate_bootstrap_log_likelihood(
             shape=(num_particles,),
         ).astype(jnp.int32)
         ancestor_particles = jnp.take(particles_prev, ancestors, axis=0)
-        means = ancestor_particles @ context.Ad[time_idx].T + context.cd[time_idx]
-        chol_t = jnp.broadcast_to(
-            transition_chols[time_idx],
-            (num_particles, transition_chols.shape[-2], transition_chols.shape[-1]),
+        particles_t = trajectory_target.sample_transition(
+            transition_key,
+            context,
+            ancestor_particles,
+            time_idx,
         )
-        particles_t = _sample_gaussian_from_chol(transition_key, means, chol_t)
         raw_log_weights = jax.vmap(
             lambda particle: obs_increment_fn(
                 context,
                 particle,
-                observation_auxiliary,
                 time_idx,
                 runtime_observations,
             )

@@ -13,13 +13,9 @@ from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_w
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
-    LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
     build_likelihood_eval_aux,
 )
-from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
-    build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
-)
-from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
+from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     row_observation_log_prob as _row_observation_log_prob,
 )
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
@@ -39,7 +35,6 @@ from .shared import (
     _POINT_LM_DAMPING_MIN,
     _POINT_LM_DAMPING_SHRINK,
     GaussianTrajectoryPriorTerms,
-    LinearSummaryAccumulatorPlan,
     _block_banded_logdet,
     _build_ieks_system_from_prior,
     _build_prior_tridiagonal_system,
@@ -1234,72 +1229,6 @@ def _ieks_smooth(
         solver_kind=solver_kind,
         n_ieks_iters=n_ieks_iters,
         z_init=z_init,
-    )
-
-
-def _linear_summary_augmented_ieks_laplace(
-    observations: jnp.ndarray,
-    obs_mask: jnp.ndarray,
-    time_intervals: jnp.ndarray,
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    cint: jnp.ndarray | None,
-    H: jnp.ndarray,
-    d: jnp.ndarray,
-    R: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
-    obs_kernel,
-    plan: LinearSummaryAccumulatorPlan,
-    support_kind_codes: jnp.ndarray,
-    n_ieks_iters: int,
-    z_init: jnp.ndarray | None = None,
-    build_measurement_objects=None,
-    extra_params: dict | None = None,
-) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
-    """IEKS + Laplace path for linear interval summaries via accumulator augmentation."""
-    base_cint = (
-        jnp.asarray(cint, dtype=drift.dtype)
-        if cint is not None
-        else jnp.zeros((drift.shape[0],), dtype=drift.dtype)
-    )
-    (
-        Ad_aug,
-        Qd_aug,
-        cd_aug,
-        init_mean_aug,
-        init_cov_aug,
-        H_rows,
-        d_rows,
-    ) = _build_linear_summary_augmented_system(
-        plan=plan,
-        time_intervals=time_intervals,
-        drift=drift,
-        diffusion_cov=diffusion_cov,
-        cint=base_cint,
-        H=H,
-        d=d,
-        init_mean=init_mean,
-        init_cov=init_cov,
-        support_kind_codes=support_kind_codes,
-    )
-    return _ieks_smooth(
-        observations,
-        obs_mask,
-        Ad_aug,
-        Qd_aug,
-        cd_aug,
-        H_rows,
-        d_rows,
-        R,
-        init_mean_aug,
-        init_cov_aug,
-        obs_kernel,
-        solver_kind=LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
-        n_ieks_iters=n_ieks_iters,
-        z_init=z_init,
-        build_measurement_objects=build_measurement_objects,
-        extra_params=extra_params,
     )
 
 

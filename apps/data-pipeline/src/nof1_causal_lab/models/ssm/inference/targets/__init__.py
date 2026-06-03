@@ -11,6 +11,7 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
     LikelihoodBackend,
     MeasurementParams,
     RuntimeDynamics,
+    TrajectoryTarget,
 )
 from nof1_causal_lab.models.ssm.inference.targets.observation_dispatch import get_emission_fn
 from nof1_causal_lab.models.ssm.inference.targets.transitions import (
@@ -24,6 +25,7 @@ __all__ = [
     "LikelihoodBackend",
     "MeasurementParams",
     "RuntimeDynamics",
+    "TrajectoryTarget",
     "build_discrete_transitions",
     "get_emission_fn",
 ]

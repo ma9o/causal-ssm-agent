@@ -25,7 +25,6 @@ class TrajectoryMCMCState(NamedTuple):
     position: jnp.ndarray
     latent_context: Any
     latent_trajectory: jnp.ndarray
-    observation_auxiliary: Any
     trajectory_log_prob: jnp.ndarray
     complete_log_posterior: jnp.ndarray
     latent_delta: jnp.ndarray

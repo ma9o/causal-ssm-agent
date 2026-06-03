@@ -27,8 +27,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
     _particle_ess_from_log_weights,
     _sample_gaussian_from_chol,
     _single_observation_log_probs_by_param,
-    _transition_log_probs_by_param,
-    _transition_log_probs_to_next_by_param,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagnostics import (
     build_mpgibbs_diagnostic_flags,
@@ -38,13 +36,10 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
 def smooth(ctx, key, x_ref):
     """Blocked backward conditional-SMC sweep over the posterior parameter mixture."""
     contexts = ctx.contexts
-    transition_chols = ctx.transition_chols
-    transition_logdets = ctx.transition_logdets
     init_means = ctx.init_means
     init_chols = ctx.init_chols
     init_logdets = ctx.init_logdets
     initial_label_log_probs = ctx.initial_label_log_probs
-    state = ctx.state
     runtime_observations = ctx.runtime_observations
     obs_increment_fn = ctx.obs_increment_fn
     num_steps = ctx.num_steps
@@ -55,6 +50,9 @@ def smooth(ctx, key, x_ref):
     latent_dtype = ctx.latent_dtype
     traj_dtype = ctx.traj_dtype
     _transition_log_probs_from_fixed_prev = ctx.transition_log_probs_from_fixed_prev
+    _transition_log_probs_by_param = ctx.transition_log_probs_by_param
+    _transition_log_probs_to_next_by_param = ctx.transition_log_probs_to_next_by_param
+    _sample_transition_by_label = ctx.sample_transition_by_label
     _segment_terminal_label_log_probs = ctx.segment_terminal_label_log_probs
     _path_future_tail_log_probs = ctx.path_future_tail_log_probs
     diagnostic_flags = build_mpgibbs_diagnostic_flags(
@@ -116,14 +114,12 @@ def smooth(ctx, key, x_ref):
                 prefix_label_log_probs,
                 shape=(num_free_particles,),
             ).astype(jnp.int32)
-            Ad_free0 = contexts.Ad[free_init_labels, block_start]
-            cd_free0 = contexts.cd[free_init_labels, block_start]
-            free_means0 = jnp.einsum("j,nij->ni", prev_fixed, Ad_free0) + cd_free0
-            free_chols0 = transition_chols[free_init_labels, block_start]
-            init_free_particles = _sample_gaussian_from_chol(
+            free_prev0 = jnp.broadcast_to(prev_fixed, (num_free_particles, prev_fixed.shape[-1]))
+            init_free_particles = _sample_transition_by_label(
                 init_sample_key,
-                free_means0,
-                free_chols0,
+                free_prev0,
+                free_init_labels,
+                jnp.asarray(block_start, dtype=jnp.int32),
             )
             particles0 = jnp.concatenate(
                 [current_path[block_start][None, :], init_free_particles],
@@ -138,7 +134,6 @@ def smooth(ctx, key, x_ref):
         init_obs_lp_by_param = _observation_log_probs_by_param(
             contexts,
             particles0,
-            state.observation_auxiliary,
             jnp.asarray(block_start, dtype=jnp.int32),
             runtime_observations,
             obs_increment_fn,
@@ -176,14 +171,11 @@ def smooth(ctx, key, x_ref):
                 ancestor_label_log_probs[1:],
             )
             free_prev = ancestor_particles[1:]
-            Ad_free = contexts.Ad[free_labels, time_idx]
-            cd_free = contexts.cd[free_labels, time_idx]
-            free_means = jnp.einsum("nj,nij->ni", free_prev, Ad_free) + cd_free
-            free_chols = transition_chols[free_labels, time_idx]
-            free_particles = _sample_gaussian_from_chol(
+            free_particles = _sample_transition_by_label(
                 transition_key_t,
-                free_means,
-                free_chols,
+                free_prev,
+                free_labels,
+                time_idx,
             )
             particles_t = jnp.concatenate(
                 [current_path[time_idx][None, :], free_particles],
@@ -191,9 +183,6 @@ def smooth(ctx, key, x_ref):
             )
 
             transition_lp_by_param = _transition_log_probs_by_param(
-                contexts,
-                transition_chols,
-                transition_logdets,
                 ancestor_particles,
                 particles_t,
                 time_idx,
@@ -201,7 +190,6 @@ def smooth(ctx, key, x_ref):
             obs_lp_by_param = _observation_log_probs_by_param(
                 contexts,
                 particles_t,
-                state.observation_auxiliary,
                 time_idx,
                 runtime_observations,
                 obs_increment_fn,
@@ -271,9 +259,6 @@ def smooth(ctx, key, x_ref):
         if block_end < num_steps - 1:
             next_fixed = current_path[block_end + 1]
             bridge_transition_lp = _transition_log_probs_to_next_by_param(
-                contexts,
-                transition_chols,
-                transition_logdets,
                 particles_history[-1],
                 next_fixed,
                 jnp.asarray(block_end + 1, dtype=jnp.int32),
@@ -281,7 +266,6 @@ def smooth(ctx, key, x_ref):
             bridge_obs_lp = _single_observation_log_probs_by_param(
                 contexts,
                 next_fixed,
-                state.observation_auxiliary,
                 jnp.asarray(block_end + 1, dtype=jnp.int32),
                 runtime_observations,
                 obs_increment_fn,
@@ -319,7 +303,6 @@ def smooth(ctx, key, x_ref):
             final_obs_lp = _single_observation_log_probs_by_param(
                 contexts,
                 next_fixed,
-                state.observation_auxiliary,
                 jnp.asarray(block_end + 1, dtype=jnp.int32),
                 runtime_observations,
                 obs_increment_fn,
@@ -339,9 +322,6 @@ def smooth(ctx, key, x_ref):
             log_weights_t = log_weights_history[local_time_idx - block_start]
             label_log_probs_t = label_log_probs_history[local_time_idx - block_start]
             transition_lp = _transition_log_probs_to_next_by_param(
-                contexts,
-                transition_chols,
-                transition_logdets,
                 particles_t,
                 next_particle,
                 local_time_idx + 1,
@@ -349,7 +329,6 @@ def smooth(ctx, key, x_ref):
             obs_lp = _single_observation_log_probs_by_param(
                 contexts,
                 next_particle,
-                state.observation_auxiliary,
                 local_time_idx + 1,
                 runtime_observations,
                 obs_increment_fn,

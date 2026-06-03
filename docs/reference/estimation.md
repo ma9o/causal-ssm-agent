@@ -9,17 +9,18 @@ This document describes what `SSMModel.model()` computes when the [compilation p
 
 ## 1. CT-SDE Formulation
 
-The latent process is a multivariate Ornstein-Uhlenbeck SDE[^sarkka2019], the standard continuous-time linear-Gaussian state evolution used throughout continuous-discrete filtering and smoothing[^sarkka2013]:
+The latent process is a continuous-time stochastic differential equation with a composite **vector-field** drift and additive Gaussian diffusion:
 
 ```text
-d eta(t) = (A * eta(t) + c) dt + G dW(t)
+d eta(t) = f(eta(t), t; theta) dt + G dW(t)
 ```
 
 where:
 
-- `A` is the `n_latent x n_latent` **drift matrix** controlling auto- and cross-regressive dynamics. Off-diagonal entries (cross-effects) are sampled on allowed edges, and diagonal entries are derived from baseline decay plus incoming row mass so each dynamic row is strictly damped.
-- `c` is the `n_latent x 1` **continuous intercept** (CINT), shifting the asymptotic mean away from zero.
-- `G` is the `n_latent x n_latent` **diffusion Cholesky factor**, so `G G'` is the process noise covariance.
+- `f` is the **drift vector field**, assembled as a sum of components: per-construct baseline decay and intercepts plus per-edge effects. Edges are drawn from a small vocabulary — **linear** (baseline coupling), **Hill** (saturating dose-response), and **multiplicative** (bilinear interaction) — so the dynamics are non-linear in general. The classic multivariate Ornstein-Uhlenbeck / CT-SEM form `f(eta) = A * eta + c`[^sarkka2019] is the constant-Jacobian special case (a single dense-linear component), recovered exactly when every edge is linear. The continuous-discrete filtering and smoothing machinery[^sarkka2013] (§2–§3) then operates on the locally-linearized system.
+- In the affine case `A` is the `n_latent x n_latent` **drift matrix** controlling auto- and cross-regressive dynamics: off-diagonal entries (cross-effects) are sampled on allowed edges, and diagonal entries are derived from baseline decay plus incoming row mass so each dynamic row is strictly damped. For non-linear edges the relevant first-order object is the **Jacobian** `∂f/∂eta`, which drives discretization (§2) and the local stability check.
+- `c` is the `n_latent x 1` **continuous intercept** (CINT), shifting the asymptotic mean away from zero (the affine intercept; the local intercept `f(x_lin) - (∂f/∂eta) x_lin` in general).
+- `G` is the `n_latent x n_latent` **diffusion Cholesky factor**, so `G G'` is the process noise covariance; diffusion is additive Gaussian regardless of the drift.
 - `W(t)` is a standard Wiener process.
 
 The observation (measurement) model is:
@@ -37,26 +38,27 @@ where:
 
 ## 2. Discretization (CT to DT)
 
-Observations arrive at discrete (possibly irregular) times. Before filtering, the continuous-time system must be discretized for each inter-observation interval `dt`.
+Observations arrive at discrete (possibly irregular) times. Before filtering, the continuous-time system is discretized for each inter-observation interval `dt`. Because the drift `f` is non-linear in general, discretization operates on the **local linearization**: at a reference state `x_lin` (the filter mean, or the current trajectory sample at the start of the interval) the field is approximated as `f(eta) ≈ F * eta + b` with Jacobian `F = ∂f/∂eta` (via `jax.jacfwd`) and intercept `b = f(x_lin) - F * x_lin`, and that affine system is discretized exactly. Constant-Jacobian (dense-linear) fields skip the per-interval linearization and take the exact affine fast path; trajectory-dependent fields (Hill / multiplicative edges) linearize once per interval.
 
 ### Core equations
 
-Given drift `A`, diffusion covariance `Q_c = G G'`, and continuous intercept `c`:
+Given the local Jacobian `F`, diffusion covariance `Q_c = G G'`, and local intercept `b`:
 
-| Discrete quantity | Formula |
+| Discrete quantity | Method |
 |---|---|
-| Discrete drift | `A_d = exp(A * dt)` |
-| Asymptotic covariance | `A * Q_inf + Q_inf * A' = -Q_c` (Lyapunov equation) |
-| Discrete process noise | `Q_d = Q_inf - A_d * Q_inf * A_d'` |
-| Discrete intercept | `c_d = A^{-1} * (A_d - I) * c` |
+| Discrete drift | `A_d = exp(F * dt)` (matrix exponential) |
+| Discrete process noise | `Q_d` from the **Van Loan block exponential** of `[[F, Q_c], [0, -F']] * dt` |
+| Discrete intercept | `c_d` from the **augmented matrix exponential** of `[[F, b], [0, 0]] * dt` |
 
-The Lyapunov equation is solved via Bartels-Stewart (Sylvester solver), which is O(n^3) vs O(n^6) for the Kronecker vectorization approach.
+The Van Loan and augmented-exponential forms are used rather than the textbook closed forms (`Q_d = Q_inf - A_d Q_inf A_d'` and `c_d = F^{-1} (A_d - I) b`), because a local linearization far from equilibrium can be unstable (Jacobian eigenvalues with positive real part) or singular, which breaks both closed forms. Van Loan stays exact for any `F`, including singular or defective drift matrices.
 
-**Note on backward pass:** The forward pass uses Bartels-Stewart (Sylvester solver) at O(n^3). A custom VJP (`@jax.custom_vjp` on `solve_lyapunov`) uses implicit differentiation to compute gradients, but the adjoint Lyapunov equation is solved via Kronecker vectorization at O(n^6) because JAX lacks differentiation rules for Schur decomposition. For models with large latent dimension this backward pass can dominate gradient computation cost.
+### Stationary initial covariance
+
+The Lyapunov equation `A Q_inf + Q_inf A' = -Q_c` supplies the **stationary initial-state covariance** under `initialization_policy="stationary"` (used by prior-predictive sampling) — not the per-interval process noise above. It is solved via Kronecker vectorization, `(I ⊗ A + A ⊗ I) vec(X) = vec(-Q_c)`: O(n^6) but fully differentiable and GPU-compatible, with the Bartels-Stewart / Sylvester route (O(n^3)) avoided because its Schur decomposition has no CUDA XLA implementation. `solve_lyapunov` carries a custom JVP (`@jax.custom_jvp`) that differentiates implicitly through the equation and solves the tangent system with the same Kronecker solver.
 
 ### Batched discretization
 
-For a time series with T observations and potentially irregular intervals, the discretization is vmapped over the `dt` dimension to produce batched `(T, n, n)` discrete drift and noise matrices. The O(n^3) matrix exponential and Lyapunov solve are identical across particles and only need to be computed once per timestep, not once per particle.
+For a time series with T observations and potentially irregular intervals, the discretization is vmapped over the `dt` dimension to produce batched `(T, n, n)` discrete drift and noise matrices. For a constant-Jacobian (affine) field the matrix exponentials are identical across particles and are computed once per timestep rather than once per particle; a trajectory-dependent field discretizes at each particle's own per-interval linearization state.
 
 **Note on `edge_lag_days`:** The per-edge lag in days, computed during [spec translation in the compilation pipeline](compilation.md#stage-1-spec-translation-compilespec_translationpy), is used by prior compilation to scale DT-to-CT effects consistently with the discretization interval.
 
@@ -80,7 +82,7 @@ Some method internals do not use only the generic `models/likelihoods` package a
 
 ### Missing data handling
 
-Missing observations are handled by inflating the measurement variance for unobserved channels, so the filter effectively ignores them.
+Missing observations are handled by masking: an observation mask (`~isnan`) drops the per-channel likelihood contribution of unobserved entries, so the smoother conditions only on the observed channels.
 
 ## 4. Library Stack
 

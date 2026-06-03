@@ -21,14 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
-from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
-from nof1_causal_lab.models.ssm.inference.targets.linear_summary_augmentation import (
-    build_linear_summary_augmented_system as _build_linear_summary_augmented_system,
-)
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_summary_operator_codes,
-    get_support_kind_codes,
 )
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 
@@ -36,7 +31,6 @@ from .point import (
     _dense_dynamic_support_laplace_log_lik,
     _dense_support_laplace_log_lik,
     _ieks_smooth,
-    _linear_summary_augmented_ieks_laplace,
     _point_dynamic_transition_ieks_laplace,
     _point_ieks_mode,
     _point_laplace_from_mode,
@@ -44,7 +38,6 @@ from .point import (
 from .shared import (
     _block_banded_logdet,
     _build_ieks_system_from_prior,
-    _build_linear_summary_accumulator_plan,
     _build_prior_tridiagonal_system,
     _compute_profile_lower_bandwidths,
     _factor_block_banded_cholesky,
@@ -109,19 +102,11 @@ class LaplaceLikelihood:
         self.observation_support = observation_support
         self._point_mode_cache: jnp.ndarray | None = None
         self._support_mode_cache: jnp.ndarray | None = None
-        self._linear_summary_mode_cache: jnp.ndarray | None = None
         self._support_window_derivatives = None
         self._support_window_derivatives_signature: tuple[Any, ...] | None = None
-        self._linear_summary_plan = _build_linear_summary_accumulator_plan(
-            observation_support,
-            manifest_dists,
-            manifest_links,
-        )
         if observation_support is not None:
-            self._support_kind_codes = get_support_kind_codes(observation_support)
             self._summary_operator_codes = get_summary_operator_codes(observation_support)
         else:
-            self._support_kind_codes = jnp.zeros((n_manifest,), dtype=jnp.int32)
             self._summary_operator_codes = jnp.zeros((n_manifest,), dtype=jnp.int32)
         if (
             observation_support is not None
@@ -330,68 +315,6 @@ class LaplaceLikelihood:
                     if can_reuse_support_mode:
                         self._support_mode_cache = jax.device_get(z_mode)
                 return log_lik, inner_eval_aux if include_aux else None
-
-            affine_dynamics = derive_affine_dynamics(dynamics)
-            if self._linear_summary_plan is not None:
-
-                def _build_linear_summary_measurement_objects(
-                    manifest_cov: jnp.ndarray,
-                    runtime_extra_params: dict | None,
-                ):
-                    return compile_measurement_semantics(
-                        self.manifest_dists,
-                        manifest_cov=manifest_cov,
-                        extra_params=runtime_extra_params,
-                        manifest_links=self.manifest_links,
-                        observation_support=self.observation_support,
-                    )
-
-                can_reuse_linear_summary_mode = allow_stateful_cache and not _tree_contains_tracer(
-                    cache_inputs
-                )
-                linear_summary_dim = self.n_latent + self._linear_summary_plan.n_accumulators
-                linear_summary_mode_init = latent_mode_init
-                if linear_summary_mode_init is not None and linear_summary_mode_init.shape != (
-                    clean_obs.shape[0],
-                    linear_summary_dim,
-                ):
-                    raise ValueError(
-                        "Linear interval-summary warm start shape does not match the "
-                        f"augmented latent dimension: expected {(clean_obs.shape[0], linear_summary_dim)}, "
-                        f"received {tuple(linear_summary_mode_init.shape)}."
-                    )
-                if (
-                    linear_summary_mode_init is None
-                    and can_reuse_linear_summary_mode
-                    and self._linear_summary_mode_cache is not None
-                    and self._linear_summary_mode_cache.shape
-                    == (clean_obs.shape[0], linear_summary_dim)
-                ):
-                    linear_summary_mode_init = self._linear_summary_mode_cache
-                with jax.named_scope("map/linear_summary_augmented_backend"):
-                    z_mode, log_lik, inner_eval_aux = _linear_summary_augmented_ieks_laplace(
-                        clean_obs,
-                        obs_mask,
-                        time_intervals,
-                        affine_dynamics.drift,
-                        affine_dynamics.diffusion_cov,
-                        affine_dynamics.cint,
-                        measurement_params.lambda_mat,
-                        measurement_params.manifest_means,
-                        measurement_params.manifest_cov,
-                        initial_state.mean,
-                        initial_state.cov,
-                        obs_kernel,
-                        self._linear_summary_plan,
-                        self._support_kind_codes,
-                        self.n_ieks_iters,
-                        z_init=linear_summary_mode_init,
-                        build_measurement_objects=_build_linear_summary_measurement_objects,
-                        extra_params=extra_params,
-                    )
-                    if can_reuse_linear_summary_mode:
-                        self._linear_summary_mode_cache = jax.device_get(z_mode)
-                    return log_lik, inner_eval_aux if include_aux else None
 
             def _build_support_measurement_objects(
                 manifest_cov: jnp.ndarray,
@@ -633,16 +556,13 @@ class LaplaceLikelihood:
 __all__ = [
     "LaplaceLikelihood",
     # point.py re-exports
-    "_build_linear_summary_augmented_system",
     "_dense_support_laplace_log_lik",
     "_ieks_smooth",
-    "_linear_summary_augmented_ieks_laplace",
     "_point_ieks_mode",
     "_point_laplace_from_mode",
     # shared.py re-exports
     "_block_banded_logdet",
     "_build_ieks_system_from_prior",
-    "_build_linear_summary_accumulator_plan",
     "_build_prior_tridiagonal_system",
     "_compute_profile_lower_bandwidths",
     "_factor_block_banded_cholesky",

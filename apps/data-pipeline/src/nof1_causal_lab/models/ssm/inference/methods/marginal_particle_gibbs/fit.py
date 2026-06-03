@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import jax.random as random
 
 from nof1_causal_lab.models.ssm.inference.bundle import (
-    build_auxiliary_kalman_bundle,
+    build_particle_runtime_bundle,
 )
 from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared import (
     build_pmcmc_mcmc_result,
@@ -33,6 +33,10 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
     run_marginal_particle_gibbs,
 )
 from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+from nof1_causal_lab.models.ssm.transition_kinds import (
+    LATENT_TRANSITION_EULER_MARUYAMA,
+    LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,7 @@ def fit_marginal_particle_gibbs(
     n_particles: int = 64,
     n_parameter_particles: int = 2,
     latent_block_size: int = 256,
-    latent_smoother: str = "plain",
+    latent_smoother: str = "dsmc",
     parameter_proposal: str = "pseudo_langevin",
     amala_delta_init: float = _DEFAULT_AMALA_DELTA_INIT,
     amala_delta_min: float = _DEFAULT_AMALA_DELTA_MIN,
@@ -69,8 +73,7 @@ def fit_marginal_particle_gibbs(
     amala_adaptation_gamma: float = _DEFAULT_AMALA_ADAPTATION_GAMMA,
     amala_kappa: float = 0.75,
     amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
-    dsmc_leaf_proposal: str = "prior_predictive",
-    mgrad_grad_clip: float = 10.0,
+    dsmc_leaf_proposal: str = "amala_plus",
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
     param_step_size: float = 0.02,
@@ -97,20 +100,18 @@ def fit_marginal_particle_gibbs(
     initial_positions_override: jnp.ndarray | None = None,
     latent_delta: float = 0.2,
     n_ieks_iters: int = 6,
-    enable_polya_gamma: bool = False,
-    polya_gamma_num_terms: int = 64,
-    polya_gamma_sampler: str = "truncated_sum",
-    rbpf_mode: str = "none",
-    rbpf_marginalized_latent_indices: tuple[int, ...] | list[int] | None = None,
     reparam=None,
     profile_dir: str | None = None,
+    profile_compile_analysis: bool = True,
+    profile_runtime_trace: bool = True,
+    profile_trace_start_step: int = 0,
+    profile_trace_steps: int = 3,
     **_kwargs: Any,
 ) -> InferenceResult:
     """Fit an SSM with marginalized Particle Gibbs.
 
     This method targets the directly evaluable latent/parameter posterior using
-    a collapsed Particle Gibbs update. Polya-Gamma and RBPF augmentations are
-    not part of this collapsed target and are intentionally rejected here.
+    a collapsed Particle Gibbs update.
     """
     if init_method not in {"random", "pathfinder"}:
         raise ValueError(
@@ -122,10 +123,6 @@ def fit_marginal_particle_gibbs(
             "Unsupported marginal_particle_gibbs latent_init_method "
             f"{latent_init_method!r}. Supported: 'predictive'."
         )
-    if enable_polya_gamma:
-        raise ValueError("marginal_particle_gibbs requires enable_polya_gamma=False.")
-    if rbpf_mode != "none" or rbpf_marginalized_latent_indices:
-        raise ValueError("marginal_particle_gibbs requires rbpf_mode='none'.")
     if adaptation_scheme not in {"simple", "dual_averaging"}:
         raise ValueError(
             "Unsupported marginal_particle_gibbs adaptation_scheme "
@@ -151,17 +148,18 @@ def fit_marginal_particle_gibbs(
 
     phase_t0 = time.monotonic()
     logger.info("phase 1/4: building marginalized Particle Gibbs runtime bundle...")
-    bundle = build_auxiliary_kalman_bundle(
+    scheme = (
+        LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN
+        if latent_smoother == "dsmc" and dsmc_leaf_proposal == "prior_predictive"
+        else LATENT_TRANSITION_EULER_MARUYAMA
+    )
+    bundle = build_particle_runtime_bundle(
         model,
         observations,
         times,
+        scheme=scheme,
         trace_key=trace_key,
         reparam=reparam,
-        polya_gamma_num_terms=polya_gamma_num_terms,
-        polya_gamma_sampler=polya_gamma_sampler,
-        enable_polya_gamma=False,
-        rbpf_mode="none",
-        rbpf_marginalized_latent_indices=None,
     )
     logger.info(
         "phase 1/4: bundle ready in %.1fs (dim=%d, public_sites=%d)",
@@ -228,7 +226,6 @@ def fit_marginal_particle_gibbs(
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
         dsmc_leaf_proposal=dsmc_leaf_proposal,
-        mgrad_grad_clip=mgrad_grad_clip,
         diagnostic_metrics_all=diagnostic_metrics_all,
         diagnostic_metrics=diagnostic_metrics,
     )
@@ -248,6 +245,10 @@ def fit_marginal_particle_gibbs(
         compute_latent_posterior_summary=compute_latent_posterior_summary,
         adaptation_scheme=adaptation_scheme,
         profile_dir=profile_dir,
+        profile_compile_analysis=profile_compile_analysis,
+        profile_runtime_trace=profile_runtime_trace,
+        profile_trace_start_step=profile_trace_start_step,
+        profile_trace_steps=profile_trace_steps,
     )
     mcmc_phase_seconds = _phase_elapsed(phase_t0)
     logger.info("phase 3/4: MCMC complete in %.1fs", mcmc_phase_seconds)
@@ -312,7 +313,7 @@ def fit_marginal_particle_gibbs(
         "amala_kappa": float(amala_kappa),
         "amala_grad_clip": float(amala_grad_clip),
         "dsmc_leaf_proposal": kernel.dsmc_leaf_proposal,
-        "mgrad_grad_clip": float(mgrad_grad_clip),
+        "latent_transition_kind": bundle["latent_transition_kind"],
         "diagnostic_metrics_all": bool(diagnostic_metrics_all),
         "diagnostic_metrics": sorted(kernel.diagnostic_metrics),
         "param_step_size_initial": float(param_step_size),
@@ -328,8 +329,6 @@ def fit_marginal_particle_gibbs(
         "final_param_step_size": jax.device_get(run_result["final_param_step_size"]).tolist(),
         "initial_latent_delta": jax.device_get(run_result["initial_latent_delta"]).tolist(),
         "final_latent_delta": jax.device_get(run_result["final_latent_delta"]).tolist(),
-        "polya_gamma_enabled": False,
-        "rbpf_enabled": False,
         "latent_init_method": "predictive",
         "chain_post_warmup_complete_log_posterior_mean": jax.device_get(
             run_result["post_warmup_complete_log_posterior_mean"]
@@ -380,34 +379,12 @@ def fit_marginal_particle_gibbs(
         kernel_diagnostics["backward_selection_max_prob_mean"] = float(
             jnp.mean(summary_extra_fields["backward_selection_max_prob_by_t"])
         )
-    if kernel.latent_smoother.name in {"amala", "amala_plus"}:
+    if kernel.adapt_amala_delta:
         kernel_diagnostics["amala_grad_norm_mean"] = float(
             jnp.mean(summary_extra_fields["amala_grad_norm_mean"])
         )
         kernel_diagnostics["amala_grad_norm_max"] = float(
             jnp.max(summary_extra_fields["amala_grad_norm_max"])
-        )
-    if "amala_grad_clip_fraction" in summary_extra_fields:
-        kernel_diagnostics["amala_grad_clip_fraction_mean"] = float(
-            jnp.mean(summary_extra_fields["amala_grad_clip_fraction"])
-        )
-        kernel_diagnostics["amala_drift_norm_mean"] = float(
-            jnp.mean(summary_extra_fields["amala_drift_norm_mean"])
-        )
-        kernel_diagnostics["amala_auxiliary_noise_norm_mean"] = float(
-            jnp.mean(summary_extra_fields["amala_auxiliary_noise_norm_mean"])
-        )
-        kernel_diagnostics["amala_drift_to_auxiliary_noise_ratio_mean"] = float(
-            jnp.mean(summary_extra_fields["amala_drift_to_auxiliary_noise_ratio_mean"])
-        )
-        kernel_diagnostics["amala_proposal_displacement_norm_mean"] = float(
-            jnp.mean(summary_extra_fields["amala_proposal_displacement_norm_mean"])
-        )
-        kernel_diagnostics["amala_auxiliary_correction_variance_mean"] = float(
-            jnp.mean(summary_extra_fields["amala_auxiliary_correction_variance"])
-        )
-        kernel_diagnostics["amala_auxiliary_correction_max_abs"] = float(
-            jnp.max(summary_extra_fields["amala_auxiliary_correction_max_abs"])
         )
     diagnostics = {
         "mcmc": mcmc,

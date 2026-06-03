@@ -200,7 +200,7 @@ class MarginalParticleGibbsConfig:
     n_particles: int = 64
     n_parameter_particles: int = 2
     latent_block_size: int = 256
-    latent_smoother: Literal["plain", "amala", "amala_plus", "mgrad", "dsmc"] = "plain"
+    latent_smoother: Literal["plain", "dsmc"] = "dsmc"
     latent_delta: float = 0.2
     parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin"
     amala_delta_init: float = 1e-2
@@ -214,8 +214,7 @@ class MarginalParticleGibbsConfig:
     amala_adaptation_gamma: float = -0.5
     amala_kappa: float = 0.75
     amala_grad_clip: float = math.inf
-    dsmc_leaf_proposal: Literal["prior_predictive", "amala", "amala_plus"] = "prior_predictive"
-    mgrad_grad_clip: float = 10.0
+    dsmc_leaf_proposal: Literal["prior_predictive", "amala", "amala_plus"] = "amala_plus"
     diagnostic_metrics_all: bool = False
     diagnostic_metrics: tuple[str, ...] = ()
     param_step_size: float = 0.02
@@ -270,8 +269,6 @@ class InferenceConfig:
             {
                 "n_ieks_iters": self.map.n_ieks_iters,
                 **dataclasses.asdict(self.marginal_particle_gibbs),
-                "enable_polya_gamma": False,
-                "rbpf_mode": "none",
             }
         )
         return config

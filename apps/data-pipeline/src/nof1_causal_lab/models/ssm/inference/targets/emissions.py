@@ -192,10 +192,14 @@ def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
     residual = (y_t - pred) * obs_mask_t
     n_obs = jnp.sum(obs_mask_t)
     R_adj = symmetrize_with_jitter(inflate_missing_variance(R, obs_mask_t))
-    _, logdet = jnp.linalg.slogdet(R_adj)
+    # One Cholesky yields both the log-det (2·Σlog diag) and the whitened solve, vs the
+    # prior slogdet(LU) + solve(pos) which factored R_adj twice (and the LU storm).
+    chol = jnp.linalg.cholesky(R_adj)
+    logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
     n_missing = y_t.shape[0] - n_obs
     logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
-    mahal = residual @ jla.solve(R_adj, residual, assume_a="pos")
+    whitened = jla.solve_triangular(chol, residual, lower=True)
+    mahal = jnp.sum(whitened * whitened)
     return jnp.where(n_obs > 0, -0.5 * (n_obs * jnp.log(2 * jnp.pi) + logdet + mahal), 0.0)
 
 
@@ -504,10 +508,12 @@ def get_mean_param_log_prob_fn(manifest_dist, extra_params=None):
         residual = (y_t - mean_t) * obs_mask_t
         n_obs = jnp.sum(obs_mask_t)
         R_adj = symmetrize_with_jitter(inflate_missing_variance(R, obs_mask_t))
-        _, logdet = jnp.linalg.slogdet(R_adj)
+        chol = jnp.linalg.cholesky(R_adj)
+        logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
         n_missing = y_t.shape[0] - n_obs
         logdet = logdet - n_missing * jnp.log(MISSING_DATA_LARGE_VAR)
-        mahal = residual @ jla.solve(R_adj, residual, assume_a="pos")
+        whitened = jla.solve_triangular(chol, residual, lower=True)
+        mahal = jnp.sum(whitened * whitened)
         return jnp.where(
             n_obs > 0,
             -0.5 * (n_obs * jnp.log(2 * jnp.pi) + logdet + mahal),

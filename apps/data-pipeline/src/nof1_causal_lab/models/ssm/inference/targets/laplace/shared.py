@@ -50,10 +50,6 @@ _POINT_LM_DAMPING_SHRINK = _SUPPORT_AWARE_LM_DAMPING_SHRINK
 
 _POINT_LINE_SEARCH_MAX_HALVINGS = _SUPPORT_AWARE_LINE_SEARCH_MAX_HALVINGS
 
-_LINEAR_SUMMARY_SUPPORTED_DISTS = frozenset({"gaussian", "student_t"})
-
-_LINEAR_SUMMARY_SUPPORTED_OPERATORS = frozenset({"mean", "sum"})
-
 
 @dataclass(frozen=True)
 class SupportObservationWindowBatch:
@@ -72,20 +68,6 @@ class SupportObservationWindowBatch:
     valid_diag: jnp.ndarray
     cross_time_indices: jnp.ndarray
     valid_cross: jnp.ndarray
-
-
-@dataclass(frozen=True)
-class LinearSummaryAccumulatorPlan:
-    """Runtime plan for exact augmented-state interval summaries."""
-
-    accumulator_manifest_indices: jnp.ndarray
-    row_reset_mask: jnp.ndarray
-    row_emission_accumulator_indices: jnp.ndarray
-    row_emission_scales: jnp.ndarray
-
-    @property
-    def n_accumulators(self) -> int:
-        return int(self.accumulator_manifest_indices.shape[0])
 
 
 @dataclass(frozen=True)
@@ -113,125 +95,6 @@ def _symmetrize_psd(mats: jnp.ndarray, jitter: float = 0.0) -> jnp.ndarray:
     """Symmetrize square matrices and optionally add diagonal jitter."""
     eye = jnp.eye(mats.shape[-1], dtype=mats.dtype)
     return 0.5 * (mats + jnp.swapaxes(mats, -1, -2)) + jitter * eye
-
-
-def _enum_value_lower(value: Any) -> str:
-    raw = getattr(value, "value", value)
-    return str(raw).lower()
-
-
-def _find_support_time_index(
-    anchor_times: np.ndarray, target_time: float, *, tol: float = 1e-8
-) -> int:
-    candidate_idx = int(np.searchsorted(anchor_times, target_time))
-    if (
-        candidate_idx < len(anchor_times)
-        and abs(float(anchor_times[candidate_idx]) - target_time) <= tol
-    ):
-        return candidate_idx
-    if candidate_idx > 0 and abs(float(anchor_times[candidate_idx - 1]) - target_time) <= tol:
-        return candidate_idx - 1
-    raise ValueError(
-        "Linear interval-summary augmentation requires support boundaries to be present "
-        f"on the model clock; missing boundary at time={target_time}."
-    )
-
-
-def _build_linear_summary_accumulator_plan(
-    observation_support: ObservationSupportRuntime | None,
-    manifest_dists: list[Any],
-    manifest_links: list[Any],
-) -> LinearSummaryAccumulatorPlan | None:
-    """Return an augmentation plan when all interval summaries are linear in the latent state."""
-    if observation_support is None or not observation_support.requires_interval_summary_handling:
-        return None
-
-    interval_manifest_indices: list[int] = []
-    for manifest_idx, support_kind in enumerate(observation_support.support_kinds):
-        if support_kind != "interval":
-            continue
-        dist_value = _enum_value_lower(manifest_dists[manifest_idx])
-        link_value = _enum_value_lower(manifest_links[manifest_idx])
-        summary_value = _enum_value_lower(observation_support.summary_operators[manifest_idx])
-        if (
-            dist_value not in _LINEAR_SUMMARY_SUPPORTED_DISTS
-            or link_value != "identity"
-            or summary_value not in _LINEAR_SUMMARY_SUPPORTED_OPERATORS
-        ):
-            return None
-        interval_manifest_indices.append(manifest_idx)
-
-    if not interval_manifest_indices:
-        return None
-
-    emission_slots = np.asarray(observation_support.emission_slot_indices)
-    anchor_times = np.asarray(observation_support.anchor_times)
-    support_start_times = np.asarray(observation_support.support_start_times)
-    support_end_times = np.asarray(observation_support.support_end_times)
-    support_summary_ops = list(observation_support.summary_operators)
-
-    slot_to_accumulator: dict[tuple[int, int], int] = {}
-    accumulator_manifest_indices: list[int] = []
-    for manifest_idx in interval_manifest_indices:
-        used_slots = sorted(
-            {
-                int(slot_idx)
-                for slot_idx in emission_slots[:, manifest_idx].tolist()
-                if int(slot_idx) >= 0
-            }
-        )
-        if not used_slots:
-            continue
-        for slot_idx in used_slots:
-            slot_to_accumulator[(manifest_idx, slot_idx)] = len(accumulator_manifest_indices)
-            accumulator_manifest_indices.append(manifest_idx)
-
-    if not accumulator_manifest_indices:
-        return None
-
-    n_time = int(anchor_times.shape[0])
-    n_manifest = len(observation_support.manifest_names)
-    n_accumulators = len(accumulator_manifest_indices)
-    row_reset_mask = np.zeros((n_time, n_accumulators), dtype=bool)
-    row_emission_accumulator_indices = np.full((n_time, n_manifest), -1, dtype=np.int64)
-    row_emission_scales = np.zeros((n_time, n_manifest), dtype=np.float64)
-
-    for anchor_idx in range(n_time):
-        for manifest_idx in interval_manifest_indices:
-            slot_idx = int(emission_slots[anchor_idx, manifest_idx])
-            if slot_idx < 0:
-                continue
-            accumulator_idx = slot_to_accumulator[(manifest_idx, slot_idx)]
-            support_start = float(support_start_times[anchor_idx, manifest_idx])
-            support_end = float(support_end_times[anchor_idx, manifest_idx])
-            if not np.isfinite(support_start) or not np.isfinite(support_end):
-                raise ValueError(
-                    "Linear interval-summary augmentation requires finite support bounds for "
-                    f"manifest={observation_support.manifest_names[manifest_idx]!r} row={anchor_idx}."
-                )
-            duration = support_end - support_start
-            if duration <= 1e-8:
-                raise ValueError(
-                    "Linear interval-summary augmentation requires positive support length for "
-                    f"manifest={observation_support.manifest_names[manifest_idx]!r} row={anchor_idx}."
-                )
-            start_idx = _find_support_time_index(anchor_times, support_start)
-            row_reset_mask[start_idx, accumulator_idx] = True
-            row_emission_accumulator_indices[anchor_idx, manifest_idx] = accumulator_idx
-            summary_value = _enum_value_lower(support_summary_ops[manifest_idx])
-            row_emission_scales[anchor_idx, manifest_idx] = (
-                1.0 / duration if summary_value == "mean" else 1.0
-            )
-
-    return LinearSummaryAccumulatorPlan(
-        accumulator_manifest_indices=jnp.asarray(accumulator_manifest_indices, dtype=jnp.int32),
-        row_reset_mask=jnp.asarray(row_reset_mask),
-        row_emission_accumulator_indices=jnp.asarray(
-            row_emission_accumulator_indices,
-            dtype=jnp.int32,
-        ),
-        row_emission_scales=jnp.asarray(row_emission_scales),
-    )
 
 
 def _predictive_latent_init(

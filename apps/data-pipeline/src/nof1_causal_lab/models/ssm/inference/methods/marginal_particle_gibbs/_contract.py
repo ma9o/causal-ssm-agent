@@ -14,9 +14,6 @@ if TYPE_CHECKING:
     import jax.numpy as jnp
 
 _LATENT_SMOOTHER_PLAIN = "plain"
-_LATENT_SMOOTHER_AMALA = "amala"
-_LATENT_SMOOTHER_AMALA_PLUS = "amala_plus"
-_LATENT_SMOOTHER_MGRAD = "mgrad"
 _LATENT_SMOOTHER_DSMC = "dsmc"
 _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE = "prior_predictive"
 _DSMC_LEAF_PROPOSAL_AMALA = "amala"
@@ -28,9 +25,6 @@ _DSMC_LEAF_PROPOSALS = (
 )
 _LATENT_SMOOTHERS = (
     _LATENT_SMOOTHER_PLAIN,
-    _LATENT_SMOOTHER_AMALA,
-    _LATENT_SMOOTHER_AMALA_PLUS,
-    _LATENT_SMOOTHER_MGRAD,
     _LATENT_SMOOTHER_DSMC,
 )
 
@@ -66,33 +60,6 @@ def _resolve_latent_smoother(name: str) -> MPGibbsLatentSmoother:
             parallel=False,
             backward_sampling=True,
         )
-    if name == _LATENT_SMOOTHER_AMALA:
-        return MPGibbsLatentSmoother(
-            name=name,
-            algorithm="sequential_particle_amala_csmc",
-            family="posterior_mixture_particle_amala",
-            selection="augmented_backward_sampling",
-            parallel=False,
-            backward_sampling=True,
-        )
-    if name == _LATENT_SMOOTHER_AMALA_PLUS:
-        return MPGibbsLatentSmoother(
-            name=name,
-            algorithm="full_prefix_particle_amala_plus_csmc",
-            family="posterior_mixture_particle_amala_plus",
-            selection="full_prefix_augmented_backward_sampling",
-            parallel=False,
-            backward_sampling=True,
-        )
-    if name == _LATENT_SMOOTHER_MGRAD:
-        return MPGibbsLatentSmoother(
-            name=name,
-            algorithm="sequential_particle_mgrad",
-            family="particle_mgrad",
-            selection="backward_sampling_forced_move",
-            parallel=False,
-            backward_sampling=True,
-        )
     if name == _LATENT_SMOOTHER_DSMC:
         return MPGibbsLatentSmoother(
             name=name,
@@ -118,7 +85,6 @@ class MPGibbsStatic:
     obs_increment_fn: Any
     trajectory_log_prob_fn: Any
     prior_terms_from_context_fn: Any
-    initial_observation_auxiliary_fn: Any
     runtime_observations: Any
     runtime_times: Any
     num_particles: int
@@ -128,7 +94,11 @@ class MPGibbsStatic:
     amala_kappa: float
     amala_grad_clip: float
     dsmc_leaf_proposal: str
-    mgrad_latent_kernel: Any
+    transition_initial_log_prob_fn: Any
+    transition_log_prob_fn: Any
+    transition_log_probs_for_pairs_fn: Any
+    transition_pairwise_log_probs_fn: Any
+    transition_sample_fn: Any
     diagnostic_metrics: frozenset[str]
 
 
@@ -148,8 +118,6 @@ class SmootherContext:
     init_means: jnp.ndarray
     init_chols: jnp.ndarray
     init_logdets: jnp.ndarray
-    transition_chols: jnp.ndarray
-    transition_logdets: jnp.ndarray
     num_steps: int
     num_free_particles: int
     num_parameter_particles: int
@@ -158,20 +126,25 @@ class SmootherContext:
     latent_dtype: Any
     traj_dtype: Any
     complete_dtype: Any
-    state: Any
     obs_increment_fn: Any
     runtime_observations: Any
-    initial_observation_auxiliary_fn: Any
     trajectory_log_prob_fn: Any
     prior_terms_from_context_fn: Any
     log_prior_unc_fn: Any
-    mgrad_latent_kernel: Any
     amala_delta: jnp.ndarray
     amala_kappa: float
     amala_grad_clip: float
     dsmc_leaf_proposal: str
     diagnostic_metrics: frozenset[str]
+    initial_value_grad_by_param: Callable
+    transition_current_value_grad_by_param: Callable
+    transition_next_value_grad_by_param: Callable
+    selected_transition_log_probs: Callable
+    pairwise_transition_log_probs: Callable
     transition_log_probs_from_fixed_prev: Callable
+    transition_log_probs_by_param: Callable
+    transition_log_probs_to_next_by_param: Callable
+    sample_transition_by_label: Callable
     segment_terminal_label_log_probs: Callable
     path_future_tail_log_probs: Callable
     trajectory_label_log_probs: Callable

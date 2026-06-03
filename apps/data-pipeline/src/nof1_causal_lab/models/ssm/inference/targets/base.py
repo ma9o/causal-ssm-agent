@@ -70,6 +70,66 @@ class InitialStateParams(NamedTuple):
     cov: jnp.ndarray  # (n_latent, n_latent)
 
 
+class TrajectoryTarget(Protocol):
+    """Latent path prior contract exposed to inference runtimes."""
+
+    kind: str
+    supports_affine_prefix_marginals: bool
+
+    def initial_moments(self, context) -> tuple[jnp.ndarray, jnp.ndarray]: ...
+
+    def initial_log_prob(self, context, particle0: jnp.ndarray) -> jnp.ndarray: ...
+
+    def predictive_latent_init(self, context) -> jnp.ndarray: ...
+
+    def sample_initial(
+        self,
+        key: jnp.ndarray,
+        context,
+        *,
+        sample_shape: tuple[int, ...],
+    ) -> jnp.ndarray: ...
+
+    def sample_transition(
+        self,
+        key: jnp.ndarray,
+        context,
+        previous_states: jnp.ndarray,
+        time_idx: jnp.ndarray,
+    ) -> jnp.ndarray: ...
+
+    def transition_log_prob(
+        self,
+        context,
+        previous_state: jnp.ndarray,
+        current_state: jnp.ndarray,
+        time_idx: jnp.ndarray,
+    ) -> jnp.ndarray: ...
+
+    def transition_log_probs_for_pairs(
+        self,
+        context,
+        previous_states: jnp.ndarray,
+        current_states: jnp.ndarray,
+        time_idx: jnp.ndarray,
+    ) -> jnp.ndarray: ...
+
+    def pairwise_transition_log_probs(
+        self,
+        context,
+        previous_states: jnp.ndarray,
+        current_states: jnp.ndarray,
+        time_idx: jnp.ndarray,
+    ) -> jnp.ndarray: ...
+
+    def trajectory_prior_log_prob(
+        self,
+        context,
+        latent_trajectory: jnp.ndarray,
+        prior_terms: Any | None = None,
+    ) -> jnp.ndarray: ...
+
+
 class LikelihoodBackend(Protocol):
     """Protocol for state-space likelihood computation backends.
 

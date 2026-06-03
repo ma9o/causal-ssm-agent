@@ -87,34 +87,9 @@ def _gaussian_log_prob_shared_cholesky(
     return -0.5 * (dim * jnp.log(2.0 * jnp.pi) + logdet + quadratic)
 
 
-def _transition_log_probs_by_param(
-    contexts,
-    transition_cholesky: jnp.ndarray,
-    transition_logdet: jnp.ndarray,
-    prev_particles: jnp.ndarray,
-    particles_t: jnp.ndarray,
-    time_idx: jnp.ndarray,
-) -> jnp.ndarray:
-    def _one_param(context, cholesky_by_time, logdet_by_time):
-        means = prev_particles @ context.Ad[time_idx].T + context.cd[time_idx]
-        return _gaussian_log_prob_shared_cholesky(
-            particles_t,
-            means,
-            cholesky_by_time[time_idx],
-            logdet_by_time[time_idx],
-        )
-
-    return jnp.swapaxes(
-        jax.vmap(_one_param)(contexts, transition_cholesky, transition_logdet),
-        0,
-        1,
-    )
-
-
 def _observation_log_probs_by_param(
     contexts,
     particles_t: jnp.ndarray,
-    observation_auxiliary,
     time_idx: jnp.ndarray,
     runtime_observations: jnp.ndarray,
     obs_increment_fn,
@@ -124,7 +99,6 @@ def _observation_log_probs_by_param(
             lambda particle: obs_increment_fn(
                 context,
                 particle,
-                observation_auxiliary,
                 time_idx,
                 runtime_observations,
             )
@@ -133,35 +107,9 @@ def _observation_log_probs_by_param(
     return jnp.swapaxes(jax.vmap(_one_param)(contexts), 0, 1)
 
 
-def _transition_log_probs_to_next_by_param(
-    contexts,
-    transition_cholesky: jnp.ndarray,
-    transition_logdet: jnp.ndarray,
-    prev_particles: jnp.ndarray,
-    next_particle: jnp.ndarray,
-    time_idx: jnp.ndarray,
-) -> jnp.ndarray:
-    def _one_param(context, cholesky_by_time, logdet_by_time):
-        means = prev_particles @ context.Ad[time_idx].T + context.cd[time_idx]
-        next_particles = jnp.broadcast_to(next_particle, means.shape)
-        return _gaussian_log_prob_shared_cholesky(
-            next_particles,
-            means,
-            cholesky_by_time[time_idx],
-            logdet_by_time[time_idx],
-        )
-
-    return jnp.swapaxes(
-        jax.vmap(_one_param)(contexts, transition_cholesky, transition_logdet),
-        0,
-        1,
-    )
-
-
 def _single_observation_log_probs_by_param(
     contexts,
     particle_t: jnp.ndarray,
-    observation_auxiliary,
     time_idx: jnp.ndarray,
     runtime_observations: jnp.ndarray,
     obs_increment_fn,
@@ -169,7 +117,6 @@ def _single_observation_log_probs_by_param(
     return _observation_log_probs_by_param(
         contexts,
         particle_t[None, :],
-        observation_auxiliary,
         time_idx,
         runtime_observations,
         obs_increment_fn,

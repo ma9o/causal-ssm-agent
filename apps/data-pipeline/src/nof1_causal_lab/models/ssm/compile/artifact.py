@@ -126,41 +126,6 @@ def serialize_edge_lag_days(
     ]
 
 
-def compile_runtime_conditioning_metadata(spec: SSMSpec) -> dict[str, Any]:
-    """Describe runtime observation/path conditioning owned by compiled artifacts."""
-    manifest_links = spec.manifest_links or [LinkFunction.IDENTITY] * spec.n_manifest
-    manifest_names = spec.manifest_names or [f"manifest_{idx}" for idx in range(spec.n_manifest)]
-    pg_channels = [
-        {
-            "index": idx,
-            "name": manifest_names[idx],
-            "distribution": dist.value,
-            "link": link.value,
-        }
-        for idx, (dist, link) in enumerate(zip(spec.manifest_dists, manifest_links, strict=True))
-        if (dist == DistributionFamily.BERNOULLI and link == LinkFunction.LOGIT)
-        or (dist == DistributionFamily.NEGATIVE_BINOMIAL and link == LinkFunction.LOG)
-    ]
-    return {
-        "polya_gamma": {
-            "channels": pg_channels,
-            "consumed_observation_family": "bernoulli_logit_or_negative_binomial_log",
-            "default_sampler": "truncated_sum",
-            "supported_samplers": ["truncated_sum", "devroye", "devroye_integer"],
-        },
-        "rbpf": {
-            "active": False,
-            "mode": "none",
-            "structure": "none",
-            "supported_modes": ["none", "independent", "conditional"],
-            "supported_structures": ["independent", "conditional"],
-            "carried_latent_indices": list(range(spec.n_latent)),
-            "marginalized_latent_indices": [],
-            "consumed_observation_family": ("gaussian_identity_or_pg_conditioned_affine_logit"),
-        },
-    }
-
-
 def deserialize_edge_lag_days(payload: Any) -> dict[tuple[int, int], float]:
     """Restore serialized edge-lag metadata from a compiled artifact payload."""
     if not isinstance(payload, list):
@@ -316,12 +281,12 @@ def deserialize_ssm_spec(payload: dict[str, Any]) -> SSMSpec:
         "input_scales",
         "input_missing_policies",
         "static_factor_names",
-        "initialization_policy",
-        "observation_intercept_policy",
     )
     for key in metadata_fields:
         if key in payload:
             kwargs[key] = payload[key]
+    kwargs["initialization_policy"] = payload["initialization_policy"]
+    kwargs["observation_intercept_policy"] = payload["observation_intercept_policy"]
 
     return SSMSpec(**kwargs)
 
@@ -553,7 +518,6 @@ def _compile_validated_ssm_artifact(
         "schema_version": 1,
         "spec": serialize_ssm_spec(spec),
         "edge_lag_days": serialize_edge_lag_days(edge_lag_days),
-        "runtime_conditioning": compile_runtime_conditioning_metadata(spec),
         "compiled_prior_semantics": compile_prior_semantics(spec, prior_registry),
         "parameter_bindings": parameter_bindings,
         "compile_diagnostics": [

@@ -79,7 +79,12 @@ def start_trace(profile_dir: Path | None, *, label: str) -> None:
     """Begin a ``jax.profiler`` trace into ``profile_dir / label`` (no-op if None)."""
     if profile_dir is None:
         return
-    jax.profiler.start_trace(str(profile_dir / label))
+    options = jax.profiler.ProfileOptions()
+    options.host_tracer_level = 0
+    options.python_tracer_level = 0
+    options.include_dataset_ops = False
+    options.enable_hlo_proto = False
+    jax.profiler.start_trace(str(profile_dir / label), profiler_options=options)
 
 
 def stop_trace(profile_dir: Path | None) -> None:

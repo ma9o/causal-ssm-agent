@@ -35,10 +35,6 @@ Selection happens on two axes. The method is chosen with the `method` argument t
 | A different latent-trajectory smoother | `latent_smoother=` `"plain"` \| `"amala"` \| `"amala_plus"` \| `"mgrad"` \| `"dsmc"` | Trades off mixing, gradient use, and parallel-in-time depth for the conditional-SMC latent update. |
 | A gradient-informed vs. gradient-free parameter move | `parameter_proposal=` `"pseudo_langevin"` (default) \| `"random_walk"` | Pseudo-Langevin uses a conditional parameter-gradient drift; random-walk is the gradient-free fallback. |
 
-## Runtime Conditioning
-
-The runtime contains Polya-Gamma augmentation and Rao-Blackwellized particle filtering (RBPF) machinery, but neither is reachable through the current inference surface: both `marginal_particle_gibbs` and `particle_marginal_mh` require `enable_polya_gamma=False` and `rbpf_mode="none"` and raise otherwise. The collapsed Particle Gibbs target and the pseudo-marginal target are defined without those augmentations, so they are rejected explicitly rather than silently ignored.
-
 ## Method Reference
 
 ### Marginalized Particle Gibbs

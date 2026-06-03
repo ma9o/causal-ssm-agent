@@ -166,6 +166,11 @@ ignore_names = [
     "exc_type",
     "exc_val",
     "exc_tb",
+    # jax.profiler.ProfileOptions attributes (consumed by JAX, invisible to vulture)
+    "host_tracer_level",
+    "python_tracer_level",
+    "include_dataset_ops",
+    "enable_hlo_proto",
 ]
 
 [tool.pytest.ini_options]

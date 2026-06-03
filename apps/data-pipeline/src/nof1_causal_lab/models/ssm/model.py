@@ -11,7 +11,7 @@ Supports:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import jax
 import jax.numpy as jnp
@@ -21,6 +21,7 @@ import numpyro.distributions as dist
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
+    from nof1_causal_lab.models.ssm.inference.targets.base import TrajectoryTarget
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
     from nof1_causal_lab.models.ssm.priors import PriorRegistry
     from nof1_causal_lab.models.ssm.structure import (
@@ -57,6 +58,11 @@ from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     build_prior_runtime_bundle,
     build_site_prior_distribution,
+)
+from nof1_causal_lab.models.ssm.transition_kinds import (
+    LATENT_TRANSITION_EULER_MARUYAMA,
+    LATENT_TRANSITION_KINDS,
+    LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN,
 )
 
 
@@ -501,6 +507,29 @@ class SSMModel:
             return compile_dynamics(self.spec.dynamics_spec).vector_field
 
         return self.get_cached_artifact(("vector_field",), _build)
+
+    def trajectory_target(
+        self,
+        scheme: Literal["local_linear_gaussian", "euler_maruyama"],
+    ) -> TrajectoryTarget:
+        """Build the latent discretization requested by the inference method.
+
+        The model is a continuous-time nonlinear SDE; ``scheme`` selects how an
+        inference method discretizes it (CT→DT) — it is not a property of the model.
+        """
+        from nof1_causal_lab.models.ssm.inference.targets.trajectory import (
+            EulerMaruyamaTarget,
+            LocalLinearizationTarget,
+        )
+
+        if scheme == LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN:
+            return LocalLinearizationTarget()
+        if scheme == LATENT_TRANSITION_EULER_MARUYAMA:
+            return EulerMaruyamaTarget(self.vector_field)
+        allowed = ", ".join(repr(kind) for kind in LATENT_TRANSITION_KINDS)
+        raise ValueError(
+            f"trajectory discretization scheme must be one of {allowed}; got {scheme!r}."
+        )
 
     @property
     def parameter_layout(self) -> SSMParameterLayout:

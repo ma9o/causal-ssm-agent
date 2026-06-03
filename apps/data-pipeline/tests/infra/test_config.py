@@ -42,14 +42,11 @@ class TestToSamplerConfig:
         assert result["latent_block_size"] == 256
         assert result["latent_smoother"] == "plain"
         assert result["latent_delta"] == 0.2
-        assert result["amala_q_scale"] == 1.0
-        assert result["amala_kappa"] == 0.5
-        assert result["amala_grad_clip"] == 1000.0
+        assert result["amala_kappa"] == 0.75
+        assert result["amala_grad_clip"] == float("inf")
         assert result["param_step_size"] == 0.02
         assert result["param_target_accept"] == 0.35
         assert result["latent_init_method"] == "predictive"
-        assert result["enable_polya_gamma"] is False
-        assert result["rbpf_mode"] == "none"
         assert result["retain_latent_paths"] is True
 
     def test_custom_map_settings(self):
@@ -79,9 +76,8 @@ class TestToSamplerConfig:
                 n_particles=17,
                 n_parameter_particles=3,
                 latent_block_size=5,
-                latent_smoother="amala",
+                latent_smoother="dsmc",
                 latent_delta=0.31,
-                amala_q_scale=0.7,
                 amala_kappa=0.25,
                 amala_grad_clip=55.0,
                 param_step_size=0.04,
@@ -103,9 +99,8 @@ class TestToSamplerConfig:
         assert result["n_particles"] == 17
         assert result["n_parameter_particles"] == 3
         assert result["latent_block_size"] == 5
-        assert result["latent_smoother"] == "amala"
+        assert result["latent_smoother"] == "dsmc"
         assert result["latent_delta"] == 0.31
-        assert result["amala_q_scale"] == 0.7
         assert result["amala_kappa"] == 0.25
         assert result["amala_grad_clip"] == 55.0
         assert result["param_step_size"] == 0.04
@@ -217,9 +212,8 @@ FULL_CONFIG = textwrap.dedent("""\
         n_particles: 24
         n_parameter_particles: 3
         latent_block_size: 6
-        latent_smoother: mgrad
+        latent_smoother: dsmc
         latent_delta: 0.29
-        amala_q_scale: 0.9
         amala_kappa: 0.2
         amala_grad_clip: 77.0
         param_step_size: 0.03
@@ -297,9 +291,8 @@ class TestLoadConfig:
         assert cfg.inference.marginal_particle_gibbs.n_particles == 24
         assert cfg.inference.marginal_particle_gibbs.n_parameter_particles == 3
         assert cfg.inference.marginal_particle_gibbs.latent_block_size == 6
-        assert cfg.inference.marginal_particle_gibbs.latent_smoother == "mgrad"
+        assert cfg.inference.marginal_particle_gibbs.latent_smoother == "dsmc"
         assert cfg.inference.marginal_particle_gibbs.latent_delta == 0.29
-        assert cfg.inference.marginal_particle_gibbs.amala_q_scale == 0.9
         assert cfg.inference.marginal_particle_gibbs.amala_kappa == 0.2
         assert cfg.inference.marginal_particle_gibbs.amala_grad_clip == 77.0
         assert cfg.inference.marginal_particle_gibbs.param_step_size == 0.03

@@ -160,18 +160,21 @@ In the current implementation, the LLM-owned model-form decision surface is exac
 | Open model-form decision | Owned by |
 |---|---|
 | `initialization_policy` | LLM |
+| `observation_intercept_policy` | LLM |
 | `equilibrium_forcing` | LLM |
 | Ambiguous indicator distribution and link | LLM |
 | Auto-centering eligibility and `centered` tags | Deterministic skeleton plus observation semantics |
 | Loading orientations | Deterministic skeleton |
 | Parameter inventory | Deterministic skeleton |
 
-The `model_configuration` block is always first. It owns only the two model-level decisions:
+The `model_configuration` block is always first. It owns only the three model-level decisions:
 
 | Model-configuration decision | Meaning |
 |---|---|
 | `initialization_policy="stationary"` | Dynamic-state initial conditions are derived from the stationary residual process; only retained time-invariant states can keep free `t0_*` surfaces. |
 | `initialization_policy="free"` | Active `t0_mean_*` and `t0_sd_*` surfaces remain free and must be prior-authored. |
+| `observation_intercept_policy="free"` | Eligible manifest intercepts remain free `manifest_mean_*` surfaces and must be prior-authored. |
+| `observation_intercept_policy="fixed"` | Eligible manifest intercepts are fixed rather than exposed as free `manifest_mean_*` surfaces. |
 | `equilibrium_forcing=false` | No `cint_*` surfaces remain active. |
 | `equilibrium_forcing=true` | `cint_*` surfaces can remain active only for dynamic constructs identified by centered additive-location indicators. |
 
@@ -196,7 +199,7 @@ Once `model:configuration` and all `indicator_decision` blocks are accepted, Sta
 The lock step does exactly two things.
 
 1. It builds a full `ModelSpec` by combining:
-   the accepted `initialization_policy` and `equilibrium_forcing`,
+   the accepted `initialization_policy`, `observation_intercept_policy`, and `equilibrium_forcing`,
    the skeleton's deterministic likelihoods,
    the accepted ambiguous-indicator choices,
    deterministic `centered` tags derived from observation semantics,

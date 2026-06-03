@@ -43,7 +43,6 @@ import math
 import jax
 import jax.numpy as jnp
 import jax.random as random
-import jax.scipy.linalg as jla
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _DSMC_LEAF_PROPOSAL_AMALA,
@@ -60,19 +59,14 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
     _sample_gaussian_from_chol,
 )
 
-_LOG_2PI = math.log(2.0 * math.pi)
-
 
 def smooth(ctx, key, x_ref):
     """Conditional de-sequentialized SMC sweep over the posterior parameter mixture."""
     contexts = ctx.contexts
-    transition_chols = ctx.transition_chols
-    transition_logdets = ctx.transition_logdets
     init_means = ctx.init_means
     init_chols = ctx.init_chols
     init_logdets = ctx.init_logdets
     logpi = ctx.initial_label_log_probs
-    state = ctx.state
     runtime_observations = ctx.runtime_observations
     obs_increment_fn = ctx.obs_increment_fn
     trajectory_label_log_probs = ctx.trajectory_label_log_probs
@@ -166,7 +160,6 @@ def smooth(ctx, key, x_ref):
                 lambda particle: obs_increment_fn(
                     context,
                     particle,
-                    state.observation_auxiliary,
                     time_idx,
                     runtime_observations,
                 )
@@ -175,71 +168,9 @@ def smooth(ctx, key, x_ref):
         value, grad = jax.vmap(_one_context)(contexts)
         return value.astype(traj_dtype), grad.astype(latent_dtype)
 
-    def _initial_prior_value_grad_by_param(particle0: jnp.ndarray):
-        def _one_param(mean, chol, logdet):
-            residual = particle0 - mean
-            whitened = jla.solve_triangular(chol, residual, lower=True)
-            precision_residual = jla.solve_triangular(chol.T, whitened, lower=False)
-            log_prob = -0.5 * (
-                latent_dim * jnp.log(2.0 * jnp.pi) + logdet + jnp.sum(whitened * whitened)
-            )
-            return log_prob, -precision_residual
-
-        log_prob, grad = jax.vmap(_one_param)(init_means, init_chols, init_logdets)
-        return log_prob.astype(traj_dtype), grad.astype(latent_dtype)
-
-    def _transition_current_value_grad_by_param(
-        prev_particle: jnp.ndarray,
-        particle_t: jnp.ndarray,
-        time_idx: jnp.ndarray,
-    ):
-        def _one_param(context, chol_by_time, logdet_by_time):
-            drift_t = context.Ad[time_idx]
-            mean = prev_particle @ drift_t.T + context.cd[time_idx]
-            residual = particle_t - mean
-            chol = chol_by_time[time_idx]
-            whitened = jla.solve_triangular(chol, residual, lower=True)
-            precision_residual = jla.solve_triangular(chol.T, whitened, lower=False)
-            log_prob = -0.5 * (
-                latent_dim * jnp.log(2.0 * jnp.pi)
-                + logdet_by_time[time_idx]
-                + jnp.sum(whitened * whitened)
-            )
-            return log_prob, -precision_residual
-
-        log_prob, grad_current = jax.vmap(_one_param)(
-            contexts,
-            transition_chols,
-            transition_logdets,
-        )
-        return log_prob.astype(traj_dtype), grad_current.astype(latent_dtype)
-
-    def _transition_next_value_grad_by_param(
-        particle_t: jnp.ndarray,
-        next_particle: jnp.ndarray,
-        next_time_idx: jnp.ndarray,
-    ):
-        def _one_param(context, chol_by_time, logdet_by_time):
-            drift_t = context.Ad[next_time_idx]
-            mean = particle_t @ drift_t.T + context.cd[next_time_idx]
-            residual = next_particle - mean
-            chol = chol_by_time[next_time_idx]
-            whitened = jla.solve_triangular(chol, residual, lower=True)
-            precision_residual = jla.solve_triangular(chol.T, whitened, lower=False)
-            log_prob = -0.5 * (
-                latent_dim * jnp.log(2.0 * jnp.pi)
-                + logdet_by_time[next_time_idx]
-                + jnp.sum(whitened * whitened)
-            )
-            grad_prev = drift_t.T @ precision_residual
-            return log_prob, grad_prev
-
-        log_prob, grad_prev = jax.vmap(_one_param)(
-            contexts,
-            transition_chols,
-            transition_logdets,
-        )
-        return log_prob.astype(traj_dtype), grad_prev.astype(latent_dtype)
+    _initial_prior_value_grad_by_param = ctx.initial_value_grad_by_param
+    _transition_current_value_grad_by_param = ctx.transition_current_value_grad_by_param
+    _transition_next_value_grad_by_param = ctx.transition_next_value_grad_by_param
 
     if dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE:
         prior_proposal_means, prior_proposal_chols, prior_proposal_logdets = (
@@ -329,7 +260,6 @@ def smooth(ctx, key, x_ref):
         obs_lp = _observation_log_probs_by_param(
             contexts,
             particles,
-            state.observation_auxiliary,
             jnp.asarray(time_idx, dtype=jnp.int32),
             runtime_observations,
             obs_increment_fn,
@@ -373,64 +303,16 @@ def smooth(ctx, key, x_ref):
         return jnp.minimum(indices, logits.shape[0] - 1).astype(jnp.int32)
 
     def _selected_transition_log_probs(prev_particles, next_particles, seam):
-        seam_clamped = jnp.minimum(seam, num_steps - 1)
-        real_seam = seam < num_steps
-
-        def _one_param(drift_s, shift_s, chol_s, logdet_s):
-            means = prev_particles @ drift_s.T + shift_s
-            return _gaussian_log_prob_shared_cholesky(
-                next_particles,
-                means,
-                chol_s,
-                logdet_s,
-            )
-
-        transition_lp = jnp.swapaxes(
-            jax.vmap(_one_param)(
-                contexts.Ad[:, seam_clamped],
-                contexts.cd[:, seam_clamped],
-                transition_chols[:, seam_clamped],
-                transition_logdets[:, seam_clamped],
-            ),
-            0,
-            1,
-        )
-        return jnp.where(real_seam, transition_lp, 0.0).astype(traj_dtype)
+        return ctx.selected_transition_log_probs(prev_particles, next_particles, seam)
 
     def _stitch_logits(left, right, seam):
         _, left_last, left_psi, _, left_weights = left
         right_first, _, right_psi, _, right_weights = right
-        seam_clamped = jnp.minimum(seam, num_steps - 1)
-        real_seam = seam < num_steps
-
-        # Per-parameter whitened vectors + scalar folds for the combine, which is
-        # logsumexp_p(a_p[m] + b_p[n] + <wm_p[m], wn_p[n]>), equal to
-        # logsumexp_p(logpi_p + left_psi + right_psi + transition_lp). Phantom seams
-        # (real_seam False) carry no transition: zero wm and drop the Gaussian
-        # normalization so the term is logpi+psi.
-        def _per_param(drift_s, shift_s, chol_s, logdet_s, logpi_p, left_psi_p, right_psi_p):
-            means = left_last @ drift_s.T + shift_s
-            wm = jla.solve_triangular(chol_s, means.T, lower=True).T
-            wn = jla.solve_triangular(chol_s, right_first.T, lower=True).T
-            sq_means = jnp.sum(wm * wm, axis=1)
-            sq_next = jnp.sum(wn * wn, axis=1)
-            base = jnp.where(real_seam, -0.5 * (latent_dim * _LOG_2PI + logdet_s), 0.0)
-            a = logpi_p + left_psi_p + jnp.where(real_seam, -0.5 * sq_means, 0.0) + base
-            b = right_psi_p + jnp.where(real_seam, -0.5 * sq_next, 0.0)
-            wm = jnp.where(real_seam, wm, 0.0)
-            return wm, wn, a, b
-
-        wm, wn, a, b = jax.vmap(_per_param)(
-            contexts.Ad[:, seam_clamped],
-            contexts.cd[:, seam_clamped],
-            transition_chols[:, seam_clamped],
-            transition_logdets[:, seam_clamped],
-            logpi,
-            jnp.swapaxes(left_psi, 0, 1),
-            jnp.swapaxes(right_psi, 0, 1),
+        transition_lp = ctx.pairwise_transition_log_probs(left_last, right_first, seam)
+        log_joint = jax.scipy.special.logsumexp(
+            logpi[None, None, :] + left_psi[:, None, :] + right_psi[None, :, :] + transition_lp,
+            axis=-1,
         )
-        cross = jnp.einsum("pmd,pnd->pmn", wm, wn)
-        log_joint = jax.scipy.special.logsumexp(a[:, :, None] + b[:, None, :] + cross, axis=0)
         log_left = jax.scipy.special.logsumexp(logpi[None, :] + left_psi, axis=1)
         log_right = jax.scipy.special.logsumexp(logpi[None, :] + right_psi, axis=1)
         seam_coupling = log_joint - log_left[:, None] - log_right[None, :]
@@ -462,10 +344,11 @@ def smooth(ctx, key, x_ref):
         padded_steps = 1 << depth
         key_leaves, key_tree, key_root = random.split(key, 3)
         leaf_keys = random.split(key_leaves, num_steps)
-        leaf_particles, leaf_psi, leaf_origin, leaf_weights = jax.vmap(_leaf)(
-            jnp.arange(num_steps, dtype=jnp.int32),
-            leaf_keys,
-        )
+        with jax.named_scope("dsmc_leaves"):
+            leaf_particles, leaf_psi, leaf_origin, leaf_weights = jax.vmap(_leaf)(
+                jnp.arange(num_steps, dtype=jnp.int32),
+                leaf_keys,
+            )
         if num_steps == 1:
             evidence = jax.scipy.special.logsumexp(logpi[None, :] + leaf_psi[0], axis=1)
             chosen = _multinomial(key_root, evidence, 1)[0]
@@ -515,13 +398,15 @@ def smooth(ctx, key, x_ref):
                     origin[1::2],
                     weights[1::2],
                 )
-                first, last, psi, origin, weights = jax.vmap(_combine, in_axes=(0, 0, 0, 0))(
-                    left, right, seams, pair_keys
-                )
+                with jax.named_scope("dsmc_combine"):
+                    first, last, psi, origin, weights = jax.vmap(_combine, in_axes=(0, 0, 0, 0))(
+                        left, right, seams, pair_keys
+                    )
                 segments = num_pairs
             left_root = (first[0], last[0], psi[0], origin[0], weights[0])
             right_root = (first[1], last[1], psi[1], origin[1], weights[1])
-            pair_logits = _stitch_logits(left_root, right_root, padded_steps // 2)
+            with jax.named_scope("dsmc_combine"):
+                pair_logits = _stitch_logits(left_root, right_root, padded_steps // 2)
             chosen = _multinomial(key_root, pair_logits.reshape(-1), 1)[0]
             left_idx = chosen // num_particles
             right_idx = chosen % num_particles

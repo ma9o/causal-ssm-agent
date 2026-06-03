@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.models.ssm.inference.bundle import build_auxiliary_kalman_bundle
+from nof1_causal_lab.models.ssm.inference.bundle import build_particle_runtime_bundle
 from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared import (
     build_pmcmc_mcmc_result,
     extract_grouped_public_samples,
@@ -21,6 +21,7 @@ from nof1_causal_lab.models.ssm.inference.methods.particle_marginal_mh.kernel im
     run_particle_marginal_mh,
 )
 from nof1_causal_lab.models.ssm.inference.types import InferenceResult
+from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 
 logger = logging.getLogger(__name__)
 
@@ -62,11 +63,6 @@ def fit_particle_marginal_mh(
     parameter_preconditioner_chol: jnp.ndarray | None = None,
     initial_positions_override: jnp.ndarray | None = None,
     n_ieks_iters: int = 6,
-    enable_polya_gamma: bool = False,
-    polya_gamma_num_terms: int = 64,
-    polya_gamma_sampler: str = "truncated_sum",
-    rbpf_mode: str = "none",
-    rbpf_marginalized_latent_indices: tuple[int, ...] | list[int] | None = None,
     reparam=None,
     retain_latent_paths: bool = False,
     compute_latent_posterior_summary: bool = False,
@@ -82,10 +78,6 @@ def fit_particle_marginal_mh(
             "Unsupported particle_marginal_mh adaptation_scheme "
             f"{adaptation_scheme!r}. Supported: 'simple' or 'dual_averaging'."
         )
-    if enable_polya_gamma:
-        raise ValueError("particle_marginal_mh requires enable_polya_gamma=False.")
-    if rbpf_mode != "none" or rbpf_marginalized_latent_indices:
-        raise ValueError("particle_marginal_mh requires rbpf_mode='none'.")
     if retain_latent_paths:
         raise ValueError("particle_marginal_mh does not retain latent paths yet.")
     if compute_latent_posterior_summary:
@@ -108,17 +100,13 @@ def fit_particle_marginal_mh(
 
     phase_t0 = time.monotonic()
     logger.info("phase 1/4: building PMMH runtime bundle...")
-    bundle = build_auxiliary_kalman_bundle(
+    bundle = build_particle_runtime_bundle(
         model,
         observations,
         times,
+        scheme=LATENT_TRANSITION_EULER_MARUYAMA,
         trace_key=trace_key,
         reparam=reparam,
-        polya_gamma_num_terms=polya_gamma_num_terms,
-        polya_gamma_sampler=polya_gamma_sampler,
-        enable_polya_gamma=False,
-        rbpf_mode="none",
-        rbpf_marginalized_latent_indices=None,
     )
     logger.info(
         "phase 1/4: bundle ready in %.1fs (dim=%d, public_sites=%d)",
@@ -230,6 +218,7 @@ def fit_particle_marginal_mh(
         "param_target_accept": float(kernel.target_accept),
         "adaptation_scheme": adaptation_scheme,
         "parameter_preconditioned": bool(kernel.preconditioned),
+        "latent_transition_kind": bundle["latent_transition_kind"],
         "diagnostic_summary_phase": diagnostic_summary_phase,
         "diagnostic_metrics_all": bool(diagnostic_metrics_all),
         "diagnostic_metrics": sorted(kernel.diagnostic_metrics),

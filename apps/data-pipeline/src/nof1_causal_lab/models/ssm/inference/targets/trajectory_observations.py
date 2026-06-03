@@ -536,3 +536,47 @@ def trajectory_observation_log_prob(
             observation_support,
         )
     )
+
+
+def row_observation_log_probs(
+    latent_trajectory: jnp.ndarray,
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    H_rows: jnp.ndarray,
+    d_rows: jnp.ndarray,
+    R: jnp.ndarray,
+    obs_kernel,
+) -> jnp.ndarray:
+    """Per-row ``(T,)`` point-observation log-prob for per-row observation operators.
+
+    Sum over the leading axis equals :func:`row_observation_log_prob`.
+    """
+    clean_obs = jnp.nan_to_num(observations, nan=0.0)
+    obs_mask_float = obs_mask.astype(latent_trajectory.dtype)
+    return jax.vmap(
+        lambda y_t, z_t, mask_t, H_t, d_t: obs_kernel.emission_fn(
+            y_t,
+            z_t,
+            H_t,
+            d_t,
+            R,
+            mask_t,
+        )
+    )(clean_obs, latent_trajectory, obs_mask_float, H_rows, d_rows)
+
+
+def row_observation_log_prob(
+    latent_trajectory: jnp.ndarray,
+    observations: jnp.ndarray,
+    obs_mask: jnp.ndarray,
+    H_rows: jnp.ndarray,
+    d_rows: jnp.ndarray,
+    R: jnp.ndarray,
+    obs_kernel,
+) -> jnp.ndarray:
+    """Return the point-observation log-probability for per-row observation operators."""
+    return jnp.sum(
+        row_observation_log_probs(
+            latent_trajectory, observations, obs_mask, H_rows, d_rows, R, obs_kernel
+        )
+    )

@@ -17,7 +17,6 @@ class MPGibbsDiagnosticMetric(StrEnum):
     BACKWARD_SELECTION = "backward_selection"
     PARTICLE_IDENTITY = "particle_identity"
     PARAMETER_MOVEMENT = "parameter_movement"
-    AMALA_PROPOSAL = "amala_proposal"
 
 
 MPGIBBS_DIAGNOSTIC_METRIC_VALUES = tuple(metric.value for metric in MPGibbsDiagnosticMetric)
@@ -31,7 +30,6 @@ class MPGibbsDiagnosticFlags:
     backward_selection: bool
     particle_identity: bool
     parameter_movement: bool
-    amala_proposal: bool
 
 
 def resolve_mpgibbs_diagnostic_metrics(
@@ -59,10 +57,10 @@ def build_mpgibbs_diagnostic_flags(
     diagnostic_metrics: frozenset[str],
 ) -> MPGibbsDiagnosticFlags:
     """Build static booleans for optional diagnostic groups."""
-    is_particle_smoother = latent_smoother != "mgrad"
-    # dsmc builds the smoothing path by a divide-and-conquer tree, so it has neither a
-    # sequential forward filter nor a backward-sampling pass to instrument.
-    is_sequential_particle_smoother = latent_smoother in {"plain", "amala", "amala_plus"}
+    # Only the sequential blocked-backward csmc ("plain") smoother runs a forward filter
+    # and a backward-sampling pass to instrument; dsmc builds the smoothing path by a
+    # divide-and-conquer tree.
+    is_sequential_particle_smoother = latent_smoother == "plain"
     return MPGibbsDiagnosticFlags(
         particle_filter=(
             is_sequential_particle_smoother
@@ -72,13 +70,6 @@ def build_mpgibbs_diagnostic_flags(
             is_sequential_particle_smoother
             and MPGibbsDiagnosticMetric.BACKWARD_SELECTION.value in diagnostic_metrics
         ),
-        particle_identity=(
-            is_particle_smoother
-            and MPGibbsDiagnosticMetric.PARTICLE_IDENTITY.value in diagnostic_metrics
-        ),
+        particle_identity=(MPGibbsDiagnosticMetric.PARTICLE_IDENTITY.value in diagnostic_metrics),
         parameter_movement=(MPGibbsDiagnosticMetric.PARAMETER_MOVEMENT.value in diagnostic_metrics),
-        amala_proposal=(
-            latent_smoother in {"amala", "amala_plus"}
-            and MPGibbsDiagnosticMetric.AMALA_PROPOSAL.value in diagnostic_metrics
-        ),
     )
