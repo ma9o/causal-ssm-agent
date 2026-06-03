@@ -85,7 +85,7 @@ from synthetic_nonlinear import (
 
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.bundle import (
-    build_auxiliary_kalman_bundle,
+    build_particle_runtime_bundle,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagnostics import (
     MPGIBBS_DIAGNOSTIC_METRIC_VALUES,
@@ -280,17 +280,12 @@ def _run_pathfinder_cache(
     )
     base_key = random.PRNGKey(_pathfinder_seed(args, support_idx))
     trace_key, pathfinder_key, sample_key = random.split(base_key, 3)
-    bundle = build_auxiliary_kalman_bundle(
+    bundle = build_particle_runtime_bundle(
         model,
         data.observations,
         data.times,
         trace_key=trace_key,
         reparam=None,
-        polya_gamma_num_terms=64,
-        polya_gamma_sampler="truncated_sum",
-        enable_polya_gamma=False,
-        rbpf_mode="none",
-        rbpf_marginalized_latent_indices=None,
     )
     warmup_result = prepare_parameter_warmup(
         model,
