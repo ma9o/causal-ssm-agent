@@ -62,8 +62,8 @@ class _InputDrivenVectorField(eqx.Module):
         )
         return drift + self.input_effect @ self.transition_inputs[idx]
 
-    def initial_condition(self, eta0: jnp.ndarray, args):
-        return self.base.initial_condition(eta0, args)
+    def initial_condition(self, eta0: jnp.ndarray, args, t0: jnp.ndarray | float = 0.0):
+        return self.base.initial_condition(eta0, args, t0)
 
     def steady_state_residual(self, eta: jnp.ndarray, args):
         return self.base.steady_state_residual(eta, args)
