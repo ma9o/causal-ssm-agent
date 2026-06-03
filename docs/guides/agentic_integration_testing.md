@@ -34,8 +34,7 @@ data/
 │   ├── input/             # Raw uploaded files for stage 0
 │   ├── query.txt          # Materialized research question
 │   └── run/               # Persisted stage JSON + artifacts
-├── DEFAULT/               # Tracked mock fixture workspace
-├── DEMO_HEALTH/              # Tracked mock fixture workspace and stage 0-2 golden fixture
+├── DEMO/                  # Tracked mock fixture workspace and stage 0-2 golden fixture
 ├── GOLDEN/                # Default tracked workspace for evals and manual sampling
 └── SMALLGOLDEN/           # Smaller tracked workspace for quicker eval iteration
 ```

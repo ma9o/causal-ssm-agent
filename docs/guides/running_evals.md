@@ -6,7 +6,7 @@
 | `evals/single_model/eval1b_measurement_model.py` | Stage 1b | Measurement model proposal |
 | `evals/single_model/eval2_worker_extraction.py` | Stage 2 | Worker data extraction |
 | `evals/multi_model/eval3_worker_measurement_adherence.py` | Stage 2 workers | Judge-based worker adherence to measurement instructions |
-| `evals/multi_model/eval_demo_health_orchestrator.py` | Stages 1a -> 1b -> 2 | Judge-ranked orchestrator reproduction of the fixed `DEMO_HEALTH` fixture |
+| `evals/multi_model/eval_demo_health_orchestrator.py` | Stages 1a -> 1b -> 2 | Judge-ranked orchestrator reproduction of the fixed `DEMO` fixture |
 
 Worker-facing evaluations load persisted workspace artifacts, not ad hoc preprocessed
 text files. The default workspace is `GOLDEN` from `evals/config.yaml`, and you
@@ -46,7 +46,7 @@ uv run inspect eval <eval_file> --model <model> [-T workspace_id=<WS>]
 uv run inspect eval evals/single_model/eval1a_latent_model.py \
     --model openrouter/anthropic/claude-opus-4.6
 
-# DEMO_HEALTH fixture eval (multi-model, no --model flag)
+# DEMO fixture eval (multi-model, no --model flag)
 uv run inspect eval evals/multi_model/eval_demo_health_orchestrator.py \
     [-T models=openrouter/anthropic/claude-opus-4.6,openrouter/openai/gpt-5.1]
 
@@ -55,7 +55,7 @@ uv run inspect view
 ```
 
 Worker and measurement evaluations require `-T workspace_id=GOLDEN` (or `SMALLGOLDEN`).
-Multi-model evaluations (`eval3_*`, `eval_medical_*`) don't take `--model`; they configure models internally.
+Multi-model evaluations (`eval3_*`, `eval_demo_health_*`) don't take `--model`; they configure models internally.
 
 ## Tracked Fixture Workspaces
 
@@ -71,11 +71,4 @@ For the full workspace directory layout, see [Agentic Integration Testing](agent
 
 ## Reading Eval Logs
 
-```bash
-uv run python tools/read_eval_log.py                    # Latest log
-uv run python tools/read_eval_log.py -e aggregation     # Latest by eval name
-uv run python tools/read_eval_log.py -f <filename>      # Specific file
-uv run python tools/read_eval_log.py --list             # List available logs
-```
-
-For programmatic access to log samples, scores, events, and attachments, see the [inspect_ai.log API docs](https://inspect.aisi.org.uk/log-files.html).
+Use `uv run inspect view` to browse logs. For programmatic access to log samples, scores, events, and attachments, see the [inspect_ai.log API docs](https://inspect.aisi.org.uk/log-files.html).
