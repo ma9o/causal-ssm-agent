@@ -95,13 +95,19 @@ from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
     DEFAULT_PRIOR_RELEASED_SITE_NAMES,
     prepare_parameter_warmup,
 )
+from nof1_causal_lab.models.ssm.transition_kinds import (
+    LATENT_TRANSITION_EULER_MARUYAMA,
+    LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN,
+)
 
 logger = logging.getLogger(__name__)
 
 EXPECTED_SMOOTHER_SELECTION = {
     "plain": "blocked_backward_sampling",
-    "amala": "augmented_backward_sampling",
-    "amala_plus": "full_prefix_augmented_backward_sampling",
+    # amala/amala_plus are dsmc leaf proposals; the dSMC tree's selection is
+    # tree_stitch_combination (the old backward-sampling names predate the de-seq tree).
+    "amala": "tree_stitch_combination",
+    "amala_plus": "tree_stitch_combination",
     "dsmc": "tree_stitch_combination",
 }
 PMMH_BENCHMARK_METHOD = "pmmh"
@@ -280,10 +286,21 @@ def _run_pathfinder_cache(
     )
     base_key = random.PRNGKey(_pathfinder_seed(args, support_idx))
     trace_key, pathfinder_key, sample_key = random.split(base_key, 3)
+    # Shared Pathfinder init bundle: use the EM-native Euler scheme unless only the
+    # local-linear smoothers (plain / prior_predictive) are requested (mirrors fit.py's
+    # per-method rule). The scheme only shapes the init objective, not the per-smoother
+    # fits, which re-derive their own scheme via fit().
+    requested = [s.strip() for s in args.smoothers.split(",")]
+    cache_scheme = (
+        LATENT_TRANSITION_EULER_MARUYAMA
+        if any(s in ("amala", "amala_plus") for s in requested)
+        else LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN
+    )
     bundle = build_particle_runtime_bundle(
         model,
         data.observations,
         data.times,
+        scheme=cache_scheme,
         trace_key=trace_key,
         reparam=None,
     )
@@ -972,8 +989,9 @@ def _per_step_trace(
         fields["amala_grad_norm_mean"] = extra_fields["amala_grad_norm_mean"]
         fields["amala_grad_norm_max"] = extra_fields["amala_grad_norm_max"]
     if (
-        smoother in AMALA_FAMILY_SMOOTHERS
-        and MPGibbsDiagnosticMetric.AMALA_PROPOSAL.value in selected_metrics
+        # Extended amala diagnostics (drift/grad-clip/aux-noise) and the AMALA_PROPOSAL
+        # metric were removed in the refactor; skip them (basic amala_grad_norm remains).
+        False
     ):
         fields["amala_grad_clip_fraction"] = extra_fields["amala_grad_clip_fraction"]
         fields["amala_drift_norm_mean"] = extra_fields["amala_drift_norm_mean"]
@@ -1082,9 +1100,11 @@ def _check_result(
     selected_metrics: frozenset[str],
 ) -> dict[str, Any]:
     diagnostics = result.diagnostics["marginal_particle_gibbs"]
-    if diagnostics["latent_smoother"] != smoother:
+    expected_latent = "plain" if smoother == "plain" else "dsmc"
+    if diagnostics["latent_smoother"] != expected_latent:
         raise AssertionError(
-            f"expected smoother {smoother!r}, got {diagnostics['latent_smoother']!r}"
+            f"expected latent_smoother {expected_latent!r} (benchmark smoother {smoother!r}), "
+            f"got {diagnostics['latent_smoother']!r}"
         )
     expected_selection = EXPECTED_SMOOTHER_SELECTION[smoother]
     if diagnostics["latent_smoother_selection"] != expected_selection:
@@ -1164,8 +1184,9 @@ def _check_result(
         if diagnostics["amala_grad_norm_max"] < diagnostics["amala_grad_norm_mean"]:
             raise AssertionError("amala_grad_norm_max is smaller than amala_grad_norm_mean")
     if (
-        smoother in AMALA_FAMILY_SMOOTHERS
-        and MPGibbsDiagnosticMetric.AMALA_PROPOSAL.value in selected_metrics
+        # Extended amala diagnostics (drift/grad-clip/aux-noise) and the AMALA_PROPOSAL
+        # metric were removed in the refactor; skip them (basic amala_grad_norm remains).
+        False
     ):
         extra_summaries["amala_grad_clip_fraction"] = _finite_summary(
             "amala_grad_clip_fraction",
@@ -1255,8 +1276,9 @@ def _check_result(
             }
         )
     if (
-        smoother in AMALA_FAMILY_SMOOTHERS
-        and MPGibbsDiagnosticMetric.AMALA_PROPOSAL.value in selected_metrics
+        # Extended amala diagnostics (drift/grad-clip/aux-noise) and the AMALA_PROPOSAL
+        # metric were removed in the refactor; skip them (basic amala_grad_norm remains).
+        False
     ):
         diagnostic_summary.update(
             {
@@ -1613,7 +1635,9 @@ def _run_one(args, *, fixture: _FixtureContext, smoother: str, seed: int) -> dic
             n_particles=args.n_particles,
             n_parameter_particles=args.n_parameter_particles,
             latent_block_size=args.latent_block_size,
-            latent_smoother=smoother,
+            # Post-refactor API: "amala"/"amala_plus" are dsmc leaf proposals, not
+            # latent smoothers; map the benchmark label to (latent_smoother, leaf).
+            latent_smoother=("plain" if smoother == "plain" else "dsmc"),
             amala_delta_init=args.amala_delta_init,
             amala_delta_min=args.amala_delta_min,
             amala_delta_max=args.amala_delta_max,
@@ -1625,7 +1649,7 @@ def _run_one(args, *, fixture: _FixtureContext, smoother: str, seed: int) -> dic
             amala_adaptation_gamma=args.amala_adaptation_gamma,
             amala_kappa=args.amala_kappa,
             amala_grad_clip=args.amala_grad_clip,
-            dsmc_leaf_proposal=args.dsmc_leaf_proposal,
+            dsmc_leaf_proposal=(args.dsmc_leaf_proposal if smoother == "plain" else smoother),
             mgrad_grad_clip=args.mgrad_grad_clip,
             param_step_size=args.param_step_size,
             parameter_proposal=args.parameter_proposal,
