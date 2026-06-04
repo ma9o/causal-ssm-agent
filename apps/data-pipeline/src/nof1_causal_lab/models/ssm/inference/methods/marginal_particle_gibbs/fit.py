@@ -73,7 +73,7 @@ def fit_marginal_particle_gibbs(
     amala_adaptation_gamma: float = _DEFAULT_AMALA_ADAPTATION_GAMMA,
     amala_kappa: float = 0.75,
     amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
-    dsmc_leaf_proposal: str = "amala_plus",
+    dsmc_leaf_proposal: str = "amala_exact",
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
     param_step_size: float = 0.02,

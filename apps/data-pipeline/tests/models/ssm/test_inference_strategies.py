@@ -1813,6 +1813,45 @@ def test_marginal_particle_gibbs_dsmc_amala_plus_uses_euler_scheme():
     assert diag["latent_transition_kind"] == "euler_maruyama"
 
 
+def test_marginal_particle_gibbs_dsmc_amala_exact_uses_euler_scheme():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+
+    result = fit(
+        model,
+        observations=observations,
+        times=times,
+        method="marginal_particle_gibbs",
+        num_warmup=1,
+        num_samples=1,
+        num_chains=1,
+        seed=43,
+        n_particles=3,
+        n_parameter_particles=2,
+        latent_block_size=2,
+        latent_smoother="dsmc",
+        dsmc_leaf_proposal="amala_exact",
+        param_step_size=0.001,
+        parameter_proposal="random_walk",
+        init_method="random",
+        auto_preconditioner_method="none",
+        init_scale=0.0,
+        retain_latent_paths=True,
+        reparam=None,
+    )
+
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=1,
+    )
+    diag = result.diagnostics["marginal_particle_gibbs"]
+    assert diag["latent_smoother"] == "dsmc"
+    assert diag["dsmc_leaf_proposal"] == "amala_exact"
+    assert diag["latent_transition_kind"] == "euler_maruyama"
+
+
 def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
         build_marginal_particle_gibbs_kernel,

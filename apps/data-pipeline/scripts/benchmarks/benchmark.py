@@ -104,14 +104,15 @@ logger = logging.getLogger(__name__)
 
 EXPECTED_SMOOTHER_SELECTION = {
     "plain": "blocked_backward_sampling",
-    # amala/amala_plus are dsmc leaf proposals; the dSMC tree's selection is
+    # amala/amala_plus/amala_exact are dsmc leaf proposals; the dSMC tree's selection is
     # tree_stitch_combination (the old backward-sampling names predate the de-seq tree).
     "amala": "tree_stitch_combination",
     "amala_plus": "tree_stitch_combination",
+    "amala_exact": "tree_stitch_combination",
     "dsmc": "tree_stitch_combination",
 }
 PMMH_BENCHMARK_METHOD = "pmmh"
-AMALA_FAMILY_SMOOTHERS = frozenset({"amala", "amala_plus"})
+AMALA_FAMILY_SMOOTHERS = frozenset({"amala", "amala_plus", "amala_exact"})
 LATENT_PATH_MIXING_METRIC = "latent_path_mixing"
 SCRIPT_DIAGNOSTIC_METRIC_VALUES = (
     *MPGIBBS_DIAGNOSTIC_METRIC_VALUES,
@@ -293,7 +294,7 @@ def _run_pathfinder_cache(
     requested = [s.strip() for s in args.smoothers.split(",")]
     cache_scheme = (
         LATENT_TRANSITION_EULER_MARUYAMA
-        if any(s in ("amala", "amala_plus") for s in requested)
+        if any(s in ("amala", "amala_plus", "amala_exact") for s in requested)
         else LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN
     )
     bundle = build_particle_runtime_bundle(
@@ -1812,7 +1813,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--amala-grad-clip", type=float, default=math.inf)
     parser.add_argument(
         "--dsmc-leaf-proposal",
-        choices=("prior_predictive", "amala", "amala_plus"),
+        choices=("prior_predictive", "amala", "amala_plus", "amala_exact"),
         default="prior_predictive",
     )
     parser.add_argument("--mgrad-grad-clip", type=float, default=10.0)

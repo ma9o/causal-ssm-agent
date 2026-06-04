@@ -57,6 +57,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._conte
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _DSMC_LEAF_PROPOSAL_AMALA,
+    _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
     _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
     _DSMC_LEAF_PROPOSALS,
     _LATENT_SMOOTHER_DSMC,
@@ -102,6 +103,7 @@ def _uses_amala_delta(latent_smoother: MPGibbsLatentSmoother, dsmc_leaf_proposal
     return latent_smoother.name == _LATENT_SMOOTHER_DSMC and dsmc_leaf_proposal in {
         _DSMC_LEAF_PROPOSAL_AMALA,
         _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+        _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
     }
 
 
@@ -161,7 +163,7 @@ def build_marginal_particle_gibbs_kernel(
     amala_adaptation_gamma: float = _DEFAULT_AMALA_ADAPTATION_GAMMA,
     amala_kappa: float = 0.75,
     amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
-    dsmc_leaf_proposal: str = "amala_plus",
+    dsmc_leaf_proposal: str = "amala_exact",
     diagnostic_metrics_all: bool = False,
     diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
 ) -> MarginalParticleGibbsKernel:

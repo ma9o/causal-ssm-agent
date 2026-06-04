@@ -46,6 +46,7 @@ import jax.random as random
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _DSMC_LEAF_PROPOSAL_AMALA,
+    _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
     _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
     _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE,
     MPGibbsLatentSmootherResult,
@@ -78,6 +79,7 @@ def smooth(ctx, key, x_ref):
     traj_dtype = ctx.traj_dtype
     latent_dim = int(init_means.shape[-1])
     dsmc_leaf_proposal = ctx.dsmc_leaf_proposal
+    is_exact = dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_AMALA_EXACT
     amala_delta = jnp.asarray(ctx.amala_delta, dtype=latent_dtype)
     proposal_var_by_t = jnp.asarray(0.5, dtype=latent_dtype) * amala_delta
     proposal_scale_by_t = jnp.sqrt(proposal_var_by_t)
@@ -187,14 +189,33 @@ def smooth(ctx, key, x_ref):
             return jax.scipy.special.logsumexp(logpi[None, :] + per_param, axis=1)
 
     else:
+        use_future = dsmc_leaf_proposal in (
+            _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+            _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
+        )
+        # Linearisation points for the gradient leaf. amala/amala_plus centre the
+        # proposal on the reference path itself: a reference-dependent proposal with no
+        # auxiliary correction, which does not leave the marginal target invariant
+        # (biased). amala_exact instead draws an auxiliary trajectory z ~ N(x_ref,
+        # (delta/2) I) and linearises there; the matching N(z_t; x_t, (delta/2) I)
+        # pseudo-observation potential is added to the leaf weight in _leaf, recovering
+        # the exact gradient-informed cSMC proposal of section 3.3.1 in
+        # docs/papers/auxiliary-kalman-samplers.pdf.
+        if is_exact:
+            aux_key = random.fold_in(key, 0)
+            lin_pts = x_ref + proposal_scale_by_t[:, None] * random.normal(
+                aux_key, x_ref.shape, dtype=latent_dtype
+            )
+        else:
+            lin_pts = x_ref
 
         def _gradient_leaf_proposal_stats(time_idx: jnp.ndarray):
-            particle_t = x_ref[time_idx]
+            particle_t = lin_pts[time_idx]
             obs_lp, obs_grad = _obs_value_grad_by_param(particle_t, time_idx)
             init_prior_lp, init_prior_grad = _initial_prior_value_grad_by_param(particle_t)
             prev_idx = jnp.maximum(time_idx - 1, 0)
             transition_lp, transition_grad = _transition_current_value_grad_by_param(
-                x_ref[prev_idx],
+                lin_pts[prev_idx],
                 particle_t,
                 time_idx,
             )
@@ -209,11 +230,11 @@ def smooth(ctx, key, x_ref):
                 init_prior_grad + obs_grad,
                 transition_grad + obs_grad,
             )
-            if dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_AMALA_PLUS:
+            if use_future:
                 next_idx = jnp.minimum(time_idx + 1, num_steps - 1)
                 future_lp, future_grad = _transition_next_value_grad_by_param(
                     particle_t,
-                    x_ref[next_idx],
+                    lin_pts[next_idx],
                     next_idx,
                 )
                 has_future = time_idx < (num_steps - 1)
@@ -276,6 +297,15 @@ def smooth(ctx, key, x_ref):
             particles, init_means, init_chols, init_logdets
         )
         tail_psi = obs_lp - proposal_lp[:, None]
+        if is_exact:
+            # Pseudo-observation potential N(z_t; x_t, (delta/2) I) of the auxiliary
+            # extended target (label-independent, so it factors through the parameter
+            # logsumexp). With the q(x_t | z_t) proposal density already subtracted
+            # above, this is the exact target/proposal leaf weight.
+            aux_lp = _log_isotropic_density(
+                particles, lin_pts[time_idx], proposal_var_by_t[time_idx]
+            )
+            tail_psi = tail_psi + aux_lp[:, None]
         initial_psi = init_prior_lp + tail_psi
         psi = jnp.where(time_idx == 0, initial_psi, tail_psi).astype(traj_dtype)
         evidence = jax.scipy.special.logsumexp(logpi[None, :] + psi, axis=1)
@@ -420,6 +450,7 @@ def smooth(ctx, key, x_ref):
     if dsmc_leaf_proposal in {
         _DSMC_LEAF_PROPOSAL_AMALA,
         _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+        _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
     }:
         diagnostics = {
             "amala_grad_norm_mean": jnp.mean(proposal_grad_norms).astype(traj_dtype),

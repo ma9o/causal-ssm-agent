@@ -41,6 +41,7 @@ class TestToSamplerConfig:
         assert result["n_parameter_particles"] == 2
         assert result["latent_block_size"] == 256
         assert result["latent_smoother"] == "dsmc"
+        assert result["dsmc_leaf_proposal"] == "amala_exact"
         assert result["latent_delta"] == 0.2
         assert result["amala_kappa"] == 0.75
         assert result["amala_grad_clip"] == float("inf")

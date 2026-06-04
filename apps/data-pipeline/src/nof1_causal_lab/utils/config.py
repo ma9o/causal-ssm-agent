@@ -214,7 +214,9 @@ class MarginalParticleGibbsConfig:
     amala_adaptation_gamma: float = -0.5
     amala_kappa: float = 0.75
     amala_grad_clip: float = math.inf
-    dsmc_leaf_proposal: Literal["prior_predictive", "amala", "amala_plus"] = "amala_plus"
+    dsmc_leaf_proposal: Literal["prior_predictive", "amala", "amala_plus", "amala_exact"] = (
+        "amala_exact"
+    )
     diagnostic_metrics_all: bool = False
     diagnostic_metrics: tuple[str, ...] = ()
     param_step_size: float = 0.02
