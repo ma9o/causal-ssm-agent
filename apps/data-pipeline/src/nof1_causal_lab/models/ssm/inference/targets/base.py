@@ -15,6 +15,8 @@ from typing import Any, NamedTuple, Protocol
 
 import jax.numpy as jnp
 
+from nof1_causal_lab.models.ssm.shapes import Array, Float, Shaped
+
 MISSING_DATA_LARGE_VAR = 1e10
 CHOL_JITTER = 1e-8
 NUMERICAL_EPSILON = 1e-10
@@ -34,9 +36,9 @@ class RuntimeDynamics(NamedTuple):
     """
 
     vector_field: Any
-    vf_params: tuple[dict[str, jnp.ndarray], ...]
-    diffusion_cov: jnp.ndarray
-    input_effect: jnp.ndarray | None = None
+    vf_params: tuple[dict[str, Array], ...]
+    diffusion_cov: Float[Array, "D D"]
+    input_effect: Float[Array, "D I"] | None = None
 
 
 class MeasurementParams(NamedTuple):
@@ -55,9 +57,9 @@ class MeasurementParams(NamedTuple):
     covariance ``Σ_R = L_R L_Rᵀ`` used by likelihood backends.
     """
 
-    lambda_mat: jnp.ndarray  # (n_manifest, n_latent)
-    manifest_means: jnp.ndarray  # (n_manifest,)
-    manifest_cov: jnp.ndarray  # (n_manifest, n_manifest) = Σ_R
+    lambda_mat: Float[Array, "M D"]
+    manifest_means: Float[Array, " M"]
+    manifest_cov: Float[Array, "M M"]  # Σ_R
 
 
 class InitialStateParams(NamedTuple):
@@ -66,8 +68,8 @@ class InitialStateParams(NamedTuple):
     η_0 ~ N(m_0, P_0)
     """
 
-    mean: jnp.ndarray  # (n_latent,)
-    cov: jnp.ndarray  # (n_latent, n_latent)
+    mean: Float[Array, " D"]
+    cov: Float[Array, "D D"]
 
 
 class TrajectoryTarget(Protocol):
@@ -159,10 +161,10 @@ def build_likelihood_eval_aux(
 
 
 def preprocess_missing_data(
-    observations: jnp.ndarray,
-    manifest_cov: jnp.ndarray,
-    obs_mask: jnp.ndarray | None,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    observations: Float[Array, "T M"],
+    manifest_cov: Float[Array, "M M"],
+    obs_mask: Shaped[Array, "T M"] | None,
+) -> tuple[Float[Array, "T M"], Float[Array, "T M M"], Shaped[Array, "T M"]]:
     """Preprocess observations and measurement covariance for missing data.
 
     Centralizes the large-variance injection pattern used across all backends.

@@ -10,10 +10,7 @@ import jax.scipy.linalg as jla
 
 from nof1_causal_lab.models.ssm.discretization.exact import (
     _kron_lyapunov_solve,
-    compute_asymptotic_diffusion,
-    compute_discrete_cint,
     compute_discrete_cint_exact,
-    compute_discrete_diffusion,
     compute_discrete_diffusion_van_loan,
     discretize_linear_system_exact,
     discretize_linear_system_exact_batched,
@@ -93,7 +90,7 @@ class TestAsymptoticDiffusion:
         sigma = 1.0
         A = jnp.array([[-theta]])
         Q = jnp.array([[sigma**2]])
-        Q_inf = compute_asymptotic_diffusion(A, Q)
+        Q_inf = solve_lyapunov(A, Q)
         expected = sigma**2 / (2 * theta)
         assert jnp.isclose(Q_inf[0, 0], expected, atol=1e-5)
 
@@ -109,7 +106,7 @@ class TestDiscreteDiffusion:
         A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
         Q = jnp.eye(2) * 0.5
         dt = 0.1
-        Q_dt = compute_discrete_diffusion(A, Q, dt)
+        Q_dt = compute_discrete_diffusion_van_loan(A, Q, dt)
         eigvals = jnp.linalg.eigvalsh(Q_dt)
         assert jnp.all(eigvals >= -1e-6)
 
@@ -118,26 +115,16 @@ class TestDiscreteDiffusion:
         A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
         Q = jnp.eye(2)
         dt = 0.5
-        Q_dt = compute_discrete_diffusion(A, Q, dt)
+        Q_dt = compute_discrete_diffusion_van_loan(A, Q, dt)
         assert jnp.allclose(Q_dt, Q_dt.T, atol=1e-10)
 
     def test_grows_with_dt(self):
         """Larger dt should give more process noise."""
         A = jnp.array([[-1.0]])
         Q = jnp.array([[1.0]])
-        Q_small = compute_discrete_diffusion(A, Q, dt=0.1)
-        Q_large = compute_discrete_diffusion(A, Q, dt=1.0)
+        Q_small = compute_discrete_diffusion_van_loan(A, Q, dt=0.1)
+        Q_large = compute_discrete_diffusion_van_loan(A, Q, dt=1.0)
         assert Q_large[0, 0] > Q_small[0, 0]
-
-    def test_reuses_precomputed_drift(self):
-        """Passing discrete_drift should preserve results."""
-        A = jnp.array([[-1.0, 0.2], [0.0, -2.0]])
-        Q = jnp.eye(2)
-        dt = 0.5
-        Ad = jla.expm(A * dt)
-        Q_dt_1 = compute_discrete_diffusion(A, Q, dt)
-        Q_dt_2 = compute_discrete_diffusion(A, Q, dt, discrete_drift=Ad)
-        assert jnp.allclose(Q_dt_1, Q_dt_2, atol=1e-10)
 
     def test_matches_lyapunov_reference(self):
         """Van Loan discretization should match the stationary-covariance identity."""
@@ -147,17 +134,8 @@ class TestDiscreteDiffusion:
         Ad = jla.expm(A * dt)
         Q_inf = solve_lyapunov(A, Q)
         expected = Q_inf - Ad @ Q_inf @ Ad.T
-        actual = compute_discrete_diffusion(A, Q, dt)
+        actual = compute_discrete_diffusion_van_loan(A, Q, dt)
         assert jnp.allclose(actual, expected, atol=1e-6)
-
-    def test_van_loan_matches_stationary_identity_for_stable_system(self):
-        """The exact Van Loan path should agree with the stable-system shortcut."""
-        A = jnp.array([[-0.8, 0.2], [0.1, -1.4]])
-        Q = jnp.array([[0.7, 0.1], [0.1, 0.5]])
-        dt = 0.4
-        exact = compute_discrete_diffusion_van_loan(A, Q, dt)
-        stable = compute_discrete_diffusion(A, Q, dt)
-        assert jnp.allclose(exact, stable, atol=1e-6)
 
 
 # =============================================================================
@@ -171,14 +149,14 @@ class TestDiscreteCint:
         A = jnp.array([[-1.0, 0.0], [0.0, -2.0]])
         c = jnp.array([1.0, 2.0])
         dt = 1e-4
-        c_dt = compute_discrete_cint(A, c, dt)
+        c_dt = compute_discrete_cint_exact(A, c, dt)
         assert jnp.allclose(c_dt, c * dt, atol=1e-3)
 
     def test_shape(self):
         """Output shape should match input intercept."""
         A = jnp.array([[-1.0, 0.3], [0.0, -2.0]])
         c = jnp.array([1.0, 2.0])
-        c_dt = compute_discrete_cint(A, c, dt=0.5)
+        c_dt = compute_discrete_cint_exact(A, c, dt=0.5)
         assert c_dt.shape == c.shape
 
     def test_exact_handles_singular_dynamics(self):

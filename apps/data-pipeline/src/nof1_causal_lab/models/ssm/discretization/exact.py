@@ -70,69 +70,6 @@ def _solve_lyapunov_jvp(primals, tangents):
     return X, dX
 
 
-def compute_asymptotic_diffusion(
-    drift: Float[Array, "D D"], diffusion_cov: Float[Array, "D D"]
-) -> Float[Array, "D D"]:
-    """Compute asymptotic (stationary) diffusion covariance.
-
-    Solves: A*Q_inf + Q_inf*A' = -G*G'
-
-    Where:
-        A = drift matrix
-        G = diffusion (Cholesky factor), so G*G' = diffusion_cov
-
-    Args:
-        drift: n x n drift matrix A
-        diffusion_cov: n x n diffusion covariance (G*G')
-
-    Returns:
-        Q_inf: n x n asymptotic diffusion covariance
-    """
-    return solve_lyapunov(drift, diffusion_cov)
-
-
-def compute_discrete_diffusion(
-    drift: Float[Array, "D D"],
-    diffusion_cov: Float[Array, "D D"],
-    dt: float | jax.Array,
-    discrete_drift: Float[Array, "D D"] | None = None,
-    asymptotic_diffusion: Float[Array, "D D"] | None = None,
-) -> Float[Array, "D D"]:
-    """Compute discrete-time diffusion covariance for time interval dt.
-
-    Q_dt = Q_inf - exp(A*dt) * Q_inf * exp(A*dt)'
-
-    Where Q_inf is the asymptotic diffusion from the Lyapunov equation.
-
-    Args:
-        drift: n x n drift matrix A
-        diffusion_cov: n x n diffusion covariance (G*G')
-        dt: time interval
-        discrete_drift: Pre-computed exp(A*dt), or None to compute internally.
-        asymptotic_diffusion: Pre-computed stationary covariance Q_inf, or
-            None to solve the Lyapunov equation internally.
-
-    Returns:
-        Q_dt: n x n discrete diffusion covariance
-    """
-    # Compute asymptotic diffusion
-    Q_inf = (
-        asymptotic_diffusion
-        if asymptotic_diffusion is not None
-        else compute_asymptotic_diffusion(drift, diffusion_cov)
-    )
-
-    # Compute discrete drift (reuse if provided)
-    if discrete_drift is None:
-        discrete_drift = jla.expm(drift * dt)
-
-    # Q_dt = Q_inf - exp(A*dt) * Q_inf * exp(A*dt)'
-    Q_dt = Q_inf - discrete_drift @ Q_inf @ discrete_drift.T
-
-    # Ensure symmetry
-    return symmetrize(Q_dt)
-
-
 def compute_discrete_diffusion_van_loan(
     drift: Float[Array, "D D"],
     diffusion_cov: Float[Array, "D D"],
@@ -140,10 +77,10 @@ def compute_discrete_diffusion_van_loan(
 ) -> Float[Array, "D D"]:
     """Compute discrete diffusion exactly with the Van Loan block exponential.
 
-    Unlike the stationary-covariance identity used by
-    ``compute_discrete_diffusion()``, this remains valid when ``drift`` is
-    singular or unstable. That matters for augmented systems with accumulator
-    states whose drift has zero eigenvalues.
+    Unlike the stationary-covariance identity ``Q_inf − e^{A·dt} Q_inf e^{A·dt}ᵀ``
+    (valid only for stable ``drift``), the Van Loan block exponential remains
+    valid when ``drift`` is singular or unstable. That matters for augmented
+    systems with accumulator states whose drift has zero eigenvalues.
     """
     n = drift.shape[0]
     zero = jnp.zeros_like(drift)
@@ -157,40 +94,6 @@ def compute_discrete_diffusion_van_loan(
     discrete_drift = van_loan_exp[:n, :n]
     upper_right = van_loan_exp[:n, n:]
     return symmetrize(upper_right @ discrete_drift.T)
-
-
-def compute_discrete_cint(
-    drift: Float[Array, "D D"],
-    cint: Array,
-    dt: float | jax.Array,
-    discrete_drift: Float[Array, "D D"] | None = None,
-) -> Array:
-    """Compute discrete-time intercept for time interval dt.
-
-    c_dt = A^{-1} * (exp(A*dt) - I) * c
-
-    This is the integrated effect of the continuous intercept over dt.
-
-    Args:
-        drift: n x n drift matrix A
-        cint: n x 1 continuous intercept c
-        dt: time interval
-        discrete_drift: Pre-computed exp(A*dt), or None to compute internally.
-
-    Returns:
-        c_dt: n x 1 discrete intercept
-    """
-    n = drift.shape[0]
-    I_n = jnp.eye(n)
-
-    # Compute discrete drift (reuse if provided)
-    if discrete_drift is None:
-        discrete_drift = jla.expm(drift * dt)
-
-    # c_dt = A^{-1} * (exp(A*dt) - I) * c
-    # Using solve for numerical stability: A * c_dt = (exp(A*dt) - I) * c
-    rhs = (discrete_drift - I_n) @ cint
-    return jla.solve(drift, rhs)
 
 
 def compute_discrete_cint_exact(

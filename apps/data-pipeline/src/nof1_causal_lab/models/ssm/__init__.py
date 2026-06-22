@@ -10,9 +10,6 @@ This module implements Bayesian state-space models with:
 
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam, MinimalReparam, Strategy
 from nof1_causal_lab.models.ssm.discretization import (
-    compute_asymptotic_diffusion,
-    compute_discrete_cint,
-    compute_discrete_diffusion,
     discretize_linear_system_exact,
     discretize_linear_system_exact_batched,
     discretize_system,
@@ -35,9 +32,6 @@ __all__ = [
     # Discretization
     "solve_lyapunov",
     "SSMParameterLayout",
-    "compute_asymptotic_diffusion",
-    "compute_discrete_diffusion",
-    "compute_discrete_cint",
     "discretize_linear_system_exact",
     "discretize_linear_system_exact_batched",
     "discretize_system",

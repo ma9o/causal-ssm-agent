@@ -17,15 +17,16 @@ from nof1_causal_lab.models.ssm.dynamics.edges import (
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+    from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 
 class AffineDynamicsParams(NamedTuple):
     """Inference-internal affine dynamics view."""
 
-    drift: jnp.ndarray
-    diffusion_cov: jnp.ndarray
-    cint: jnp.ndarray | None
-    input_effect: jnp.ndarray | None = None
+    drift: Float[Array, "D D"]
+    diffusion_cov: Float[Array, "D D"]
+    cint: Float[Array, " D"] | None
+    input_effect: Float[Array, "D I"] | None = None
 
 
 def derive_affine_dynamics(dynamics: RuntimeDynamics) -> AffineDynamicsParams:

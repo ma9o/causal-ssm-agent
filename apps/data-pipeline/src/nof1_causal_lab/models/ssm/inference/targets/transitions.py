@@ -53,7 +53,6 @@ def build_discrete_transitions(
     *,
     linearization_states: Array | None = None,
     transition_inputs: Array | None = None,
-    intervention: Intervention | None = None,
 ) -> DiscreteTransitionParams:
     """Build batched CT-to-DT transitions from runtime vector-field dynamics.
 
@@ -88,9 +87,9 @@ def build_discrete_transitions(
             f"{expected_shape}, got {linearization_states.shape}"
         )
 
-    if intervention is None:
-        intervention = Intervention.none()
-    args = VectorFieldArgs(params=dynamics.vf_params, intervention=intervention)
+    # Inference is observational: the likelihood is always discretized under the
+    # null intervention (counterfactuals go through the simulator path, not here).
+    args = VectorFieldArgs(params=dynamics.vf_params, intervention=Intervention.none())
     continuous_forcing = _continuous_input_forcing(
         dynamics,
         transition_inputs,

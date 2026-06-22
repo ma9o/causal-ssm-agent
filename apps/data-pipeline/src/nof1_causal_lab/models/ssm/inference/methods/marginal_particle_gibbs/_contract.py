@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
     import jax.numpy as jnp
 
+    from nof1_causal_lab.models.ssm.shapes import Array, Float
+
 _LATENT_SMOOTHER_PLAIN = "plain"
 _LATENT_SMOOTHER_DSMC = "dsmc"
 _DSMC_LEAF_PROPOSAL_AMALA = "amala"
@@ -44,8 +46,8 @@ class MPGibbsLatentSmoother:
 class MPGibbsLatentSmootherResult(NamedTuple):
     """Production result contract for MPGibbs latent smoothers."""
 
-    latent_path: jnp.ndarray
-    final_label_log_probs: jnp.ndarray
+    latent_path: Float[Array, "T D"]
+    final_label_log_probs: Float[Array, " K"]
     origin_path: jnp.ndarray
     diagnostics: dict[str, jnp.ndarray]
 
@@ -112,12 +114,12 @@ class SmootherContext:
     """
 
     contexts: Any
-    parameter_particles: jnp.ndarray
-    parameter_log_probs: jnp.ndarray
-    initial_label_log_probs: jnp.ndarray
-    init_means: jnp.ndarray
-    init_chols: jnp.ndarray
-    init_logdets: jnp.ndarray
+    parameter_particles: Float[Array, "K U"]
+    parameter_log_probs: Float[Array, " K"]
+    initial_label_log_probs: Float[Array, " K"]
+    init_means: Float[Array, "K D"]
+    init_chols: Float[Array, "K D D"]
+    init_logdets: Float[Array, " K"]
     num_steps: int
     num_free_particles: int
     num_parameter_particles: int
@@ -131,7 +133,7 @@ class SmootherContext:
     trajectory_log_prob_fn: Any
     prior_terms_from_context_fn: Any
     log_prior_unc_fn: Any
-    amala_delta: jnp.ndarray
+    amala_delta: Float[Array, " D"]
     amala_kappa: float
     amala_grad_clip: float
     dsmc_leaf_proposal: str

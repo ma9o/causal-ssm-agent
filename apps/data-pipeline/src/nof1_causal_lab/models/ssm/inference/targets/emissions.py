@@ -440,19 +440,32 @@ def emission_log_prob_beta_probit(
 # =============================================================================
 
 
-def _score_weight_poisson(y_t, eta, obs_mask_t):
+def _score_weight_poisson(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Poisson (log link): score = y - lambda, neg-Hessian = lambda."""
     lam = jnp.exp(eta)
     return (y_t - lam) * obs_mask_t, lam * obs_mask_t
 
 
-def _score_weight_bernoulli_logit(y_t, eta, obs_mask_t):
+def _score_weight_bernoulli_logit(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Bernoulli (logit link): score = y - p, neg-Hessian = p(1-p)."""
     p = jax.nn.sigmoid(eta)
     return (y_t - p) * obs_mask_t, (p * (1.0 - p)) * obs_mask_t
 
 
-def _score_weight_beta_logit(y_t, eta, obs_mask_t, concentration):
+def _score_weight_beta_logit(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+    concentration,
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Beta (logit link): exact score and neg-Hessian via digamma/polygamma."""
     phi = concentration
     mu = jax.nn.sigmoid(eta)
@@ -470,14 +483,24 @@ def _score_weight_beta_logit(y_t, eta, obs_mask_t, concentration):
     return g, jnp.maximum(w_raw, 0.0) * obs_mask_t
 
 
-def _score_weight_gamma_log(y_t, eta, obs_mask_t, shape):
+def _score_weight_gamma_log(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+    shape,
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Gamma (log link): score = a*(y/mu - 1), neg-Hessian = a*y/mu."""
     mu = jnp.maximum(jnp.exp(eta), 1e-8)
     ratio = y_t / mu
     return shape * (ratio - 1.0) * obs_mask_t, shape * ratio * obs_mask_t
 
 
-def _score_weight_gamma_inverse(y_t, eta, obs_mask_t, shape):
+def _score_weight_gamma_inverse(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+    shape,
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Gamma (inverse link): score = a*(mu - y), neg-Hessian = a*mu^2."""
     valid_eta = jnp.isfinite(eta) & (eta > 0.0)
     safe_eta = jnp.where(valid_eta, eta, 1.0)
@@ -490,7 +513,12 @@ def _score_weight_gamma_inverse(y_t, eta, obs_mask_t, shape):
     return g, w
 
 
-def _score_weight_negative_binomial(y_t, eta, obs_mask_t, r):
+def _score_weight_negative_binomial(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+    r,
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Negative Binomial (log link): exact score and neg-Hessian."""
     mu = jnp.exp(eta)
     denom = r + mu
@@ -499,7 +527,13 @@ def _score_weight_negative_binomial(y_t, eta, obs_mask_t, r):
     return g, w
 
 
-def _score_weight_ordered_logistic(y_t, eta, obs_mask_t, cutpoints, level_counts):
+def _score_weight_ordered_logistic(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+    cutpoints: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Ordered-logistic score and neg-Hessian w.r.t. the linear predictor."""
     y_idx, valid_obs = _normalize_discrete_observation(y_t, level_counts)
     max_cutpoints = cutpoints.shape[1]
@@ -529,7 +563,14 @@ def _score_weight_ordered_logistic(y_t, eta, obs_mask_t, cutpoints, level_counts
     return score * valid_mask, weight * valid_mask
 
 
-def _score_weight_categorical(y_t, eta, obs_mask_t, intercepts, slopes, level_counts):
+def _score_weight_categorical(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+    intercepts: Float[Array, "M cut"],
+    slopes: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Categorical softmax score and neg-Hessian w.r.t. the linear predictor."""
     probs = categorical_probabilities(eta, intercepts, slopes, level_counts)
     y_idx, valid_obs = _normalize_discrete_observation(y_t, level_counts)
@@ -544,7 +585,11 @@ def _score_weight_categorical(y_t, eta, obs_mask_t, intercepts, slopes, level_co
     return score * valid_mask, weight * valid_mask
 
 
-def _score_weight_bernoulli_probit(y_t, eta, obs_mask_t):
+def _score_weight_bernoulli_probit(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Bernoulli (probit link): exact score; Fisher information Hessian."""
     mu = jnp.clip(jstats.norm.cdf(eta), PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)
     phi_eta = jnp.exp(jstats.norm.logpdf(eta))
@@ -552,7 +597,12 @@ def _score_weight_bernoulli_probit(y_t, eta, obs_mask_t):
     return (y_t - mu) * phi_eta / var * obs_mask_t, (phi_eta**2 / var) * obs_mask_t
 
 
-def _score_weight_beta_probit(y_t, eta, obs_mask_t, concentration):
+def _score_weight_beta_probit(
+    y_t: Float[Array, " M"],
+    eta: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
+    concentration,
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     """Beta (probit link): exact score; Gauss-Newton Hessian."""
     phi = concentration
     mu = jnp.clip(jstats.norm.cdf(eta), PROB_CLIP_MIN, 1.0 - PROB_CLIP_MIN)

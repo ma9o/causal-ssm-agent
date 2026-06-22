@@ -495,9 +495,8 @@ class SSMModel:
 
         Every spec carries a populated ``dynamics_spec``. The compiled vector
         field is what downstream consumers
-        (``compute_steady_state``, ``simulate``,
-        ``check_jacobian_stability``, the per-step linearisation in the
-        IEKS/Laplace warmup backend, …) all consume uniformly.
+        (``compute_steady_state``, ``simulate``, the per-step linearisation in
+        the IEKS/Laplace warmup backend, …) all consume uniformly.
         """
 
         def _build():

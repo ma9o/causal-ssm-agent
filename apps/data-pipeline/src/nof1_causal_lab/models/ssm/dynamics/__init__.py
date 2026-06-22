@@ -64,7 +64,6 @@ from .spec import (
     compile_dynamics,
     iter_dynamics_semantic_bindings,
 )
-from .stability import StabilityReport, check_jacobian_stability
 from .steady_state import compute_steady_state
 from .vector_field import VectorField, VectorFieldArgs
 
@@ -90,7 +89,6 @@ __all__ = [
     "PosteriorDynamicsSamples",
     "PrecomputedValueFn",
     "SimulationConfig",
-    "StabilityReport",
     "StateDecay",
     "StateDecaySpec",
     "StateIntercept",
@@ -101,7 +99,6 @@ __all__ = [
     "VectorFieldArgs",
     "VectorFieldRuntime",
     "build_vector_field_runtime_from_samples",
-    "check_jacobian_stability",
     "compile_dynamics",
     "dynamics_spec_from_dict",
     "dynamics_spec_to_dict",
