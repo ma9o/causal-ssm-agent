@@ -19,3 +19,6 @@
 
 # Particle Gibbs without the Gibbs bit
 2505.04611	particle-gibbs-no-gibbs-bit
+
+
+2606.16985 dynestyx
