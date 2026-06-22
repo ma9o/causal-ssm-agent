@@ -188,8 +188,24 @@ EXACT_MEASUREMENT_MANIFEST_INDICES = tuple(
     if (dist == DistributionFamily.GAUSSIAN and link == LinkFunction.IDENTITY)
     or (dist == DistributionFamily.NEGATIVE_BINOMIAL and link == LinkFunction.LOG)
 )
-MEASUREMENT_MEANS_FREE_SUPPORT = np.asarray(
+EXACT_MEASUREMENT_SUPPORT = np.asarray(
     [idx in EXACT_MEASUREMENT_MANIFEST_INDICES for idx in range(len(MANIFEST_NAMES))],
+    dtype=bool,
+)
+# Gaussian/identity manifest means are PINNED at truth: their raw-scale
+# locations (e.g. sleep_efficiency_pct ~ 87) sit tens of prior sd outside the
+# canonical Normal(0, 2) manifest-mean prior, so leaving them free makes the
+# truth unreachable and distorts every coupled posterior coordinate. Production
+# removes the raw location via deterministic centering (prepare_model_runtime);
+# this fixture bypasses that path, so the location is pinned instead — it is
+# not a recovery axis here. Count intercepts (NegBin/log) stay free: their
+# log-scale truths sit within the canonical prior.
+MEASUREMENT_MEANS_FREE_SUPPORT = np.asarray(
+    [
+        MANIFEST_DISTS[idx] == DistributionFamily.NEGATIVE_BINOMIAL
+        and MANIFEST_LINKS[idx] == LinkFunction.LOG
+        for idx in range(len(MANIFEST_NAMES))
+    ],
     dtype=bool,
 )
 ANCHOR_LOADING_POSITIONS = (
@@ -199,7 +215,7 @@ ANCHOR_LOADING_POSITIONS = (
 )
 MEASUREMENT_LOADINGS_FREE_SUPPORT = (
     (~np.isclose(TRUE_LOADINGS, 0.0))
-    & MEASUREMENT_MEANS_FREE_SUPPORT[:, None]
+    & EXACT_MEASUREMENT_SUPPORT[:, None]
     & np.asarray(
         [
             [(row, col) not in ANCHOR_LOADING_POSITIONS for col in range(TRUE_LOADINGS.shape[1])]
@@ -366,10 +382,18 @@ def build_synthetic_nonlinear_priors(spec, diffusion_scale: float = 1.0) -> Prio
     scales. Structural sites use the canonical defaults; observation-dispersion
     params (NegBin ``r``, Gamma ``shape``) use off-truth ``LogNormal`` priors with
     negligible mass near zero so they cannot collapse to degenerate overdispersion.
+    Free loadings use a widened ``Normal(0, 2.5)``: the true free loadings reach
+    5.0, which sits 9 prior sd outside the canonical ``Normal(0.5, 0.5)`` — an
+    unreachable truth that poisoned recovery the same way the raw-scale manifest
+    means did before they were pinned.
     """
     priors: dict[str, PriorSpec] = {
         site.name: default_prior_for_descriptor(site) for site in spec.iter_sample_sites()
     }
+    priors["lambda_free"] = PriorSpec(
+        PriorDistributionFamily.NORMAL,
+        {"mu": 0.0, "sigma": 2.5},
+    )
     priors["diffusion_diag_free"] = PriorSpec(
         PriorDistributionFamily.HALF_NORMAL,
         {"sigma": 0.4 * float(diffusion_scale)},
