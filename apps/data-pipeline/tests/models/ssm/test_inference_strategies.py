@@ -1852,6 +1852,46 @@ def test_marginal_particle_gibbs_dsmc_amala_exact_uses_euler_scheme():
     assert diag["latent_transition_kind"] == "euler_maruyama"
 
 
+def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
+    from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
+
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+    bundle = build_particle_runtime_bundle(
+        model,
+        observations,
+        times,
+        scheme=LATENT_TRANSITION_EULER_MARUYAMA,
+        trace_key=jax.random.PRNGKey(0),
+        reparam=None,
+    )
+    dim = int(bundle["flat_example"].shape[0])
+
+    with pytest.raises(ValueError, match="non-finite for chain"):
+        fit(
+            model,
+            observations=observations,
+            times=times,
+            method="marginal_particle_gibbs",
+            num_warmup=1,
+            num_samples=1,
+            num_chains=1,
+            seed=43,
+            n_particles=3,
+            n_parameter_particles=2,
+            latent_block_size=2,
+            latent_smoother="dsmc",
+            dsmc_leaf_proposal="amala_exact",
+            param_step_size=0.001,
+            parameter_proposal="random_walk",
+            init_method="random",
+            auto_preconditioner_method="none",
+            initial_positions_override=jnp.full((1, dim), jnp.nan),
+            reparam=None,
+        )
+
+
 def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
         build_marginal_particle_gibbs_kernel,

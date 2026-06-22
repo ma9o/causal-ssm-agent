@@ -708,6 +708,22 @@ def run_marginal_particle_gibbs(
             for chain_idx in range(num_chains)
         ]
     )
+    nonfinite_chains = [
+        chain_idx
+        for chain_idx in range(num_chains)
+        if not bool(jnp.isfinite(states.complete_log_posterior[chain_idx]))
+    ]
+    if nonfinite_chains:
+        raise ValueError(
+            "Initial complete log-posterior is non-finite for chain(s) "
+            f"{nonfinite_chains}. Every move would be rejected against a non-finite "
+            "reference, so the sampler cannot recover from this state. The predictive "
+            "latent init likely diverged: nonlinear vector fields can be explosive "
+            "under unconditional forward simulation at data-informed initial "
+            "parameters even when their posterior density is finite. Supply "
+            "different init_positions or a data-conditioned "
+            "initial_latent_trajectories."
+        )
     initial_param_step_size = states.param_step_size
     initial_latent_delta = states.latent_delta
     latent_acceptance_window = jnp.zeros(
