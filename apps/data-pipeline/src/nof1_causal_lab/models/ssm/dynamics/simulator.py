@@ -42,7 +42,7 @@ class SimulationConfig:
 
 def simulate(
     vector_field: VectorField,
-    params: dict[str, Array],
+    params: tuple[dict[str, Array], ...],
     intervention: Intervention,
     initial_state: Array,
     time_grid: Array,
@@ -158,7 +158,7 @@ def simulate(
 
 def simulate_pair(
     vector_field: VectorField,
-    params: dict[str, Array],
+    params: tuple[dict[str, Array], ...],
     baseline_intervention: Intervention,
     action_intervention: Intervention,
     initial_state: Array,

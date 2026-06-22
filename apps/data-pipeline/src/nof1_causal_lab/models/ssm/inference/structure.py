@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
@@ -33,7 +33,7 @@ def _normalize_method_override(
             "Unsupported inference method override "
             f"{method_override!r}; expected 'marginal_particle_gibbs'."
         )
-    return cast("ResolvedMethod", method_override)
+    return method_override
 
 
 def _resolve_default_method(

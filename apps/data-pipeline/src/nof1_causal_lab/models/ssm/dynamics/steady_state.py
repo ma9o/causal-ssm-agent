@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 def compute_steady_state(
     vector_field: VectorField,
-    params: dict[str, Array],
+    params: tuple[dict[str, Array], ...],
     intervention: Intervention,
     initial_guess: Array | None = None,
     *,

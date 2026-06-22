@@ -669,7 +669,7 @@ class SSMModel:
             self.spec.input_effect_block,
             self.spec.static_state_sd_block,
         ):
-            sampled.update(block.sample_params(self._prior_distribution))
+            sampled.update(block.sample_params(self._prior_distribution))  # ty: ignore[no-matching-overload]  # t0_chol block yields Array|None for empty supports; None handled downstream via _compose_t0_cov
         return sampled
 
     def _sample_runtime_dynamics(

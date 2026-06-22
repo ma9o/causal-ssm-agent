@@ -121,7 +121,7 @@ def build_construct_scale_cards(
     ]
     indicators = get_manifest_indicators(causal_spec)
     indicator_lookup = {indicator["name"]: indicator for indicator in indicators}
-    indicators_per_construct = indicators_per_construct(indicators)
+    grouped_indicators = indicators_per_construct(indicators)
     reference_indicator_lookup = build_reference_indicator_lookup(indicators)
     ambiguous_indicator_names = {
         item["variable"] for item in (skeleton.ambiguous_indicators if skeleton else [])
@@ -148,7 +148,7 @@ def build_construct_scale_cards(
                         == reference_indicator_lookup.get(construct_name),
                         has_distribution_decision_card=indicator_name in ambiguous_indicator_names,
                     )
-                    for indicator_name in indicators_per_construct.get(construct_name, [])
+                    for indicator_name in grouped_indicators.get(construct_name, [])
                 ],
             }
         )

@@ -9,6 +9,7 @@ Use the explicit latent/estimation accessors in new code. The historical
 """
 
 from collections import defaultdict
+from typing import Any, cast
 
 import networkx as nx
 
@@ -125,7 +126,7 @@ def get_estimation_constructs(causal_spec: dict) -> list[dict]:
     ]
 
 
-def get_induced_dependencies(causal_spec: dict) -> list[dict]:
+def get_induced_dependencies(causal_spec: dict) -> list[dict[str, Any]]:
     """Get induced dependencies created by marginalizing latent roots."""
     return list(get_estimation_spec(causal_spec).get("induced_dependencies") or [])
 
@@ -162,7 +163,9 @@ def get_marginalized_scales(causal_spec: dict) -> list[dict]:
     kind_by_confounder: dict[str, str] = {}
     directions_by_confounder: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for dep in deps:
-        kind = dep.get("kind")
+        # Induced dependencies always carry a non-None ``kind`` string by the
+        # estimation-projection contract (see estimation_projection.py).
+        kind = cast("str", dep.get("kind"))
         between = tuple(dep.get("between") or ())
         if len(between) != 2:
             continue

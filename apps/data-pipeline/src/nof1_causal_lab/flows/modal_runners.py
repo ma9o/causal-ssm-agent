@@ -13,7 +13,14 @@ from typing import TYPE_CHECKING
 import modal
 
 if TYPE_CHECKING:
-    from .stage_contracts import BaseStageContract
+    from .stage_contracts import (
+        BaseStageContract,
+        Stage1bContract,
+        Stage2Contract,
+        Stage3Contract,
+        Stage4Contract,
+        Stage5bContract,
+    )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Modal images
@@ -63,11 +70,11 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
     secrets=[secrets],
 )
 def _run_stage5b(
-    stage4: BaseStageContract,
-    stage2: BaseStageContract,
+    stage4: Stage4Contract,
+    stage2: Stage2Contract,
     inference_method: str | None,
     workspace_id: str,
-) -> BaseStageContract:
+) -> Stage5bContract:
     """Run stage 5b on Modal and persist artifacts to R2."""
     from nof1_causal_lab.flows.dag import stage5b
 
@@ -112,14 +119,14 @@ def _run_stage5b_payload(
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
 async def _run_stage4(
     question: str,
-    stage1b: BaseStageContract,
-    stage2: BaseStageContract,
-    stage3: BaseStageContract,
+    stage1b: Stage1bContract,
+    stage2: Stage2Contract,
+    stage3: Stage3Contract,
     enable_literature: bool,
     workspace_id: str,
     openrouter_api_key: str | None,
     root_run_id: str | None,
-) -> BaseStageContract:
+) -> Stage4Contract:
     """Run stage 4 on Modal."""
     from nof1_causal_lab.flows.dag import stage4
 
@@ -166,11 +173,11 @@ def _warm_stage4_compile_cache(
 
 
 def modal_stage5b_runner(
-    stage4: BaseStageContract,
-    stage2: BaseStageContract,
+    stage4: Stage4Contract,
+    stage2: Stage2Contract,
     workspace_id: str = "",
     inference_method: str | None = None,
-) -> BaseStageContract:
+) -> Stage5bContract:
     """Invoke stage 5b on Modal."""
     return _run_stage5b.remote(stage4, stage2, inference_method, workspace_id)
 
@@ -194,13 +201,13 @@ def spawn_stage4_model_compile_warmup(
 
 async def modal_stage4_runner(
     question: str,
-    stage1b: BaseStageContract,
-    stage2: BaseStageContract,
-    stage3: BaseStageContract,
+    stage1b: Stage1bContract,
+    stage2: Stage2Contract,
+    stage3: Stage3Contract,
     enable_literature: bool,
     workspace_id: str,
     root_run_id: str | None = None,
-) -> BaseStageContract:
+) -> Stage4Contract:
     """Invoke stage 4 on Modal."""
     from nof1_causal_lab.utils.openrouter_client import get_openrouter_api_key
 

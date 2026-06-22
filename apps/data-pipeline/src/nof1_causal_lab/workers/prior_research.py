@@ -21,6 +21,7 @@ from nof1_causal_lab.utils.openrouter_client import acquire_limiter
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ParameterSpec
     from nof1_causal_lab.utils.agent_session import StageSessionFactory
+    from nof1_causal_lab.utils.openrouter_client import Tool
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.utils.llm import (
     make_validation_tool,
@@ -40,7 +41,7 @@ from nof1_causal_lab.workers.schemas_prior import (
 logger = get_prefect_logger(__name__)
 
 
-def _make_prior_tool() -> tuple[object, dict]:
+def _make_prior_tool() -> tuple[Tool, dict]:
     """Create a validation tool for prior proposals using PriorProposal schema."""
 
     def _validate(data: dict) -> tuple[object, list[str]]:

@@ -409,9 +409,7 @@ def sample_predictive_observations_from_linear_predictors(
     )
     observation_operator = compile_observation_operator(observation_support)
 
-    if level_counts is None and any_family_needs_level_metadata(
-        [dist.value for dist in resolved_dists]
-    ):
+    if level_counts is None and any_family_needs_level_metadata(resolved_dists):
         raise ValueError(
             "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
         )
@@ -627,9 +625,7 @@ def _simulate_predictive_observations_with_mask(
     )
     observation_operator = compile_observation_operator(observation_support)
 
-    if level_counts is None and any_family_needs_level_metadata(
-        [dist.value for dist in resolved_dists]
-    ):
+    if level_counts is None and any_family_needs_level_metadata(resolved_dists):
         raise ValueError(
             "manifest_level_counts is required for ordered_logistic/categorical PPC simulation"
         )

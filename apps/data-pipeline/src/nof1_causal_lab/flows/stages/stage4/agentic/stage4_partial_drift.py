@@ -148,7 +148,10 @@ def _build_partial_drift_state(
         diag_mu[latent_index] = _value_at(decay_mu, binding.flat_index, default=0.0)
 
     offdiag_positions = [
-        (int(binding.effect_idx), int(binding.cause_idx)) for binding in offdiag_bindings.values()
+        # offdiag_bindings filters out bindings with None effect/cause idx; ty can't narrow
+        # the dict's value type through that comprehension filter.
+        (int(binding.effect_idx), int(binding.cause_idx))  # ty: ignore[invalid-argument-type]
+        for binding in offdiag_bindings.values()
     ]
     offdiag_mu = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)

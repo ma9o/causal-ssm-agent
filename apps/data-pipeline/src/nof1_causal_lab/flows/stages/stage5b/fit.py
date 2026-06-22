@@ -1,7 +1,7 @@
 """Stage 5b: Bayesian inference and diagnostics."""
 
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jax.numpy as jnp
 import polars as pl
@@ -14,6 +14,9 @@ from nof1_causal_lab.models.ssm.runtime import (
     fit_prepared_model,
     prepare_model_runtime,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference import InferenceResult
 
 logger = get_prefect_logger(__name__)
 
@@ -292,7 +295,7 @@ def run_ppc(fitted_result: dict) -> dict:
 
     t0 = time.monotonic()
     try:
-        result = fitted_result["result"]
+        result: InferenceResult = fitted_result["result"]
         runtime: PreparedModelRuntime = fitted_result["runtime"]
         spec = runtime.spec
         samples = result.get_samples()

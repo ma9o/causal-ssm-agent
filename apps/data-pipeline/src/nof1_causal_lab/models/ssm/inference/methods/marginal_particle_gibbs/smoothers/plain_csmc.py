@@ -68,7 +68,16 @@ def smooth(ctx, key, x_ref):
         block_end: int,
         prefix_label_log_probs: jnp.ndarray,
         future_tail_history: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+    ) -> tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ]:
         (
             init_component_key,
             init_sample_key,

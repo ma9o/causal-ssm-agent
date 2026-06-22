@@ -361,10 +361,13 @@ def build_particle_runtime_bundle(
         ) -> GaussianTrajectoryPriorTerms | None:
             if not declared_target.supports_affine_prefix_marginals:
                 return None
+            # Ad/Qd/cd are populated (non-None) exactly when the target supports
+            # affine prefix marginals, which is the branch we are in; ty cannot
+            # correlate the flag with the LatentContext fields' nullability.
             return build_gaussian_trajectory_prior_terms(
-                context.Ad,
-                context.Qd,
-                context.cd,
+                context.Ad,  # ty: ignore[invalid-argument-type]
+                context.Qd,  # ty: ignore[invalid-argument-type]
+                context.cd,  # ty: ignore[invalid-argument-type]
                 context.init_mean,
                 context.init_cov,
                 jitter=AUX_JITTER,

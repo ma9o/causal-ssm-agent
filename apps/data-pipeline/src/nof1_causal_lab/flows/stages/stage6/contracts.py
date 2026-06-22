@@ -24,22 +24,26 @@ from nof1_causal_lab.models.ssm.inference.schemas import TemporalEffect  # noqa:
 
 IS_INTERACTIVE_STAGE = True
 
+ModelInfoSection = Literal[
+    "overview",
+    "variables",
+    "measurement",
+    "identifiability",
+    "diagnostics",
+    "baseline_effects",
+    "capabilities",
+]
+
+
+def _default_model_info_sections() -> list[ModelInfoSection]:
+    return ["overview", "variables", "capabilities"]
+
 
 class GetModelInfoInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    sections: list[
-        Literal[
-            "overview",
-            "variables",
-            "measurement",
-            "identifiability",
-            "diagnostics",
-            "baseline_effects",
-            "capabilities",
-        ]
-    ] = Field(
-        default_factory=lambda: ["overview", "variables", "capabilities"],
+    sections: list[ModelInfoSection] = Field(
+        default_factory=_default_model_info_sections,
         description="Named sections to include in the read-only model summary.",
     )
     names: list[str] = Field(

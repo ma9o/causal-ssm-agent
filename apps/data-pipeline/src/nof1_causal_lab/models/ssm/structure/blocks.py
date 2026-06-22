@@ -472,7 +472,7 @@ class T0CholBlockSpec:
         cov = corr * (std[:, None] * std[None, :])
         return 0.5 * (cov + cov.T)
 
-    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array]:  # noqa: ARG002
+    def sample_params(self, prior_fn: PriorFn, prefix: str = "") -> dict[str, Array | None]:  # noqa: ARG002
         """Sample free diagonal SDs and free off-diagonal correlations.
 
         Returns a dict keyed by sample-site name; values may be ``None``

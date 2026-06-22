@@ -73,13 +73,13 @@ def _adapt_scale(
 ) -> jnp.ndarray:
     """Simple exponential step-size adaptation on per-step binary accept."""
     dtype = scale.dtype
-    accepted = jnp.asarray(accepted, dtype=dtype)
-    target_accept = jnp.asarray(target_accept, dtype=dtype)
-    adaptation_rate = jnp.asarray(adaptation_rate, dtype=dtype)
-    min_scale = jnp.asarray(min_scale, dtype=dtype)
-    max_scale = jnp.asarray(max_scale, dtype=dtype)
-    factor = jnp.exp(adaptation_rate * (accepted - target_accept))
-    return jnp.clip(scale * factor, min_scale, max_scale)
+    accepted_arr = jnp.asarray(accepted, dtype=dtype)
+    target_accept_arr = jnp.asarray(target_accept, dtype=dtype)
+    adaptation_rate_arr = jnp.asarray(adaptation_rate, dtype=dtype)
+    min_scale_arr = jnp.asarray(min_scale, dtype=dtype)
+    max_scale_arr = jnp.asarray(max_scale, dtype=dtype)
+    factor = jnp.exp(adaptation_rate_arr * (accepted_arr - target_accept_arr))
+    return jnp.clip(scale * factor, min_scale_arr, max_scale_arr)
 
 
 def _latent_summary_from_chain_moments(

@@ -22,6 +22,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 
 from .estimands import (
+    ActionMode,
     build_time_grid,
     summarize_temporal_effect,
 )
@@ -215,7 +216,7 @@ def vmap_steady_state_effect_dynamics(
     treat_idx: int,
     outcome_idx: int,
     *,
-    mode: str,
+    mode: ActionMode,
     value: float | None = None,
     amount: float | None = None,
 ) -> Array:

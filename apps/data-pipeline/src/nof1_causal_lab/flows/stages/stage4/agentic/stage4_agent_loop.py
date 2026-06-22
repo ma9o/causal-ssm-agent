@@ -138,7 +138,7 @@ def _validate_direct_writer_checkpoint_prompt_blocks(
         return "checkpoint direct-writer repair scope no longer names any parameters"
 
     for block_id in campaign.scope_block_ids:
-        plan_block = plan.get_block(block_id)
+        plan_block = plan.blocks_by_id[block_id]
         prompt_block = campaign.prompt_blocks_by_id[block_id]
         scoped_parameter_names = tuple(
             parameter_name
@@ -284,7 +284,7 @@ async def run_stage4(
     n_paraphrases: int = 10,
     max_tool_turns: int = 40,
     load_checkpoint: Callable[[], Stage4Runtime | None] | None = None,
-    save_checkpoint: Callable[[Stage4Runtime], None] | None = None,
+    save_checkpoint: Callable[[Stage4Runtime], object] | None = None,
     clear_checkpoint: Callable[[], None] | None = None,
     on_model_spec_locked: Callable[[Stage4Runtime], None] | None = None,
     on_state_change: Callable[[Stage4Plan, Stage4Runtime, tuple[dict[str, Any], ...]], None]

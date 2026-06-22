@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import jax
+import jax.core
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
 
@@ -86,6 +86,9 @@ async def run_stage_flow(
         with use_openrouter_api_key(ctx.openrouter_api_key):
             contract = defn.runner(**inputs)
             if inspect.isawaitable(contract):
-                contract = await contract
+                # ty drops the type arg when narrowing the runner's
+                # `BaseStageContract | Awaitable[BaseStageContract]` union to its
+                # awaitable arm; recover it from the runner's declared return type.
+                contract = await cast("Awaitable[BaseStageContract]", contract)
 
     return finalize(defn.stage_id, contract, ctx.workspace_id)

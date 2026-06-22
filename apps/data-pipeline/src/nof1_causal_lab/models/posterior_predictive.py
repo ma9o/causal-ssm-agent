@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
-    from nof1_causal_lab.artifacts.model_spec import DistributionFamily
+    from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 import jax.numpy as jnp
@@ -443,9 +443,9 @@ def run_posterior_predictive_checks(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     manifest_names: list[str],
-    diffusion_dists: list[DistributionFamily | str] | None = None,
-    manifest_dists: list[str] | None = None,
-    manifest_links: list[str] | None = None,
+    diffusion_dists: Sequence[DistributionFamily | str] | None = None,
+    manifest_dists: Sequence[DistributionFamily | str] | None = None,
+    manifest_links: Sequence[LinkFunction | str | None] | None = None,
     manifest_level_counts: list[int] | None = None,
     observation_support: ObservationSupportRuntime | None = None,
     observation_mask: jnp.ndarray | None = None,

@@ -817,7 +817,7 @@ def _execute_simulate(ctx: dict[str, Any], args: dict[str, Any]) -> dict[str, An
     outcome_effect = effect_state_paths[:, :, setup.outcome_idx]
     reference_mean = float(jnp.mean(baseline_state_paths[:, -1, setup.outcome_idx]))
 
-    common_viz = {
+    common_viz: dict[str, Any] = {
         "reference_node_paths": baseline_state_paths,
         "action_node_paths": action_state_paths,
         "node_effect_paths": effect_state_paths,

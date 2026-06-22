@@ -555,9 +555,9 @@ def run_particle_marginal_mh(
     warmup_chain_extra_fields = {
         name: values[:, :num_warmup] for name, values in all_chain_extra_fields.items()
     }
-    estimated_log_posterior_history = all_chain_extra_fields["estimated_log_posterior"]
+    estimated_log_posterior_stacked = all_chain_extra_fields["estimated_log_posterior"]
     post_warmup_estimated_log_posterior_mean = (
-        jnp.mean(estimated_log_posterior_history[:, num_warmup:], axis=1)
+        jnp.mean(estimated_log_posterior_stacked[:, num_warmup:], axis=1)
         if num_samples > 0
         else jnp.full((num_chains,), jnp.nan, dtype=chain_init_positions.dtype)
     )
@@ -566,9 +566,9 @@ def run_particle_marginal_mh(
         "chain_extra_fields": chain_extra_fields,
         "warmup_chain_extra_fields": warmup_chain_extra_fields,
         "all_chain_extra_fields": all_chain_extra_fields,
-        "estimated_log_posterior_history": estimated_log_posterior_history[:, num_warmup:],
-        "warmup_estimated_log_posterior_history": estimated_log_posterior_history[:, :num_warmup],
-        "all_estimated_log_posterior_history": estimated_log_posterior_history,
+        "estimated_log_posterior_history": estimated_log_posterior_stacked[:, num_warmup:],
+        "warmup_estimated_log_posterior_history": estimated_log_posterior_stacked[:, :num_warmup],
+        "all_estimated_log_posterior_history": estimated_log_posterior_stacked,
         "initial_param_step_size": initial_param_step_size,
         "final_param_step_size": states.param_step_size,
         "first_step_seconds": 0.0 if first_step_seconds is None else first_step_seconds,

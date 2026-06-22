@@ -980,7 +980,7 @@ def run_marginal_particle_gibbs(
                             max_scale=kernel.amala_delta_max,
                         )
                     )
-                if use_dual_averaging:
+                if da_param_update is not None:
                     # Dual averaging converges (unlike the constant-rate scheme), and we
                     # freeze to the Polyak-averaged step at the final warmup step rather
                     # than keeping a noisy live value — so per-chain steps no longer

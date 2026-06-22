@@ -12,8 +12,8 @@ from nof1_causal_lab.utils.openrouter_client import use_openrouter_api_key
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-    from logging import Logger
 
+    from nof1_causal_lab.flows import _PrefectAwareLogger
     from nof1_causal_lab.utils.config import LLMDefaults, StageLLMConfig
     from nof1_causal_lab.utils.llm import LLMTrace
 
@@ -54,7 +54,7 @@ async def open_llm_stage(
     *,
     config: LLMStageRuntimeConfig,
     openrouter_api_key: str | None,
-    logger: Logger,
+    logger: _PrefectAwareLogger,
 ) -> AsyncIterator[StageSessionFactory]:
     """Open the OpenRouter context and stage session factory for one stage run."""
     started_at = time.monotonic()

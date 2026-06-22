@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import polars as pl
 
+    from .stages.stage0.flow import IngestionResult
+
 
 def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str]) -> str:
     """Format a DataFrame schema and sample for LLM consumption.
@@ -41,7 +43,7 @@ def format_schema_for_llm(df: pl.DataFrame, column_descriptions: dict[str, str])
     return "\n".join(lines)
 
 
-def build_stage0_payload(ingestion_result: object) -> dict:
+def build_stage0_payload(ingestion_result: IngestionResult) -> dict:
     """Build the web-serializable stage 0 payload from an IngestionResult."""
     return {
         "column_descriptions": [
@@ -49,7 +51,7 @@ def build_stage0_payload(ingestion_result: object) -> dict:
                 "name": col,
                 "description": desc,
             }
-            for col, desc in ingestion_result.column_descriptions.items()  # type: ignore[attr-defined]
+            for col, desc in ingestion_result.column_descriptions.items()
         ],
-        "llm_trace": ingestion_result.llm_trace,  # type: ignore[attr-defined]
+        "llm_trace": ingestion_result.llm_trace,
     }

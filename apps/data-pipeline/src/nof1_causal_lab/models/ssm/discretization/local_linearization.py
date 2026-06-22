@@ -84,7 +84,10 @@ def discretize_at_state(
         ``(A_d, Q_d, b_d)`` discrete-time linearised system.
     """
     A_loc, b_loc = vector_field.linearize(x_lin, args, jnp.asarray(t))
-    return discretize_linear_system_exact(A_loc, diffusion_cov, b_loc, dt)
+    # b_loc is always a concrete intercept (linearize never returns None), so the
+    # exact discretizer's conditional `b_d: Array | None` is non-None here; ty
+    # cannot narrow the input-conditioned None away.
+    return discretize_linear_system_exact(A_loc, diffusion_cov, b_loc, dt)  # ty: ignore[invalid-return-type]
 
 
 def discretize_at_states_batched(

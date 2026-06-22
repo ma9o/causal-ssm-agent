@@ -11,6 +11,6 @@
     "format": "uv run ruff format src/ tests/",
     "vulture": "uv run python scripts/run_vulture.py",
     "check": "bun run lint && bun run test",
-    "type-check": "uv run ty check src/ tests/"
+    "type-check": "uv run ty check"
   }
 }

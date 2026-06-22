@@ -20,6 +20,7 @@ dependencies = [
     "fsspec>=2024.2.0",
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
+    "jaxtyping>=0.3.0",
     "libsql>=0.1.5",
     "mcp>=1.0.0",
     "openai>=2.20.0",
@@ -52,6 +53,7 @@ eval = [
     "inspect-ai>=0.3.162",
 ]
 dev = [
+    "beartype>=0.19.0",
     "ipykernel>=7.2.0",
     "ipywidgets>=8.1.7",
     "jupyter-client>=8.8.0",
@@ -63,6 +65,7 @@ dev = [
     "pytest-timeout>=2.3.1",
     "pytest-xdist>=3.6.1",
     "ruff>=0.9.0",
+    "ty>=0.0.51",
     "vulture>=2.14",
 ]
 
@@ -98,6 +101,7 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
+    "F722",   # jaxtyping shape annotations are strings ruff treats as forward refs
     "PERF401",# list/dict comprehension nudges are too noisy for legacy code
     "PERF403",# dict comprehension nudges are too noisy for legacy code
     "SIM108", # use ternary operator (not always clearer)
@@ -173,8 +177,35 @@ ignore_names = [
     "enable_hlo_proto",
 ]
 
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+include = ["src"]
+
+[tool.ty.rules]
+unused-type-ignore-comment = "ignore"
+
+[tool.ty.analysis]
+respect-type-ignore-comments = true
+# These dependencies ship no usable type information; letting ty infer through
+# them only produces `Unknown`-propagation noise (e.g. equinox Module
+# construction widening to `Module`). Treat their public surface as `Any`.
+replace-imports-with-any = [
+    "arviz.**",
+    "blackjax.**",
+    "cuthbert.**",
+    "cuthbertlib.**",
+    "diffrax.**",
+    "equinox.**",
+    "numpyro.**",
+    "optax.**",
+    "optimistix.**",
+    "y0.**",
+]
+
 [tool.pytest.ini_options]
-addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10"
+addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.inference.targets.euler_maruyama,beartype.beartype"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

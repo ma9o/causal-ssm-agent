@@ -5,6 +5,7 @@ from __future__ import annotations
 import graphlib
 import os
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from . import get_prefect_logger
 from .contracts_base import BaseStageContract
@@ -25,6 +26,14 @@ from .stages.stage3.definition import build_stage3_definition
 from .stages.stage4.definition import build_stage4_definition
 from .stages.stage5b.definition import build_stage5b_definition
 from .stages.stage6.definition import build_stage6_definition
+
+if TYPE_CHECKING:
+    from .stage_contracts import (
+        Stage1bContract,
+        Stage2Contract,
+        Stage3Contract,
+        Stage4Contract,
+    )
 
 logger = get_prefect_logger(__name__)
 
@@ -78,14 +87,14 @@ def _build_registry() -> dict[str, StageDefinition]:
 
         async def _run_stage4_modal_or_local(
             question: str,
-            stage1b: BaseStageContract,
-            stage2: BaseStageContract,
-            stage3: BaseStageContract,
+            stage1b: Stage1bContract,
+            stage2: Stage2Contract,
+            stage3: Stage3Contract,
             enable_literature: bool,
             workspace_id: str,
             openrouter_access_mode: OpenRouterAccessMode | None,
             root_run_id: str | None,
-        ) -> BaseStageContract:
+        ) -> Stage4Contract:
             if openrouter_access_mode == "local":
                 return await dag.stage4(
                     question,

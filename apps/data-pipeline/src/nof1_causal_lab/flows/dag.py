@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from inspect import isawaitable
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from pydantic import BaseModel
 
 from . import get_prefect_logger
 from .run_store import (
@@ -43,7 +46,7 @@ from .stage_contracts import (
 logger = get_prefect_logger(__name__)
 
 
-def _filter_to_contract(cls: type, data: dict[str, Any]) -> dict[str, Any]:
+def _filter_to_contract(cls: type[BaseModel], data: dict[str, Any]) -> dict[str, Any]:
     """Filter a dict to only the fields known by a contract class."""
     fields = set(cls.model_fields.keys())
     return {k: v for k, v in data.items() if k in fields}

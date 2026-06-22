@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from nof1_causal_lab.flows.stage_runtime import (
     PipelineContext,
@@ -13,6 +13,7 @@ from nof1_causal_lab.flows.stages.stage1b.contracts import Stage1bContract
 
 if TYPE_CHECKING:
     from nof1_causal_lab.flows.contracts_base import BaseStageContract
+    from nof1_causal_lab.flows.stages.stage1a.contracts import Stage1aContract
 
 
 def _bind_stage1b(ctx: PipelineContext, states: dict) -> dict:
@@ -46,8 +47,8 @@ def _materialize_override_stage1b(
 ) -> BaseStageContract:
     from nof1_causal_lab.flows.stages.stage1b.result import finalize_stage1b_result
 
-    stage1a = states.get("stage-1a")
-    latent_model = stage1a.latent_model.model_dump() if stage1a else None  # type: ignore[union-attr]
+    stage1a = cast("Stage1aContract | None", states.get("stage-1a"))
+    latent_model = stage1a.latent_model.model_dump() if stage1a else None
     finalized = finalize_stage1b_result(dict(editable), latent_model=latent_model)
     fields = set(Stage1bContract.model_fields.keys())
     return Stage1bContract.model_validate(

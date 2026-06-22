@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from nof1_causal_lab.flows.stage_runtime import (
     PipelineContext,
@@ -13,6 +13,8 @@ from nof1_causal_lab.flows.stages.stage4.contracts import Stage4Contract
 
 if TYPE_CHECKING:
     from nof1_causal_lab.flows.contracts_base import BaseStageContract
+    from nof1_causal_lab.flows.stages.stage1b.contracts import Stage1bContract
+    from nof1_causal_lab.flows.stages.stage3.contracts import Stage3Contract
 
 
 def _emit_stage4_initial_replay_state(inputs: dict[str, Any]) -> None:
@@ -66,16 +68,16 @@ def _materialize_override_stage4(
     )
     from nof1_causal_lab.flows.stages.stage4.assembly import materialize_stage4_result
 
-    stage1b = states["stage-1b"]
-    stage3 = states["stage-3"]
+    stage1b = cast("Stage1bContract", states["stage-1b"])
+    stage3 = cast("Stage3Contract", states["stage-3"])
     data_for_model_path = find_run_artifact(ctx.workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
     authored = dict(editable)
     materialized = materialize_stage4_result(
         model_spec=authored["model_spec"],
         authored_priors=authored["authored_priors"],
         data_for_model=load_parquet(data_for_model_path),
-        indicator_audits={k: v.model_dump() for k, v in stage3.indicators.items()},  # type: ignore[union-attr]
-        causal_spec=stage1b.causal_spec.model_dump(),  # type: ignore[union-attr]
+        indicator_audits={k: v.model_dump() for k, v in stage3.indicators.items()},
+        causal_spec=stage1b.causal_spec.model_dump(),
         llm_trace=authored.get("llm_trace"),
     )
 

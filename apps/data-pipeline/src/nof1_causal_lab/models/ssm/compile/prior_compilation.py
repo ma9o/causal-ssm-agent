@@ -395,8 +395,10 @@ def collect_interval_provenance_warnings(
     warnings: list[CompileDiagnostic] = []
 
     for binding in _linear_effect_bindings(ssm_spec):
-        effect_idx = int(binding.effect_idx)
-        cause_idx = int(binding.cause_idx)
+        # _linear_effect_bindings filters to non-None effect_idx/cause_idx; ty
+        # cannot track that narrowing across the helper's tuple return type.
+        effect_idx = int(binding.effect_idx)  # ty: ignore[invalid-argument-type]
+        cause_idx = int(binding.cause_idx)  # ty: ignore[invalid-argument-type]
         if (effect_idx, cause_idx) not in edge_lags:
             continue
 
@@ -550,8 +552,10 @@ def collect_first_order_approximation_warnings(
         prefix="latent",
     )
     for binding in _linear_effect_bindings(ssm_spec):
-        effect_idx = int(binding.effect_idx)
-        cause_idx = int(binding.cause_idx)
+        # _linear_effect_bindings filters to non-None effect_idx/cause_idx; ty
+        # cannot track that narrowing across the helper's tuple return type.
+        effect_idx = int(binding.effect_idx)  # ty: ignore[invalid-argument-type]
+        cause_idx = int(binding.cause_idx)  # ty: ignore[invalid-argument-type]
         prior = _prior_for_site(prior_registry, binding.site_name)
         if prior is None:
             continue
@@ -728,7 +732,11 @@ def _assemble_mean_drift_from_component_priors(
         weight_mu = _prior_values_1d(prior.params.get("mu"))
         if weight_mu.size == 0:
             continue
-        drift[int(binding.effect_idx), int(binding.cause_idx)] = _value_at(
+        # _linear_effect_bindings filters to non-None effect_idx/cause_idx; ty
+        # cannot track that narrowing across the helper's tuple return type.
+        effect_idx = int(binding.effect_idx)  # ty: ignore[invalid-argument-type]
+        cause_idx = int(binding.cause_idx)  # ty: ignore[invalid-argument-type]
+        drift[effect_idx, cause_idx] = _value_at(
             weight_mu,
             binding.flat_index,
             default=0.0,

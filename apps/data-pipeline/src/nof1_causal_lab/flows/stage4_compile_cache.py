@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from typing_extensions import TypeIs
+
 from nof1_causal_lab.flows import get_prefect_logger
 from nof1_causal_lab.utils import storage
 
@@ -85,7 +87,9 @@ def compiled_ssm_topology_fingerprint(compiled_ssm: dict[str, Any]) -> str:
     ).hexdigest()
 
 
-def _metadata_matches(metadata: dict[str, Any] | None, topology_fingerprint: str) -> bool:
+def _metadata_matches(
+    metadata: dict[str, Any] | None, topology_fingerprint: str
+) -> TypeIs[dict[str, Any]]:
     return (
         isinstance(metadata, dict)
         and metadata.get("topology_fingerprint") == topology_fingerprint

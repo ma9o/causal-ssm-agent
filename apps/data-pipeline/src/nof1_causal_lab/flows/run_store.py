@@ -22,6 +22,8 @@ from . import get_prefect_logger
 logger = get_prefect_logger(__name__)
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     from .stage_contracts import BaseStageContract
 
 # ---------------------------------------------------------------------------
@@ -122,14 +124,14 @@ def load_json(path: str) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def save_stage_snapshot(stage_id: str, state: dict[str, Any], workspace_id: str) -> None:
+def save_stage_snapshot(stage_id: str, state: BaseModel, workspace_id: str) -> None:
     """Persist full stage state (result + web) for resume."""
     path = storage.join(ensure_run_dir(workspace_id), f"{stage_id}-state.pkl")
     with storage.open_file(path, "wb") as f:
         cloudpickle.dump(state, f)
 
 
-def load_stage_snapshot(workspace_id: str, stage_id: str) -> dict[str, Any]:
+def load_stage_snapshot(workspace_id: str, stage_id: str) -> BaseModel:
     """Load a previously saved stage snapshot."""
     path = storage.join(existing_run_dir(workspace_id), f"{stage_id}-state.pkl")
     if not storage.exists(path):

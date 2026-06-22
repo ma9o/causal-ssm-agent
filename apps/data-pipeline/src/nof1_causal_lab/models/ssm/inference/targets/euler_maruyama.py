@@ -1,22 +1,15 @@
 """Euler-Maruyama transition target utilities for nonlinear vector fields."""
 
-from __future__ import annotations
-
 import math
-from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
+from jaxtyping import Array, Float, Int
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
-from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorFieldArgs
-
-if TYPE_CHECKING:
-    from jax import Array
-
-    from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
+from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField, VectorFieldArgs
 
 _LOG_2PI = math.log(2.0 * math.pi)
 
@@ -33,9 +26,9 @@ def _forcing_for_time(context, time_idx: Array) -> Array:
 def transition_mean(
     vector_field: VectorField,
     context,
-    previous_state: Array,
-    time_idx: Array,
-) -> Array:
+    previous_state: Float[Array, " D"],
+    time_idx: Int[Array, ""],
+) -> Float[Array, " D"]:
     """Mean of one Euler-Maruyama step into ``time_idx``."""
     args = VectorFieldArgs(params=context.vf_params, intervention=Intervention.none())
     dt = context.time_intervals[time_idx]
@@ -50,7 +43,9 @@ def transition_cov(context, time_idx: Array) -> Array:
     return symmetrize_with_jitter(context.diffusion_cov * dt)
 
 
-def _log_prob_with_chol(value: Array, mean: Array, chol: Array) -> Array:
+def _log_prob_with_chol(
+    value: Float[Array, " D"], mean: Float[Array, " D"], chol: Float[Array, "D D"]
+) -> Float[Array, ""]:
     residual = value - mean
     whitened = jla.solve_triangular(chol, residual, lower=True)
     logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(chol)))
@@ -75,8 +70,12 @@ def _diffusion_precision_logdet(context) -> tuple[Array, Array]:
 
 
 def _scaled_transition_log_prob(
-    value: Array, mean: Array, precision: Array, logdet_q: Array, dt: Array
-) -> Array:
+    value: Float[Array, " D"],
+    mean: Float[Array, " D"],
+    precision: Float[Array, "D D"],
+    logdet_q: Float[Array, ""],
+    dt: Float[Array, ""],
+) -> Float[Array, ""]:
     """``log N(value; mean, Q·dt)`` from the precision ``Q^-1`` and scalar ``dt``.
 
     Mahalanobis term via a GEMM (``r^T Q^-1 r / dt``); log-det via ``logdet_q + dim·log(dt)``.
@@ -154,10 +153,10 @@ def transition_log_probs_for_pairs(
 def pairwise_transition_log_probs(
     vector_field: VectorField,
     context,
-    previous_states: Array,
-    current_states: Array,
-    time_idx: Array,
-) -> Array:
+    previous_states: Float[Array, "n_prev D"],
+    current_states: Float[Array, "n_curr D"],
+    time_idx: Int[Array, ""],
+) -> Float[Array, "n_prev n_curr"]:
     """Return all pairwise transition scores with shape ``(n_prev, n_curr)``."""
     means = jax.vmap(
         lambda previous_state: transition_mean(vector_field, context, previous_state, time_idx)
