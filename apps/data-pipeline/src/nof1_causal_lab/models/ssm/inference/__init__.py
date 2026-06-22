@@ -30,6 +30,9 @@ from nof1_causal_lab.models.ssm.inference.types import (  # noqa: TC001
     InferenceMethod,
     InferenceResult,
 )
+from nof1_causal_lab.models.ssm.preflight import (
+    validate_observations_for_fit as validate_observations_for_fit,
+)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMModel
@@ -72,6 +75,7 @@ def fit(
     Returns:
         InferenceResult with posterior samples and diagnostics
     """
+    validate_observations_for_fit(model, observations)
     reparam = _resolve_reparam(reparam, method)
     if method == "marginal_particle_gibbs":
         from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
