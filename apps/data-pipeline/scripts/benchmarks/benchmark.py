@@ -91,6 +91,9 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
     MPGIBBS_DIAGNOSTIC_METRIC_VALUES,
     MPGibbsDiagnosticMetric,
 )
+from nof1_causal_lab.models.ssm.inference.warmup.latent_init import (
+    compute_ieks_latent_paths,
+)
 from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
     DEFAULT_PRIOR_RELEASED_SITE_NAMES,
     prepare_parameter_warmup,
@@ -118,7 +121,7 @@ SCRIPT_DIAGNOSTIC_METRIC_VALUES = (
     *MPGIBBS_DIAGNOSTIC_METRIC_VALUES,
     LATENT_PATH_MIXING_METRIC,
 )
-PATHFINDER_CACHE_VERSION = 1
+PATHFINDER_CACHE_VERSION = 2
 PATHFINDER_N_IEKS_ITERS = 6
 PATHFINDER_PARAMETER_INIT_SCALE = 0.05
 
@@ -129,6 +132,10 @@ class _PathfinderCache:
     source: str
     initial_positions: jnp.ndarray
     parameter_preconditioner_chol: jnp.ndarray
+    # (num_chains, T, n_latent) IEKS smoothed paths at initial_positions: the
+    # data-conditioned reference-path init (predictive simulation can diverge
+    # at data-informed positions of nonlinear vector fields).
+    init_latent_paths: jnp.ndarray
     diagnostics: dict[str, Any]
     elapsed_seconds: float
 
@@ -232,11 +239,13 @@ def _load_pathfinder_cache(path: Path, *, expected_config: dict[str, Any]) -> _P
         diagnostics = json.loads(str(payload["diagnostics_json"].item()))
         initial_positions = jnp.asarray(payload["initial_positions"])
         preconditioner_chol = jnp.asarray(payload["parameter_preconditioner_chol"])
+        init_latent_paths = jnp.asarray(payload["init_latent_paths"])
     cache = _PathfinderCache(
         path=path,
         source="disk",
         initial_positions=initial_positions,
         parameter_preconditioner_chol=preconditioner_chol,
+        init_latent_paths=init_latent_paths,
         diagnostics=diagnostics,
         elapsed_seconds=time.perf_counter() - started,
     )
@@ -262,6 +271,7 @@ def _write_pathfinder_cache(
         parameter_preconditioner_chol=np.asarray(
             jax.device_get(cache.parameter_preconditioner_chol)
         ),
+        init_latent_paths=np.asarray(jax.device_get(cache.init_latent_paths)),
         config_json=np.asarray(json.dumps(_json_ready(config), sort_keys=True)),
         diagnostics_json=np.asarray(json.dumps(_json_ready(cache.diagnostics), sort_keys=True)),
     )
@@ -337,6 +347,16 @@ def _run_pathfinder_cache(
     if warmup_result.preconditioner_chol is None:
         raise RuntimeError("Shared Pathfinder cache did not return a preconditioner.")
 
+    init_latent_paths = compute_ieks_latent_paths(
+        model,
+        data.observations,
+        data.times,
+        positions=warmup_result.init_positions,
+        trace_key=trace_key,
+        reparam=None,
+        n_ieks_iters=PATHFINDER_N_IEKS_ITERS,
+    )
+
     diagnostics = {
         "cache_config": _pathfinder_cache_config(
             args,
@@ -353,6 +373,7 @@ def _run_pathfinder_cache(
         source="computed",
         initial_positions=jnp.asarray(warmup_result.init_positions),
         parameter_preconditioner_chol=jnp.asarray(warmup_result.preconditioner_chol),
+        init_latent_paths=init_latent_paths,
         diagnostics=diagnostics,
         elapsed_seconds=time.perf_counter() - started,
     )
@@ -1569,14 +1590,23 @@ def _run_one(args, *, fixture: _FixtureContext, smoother: str, seed: int) -> dic
         LATENT_PATH_MIXING_METRIC in selected_metrics
     )
     cached_init_positions = None
+    cached_init_latents = None
     cached_preconditioner_chol = None
     init_method = args.init_method
     auto_preconditioner_method = "pathfinder" if args.init_method == "pathfinder" else "none"
     if fixture.pathfinder_cache is not None:
-        cached_init_positions = fixture.pathfinder_cache.initial_positions
         cached_preconditioner_chol = fixture.pathfinder_cache.parameter_preconditioner_chol
-        init_method = "pathfinder"
         auto_preconditioner_method = "none"
+        if args.init_positions == "cache":
+            cached_init_positions = fixture.pathfinder_cache.initial_positions
+            cached_init_latents = fixture.pathfinder_cache.init_latent_paths
+            init_method = "pathfinder"
+        else:
+            # Random positions, cached preconditioner. The pathfinder mode of this
+            # fixture has locally explosive dynamics: its posterior density is
+            # finite but unconditional predictive simulation from it diverges, so
+            # the predictive latent init NaNs (kernel now fails fast on that).
+            init_method = "random"
 
     fit_started = time.perf_counter()
     logger.info(
@@ -1660,6 +1690,7 @@ def _run_one(args, *, fixture: _FixtureContext, smoother: str, seed: int) -> dic
             auto_preconditioner_method=auto_preconditioner_method,
             parameter_preconditioner_chol=cached_preconditioner_chol,
             initial_positions_override=cached_init_positions,
+            initial_latent_trajectories=cached_init_latents,
             init_scale=0.0,
             retain_latent_paths=retain_latent_paths,
             compute_latent_posterior_summary=not args.skip_latent_summary,
@@ -1822,6 +1853,17 @@ def parse_args() -> argparse.Namespace:
         choices=("random", "pathfinder"),
         default="pathfinder",
         help=("Production init method used only when --pathfinder-cache-mode=off."),
+    )
+    parser.add_argument(
+        "--init-positions",
+        choices=("cache", "random"),
+        default="cache",
+        help=(
+            "Initial parameter positions when a pathfinder cache is active: 'cache' "
+            "starts at the cached pathfinder mode; 'random' draws prior-scale "
+            "positions while still using the cached preconditioner (needed when the "
+            "mode is explosive under the predictive latent init)."
+        ),
     )
     parser.add_argument(
         "--pathfinder-cache-mode",

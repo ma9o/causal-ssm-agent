@@ -98,6 +98,11 @@ def fit_marginal_particle_gibbs(
     auto_preconditioner_maxiter: int = 200,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
     initial_positions_override: jnp.ndarray | None = None,
+    # (num_chains, T, n_latent) data-conditioned reference paths (e.g. IEKS
+    # smoothed paths at the init positions). Without this, the reference path
+    # comes from unconditional predictive simulation, which can diverge at
+    # data-informed positions of nonlinear vector fields.
+    initial_latent_trajectories: jnp.ndarray | None = None,
     latent_delta: float = 0.2,
     n_ieks_iters: int = 6,
     reparam=None,
@@ -241,7 +246,7 @@ def fit_marginal_particle_gibbs(
         latent_delta=latent_delta,
         retain_latent_paths=retain_latent_paths,
         init_positions=init_positions,
-        initial_latent_trajectories=None,
+        initial_latent_trajectories=initial_latent_trajectories,
         compute_latent_posterior_summary=compute_latent_posterior_summary,
         adaptation_scheme=adaptation_scheme,
         profile_dir=profile_dir,

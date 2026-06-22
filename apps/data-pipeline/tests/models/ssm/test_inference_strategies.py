@@ -1892,6 +1892,55 @@ def test_marginal_particle_gibbs_rejects_nonfinite_initial_state():
         )
 
 
+def test_marginal_particle_gibbs_consumes_initial_latent_trajectories():
+    spec = _make_aux_kalman_mcmc_smoke_spec()
+    model = SSMModel(spec)
+    observations, times = _small_kalman_observations_and_times()
+    n_steps = int(observations.shape[0])
+    n_latent = int(spec.n_latent)
+    common = {
+        "observations": observations,
+        "times": times,
+        "method": "marginal_particle_gibbs",
+        "num_warmup": 1,
+        "num_samples": 1,
+        "num_chains": 1,
+        "seed": 43,
+        "n_particles": 3,
+        "n_parameter_particles": 2,
+        "latent_block_size": 2,
+        "latent_smoother": "dsmc",
+        "dsmc_leaf_proposal": "amala_exact",
+        "param_step_size": 0.001,
+        "parameter_proposal": "random_walk",
+        "init_method": "random",
+        "auto_preconditioner_method": "none",
+        "init_scale": 0.0,
+        "retain_latent_paths": True,
+        "reparam": None,
+    }
+
+    # A non-finite supplied trajectory must trip the init fail-fast, proving the
+    # supplied path is what seeds the reference trajectory.
+    with pytest.raises(ValueError, match="non-finite for chain"):
+        fit(
+            model,
+            initial_latent_trajectories=jnp.full((1, n_steps, n_latent), jnp.nan),
+            **common,
+        )
+
+    result = fit(
+        model,
+        initial_latent_trajectories=jnp.zeros((1, n_steps, n_latent)),
+        **common,
+    )
+    _assert_small_particle_mcmc_result(
+        result,
+        method="marginal_particle_gibbs",
+        num_samples=1,
+    )
+
+
 def test_marginal_particle_gibbs_rejects_unknown_parameter_proposal():
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
         build_marginal_particle_gibbs_kernel,
