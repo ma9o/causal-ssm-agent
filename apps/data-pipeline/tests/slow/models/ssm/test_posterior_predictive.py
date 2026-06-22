@@ -4,9 +4,12 @@ import jax.numpy as jnp
 import pytest
 
 from nof1_causal_lab.models.posterior_predictive import PPCResult, run_posterior_predictive_checks
-from nof1_causal_lab.models.predictive_simulation import simulate_predictive_observations
+from nof1_causal_lab.models.predictive_simulation import (
+    sample_predictive_observations_from_linear_predictors,
+)
 from tests.models.ssm._support import (
     complex_mixed_family_config,
+    complex_mixed_runtime_spec,
     make_complex_mixed_samples,
 )
 
@@ -20,10 +23,13 @@ class TestForwardSimulation:
         )
         samples = make_complex_mixed_samples()
         times = jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32)
+        # Exercise every emission family from a neutral observation linear predictor.
+        linear_predictors = jnp.zeros((8, 12, 10), dtype=jnp.float32)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            linear_predictors,
+            samples,
+            times,
             manifest_dists=manifest_dists,
             manifest_links=manifest_links,
             manifest_level_counts=manifest_level_counts,
@@ -49,11 +55,14 @@ class TestRunPPC:
         manifest_dists, manifest_links, manifest_level_counts, manifest_names = (
             complex_mixed_family_config()
         )
+        spec = complex_mixed_runtime_spec()
         samples = make_complex_mixed_samples(seed=7)
         times = jnp.linspace(0.0, 5.5, 12, dtype=jnp.float32)
-        reference_y, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        # Reference "observed" series: one neutral-predictor emission draw.
+        reference_y, _ = sample_predictive_observations_from_linear_predictors(
+            jnp.zeros((8, 12, 10), dtype=jnp.float32),
+            samples,
+            times,
             manifest_dists=manifest_dists,
             manifest_links=manifest_links,
             manifest_level_counts=manifest_level_counts,
@@ -67,9 +76,7 @@ class TestRunPPC:
             observations=observations,
             times=times,
             manifest_names=manifest_names,
-            manifest_dists=manifest_dists,
-            manifest_links=manifest_links,
-            manifest_level_counts=manifest_level_counts,
+            spec=spec,
             n_subsample=20,
         )
 

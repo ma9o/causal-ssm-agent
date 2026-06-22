@@ -54,7 +54,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
 
   it("normalizes top-level non-finite numbers in persisted stage payloads", async () => {
     vi.mocked(readData).mockResolvedValue(
-      '{"outcome":"warn","power_scaling":[{"parameter":"sigma","psis_k_hat":Infinity}]}',
+      '{"outcome":"warn","inference_metadata":{"duration_seconds":Infinity}}',
     );
 
     const response = await GET(new Request("http://localhost/api/results/user/stage-5b"), {
@@ -64,7 +64,7 @@ describe("GET /api/results/[workspaceId]/[stage]", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       outcome: "warn",
-      power_scaling: [{ parameter: "sigma", psis_k_hat: null }],
+      inference_metadata: { duration_seconds: null },
     });
   });
 

@@ -14,7 +14,6 @@ export default function Stage5bContent({ workspaceId, data }: { workspaceId: str
     <div className="space-y-4">
       {mock && <MockMethodSwitcher workspaceId={workspaceId} baseData={data} onDataChange={setActiveData} />}
       <DiagnosticsAccordion
-        powerScaling={activeData.power_scaling}
         ppc={activeData.ppc}
         mcmcDiagnostics={activeData.mcmc_diagnostics}
         smcDiagnostics={activeData.smc_diagnostics}

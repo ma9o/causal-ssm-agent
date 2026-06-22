@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.contracts_base import BaseStageContract
@@ -26,16 +24,6 @@ from nof1_causal_lab.models.ssm.inference.schemas import (  # noqa: TC001
 IS_INTERACTIVE_STAGE = False
 
 
-class PowerScalingResultContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    parameter: str
-    diagnosis: Literal["prior_dominated", "well_identified", "prior_data_conflict"]
-    prior_sensitivity: float
-    likelihood_sensitivity: float
-    psis_k_hat: float | None = None
-
-
 class PPCResultContract(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -47,7 +35,6 @@ class PPCResultContract(BaseModel):
 
 
 class Stage5bContract(BaseStageContract):
-    power_scaling: list[PowerScalingResultContract]
     ppc: PPCResultContract
     inference_metadata: InferenceMetadataContract
     mcmc_diagnostics: MCMCDiagnostics | None = None
@@ -57,14 +44,9 @@ class Stage5bContract(BaseStageContract):
     posterior_pairs: list[PosteriorPair] | None = None
 
     def summary_message(self) -> str:
-        ps_issues = sum(
-            1
-            for item in self.power_scaling
-            if item.diagnosis in {"prior_dominated", "prior_data_conflict"}
-        )
         ppc_warnings = len(self.ppc.per_variable_warnings)
         return (
             f"Stage 5b summary: method={self.inference_metadata.method} "
             f"samples={self.inference_metadata.n_samples} "
-            f"power_scaling_issues={ps_issues} ppc_warnings={ppc_warnings} outcome={self.outcome}"
+            f"ppc_warnings={ppc_warnings} outcome={self.outcome}"
         )

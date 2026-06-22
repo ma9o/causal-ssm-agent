@@ -5,7 +5,6 @@ import jax.random as random
 import numpy as np
 import pytest
 
-import nof1_causal_lab.models.predictive_simulation as predictive_simulation_module
 from nof1_causal_lab.models.posterior_predictive import (
     _check_calibration,
     _check_residual_autocorrelation,
@@ -16,15 +15,37 @@ from nof1_causal_lab.models.posterior_predictive import (
 )
 from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
-    simulate_predictive_observations,
+    sample_predictive_observations_from_linear_predictors,
 )
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from tests.models.ssm._support import (
-    make_samples as _make_samples,
-)
+
+
+def _make_lp_and_samples(
+    n_draws: int,
+    n_timepoints: int,
+    n_manifest: int,
+    *,
+    obs_sd: float = 0.5,
+    lp: float = 0.0,
+    **extra: jnp.ndarray,
+) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+    """Build observation linear predictors + the minimal ``samples`` the exact
+    observation sampler needs (``manifest_cov`` + any emission extra-params).
+
+    The latent simulation is exercised separately (prior/posterior predictive via
+    the Diffrax vector field); these tests pin only the emission-family sampling
+    given precomputed linear predictors, so no drift/spec is required.
+    """
+    linear_predictors = jnp.full((n_draws, n_timepoints, n_manifest), lp, dtype=jnp.float32)
+    manifest_cov = jnp.broadcast_to(
+        jnp.eye(n_manifest, dtype=jnp.float32) * (obs_sd**2),
+        (n_draws, n_manifest, n_manifest),
+    )
+    samples: dict[str, jnp.ndarray] = {"manifest_cov": manifest_cov, **extra}
+    return linear_predictors, samples
 
 
 class TestForwardSimulation:
@@ -55,14 +76,12 @@ class TestForwardSimulation:
 
     def test_forward_simulate_shape(self):
         """Output shape is (n_subsample, T, n_manifest)."""
-        n_draws, T, n_latent, n_manifest = 10, 20, 2, 3
-        samples = _make_samples(n_draws=n_draws, n_latent=n_latent, n_manifest=n_manifest)
+        n_draws, T, n_manifest = 10, 20, 3
+        lp, samples = _make_lp_and_samples(n_draws, T, n_manifest)
         times = jnp.arange(T, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
-            n_subsample=n_draws,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples, times, n_subsample=n_draws
         )
 
         assert y_sim.shape == (n_draws, T, n_manifest)
@@ -70,29 +89,27 @@ class TestForwardSimulation:
 
     def test_forward_simulate_subsample(self):
         """Subsampling returns fewer draws than total."""
-        samples = _make_samples(n_draws=50, n_latent=2, n_manifest=2)
+        lp, samples = _make_lp_and_samples(50, 15, 2)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(samples=samples, times=times, n_subsample=10)
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples, times, n_subsample=10
+        )
 
         assert y_sim.shape[0] == 10
 
     def test_forward_simulate_support_aware_window_average_respects_emission_schedule(self):
         """Interval-summary PPC emits only on anchor rows and uses aggregated means."""
-        samples = {
-            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
-            "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
-            "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
-            "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
-            "t0_means": jnp.array([[1.0]], dtype=jnp.float32),
-            "t0_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
-        }
+        # Latent held at 1.0, so the observation linear predictor is 1.0 every row.
+        lp = jnp.ones((1, 3, 1), dtype=jnp.float32)
+        samples = {"manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32)}
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
         obs_mask = jnp.array([[False], [False], [True]])
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["gaussian"],
             observation_support=self._window_average_support(),
             observation_mask=obs_mask,
@@ -105,143 +122,26 @@ class TestForwardSimulation:
         assert jnp.isnan(y_sim[0, 1, 0])
         assert abs(float(y_sim[0, 2, 0]) - 1.0) < 0.05
 
-    def test_forward_simulate_uses_t0_for_first_observation(self, monkeypatch):
-        """The first observation is emitted from the initial state, not a fake transition."""
-        samples = {
-            "drift": jnp.array([[[-0.1]]]),
-            "diffusion": jnp.zeros((1, 1, 1)),
-            "lambda": jnp.array([[[1.0]]]),
-            "manifest_cov": jnp.array([[[0.0]]]),
-            "t0_means": jnp.array([[2.0]]),
-            "t0_cov": jnp.array([[[0.0]]]),
-        }
-        times = jnp.array([0.0, 1.0, 2.0])
-
-        def fake_discretize_system_with_inputs_batched(
-            dynamics,
-            diffusion_cov,
-            cint,
-            input_effect,
-            interval_inputs,
-            dt_array,
-        ):
-            del dynamics, diffusion_cov, cint
-            assert input_effect is None
-            assert interval_inputs is None
-            assert dt_array.shape == (2,)
-            Ad = jnp.array([[[10.0]], [[1.0]]])
-            Qd = jnp.zeros((2, 1, 1))
-            cd = jnp.array([[5.0], [0.0]])
-            return Ad, Qd, cd
-
-        monkeypatch.setattr(
-            predictive_simulation_module,
-            "discretize_system_with_inputs_batched",
-            fake_discretize_system_with_inputs_batched,
-        )
-
-        y_sim, _ = predictive_simulation_module.simulate_predictive_observations(
-            samples=samples,
-            times=times,
-            n_subsample=1,
-            rng_seed=0,
-        )
-
-        assert y_sim.shape == (1, 3, 1)
-        assert abs(float(y_sim[0, 0, 0]) - 2.0) < 0.01
-
-    def test_forward_simulate_mixed_repairs_slightly_indefinite_process_covariance(
-        self, monkeypatch
-    ):
-        """Mixed-family simulation stays finite when discretization is numerically indefinite."""
-        samples = _make_samples(n_draws=3, n_latent=2, n_manifest=3, obs_sd=0.1)
-        samples["lambda"] = jnp.broadcast_to(samples["lambda"], (3, *samples["lambda"].shape))
-        samples["manifest_cov"] = jnp.broadcast_to(
-            samples["manifest_cov"], (3, *samples["manifest_cov"].shape)
-        )
-        samples["t0_cov"] = jnp.broadcast_to(samples["t0_cov"], (3, *samples["t0_cov"].shape))
-        times = jnp.array([0.0, 1.0, 2.0])
-
-        def fake_discretize_system_with_inputs_batched(
-            dynamics,
-            diffusion_cov,
-            cint,
-            input_effect,
-            interval_inputs,
-            dt_array,
-        ):
-            del dynamics, diffusion_cov, cint
-            assert input_effect is None
-            assert interval_inputs is None
-            assert dt_array.shape == (2,)
-            Ad = jnp.broadcast_to(jnp.eye(2), (2, 2, 2))
-            Qd = jnp.array(
-                [
-                    [[1.0e-8, 0.0], [0.0, -1.5e-8]],
-                    [[1.0e-3, 0.0], [0.0, 1.0e-3]],
-                ]
-            )
-            cd = jnp.zeros((2, 2))
-            return Ad, Qd, cd
-
-        monkeypatch.setattr(
-            predictive_simulation_module,
-            "discretize_system_with_inputs_batched",
-            fake_discretize_system_with_inputs_batched,
-        )
-
-        y_sim, _ = predictive_simulation_module.simulate_predictive_observations(
-            samples=samples,
-            times=times,
-            manifest_dists=["gaussian", "bernoulli", "gaussian"],
-            n_subsample=3,
-            rng_seed=0,
-        )
-
-        assert y_sim.shape == (3, 3, 3)
-        assert jnp.all(jnp.isfinite(y_sim))
-
     def test_forward_simulate_poisson(self):
         """Poisson noise family produces non-negative observations."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.1)
+        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples, times=times, manifest_dists=["poisson", "poisson"], n_subsample=10
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples, times, manifest_dists=["poisson", "poisson"], n_subsample=10
         )
 
         assert y_sim.shape == (10, 15, 2)
         # Poisson samples are non-negative integers
         assert jnp.all(y_sim >= 0)
 
-    def test_forward_simulate_mixed_diffusion_process(self):
-        """Predictive simulation should honor mixed per-latent diffusion families."""
-        samples = _make_samples(n_draws=6, n_latent=2, n_manifest=2, obs_sd=0.1)
-        samples["proc_df"] = jnp.full((6,), 5.0)
-        times = jnp.arange(6, dtype=float)
-
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
-            diffusion_dists=["gaussian", "student_t"],
-            n_subsample=6,
-            rng_seed=0,
-        )
-
-        assert y_sim.shape == (6, 6, 2)
-        assert jnp.all(jnp.isfinite(y_sim))
-
     def test_forward_simulate_student_t(self):
         """Student-t noise family produces finite values with heavier tails."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.5)
-        samples["obs_df"] = jnp.array(3.0)  # low df = heavy tails
+        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.5, obs_df=jnp.array(3.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
-            manifest_dists=["student_t", "student_t"],
-            n_subsample=10,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples, times, manifest_dists=["student_t", "student_t"], n_subsample=10
         )
 
         assert y_sim.shape == (10, 15, 2)
@@ -249,12 +149,11 @@ class TestForwardSimulation:
 
     def test_forward_simulate_gamma(self):
         """Gamma noise family produces positive observations."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
-        samples["obs_shape"] = jnp.array(2.0)
+        lp, samples = _make_lp_and_samples(10, 15, 2, obs_shape=jnp.array(2.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples, times=times, manifest_dists=["gamma", "gamma"], n_subsample=10
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples, times, manifest_dists=["gamma", "gamma"], n_subsample=10
         )
 
         assert y_sim.shape == (10, 15, 2)
@@ -262,21 +161,16 @@ class TestForwardSimulation:
 
     def test_forward_simulate_raises_on_log_link_mean_overflow(self):
         """Overflowing log-link means fail before observation sampling."""
-        samples = {
-            "drift": jnp.array([[[-1.0e-6]]], dtype=jnp.float32),
-            "diffusion": jnp.array([[[0.0]]], dtype=jnp.float32),
-            "lambda": jnp.array([[[1.0]]], dtype=jnp.float32),
-            "manifest_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
-            "t0_means": jnp.array([[1000.0]], dtype=jnp.float32),
-            "t0_cov": jnp.array([[[0.0]]], dtype=jnp.float32),
-            "obs_shape": jnp.array(2.0, dtype=jnp.float32),
-        }
+        lp, samples = _make_lp_and_samples(
+            1, 3, 1, lp=1000.0, obs_shape=jnp.array(2.0, dtype=jnp.float32)
+        )
         times = jnp.array([0.0, 1.0, 2.0], dtype=jnp.float32)
 
         with pytest.raises(PredictiveObservationMeanOverflow, match="log-link mean overflow"):
-            simulate_predictive_observations(
-                samples=samples,
-                times=times,
+            sample_predictive_observations_from_linear_predictors(
+                lp,
+                samples,
+                times,
                 manifest_dists=["gamma"],
                 manifest_names=["monthly_eveningness_activity_timing"],
                 n_subsample=1,
@@ -285,13 +179,18 @@ class TestForwardSimulation:
 
     def test_forward_simulate_ordered_logistic(self):
         """Ordered-logistic simulation returns encoded category indices."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
-        samples["obs_ordered_cutpoints"] = jnp.array([[-1.0, 1.0, 0.0], [-1.5, 0.0, 1.5]])
+        lp, samples = _make_lp_and_samples(
+            10,
+            15,
+            2,
+            obs_ordered_cutpoints=jnp.array([[-1.0, 1.0, 0.0], [-1.5, 0.0, 1.5]]),
+        )
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["ordered_logistic", "ordered_logistic"],
             manifest_level_counts=[3, 4],
             n_subsample=10,
@@ -304,14 +203,19 @@ class TestForwardSimulation:
 
     def test_forward_simulate_categorical(self):
         """Categorical simulation returns encoded category indices."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
-        samples["obs_cat_intercepts"] = jnp.array([[-1.0, 0.5], [0.2, -0.3]])
-        samples["obs_cat_slopes"] = jnp.array([[0.2, -0.4], [0.5, 0.1]])
+        lp, samples = _make_lp_and_samples(
+            10,
+            15,
+            2,
+            obs_cat_intercepts=jnp.array([[-1.0, 0.5], [0.2, -0.3]]),
+            obs_cat_slopes=jnp.array([[0.2, -0.4], [0.5, 0.1]]),
+        )
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["categorical", "categorical"],
             manifest_level_counts=[3, 3],
             n_subsample=10,
@@ -328,15 +232,19 @@ class TestDiagnosticChecks:
     def test_calibration_well_specified(self):
         """Data generated from same model should have good calibration."""
         n_draws, T, n_manifest = 100, 50, 2
-        samples = _make_samples(n_draws=n_draws, n_latent=2, n_manifest=n_manifest)
+        lp = random.normal(random.PRNGKey(0), (n_draws, T, n_manifest)) * 0.5
+        samples = {
+            "manifest_cov": jnp.broadcast_to(
+                jnp.eye(n_manifest) * 0.25, (n_draws, n_manifest, n_manifest)
+            )
+        }
         times = jnp.arange(T, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples, times=times, n_subsample=n_draws, rng_seed=0
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples, times, n_subsample=n_draws, rng_seed=0
         )
         # Use one draw as "observed data" — should be well-calibrated
-        key = random.PRNGKey(99)
-        obs_idx = random.randint(key, (), 0, n_draws)
+        obs_idx = int(random.randint(random.PRNGKey(99), (), 0, n_draws))
         observations = y_sim[obs_idx]  # (T, m)
 
         warnings = _check_calibration(y_sim, observations, [f"var_{j}" for j in range(n_manifest)])
@@ -352,12 +260,15 @@ class TestDiagnosticChecks:
         manifest_names = [f"var_{j}" for j in range(n_manifest)]
 
         # Simulate from one model
-        samples_true = _make_samples(
-            n_draws=100, n_latent=2, n_manifest=n_manifest, decay_diag=-0.3
-        )
+        lp = random.normal(random.PRNGKey(0), (100, T, n_manifest)) * 0.5
+        samples_true = {
+            "manifest_cov": jnp.broadcast_to(
+                jnp.eye(n_manifest) * 0.25, (100, n_manifest, n_manifest)
+            )
+        }
         times = jnp.arange(T, dtype=float)
-        y_sim_true, _ = simulate_predictive_observations(
-            samples=samples_true, times=times, n_subsample=100, rng_seed=0
+        y_sim_true, _ = sample_predictive_observations_from_linear_predictors(
+            lp, samples_true, times, n_subsample=100, rng_seed=0
         )
 
         # Observations from a very different model (large shift)
@@ -497,12 +408,13 @@ class TestLinkFunctionSimulation:
 
     def test_forward_simulate_bernoulli_probit(self):
         """Probit Bernoulli produces valid binary-range observations."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.1)
+        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["bernoulli", "bernoulli"],
             manifest_links=["probit", "probit"],
             n_subsample=10,
@@ -515,15 +427,13 @@ class TestLinkFunctionSimulation:
 
     def test_forward_simulate_gamma_inverse(self):
         """Inverse Gamma produces positive observations."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
-        samples["obs_shape"] = jnp.array(2.0)
-        samples["lambda"] = jnp.zeros((2, 2), dtype=jnp.float32)
-        samples["manifest_means"] = jnp.full((10, 2), 2.0, dtype=jnp.float32)
+        lp, samples = _make_lp_and_samples(10, 15, 2, lp=2.0, obs_shape=jnp.array(2.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["gamma", "gamma"],
             manifest_links=["inverse", "inverse"],
             n_subsample=10,
@@ -535,15 +445,13 @@ class TestLinkFunctionSimulation:
 
     def test_forward_simulate_gamma_inverse_invalid_predictor_surfaces_nan(self):
         """Inverse Gamma PPC leaves invalid inverse-link draws as NaN."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2)
-        samples["obs_shape"] = jnp.array(2.0)
-        samples["lambda"] = jnp.zeros((2, 2), dtype=jnp.float32)
-        samples["manifest_means"] = jnp.full((10, 2), -1.0, dtype=jnp.float32)
+        lp, samples = _make_lp_and_samples(10, 15, 2, lp=-1.0, obs_shape=jnp.array(2.0))
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["gamma", "gamma"],
             manifest_links=["inverse", "inverse"],
             n_subsample=10,
@@ -554,12 +462,13 @@ class TestLinkFunctionSimulation:
 
     def test_forward_simulate_beta_probit(self):
         """Probit Beta produces observations in (0, 1)."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.1)
+        lp, samples = _make_lp_and_samples(10, 15, 2, obs_sd=0.1)
         times = jnp.arange(15, dtype=float)
 
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["beta", "beta"],
             manifest_links=["probit", "probit"],
             n_subsample=10,
@@ -572,13 +481,14 @@ class TestLinkFunctionSimulation:
 
     def test_mixed_links_dispatch(self):
         """Mixed distribution with non-default links uses correct dispatch."""
-        samples = _make_samples(n_draws=10, n_latent=2, n_manifest=2, obs_sd=0.1)
+        lp, samples = _make_lp_and_samples(10, 10, 2, obs_sd=0.1)
         times = jnp.arange(10, dtype=float)
 
         # Channel 0: Bernoulli probit, Channel 1: Bernoulli logit (default)
-        y_sim, _ = simulate_predictive_observations(
-            samples=samples,
-            times=times,
+        y_sim, _ = sample_predictive_observations_from_linear_predictors(
+            lp,
+            samples,
+            times,
             manifest_dists=["bernoulli", "bernoulli"],
             manifest_links=["probit", "logit"],
             n_subsample=10,

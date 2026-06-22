@@ -13,9 +13,6 @@ export const DEFAULT_N_SAMPLES = 1000;
 export const PARETO_K_FAIL = 0.7;
 export const PARETO_K_WARN = 0.5;
 
-// Power-scaling sensitivity threshold
-export const POWER_SCALING_THRESHOLD = 0.05;
-
 // PPC p-value tail thresholds
 export const PPC_P_LOWER = 0.05;
 export const PPC_P_UPPER = 0.95;

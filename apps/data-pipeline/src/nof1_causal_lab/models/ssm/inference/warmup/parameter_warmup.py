@@ -1,4 +1,15 @@
-"""Shared parameter warmup and preconditioner setup for blocked SSM MCMC."""
+"""Shared parameter warmup and preconditioner setup for blocked SSM MCMC.
+
+Init positions (Pathfinder draws) and the preconditioner (Pathfinder or
+Laplace/MAP covariance) are Gaussian approximations used only to warm-start the
+sampler. Seeding from them is valid no matter how poor the linearization is: the
+invariant distribution is the exact posterior for any seed, so the approximation
+sets burn-in, not the target (Andrieu, Doucet & Holenstein 2010). init_positions
+consumes only the location, never the covariance, so a bad linearization cannot
+bias the result; the preconditioner uses the covariance but only as a proposal
+scale that the Metropolis accept/reject corrects and adaptation re-tunes. These
+Gaussians are seeds, never the reported posterior.
+"""
 
 from __future__ import annotations
 

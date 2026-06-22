@@ -1849,52 +1849,6 @@
       "title": "PosteriorPair",
       "type": "object"
     },
-    "PowerScalingResultContract": {
-      "additionalProperties": false,
-      "properties": {
-        "parameter": {
-          "title": "Parameter",
-          "type": "string"
-        },
-        "diagnosis": {
-          "enum": [
-            "prior_dominated",
-            "well_identified",
-            "prior_data_conflict"
-          ],
-          "title": "Diagnosis",
-          "type": "string"
-        },
-        "prior_sensitivity": {
-          "title": "Prior Sensitivity",
-          "type": "number"
-        },
-        "likelihood_sensitivity": {
-          "title": "Likelihood Sensitivity",
-          "type": "number"
-        },
-        "psis_k_hat": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Psis K Hat"
-        }
-      },
-      "required": [
-        "diagnosis",
-        "likelihood_sensitivity",
-        "parameter",
-        "prior_sensitivity"
-      ],
-      "title": "PowerScalingResultContract",
-      "type": "object"
-    },
     "PriorDistributionFamily": {
       "description": "Distribution families allowed in Stage 4 prior proposals.",
       "enum": [
@@ -2589,13 +2543,6 @@
           "default": null,
           "title": "Fail Reason"
         },
-        "power_scaling": {
-          "items": {
-            "$ref": "#/$defs/PowerScalingResultContract"
-          },
-          "title": "Power Scaling",
-          "type": "array"
-        },
         "ppc": {
           "$ref": "#/$defs/PPCResultContract"
         },
@@ -2669,7 +2616,6 @@
       "required": [
         "inference_metadata",
         "outcome",
-        "power_scaling",
         "ppc"
       ],
       "title": "Stage5bContract",

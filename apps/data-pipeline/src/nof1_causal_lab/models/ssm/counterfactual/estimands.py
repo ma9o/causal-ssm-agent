@@ -85,18 +85,3 @@ def build_time_grid(t_start: float, t_end: float, dt: float) -> Array:
     """Inclusive uniform grid from ``t_start`` to ``t_end`` at spacing ``dt``."""
     n_steps = int(jnp.ceil((t_end - t_start) / dt)) + 1
     return jnp.linspace(t_start, t_end, num=n_steps)
-
-
-def project_to_manifest(
-    latent_effects: Array,
-    lambda_mat: Array,
-    outcome_latent_idx: int,
-) -> Array:
-    """Manifest-level effect: ``lambda[:, outcome] * effect_on_outcome_latent``.
-
-    ``latent_effects`` is the per-latent effect (e.g., at steady state or a
-    horizon endpoint). Only the outcome-latent loading column contributes
-    because we project a scalar latent effect, not a full vector.
-    """
-    loadings = lambda_mat[:, outcome_latent_idx]
-    return loadings * latent_effects[outcome_latent_idx]

@@ -34,14 +34,12 @@ from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
     assemble_extra_params_from_registry,
-    build_prior_runtime_bundle,
     load_prior_runtime_bundle,
     sample_prior_unconstrained,
 )
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMSpec
-    from nof1_causal_lab.models.ssm.priors import PriorRegistry
 
 
 class _InputDrivenVectorField(eqx.Module):
@@ -185,12 +183,17 @@ def _simulate_vector_field_predictive_latents(
         )
         eta0 = draw["t0_means"] + t0_chol @ random.normal(key_init, (spec.n_latent,))
         diffusion_chol = draw["diffusion"]
+        # ``input_effect`` is a deterministic recorded only when the model has
+        # exogenous inputs; posterior samples for input-free models omit it. Fall
+        # back to a zero-width effect (no input forcing). Prior-predictive samples
+        # always assemble it, so this leaves that path unchanged.
+        input_effect = draw.get("input_effect", jnp.zeros((spec.n_latent, 0), dtype=eta0.dtype))
         if int(times.shape[0]) == 1:
             latent_trajectory = eta0[None, :]
         else:
             vector_field = _prepare_vector_field_for_draw(
                 compiled.vector_field,
-                input_effect=draw["input_effect"],
+                input_effect=input_effect,
                 times=times,
                 transition_inputs=transition_inputs,
             )
@@ -280,6 +283,51 @@ def sample_prior_predictive_from_runtime(
     return samples
 
 
+def simulate_posterior_predictive_observations(
+    spec: SSMSpec,
+    samples: dict[str, jnp.ndarray],
+    times: jnp.ndarray,
+    *,
+    observation_support=None,
+    observation_mask: jnp.ndarray | None = None,
+    transition_inputs: jnp.ndarray | None = None,
+    n_subsample: int = 50,
+    rng_seed: int = 42,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
+    """Forward-simulate posterior-predictive observations through the exact field.
+
+    Subsamples ``n_subsample`` posterior draws and integrates each through the
+    *true* (Diffrax) vector field — the same nonlinearity-preserving simulator the
+    prior-predictive path uses, never a linearised drift matrix — then samples
+    observations from the emission families. Returns ``(observations,
+    effective_mask)`` with a leading subsample axis.
+    """
+    n_draws = int(next(iter(samples.values())).shape[0]) if samples else 0
+    n_use = min(n_subsample, n_draws)
+    indices = jnp.linspace(0, n_draws - 1, n_use).astype(int)
+    sub = {name: jnp.asarray(value)[indices] for name, value in samples.items()}
+    _latents, linear_predictors = _simulate_vector_field_predictive_latents(
+        spec,
+        sub,
+        times,
+        transition_inputs=transition_inputs,
+        seed=rng_seed,
+    )
+    return sample_predictive_observations_from_linear_predictors(
+        linear_predictors,
+        sub,
+        times,
+        manifest_dists=spec.manifest_dists,
+        manifest_links=spec.manifest_links,
+        manifest_level_counts=spec.manifest_level_counts,
+        observation_support=observation_support,
+        observation_mask=observation_mask,
+        n_subsample=n_use,
+        rng_seed=rng_seed,
+        manifest_names=list(spec.manifest_names) if spec.manifest_names is not None else None,
+    )
+
+
 def sample_prior_predictive_from_compiled_semantics(
     spec: SSMSpec,
     compiled_prior_semantics: dict,
@@ -293,31 +341,6 @@ def sample_prior_predictive_from_compiled_semantics(
 ) -> dict[str, jnp.ndarray]:
     """Sample prior predictive draws from serialized compiled semantics."""
     runtime = load_prior_runtime_bundle(compiled_prior_semantics)
-    return sample_prior_predictive_from_runtime(
-        spec,
-        runtime,
-        times,
-        observation_support=observation_support,
-        observation_mask=observation_mask,
-        transition_inputs=transition_inputs,
-        num_samples=num_samples,
-        seed=seed,
-    )
-
-
-def sample_prior_predictive_from_priors(
-    spec: SSMSpec,
-    priors: PriorRegistry | None,
-    times: jnp.ndarray,
-    *,
-    observation_support=None,
-    observation_mask: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
-    num_samples: int = 100,
-    seed: int = 0,
-) -> dict[str, jnp.ndarray]:
-    """Sample prior predictive draws from a ``PriorRegistry`` directly."""
-    runtime = build_prior_runtime_bundle(spec, priors)
     return sample_prior_predictive_from_runtime(
         spec,
         runtime,

@@ -103,16 +103,6 @@ async def run_stage6(
             )
         )
 
-    power_scaling_issues = [
-        {
-            "parameter": item.get("parameter"),
-            "diagnosis": item.get("diagnosis"),
-            "prior_sensitivity": item.get("prior_sensitivity"),
-            "likelihood_sensitivity": item.get("likelihood_sensitivity"),
-        }
-        for item in stage5b.get("power_scaling", [])
-        if item.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
-    ][:5]
     ppc_warnings = [
         {
             "variable": warning.get("variable"),
@@ -122,7 +112,7 @@ async def run_stage6(
         }
         for warning in stage5b.get("ppc", {}).get("per_variable_warnings", [])
     ][:5]
-    has_warnings = bool(power_scaling_issues or ppc_warnings)
+    has_warnings = bool(ppc_warnings)
 
     top_results = [
         {
@@ -144,7 +134,6 @@ async def run_stage6(
             .keys()
         ),
         "top_ranked_effects": top_results,
-        "power_scaling_issues": power_scaling_issues,
         "ppc_warnings": ppc_warnings,
         "follow_up_capabilities": {
             "get_model_info": "Inspect variables, measurement, identifiability, diagnostics, and baseline effects.",

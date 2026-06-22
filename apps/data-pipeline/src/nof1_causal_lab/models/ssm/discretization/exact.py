@@ -17,9 +17,10 @@ import jax.scipy.linalg as jla
 from jax import lax, vmap
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize
+from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 
-def _kron_lyapunov_solve(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
+def _kron_lyapunov_solve(A: Float[Array, "D D"], Q: Float[Array, "D D"]) -> Float[Array, "D D"]:
     """Solve AX + XA' = -Q via Kronecker vectorization.
 
     (I ⊗ A + A ⊗ I) vec(X) = vec(-Q). O(n^6) but fully differentiable.
@@ -32,7 +33,7 @@ def _kron_lyapunov_solve(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
 
 
 @jax.custom_jvp
-def solve_lyapunov(A: jnp.ndarray, Q: jnp.ndarray) -> jnp.ndarray:
+def solve_lyapunov(A: Float[Array, "D D"], Q: Float[Array, "D D"]) -> Float[Array, "D D"]:
     """Solve the continuous Lyapunov equation: A*X + X*A' = -Q.
 
     Computes the asymptotic diffusion covariance.
@@ -69,7 +70,9 @@ def _solve_lyapunov_jvp(primals, tangents):
     return X, dX
 
 
-def compute_asymptotic_diffusion(drift: jnp.ndarray, diffusion_cov: jnp.ndarray) -> jnp.ndarray:
+def compute_asymptotic_diffusion(
+    drift: Float[Array, "D D"], diffusion_cov: Float[Array, "D D"]
+) -> Float[Array, "D D"]:
     """Compute asymptotic (stationary) diffusion covariance.
 
     Solves: A*Q_inf + Q_inf*A' = -G*G'
@@ -89,12 +92,12 @@ def compute_asymptotic_diffusion(drift: jnp.ndarray, diffusion_cov: jnp.ndarray)
 
 
 def compute_discrete_diffusion(
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
     dt: float | jax.Array,
-    discrete_drift: jnp.ndarray | None = None,
-    asymptotic_diffusion: jnp.ndarray | None = None,
-) -> jnp.ndarray:
+    discrete_drift: Float[Array, "D D"] | None = None,
+    asymptotic_diffusion: Float[Array, "D D"] | None = None,
+) -> Float[Array, "D D"]:
     """Compute discrete-time diffusion covariance for time interval dt.
 
     Q_dt = Q_inf - exp(A*dt) * Q_inf * exp(A*dt)'
@@ -131,10 +134,10 @@ def compute_discrete_diffusion(
 
 
 def compute_discrete_diffusion_van_loan(
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
     dt: float | jax.Array,
-) -> jnp.ndarray:
+) -> Float[Array, "D D"]:
     """Compute discrete diffusion exactly with the Van Loan block exponential.
 
     Unlike the stationary-covariance identity used by
@@ -157,11 +160,11 @@ def compute_discrete_diffusion_van_loan(
 
 
 def compute_discrete_cint(
-    drift: jnp.ndarray,
-    cint: jnp.ndarray,
+    drift: Float[Array, "D D"],
+    cint: Array,
     dt: float | jax.Array,
-    discrete_drift: jnp.ndarray | None = None,
-) -> jnp.ndarray:
+    discrete_drift: Float[Array, "D D"] | None = None,
+) -> Array:
     """Compute discrete-time intercept for time interval dt.
 
     c_dt = A^{-1} * (exp(A*dt) - I) * c
@@ -191,10 +194,10 @@ def compute_discrete_cint(
 
 
 def compute_discrete_cint_exact(
-    drift: jnp.ndarray,
-    cint: jnp.ndarray,
+    drift: Float[Array, "D D"],
+    cint: Array,
     dt: float | jax.Array,
-) -> jnp.ndarray:
+) -> Float[Array, " D"]:
     """Compute the exact discrete intercept without assuming invertible drift."""
     n = drift.shape[0]
     cint_vec = jnp.asarray(cint, dtype=drift.dtype).reshape(n)
@@ -206,11 +209,11 @@ def compute_discrete_cint_exact(
 
 
 def discretize_system(
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    cint: jnp.ndarray | None,
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
+    cint: Array | None,
     dt: float,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+) -> tuple[Float[Array, "D D"], Float[Array, "D D"], Array | None]:
     """Discretize the continuous-time system for a given time interval.
 
     Computes:
@@ -238,11 +241,11 @@ def _normalize_batched_cint(discrete_cint: jnp.ndarray) -> jnp.ndarray:
 
 
 def discretize_linear_system_exact(
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    cint: jnp.ndarray | None,
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
+    cint: Array | None,
     dt: float | jax.Array,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+) -> tuple[Float[Array, "D D"], Float[Array, "D D"], Array | None]:
     """Exact CT→DT discretization for general linear systems.
 
     This variant is valid for augmented systems with singular drift, such as
@@ -257,11 +260,11 @@ def discretize_linear_system_exact(
 
 
 def discretize_linear_system_exact_batched(
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    cint: jnp.ndarray | None,
-    dt_array: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
+    cint: Array | None,
+    dt_array: Float[Array, " T"],
+) -> tuple[Float[Array, "T D D"], Float[Array, "T D D"], Array | None]:
     """Batch exact discretization for general linear systems."""
     n_steps = dt_array.shape[0]
     n_latent = drift.shape[0]
@@ -334,11 +337,11 @@ def discretize_linear_system_exact_batched(
 
 
 def discretize_system_batched(
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    cint: jnp.ndarray | None,
-    dt_array: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
+    cint: Array | None,
+    dt_array: Float[Array, " T"],
+) -> tuple[Float[Array, "T D D"], Float[Array, "T D D"], Array | None]:
     """Batch-discretize CT system over an array of time intervals.
 
     Uses jax.vmap over the dt dimension. For T timesteps, produces
@@ -371,13 +374,13 @@ def discretize_system_batched(
 
 
 def discretize_system_with_inputs_batched(
-    drift: jnp.ndarray,
-    diffusion_cov: jnp.ndarray,
-    cint: jnp.ndarray | None,
-    input_effect: jnp.ndarray | None,
-    transition_inputs: jnp.ndarray | None,
-    dt_array: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+    drift: Float[Array, "D D"],
+    diffusion_cov: Float[Array, "D D"],
+    cint: Array | None,
+    input_effect: Array | None,
+    transition_inputs: Array | None,
+    dt_array: Float[Array, " T"],
+) -> tuple[Float[Array, "T D D"], Float[Array, "T D D"], Array | None]:
     """Batch-discretize CT dynamics with piecewise-constant known inputs."""
     Ad, Qd, cd = discretize_system_batched(drift, diffusion_cov, cint, dt_array)
     if input_effect is None or input_effect.shape[1] == 0:

@@ -329,7 +329,7 @@ def stage5b(
     workspace_id: str,
     inference_method: str | None = None,
 ) -> Stage5bContract:
-    """Fit model, run power-scaling and posterior predictive checks."""
+    """Fit model and run posterior predictive checks."""
     from .stages.stage5b.flow import run_stage5b
 
     compiled_ssm = _load_compiled_ssm(workspace_id)

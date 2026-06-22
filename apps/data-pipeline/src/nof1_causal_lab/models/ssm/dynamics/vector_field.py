@@ -21,20 +21,14 @@ The vector field is responsible for:
 each component reads its own slice and never sees others'.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 
+from nof1_causal_lab.models.ssm.shapes import Array, Float
+
+from .edges import VectorFieldComponent
 from .intervention import EdgeInputOverride, Intervention, VariableOverride
-
-if TYPE_CHECKING:
-    from jax import Array
-
-    from .edges import VectorFieldComponent
 
 
 class VectorFieldArgs(eqx.Module):
@@ -50,10 +44,10 @@ class VectorFieldArgs(eqx.Module):
 
 
 def apply_variable_overrides_to_state(
-    eta: Array,
+    eta: Float[Array, " D"],
     t: Array,
     intervention: Intervention,
-) -> Array:
+) -> Float[Array, " D"]:
     """Clamp ``eta[i] = u_i(t)`` for each variable override."""
     for ov in intervention.variable_overrides():
         eta = eta.at[ov.index].set(ov.value_fn(t))
@@ -61,10 +55,10 @@ def apply_variable_overrides_to_state(
 
 
 def _apply_edge_input_overrides(
-    eta_eff: Array,
+    eta_eff: Float[Array, "D D"],
     t: Array,
     intervention: Intervention,
-) -> Array:
+) -> Float[Array, "D D"]:
     """Replace ``eta_eff[target, source]`` with ``u(t)`` per edge override."""
     for ov in intervention.edge_input_overrides():
         if not isinstance(ov, EdgeInputOverride):
@@ -74,10 +68,10 @@ def _apply_edge_input_overrides(
 
 
 def _apply_variable_overrides_to_derivative(
-    d_eta: Array,
+    d_eta: Float[Array, " D"],
     t: Array,
     intervention: Intervention,
-) -> Array:
+) -> Float[Array, " D"]:
     """Replace ``d_eta[index]`` with ``d(value_fn)/dt`` for each variable
     override so the integrated trajectory matches ``value_fn``."""
     for ov in intervention.variable_overrides():
@@ -105,23 +99,29 @@ class VectorField(eqx.Module):
     n_latent: int = eqx.field(static=True)
     components: tuple[VectorFieldComponent, ...]
 
-    def __call__(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
+    def __call__(
+        self, t: Array, eta: Float[Array, " D"], args: VectorFieldArgs
+    ) -> Float[Array, " D"]:
         d_eta = self._natural_derivative(t, eta, args)
         return _apply_variable_overrides_to_derivative(d_eta, t, args.intervention)
 
     def initial_condition(
-        self, eta0: Array, args: VectorFieldArgs, t0: Array | float = 0.0
-    ) -> Array:
+        self, eta0: Float[Array, " D"], args: VectorFieldArgs, t0: Array | float = 0.0
+    ) -> Float[Array, " D"]:
         return apply_variable_overrides_to_state(eta0, jnp.asarray(t0), args.intervention)
 
-    def steady_state_residual(self, eta: Array, args: VectorFieldArgs) -> Array:
+    def steady_state_residual(
+        self, eta: Float[Array, " D"], args: VectorFieldArgs
+    ) -> Float[Array, " D"]:
         residual = self._natural_derivative(jnp.asarray(0.0), eta, args)
         for ov in args.intervention.variable_overrides():
             target = ov.value_fn(jnp.asarray(0.0))
             residual = residual.at[ov.index].set(eta[ov.index] - target)
         return residual
 
-    def _natural_derivative(self, t: Array, eta: Array, args: VectorFieldArgs) -> Array:
+    def _natural_derivative(
+        self, t: Array, eta: Float[Array, " D"], args: VectorFieldArgs
+    ) -> Float[Array, " D"]:
         eta_eff = jnp.broadcast_to(eta[None, :], (self.n_latent, self.n_latent))
         eta_eff = _apply_edge_input_overrides(eta_eff, t, args.intervention)
 
@@ -132,10 +132,10 @@ class VectorField(eqx.Module):
 
     def linearize(
         self,
-        x_lin: Array,
+        x_lin: Float[Array, " D"],
         args: VectorFieldArgs,
         t: Array | None = None,
-    ) -> tuple[Array, Array]:
+    ) -> tuple[Float[Array, "D D"], Float[Array, " D"]]:
         """Local affine approximation ``f(t, x, args) ≈ A · x + b`` near ``x_lin``.
 
         ``A`` is the Jacobian ``∂f/∂x`` evaluated at ``x_lin`` via

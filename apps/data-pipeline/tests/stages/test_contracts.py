@@ -208,14 +208,6 @@ def valid_stage_payloads() -> dict[str, dict]:
             "prior_predictive_samples": {"stress_score": [0.1, -0.2, 0.3]},
         },
         "stage-5b": {
-            "power_scaling": [
-                {
-                    "parameter": "rho_Stress",
-                    "diagnosis": "well_identified",
-                    "prior_sensitivity": 0.2,
-                    "likelihood_sensitivity": 0.8,
-                }
-            ],
             "ppc": {
                 "per_variable_warnings": [],
                 "checked": True,
@@ -271,13 +263,13 @@ def test_persist_web_result_normalizes_nonfinite_numbers(
     )
 
     payload = deepcopy(valid_stage_payloads["stage-5b"])
-    payload["power_scaling"][0]["psis_k_hat"] = float("inf")
+    payload["inference_metadata"]["duration_seconds"] = float("inf")
 
     result = persist_web_result.fn("stage-5b", payload, "run-123")
 
-    assert result["power_scaling"][0]["psis_k_hat"] is None
+    assert result["inference_metadata"]["duration_seconds"] is None
     written = json.loads(next(iter(captured.values())))
-    assert written["power_scaling"][0]["psis_k_hat"] is None
+    assert written["inference_metadata"]["duration_seconds"] is None
 
 
 def test_tool_server_registry_matches_served_tool_contracts() -> None:

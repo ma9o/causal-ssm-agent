@@ -240,33 +240,3 @@ def test_fit_model_restores_compile_cache_before_preparing_runtime(monkeypatch):
 
     assert restore_calls == [("workspace-123", compiled_ssm, True)]
     assert result["fitted"] is True
-
-
-def test_run_power_scaling_logs_completion_summary(monkeypatch, caplog):
-    fake_result = _FakeResult()
-    fake_model = _make_fake_model()
-    runtime = _make_runtime(fake_model)
-
-    class _FakePowerScalingResult:
-        def __init__(self) -> None:
-            self.prior_sensitivity = {"theta": 0.1}
-            self.likelihood_sensitivity = {"theta": 0.2}
-            self.diagnosis = {"theta": "well_identified"}
-            self.psis_k_hat = {"theta": 0.05}
-
-        def print_report(self):
-            return None
-
-    monkeypatch.setattr(
-        "nof1_causal_lab.models.ssm.diagnostics.power_scaling_sensitivity",
-        lambda **_kwargs: _FakePowerScalingResult(),
-    )
-
-    with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
-        result = stage5_inference.run_power_scaling.fn(
-            {"fitted": True, "result": fake_result, "runtime": runtime}
-        )
-
-    assert result["checked"] is True
-    assert "Running power-scaling sensitivity" in caplog.text
-    assert "Power-scaling complete in" in caplog.text

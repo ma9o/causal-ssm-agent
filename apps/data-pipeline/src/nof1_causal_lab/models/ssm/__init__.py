@@ -29,7 +29,6 @@ from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.priors import PriorRegistry, PriorSpec
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
-    LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN,
 )
 
 __all__ = [
@@ -46,7 +45,6 @@ __all__ = [
     "discretize_system_with_inputs_batched",
     # Model
     "LATENT_TRANSITION_EULER_MARUYAMA",
-    "LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN",
     "SSMModel",
     "SSMSpec",
     "PriorRegistry",

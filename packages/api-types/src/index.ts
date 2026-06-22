@@ -52,7 +52,6 @@ export type {
   ParameterSpec,
   PosteriorMarginal,
   PosteriorPair,
-  PowerScalingResultContract as PowerScalingResult,
   PPCOverlay,
   PPCResultContract as PPCResult,
   PPCTestStat,
@@ -131,7 +130,6 @@ export interface StageData<T = unknown> {
 // Named type aliases inlined in generated types but needed as standalone exports
 export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error";
-export type PowerScalingDiagnosis = "prior_dominated" | "well_identified" | "prior_data_conflict";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 export type StageOutcome = "success" | "warn" | "fail";
 export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";

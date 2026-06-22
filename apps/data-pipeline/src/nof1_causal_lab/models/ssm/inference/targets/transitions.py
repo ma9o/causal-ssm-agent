@@ -1,8 +1,6 @@
 """Transition matrix construction for inference backends."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -16,24 +14,23 @@ from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorFieldArgs
 from nof1_causal_lab.models.ssm.inference.targets.affine import derive_affine_dynamics
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+from nof1_causal_lab.models.ssm.inference.targets.base import RuntimeDynamics
+from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 
 class DiscreteTransitionParams(NamedTuple):
     """Batched discrete-time transition parameters."""
 
-    Ad: jnp.ndarray
-    Qd: jnp.ndarray
-    cd: jnp.ndarray | None
+    Ad: Float[Array, "T D D"]
+    Qd: Float[Array, "T D D"]
+    cd: Float[Array, "T D"] | None
 
 
 def _continuous_input_forcing(
     dynamics: RuntimeDynamics,
-    transition_inputs: jnp.ndarray | None,
-    time_intervals: jnp.ndarray,
-) -> jnp.ndarray | None:
+    transition_inputs: Array | None,
+    time_intervals: Float[Array, " T"],
+) -> Float[Array, "T D"] | None:
     input_effect = dynamics.input_effect
     if input_effect is None or input_effect.shape[1] == 0:
         return None
@@ -52,10 +49,10 @@ def _continuous_input_forcing(
 
 def build_discrete_transitions(
     dynamics: RuntimeDynamics,
-    time_intervals: jnp.ndarray,
+    time_intervals: Float[Array, " T"],
     *,
-    linearization_states: jnp.ndarray | None = None,
-    transition_inputs: jnp.ndarray | None = None,
+    linearization_states: Array | None = None,
+    transition_inputs: Array | None = None,
     intervention: Intervention | None = None,
 ) -> DiscreteTransitionParams:
     """Build batched CT-to-DT transitions from runtime vector-field dynamics.
@@ -111,10 +108,10 @@ def build_discrete_transitions(
         return DiscreteTransitionParams(Ad=Ad, Qd=Qd, cd=cd)
 
     def _per_step(
-        x_lin: jnp.ndarray,
-        dt: jnp.ndarray,
-        forcing: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None]:
+        x_lin: Float[Array, " D"],
+        dt: Array,
+        forcing: Float[Array, " D"],
+    ) -> tuple[Float[Array, "D D"], Float[Array, "D D"], Array | None]:
         drift, cint = dynamics.vector_field.linearize(x_lin, args)
         return discretize_linear_system_exact(
             drift,

@@ -23,40 +23,29 @@ unstable (eigenvalues with positive real part), which breaks the
 
 The relation to Corenflos & Särkkä (2025) §2.3 / Example 2.1: the per-
 step linearisation here is exactly the ``F_{t-1} ≈ ∇f(x_{t-1})``,
-``b_{t-1} ≈ f(x_{t-1}) - F_{t-1} x_{t-1}`` first-order approximation
-that auxiliary Kalman samplers use to form proposals for non-linear
-latent dynamics. The actual integration into ``auxiliary_kalman.py`` is
-deferred (see ``scratchpad/TODO.md``); this module provides the
-primitives.
+``b_{t-1} ≈ f(x_{t-1}) - F_{t-1} x_{t-1}`` first-order approximation.
+These primitives are consumed only by the IEKS/Laplace warmup backend
+that *initialises* the particle samplers (positions, preconditioner,
+reference path); no production estimate, diagnostic, or counterfactual
+uses them.
 """
-
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 
 from nof1_causal_lab.models.ssm.discretization.exact import discretize_linear_system_exact
-from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
-from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorFieldArgs
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from jax import Array
-
-    from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
+from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField, VectorFieldArgs
+from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 
 def discretize_at_state(
     vector_field: VectorField,
-    x_lin: Array,
+    x_lin: Float[Array, " D"],
     args: VectorFieldArgs,
-    diffusion_cov: Array,
+    diffusion_cov: Float[Array, "D D"],
     dt: float | Array,
     t: float | Array = 0.0,
-) -> tuple[Array, Array, Array]:
+) -> tuple[Float[Array, "D D"], Float[Array, "D D"], Float[Array, " D"]]:
     """Locally linearise ``vector_field`` at ``x_lin`` and discretise over ``dt``.
 
     Returns ``(A_d, Q_d, b_d)`` such that the linearised conditional
@@ -92,11 +81,11 @@ def discretize_at_state(
 
 def discretize_at_states_batched(
     vector_field: VectorField,
-    x_lin_batch: Array,
+    x_lin_batch: Float[Array, "T D"],
     args: VectorFieldArgs,
-    diffusion_cov: Array,
-    dt_batch: Array,
-) -> tuple[Array, Array, Array]:
+    diffusion_cov: Float[Array, "D D"],
+    dt_batch: Float[Array, " T"],
+) -> tuple[Float[Array, "T D D"], Float[Array, "T D D"], Float[Array, "T D"]]:
     """Per-step discretisation along a trajectory.
 
     ``vmap`` over per-step ``(x_lin_t, dt_t)`` so that an offline
@@ -115,67 +104,9 @@ def discretize_at_states_batched(
         ``(A_d_batch, Q_d_batch, b_d_batch)`` with leading dim ``T``.
     """
 
-    def _per_step(x_lin: Array, dt: Array) -> tuple[Array, Array, Array]:
+    def _per_step(
+        x_lin: Float[Array, " D"], dt: Array
+    ) -> tuple[Float[Array, "D D"], Float[Array, "D D"], Float[Array, " D"]]:
         return discretize_at_state(vector_field, x_lin, args, diffusion_cov, dt)
 
     return jax.vmap(_per_step, in_axes=(0, 0))(x_lin_batch, dt_batch)
-
-
-def make_filter_dynamics_callback(
-    vector_field: VectorField,
-    vf_params: tuple[dict[str, Array], ...],
-    intervention: Intervention | None = None,
-    *,
-    diffusion_cov: Array,
-    jitter: float = 1e-6,
-) -> Callable:
-    """Build a cuthbert-compatible ``get_dynamics_params`` callback.
-
-    The returned callable matches the signature
-    ``(state, model_inputs) -> (dynamics_fn, mean)`` expected by
-    ``cuthbert.gaussian.moments.build_filter``. Each call:
-
-    1. Reads the current step's ``dt`` from ``model_inputs['dt']``.
-    2. Linearises ``vector_field`` at ``state.mean`` (the filter's
-       running estimate).
-    3. Discretises to ``(A_d, b_d, chol(Q_d + jitter·I))`` via the Van
-       Loan expm path.
-    4. Returns a ``dynamics_fn(x) = (A_d·x + b_d, chol_Q)`` closure that
-       is *linear* in ``x``; the per-step linearisation point is fixed
-       per call (proper EKF semantics).
-
-    ``vf_params`` and ``intervention`` are captured at construction
-    time — within a single filter pass they don't vary. For inference
-    use, build a fresh callback per parameter draw or per MCMC step
-    (cheap; just creates a closure).
-
-    Args:
-        vector_field: Drift specification.
-        vf_params: Per-component parameter tuple matching ``vector_field.components``.
-        intervention: Optional intervention; defaults to ``Intervention.none()``.
-            For inference, the natural-dynamics case, leave as ``None``.
-        diffusion_cov: ``G·G'`` state-independent diffusion.
-        jitter: Added to the diagonal of ``Q_d`` before Cholesky for
-            numerical stability when the linearisation gives a
-            near-singular noise covariance.
-
-    Returns:
-        A ``get_dynamics_params(state, model_inputs)`` callable.
-    """
-    if intervention is None:
-        intervention = Intervention.none()
-    args = VectorFieldArgs(params=vf_params, intervention=intervention)
-    n = vector_field.n_latent
-
-    def get_dynamics_params(state, model_inputs):
-        dt = model_inputs["dt"]
-        x_lin = state.mean
-        A_d, Q_d, b_d = discretize_at_state(vector_field, x_lin, args, diffusion_cov, dt)
-        chol_Q = jnp.linalg.cholesky(Q_d + jitter * jnp.eye(n, dtype=Q_d.dtype))
-
-        def dynamics_fn(x: Array) -> tuple[Array, Array]:
-            return A_d @ x + b_d, chol_Q
-
-        return dynamics_fn, state.mean
-
-    return get_dynamics_params

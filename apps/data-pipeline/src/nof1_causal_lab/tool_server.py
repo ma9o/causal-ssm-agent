@@ -557,16 +557,6 @@ def _collect_stage6_warnings(
     warnings: list[str] = []
     if include_diagnostic_warnings and treatments:
         stage5b = ctx.get("stage-5b", {})
-        for item in stage5b.get("power_scaling", []):
-            if item.get("diagnosis") == "prior_dominated":
-                param = item.get("parameter", "")
-                if any(treatment in param for treatment in treatments) or param.startswith(
-                    ("linear_edge_weight", "dynamics_weight")
-                ):
-                    warnings.append(
-                        f"Effect may be prior-driven: parameter {param} "
-                        f"is prior-dominated per power-scaling diagnostic"
-                    )
         for item in stage5b.get("ppc", {}).get("per_variable_warnings", []) or []:
             message = item.get("message")
             if message:
@@ -707,16 +697,10 @@ def _build_model_info_payload(ctx: dict[str, Any], args: dict[str, Any]) -> dict
             ),
         }
     if "diagnostics" in sections:
-        power_scaling = list(stage5b.get("power_scaling", []) or [])
         payload["diagnostics"] = {
             "ppc_warning_count": len(
                 (stage5b.get("ppc") or {}).get("per_variable_warnings", []) or []
             ),
-            "power_scaling_issues": [
-                entry
-                for entry in power_scaling
-                if entry.get("diagnosis") in {"prior_dominated", "prior_data_conflict"}
-            ],
         }
     if "baseline_effects" in sections:
         baseline = list(stage6.get("intervention_results", []) or [])

@@ -8,7 +8,6 @@ Production SSM fitting uses the IEKS/Laplace marginal likelihood path.
 
 from nof1_causal_lab.models.ssm.inference.targets.base import (
     InitialStateParams,
-    LikelihoodBackend,
     MeasurementParams,
     RuntimeDynamics,
     TrajectoryTarget,
@@ -22,7 +21,6 @@ from nof1_causal_lab.models.ssm.inference.targets.transitions import (
 __all__ = [
     "DiscreteTransitionParams",
     "InitialStateParams",
-    "LikelihoodBackend",
     "MeasurementParams",
     "RuntimeDynamics",
     "TrajectoryTarget",

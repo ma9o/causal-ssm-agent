@@ -12,6 +12,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
+from nof1_causal_lab.models.ssm.covariance_utils import logdet_from_cholesky
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     MPGibbsStatic,
     SmootherContext,
@@ -19,7 +20,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contr
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _cholesky_batch,
     _gaussian_log_prob_shared_cholesky,
-    _logdet_from_cholesky,
     _normalize_log_probs,
     _single_observation_log_probs_by_param,
 )
@@ -67,7 +67,7 @@ def build_smoother_context(
 
         init_means, init_covs = jax.vmap(initial_latent_moments_fn)(contexts)
         init_chols = _cholesky_batch(init_covs)
-        init_logdets = _logdet_from_cholesky(init_chols)
+        init_logdets = logdet_from_cholesky(init_chols)
 
     def _transition_log_probs_from_fixed_prev(
         prev_particle: jnp.ndarray,

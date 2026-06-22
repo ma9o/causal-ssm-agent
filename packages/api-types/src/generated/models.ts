@@ -654,7 +654,6 @@ export interface PriorSource {
 export interface Stage5BContract {
   outcome: "success" | "warn" | "fail";
   fail_reason?: string | null;
-  power_scaling: PowerScalingResultContract[];
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
   mcmc_diagnostics?: MCMCDiagnostics | null;
@@ -662,13 +661,6 @@ export interface Stage5BContract {
   loo_diagnostics?: LOODiagnostics | null;
   posterior_marginals?: PosteriorMarginal[] | null;
   posterior_pairs?: PosteriorPair[] | null;
-}
-export interface PowerScalingResultContract {
-  parameter: string;
-  diagnosis: "prior_dominated" | "well_identified" | "prior_data_conflict";
-  prior_sensitivity: number;
-  likelihood_sensitivity: number;
-  psis_k_hat?: number | null;
 }
 export interface PPCResultContract {
   per_variable_warnings: PPCWarning[];

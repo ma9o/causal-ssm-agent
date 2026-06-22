@@ -62,7 +62,6 @@ from nof1_causal_lab.models.ssm.parameterization import (
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
     LATENT_TRANSITION_KINDS,
-    LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN,
 )
 
 
@@ -498,7 +497,7 @@ class SSMModel:
         field is what downstream consumers
         (``compute_steady_state``, ``simulate``,
         ``check_jacobian_stability``, the per-step linearisation in the
-        auxiliary Kalman MH, …) all consume uniformly.
+        IEKS/Laplace warmup backend, …) all consume uniformly.
         """
 
         def _build():
@@ -510,20 +509,21 @@ class SSMModel:
 
     def trajectory_target(
         self,
-        scheme: Literal["local_linear_gaussian", "euler_maruyama"],
+        scheme: Literal["euler_maruyama"],
     ) -> TrajectoryTarget:
         """Build the latent discretization requested by the inference method.
 
         The model is a continuous-time nonlinear SDE; ``scheme`` selects how an
         inference method discretizes it (CT→DT) — it is not a property of the model.
+        Only the nonlinearity-preserving Euler-Maruyama scheme is available; the
+        linearised (Van Loan) discretisation is confined to the IEKS/Laplace
+        warmup backend that initialises the particle samplers, never their
+        transition density.
         """
         from nof1_causal_lab.models.ssm.inference.targets.trajectory import (
             EulerMaruyamaTarget,
-            LocalLinearizationTarget,
         )
 
-        if scheme == LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN:
-            return LocalLinearizationTarget()
         if scheme == LATENT_TRANSITION_EULER_MARUYAMA:
             return EulerMaruyamaTarget(self.vector_field)
         allowed = ", ".join(repr(kind) for kind in LATENT_TRANSITION_KINDS)
@@ -669,7 +669,16 @@ class SSMModel:
             self.spec.input_effect_block,
             self.spec.static_state_sd_block,
         ):
-            sampled.update(block.sample_params(self._prior_distribution))  # ty: ignore[no-matching-overload]  # t0_chol block yields Array|None for empty supports; None handled downstream via _compose_t0_cov
+            # t0_chol yields None for empty supports; keep only populated sites so
+            # the merged dict is honestly Array-valued (None is reconstructed via
+            # `.get()` in _compose_t0_cov).
+            sampled.update(
+                {
+                    key: value
+                    for key, value in block.sample_params(self._prior_distribution).items()
+                    if value is not None
+                }
+            )
         return sampled
 
     def _sample_runtime_dynamics(

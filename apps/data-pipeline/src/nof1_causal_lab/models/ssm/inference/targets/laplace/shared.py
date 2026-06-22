@@ -11,7 +11,10 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jla
 import numpy as np
 
-from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
+from nof1_causal_lab.models.ssm.covariance_utils import (
+    logdet_from_cholesky,
+    symmetrize_with_jitter,
+)
 from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import (
     get_support_kind_codes,
 )
@@ -152,11 +155,6 @@ def _solve_spd_from_cholesky(chol: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray
     return jla.solve_triangular(chol.T, y, lower=False)
 
 
-def _logdet_from_cholesky(chol: jnp.ndarray) -> jnp.ndarray:
-    """Log determinant from a lower-triangular Cholesky factor."""
-    return 2.0 * jnp.sum(jnp.log(jnp.clip(jnp.diag(chol), 1e-12)))
-
-
 def _gaussian_log_prob_from_cholesky(
     value: jnp.ndarray,
     mean: jnp.ndarray,
@@ -188,7 +186,7 @@ def build_gaussian_trajectory_prior_terms(
     init_pred_mean = Ad[0] @ init_mean + cd[0]
     init_pred_cov = symmetrize_with_jitter(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
     init_chol = jnp.linalg.cholesky(init_pred_cov)
-    init_logdet = _logdet_from_cholesky(init_chol)
+    init_logdet = logdet_from_cholesky(init_chol)
 
     if T == 1:
         return GaussianTrajectoryPriorTerms(
@@ -203,7 +201,7 @@ def build_gaussian_trajectory_prior_terms(
 
     transition_cov = symmetrize_with_jitter(Qd[1:], jitter=jitter)
     transition_chol = jax.vmap(jnp.linalg.cholesky)(transition_cov)
-    transition_logdet = jax.vmap(_logdet_from_cholesky)(transition_chol)
+    transition_logdet = logdet_from_cholesky(transition_chol)
     return GaussianTrajectoryPriorTerms(
         init_mean=init_pred_mean,
         init_chol=init_chol,

@@ -118,13 +118,14 @@ def _build_partial_drift_state(
         for parameter_name, binding in index_maps.by_site_kind(SiteKind.DYNAMICS_DECAY).items()
         if parameter_name.startswith(("rho_", "ar_"))
     }
-    offdiag_bindings = {
-        parameter_name: binding
-        for parameter_name, binding in index_maps.by_site_kind(SiteKind.DYNAMICS_WEIGHT).items()
-        if parameter_name.startswith("beta_")
-        and binding.effect_idx is not None
-        and binding.cause_idx is not None
-    }
+    offdiag_bindings = {}
+    offdiag_positions: list[tuple[int, int]] = []
+    for parameter_name, binding in index_maps.by_site_kind(SiteKind.DYNAMICS_WEIGHT).items():
+        effect_idx = binding.effect_idx
+        cause_idx = binding.cause_idx
+        if parameter_name.startswith("beta_") and effect_idx is not None and cause_idx is not None:
+            offdiag_bindings[parameter_name] = binding
+            offdiag_positions.append((int(effect_idx), int(cause_idx)))
 
     latent_names = tuple(ssm_spec.latent_names or ())
     latent_index_by_name = {name: idx for idx, name in enumerate(latent_names)}
@@ -147,12 +148,6 @@ def _build_partial_drift_state(
         diag_parameter_by_index[latent_index] = parameter_name
         diag_mu[latent_index] = _value_at(decay_mu, binding.flat_index, default=0.0)
 
-    offdiag_positions = [
-        # offdiag_bindings filters out bindings with None effect/cause idx; ty can't narrow
-        # the dict's value type through that comprehension filter.
-        (int(binding.effect_idx), int(binding.cause_idx))  # ty: ignore[invalid-argument-type]
-        for binding in offdiag_bindings.values()
-    ]
     offdiag_mu = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_sigma = np.zeros(len(offdiag_positions), dtype=float)
     offdiag_present = np.zeros(len(offdiag_positions), dtype=bool)

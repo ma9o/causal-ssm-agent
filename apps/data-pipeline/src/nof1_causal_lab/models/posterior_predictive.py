@@ -10,17 +10,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable
 
-    from nof1_causal_lab.artifacts.model_spec import DistributionFamily, LinkFunction
+    from nof1_causal_lab.models.ssm.model import SSMSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 import jax.numpy as jnp
 from pydantic import BaseModel, Field
-
-from nof1_causal_lab.models.predictive_simulation import (
-    simulate_predictive_observations,
-)
 
 # ---------------------------------------------------------------------------
 # PPC models
@@ -443,46 +439,48 @@ def run_posterior_predictive_checks(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     manifest_names: list[str],
-    diffusion_dists: Sequence[DistributionFamily | str] | None = None,
-    manifest_dists: Sequence[DistributionFamily | str] | None = None,
-    manifest_links: Sequence[LinkFunction | str | None] | None = None,
-    manifest_level_counts: list[int] | None = None,
+    spec: SSMSpec,
+    *,
     observation_support: ObservationSupportRuntime | None = None,
     observation_mask: jnp.ndarray | None = None,
+    transition_inputs: jnp.ndarray | None = None,
     n_subsample: int = 50,
     rng_seed: int = 42,
 ) -> PPCResult:
     """Run posterior predictive checks.
+
+    Forward-simulates ``n_subsample`` posterior draws through the *exact* nonlinear
+    vector field (the same Diffrax simulator as prior predictive — never a
+    linearised drift matrix) and compares them to the observed data.
 
     Args:
         samples: Posterior samples from InferenceResult.get_samples()
         observations: (T, n_manifest) observed data
         times: (T,) observation times
         manifest_names: list of manifest variable names
-        diffusion_dists: per-latent process-noise families
-        manifest_dists: per-channel noise families
-        manifest_links: per-channel link function strings
-        manifest_level_counts: per-channel encoded category counts
+        spec: compiled SSM spec — provides the vector field and emission families
         observation_support: optional compiled interval-summary semantics
         observation_mask: optional boolean observation schedule mask
+        transition_inputs: optional exogenous input schedule (input-driven models)
         n_subsample: number of posterior draws to forward-simulate
         rng_seed: random seed
 
     Returns:
         PPCResult with diagnostics
     """
-    y_sim, _y_mask = simulate_predictive_observations(
-        samples=samples,
-        times=times,
-        diffusion_dists=diffusion_dists,
-        manifest_dists=manifest_dists,
-        manifest_links=manifest_links,
-        manifest_level_counts=manifest_level_counts,
+    from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
+        simulate_posterior_predictive_observations,
+    )
+
+    y_sim, _y_mask = simulate_posterior_predictive_observations(
+        spec,
+        samples,
+        times,
         observation_support=observation_support,
         observation_mask=observation_mask,
+        transition_inputs=transition_inputs,
         n_subsample=n_subsample,
         rng_seed=rng_seed,
-        manifest_names=manifest_names,
     )
 
     warnings: list[PPCWarning] = []

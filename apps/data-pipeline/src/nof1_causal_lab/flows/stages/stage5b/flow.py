@@ -17,18 +17,15 @@ def _build_failed_fit_result(
     inf_method: str,
 ) -> dict[str, Any]:
     ppc_result = {"checked": False, "per_variable_warnings": []}
-    ps_result = {"checked": False, "error": fitted_result.get("error", "Model not fitted")}
     fitted_artifact = FittedArtifact(
         result=fitted_result.get("result"),
         spec=fitted_result.get("spec"),
         times=fitted_result.get("times"),
         observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
         ppc_result=ppc_result,
-        power_scaling_result=ps_result,
     )
     return {
         "_fitted_artifact": fitted_artifact,
-        "power_scaling": [],
         "ppc": ppc_result,
         "inference_metadata": {
             "method": inf_method,
@@ -43,45 +40,6 @@ def _build_failed_fit_result(
         "outcome": "fail",
         "fail_reason": "model_fit_failed",
     }
-
-
-def _build_power_scaling_entries(ps_result: dict[str, Any]) -> list[dict[str, Any]]:
-    ps_list: list[dict[str, Any]] = []
-    if not ps_result.get("checked", False):
-        return ps_list
-
-    diagnosis = ps_result.get("diagnosis", {})
-    prior_sensitivity = ps_result.get("prior_sensitivity", {})
-    likelihood_sensitivity = ps_result.get("likelihood_sensitivity", {})
-    psis_k_hat = ps_result.get("psis_k_hat", {})
-    for parameter in diagnosis:
-        entry = {
-            "parameter": parameter,
-            "diagnosis": diagnosis[parameter],
-            "prior_sensitivity": prior_sensitivity.get(parameter, 0.0),
-            "likelihood_sensitivity": likelihood_sensitivity.get(parameter, 0.0),
-        }
-        if parameter in psis_k_hat:
-            entry["psis_k_hat"] = psis_k_hat[parameter]
-        ps_list.append(entry)
-    return ps_list
-
-
-def _log_power_scaling(ps_result: dict[str, Any]) -> None:
-    logger.info("--- Power-Scaling Sensitivity ---")
-    if not ps_result.get("checked", False):
-        logger.info("  Skipped: %s", ps_result.get("error", "unknown"))
-        return
-
-    diagnosis = ps_result.get("diagnosis", {})
-    prior_dominated = [name for name, verdict in diagnosis.items() if verdict == "prior_dominated"]
-    conflicts = [name for name, verdict in diagnosis.items() if verdict == "prior_data_conflict"]
-    if prior_dominated:
-        logger.warning("  Prior-dominated parameters: %s", prior_dominated)
-    if conflicts:
-        logger.warning("  Prior-data conflicts: %s", conflicts)
-    if not prior_dominated and not conflicts:
-        logger.info("  All parameters well-identified")
 
 
 def _log_ppc(ppc_result: dict[str, Any]) -> None:
@@ -137,7 +95,7 @@ def run_stage5b_with_data(
     compute_loo_diagnostics: bool,
 ) -> dict[str, Any]:
     """Fit the model from materialized Stage 4/2 artifacts and shape Stage 5b."""
-    from .fit import fit_model, run_power_scaling, run_ppc
+    from .fit import fit_model, run_ppc
 
     fitted = fit_model(
         compiled_ssm,
@@ -153,9 +111,6 @@ def run_stage5b_with_data(
     if not fitted_result.get("fitted", False):
         return _build_failed_fit_result(fitted_result, inf_method=inf_method)
 
-    power_scaling = run_power_scaling(fitted_result)
-    ps_result = unwrap_task_result(power_scaling)
-
     ppc_task = run_ppc(fitted_result)
     ppc_result = unwrap_task_result(ppc_task)
 
@@ -165,23 +120,15 @@ def run_stage5b_with_data(
         times=fitted_result.get("times"),
         observation_support=getattr(fitted_result.get("runtime"), "observation_support", None),
         ppc_result=ppc_result,
-        power_scaling_result=ps_result,
     )
 
-    _log_power_scaling(ps_result)
     _log_ppc(ppc_result)
 
-    power_scaling_entries = _build_power_scaling_entries(ps_result)
     has_ppc_warnings = bool(ppc_result.get("per_variable_warnings"))
-    has_ps_issues = any(
-        entry["diagnosis"] in ("prior_dominated", "prior_data_conflict")
-        for entry in power_scaling_entries
-    )
-    outcome = "warn" if (has_ppc_warnings or has_ps_issues) else "success"
+    outcome = "warn" if has_ppc_warnings else "success"
 
     return {
         "_fitted_artifact": fitted_artifact,
-        "power_scaling": power_scaling_entries,
         "ppc": ppc_result,
         "inference_metadata": {
             "method": inf_method,

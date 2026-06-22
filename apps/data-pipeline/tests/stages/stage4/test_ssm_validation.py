@@ -750,17 +750,19 @@ class TestPriorPredictiveValidation:
 
         resolved = resolve_prior_proposals(compiled_ssm, authored_priors={})
 
-        assert resolved == [
-            {
-                "parameter": "beta_sleep_mood",
-                "distribution": "Normal",
-                "params": {"mu": 0.15, "sigma": 0.4},
-                "sources": [],
-                "reasoning": "Compiler-resolved prior for beta_sleep_mood.",
-                "reference_interval_days": None,
-                "density_points": None,
-            }
-        ]
+        assert len(resolved) == 1
+        (row,) = resolved
+        # float32-native: compare the numeric prior params with float32 tolerance,
+        # the rest of the structure exactly.
+        assert row["params"] == pytest.approx({"mu": 0.15, "sigma": 0.4})
+        assert {k: v for k, v in row.items() if k != "params"} == {
+            "parameter": "beta_sleep_mood",
+            "distribution": "Normal",
+            "sources": [],
+            "reasoning": "Compiler-resolved prior for beta_sleep_mood.",
+            "reference_interval_days": None,
+            "density_points": None,
+        }
 
     def test_resolve_prior_proposals_roundtrips_correlation_support_sites(self):
         """Compiled correlation-support sites should reconstruct bounded real priors."""

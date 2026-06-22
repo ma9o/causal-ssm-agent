@@ -5,11 +5,11 @@ import math
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
-from jaxtyping import Array, Float, Int
 
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField, VectorFieldArgs
+from nof1_causal_lab.models.ssm.shapes import Array, Float, Int
 
 _LOG_2PI = math.log(2.0 * math.pi)
 

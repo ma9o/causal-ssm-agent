@@ -19,12 +19,10 @@ import numpy as np
 
 from nof1_causal_lab.artifacts import DistributionFamily, LinkFunction
 from nof1_causal_lab.models.ssm.constants import MIN_DT
-from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
 from nof1_causal_lab.models.ssm.inference.shared import _trace_public_sites
 from nof1_causal_lab.models.ssm.inference.targets.kernels import compile_measurement_semantics
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     GaussianTrajectoryPriorTerms,
-    _predictive_latent_init,
     build_gaussian_trajectory_prior_terms,
 )
 from nof1_causal_lab.models.ssm.inference.targets.spec_metadata import has_student_t_diffusion
@@ -32,7 +30,6 @@ from nof1_causal_lab.models.ssm.inference.targets.trajectory_observations import
     trajectory_observation_log_prob,
     trajectory_observation_log_probs,
 )
-from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 from nof1_causal_lab.models.ssm.inference.utils import (
     _assemble_likelihood_inputs,
     _build_original_sample_resolver,
@@ -63,60 +60,6 @@ class LatentContext(NamedTuple):
     d_meas: jnp.ndarray
     R: jnp.ndarray
     extra_params: dict[str, jnp.ndarray] | None
-
-
-def _transition_start_linearization_states(
-    latent_trajectory: jnp.ndarray,
-    init_mean: jnp.ndarray,
-) -> jnp.ndarray:
-    """Return per-transition start states for local dynamics linearization."""
-    return jnp.concatenate((init_mean[None, :], latent_trajectory[:-1]), axis=0)
-
-
-def _build_context_discrete_transitions(
-    dynamics,
-    time_intervals: jnp.ndarray,
-    *,
-    init_mean: jnp.ndarray,
-    transition_inputs: jnp.ndarray | None,
-):
-    """Build transitions for a latent context, including trajectory-dependent drift."""
-    if infer_linearisation(dynamics.vector_field) == "constant":
-        return build_discrete_transitions(
-            dynamics,
-            time_intervals,
-            transition_inputs=transition_inputs,
-        )
-
-    init_ref = jnp.broadcast_to(
-        init_mean[None, :],
-        (time_intervals.shape[0], dynamics.vector_field.n_latent),
-    )
-    initial_transitions = build_discrete_transitions(
-        dynamics,
-        time_intervals,
-        linearization_states=init_ref,
-        transition_inputs=transition_inputs,
-    )
-    initial_cd = (
-        jnp.zeros(
-            (initial_transitions.Ad.shape[0], initial_transitions.Ad.shape[1]),
-            dtype=initial_transitions.Ad.dtype,
-        )
-        if initial_transitions.cd is None
-        else jnp.asarray(initial_transitions.cd)
-    )
-    predictive_path = _predictive_latent_init(
-        initial_transitions.Ad,
-        initial_cd,
-        init_mean,
-    )
-    return build_discrete_transitions(
-        dynamics,
-        time_intervals,
-        linearization_states=_transition_start_linearization_states(predictive_path, init_mean),
-        transition_inputs=transition_inputs,
-    )
 
 
 def _shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
@@ -228,23 +171,9 @@ def build_particle_runtime_bundle(
             transition_inputs = getattr(model, "transition_inputs", None)
             if transition_inputs is not None:
                 transition_inputs = transition_inputs[: runtime_times.shape[0]]
-            if declared_target.supports_affine_prefix_marginals:
-                transitions = _build_context_discrete_transitions(
-                    dynamics,
-                    time_intervals,
-                    init_mean=initial_state.mean,
-                    transition_inputs=transition_inputs,
-                )
-                Ad, Qd = transitions.Ad, transitions.Qd
-                cd_scan = (
-                    jnp.zeros((Ad.shape[0], Ad.shape[1]), dtype=Ad.dtype)
-                    if transitions.cd is None
-                    else jnp.asarray(transitions.cd)
-                )
-            else:
-                # Euler-Maruyama: the target discretizes from the vector field on
-                # the fly, so the local-linear transitions are never read here.
-                Ad = Qd = cd_scan = None
+            # Euler-Maruyama: the target discretizes from the vector field on the
+            # fly, so no affine-Gaussian prefix transitions are precomputed here.
+            Ad = Qd = cd_scan = None
             return LatentContext(
                 Ad=Ad,
                 Qd=Qd,

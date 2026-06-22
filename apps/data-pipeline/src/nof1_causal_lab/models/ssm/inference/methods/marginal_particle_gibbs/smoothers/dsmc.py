@@ -48,16 +48,12 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contr
     _DSMC_LEAF_PROPOSAL_AMALA,
     _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
     _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
-    _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE,
     MPGibbsLatentSmootherResult,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
-    _cholesky_batch,
     _gaussian_log_prob_shared_cholesky,
-    _logdet_from_cholesky,
     _normalize_log_probs,
     _observation_log_probs_by_param,
-    _sample_gaussian_from_chol,
 )
 
 
@@ -85,51 +81,6 @@ def smooth(ctx, key, x_ref):
     proposal_scale_by_t = jnp.sqrt(proposal_var_by_t)
     proposal_kappa = jnp.asarray(ctx.amala_kappa, dtype=latent_dtype)
     grad_clip = jnp.asarray(ctx.amala_grad_clip, dtype=latent_dtype)
-
-    def _prior_predictive_marginals():
-        """Roll the discrete dynamics forward without observations, per parameter.
-
-        Computed by a parallel-prefix scan over the affine-Gaussian transition
-        operator ``(A, c, Q)``: composing the map ``x -> A x + c`` (noise cov ``Q``)
-        is associative, so ``jax.lax.associative_scan`` yields the same marginals as
-        a sequential roll-forward in O(log T) depth.
-        """
-        init_covs = jax.vmap(lambda chol: chol @ chol.T)(init_chols)
-        identity = jnp.broadcast_to(
-            jnp.eye(latent_dim, dtype=init_means.dtype),
-            (num_parameter_particles, latent_dim, latent_dim),
-        )
-        zero_shift = jnp.zeros((num_parameter_particles, latent_dim), dtype=init_means.dtype)
-        zero_noise = jnp.zeros(
-            (num_parameter_particles, latent_dim, latent_dim), dtype=init_means.dtype
-        )
-        # Element t is the transition into time t; element 0 is the identity so the
-        # inclusive prefix at t reproduces x_0 -> x_t. Ad[:, 0] is never a real
-        # transition, so it is overwritten with the identity.
-        drift = jnp.swapaxes(contexts.Ad, 0, 1).at[0].set(identity)
-        shift = jnp.swapaxes(contexts.cd, 0, 1).at[0].set(zero_shift)
-        noise = jnp.swapaxes(contexts.Qd, 0, 1).at[0].set(zero_noise)
-
-        def _compose(earlier, later):
-            drift_a, shift_a, noise_a = earlier
-            drift_b, shift_b, noise_b = later
-            composed_drift = jnp.einsum("...ij,...jk->...ik", drift_b, drift_a)
-            composed_shift = jnp.einsum("...ij,...j->...i", drift_b, shift_a) + shift_b
-            composed_noise = (
-                jnp.einsum("...ij,...jk,...lk->...il", drift_b, noise_a, drift_b) + noise_b
-            )
-            return composed_drift, composed_shift, composed_noise
-
-        drift_cum, shift_cum, noise_cum = jax.lax.associative_scan(
-            _compose, (drift, shift, noise), axis=0
-        )
-        means = jnp.einsum("tpij,pj->tpi", drift_cum, init_means) + shift_cum
-        covs = jnp.einsum("tpij,pjk,tplk->tpil", drift_cum, init_covs, drift_cum) + noise_cum
-        chols = _cholesky_batch(
-            covs.reshape(num_steps * num_parameter_particles, latent_dim, latent_dim)
-        ).reshape(num_steps, num_parameter_particles, latent_dim, latent_dim)
-        logdets = _logdet_from_cholesky(chols)
-        return means, chols, logdets
 
     def _per_param_gaussian_log_probs(values, means, chols, logdets):
         per_param = jax.vmap(
@@ -174,109 +125,80 @@ def smooth(ctx, key, x_ref):
     _transition_current_value_grad_by_param = ctx.transition_current_value_grad_by_param
     _transition_next_value_grad_by_param = ctx.transition_next_value_grad_by_param
 
-    if dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE:
-        prior_proposal_means, prior_proposal_chols, prior_proposal_logdets = (
-            _prior_predictive_marginals()
+    use_future = dsmc_leaf_proposal in (
+        _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
+        _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
+    )
+    # Linearisation points for the gradient leaf. amala/amala_plus centre the
+    # proposal on the reference path itself: a reference-dependent proposal with no
+    # auxiliary correction, which does not leave the marginal target invariant
+    # (biased). amala_exact instead draws an auxiliary trajectory z ~ N(x_ref,
+    # (delta/2) I) and linearises there; the matching N(z_t; x_t, (delta/2) I)
+    # pseudo-observation potential is added to the leaf weight in _leaf, recovering
+    # the exact gradient-informed cSMC proposal of section 3.3.1 in
+    # docs/papers/auxiliary-kalman-samplers.pdf.
+    if is_exact:
+        aux_key = random.fold_in(key, 0)
+        lin_pts = x_ref + proposal_scale_by_t[:, None] * random.normal(
+            aux_key, x_ref.shape, dtype=latent_dtype
         )
-
-        def _proposal_log_probs(values, time_idx):
-            per_param = _per_param_gaussian_log_probs(
-                values,
-                prior_proposal_means[time_idx],
-                prior_proposal_chols[time_idx],
-                prior_proposal_logdets[time_idx],
-            )
-            return jax.scipy.special.logsumexp(logpi[None, :] + per_param, axis=1)
-
     else:
-        use_future = dsmc_leaf_proposal in (
-            _DSMC_LEAF_PROPOSAL_AMALA_PLUS,
-            _DSMC_LEAF_PROPOSAL_AMALA_EXACT,
-        )
-        # Linearisation points for the gradient leaf. amala/amala_plus centre the
-        # proposal on the reference path itself: a reference-dependent proposal with no
-        # auxiliary correction, which does not leave the marginal target invariant
-        # (biased). amala_exact instead draws an auxiliary trajectory z ~ N(x_ref,
-        # (delta/2) I) and linearises there; the matching N(z_t; x_t, (delta/2) I)
-        # pseudo-observation potential is added to the leaf weight in _leaf, recovering
-        # the exact gradient-informed cSMC proposal of section 3.3.1 in
-        # docs/papers/auxiliary-kalman-samplers.pdf.
-        if is_exact:
-            aux_key = random.fold_in(key, 0)
-            lin_pts = x_ref + proposal_scale_by_t[:, None] * random.normal(
-                aux_key, x_ref.shape, dtype=latent_dtype
-            )
-        else:
-            lin_pts = x_ref
+        lin_pts = x_ref
 
-        def _gradient_leaf_proposal_stats(time_idx: jnp.ndarray):
-            particle_t = lin_pts[time_idx]
-            obs_lp, obs_grad = _obs_value_grad_by_param(particle_t, time_idx)
-            init_prior_lp, init_prior_grad = _initial_prior_value_grad_by_param(particle_t)
-            prev_idx = jnp.maximum(time_idx - 1, 0)
-            transition_lp, transition_grad = _transition_current_value_grad_by_param(
-                lin_pts[prev_idx],
+    def _gradient_leaf_proposal_stats(time_idx: jnp.ndarray):
+        particle_t = lin_pts[time_idx]
+        obs_lp, obs_grad = _obs_value_grad_by_param(particle_t, time_idx)
+        init_prior_lp, init_prior_grad = _initial_prior_value_grad_by_param(particle_t)
+        prev_idx = jnp.maximum(time_idx - 1, 0)
+        transition_lp, transition_grad = _transition_current_value_grad_by_param(
+            lin_pts[prev_idx],
+            particle_t,
+            time_idx,
+        )
+        is_initial = time_idx == 0
+        logits = jnp.where(
+            is_initial,
+            logpi + init_prior_lp + obs_lp,
+            logpi + transition_lp + obs_lp,
+        )
+        component_grad = jnp.where(
+            is_initial,
+            init_prior_grad + obs_grad,
+            transition_grad + obs_grad,
+        )
+        if use_future:
+            next_idx = jnp.minimum(time_idx + 1, num_steps - 1)
+            future_lp, future_grad = _transition_next_value_grad_by_param(
                 particle_t,
-                time_idx,
+                lin_pts[next_idx],
+                next_idx,
             )
-            is_initial = time_idx == 0
-            logits = jnp.where(
-                is_initial,
-                logpi + init_prior_lp + obs_lp,
-                logpi + transition_lp + obs_lp,
-            )
+            has_future = time_idx < (num_steps - 1)
+            logits = jnp.where(has_future, logits + future_lp, logits)
             component_grad = jnp.where(
-                is_initial,
-                init_prior_grad + obs_grad,
-                transition_grad + obs_grad,
+                has_future,
+                component_grad + future_grad,
+                component_grad,
             )
-            if use_future:
-                next_idx = jnp.minimum(time_idx + 1, num_steps - 1)
-                future_lp, future_grad = _transition_next_value_grad_by_param(
-                    particle_t,
-                    lin_pts[next_idx],
-                    next_idx,
-                )
-                has_future = time_idx < (num_steps - 1)
-                logits = jnp.where(has_future, logits + future_lp, logits)
-                component_grad = jnp.where(
-                    has_future,
-                    component_grad + future_grad,
-                    component_grad,
-                )
-            label_log_probs = _normalize_log_probs(logits)
-            label_probs = jnp.exp(label_log_probs).astype(latent_dtype)
-            grad = jnp.einsum("p,pd->d", label_probs, component_grad)
-            clipped_grad, grad_norm = _clip_gradient(grad)
-            drift = (proposal_kappa * proposal_var_by_t[time_idx] * clipped_grad).astype(
-                latent_dtype
-            )
-            return (particle_t + drift).astype(latent_dtype), grad_norm
+        label_log_probs = _normalize_log_probs(logits)
+        label_probs = jnp.exp(label_log_probs).astype(latent_dtype)
+        grad = jnp.einsum("p,pd->d", label_probs, component_grad)
+        clipped_grad, grad_norm = _clip_gradient(grad)
+        drift = (proposal_kappa * proposal_var_by_t[time_idx] * clipped_grad).astype(latent_dtype)
+        return (particle_t + drift).astype(latent_dtype), grad_norm
 
-        proposal_centers, proposal_grad_norms = jax.vmap(_gradient_leaf_proposal_stats)(
-            jnp.arange(num_steps, dtype=jnp.int32)
-        )
+    proposal_centers, proposal_grad_norms = jax.vmap(_gradient_leaf_proposal_stats)(
+        jnp.arange(num_steps, dtype=jnp.int32)
+    )
 
     def _leaf(time_idx, leaf_key):
         component_key, sample_key = random.split(leaf_key, 2)
-        if dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE:
-            free_components = random.categorical(
-                component_key, logpi, shape=(num_free_particles,)
-            ).astype(jnp.int32)
-            free_particles = _sample_gaussian_from_chol(
-                sample_key,
-                prior_proposal_means[time_idx][free_components],
-                prior_proposal_chols[time_idx][free_components],
-            )
-        else:
-            del component_key
-            free_particles = proposal_centers[time_idx] + proposal_scale_by_t[
-                time_idx
-            ] * random.normal(
-                sample_key,
-                (num_free_particles, latent_dim),
-                dtype=latent_dtype,
-            )
+        del component_key
+        free_particles = proposal_centers[time_idx] + proposal_scale_by_t[time_idx] * random.normal(
+            sample_key,
+            (num_free_particles, latent_dim),
+            dtype=latent_dtype,
+        )
         particles = jnp.concatenate([x_ref[time_idx][None, :], free_particles], axis=0)
         obs_lp = _observation_log_probs_by_param(
             contexts,
@@ -285,14 +207,11 @@ def smooth(ctx, key, x_ref):
             runtime_observations,
             obs_increment_fn,
         )
-        if dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PRIOR_PREDICTIVE:
-            proposal_lp = _proposal_log_probs(particles, time_idx)
-        else:
-            proposal_lp = _log_isotropic_density(
-                particles,
-                proposal_centers[time_idx],
-                proposal_var_by_t[time_idx],
-            )
+        proposal_lp = _log_isotropic_density(
+            particles,
+            proposal_centers[time_idx],
+            proposal_var_by_t[time_idx],
+        )
         init_prior_lp = _per_param_gaussian_log_probs(
             particles, init_means, init_chols, init_logdets
         )

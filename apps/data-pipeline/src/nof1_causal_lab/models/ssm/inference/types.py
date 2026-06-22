@@ -341,7 +341,6 @@ class FittedArtifact:
     times: Any
     observation_support: Any | None = None
     ppc_result: dict[str, Any] | None = None
-    power_scaling_result: dict[str, Any] | None = None
 
     def __getstate__(self) -> dict[str, Any]:
         """Persist only the Stage 6 inputs, never live inference caches/backends."""
@@ -351,7 +350,6 @@ class FittedArtifact:
             "times": self.times,
             "observation_support": self.observation_support,
             "ppc_result": self.ppc_result,
-            "power_scaling_result": self.power_scaling_result,
         }
 
     def __setstate__(self, state: dict[str, Any]) -> None:
@@ -360,4 +358,3 @@ class FittedArtifact:
         self.times = state["times"]
         self.observation_support = state["observation_support"]
         self.ppc_result = state["ppc_result"]
-        self.power_scaling_result = state["power_scaling_result"]

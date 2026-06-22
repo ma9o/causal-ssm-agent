@@ -210,15 +210,23 @@ def _decay_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
     )
 
 
-def _linear_effect_bindings(ssm_spec: SSMSpec) -> tuple[SemanticBinding, ...]:
-    return tuple(
-        binding
-        for binding in _component_semantic_bindings(ssm_spec)
-        if binding.site_kind == SiteKind.DYNAMICS_WEIGHT
-        and binding.parameter_name.startswith("beta_")
-        and binding.effect_idx is not None
-        and binding.cause_idx is not None
-    )
+def _linear_effect_bindings(
+    ssm_spec: SSMSpec,
+) -> tuple[tuple[SemanticBinding, int, int], ...]:
+    """Linear (``beta_``) effect bindings, paired with their non-None
+    ``(effect_idx, cause_idx)`` so callers receive narrowed ``int`` indices."""
+    result: list[tuple[SemanticBinding, int, int]] = []
+    for binding in _component_semantic_bindings(ssm_spec):
+        effect_idx = binding.effect_idx
+        cause_idx = binding.cause_idx
+        if (
+            binding.site_kind == SiteKind.DYNAMICS_WEIGHT
+            and binding.parameter_name.startswith("beta_")
+            and effect_idx is not None
+            and cause_idx is not None
+        ):
+            result.append((binding, int(effect_idx), int(cause_idx)))
+    return tuple(result)
 
 
 def _binding_latent_index(binding: SemanticBinding, ssm_spec: SSMSpec) -> int | None:
@@ -394,11 +402,7 @@ def collect_interval_provenance_warnings(
     )
     warnings: list[CompileDiagnostic] = []
 
-    for binding in _linear_effect_bindings(ssm_spec):
-        # _linear_effect_bindings filters to non-None effect_idx/cause_idx; ty
-        # cannot track that narrowing across the helper's tuple return type.
-        effect_idx = int(binding.effect_idx)  # ty: ignore[invalid-argument-type]
-        cause_idx = int(binding.cause_idx)  # ty: ignore[invalid-argument-type]
+    for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
         if (effect_idx, cause_idx) not in edge_lags:
             continue
 
@@ -551,11 +555,7 @@ def collect_first_order_approximation_warnings(
         expected=ssm_spec.n_latent,
         prefix="latent",
     )
-    for binding in _linear_effect_bindings(ssm_spec):
-        # _linear_effect_bindings filters to non-None effect_idx/cause_idx; ty
-        # cannot track that narrowing across the helper's tuple return type.
-        effect_idx = int(binding.effect_idx)  # ty: ignore[invalid-argument-type]
-        cause_idx = int(binding.cause_idx)  # ty: ignore[invalid-argument-type]
+    for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
         prior = _prior_for_site(prior_registry, binding.site_name)
         if prior is None:
             continue
@@ -725,17 +725,13 @@ def _assemble_mean_drift_from_component_priors(
         )
         populated = True
 
-    for binding in _linear_effect_bindings(ssm_spec):
+    for binding, effect_idx, cause_idx in _linear_effect_bindings(ssm_spec):
         prior = _prior_for_site(prior_registry, binding.site_name)
         if prior is None:
             continue
         weight_mu = _prior_values_1d(prior.params.get("mu"))
         if weight_mu.size == 0:
             continue
-        # _linear_effect_bindings filters to non-None effect_idx/cause_idx; ty
-        # cannot track that narrowing across the helper's tuple return type.
-        effect_idx = int(binding.effect_idx)  # ty: ignore[invalid-argument-type]
-        cause_idx = int(binding.cause_idx)  # ty: ignore[invalid-argument-type]
         drift[effect_idx, cause_idx] = _value_at(
             weight_mu,
             binding.flat_index,

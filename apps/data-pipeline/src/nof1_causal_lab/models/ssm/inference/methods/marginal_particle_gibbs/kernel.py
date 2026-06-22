@@ -43,7 +43,6 @@ from blackjax.adaptation.step_size import dual_averaging_adaptation
 
 from nof1_causal_lab.models.ssm.inference import _profiling
 from nof1_causal_lab.models.ssm.inference.mcmc_state import (
-    TrajectoryMCMCResult,
     TrajectoryMCMCState,
     _adapt_scale,
     _clip_dual_averaging_state,
@@ -1251,19 +1250,3 @@ def run_marginal_particle_gibbs(
         "sampling_loop_seconds": sampling_loop_seconds,
         "post_warmup_complete_log_posterior_mean": post_warmup_complete_log_posterior_mean,
     }
-
-
-def build_marginal_particle_gibbs_mcmc_result(
-    *,
-    chain_samples: dict[str, jnp.ndarray],
-    chain_extra_fields: dict[str, jnp.ndarray],
-    num_chains: int,
-    num_samples: int,
-) -> TrajectoryMCMCResult:
-    return TrajectoryMCMCResult(
-        chain_samples=chain_samples,
-        chain_extra_fields=chain_extra_fields,
-        num_chains=num_chains,
-        num_samples=num_samples,
-        backend="marginal_particle_gibbs",
-    )

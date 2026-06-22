@@ -2,7 +2,7 @@
 
 Covers: dense-linear VectorField + Intervention DSL, simulate / simulate_pair,
 compute_steady_state, summarize_draws / summarize_temporal_effect /
-resolve_action_value, compute_interventions, approximate_abducted_state.
+resolve_action_value, compute_interventions.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import jax.numpy as jnp
 import pytest
 
 from nof1_causal_lab.models.ssm.counterfactual import (
-    approximate_abducted_state,
     build_time_grid,
     compute_interventions,
     resolve_action_value,
@@ -371,11 +370,6 @@ class TestComputeInterventions:
         )
 
 
-# =============================================================================
-# approximate_abducted_state
-# =============================================================================
-
-
 class TestNumericalCorrectness:
     """Regression tests pinning the numerical Diffrax+Optimistix paths to the
     closed-form linear math they replace. Catches solver-tolerance or step-size
@@ -406,7 +400,9 @@ class TestNumericalCorrectness:
             config=SimulationConfig(rtol=1e-8, atol=1e-10),
         )
 
-        assert jnp.allclose(numerical, closed_form, atol=1e-6)
+        # float32-native: trajectory integration vs. closed-form matrix-exp agree
+        # to float32 precision, not float64 bit-equality.
+        assert jnp.allclose(numerical, closed_form, atol=1e-4)
 
     def test_steady_state_matches_inverse_for_coupled_system(self):
         """``compute_steady_state`` vs ``-A⁻¹·c`` for a non-trivial 3-coupled system."""
@@ -459,53 +455,3 @@ class TestNumericalCorrectness:
         )
 
         assert abs(numerical - expected) < 1e-5
-
-
-class TestApproximateAbductedState:
-    def test_smoother_uses_selected_evidence_window(self, monkeypatch):
-        captured = {}
-
-        def fake_try_smoother(_ssm_model, observations, times, _site_values, _det_values):
-            captured["observations"] = observations
-            captured["times"] = times
-            return jnp.array([[0.1], [0.2]])
-
-        def fake_assemble_single_deterministics(_posterior_means, _spec):
-            return {
-                "lambda": jnp.array([[1.0]]),
-            }
-
-        monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm.counterfactual.abduction._try_smoother",
-            fake_try_smoother,
-        )
-        monkeypatch.setattr(
-            "nof1_causal_lab.models.ssm.inference.utils._assemble_single_deterministics",
-            fake_assemble_single_deterministics,
-        )
-
-        class DummySpec:
-            n_manifest = 1
-            n_latent = 1
-
-            class ManifestMeansBlock:
-                template = jnp.zeros(1)
-
-            manifest_means_block = ManifestMeansBlock()
-
-        observations = jnp.array([[1.0], [2.0], [3.0], [4.0]])
-        times = jnp.array([0.0, 1.0, 2.0, 3.0])
-        result = approximate_abducted_state(
-            samples={"vf_0_decay": jnp.ones((2, 1))},
-            ssm_model=object(),
-            spec=DummySpec(),
-            observations=observations,
-            times=times,
-            evidence_start_idx=1,
-            evidence_end_idx=2,
-        )
-
-        assert result["method"] == "kalman_smoother"
-        assert jnp.allclose(result["state"], jnp.array([0.2]))
-        assert jnp.array_equal(captured["observations"], observations[1:3])
-        assert jnp.array_equal(captured["times"], times[1:3])

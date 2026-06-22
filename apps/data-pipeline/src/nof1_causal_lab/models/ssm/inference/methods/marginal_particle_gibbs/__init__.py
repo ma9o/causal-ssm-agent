@@ -14,7 +14,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.fit im
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
     MarginalParticleGibbsKernel,
     build_marginal_particle_gibbs_kernel,
-    build_marginal_particle_gibbs_mcmc_result,
     run_marginal_particle_gibbs,
 )
 
@@ -25,7 +24,6 @@ __all__ = [
     "MPGibbsDiagnosticMetric",
     "MarginalParticleGibbsKernel",
     "build_marginal_particle_gibbs_kernel",
-    "build_marginal_particle_gibbs_mcmc_result",
     "fit_marginal_particle_gibbs",
     "run_marginal_particle_gibbs",
 ]

@@ -16,6 +16,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as ndist
+import pytest
 from numpyro.handlers import seed
 
 from nof1_causal_lab.models.ssm.dynamics import (
@@ -57,8 +58,8 @@ class TestMaterializePrior:
             {"family": "Normal", "params": {"mu": 0.3, "sigma": 0.5}}
         )
         assert isinstance(d, ndist.Normal)
-        assert float(d.loc) == 0.3
-        assert float(d.scale) == 0.5
+        assert float(d.loc) == pytest.approx(0.3)
+        assert float(d.scale) == pytest.approx(0.5)
 
     def test_log_normal(self):
         d = materialize_prior_distribution(

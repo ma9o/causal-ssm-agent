@@ -506,7 +506,7 @@ class LaplaceLikelihood:
         """Compute Laplace-approximated log-likelihood.
 
         Returns:
-            (T,) cumulative log-normalizing constants, matching LikelihoodBackend protocol.
+            (T,) cumulative log-normalizing constants.
         """
         log_lik, _aux = self._compute_log_likelihood_impl(
             dynamics,

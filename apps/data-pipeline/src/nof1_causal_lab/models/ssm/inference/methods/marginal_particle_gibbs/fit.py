@@ -35,7 +35,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
 from nof1_causal_lab.models.ssm.inference.types import InferenceResult
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
-    LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN,
 )
 
 logger = logging.getLogger(__name__)
@@ -153,11 +152,10 @@ def fit_marginal_particle_gibbs(
 
     phase_t0 = time.monotonic()
     logger.info("phase 1/4: building marginalized Particle Gibbs runtime bundle...")
-    scheme = (
-        LATENT_TRANSITION_LOCAL_LINEAR_GAUSSIAN
-        if latent_smoother == "dsmc" and dsmc_leaf_proposal == "prior_predictive"
-        else LATENT_TRANSITION_EULER_MARUYAMA
-    )
+    # The model is a continuous-time nonlinear SDE; the particle smoother always
+    # discretizes it with the nonlinearity-preserving Euler-Maruyama scheme.
+    # Linearised discretisation is confined to the warmup/init backend.
+    scheme = LATENT_TRANSITION_EULER_MARUYAMA
     bundle = build_particle_runtime_bundle(
         model,
         observations,

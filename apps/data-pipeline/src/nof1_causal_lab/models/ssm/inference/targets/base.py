@@ -130,49 +130,6 @@ class TrajectoryTarget(Protocol):
     ) -> jnp.ndarray: ...
 
 
-class LikelihoodBackend(Protocol):
-    """Protocol for state-space likelihood computation backends.
-
-    Each backend must implement compute_log_likelihood() which integrates
-    out latent states and returns cumulative log-normalizing constants.
-
-    The returned (T,) array lnc satisfies:
-    - lnc[-1] = total log p(y|θ), used in numpyro.factor()
-    - diff(lnc) = per-timestep one-step-ahead predictive log p(y_t|y_{1:t-1},θ),
-      used for LOO-CV via the innovation decomposition
-
-    """
-
-    checkpoint_loglik: bool
-
-    def compute_log_likelihood(
-        self,
-        dynamics: RuntimeDynamics,
-        measurement_params: MeasurementParams,
-        initial_state: InitialStateParams,
-        observations: jnp.ndarray,
-        time_intervals: jnp.ndarray,
-        obs_mask: jnp.ndarray | None = None,
-        transition_inputs: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        """Compute log-likelihood by marginalizing out latent states.
-
-        Args:
-            dynamics: Continuous-time vector-field dynamics plus diffusion
-            measurement_params: Observation model parameters (Λ, μ, R)
-            initial_state: Initial state distribution (m_0, P_0)
-            observations: (T, n_manifest) observed data
-            time_intervals: (T,) time intervals between observations
-            obs_mask: (T, n_manifest) boolean mask for observed values
-            transition_inputs: (T, n_input) known inputs aligned to intervals
-
-        Returns:
-            (T,) cumulative log-normalizing constants from the filter.
-            lnc[-1] is the total log-likelihood p(y|θ).
-        """
-        ...
-
-
 def build_likelihood_eval_aux(
     dtype,
     *,

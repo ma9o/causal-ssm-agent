@@ -17,20 +17,14 @@ or checking the Jacobian over an invariant set; the local check here is a
 necessary condition and matches the dense-matrix stability condition.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from nof1_causal_lab.models.ssm.shapes import Array, Complex, Float
+
 from .intervention import Intervention
-from .vector_field import VectorFieldArgs
-
-if TYPE_CHECKING:
-    from jax import Array
-
-    from .vector_field import VectorField
+from .vector_field import VectorField, VectorFieldArgs
 
 
 @dataclass(frozen=True)
@@ -43,17 +37,17 @@ class StabilityReport:
     max_real_part: float
     """Maximum real part of the eigenvalues. Negative ⇒ stable."""
 
-    eigenvalues: Array
+    eigenvalues: Complex[Array, " D"]
     """Complex eigenvalues ``(n_latent,)``."""
 
-    linearization_point: Array
+    linearization_point: Float[Array, " D"]
     """Where the Jacobian was evaluated."""
 
 
 def check_jacobian_stability(
     vector_field: VectorField,
     vf_params: tuple[dict[str, Array], ...],
-    x_lin: Array,
+    x_lin: Float[Array, " D"],
     *,
     intervention: Intervention | None = None,
     threshold: float = 0.0,

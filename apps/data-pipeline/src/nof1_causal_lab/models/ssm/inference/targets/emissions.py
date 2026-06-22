@@ -6,8 +6,6 @@ the measurement model parameters (H, d, R) and an observation mask.
 Used by: MAP and blocked MCMC.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 import jax
@@ -25,26 +23,27 @@ from nof1_causal_lab.models.ssm.inference.targets.base import (
     NUMERICAL_EPSILON,
     PROB_CLIP_MIN,
 )
+from nof1_causal_lab.models.ssm.shapes import Array, Bool, Float, FloatScalar, Int, Shaped
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def _logistic_pdf(x: jnp.ndarray) -> jnp.ndarray:
+def _logistic_pdf(x: Float[Array, "*shape"]) -> Float[Array, "*shape"]:
     p = jax.nn.sigmoid(x)
     return p * (1.0 - p)
 
 
-def _logistic_pdf_prime(x: jnp.ndarray) -> jnp.ndarray:
+def _logistic_pdf_prime(x: Float[Array, "*shape"]) -> Float[Array, "*shape"]:
     p = jax.nn.sigmoid(x)
     pdf = p * (1.0 - p)
     return pdf * (1.0 - 2.0 * p)
 
 
 def _normalize_discrete_observation(
-    y_t: jnp.ndarray,
-    level_counts: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    y_t: Float[Array, " M"],
+    level_counts: Int[Array, " M"],
+) -> tuple[Int[Array, " M"], Bool[Array, " M"]]:
     rounded = jnp.rint(y_t)
     y_idx = rounded.astype(jnp.int32)
     valid = (
@@ -57,16 +56,16 @@ def _normalize_discrete_observation(
     return safe_idx, valid
 
 
-def _select_rowwise(values: jnp.ndarray, indices: jnp.ndarray) -> jnp.ndarray:
+def _select_rowwise(values: Float[Array, "M C"], indices: Int[Array, " M"]) -> Float[Array, " M"]:
     return jnp.take_along_axis(values, indices[:, None], axis=1).squeeze(axis=1)
 
 
 def _sum_masked_log_probs(
-    log_probs: jnp.ndarray,
-    obs_mask_t: jnp.ndarray,
+    log_probs: Float[Array, " M"],
+    obs_mask_t: Shaped[Array, " M"],
     *,
-    valid_obs: jnp.ndarray | None = None,
-) -> jnp.ndarray:
+    valid_obs: Bool[Array, " M"] | None = None,
+) -> FloatScalar:
     """Sum observed-channel log-probs, returning ``-inf`` on support violations."""
     observed = obs_mask_t > 0.5
     valid = jnp.ones_like(observed, dtype=bool) if valid_obs is None else valid_obs
@@ -75,7 +74,9 @@ def _sum_masked_log_probs(
     return jnp.where(jnp.any(invalid_observed), -jnp.inf, total)
 
 
-def _discrete_moments_from_probs(probs: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+def _discrete_moments_from_probs(
+    probs: Float[Array, "M C"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     class_values = jnp.arange(probs.shape[1], dtype=probs.dtype)
     mean = jnp.sum(probs * class_values[None, :], axis=1)
     second_moment = jnp.sum(probs * (class_values[None, :] ** 2), axis=1)
@@ -84,10 +85,10 @@ def _discrete_moments_from_probs(probs: jnp.ndarray) -> tuple[jnp.ndarray, jnp.n
 
 
 def ordered_logistic_probabilities(
-    eta: jnp.ndarray,
-    cutpoints: jnp.ndarray,
-    level_counts: jnp.ndarray,
-) -> jnp.ndarray:
+    eta: Float[Array, " M"],
+    cutpoints: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> Float[Array, "M C"]:
     """Return per-channel ordered-logistic probabilities over encoded categories."""
     eta = jnp.asarray(eta)
     cutpoints = jnp.asarray(cutpoints)
@@ -119,11 +120,11 @@ def ordered_logistic_probabilities(
 
 
 def categorical_probabilities(
-    eta: jnp.ndarray,
-    intercepts: jnp.ndarray,
-    slopes: jnp.ndarray,
-    level_counts: jnp.ndarray,
-) -> jnp.ndarray:
+    eta: Float[Array, " M"],
+    intercepts: Float[Array, "M cut"],
+    slopes: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> Float[Array, "M C"]:
     """Return per-channel softmax probabilities over encoded categories."""
     eta = jnp.asarray(eta)
     intercepts = jnp.asarray(intercepts)
@@ -149,21 +150,21 @@ def categorical_probabilities(
 
 
 def ordered_logistic_moments(
-    eta: jnp.ndarray,
-    cutpoints: jnp.ndarray,
-    level_counts: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    eta: Float[Array, " M"],
+    cutpoints: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     return _discrete_moments_from_probs(
         ordered_logistic_probabilities(eta, cutpoints, level_counts)
     )
 
 
 def categorical_moments(
-    eta: jnp.ndarray,
-    intercepts: jnp.ndarray,
-    slopes: jnp.ndarray,
-    level_counts: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    eta: Float[Array, " M"],
+    intercepts: Float[Array, "M cut"],
+    slopes: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> tuple[Float[Array, " M"], Float[Array, " M"]]:
     return _discrete_moments_from_probs(
         categorical_probabilities(eta, intercepts, slopes, level_counts)
     )
@@ -186,7 +187,14 @@ def get_categorical_extra_params(
     return level_counts, intercepts, slopes
 
 
-def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
+def emission_log_prob_gaussian(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+) -> FloatScalar:
     """Log p(y_t | z_t) for Gaussian emissions."""
     pred = H @ z_t + d
     residual = (y_t - pred) * obs_mask_t
@@ -203,7 +211,14 @@ def emission_log_prob_gaussian(y_t, z_t, H, d, R, obs_mask_t):
     return jnp.where(n_obs > 0, -0.5 * (n_obs * jnp.log(2 * jnp.pi) + logdet + mahal), 0.0)
 
 
-def emission_log_prob_poisson(y_t, z_t, H, d, _R, obs_mask_t):
+def emission_log_prob_poisson(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+) -> FloatScalar:
     """Log p(y_t | z_t) for Poisson emissions (log-link)."""
     eta = H @ z_t + d
     rate = jnp.exp(eta)
@@ -211,7 +226,15 @@ def emission_log_prob_poisson(y_t, z_t, H, d, _R, obs_mask_t):
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
-def emission_log_prob_student_t(y_t, z_t, H, d, R, obs_mask_t, df=5.0):
+def emission_log_prob_student_t(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    df=5.0,
+) -> FloatScalar:
     """Log p(y_t | z_t) for Student-t emissions."""
     eta = H @ z_t + d
     scale = jnp.sqrt(jnp.diag(R))
@@ -219,7 +242,15 @@ def emission_log_prob_student_t(y_t, z_t, H, d, R, obs_mask_t, df=5.0):
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
-def emission_log_prob_gamma(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
+def emission_log_prob_gamma(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    shape=1.0,
+) -> FloatScalar:
     """Log p(y_t | z_t) for Gamma emissions (log-link for mean)."""
     eta = H @ z_t + d
     mean = jnp.exp(eta)
@@ -230,7 +261,14 @@ def emission_log_prob_gamma(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
     return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y)
 
 
-def emission_log_prob_bernoulli(y_t, z_t, H, d, _R, obs_mask_t):
+def emission_log_prob_bernoulli(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+) -> FloatScalar:
     """Log p(y_t | z_t) for Bernoulli emissions (logit-link)."""
     eta = H @ z_t + d
     logit_p = eta
@@ -238,7 +276,15 @@ def emission_log_prob_bernoulli(y_t, z_t, H, d, _R, obs_mask_t):
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
-def emission_log_prob_negative_binomial(y_t, z_t, H, d, _R, obs_mask_t, r=5.0):
+def emission_log_prob_negative_binomial(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    r=5.0,
+) -> FloatScalar:
     """Log p(y_t | z_t) for Negative Binomial emissions (log-link).
 
     Parameterisation: mean = exp(eta), overdispersion r.
@@ -256,7 +302,15 @@ def emission_log_prob_negative_binomial(y_t, z_t, H, d, _R, obs_mask_t, r=5.0):
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
-def emission_log_prob_beta(y_t, z_t, H, d, _R, obs_mask_t, concentration=10.0):
+def emission_log_prob_beta(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    concentration=10.0,
+) -> FloatScalar:
     """Log p(y_t | z_t) for Beta emissions (logit-link).
 
     mean = sigmoid(eta), concentration phi.
@@ -273,15 +327,15 @@ def emission_log_prob_beta(y_t, z_t, H, d, _R, obs_mask_t, concentration=10.0):
 
 
 def emission_log_prob_ordered_logistic(
-    y_t,
-    z_t,
-    H,
-    d,
-    _R,
-    obs_mask_t,
-    cutpoints,
-    level_counts,
-):
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    cutpoints: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> FloatScalar:
     """Log p(y_t | z_t) for ordered-logistic emissions."""
     eta = H @ z_t + d
     probs = ordered_logistic_probabilities(eta, cutpoints, level_counts)
@@ -292,16 +346,16 @@ def emission_log_prob_ordered_logistic(
 
 
 def emission_log_prob_categorical(
-    y_t,
-    z_t,
-    H,
-    d,
-    _R,
-    obs_mask_t,
-    intercepts,
-    slopes,
-    level_counts,
-):
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    intercepts: Float[Array, "M cut"],
+    slopes: Float[Array, "M cut"],
+    level_counts: Int[Array, " M"],
+) -> FloatScalar:
     """Log p(y_t | z_t) for categorical softmax emissions."""
     eta = H @ z_t + d
     probs = categorical_probabilities(eta, intercepts, slopes, level_counts)
@@ -311,7 +365,14 @@ def emission_log_prob_categorical(
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
-def emission_log_prob_bernoulli_probit(y_t, z_t, H, d, _R, obs_mask_t):
+def emission_log_prob_bernoulli_probit(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+) -> FloatScalar:
     """Log p(y_t | z_t) for Bernoulli emissions (probit-link).
 
     Uses the normal CDF (Phi) as the inverse link instead of sigmoid.
@@ -323,7 +384,15 @@ def emission_log_prob_bernoulli_probit(y_t, z_t, H, d, _R, obs_mask_t):
     return jnp.sum(jnp.where(obs_mask_t > 0.5, log_probs, 0.0))
 
 
-def emission_log_prob_gamma_inverse(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
+def emission_log_prob_gamma_inverse(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    shape=1.0,
+) -> FloatScalar:
     """Log p(y_t | z_t) for Gamma emissions (inverse-link for mean).
 
     mean = 1 / eta (canonical link for Gamma).
@@ -339,7 +408,15 @@ def emission_log_prob_gamma_inverse(y_t, z_t, H, d, _R, obs_mask_t, shape=1.0):
     return _sum_masked_log_probs(log_probs, obs_mask_t, valid_obs=valid_y & valid_eta)
 
 
-def emission_log_prob_beta_probit(y_t, z_t, H, d, _R, obs_mask_t, concentration=10.0):
+def emission_log_prob_beta_probit(
+    y_t: Float[Array, " M"],
+    z_t: Float[Array, " D"],
+    H: Float[Array, "M D"],
+    d: Float[Array, " M"],
+    _R: Float[Array, "M M"],
+    obs_mask_t: Shaped[Array, " M"],
+    concentration=10.0,
+) -> FloatScalar:
     """Log p(y_t | z_t) for Beta emissions (probit-link).
 
     mean = Phi(eta), concentration phi.

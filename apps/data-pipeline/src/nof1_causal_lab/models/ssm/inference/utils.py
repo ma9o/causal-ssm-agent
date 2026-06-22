@@ -284,23 +284,6 @@ def build_unconstrained_site_transform(
     )
 
 
-def _assemble_single_deterministics(
-    samples: dict[str, jnp.ndarray],
-    spec: SSMSpec,
-    *,
-    parameter_layout: SSMParameterLayout | None = None,
-) -> dict[str, jnp.ndarray]:
-    """Assemble deterministic sites for a single constrained parameter draw."""
-    if not samples:
-        return {}
-    det = _assemble_deterministics(
-        {name: value[None, ...] for name, value in samples.items()},
-        spec,
-        parameter_layout=parameter_layout,
-    )
-    return {name: value[0] for name, value in det.items()}
-
-
 def _assemble_single_likelihood_deterministics(
     samples: dict[str, jnp.ndarray],
     spec: SSMSpec,

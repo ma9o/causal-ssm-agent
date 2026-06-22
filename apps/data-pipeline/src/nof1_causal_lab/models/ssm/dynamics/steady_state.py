@@ -6,32 +6,25 @@ is unique and the solver converges in a couple of Newton steps from any
 reasonable initial guess.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
 import jax.numpy as jnp
 import optimistix as optx
 
-from .vector_field import VectorFieldArgs
+from nof1_causal_lab.models.ssm.shapes import Array, Float
 
-if TYPE_CHECKING:
-    from jax import Array
-
-    from .intervention import Intervention
-    from .vector_field import VectorField
+from .intervention import Intervention
+from .vector_field import VectorField, VectorFieldArgs
 
 
 def compute_steady_state(
     vector_field: VectorField,
     params: tuple[dict[str, Array], ...],
     intervention: Intervention,
-    initial_guess: Array | None = None,
+    initial_guess: Float[Array, " D"] | None = None,
     *,
     rtol: float = 1e-6,
     atol: float = 1e-8,
     max_steps: int = 256,
-) -> Array:
+) -> Float[Array, " D"]:
     """Find ``η*`` such that ``f(0, η*, args) = 0``.
 
     For a stable linear vector field, this reproduces

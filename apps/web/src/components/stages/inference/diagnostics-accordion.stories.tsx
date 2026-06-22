@@ -22,7 +22,6 @@ export const MCMCOnly: Story = {
 
 export const AllSections: Story = {
   args: {
-    powerScaling: stage5bAuxKalmanMCMC.power_scaling,
     ppc: stage5bAuxKalmanMCMC.ppc,
     mcmcDiagnostics: stage5bAuxKalmanMCMC.mcmc_diagnostics,
     looDiagnostics: stage5bAuxKalmanMCMC.loo_diagnostics,
@@ -35,7 +34,6 @@ export const ParticleDiagnosticsWithLOO: Story = {
   args: {
     smcDiagnostics: stage5b.smc_diagnostics,
     looDiagnostics: stage5b.loo_diagnostics,
-    powerScaling: stage5b.power_scaling,
     ppc: stage5b.ppc,
     posteriorMarginals: stage5b.posterior_marginals,
     posteriorPairs: stage5b.posterior_pairs,

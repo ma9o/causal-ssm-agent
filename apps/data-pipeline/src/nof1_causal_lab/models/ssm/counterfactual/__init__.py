@@ -1,10 +1,13 @@
 """Counterfactual API — Pearl rung-2 / rung-3 estimands.
 
 This module is a *consumer* of ``models/ssm/dynamics``. It uses the
-vector-field substrate to compute intervention effects (compute_interventions),
-abduct rung-3 latent states from observed history (approximate_abducted_state),
+vector-field substrate to compute intervention effects (compute_interventions)
 and summarise effect distributions (summarize_draws,
 summarize_temporal_effect, resolve_action_value, ...).
+
+Rung-3 abduction (recovering the latent state at the evidence boundary)
+is *not* done here: it reads the exact particle-smoother posterior latent
+paths produced by the fit, never a linearised Kalman/RTS smoother.
 
 The dynamics framework itself — vector fields, edges, intervention DSL,
 compilation, discretisation, priors, stability, simulators — lives one
@@ -14,19 +17,14 @@ not via this module.
 Public API:
 
 - ``compute_interventions`` — Stage-6 orchestrator
-- ``approximate_abducted_state`` — rung-3 abduction (Kalman smoother)
 - ``summarize_draws``, ``summarize_temporal_effect``, ``build_time_grid``,
-  ``resolve_action_value``, ``project_to_manifest`` — estimand helpers
+  ``resolve_action_value`` — estimand helpers
 """
 
 from __future__ import annotations
 
-from .abduction import (
-    approximate_abducted_state,
-)
 from .estimands import (
     build_time_grid,
-    project_to_manifest,
     resolve_action_value,
     summarize_draws,
     summarize_temporal_effect,
@@ -41,11 +39,9 @@ from .orchestration import (
 
 __all__ = [
     "ClampSpec",
-    "approximate_abducted_state",
     "build_segment_bounds",
     "build_time_grid",
     "compute_interventions",
-    "project_to_manifest",
     "resolve_action_value",
     "summarize_draws",
     "summarize_temporal_effect",

@@ -38,20 +38,6 @@ class WorkerStatusContract(BaseModel):
     error: str | None = None
 
 
-class ObservationRecordContract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    indicator: str
-    value: int | float | bool | str | None
-    anchor_time: str | None
-    support_kind: str | None = None
-    summary_operator: str | None = None
-    anchor_policy: str | None = None
-    observation_window: str | None = None
-    support_start: str | None = None
-    support_end: str | None = None
-
-
 class Stage2Contract(LLMStageContract):
     workers: list[WorkerStatusContract]
 

@@ -188,24 +188,24 @@ unused-type-ignore-comment = "ignore"
 
 [tool.ty.analysis]
 respect-type-ignore-comments = true
-# These dependencies ship no usable type information; letting ty infer through
-# them only produces `Unknown`-propagation noise (e.g. equinox Module
-# construction widening to `Module`). Treat their public surface as `Any`.
+# `Any`-out only deps ty cannot check cleanly, for two distinct reasons:
+#   - no py.typed (types not exported): blackjax, cuthbert, cuthbertlib, numpyro, optax.
+#   - typed, but ty (pre-1.0) mis-models them: equinox (its Module metaclass /
+#     dataclass_transform widens our subclass construction to `Module`) and arviz
+#     (`from_dict(**kwargs)` splat). Revisit as ty matures.
+# diffrax / optimistix / y0 ship py.typed and ty handles them — kept checked.
 replace-imports-with-any = [
     "arviz.**",
     "blackjax.**",
     "cuthbert.**",
     "cuthbertlib.**",
-    "diffrax.**",
     "equinox.**",
     "numpyro.**",
     "optax.**",
-    "optimistix.**",
-    "y0.**",
 ]
 
 [tool.pytest.ini_options]
-addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.inference.targets.euler_maruyama,beartype.beartype"
+addopts = "-n auto --tb=short -ra --instafail --timeout=300 --durations=10 --jaxtyping-packages=nof1_causal_lab.models.ssm.covariance_utils,nof1_causal_lab.models.ssm.discretization.exact,nof1_causal_lab.models.ssm.discretization.local_linearization,nof1_causal_lab.models.ssm.dynamics.stability,nof1_causal_lab.models.ssm.dynamics.steady_state,nof1_causal_lab.models.ssm.dynamics.vector_field,nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math,nof1_causal_lab.models.ssm.inference.targets.emissions,nof1_causal_lab.models.ssm.inference.targets.euler_maruyama,nof1_causal_lab.models.ssm.inference.targets.transitions,beartype.beartype"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]

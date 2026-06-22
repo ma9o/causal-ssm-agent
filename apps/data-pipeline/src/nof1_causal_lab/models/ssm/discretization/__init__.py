@@ -14,7 +14,6 @@ from nof1_causal_lab.models.ssm.discretization.exact import (
 from nof1_causal_lab.models.ssm.discretization.local_linearization import (
     discretize_at_state,
     discretize_at_states_batched,
-    make_filter_dynamics_callback,
 )
 
 __all__ = [
@@ -28,6 +27,5 @@ __all__ = [
     "discretize_system",
     "discretize_system_batched",
     "discretize_system_with_inputs_batched",
-    "make_filter_dynamics_callback",
     "solve_lyapunov",
 ]

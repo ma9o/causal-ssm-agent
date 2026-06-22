@@ -6,7 +6,6 @@ import { MCMCDiagnosticsPanel } from "@/components/charts/mcmc-diagnostics-panel
 import { ParetoKChart } from "@/components/charts/pareto-k-chart";
 import { PosteriorDensityChart } from "@/components/charts/posterior-density-chart";
 import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
-import { PowerScalingScatter } from "@/components/charts/power-scaling-scatter";
 import { SMCDiagnosticsChart } from "@/components/charts/smc-diagnostics-chart";
 import {
   Accordion,
@@ -24,14 +23,11 @@ import type {
   PPCResult,
   PosteriorMarginal,
   PosteriorPair,
-  PowerScalingResult,
   SMCDiagnostics,
 } from "@nof1-causal-lab/api-types";
-import { PowerScalingTable } from "./power-scaling-table";
 import { PPCWarningsTable } from "./ppc-warnings-table";
 
 interface DiagnosticsAccordionProps {
-  powerScaling?: PowerScalingResult[] | null;
   ppc?: PPCResult | null;
   mcmcDiagnostics?: MCMCDiagnostics | null;
   smcDiagnostics?: SMCDiagnostics | null;
@@ -41,7 +37,6 @@ interface DiagnosticsAccordionProps {
 }
 
 export function DiagnosticsAccordion({
-  powerScaling,
   ppc,
   mcmcDiagnostics,
   smcDiagnostics,
@@ -53,10 +48,9 @@ export function DiagnosticsAccordion({
   const pairs = posteriorPairs ?? [];
   const hasMarginals = marginals.length > 0;
   const hasPairs = pairs.length > 0;
-  const hasPowerScaling = powerScaling != null && powerScaling.length > 0;
   const hasPPC = ppc != null && ppc.per_variable_warnings.length > 0;
 
-  const defaultOpen = ["mcmc", "smc", "ppc", "loo", "power-scaling"];
+  const defaultOpen = ["mcmc", "smc", "ppc", "loo"];
 
   return (
     <Accordion defaultValue={defaultOpen} multiple>
@@ -176,55 +170,6 @@ export function DiagnosticsAccordion({
                 {looDiagnostics.pareto_k && <ParetoKChart loo={looDiagnostics} />}
               </div>
             </div>
-          </AccordionContent>
-        </AccordionItem>
-      )}
-
-      {/* ── Power Scaling (scatter + table side by side) ── */}
-      {hasPowerScaling && powerScaling && (
-        <AccordionItem value="power-scaling">
-          <AccordionTrigger className="text-sm">
-            <span className="inline-flex items-center gap-1.5 flex-wrap">
-              Power Scaling Diagnostics
-              <StatTooltip explanation="Tests whether posteriors are driven by data (good) or priors (concerning). Scales the likelihood and prior to detect sensitivity." />
-              {(() => {
-                const nOk = powerScaling.filter((p) => p.diagnosis === "well_identified").length;
-                const nPrior = powerScaling.filter((p) => p.diagnosis === "prior_dominated").length;
-                const nConflict = powerScaling.filter(
-                  (p) => p.diagnosis === "prior_data_conflict",
-                ).length;
-                if (nOk === powerScaling.length) {
-                  return (
-                    <Badge variant="success">
-                      {nOk}/{powerScaling.length} OK
-                    </Badge>
-                  );
-                }
-                return (
-                  <>
-                    <Badge variant="success">
-                      {nOk}/{powerScaling.length} OK
-                    </Badge>
-                    {nPrior > 0 && <Badge variant="warning">{nPrior} prior-dominated</Badge>}
-                    {nConflict > 0 && (
-                      <Badge variant="destructive">{nConflict} prior-data conflict</Badge>
-                    )}
-                  </>
-                );
-              })()}
-            </span>
-          </AccordionTrigger>
-          <AccordionContent>
-            {powerScaling.length >= 2 ? (
-              <div className="grid gap-4 lg:grid-cols-3">
-                <div className="lg:col-span-2">
-                  <PowerScalingTable results={powerScaling} />
-                </div>
-                <PowerScalingScatter results={powerScaling} />
-              </div>
-            ) : (
-              <PowerScalingTable results={powerScaling} />
-            )}
           </AccordionContent>
         </AccordionItem>
       )}

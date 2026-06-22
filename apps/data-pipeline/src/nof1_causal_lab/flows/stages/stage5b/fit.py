@@ -213,68 +213,6 @@ def fit_model(
         }
 
 
-@task(task_run_name="power-scaling-sensitivity", persist_result=False)
-def run_power_scaling(fitted_result: dict) -> dict:
-    """Post-fit power-scaling sensitivity diagnostic.
-
-    Detects prior-dominated, well-identified, or conflicting parameters
-    by perturbing prior/likelihood contributions and measuring posterior shift.
-
-    Args:
-        fitted_result: Output from fit_model task (includes runtime)
-
-    Returns:
-        Dict with power-scaling diagnostics
-    """
-    from nof1_causal_lab.models.ssm.diagnostics import power_scaling_sensitivity
-
-    if not fitted_result.get("fitted", False):
-        return {"checked": False, "error": "Model not fitted"}
-
-    t0 = time.monotonic()
-    try:
-        result = fitted_result["result"]
-        runtime: PreparedModelRuntime = fitted_result["runtime"]
-        ssm_model = runtime.model
-        logger.info(
-            "Running power-scaling sensitivity: method=%s timepoints=%d manifest_vars=%d",
-            result.method,
-            len(runtime.times),
-            len(runtime.manifest_names),
-        )
-
-        ps_result = power_scaling_sensitivity(
-            model=ssm_model,
-            observations=runtime.observations,
-            times=runtime.times,
-            result=result,
-        )
-
-        ps_result.print_report()
-        diagnosis = ps_result.diagnosis or {}
-        flagged = sum(
-            verdict in {"prior_dominated", "prior_data_conflict"} for verdict in diagnosis.values()
-        )
-        logger.info(
-            "Power-scaling complete in %.1fs: parameters=%d flagged=%d",
-            _elapsed_seconds(t0),
-            len(diagnosis),
-            flagged,
-        )
-
-        return {
-            "checked": True,
-            "prior_sensitivity": ps_result.prior_sensitivity,
-            "likelihood_sensitivity": ps_result.likelihood_sensitivity,
-            "diagnosis": ps_result.diagnosis,
-            "psis_k_hat": ps_result.psis_k_hat,
-        }
-
-    except (ValueError, RuntimeError, ArithmeticError, FloatingPointError) as e:
-        logger.exception("Power-scaling check failed after %.1fs", _elapsed_seconds(t0))
-        return {"checked": False, "error": str(e)}
-
-
 @task(task_run_name="posterior-predictive-checks", persist_result=False)
 def run_ppc(fitted_result: dict) -> dict:
     """Run posterior predictive checks on the fitted model.
@@ -318,12 +256,10 @@ def run_ppc(fitted_result: dict) -> dict:
             observations=runtime.observations,
             times=runtime.times,
             manifest_names=runtime.manifest_names,
-            diffusion_dists=spec.diffusion_dists,
-            manifest_dists=spec.manifest_dists,
-            manifest_links=spec.manifest_links,
-            manifest_level_counts=spec.manifest_level_counts,
+            spec=spec,
             observation_support=runtime.observation_support,
             observation_mask=~jnp.isnan(runtime.observations),
+            transition_inputs=getattr(runtime, "transition_inputs", None),
         )
         logger.info(
             "Posterior predictive checks complete in %.1fs: warnings=%d",

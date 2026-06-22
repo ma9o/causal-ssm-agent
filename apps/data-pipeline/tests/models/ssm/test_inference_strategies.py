@@ -1730,50 +1730,6 @@ def test_marginal_particle_gibbs_smoke_on_small_kalman_model(
     assert diag["amala_grad_clip"] == float("inf")
 
 
-def test_marginal_particle_gibbs_dsmc_smoke_on_small_kalman_model():
-    spec = _make_aux_kalman_mcmc_smoke_spec()
-    model = SSMModel(spec)
-    observations, times = _small_kalman_observations_and_times()
-
-    result = fit(
-        model,
-        observations=observations,
-        times=times,
-        method="marginal_particle_gibbs",
-        num_warmup=1,
-        num_samples=2,
-        num_chains=1,
-        seed=41,
-        n_particles=3,
-        n_parameter_particles=2,
-        latent_block_size=2,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal="prior_predictive",
-        param_step_size=0.001,
-        parameter_proposal="random_walk",
-        init_method="random",
-        auto_preconditioner_method="none",
-        init_scale=0.0,
-        retain_latent_paths=True,
-        reparam=None,
-    )
-
-    _assert_small_particle_mcmc_result(
-        result,
-        method="marginal_particle_gibbs",
-        num_samples=2,
-    )
-    diag = result.diagnostics["marginal_particle_gibbs"]
-    assert diag["latent_kernel"] == "conditional_desequentialized_smc"
-    assert diag["latent_smoother"] == "dsmc"
-    assert diag["latent_smoother_algorithm"] == "conditional_desequentialized_smc"
-    assert diag["latent_smoother_family"] == "posterior_mixture_dsmc"
-    assert diag["latent_smoother_selection"] == "tree_stitch_combination"
-    assert diag["latent_smoother_parallel"] is True
-    assert diag["latent_backward_sampling"] is False
-    assert diag["latent_transition_kind"] == "local_linear_gaussian"
-
-
 def test_marginal_particle_gibbs_dsmc_amala_plus_uses_euler_scheme():
     spec = _make_aux_kalman_mcmc_smoke_spec()
     model = SSMModel(spec)

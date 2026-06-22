@@ -1079,8 +1079,9 @@ def validate_prior_predictive(
 
     Returns:
         Tuple of (is_valid, validation results, raw prior predictive samples).
-        Unpack ``simulate_predictive_observations()`` to generate per-variable
-        observation samples and their effective emission mask for visualization.
+        The samples already carry per-variable ``observations`` and their
+        effective ``observations_mask`` (drawn through the exact nonlinear
+        predictive path) for visualization.
     """
     from nof1_causal_lab.models.predictive_simulation import (
         PredictiveObservationMeanOverflow,

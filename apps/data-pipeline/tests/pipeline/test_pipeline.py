@@ -158,7 +158,6 @@ def _patch_common_stage_stubs(monkeypatch, calls: list):
     ) -> Stage5bContract:
         calls.append(("stage5b", stage4, stage2, inference_method))
         return Stage5bContract(
-            power_scaling=[],
             ppc={"checked": False, "per_variable_warnings": []},
             inference_metadata={
                 "method": "marginal_particle_gibbs",
@@ -919,7 +918,6 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         spec=mock_spec,
         times=np.array([0.0, 1.0]),
         ppc_result={"checked": True, "per_variable_warnings": []},
-        power_scaling_result={"checked": True, "diagnosis": {}},
     )
 
     captured: dict[str, object] = {}
@@ -1003,7 +1001,6 @@ def test_stage6_runs_interventions_from_fitted_artifact(monkeypatch):
         },
     )
     stage5b_contract = Stage5bContract(
-        power_scaling=[],
         ppc={"checked": True, "per_variable_warnings": []},
         inference_metadata={
             "method": "marginal_particle_gibbs",
@@ -1287,7 +1284,6 @@ def test_fitted_artifact_pickles_without_live_jax_caches():
         times=jnp.array([0.0, 1.0], dtype=jnp.float32),
         observation_support=SimpleNamespace(manifest_names=["screen_time_obs"]),
         ppc_result={"checked": True, "per_variable_warnings": []},
-        power_scaling_result={"checked": True, "diagnosis": {}},
     )
 
     restored = cloudpickle.loads(cloudpickle.dumps(artifact))
@@ -1580,15 +1576,6 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
         "stage-5b",
         {
             "outcome": "warn",
-            "power_scaling": [
-                {
-                    "parameter": "beta_x",
-                    "diagnosis": "prior_dominated",
-                    "prior_sensitivity": 0.8,
-                    "likelihood_sensitivity": 0.2,
-                    "psis_k_hat": 0.4,
-                }
-            ],
             "ppc": {
                 "checked": True,
                 "per_variable_warnings": [
@@ -1616,7 +1603,6 @@ def test_load_stage5b_state_reconstructs_from_public_payload(tmp_path, monkeypat
     state = stage_registry.load_stage_state(workspace_id, "stage-5b")
 
     assert isinstance(state, Stage5bContract)
-    assert state.power_scaling[0].diagnosis == "prior_dominated"
     assert state.ppc.checked is True
 
 
@@ -1646,10 +1632,6 @@ def test_stage5b_uses_fit_metadata(monkeypatch):
             "posterior_marginals": [],
             "posterior_pairs": [],
         },
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5b.fit.run_power_scaling",
-        lambda *_args, **_kwargs: {"checked": False, "error": "skip"},
     )
     monkeypatch.setattr(
         "nof1_causal_lab.flows.stages.stage5b.fit.run_ppc",
@@ -1720,16 +1702,9 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
         },
     )
 
-    def _unexpected_power_scaling(*_args, **_kwargs):
-        raise AssertionError("run_power_scaling should not run after a failed fit")
-
     def _unexpected_ppc(*_args, **_kwargs):
         raise AssertionError("run_ppc should not run after a failed fit")
 
-    monkeypatch.setattr(
-        "nof1_causal_lab.flows.stages.stage5b.fit.run_power_scaling",
-        _unexpected_power_scaling,
-    )
     monkeypatch.setattr(
         "nof1_causal_lab.flows.stages.stage5b.fit.run_ppc",
         _unexpected_ppc,
@@ -1776,7 +1751,6 @@ def test_stage5b_failed_fit_returns_fail_without_postfit_diagnostics(monkeypatch
     assert result.outcome == "fail"
     assert result.fail_reason == "model_fit_failed"
     result_dict = result.model_dump(mode="json")
-    assert result_dict["power_scaling"] == []
     assert result_dict["ppc"] == {
         "checked": False,
         "per_variable_warnings": [],

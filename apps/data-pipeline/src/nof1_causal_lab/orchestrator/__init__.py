@@ -14,15 +14,7 @@ from nof1_causal_lab.artifacts import (
     MeasurementModel,
 )
 
-from .agents import (
-    propose_latent_model,
-    propose_measurement_model,
-)
-
 __all__ = [
-    # Agents
-    "propose_latent_model",
-    "propose_measurement_model",
     # Schemas - Latent
     "Construct",
     "CausalEdge",
