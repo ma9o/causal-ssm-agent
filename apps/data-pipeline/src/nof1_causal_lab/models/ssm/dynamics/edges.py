@@ -154,6 +154,37 @@ class StateIntercept(eqx.Module):
         return accumulator.at[self.target].add(params["cint"])
 
 
+class NodePotential(eqx.Module):
+    """Node-intrinsic self-regulation: ``drift = -dV/dη`` at ``target``.
+
+    The potential is ``V(η) = ½·stiffness·d² + ¼·quartic·d⁴`` with
+    ``d = η[target] - center``, so the contribution is
+    ``-(stiffness·d + quartic·d³)``.
+
+    This is the gradient (curl-free) part of the drift — node self-dynamics,
+    *not* a directed edge. ``quartic == 0`` reproduces ``StateDecay`` +
+    ``StateIntercept`` exactly (``-stiffness·(η-center) = -stiffness·η +
+    stiffness·center``), so ``stiffness`` is the relaxation rate and ``center``
+    is the set-point (the well minimum). ``quartic > 0`` adds stiffening
+    self-limitation (bounded excursions); a bistable landscape is a later
+    opt-in variant.
+    """
+
+    target: int = eqx.field(static=True)
+
+    def contribute(
+        self,
+        accumulator: Array,
+        eta: Array,
+        _eta_per_edge: Array,
+        _t: Array,
+        params: dict[str, Array],
+    ) -> Array:
+        d = eta[self.target] - params["center"]
+        force = params["stiffness"] * d + params["quartic"] * d**3  # dV/dη
+        return accumulator.at[self.target].add(-force)
+
+
 # ---------------------------------------------------------------------------
 # Single-target edges
 # ---------------------------------------------------------------------------

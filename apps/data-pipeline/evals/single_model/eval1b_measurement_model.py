@@ -5,14 +5,12 @@ Tests the orchestrator's ability to:
 2. Check identifiability of target causal effects
 3. Request proxies for blocking confounders when needed
 
-Uses the same core logic as production (via run_stage1b), just with
-a different model configuration.
+Uses the same core logic as production (``run_stage1b``), driven through a real
+``StageSessionFactory`` for the model under test.
 
 Usage:
-    inspect eval evals/single_model/eval1b_measurement_model.py --model openrouter/anthropic/claude-sonnet-4
     inspect eval evals/single_model/eval1b_measurement_model.py \
-        --model openrouter/google/gemini-2.5-pro-preview-06-05 \
-        -T workspace_id=SMALLGOLDEN
+        -T model=openrouter/anthropic/claude-sonnet-4 -T workspace_id=SMALLGOLDEN
 """
 
 import sys
@@ -24,22 +22,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import json
 
 from evals.common import (
-    load_eval_config,
     load_workspace_stage1b_inputs,
-    make_generate_fn,
+    make_eval_session_factory,
 )
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
-from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
-from inspect_ai.solver import Generate, TaskState, solver, system_message
+from inspect_ai.solver import Generate, TaskState, solver
 
-from nof1_causal_lab.orchestrator.prompts import measurement_model
-from nof1_causal_lab.orchestrator.schemas import LatentModel, MeasurementModel
-from nof1_causal_lab.orchestrator.stage1b import Stage1bResult, run_stage1b
+from nof1_causal_lab.artifacts.latent_model import LatentModel
+from nof1_causal_lab.artifacts.measurement_model import MeasurementModel
+from nof1_causal_lab.flows.stages.stage1b.run import Stage1bResult, run_stage1b
 from nof1_causal_lab.utils.causal_spec import get_all_treatments, get_outcome_name
-
-_CONFIG = load_eval_config()
 
 
 def create_eval_dataset(
@@ -98,7 +92,7 @@ def _score_stage1b_result(
     # Parse measurement model
     try:
         measurement = MeasurementModel.model_validate(result.measurement_model)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return {
             "total": 0.0,
             "breakdown": f"Invalid measurement model: {e}",
@@ -185,7 +179,7 @@ def measurement_model_scorer():
         latent_data = state.metadata.get("latent_model", {})
         try:
             latent = LatentModel(**latent_data)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return Score(
                 value=0.0,
                 answer="[Invalid latent]",
@@ -216,29 +210,26 @@ def measurement_model_scorer():
     return score
 
 
-def measurement_model_solver():
-    """Solver that runs the full Stage 1b flow using core logic."""
+def measurement_model_solver(model: str | None = None):
+    """Solver that runs the production Stage 1b flow via a real session factory."""
 
     @solver
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
-            model = get_model()
-            generate_fn = make_generate_fn(model)
-
-            # Get metadata
             latent_model = state.metadata.get("latent_model", {})
             question = state.metadata.get("question", "")
             chunks = state.metadata.get("chunks", [])
             dataset_summary = state.metadata.get("dataset_summary", "")
 
-            # Run the SAME core logic as production
-            result = await run_stage1b(
-                question=question,
-                latent_model=latent_model,
-                chunks=chunks,
-                generate=generate_fn,
-                dataset_summary=dataset_summary,
-            )
+            # Run the SAME core logic as production, on the model under test.
+            async with make_eval_session_factory("stage-1b", model) as factory:
+                result = await run_stage1b(
+                    question=question,
+                    latent_model=latent_model,
+                    chunks=chunks,
+                    session_factory=factory,
+                    dataset_summary=dataset_summary,
+                )
 
             # Store result in metadata for scorer
             state.metadata["stage1b_result"] = result
@@ -254,26 +245,24 @@ def measurement_model_solver():
 @task
 def measurement_model_eval(
     workspace_id: str | None = None,
+    model: str | None = None,
 ):
     """Evaluate Stage 1b using the production logic.
 
-    The eval uses the exact same run_stage1b() function as production,
-    just with a different model. This ensures the eval tests what actually runs.
+    The eval uses the exact same run_stage1b() function as production, just with
+    a chosen model. This ensures the eval tests what actually runs.
 
     Scoring:
     - Points per indicator (construct ref, dtype, aggregation, specificity)
-    - +10: All identifiable from start
-    - +15: All identifiable after proxy fix
-    - +5: Partial improvement from proxies
+    - +10: All identifiable
 
     Args:
         workspace_id: Workspace to load persisted Stage 0 and Stage 1a inputs from.
+        model: Model under test as an ``openrouter/...`` slug; defaults to the
+            configured Stage 1 model.
     """
     return Task(
         dataset=create_eval_dataset(workspace_id=workspace_id),
-        solver=[
-            system_message(measurement_model.SYSTEM),
-            measurement_model_solver(),
-        ],
+        solver=[measurement_model_solver(model=model)],
         scorer=measurement_model_scorer(),
     )

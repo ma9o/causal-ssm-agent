@@ -32,6 +32,7 @@ from .spec import (
     InterceptSpec,
     LinearEdgeSpec,
     MultiplicativeEdgeSpec,
+    NodePotentialSpec,
     StateDecaySpec,
     StateInterceptSpec,
 )
@@ -41,6 +42,7 @@ _COMPONENT_KIND_REGISTRY: dict[str, str] = {
     "DiagonalDecay": "diagonal_decay",
     "StateIntercept": "state_intercept",
     "Intercept": "intercept",
+    "NodePotential": "node_potential",
     "LinearEdge": "linear_edge",
     "HillEdge": "hill_edge",
     "MultiplicativeEdge": "multiplicative_edge",
@@ -69,6 +71,17 @@ def dynamics_spec_to_dict(spec: DynamicsSpec) -> dict[str, Any]:
             entry = {
                 "kind": "Intercept",
             }
+        elif isinstance(component, NodePotentialSpec):
+            entry = {
+                "kind": "NodePotential",
+                "target": int(component.target),
+            }
+            if component.fixed_center is not None:
+                entry["fixed_center"] = float(component.fixed_center)
+            if component.fixed_stiffness is not None:
+                entry["fixed_stiffness"] = float(component.fixed_stiffness)
+            if component.fixed_quartic is not None:
+                entry["fixed_quartic"] = float(component.fixed_quartic)
         elif isinstance(component, LinearEdgeSpec):
             entry = {
                 "kind": "LinearEdge",
@@ -114,6 +127,19 @@ def _spec_from_component_dict(component: dict[str, Any]) -> Any:
         return StateInterceptSpec(target=int(component["target"]))
     if kind == "Intercept":
         return InterceptSpec()
+    if kind == "NodePotential":
+        return NodePotentialSpec(
+            target=int(component["target"]),
+            fixed_center=(
+                None if "fixed_center" not in component else float(component["fixed_center"])
+            ),
+            fixed_stiffness=(
+                None if "fixed_stiffness" not in component else float(component["fixed_stiffness"])
+            ),
+            fixed_quartic=(
+                None if "fixed_quartic" not in component else float(component["fixed_quartic"])
+            ),
+        )
     if kind == "LinearEdge":
         return LinearEdgeSpec(
             source=int(component["source"]),

@@ -58,7 +58,7 @@ def make_anonymous_label_mapping(sample_id: str, candidate_ids: list[str]) -> An
     shuffled_candidate_ids = candidate_ids.copy()
     random.seed(hash(sample_id))
     random.shuffle(shuffled_candidate_ids)
-    label_map = dict(zip(shuffled_candidate_ids, labels))
+    label_map = dict(zip(shuffled_candidate_ids, labels, strict=True))
     reverse_label_map = {label: candidate_id for candidate_id, label in label_map.items()}
     return AnonymousLabelMapping(label_map=label_map, reverse_label_map=reverse_label_map)
 
@@ -215,6 +215,7 @@ class EvalQuestion:
         """Has model_spec + priors + causal_spec (all Stage 4 artifacts)."""
         return self.has_model_spec and self.has_priors and self.has_causal_spec
 
+
 def discover_questions() -> list[EvalQuestion]:
     """Discover all eval questions from the filesystem.
 
@@ -259,12 +260,42 @@ def get_generate_config() -> GenerateConfig:
     """Build the standard Inspect GenerateConfig from project config."""
     from nof1_causal_lab.utils.config import get_config
 
-    llm = get_config().llm
+    embedded = get_config().llm.embedded
     return GenerateConfig(
-        max_tokens=llm.max_tokens,
-        timeout=llm.timeout,
-        reasoning_effort=llm.reasoning_effort,
+        max_tokens=embedded.max_tokens,
+        timeout=embedded.timeout,
+        reasoning_effort=embedded.reasoning_effort,
         reasoning_history="all",
+    )
+
+
+def make_eval_session_factory(stage_id: str, model: str | None = None, *, max_tool_turns: int = 40):
+    """Open a real ``StageSessionFactory`` for the model under test.
+
+    Returns the ``open_llm_stage`` async context manager, which yields a
+    :class:`~nof1_causal_lab.utils.agent_session.StageSessionFactory` bound to
+    the project's embedded OpenRouter backend — the same path production uses, so
+    the eval exercises the live stage code rather than an Inspect-mediated copy.
+
+    ``model`` defaults to the configured Stage 1 model and must be an
+    ``openrouter/...`` slug. Relies on ``OPENROUTER_API_KEY`` in the environment.
+    """
+    from nof1_causal_lab.flows import get_prefect_logger
+    from nof1_causal_lab.flows.llm_stage_runtime import LLMStageRuntimeConfig, open_llm_stage
+    from nof1_causal_lab.utils.config import StageLLMConfig, get_config
+
+    config = get_config()
+    resolved_model = model or config.stage1_structure_proposal.llm.model
+    runtime = LLMStageRuntimeConfig(
+        stage_id=stage_id,
+        stage_llm=StageLLMConfig(harness="none", model=resolved_model),
+        llm_defaults=config.llm,
+        max_tool_turns=max_tool_turns,
+    )
+    return open_llm_stage(
+        config=runtime,
+        openrouter_api_key=None,
+        logger=get_prefect_logger(stage_id),
     )
 
 

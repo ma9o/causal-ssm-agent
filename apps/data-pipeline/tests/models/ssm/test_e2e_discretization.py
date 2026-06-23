@@ -35,6 +35,7 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DiagonalDecaySpec,
     LinearEdgeSpec,
+    NodePotentialSpec,
     StateDecaySpec,
     StateInterceptSpec,
 )
@@ -151,7 +152,7 @@ def _decay_means(spec: SSMSpec, prior_registry) -> np.ndarray:
                 [_positive_prior_mean(prior, idx) for idx in range(spec.n_latent)],
                 dtype=float,
             )
-        elif isinstance(component, StateDecaySpec):
+        elif isinstance(component, (StateDecaySpec, NodePotentialSpec)):
             prior = _prior_params(prior_registry, component.decay_site_name(prefix))
             values[component.target] += _positive_prior_mean(prior)
     return values
@@ -182,7 +183,7 @@ def _decay_support(spec: SSMSpec) -> np.ndarray:
     for component in spec.dynamics_spec.components:
         if isinstance(component, DiagonalDecaySpec):
             mask[:] = True
-        elif isinstance(component, StateDecaySpec):
+        elif isinstance(component, (StateDecaySpec, NodePotentialSpec)):
             mask[component.target] = True
     return mask
 
@@ -200,6 +201,9 @@ def _state_intercept_mask(spec: SSMSpec) -> np.ndarray:
     for component in spec.dynamics_spec.components:
         if isinstance(component, StateInterceptSpec):
             mask[component.target] = True
+        elif isinstance(component, NodePotentialSpec) and component.fixed_center is None:
+            # a free well center is the set-point (the additive drift term)
+            mask[component.target] = True
     return mask
 
 
@@ -214,7 +218,7 @@ def _mean_dynamics_from_priors(spec: SSMSpec, prior_registry) -> jnp.ndarray:
                 dtype=float,
             )
             dynamics[np.arange(spec.n_latent), np.arange(spec.n_latent)] -= decay
-        elif isinstance(component, StateDecaySpec):
+        elif isinstance(component, (StateDecaySpec, NodePotentialSpec)):
             prior = _prior_params(prior_registry, component.decay_site_name(prefix))
             dynamics[component.target, component.target] -= _positive_prior_mean(prior)
         elif isinstance(component, LinearEdgeSpec):

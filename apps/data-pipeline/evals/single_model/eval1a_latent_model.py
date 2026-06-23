@@ -5,12 +5,12 @@ from a research question alone, WITHOUT seeing any data.
 
 This evaluates domain knowledge and causal reasoning, not data operationalization.
 
-Uses the same core logic as production (via run_stage1a), just with
-a different model configuration.
+Uses the same core logic as production (``run_stage1a``), driven through a real
+``StageSessionFactory`` for the model under test (the ``-T model=`` task arg,
+defaulting to the configured Stage 1 model).
 
 Usage:
-    inspect eval evals/single_model/eval1a_latent_model.py --model openrouter/anthropic/claude-sonnet-4
-    inspect eval evals/single_model/eval1a_latent_model.py --model openrouter/google/gemini-2.5-pro-preview
+    inspect eval evals/single_model/eval1a_latent_model.py -T model=openrouter/anthropic/claude-sonnet-4
 """
 
 import sys
@@ -23,22 +23,17 @@ import json
 
 from evals.common import (
     discover_questions,
-    load_eval_config,
-    make_generate_fn,
+    make_eval_session_factory,
     select_questions,
 )
 from inspect_ai import Task, task
 from inspect_ai.dataset import MemoryDataset, Sample
-from inspect_ai.model import get_model
 from inspect_ai.scorer import Score, Target, mean, scorer, stderr
-from inspect_ai.solver import Generate, TaskState, solver, system_message
+from inspect_ai.solver import Generate, TaskState, solver
 
-from nof1_causal_lab.orchestrator.prompts import latent_model
-from nof1_causal_lab.orchestrator.schemas import LatentModel
+from nof1_causal_lab.artifacts.latent_model import LatentModel
+from nof1_causal_lab.flows.stages.stage1a.run import Stage1aResult, run_stage1a
 from nof1_causal_lab.orchestrator.scoring import _count_rule_points
-from nof1_causal_lab.orchestrator.stage1a import Stage1aResult, run_stage1a
-
-_CONFIG = load_eval_config()
 
 
 def create_eval_dataset(questions: str | None = None) -> MemoryDataset:
@@ -97,7 +92,7 @@ def latent_model_scorer():
         # Validate against schema
         try:
             structure = LatentModel(**result.latent_model)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             return Score(
                 value=0.0,
                 answer=json.dumps(result.latent_model)[:500],
@@ -120,23 +115,17 @@ def latent_model_scorer():
     return score
 
 
-def latent_model_solver():
-    """Solver that runs the full Stage 1a flow using core logic."""
+def latent_model_solver(model: str | None = None):
+    """Solver that runs the production Stage 1a flow via a real session factory."""
 
     @solver
     def _solver():
         async def solve(state: TaskState, generate: Generate) -> TaskState:  # noqa: ARG001
-            model = get_model()
-            generate_fn = make_generate_fn(model)
-
-            # Get metadata
             question = state.metadata.get("question", "")
 
-            # Run the SAME core logic as production
-            result = await run_stage1a(
-                question=question,
-                generate=generate_fn,
-            )
+            # Run the SAME core logic as production, on the model under test.
+            async with make_eval_session_factory("stage-1a", model) as factory:
+                result = await run_stage1a(question=question, session_factory=factory)
 
             # Store result in metadata for scorer
             state.metadata["stage1a_result"] = result
@@ -150,25 +139,20 @@ def latent_model_solver():
 
 
 @task
-def latent_model_eval(questions: str | None = None):
+def latent_model_eval(questions: str | None = None, model: str | None = None):
     """Evaluate LLM ability to propose theoretical causal structures (latent models).
 
     Stage 1a evaluation:
     - Input: Research question only (NO data)
     - Output: LatentModel (constructs + causal edges)
 
-    Uses the production two-stage pipeline:
-    1. Initial proposal from question
-    2. Self-review focusing on theoretical coherence
-
     Args:
         questions: Optional comma-separated question selectors (e.g. "1,3,5")
+        model: Model under test as an ``openrouter/...`` slug; defaults to the
+            configured Stage 1 model.
     """
     return Task(
         dataset=create_eval_dataset(questions=questions),
-        solver=[
-            system_message(latent_model.SYSTEM),
-            latent_model_solver(),
-        ],
+        solver=[latent_model_solver(model=model)],
         scorer=latent_model_scorer(),
     )

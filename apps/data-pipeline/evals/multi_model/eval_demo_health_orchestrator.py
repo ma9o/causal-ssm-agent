@@ -24,7 +24,7 @@ from evals.common import (
     get_generate_config,
     load_eval_config,
     make_anonymous_label_mapping,
-    make_generate_fn,
+    make_eval_session_factory,
     parse_csv_task_arg,
     score_judge_ranking_response,
 )
@@ -35,10 +35,11 @@ from inspect_ai.scorer import Score, Target, mean, scorer, stderr
 from inspect_ai.solver import Generate, TaskState, solver
 
 from nof1_causal_lab.flows.pipeline_helpers import format_schema_for_llm
+from nof1_causal_lab.flows.stages.stage1a.run import Stage1aResult, run_stage1a
+from nof1_causal_lab.flows.stages.stage1b.run import Stage1bResult, run_stage1b
 from nof1_causal_lab.flows.stages.stage2.flow import run_stage2_extraction_core
 from nof1_causal_lab.flows.stages.stage2.materialization import materialize_stage2_outputs
-from nof1_causal_lab.orchestrator.stage1a import Stage1aResult, run_stage1a
-from nof1_causal_lab.orchestrator.stage1b import Stage1bResult, run_stage1b
+from nof1_causal_lab.utils.causal_spec import get_outcome_name
 from nof1_causal_lab.utils.config import get_config
 from nof1_causal_lab.utils.demo_health_fixture import (
     FIXTURE_USER_ID,
@@ -46,8 +47,6 @@ from nof1_causal_lab.utils.demo_health_fixture import (
     compare_demo_health_outputs,
     load_demo_health_fixture,
 )
-from nof1_causal_lab.utils.litellm_client import GenerateConfig as PipelineGenerateConfig
-from nof1_causal_lab.utils.llm import make_generate_fn as make_pipeline_generate_fn
 from nof1_causal_lab.workers.core import run_worker_extraction
 
 _CONFIG = load_eval_config()
@@ -138,8 +137,6 @@ def _dataset_summary(stage0_df) -> str:
 
 def _make_eval_semantic_chunk_runner(worker_model_id: str, chunk_timeout_seconds: float):
     """Create a non-Prefect semantic chunk runner for Inspect evals."""
-    worker_model = get_model(worker_model_id)
-    worker_generate = make_generate_fn(worker_model)
 
     async def _runner(
         *,
@@ -154,46 +151,49 @@ def _make_eval_semantic_chunk_runner(worker_model_id: str, chunk_timeout_seconds
         del root_run_id, max_rpm
         semaphore = asyncio.Semaphore(max(1, max_concurrent_workers))
 
-        async def _run_chunk(idx: int) -> tuple[int, dict]:
-            async with semaphore:
-                try:
-                    result = await asyncio.wait_for(
-                        run_worker_extraction(
-                            window_text=chunk_texts[idx],
-                            window_starts=chunk_window_starts[idx],
-                            question=question,
-                            causal_spec=chunk_contexts[idx],
-                            generate=worker_generate,
-                            logger=LOGGER,
-                            call_label=f"eval stage2 chunk={idx}",
-                        ),
-                        timeout=chunk_timeout_seconds,
-                    )
-                except TimeoutError:
+        async with make_eval_session_factory("stage-2", worker_model_id) as factory:
+
+            async def _run_chunk(idx: int) -> tuple[int, dict]:
+                async with semaphore:
+                    try:
+                        result = await asyncio.wait_for(
+                            run_worker_extraction(
+                                window_text=chunk_texts[idx],
+                                window_starts=chunk_window_starts[idx],
+                                question=question,
+                                causal_spec=chunk_contexts[idx],
+                                session_factory=factory,
+                                logger=LOGGER,
+                                call_label=f"eval stage2 chunk={idx}",
+                            ),
+                            timeout=chunk_timeout_seconds,
+                        )
+                    except TimeoutError:
+                        return idx, {
+                            "dataframe": [],
+                            "n_extractions": 0,
+                            "status": "failed",
+                            "n_windows": len(chunk_window_starts[idx]),
+                            "error": f"chunk timed out after {chunk_timeout_seconds}s",
+                        }
+                    except Exception as exc:  # noqa: BLE001
+                        return idx, {
+                            "dataframe": [],
+                            "n_extractions": 0,
+                            "status": "failed",
+                            "n_windows": len(chunk_window_starts[idx]),
+                            "error": str(exc),
+                        }
+
                     return idx, {
-                        "dataframe": [],
-                        "n_extractions": 0,
-                        "status": "failed",
+                        "dataframe": result.dataframe.to_dicts(),
+                        "n_extractions": len(result.output.extractions),
+                        "status": "completed",
                         "n_windows": len(chunk_window_starts[idx]),
-                        "error": f"chunk timed out after {chunk_timeout_seconds}s",
-                    }
-                except Exception as exc:  # noqa: BLE001
-                    return idx, {
-                        "dataframe": [],
-                        "n_extractions": 0,
-                        "status": "failed",
-                        "n_windows": len(chunk_window_starts[idx]),
-                        "error": str(exc),
                     }
 
-                return idx, {
-                    "dataframe": result.dataframe.to_dicts(),
-                    "n_extractions": len(result.output.extractions),
-                    "status": "completed",
-                    "n_windows": len(chunk_window_starts[idx]),
-                }
+            completed = await asyncio.gather(*[_run_chunk(idx) for idx in range(len(chunk_texts))])
 
-        completed = await asyncio.gather(*[_run_chunk(idx) for idx in range(len(chunk_texts))])
         completed.sort(key=lambda item: item[0])
 
         semantic_rows: list[dict] = []
@@ -226,29 +226,22 @@ async def _run_orchestrator_candidate(
     fixture = load_demo_health_fixture()
     config = get_config()
     stage2_workers = config.stage2_workers
-    candidate_generate_config = PipelineGenerateConfig(
-        max_tokens=config.llm.max_tokens,
-        timeout=config.llm.timeout,
-        verbosity="max",
-        effort="max",
-        reasoning_effort=config.llm.reasoning_effort,
-        reasoning_history="all",
-    )
-    generate = make_pipeline_generate_fn(model_id, config=candidate_generate_config)
 
-    stage1a_result = await run_stage1a(
-        question=fixture.question,
-        generate=generate,
-    )
+    async with make_eval_session_factory("stage-1a", model_id) as factory_1a:
+        stage1a_result = await run_stage1a(
+            question=fixture.question,
+            session_factory=factory_1a,
+        )
 
     dataset_schema = format_schema_for_llm(fixture.stage0, fixture.column_descriptions)
-    stage1b_result = await run_stage1b(
-        question=fixture.question,
-        latent_model=stage1a_result.latent_model,
-        chunks=[dataset_schema],
-        generate=generate,
-        dataset_summary=_dataset_summary(fixture.stage0),
-    )
+    async with make_eval_session_factory("stage-1b", model_id) as factory_1b:
+        stage1b_result = await run_stage1b(
+            question=fixture.question,
+            latent_model=stage1a_result.latent_model,
+            chunks=[dataset_schema],
+            session_factory=factory_1b,
+            dataset_summary=_dataset_summary(fixture.stage0),
+        )
 
     stage2_result = await run_stage2_extraction_core(
         raw_df=fixture.stage0,
@@ -280,7 +273,7 @@ async def _run_orchestrator_candidate(
 
 
 def _format_candidate_report(candidate: CandidateRun) -> str:
-    outcome_name = candidate.stage1a_result.outcome_name or "[missing outcome]"
+    outcome_name = get_outcome_name(candidate.stage1a_result.latent_model) or "[missing outcome]"
     indicators = ", ".join(candidate.comparison.stage1b_indicators)
     return "\n".join(
         [

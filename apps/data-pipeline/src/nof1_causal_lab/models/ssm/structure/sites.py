@@ -36,6 +36,8 @@ class SiteKind(Enum):
     DYNAMICS_DECAY = "dynamics_decay"
     DYNAMICS_CINT = "dynamics_cint"
     DYNAMICS_WEIGHT = "dynamics_weight"
+    DYNAMICS_POTENTIAL_CENTER = "dynamics_potential_center"
+    DYNAMICS_POTENTIAL_QUARTIC = "dynamics_potential_quartic"
     HILL_EMAX = "hill_emax"
     HILL_EC50 = "hill_ec50"
     HILL_N = "hill_n"

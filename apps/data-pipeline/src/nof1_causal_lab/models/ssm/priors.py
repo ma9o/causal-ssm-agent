@@ -68,6 +68,14 @@ DEFAULT_PRIOR_SPECS_BY_FIELD: dict[str, PriorSpec] = {
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 1.0},
     ),
+    "dynamics_potential_center": PriorSpec(
+        PriorDistributionFamily.NORMAL,
+        {"mu": 0.0, "sigma": 1.0},
+    ),
+    "dynamics_potential_quartic": PriorSpec(
+        PriorDistributionFamily.HALF_NORMAL,
+        {"sigma": 0.5},
+    ),
     "linear_edge_weight": PriorSpec(
         PriorDistributionFamily.NORMAL,
         {"mu": 0.0, "sigma": 0.5},

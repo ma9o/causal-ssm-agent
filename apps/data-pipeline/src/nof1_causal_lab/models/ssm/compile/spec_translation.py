@@ -19,7 +19,7 @@ from nof1_causal_lab.models.model_semantics import should_auto_center_indicator
 from nof1_causal_lab.models.ssm.dynamics.spec import (
     DynamicsSpec,
     LinearEdgeSpec,
-    StateDecaySpec,
+    NodePotentialSpec,
     StateInterceptSpec,
 )
 from nof1_causal_lab.models.ssm.inference.targets.observation_families import (
@@ -778,10 +778,29 @@ def translate_spec(
     if errors:
         raise SpecTranslationError(errors)
 
+    # Self-dynamics lives on the node, not the adjacency diagonal: each
+    # self-regulated latent becomes a quadratic potential well (NodePotential),
+    # folding the former StateDecay (stiffness = relaxation rate) and the
+    # set-point role of StateIntercept (center = well minimum). The center is
+    # free only when a state intercept was requested (equilibrium forcing);
+    # otherwise the well is pinned at 0 (relaxation toward 0, as before).
     dynamics_components = []
-    for latent_idx, enabled in enumerate(decay_support):
-        if bool(enabled):
-            dynamics_components.append(StateDecaySpec(target=latent_idx))
+    for latent_idx in range(n_latent):
+        has_well = bool(decay_support[latent_idx])
+        has_setpoint = bool(state_intercept_support[latent_idx])
+        if has_well:
+            dynamics_components.append(
+                NodePotentialSpec(
+                    target=latent_idx,
+                    fixed_center=None if has_setpoint else 0.0,
+                    fixed_stiffness=None,
+                    fixed_quartic=0.0,
+                )
+            )
+        elif has_setpoint:
+            # Intercept without relaxation is a constant forcing term (a ramp),
+            # not a set-point — keep it as an explicit StateIntercept.
+            dynamics_components.append(StateInterceptSpec(target=latent_idx))
     for effect_idx, cause_idx in zip(*np.where(linear_edge_support), strict=False):
         dynamics_components.append(
             LinearEdgeSpec(
@@ -789,9 +808,6 @@ def translate_spec(
                 target=int(effect_idx),
             )
         )
-    for latent_idx, enabled in enumerate(state_intercept_support):
-        if bool(enabled):
-            dynamics_components.append(StateInterceptSpec(target=latent_idx))
 
     spec = SSMSpec(
         n_latent=n_latent,

@@ -49,6 +49,7 @@ from .edges import (
     Intercept,
     LinearEdge,
     MultiplicativeEdge,
+    NodePotential,
     StateDecay,
     StateIntercept,
 )
@@ -222,6 +223,154 @@ class StateInterceptSpec:
                 self.cint_site_name(prefix),
                 prior_fn(self.cint_site_name(prefix)),
             )
+        }
+
+
+@dataclass(frozen=True, eq=False)
+class NodePotentialSpec:
+    """Node self-dynamics as a 1-D potential well at ``target``.
+
+    Builds :class:`NodePotential`. Subsumes ``StateDecaySpec`` (``stiffness`` =
+    relaxation rate / well curvature) and the set-point role of
+    ``StateInterceptSpec`` (``center`` = well minimum), and adds opt-in
+    nonlinear self-limitation (``quartic``). Any parameter may be structurally
+    fixed; free ``stiffness``/``quartic`` use positive supports. ``quartic``
+    defaults to fixed ``0.0`` (pure quadratic = linear relaxation drift, exactly
+    reproducing ``StateDecay`` + ``StateIntercept``).
+    """
+
+    target: int
+    fixed_center: float | None = None
+    fixed_stiffness: float | None = None
+    fixed_quartic: float | None = 0.0
+
+    def __post_init__(self) -> None:
+        if self.fixed_stiffness is not None and self.fixed_stiffness <= 0.0:
+            raise ValueError(f"fixed_stiffness must be positive; got {self.fixed_stiffness}.")
+        if self.fixed_quartic is not None and self.fixed_quartic < 0.0:
+            raise ValueError(f"fixed_quartic must be non-negative; got {self.fixed_quartic}.")
+
+    def build(self) -> NodePotential:
+        return NodePotential(target=self.target)
+
+    def center_site_name(self, prefix: str) -> str:
+        return f"{prefix}_center"
+
+    def decay_site_name(self, prefix: str) -> str:
+        # The relaxation rate (the well curvature / "stiffness") is sampled at the
+        # shared decay site, so a quadratic NodePotential is site-identical to a
+        # StateDecay. The runtime param key stays "stiffness".
+        return f"{prefix}_decay"
+
+    def quartic_site_name(self, prefix: str) -> str:
+        return f"{prefix}_quartic"
+
+    def iter_sites(
+        self,
+        prefix: str,
+        *,
+        n_latent: int | None = None,  # noqa: ARG002 - scalar target parameters
+    ) -> Iterator[SiteDescriptor]:
+        positions = (self.target,)
+        if self.fixed_center is None:
+            yield make_site(
+                self.center_site_name(prefix),
+                (),
+                SupportClass.REAL,
+                "dynamics",
+                SiteKind.DYNAMICS_POTENTIAL_CENTER,
+                positions=positions,
+                priors_field="dynamics_potential_center",
+            )
+        if self.fixed_stiffness is None:
+            # Stiffness is the relaxation rate, i.e. the decay: reuse the decay
+            # site-kind and prior so it shares StateDecay's authoring contract.
+            yield make_site(
+                self.decay_site_name(prefix),
+                (),
+                SupportClass.POSITIVE,
+                "dynamics",
+                SiteKind.DYNAMICS_DECAY,
+                positions=positions,
+                priors_field="dynamics_decay",
+            )
+        if self.fixed_quartic is None:
+            yield make_site(
+                self.quartic_site_name(prefix),
+                (),
+                SupportClass.POSITIVE,
+                "dynamics",
+                SiteKind.DYNAMICS_POTENTIAL_QUARTIC,
+                positions=positions,
+                priors_field="dynamics_potential_quartic",
+            )
+
+    def iter_semantic_bindings(
+        self,
+        prefix: str,
+        *,
+        latent_names: tuple[str, ...],
+        component_index: int,
+    ) -> Iterator[SemanticBinding]:
+        latent_name = latent_names[self.target]
+        if self.fixed_center is None:
+            yield SemanticBinding(
+                parameter_name=f"setpoint_{latent_name}",
+                site_name=self.center_site_name(prefix),
+                flat_index=0,
+                site_kind=SiteKind.DYNAMICS_POTENTIAL_CENTER,
+                transform=PriorAuthoringTransform.IDENTITY,
+                prior_field="dynamics_potential_center",
+                construct_names=(latent_name,),
+                component_index=component_index,
+            )
+        if self.fixed_stiffness is None:
+            # Stiffness is the relaxation rate (the decay): expose it through the
+            # same persistence (``rho_``) / decay (``decay_``) authoring contract
+            # as StateDecay, so causal-spec priors resolve identically.
+            stiffness_site = self.decay_site_name(prefix)
+            yield SemanticBinding(
+                parameter_name=f"rho_{latent_name}",
+                site_name=stiffness_site,
+                flat_index=0,
+                site_kind=SiteKind.DYNAMICS_DECAY,
+                transform=PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
+                prior_field="dynamics_decay",
+                construct_names=(latent_name,),
+                component_index=component_index,
+            )
+            yield SemanticBinding(
+                parameter_name=f"decay_{latent_name}",
+                site_name=stiffness_site,
+                flat_index=0,
+                site_kind=SiteKind.DYNAMICS_DECAY,
+                transform=PriorAuthoringTransform.POSITIVE_IDENTITY,
+                prior_field="dynamics_decay",
+                construct_names=(latent_name,),
+                component_index=component_index,
+            )
+        if self.fixed_quartic is None:
+            yield SemanticBinding(
+                parameter_name=f"self_limit_{latent_name}",
+                site_name=self.quartic_site_name(prefix),
+                flat_index=0,
+                site_kind=SiteKind.DYNAMICS_POTENTIAL_QUARTIC,
+                transform=PriorAuthoringTransform.POSITIVE_IDENTITY,
+                prior_field="dynamics_potential_quartic",
+                construct_names=(latent_name,),
+                component_index=component_index,
+            )
+
+    def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
+        def draw(fixed: float | None, name: str) -> Array:
+            if fixed is not None:
+                return jnp.asarray(fixed)
+            return numpyro.sample(name, prior_fn(name))
+
+        return {
+            "center": draw(self.fixed_center, self.center_site_name(prefix)),
+            "stiffness": draw(self.fixed_stiffness, self.decay_site_name(prefix)),
+            "quartic": draw(self.fixed_quartic, self.quartic_site_name(prefix)),
         }
 
 
@@ -734,6 +883,26 @@ def pack_component_params_from_samples(
             packed.append({"decay": samples[component_spec.decay_site_name(site_prefix)]})
         elif isinstance(component_spec, StateInterceptSpec):
             packed.append({"cint": samples[component_spec.cint_site_name(site_prefix)]})
+        elif isinstance(component_spec, NodePotentialSpec):
+            packed.append(
+                {
+                    "center": (
+                        jnp.asarray(component_spec.fixed_center)
+                        if component_spec.fixed_center is not None
+                        else samples[component_spec.center_site_name(site_prefix)]
+                    ),
+                    "stiffness": (
+                        jnp.asarray(component_spec.fixed_stiffness)
+                        if component_spec.fixed_stiffness is not None
+                        else samples[component_spec.decay_site_name(site_prefix)]
+                    ),
+                    "quartic": (
+                        jnp.asarray(component_spec.fixed_quartic)
+                        if component_spec.fixed_quartic is not None
+                        else samples[component_spec.quartic_site_name(site_prefix)]
+                    ),
+                }
+            )
         elif isinstance(component_spec, DiagonalDecaySpec):
             packed.append({"decay": samples[component_spec.decay_site_name(site_prefix)]})
         elif isinstance(component_spec, InterceptSpec):
