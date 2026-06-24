@@ -43,7 +43,7 @@ function FeedContent({
   return (
     <div>
       <PipelineProgressBar progress={progress} question={question} workspaceId={workspaceId} />
-      <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6">
+      <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 lg:px-10 2xl:px-12">
         {visibleStages.map((stage) => (
           <LazyStageMount key={stage.id} stage={stage}>
             <StageSectionRouter
@@ -56,7 +56,7 @@ function FeedContent({
           </LazyStageMount>
         ))}
         {!progress.isComplete && (
-          <div className="max-w-6xl mx-auto">
+          <div className="mx-auto w-full max-w-[1600px]">
             <ActiveStageIndicator stageId={progress.currentStage} />
           </div>
         )}

@@ -61,7 +61,7 @@ function renderStageSection({
 }
 
 function CenteredStageSection({ children }: { children: ReactNode }) {
-  return <div className="max-w-6xl mx-auto">{children}</div>;
+  return <div className="mx-auto w-full max-w-[1600px]">{children}</div>;
 }
 
 export function StagePresentationShellView(props: StagePresentationShellProps) {

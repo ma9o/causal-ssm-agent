@@ -76,10 +76,10 @@ export function StageWithTraceView({
   const transition = { duration: 0.35, ease: [0.4, 0, 0.2, 1] as const };
 
   return (
-    <div className={cn("flex", isOpen && "items-start gap-4")}>
+    <div className={cn("mx-auto flex w-full max-w-[1600px]", isOpen && "items-start gap-4")}>
       <motion.div
         ref={leftRef}
-        className={cn("min-w-0", !isOpen && "max-w-6xl mx-auto w-full")}
+        className="min-w-0"
         animate={{ flex: isOpen ? 2 : 1 }}
         transition={transition}
       >

@@ -24,7 +24,6 @@ import {
   useEffect,
   useMemo,
 } from "react";
-import { LLMTracePanel } from "@/components/ui/custom/llm-trace-panel";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisStageRun } from "@/lib/api/analysis";
 import { useRefinement } from "@/lib/contexts/refinement-context";
@@ -46,6 +45,11 @@ const Stage4RunningContent = lazy(() => import("./stage-contents/stage-4-running
 const Stage3Content = lazy(() => import("./stage-contents/stage-3-content"));
 const Stage4Content = lazy(() => import("./stage-contents/stage-4-content"));
 const Stage5bContent = lazy(() => import("./stage-contents/stage-5b-content"));
+const LLMTracePanel = lazy(() =>
+  import("@/components/ui/custom/llm-trace-panel").then((module) => ({
+    default: module.LLMTracePanel,
+  })),
+);
 const SimulationViewer = lazy(() =>
   import("@/components/dag/simulation-viewer").then((module) => ({
     default: module.SimulationViewer,
@@ -196,12 +200,14 @@ function StageSectionRouterInner({
       defaultPanelOpen={stage.id === "stage-6"}
       panelContent={
         projectedStageData?.llm_trace ? (
-          <LLMTracePanel
-            trace={projectedStageData.llm_trace}
-            workspaceId={workspaceId}
-            stageId={stage.id}
-            interactive={stage.interactive}
-          />
+          <Suspense fallback={null}>
+            <LLMTracePanel
+              trace={projectedStageData.llm_trace}
+              workspaceId={workspaceId}
+              stageId={stage.id}
+              interactive={stage.interactive}
+            />
+          </Suspense>
         ) : undefined
       }
     >
