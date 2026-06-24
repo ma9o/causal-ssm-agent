@@ -72,7 +72,7 @@ dev = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "evaluation"]
 fix = true
 
 [tool.ruff.lint]
@@ -138,7 +138,7 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 
 [tool.vulture]
-paths = ["src", "tests", "evals", "scripts", "notebooks"]
+paths = ["src", "tests", "evaluation", "scripts", "notebooks"]
 min_confidence = 60
 sort_by_size = true
 ignore_decorators = [

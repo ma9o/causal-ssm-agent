@@ -8,12 +8,21 @@ forecasting or estimation benchmark can score.
 from __future__ import annotations
 
 import pytest
+from evaluation.contracts import Capability, Kind, Stage
+from evaluation.registry import evaluate, select
 
-from nof1_causal_lab.evaluation import seeds
-from nof1_causal_lab.evaluation.contracts import Stage
-from nof1_causal_lab.evaluation.registry import evaluate, select
+from evaluation import seeds
 
 _ID_ENTRIES = select(stage=Stage.IDENTIFICATION)
+
+
+def test_kind_and_capability_filters():
+    assert seeds.SEED_ENTRIES  # importing seeds populated the registry
+    # Every seeded scenario is diagnostic so far; no integrative scenarios yet.
+    assert select(kind=Kind.INTEGRATIVE) == []
+    assert select(kind=Kind.DIAGNOSTIC), "expected diagnostic scenarios"
+    assert len(select(capability=Capability.IDENTIFICATION)) == 4
+    assert len(select(capability=Capability.RECOVERY)) == 1
 
 
 def test_identification_gates_registered():

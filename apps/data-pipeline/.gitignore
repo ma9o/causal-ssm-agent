@@ -1,0 +1,4 @@
+
+# evaluation: generated benchmark artifacts + fetched-dataset cache (never committed)
+evaluation/benchmarks/*.csv
+evaluation/data/cache/
