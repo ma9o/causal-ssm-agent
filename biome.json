@@ -20,7 +20,8 @@
       "!**/.turbo",
       "!**/dist",
       "!**/generated",
-      "!packages/api-types/schemas"
+      "!packages/api-types/schemas",
+      "!apps/web/public/perspective"
     ]
   }
 }
