@@ -93,6 +93,34 @@ def _convert_notebooks() -> set[str]:
     return markdown_refs
 
 
+def _marimo_markdown_refs() -> set[str]:
+    """Backtick identifiers inside marimo notebook string literals.
+
+    marimo notebooks are plain ``.py`` files whose prose lives in ``mo.md(...)``
+    string literals rather than ``.ipynb`` markdown cells. Mirror the ``.ipynb``
+    backtick handling (see ``_convert_notebooks``) so documented swap-in hooks —
+    e.g. an alternative sampler named only in markdown — are not reported dead.
+    The backtick regex only matches `` `delimited` `` spans, so ordinary display
+    strings (plot titles, footers) contribute nothing.
+    """
+    refs: set[str] = set()
+    for py_path in NOTEBOOKS_DIR.rglob("*.py"):
+        try:
+            text = py_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        if "import marimo" not in text:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                refs.update(_extract_backtick_idents(node.value))
+    return refs
+
+
 def _decorator_name(dec: ast.expr) -> str | None:
     target = dec.func if isinstance(dec, ast.Call) else dec
     if isinstance(target, ast.Name):
@@ -342,7 +370,7 @@ def main() -> int:
     shutil.rmtree(CACHE_DIR, ignore_errors=True)
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        markdown_refs = _convert_notebooks()
+        markdown_refs = _convert_notebooks() | _marimo_markdown_refs()
         _write_phantom("_notebook_markdown_refs.py", markdown_refs)
         config = tomllib.loads(PYPROJECT.read_text())
         paths = config["tool"]["vulture"]["paths"]

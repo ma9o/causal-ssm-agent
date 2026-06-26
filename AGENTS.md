@@ -16,7 +16,9 @@ THINK VERY HARD
 
 # Notebooks
 
-- Use `nbformat` and `jupyter-client` to programmatically read and write notebooks using a persistent kernel for your session, so that state is preserved across edits and you can run cells in-place without losing outputs. 
+- Notebooks under `apps/data-pipeline/notebooks/` are [marimo](https://docs.marimo.io/) notebooks: plain Python files (`@app.cell` functions), not `.ipynb`. Edit them as ordinary source. Open one with `uv run marimo edit notebooks/<name>.py`; run read-only with `uv run marimo run notebooks/<name>.py`.
+- marimo is reactive, so a variable may be defined by only one cell. Make cell-local variables `_`-prefixed (cell-private); share a value across cells by returning it (non-underscore) from its defining cell. A cell renders its last expression — return Plotly/Matplotlib figures rather than calling `fig.show()`.
+- Validate structure with `uv run marimo check --strict notebooks/<name>.py` (catches multiple-definition and unresolved-reference errors without executing). The notebooks are covered by `ruff`, `ty`, and `vulture` like the rest of the package.
 
 # Docs
 

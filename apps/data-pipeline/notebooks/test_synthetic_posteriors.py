@@ -158,9 +158,7 @@ def _integrate_on_grid(target, a_range=(-6.0, 6.0), b_range=(-6.0, 6.0), n=300) 
 def test_transformed_target_normalises_to_one():
     target = TransformedTarget(
         base=Gaussian(dim=2, scale=1.0),
-        bijector=Chain(
-            (Bend(f=lambda x: 0.4 * x**2), Shear(theta=0.3, scale=(1.2, 0.9)))
-        ),
+        bijector=Chain((Bend(f=lambda x: 0.4 * x**2), Shear(theta=0.3, scale=(1.2, 0.9)))),
     )
     mass = _integrate_on_grid(target)
     assert abs(mass - 1.0) < 0.01

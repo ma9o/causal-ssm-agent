@@ -57,6 +57,7 @@ dev = [
     "ipykernel>=7.2.0",
     "ipywidgets>=8.1.7",
     "jupyter-client>=8.8.0",
+    "marimo>=0.23.11",
     "nbconvert>=7.16.6",
     "nbformat>=5.10.4",
     "plotly>=6.7.0",
@@ -122,6 +123,10 @@ ignore = [
     "ARG002",  # unused method arguments (pytest fixtures)
     "DTZ001",  # tests intentionally use naive datetimes as compact fixtures
 ]
+"notebooks/**/*.py" = [
+    "C408",  # plotly figure kwargs idiomatically use dict(...), not {} literals
+    "E731",  # one-line math lambdas (e.g. φ = a·b) read clearly in gallery cells
+]
 
 [tool.ruff.lint.flake8-pytest-style]
 parametrize-names-type = "tuple"
@@ -170,6 +175,8 @@ ignore_names = [
     "exc_type",
     "exc_val",
     "exc_tb",
+    # marimo notebooks emit this module-level provenance stamp (used by marimo, not us)
+    "__generated_with",
     # jax.profiler.ProfileOptions attributes (consumed by JAX, invisible to vulture)
     "host_tracer_level",
     "python_tracer_level",
@@ -181,7 +188,7 @@ ignore_names = [
 python-version = "3.12"
 
 [tool.ty.src]
-include = ["src"]
+include = ["src", "notebooks"]
 
 [tool.ty.rules]
 unused-type-ignore-comment = "ignore"

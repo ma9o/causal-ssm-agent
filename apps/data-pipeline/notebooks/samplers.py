@@ -40,6 +40,7 @@ class SamplerTrace:
     stage_label: str
     summary: str
 
+
 # ─── Pathfinder (variational) ────────────────────────────────────────────────
 
 
@@ -125,9 +126,7 @@ def run_pathfinder(target: Target, config: PathfinderConfig | None = None) -> Pa
     )
 
 
-def run_pathfinder_sampler(
-    target: Target, config: PathfinderConfig | None = None
-) -> SamplerTrace:
+def run_pathfinder_sampler(target: Target, config: PathfinderConfig | None = None) -> SamplerTrace:
     """SamplerTrace-returning wrapper so Pathfinder can be used in the gallery swap.
 
     Positions are the final importance-resampled draws (iid), stage is a dummy
@@ -242,6 +241,7 @@ def _psis_log_weights(log_w: Array) -> tuple[Array, float]:
     unreliable even after smoothing (tail too heavy).
     """
     from arviz.stats import psislw
+
     lw = np.asarray(log_w, dtype=np.float64)
     finite = np.isfinite(lw)
     if finite.sum() < 5:
@@ -279,9 +279,12 @@ def run_multipath_pathfinder(
 
     for k in range(cfg.num_paths):
         state, info = pathfinder.approximate(
-            fit_keys[k], log_prob, inits[k],
+            fit_keys[k],
+            log_prob,
+            inits[k],
             num_samples=cfg.num_elbo_samples,
-            maxiter=cfg.maxiter, maxcor=cfg.maxcor,
+            maxiter=cfg.maxiter,
+            maxcor=cfg.maxcor,
         )
         path_pos = jnp.asarray(info.path.position)
         path_elbo = jnp.asarray(info.path.elbo)
@@ -292,9 +295,7 @@ def run_multipath_pathfinder(
         best_iters.append(b)
         best_elbos.append(float(path_elbo[b]))
         states.append(state)
-        draws_k, _logq = pathfinder.sample(
-            draw_keys[k], state, num_samples=cfg.draws_per_path
-        )
+        draws_k, _logq = pathfinder.sample(draw_keys[k], state, num_samples=cfg.draws_per_path)
         draws_list.append(draws_k)
 
     # Recover (mu_k, Sigma_k) for each selected Gaussian.
@@ -306,8 +307,10 @@ def run_multipath_pathfinder(
     log_p = jax.vmap(log_prob)(candidates)
     # log q_mix(x) = logmeanexp_k log q_k(x) (equal-weight mixture)
     log_qs = jnp.stack(
-        [jax.vmap(lambda x, mu=mu, S=S: _gaussian_logpdf(x, mu, S))(candidates)
-         for (mu, S) in gaussians],
+        [
+            jax.vmap(lambda x, mu=mu, S=S: _gaussian_logpdf(x, mu, S))(candidates)
+            for (mu, S) in gaussians
+        ],
         axis=0,
     )  # (K, K*M)
     log_q_mix = jax.scipy.special.logsumexp(log_qs, axis=0) - jnp.log(cfg.num_paths)
@@ -325,8 +328,11 @@ def run_multipath_pathfinder(
     probs = probs / jnp.sum(probs)
 
     resample_idx = jax.random.choice(
-        resample_key, candidates.shape[0], shape=(cfg.num_resampled,),
-        replace=True, p=probs,
+        resample_key,
+        candidates.shape[0],
+        shape=(cfg.num_resampled,),
+        replace=True,
+        p=probs,
     )
     draws = candidates[resample_idx]
 
