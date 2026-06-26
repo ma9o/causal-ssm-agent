@@ -788,31 +788,6 @@ def _per_step_trace(
     if smoother in AMALA_FAMILY_SMOOTHERS:
         fields["amala_grad_norm_mean"] = extra_fields["amala_grad_norm_mean"]
         fields["amala_grad_norm_max"] = extra_fields["amala_grad_norm_max"]
-    if (
-        # Extended amala diagnostics (drift/grad-clip/aux-noise) and the AMALA_PROPOSAL
-        # metric were removed in the refactor; skip them (basic amala_grad_norm remains).
-        False
-    ):
-        fields["amala_grad_clip_fraction"] = extra_fields["amala_grad_clip_fraction"]
-        fields["amala_drift_norm_mean"] = extra_fields["amala_drift_norm_mean"]
-        fields["amala_drift_norm_max"] = extra_fields["amala_drift_norm_max"]
-        fields["amala_auxiliary_noise_norm_mean"] = extra_fields["amala_auxiliary_noise_norm_mean"]
-        fields["amala_auxiliary_noise_norm_max"] = extra_fields["amala_auxiliary_noise_norm_max"]
-        fields["amala_drift_to_auxiliary_noise_ratio_mean"] = extra_fields[
-            "amala_drift_to_auxiliary_noise_ratio_mean"
-        ]
-        fields["amala_proposal_displacement_norm_mean"] = extra_fields[
-            "amala_proposal_displacement_norm_mean"
-        ]
-        fields["amala_proposal_displacement_norm_max"] = extra_fields[
-            "amala_proposal_displacement_norm_max"
-        ]
-        fields["amala_auxiliary_correction_variance"] = extra_fields[
-            "amala_auxiliary_correction_variance"
-        ]
-        fields["amala_auxiliary_correction_max_abs"] = extra_fields[
-            "amala_auxiliary_correction_max_abs"
-        ]
 
     summaries = {
         name: _finite_summary(f"per_step[{name}]", values) for name, values in fields.items()
@@ -983,19 +958,6 @@ def _check_result(
         )
         if diagnostics["amala_grad_norm_max"] < diagnostics["amala_grad_norm_mean"]:
             raise AssertionError("amala_grad_norm_max is smaller than amala_grad_norm_mean")
-    if (
-        # Extended amala diagnostics (drift/grad-clip/aux-noise) and the AMALA_PROPOSAL
-        # metric were removed in the refactor; skip them (basic amala_grad_norm remains).
-        False
-    ):
-        extra_summaries["amala_grad_clip_fraction"] = _finite_summary(
-            "amala_grad_clip_fraction",
-            extra_fields["amala_grad_clip_fraction"],
-        )
-        extra_summaries["amala_auxiliary_correction_variance"] = _finite_summary(
-            "amala_auxiliary_correction_variance",
-            extra_fields["amala_auxiliary_correction_variance"],
-        )
 
     diagnostic_summary = {
         "latent_kernel": diagnostics["latent_kernel"],
@@ -1073,32 +1035,6 @@ def _check_result(
             {
                 "amala_grad_norm_mean": diagnostics.get("amala_grad_norm_mean"),
                 "amala_grad_norm_max": diagnostics.get("amala_grad_norm_max"),
-            }
-        )
-    if (
-        # Extended amala diagnostics (drift/grad-clip/aux-noise) and the AMALA_PROPOSAL
-        # metric were removed in the refactor; skip them (basic amala_grad_norm remains).
-        False
-    ):
-        diagnostic_summary.update(
-            {
-                "amala_grad_clip_fraction_mean": diagnostics.get("amala_grad_clip_fraction_mean"),
-                "amala_drift_norm_mean": diagnostics.get("amala_drift_norm_mean"),
-                "amala_auxiliary_noise_norm_mean": diagnostics.get(
-                    "amala_auxiliary_noise_norm_mean"
-                ),
-                "amala_drift_to_auxiliary_noise_ratio_mean": diagnostics.get(
-                    "amala_drift_to_auxiliary_noise_ratio_mean"
-                ),
-                "amala_proposal_displacement_norm_mean": diagnostics.get(
-                    "amala_proposal_displacement_norm_mean"
-                ),
-                "amala_auxiliary_correction_variance_mean": diagnostics.get(
-                    "amala_auxiliary_correction_variance_mean"
-                ),
-                "amala_auxiliary_correction_max_abs": diagnostics.get(
-                    "amala_auxiliary_correction_max_abs"
-                ),
             }
         )
 
