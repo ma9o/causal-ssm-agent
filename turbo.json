@@ -26,6 +26,10 @@
       "cache": false,
       "env": ["OPENROUTER_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]
     },
+    "test:all": {
+      "cache": false,
+      "env": ["OPENROUTER_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]
+    },
     "type-check": {
       "dependsOn": ["^build"]
     },

@@ -16,6 +16,7 @@
     "lint:fix": "turbo lint:fix",
     "knip": "knip --production",
     "test": "turbo test",
+    "test:all": "turbo test:all",
     "format": "turbo format",
     "type-check": "turbo type-check",
     "check": "turbo run check docs:check",
