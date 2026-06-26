@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/workspace-access", () => ({
-  requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
-    ok: true,
-    workspaceId,
-  })),
+  requireWorkspaceAccess: vi
+    .fn()
+    .mockImplementation(async (_request: Request, workspaceId: string) => ({
+      ok: true,
+      workspaceId,
+    })),
 }));
 
 vi.mock("@/lib/server/openrouter-access", async (importOriginal) => ({
-  ...await importOriginal(),
+  ...(await importOriginal()),
   resolveOpenRouterAccess: vi.fn(),
 }));
 
@@ -30,11 +32,7 @@ import { POST } from "./route";
 
 const originalFetch = globalThis.fetch;
 
-function jsonResponse(
-  data: unknown,
-  status = 200,
-  headers?: Record<string, string>,
-): Response {
+function jsonResponse(data: unknown, status = 200, headers?: Record<string, string>): Response {
   return {
     ok: status >= 200 && status < 300,
     status,

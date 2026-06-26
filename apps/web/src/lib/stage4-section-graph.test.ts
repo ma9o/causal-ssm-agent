@@ -48,7 +48,12 @@ describe("stage4-section-graph", () => {
           phase: "prior_blocks",
         },
         { id: "effects:y", kind: "effect_prior", label: "Effects", phase: "prior_blocks" },
-        { id: "__repair_barrier__", kind: "repair_barrier", label: "Repair", phase: "prior_blocks" },
+        {
+          id: "__repair_barrier__",
+          kind: "repair_barrier",
+          label: "Repair",
+          phase: "prior_blocks",
+        },
         {
           id: "review:prior_system",
           kind: "global_prior_review",

@@ -72,9 +72,9 @@ describe("POST /api/auth/exchange", () => {
       apiKey: "user-key",
       userId: "or-user-123",
     });
-    globalThis.fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ key: "user-key", user_id: "or-user-123" }),
-    ) as typeof fetch;
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ key: "user-key", user_id: "or-user-123" })) as typeof fetch;
 
     const response = await POST(
       new Request("http://localhost/api/auth/exchange", {
@@ -98,10 +98,10 @@ describe("POST /api/auth/exchange", () => {
       }),
     );
     expect(createOpenRouterSession).toHaveBeenCalledWith("user-key", "or-user-123");
-    expect(authorizeWorkspacesForOpenRouterUser).toHaveBeenCalledWith(
-      "or-user-123",
-      ["WS1", "WS2"],
-    );
+    expect(authorizeWorkspacesForOpenRouterUser).toHaveBeenCalledWith("or-user-123", [
+      "WS1",
+      "WS2",
+    ]);
     expect(writeOpenRouterSession).toHaveBeenCalledWith({
       apiKey: "user-key",
       userId: "or-user-123",

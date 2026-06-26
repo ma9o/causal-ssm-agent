@@ -70,7 +70,9 @@ function formatStage4Value(value: unknown): string {
     if (value === 0) return "0";
     const magnitude = Math.abs(value);
     if (magnitude >= 1000 || magnitude < 0.001) return value.toPrecision(2);
-    return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+    return Number.isInteger(value)
+      ? String(value)
+      : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
   }
   if (Array.isArray(value)) {
     return `[${value.map((item) => formatStage4Value(item)).join(", ")}]`;
@@ -103,7 +105,7 @@ function formatStage4LastBlockStateDetail(lastState: Stage4BlockLastState | unde
       const head =
         lastState.distribution && lastState.link
           ? `${lastState.distribution} with ${lastState.link} link`
-          : lastState.distribution ?? "";
+          : (lastState.distribution ?? "");
       if (!head) return lastState.reasoning ?? "";
       return lastState.reasoning ? `${head}. ${lastState.reasoning}` : head;
     }
@@ -152,7 +154,9 @@ function buildSectionSummaries(
     const sectionNodes = graph.nodes.filter((node) => getStage4SectionId(node.kind) === section.id);
     const logicalNodes = sectionNodes.filter((node) => !node.id.startsWith("__"));
     const activeNode = currentNodeId ? byId.get(currentNodeId) : null;
-    const activeInSection = Boolean(activeNode && getStage4SectionId(activeNode.kind) === section.id);
+    const activeInSection = Boolean(
+      activeNode && getStage4SectionId(activeNode.kind) === section.id,
+    );
 
     const statusItems = logicalNodes.map((node) => ({
       id: node.id,
@@ -202,9 +206,7 @@ function buildSectionSummaries(
       displayLabel = snapshot?.cursor.kind === "done" ? "Stage 4 complete" : "Awaiting completion";
     } else if (section.id === "repair_barrier") {
       displayLabel =
-        snapshot?.cursor.kind === "repair_barrier"
-          ? "Validate repair scope"
-          : "Repair barrier";
+        snapshot?.cursor.kind === "repair_barrier" ? "Validate repair scope" : "Repair barrier";
       detailLabel =
         snapshot?.cursor.kind === "repair_barrier"
           ? `${repairScopeIds.size} repaired block${repairScopeIds.size === 1 ? "" : "s"} ready`
@@ -280,9 +282,7 @@ function layoutSectionGraph(
     const sourceLive = acceptedSections.has(edge.from) || edge.from === activeSectionId;
     const targetLive = acceptedSections.has(edge.to) || edge.to === activeSectionId;
     const isActiveTransition =
-      activeSectionId !== null &&
-      edge.to === activeSectionId &&
-      acceptedSections.has(edge.from);
+      activeSectionId !== null && edge.to === activeSectionId && acceptedSections.has(edge.from);
     const isTraversed = sourceLive && targetLive;
 
     let opacity = 0.18;
@@ -352,7 +352,7 @@ export function Stage4RunningView({
     const nodeEls = container.querySelectorAll<HTMLElement>('[data-testid^="rf__node-"]');
     if (nodeEls.length === 0) return;
 
-    const viewport = container.querySelector<HTMLElement>('.react-flow__viewport');
+    const viewport = container.querySelector<HTMLElement>(".react-flow__viewport");
     const scaleMatch = viewport?.style.transform?.match(/scale\(([^)]+)\)/);
     const scale = scaleMatch ? parseFloat(scaleMatch[1]) : 1;
 
@@ -411,8 +411,9 @@ export function Stage4RunningView({
     visibleBlockStatuses.length > 0
       ? visibleBlockStatuses.length
       : graph
-        ? graph.nodes.filter((node) => !node.id.startsWith("__") && node.kind !== "global_prior_review")
-            .length
+        ? graph.nodes.filter(
+            (node) => !node.id.startsWith("__") && node.kind !== "global_prior_review",
+          ).length
         : 0;
   const acceptedBlocks = visibleBlockStatuses.filter((status) => status === "accepted").length;
 
@@ -481,10 +482,6 @@ export default function Stage4RunningContent({
     stageRun?.ownerRootFlowRunId ?? null,
   );
   return (
-    <Stage4RunningView
-      graph={graph}
-      snapshot={snapshot}
-      lastBlockStateById={lastBlockStateById}
-    />
+    <Stage4RunningView graph={graph} snapshot={snapshot} lastBlockStateById={lastBlockStateById} />
   );
 }

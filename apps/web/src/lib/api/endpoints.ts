@@ -1,10 +1,7 @@
 import type { StageId } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 
-export async function uploadFile(
-  file: File,
-  workspaceId: string,
-): Promise<{ path: string }> {
+export async function uploadFile(file: File, workspaceId: string): Promise<{ path: string }> {
   const formData = new FormData();
   formData.append("file", file);
   formData.append("workspaceId", workspaceId);

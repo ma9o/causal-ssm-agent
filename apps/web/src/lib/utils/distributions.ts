@@ -11,7 +11,10 @@ function halfNormalPdf(x: number, sigma: number): number {
 
 function logNormalPdf(x: number, mu: number, sigma: number): number {
   if (x <= 0) return 0;
-  return Math.exp(-((Math.log(x) - mu) ** 2) / (2 * sigma * sigma)) / (x * sigma * Math.sqrt(2 * Math.PI));
+  return (
+    Math.exp(-((Math.log(x) - mu) ** 2) / (2 * sigma * sigma)) /
+    (x * sigma * Math.sqrt(2 * Math.PI))
+  );
 }
 
 function exponentialPdf(x: number, rate: number): number {
@@ -79,11 +82,7 @@ export function evaluatePdf(
     let y = 0;
 
     if (distribution === "Normal") {
-      y = jStat.normal.pdf(
-        x,
-        params.mu ?? 0,
-        params.sigma ?? 1,
-      );
+      y = jStat.normal.pdf(x, params.mu ?? 0, params.sigma ?? 1);
     } else if (distribution === "HalfNormal") {
       y = halfNormalPdf(x, params.sigma ?? 1);
     } else if (distribution === "TruncatedNormal") {

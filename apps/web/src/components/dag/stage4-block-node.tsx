@@ -37,7 +37,9 @@ export interface Stage4BlockNodeData {
 
 function getDotTooltipDescription(item: Stage4NodeStatusItem): string {
   if (item.isActive && item.detailText) {
-    return item.inRepairScope ? `Repair in progress. ${item.detailText}` : `In progress. ${item.detailText}`;
+    return item.inRepairScope
+      ? `Repair in progress. ${item.detailText}`
+      : `In progress. ${item.detailText}`;
   }
   if (item.detailText) {
     return item.detailText;
@@ -52,11 +54,15 @@ function getDotTooltipDescription(item: Stage4NodeStatusItem): string {
     case "accepted":
       return "Accepted.";
     case "reopened":
-      return item.inRepairScope ? "Reopened in the current repair campaign." : "Reopened for repair.";
+      return item.inRepairScope
+        ? "Reopened in the current repair campaign."
+        : "Reopened for repair.";
     case "inactive":
       return "Not required for this plan.";
     default:
-      return item.inRepairScope ? "Queued in the current repair campaign." : "Queued in this section.";
+      return item.inRepairScope
+        ? "Queued in the current repair campaign."
+        : "Queued in this section.";
   }
 }
 
@@ -115,25 +121,55 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
       )}
       style={d.minHeight ? { minHeight: d.minHeight } : undefined}
     >
-      <Handle id="top-target" type="target" position={Position.Top} className="!h-2 !w-2 !opacity-0" />
-      <Handle id="right-target" type="target" position={Position.Right} className="!h-2 !w-2 !opacity-0" />
-      <Handle id="bottom-target" type="target" position={Position.Bottom} className="!h-2 !w-2 !opacity-0" />
-      <Handle id="left-target" type="target" position={Position.Left} className="!h-2 !w-2 !opacity-0" />
+      <Handle
+        id="top-target"
+        type="target"
+        position={Position.Top}
+        className="!h-2 !w-2 !opacity-0"
+      />
+      <Handle
+        id="right-target"
+        type="target"
+        position={Position.Right}
+        className="!h-2 !w-2 !opacity-0"
+      />
+      <Handle
+        id="bottom-target"
+        type="target"
+        position={Position.Bottom}
+        className="!h-2 !w-2 !opacity-0"
+      />
+      <Handle
+        id="left-target"
+        type="target"
+        position={Position.Left}
+        className="!h-2 !w-2 !opacity-0"
+      />
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <span>{d.sectionLabel ?? d.kind}</span>
-            {d.tooltipText && <span className="pointer-events-auto"><StatTooltip explanation={d.tooltipText} /></span>}
+            {d.tooltipText && (
+              <span className="pointer-events-auto">
+                <StatTooltip explanation={d.tooltipText} />
+              </span>
+            )}
           </div>
           <div className="flex items-start gap-2">
             <StatusIcon status={d.status} isActive={isActive} />
             <div className="min-w-0">
-              <div className="truncate text-[13px] font-semibold leading-tight text-foreground" title={d.label}>
+              <div
+                className="truncate text-[13px] font-semibold leading-tight text-foreground"
+                title={d.label}
+              >
                 {d.label}
               </div>
               {d.detailLabel && (
-                <div className="truncate pt-0.5 text-[11px] text-muted-foreground" title={d.detailLabel}>
+                <div
+                  className="truncate pt-0.5 text-[11px] text-muted-foreground"
+                  title={d.detailLabel}
+                >
                   {d.detailLabel}
                 </div>
               )}
@@ -178,10 +214,30 @@ function Stage4BlockNodeInner({ data }: NodeProps) {
         </div>
       )}
 
-      <Handle id="top-source" type="source" position={Position.Top} className="!h-2 !w-2 !opacity-0" />
-      <Handle id="right-source" type="source" position={Position.Right} className="!h-2 !w-2 !opacity-0" />
-      <Handle id="bottom-source" type="source" position={Position.Bottom} className="!h-2 !w-2 !opacity-0" />
-      <Handle id="left-source" type="source" position={Position.Left} className="!h-2 !w-2 !opacity-0" />
+      <Handle
+        id="top-source"
+        type="source"
+        position={Position.Top}
+        className="!h-2 !w-2 !opacity-0"
+      />
+      <Handle
+        id="right-source"
+        type="source"
+        position={Position.Right}
+        className="!h-2 !w-2 !opacity-0"
+      />
+      <Handle
+        id="bottom-source"
+        type="source"
+        position={Position.Bottom}
+        className="!h-2 !w-2 !opacity-0"
+      />
+      <Handle
+        id="left-source"
+        type="source"
+        position={Position.Left}
+        className="!h-2 !w-2 !opacity-0"
+      />
     </div>
   );
 }

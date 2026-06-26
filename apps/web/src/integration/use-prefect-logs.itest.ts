@@ -31,12 +31,7 @@ type PrefectLogsProbeProps = {
   status: StageRunStatus;
 };
 
-function PrefectLogsProbe({
-  flowRunIds,
-  onSnapshot,
-  queryKey,
-  status,
-}: PrefectLogsProbeProps) {
+function PrefectLogsProbe({ flowRunIds, onSnapshot, queryKey, status }: PrefectLogsProbeProps) {
   const { bootstrapStatus, connectionState, logs } = usePrefectLogs(
     queryKey,
     flowRunIds,
@@ -163,11 +158,7 @@ describe("usePrefectLogs integration", () => {
 
     globalThis.fetch = (input, init) => {
       const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url === "/prefect/logs/filter") {
         return originalFetch(`${server?.apiBaseUrl}/logs/filter`, init);
@@ -207,102 +198,94 @@ describe("usePrefectLogs integration", () => {
     }
   }, 60_000);
 
-  it(
-    "loads persisted logs on the running-to-failed transition even when the websocket never delivered them",
-    async () => {
-      if (!server) {
-        throw new Error("Prefect server did not start");
-      }
+  it("loads persisted logs on the running-to-failed transition even when the websocket never delivered them", async () => {
+    if (!server) {
+      throw new Error("Prefect server did not start");
+    }
 
-      const flowRunId = randomUUID();
-      const driver = new PrefectLogsTestDriver();
-      drivers.add(driver);
-      const queryKey = ["itest", "terminal-catch-up", flowRunId] as const;
+    const flowRunId = randomUUID();
+    const driver = new PrefectLogsTestDriver();
+    drivers.add(driver);
+    const queryKey = ["itest", "terminal-catch-up", flowRunId] as const;
 
-      await driver.render({
-        flowRunIds: [flowRunId],
-        queryKey,
-        status: "running",
-      });
+    await driver.render({
+      flowRunIds: [flowRunId],
+      queryKey,
+      status: "running",
+    });
 
-      await waitForSnapshot(
-        driver,
-        (snapshot) =>
-          snapshot.bootstrapStatus === "success" && snapshot.connectionState === "streaming",
-      );
+    await waitForSnapshot(
+      driver,
+      (snapshot) =>
+        snapshot.bootstrapStatus === "success" && snapshot.connectionState === "streaming",
+    );
 
-      await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
-      await waitForSnapshot(driver, (snapshot) => snapshot.messages.includes("live-1"));
+    await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
+    await waitForSnapshot(driver, (snapshot) => snapshot.messages.includes("live-1"));
 
-      insertPersistedLogs(server.dbPath, flowRunId, ["missed-1", "missed-2"]);
+    insertPersistedLogs(server.dbPath, flowRunId, ["missed-1", "missed-2"]);
 
-      await driver.render({
-        flowRunIds: [flowRunId],
-        queryKey,
-        status: "failed",
-      });
+    await driver.render({
+      flowRunIds: [flowRunId],
+      queryKey,
+      status: "failed",
+    });
 
-      const snapshot = await waitForSnapshot(
-        driver,
-        (next) =>
-          next.connectionState === "idle" &&
-          next.messages.length === 3 &&
-          next.messages.includes("missed-1") &&
-          next.messages.includes("missed-2"),
-      );
+    const snapshot = await waitForSnapshot(
+      driver,
+      (next) =>
+        next.connectionState === "idle" &&
+        next.messages.length === 3 &&
+        next.messages.includes("missed-1") &&
+        next.messages.includes("missed-2"),
+    );
 
-      expect(snapshot.messages).toEqual(["live-1", "missed-1", "missed-2"]);
-    },
-    30_000,
-  );
+    expect(snapshot.messages).toEqual(["live-1", "missed-1", "missed-2"]);
+  }, 30_000);
 
-  it(
-    "replays persisted logs for newly added flow runs when the subscription scope widens",
-    async () => {
-      if (!server) {
-        throw new Error("Prefect server did not start");
-      }
+  it("replays persisted logs for newly added flow runs when the subscription scope widens", async () => {
+    if (!server) {
+      throw new Error("Prefect server did not start");
+    }
 
-      const primaryFlowRunId = randomUUID();
-      const addedFlowRunId = randomUUID();
-      const driver = new PrefectLogsTestDriver();
-      drivers.add(driver);
-      const queryKey = ["itest", "scope-widening", primaryFlowRunId] as const;
+    const primaryFlowRunId = randomUUID();
+    const addedFlowRunId = randomUUID();
+    const driver = new PrefectLogsTestDriver();
+    drivers.add(driver);
+    const queryKey = ["itest", "scope-widening", primaryFlowRunId] as const;
 
-      await driver.render({
-        flowRunIds: [primaryFlowRunId],
-        queryKey,
-        status: "running",
-      });
+    await driver.render({
+      flowRunIds: [primaryFlowRunId],
+      queryKey,
+      status: "running",
+    });
 
-      await waitForSnapshot(
-        driver,
-        (snapshot) =>
-          snapshot.bootstrapStatus === "success" && snapshot.connectionState === "streaming",
-      );
+    await waitForSnapshot(
+      driver,
+      (snapshot) =>
+        snapshot.bootstrapStatus === "success" && snapshot.connectionState === "streaming",
+    );
 
-      await emitLogs(server.apiBaseUrl, primaryFlowRunId, ["primary-live-1"]);
-      await waitForSnapshot(driver, (snapshot) => snapshot.messages.includes("primary-live-1"));
+    await emitLogs(server.apiBaseUrl, primaryFlowRunId, ["primary-live-1"]);
+    await waitForSnapshot(driver, (snapshot) => snapshot.messages.includes("primary-live-1"));
 
-      insertPersistedLogs(server.dbPath, addedFlowRunId, ["added-1", "added-2"]);
+    insertPersistedLogs(server.dbPath, addedFlowRunId, ["added-1", "added-2"]);
 
-      await driver.render({
-        flowRunIds: [primaryFlowRunId, addedFlowRunId],
-        queryKey,
-        status: "running",
-      });
+    await driver.render({
+      flowRunIds: [primaryFlowRunId, addedFlowRunId],
+      queryKey,
+      status: "running",
+    });
 
-      const snapshot = await waitForSnapshot(
-        driver,
-        (next) =>
-          next.messages.length === 3 &&
-          next.messages.includes("primary-live-1") &&
-          next.messages.includes("added-1") &&
-          next.messages.includes("added-2"),
-      );
+    const snapshot = await waitForSnapshot(
+      driver,
+      (next) =>
+        next.messages.length === 3 &&
+        next.messages.includes("primary-live-1") &&
+        next.messages.includes("added-1") &&
+        next.messages.includes("added-2"),
+    );
 
-      expect(snapshot.messages).toEqual(["primary-live-1", "added-1", "added-2"]);
-    },
-    30_000,
-  );
+    expect(snapshot.messages).toEqual(["primary-live-1", "added-1", "added-2"]);
+  }, 30_000);
 });

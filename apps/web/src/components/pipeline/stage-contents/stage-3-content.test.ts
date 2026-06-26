@@ -4,9 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { buildFixPrompt, getFixPromptData, Stage3FixAction } from "./stage-3-content";
 
-function makeStage3Data(
-  overrides: Partial<Stage3Data> = {},
-): Stage3Data {
+function makeStage3Data(overrides: Partial<Stage3Data> = {}): Stage3Data {
   return {
     outcome: "warn",
     is_valid: false,

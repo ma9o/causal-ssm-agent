@@ -50,7 +50,9 @@ function rowStatus(row: IndicatorAuditRow, field: StatusField): CellStatus | und
   return row.validation.checks?.[field];
 }
 
-function computeColumnSummaries(rows: IndicatorAuditRow[]): Record<StatusField, ColumnIssueSummary> {
+function computeColumnSummaries(
+  rows: IndicatorAuditRow[],
+): Record<StatusField, ColumnIssueSummary> {
   const summaries = {} as Record<StatusField, ColumnIssueSummary>;
   for (const field of STATUS_FIELDS) {
     let count = 0;

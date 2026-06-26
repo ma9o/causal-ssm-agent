@@ -29,9 +29,7 @@ export function AccessibleWorkspacesRail({
       )}
 
       {!isLoading && error && (
-        <p className="text-sm text-muted-foreground text-center py-8">
-          {error}
-        </p>
+        <p className="text-sm text-muted-foreground text-center py-8">{error}</p>
       )}
 
       {!isLoading && !error && workspaces.length === 0 && (

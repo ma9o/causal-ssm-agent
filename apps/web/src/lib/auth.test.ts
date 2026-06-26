@@ -79,12 +79,8 @@ describe("auth PKCE storage", () => {
     expect(storage.getItem("openrouter_code_verifier:stale-flow")).toBeNull();
     expect(storage.getItem("unrelated")).toBe("keep-me");
     expect(getCodeVerifier("fresh-flow")).toBeTypeOf("string");
-    const redirectUrl = new URL(
-      (globalThis.window as Window & typeof globalThis).location.href,
-    );
-    const callbackUrl = new URL(
-      redirectUrl.searchParams.get("callback_url") ?? "",
-    );
+    const redirectUrl = new URL((globalThis.window as Window & typeof globalThis).location.href);
+    const callbackUrl = new URL(redirectUrl.searchParams.get("callback_url") ?? "");
     expect(callbackUrl.searchParams.get("flow_id")).toBe("fresh-flow");
   });
 });

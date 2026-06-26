@@ -46,9 +46,7 @@ export function PipelineProgressBar({
             </span>
           </div>
         </div>
-        {question && (
-          <p className="text-sm text-muted-foreground mb-1.5">{question}</p>
-        )}
+        {question && <p className="text-sm text-muted-foreground mb-1.5">{question}</p>}
         <div className="flex items-center gap-1.5">
           {STAGES.map((stage) => {
             const status = progress.stages[stage.id];

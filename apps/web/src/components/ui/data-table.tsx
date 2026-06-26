@@ -14,7 +14,11 @@ interface DataTableProps<T extends object> {
 
 const ROW_HEIGHT = 28;
 
-export function DataTable<T extends object>({ rows, maxHeight = "max-h-64", columnTooltips }: DataTableProps<T>) {
+export function DataTable<T extends object>({
+  rows,
+  maxHeight = "max-h-64",
+  columnTooltips,
+}: DataTableProps<T>) {
   "use no memo"; // TODO: remove when TanStack Virtual supports React Compiler
   const columns = useMemo(() => {
     if (rows.length === 0) return [];
@@ -97,13 +101,17 @@ export function DataTable<T extends object>({ rows, maxHeight = "max-h-64", colu
                     // biome-ignore lint/a11y/useSemanticElements: virtualized table requires div-based layout
                     role="gridcell"
                   >
-                    {row[col] == null
-                      ? <span className="text-muted-foreground/40 italic">N/A</span>
-                      : typeof row[col] === "boolean"
-                        ? row[col]
-                          ? "true"
-                          : "false"
-                        : String(row[col])}
+                    {row[col] == null ? (
+                      <span className="text-muted-foreground/40 italic">N/A</span>
+                    ) : typeof row[col] === "boolean" ? (
+                      row[col] ? (
+                        "true"
+                      ) : (
+                        "false"
+                      )
+                    ) : (
+                      String(row[col])
+                    )}
                   </div>
                 ))}
               </div>

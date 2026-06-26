@@ -13,11 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
  * scrolls it into the viewport at least once. Scrolling back up does
  * NOT re-add already-seen stages.
  */
-export function NewStagesNotification({
-  progress,
-}: {
-  progress: PipelineProgress;
-}) {
+export function NewStagesNotification({ progress }: { progress: PipelineProgress }) {
   // Stages the user has scrolled past (seen) at least once
   const seenRef = useRef<Set<StageId>>(new Set());
   const [observerSeen, setObserverSeen] = useState<Set<StageId>>(new Set());

@@ -81,7 +81,12 @@ function IndicatorMiniCard({
 
   const ribbon = (() => {
     if (!(moved && !binary)) return null;
-    const up = ind.cf.map((m, t) => `${t ? "L" : "M"}${X(days[t]).toFixed(1)},${Y(clamp01(m + 1.96 * ind.sd)).toFixed(1)}`).join("");
+    const up = ind.cf
+      .map(
+        (m, t) =>
+          `${t ? "L" : "M"}${X(days[t]).toFixed(1)},${Y(clamp01(m + 1.96 * ind.sd)).toFixed(1)}`,
+      )
+      .join("");
     const dn = ind.cf
       .map((m, t) => ({ m, t }))
       .reverse()
@@ -98,21 +103,50 @@ function IndicatorMiniCard({
       <text x={6} y={10} fontSize={7.5} fontWeight={600} fill="#3a3f47">
         {ind.id.replace(/_/g, " ")}
       </text>
-      <text x={W - 5} y={10} textAnchor="end" fontSize={6.5} fontFamily="ui-monospace, monospace" fill={MUTED}>
+      <text
+        x={W - 5}
+        y={10}
+        textAnchor="end"
+        fontSize={6.5}
+        fontFamily="ui-monospace, monospace"
+        fill={MUTED}
+      >
         {binary ? "0/1" : "cont"}
       </text>
 
       {ribbon ? <path d={ribbon} fill={TEAL} fillOpacity={0.14} stroke="none" /> : null}
-      <path d={lineOf(ind.ref)} fill="none" stroke={MUTED} strokeWidth={1.2} strokeOpacity={0.85} strokeDasharray="3,2" />
+      <path
+        d={lineOf(ind.ref)}
+        fill="none"
+        stroke={MUTED}
+        strokeWidth={1.2}
+        strokeOpacity={0.85}
+        strokeDasharray="3,2"
+      />
       {moved ? <path d={lineOf(ind.cf)} fill="none" stroke={TEAL} strokeWidth={1.6} /> : null}
 
       {ind.observed
         .filter((o) => o.t <= days[day])
         .map((o) => (
-          <circle key={o.t} cx={X(o.t).toFixed(1)} cy={Y(o.v).toFixed(1)} r={1.5} fill={DOT} fillOpacity={0.85} />
+          <circle
+            key={o.t}
+            cx={X(o.t).toFixed(1)}
+            cy={Y(o.v).toFixed(1)}
+            r={1.5}
+            fill={DOT}
+            fillOpacity={0.85}
+          />
         ))}
 
-      <line x1={X(days[day])} x2={X(days[day])} y1={y1} y2={y0} stroke={RED} strokeWidth={1} strokeOpacity={0.8} />
+      <line
+        x1={X(days[day])}
+        x2={X(days[day])}
+        y1={y1}
+        y2={y0}
+        stroke={RED}
+        strokeWidth={1}
+        strokeOpacity={0.8}
+      />
       <circle cx={X(days[day])} cy={Y(cur)} r={2} fill={RED} />
     </>
   );

@@ -58,9 +58,7 @@ export function hasStoppedStage(progress: PipelineProgress | undefined): boolean
   );
 }
 
-export function mapPrefectTaskState(
-  stateType: string,
-): StageRunStatus | null {
+export function mapPrefectTaskState(stateType: string): StageRunStatus | null {
   switch (stateType.toUpperCase()) {
     case "RUNNING":
       return "running";

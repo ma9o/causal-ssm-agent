@@ -47,9 +47,7 @@ export function getFixPromptData(data: Stage3Data): {
     bySeverity.set(issue.severity, existing);
   }
 
-  const lines: string[] = [
-    "Stage 3 (Validation) surfaced the following measurement issues:\n",
-  ];
+  const lines: string[] = ["Stage 3 (Validation) surfaced the following measurement issues:\n"];
 
   for (const severity of ["error", "warning"] as const) {
     const group = bySeverity.get(severity) ?? [];
@@ -125,9 +123,7 @@ export default function Stage3Content({ data }: { data: Stage3Data }) {
 
   return (
     <div className="space-y-4">
-      {Object.keys(indicators).length > 0 && (
-        <IndicatorHealthTable audits={indicators} />
-      )}
+      {Object.keys(indicators).length > 0 && <IndicatorHealthTable audits={indicators} />}
     </div>
   );
 }

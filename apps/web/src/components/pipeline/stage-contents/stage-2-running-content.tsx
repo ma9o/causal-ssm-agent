@@ -48,10 +48,7 @@ function RpmGauge({ rpm, maxRpm = MAX_RPM }: { rpm: number; maxRpm?: number }) {
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className={cn(
-          "tabular-nums",
-          isHigh ? "text-red-500" : "text-muted-foreground",
-        )}>
+        <span className={cn("tabular-nums", isHigh ? "text-red-500" : "text-muted-foreground")}>
           {rpm}/{maxRpm} rpm
         </span>
       </div>

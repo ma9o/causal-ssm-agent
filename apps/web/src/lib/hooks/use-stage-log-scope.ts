@@ -52,7 +52,8 @@ export function useStageLogScope(
 
       const payload = (await response.json()) as StageLogScopeResponse;
       return (payload.flowRunIds ?? []).filter(
-        (flowRunId): flowRunId is string => typeof flowRunId === "string" && flowRunId.trim().length > 0,
+        (flowRunId): flowRunId is string =>
+          typeof flowRunId === "string" && flowRunId.trim().length > 0,
       );
     },
     enabled: descriptor.refresh !== false,
@@ -62,8 +63,7 @@ export function useStageLogScope(
     staleTime: 1000,
   });
 
-  const flowRunIds =
-    descriptor.refresh !== false ? (data ?? initialFlowRunIds) : initialFlowRunIds;
+  const flowRunIds = descriptor.refresh !== false ? (data ?? initialFlowRunIds) : initialFlowRunIds;
   return {
     runtime,
     flowRunIds,

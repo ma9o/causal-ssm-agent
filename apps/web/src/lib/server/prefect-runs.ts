@@ -1,19 +1,13 @@
 import { getWorkspaceRunTag } from "@/lib/root-flow-runs";
 import { getPrefectApiUrl } from "@/lib/runtime-urls";
-import {
-  createByokSecretRef,
-  deleteByokSecretRef,
-} from "@/lib/server/byok-secret-store";
+import { createByokSecretRef, deleteByokSecretRef } from "@/lib/server/byok-secret-store";
 import {
   noAccessMessage,
   resolveOpenRouterAccess,
   type RunnableOpenRouterAccess,
   type RunnableOpenRouterAccessMode,
 } from "@/lib/server/openrouter-access";
-import {
-  claimWorkspaceRunSlot,
-  releaseWorkspaceRunSlot,
-} from "@/lib/server/workspace-run-lock";
+import { claimWorkspaceRunSlot, releaseWorkspaceRunSlot } from "@/lib/server/workspace-run-lock";
 
 const PREFECT_API = getPrefectApiUrl();
 const ACTIVE_FLOW_STATE_TYPES = [
@@ -100,9 +94,7 @@ function parseRetryAfterMs(value: string | null): number | null {
 }
 
 function getPrefectRetryDelayMs(attempt: number, response?: Response): number {
-  const hintedDelay = parseRetryAfterMs(
-    response?.headers.get("Retry-After") ?? null,
-  );
+  const hintedDelay = parseRetryAfterMs(response?.headers.get("Retry-After") ?? null);
   if (hintedDelay != null) {
     return hintedDelay;
   }
@@ -116,10 +108,7 @@ export async function prefectFetch(
 ): Promise<Response> {
   try {
     const response = await fetch(input, init);
-    if (
-      attempt < PREFECT_RETRY_MAX_ATTEMPTS &&
-      isRetryablePrefectStatus(response.status)
-    ) {
+    if (attempt < PREFECT_RETRY_MAX_ATTEMPTS && isRetryablePrefectStatus(response.status)) {
       await sleep(getPrefectRetryDelayMs(attempt, response));
       return prefectFetch(input, init, attempt + 1);
     }
@@ -137,9 +126,7 @@ export function getPrefectApiBaseUrl(): string {
   return PREFECT_API;
 }
 
-export async function findCausalInferenceDeploymentId(): Promise<
-  string | null
-> {
+export async function findCausalInferenceDeploymentId(): Promise<string | null> {
   const response = await prefectFetch(`${PREFECT_API}/deployments/filter`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -149,10 +136,7 @@ export async function findCausalInferenceDeploymentId(): Promise<
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new PrefectRunError(
-      502,
-      "Failed to find causal-inference deployment",
-    );
+    throw new PrefectRunError(502, "Failed to find causal-inference deployment");
   }
 
   const deployments = (await response.json()) as PrefectDeployment[];
@@ -204,10 +188,7 @@ export async function findFlowRunIdByIdempotencyKey(
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new PrefectRunError(
-      502,
-      "Failed to inspect idempotent workspace runs.",
-    );
+    throw new PrefectRunError(502, "Failed to inspect idempotent workspace runs.");
   }
 
   const flowRuns = (await response.json()) as PrefectFlowRunFilterResult;
@@ -284,10 +265,7 @@ export async function prepareWorkspaceRunLaunch(
   try {
     await options?.beforeActiveRunCheck?.();
 
-    const activeFlowRunId = await findActiveWorkspaceFlowRunId(
-      deploymentId,
-      workspaceId,
-    );
+    const activeFlowRunId = await findActiveWorkspaceFlowRunId(deploymentId, workspaceId);
     if (activeFlowRunId) {
       await releaseWorkspaceRunSlotSafely(workspaceId, reservationId);
       return {
@@ -310,10 +288,7 @@ export async function prepareWorkspaceRunLaunch(
   }
 }
 
-function mergeWorkspaceRunTags(
-  workspaceId: string,
-  tags: readonly string[] = [],
-): string[] {
+function mergeWorkspaceRunTags(workspaceId: string, tags: readonly string[] = []): string[] {
   return [...new Set([...tags, getWorkspaceRunTag(workspaceId)])];
 }
 

@@ -11,14 +11,7 @@ import {
   getNodeReferenceSeries,
 } from "../intervention-dag-semantics";
 import type { Stage6SimulationResult } from "../intervention-dag-types";
-import {
-  baseId,
-  buildGlyphGraph,
-  CARD_H,
-  CARD_W,
-  GLYPH_H,
-  GLYPH_W,
-} from "./build-cone-graph";
+import { baseId, buildGlyphGraph, CARD_H, CARD_W, GLYPH_H, GLYPH_W } from "./build-cone-graph";
 import {
   getAllEdgeDrift,
   getAllSelfEffects,
@@ -32,8 +25,14 @@ import { IndicatorStack } from "./indicator-stack";
 import { buildSimulateInput, type SimulateFn } from "./simulate-input";
 import { TrajectoryCard } from "./trajectory-card";
 
-const { positive: TEAL, negative: RED, neutral: NEUTRAL, muted: MUTED, intervention: BLUE, ink: INK } =
-  DAG_COLORS;
+const {
+  positive: TEAL,
+  negative: RED,
+  neutral: NEUTRAL,
+  muted: MUTED,
+  intervention: BLUE,
+  ink: INK,
+} = DAG_COLORS;
 const TAG: Record<string, string> = { linear: "lin", hill: "Hill", mult: "×" };
 const W_MIN = 1.0;
 const W_MAX = 5.5;
@@ -57,7 +56,13 @@ interface InteractiveDagProps {
  * self-effect carries a two-panel drift glyph; one playhead sweeps them all;
  * per-node do() editing re-simulates via `onSimulate`.
  */
-export function InteractiveDag({ constructs, edges, indicators = [], result, onSimulate }: InteractiveDagProps) {
+export function InteractiveDag({
+  constructs,
+  edges,
+  indicators = [],
+  result,
+  onSimulate,
+}: InteractiveDagProps) {
   const outcome = result.outcome;
   const [dir, setDir] = useState<"LR" | "TB">("LR");
   const [showIndicators, setShowIndicators] = useState(false);
@@ -115,12 +120,16 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
   );
   const absMax = useMemo(() => {
     let m = 0;
-    for (const d of getAllEdgeDrift(currentResult)) for (const c of d.contribution) m = Math.max(m, Math.abs(c));
-    for (const s of getAllSelfEffects(currentResult)) for (const c of s.contribution) m = Math.max(m, Math.abs(c));
+    for (const d of getAllEdgeDrift(currentResult))
+      for (const c of d.contribution) m = Math.max(m, Math.abs(c));
+    for (const s of getAllSelfEffects(currentResult))
+      for (const c of s.contribution) m = Math.max(m, Math.abs(c));
     return m;
   }, [currentResult]);
   const widthOf = (c: number) =>
-    absMax > 0 ? Math.max(W_MIN, Math.min(W_MAX, W_MIN + (Math.abs(c) / absMax) * (W_MAX - W_MIN))) : 2;
+    absMax > 0
+      ? Math.max(W_MIN, Math.min(W_MAX, W_MIN + (Math.abs(c) / absMax) * (W_MAX - W_MIN)))
+      : 2;
 
   const movedOf = useCallback(
     (node: string) => {
@@ -136,7 +145,11 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
       if (!onSimulate) return;
       const fromDay = days[clampedDay] ?? 0;
       const res = await onSimulate(
-        buildSimulateInput(result, [{ variable: node, mode: "set", value: clamp01(value), from_day: fromDay }], 60),
+        buildSimulateInput(
+          result,
+          [{ variable: node, mode: "set", value: clamp01(value), from_day: fromDay }],
+          60,
+        ),
       );
       setCurrentResult(res);
     },
@@ -158,7 +171,8 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
     const cols = new Map<number, { min: number; max: number }>();
     for (const nd of reals) {
       const key = Math.round(dir === "LR" ? nd.x : nd.y);
-      const span = dir === "LR" ? { lo: nd.x, hi: nd.x + nd.width } : { lo: nd.y, hi: nd.y + nd.height };
+      const span =
+        dir === "LR" ? { lo: nd.x, hi: nd.x + nd.width } : { lo: nd.y, hi: nd.y + nd.height };
       const cur = cols.get(key);
       if (cur) {
         cur.min = Math.min(cur.min, span.lo);
@@ -176,26 +190,75 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
   return (
     <div style={{ fontFamily: "ui-sans-serif, system-ui, sans-serif", color: INK, fontSize: 14 }}>
       {/* toolbar */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 16,
+          alignItems: "center",
+          marginBottom: 12,
+        }}
+      >
         <span style={LABEL}>Flow</span>
-        <div style={{ display: "inline-flex", background: "#eef0f3", borderRadius: 10, padding: 3 }}>
+        <div
+          style={{ display: "inline-flex", background: "#eef0f3", borderRadius: 10, padding: 3 }}
+        >
           {(["LR", "TB"] as const).map((d) => (
             <button key={d} type="button" onClick={() => setDir(d)} style={segBtn(dir === d)}>
               {d === "LR" ? "→ left to right" : "↓ top to bottom"}
             </button>
           ))}
         </div>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 13, color: "#4a4f57", cursor: "pointer", userSelect: "none" }}>
-          <input type="checkbox" checked={showIndicators} onChange={(e) => setShowIndicators(e.target.checked)} /> Indicators
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 7,
+            fontSize: 13,
+            color: "#4a4f57",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={showIndicators}
+            onChange={(e) => setShowIndicators(e.target.checked)}
+          />{" "}
+          Indicators
         </label>
         <span style={LABEL}>Zoom</span>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-          <button type="button" onClick={() => setZoomClamped(zoom / 1.2)} style={zoomBtn} title="zoom out">−</button>
-          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, color: "#4a4f57", minWidth: 40, textAlign: "center" }}>
+          <button
+            type="button"
+            onClick={() => setZoomClamped(zoom / 1.2)}
+            style={zoomBtn}
+            title="zoom out"
+          >
+            −
+          </button>
+          <span
+            style={{
+              fontVariantNumeric: "tabular-nums",
+              fontSize: 12,
+              color: "#4a4f57",
+              minWidth: 40,
+              textAlign: "center",
+            }}
+          >
             {Math.round(zoom * 100)}%
           </span>
-          <button type="button" onClick={() => setZoomClamped(zoom * 1.2)} style={zoomBtn} title="zoom in">+</button>
-          <button type="button" onClick={() => setZoom(1)} style={zoomBtn} title="reset zoom">⤢</button>
+          <button
+            type="button"
+            onClick={() => setZoomClamped(zoom * 1.2)}
+            style={zoomBtn}
+            title="zoom in"
+          >
+            +
+          </button>
+          <button type="button" onClick={() => setZoom(1)} style={zoomBtn} title="reset zoom">
+            ⤢
+          </button>
         </div>
       </div>
 
@@ -221,7 +284,13 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
             style={{ display: "block" }}
           >
             <defs>
-              {([["arrPos", TEAL], ["arrNeg", RED], ["arrZero", NEUTRAL]] as const).map(([id, col]) => (
+              {(
+                [
+                  ["arrPos", TEAL],
+                  ["arrNeg", RED],
+                  ["arrZero", NEUTRAL],
+                ] as const
+              ).map(([id, col]) => (
                 <marker
                   key={id}
                   id={id}
@@ -240,9 +309,23 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
 
             {columnBands.map((b, i) =>
               dir === "LR" ? (
-                <rect key={i} x={b.min - 10} y={0} width={b.max - b.min + 20} height={Math.ceil(H)} fill={DAG_COLORS.col} />
+                <rect
+                  key={i}
+                  x={b.min - 10}
+                  y={0}
+                  width={b.max - b.min + 20}
+                  height={Math.ceil(H)}
+                  fill={DAG_COLORS.col}
+                />
               ) : (
-                <rect key={i} x={0} y={b.min - 10} width={Math.ceil(W)} height={b.max - b.min + 20} fill={DAG_COLORS.col} />
+                <rect
+                  key={i}
+                  x={0}
+                  y={b.min - 10}
+                  width={Math.ceil(W)}
+                  height={b.max - b.min + 20}
+                  fill={DAG_COLORS.col}
+                />
               ),
             )}
 
@@ -276,7 +359,13 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
                     style={hl ? { filter: "drop-shadow(0 0 2px rgba(20,25,30,.28))" } : undefined}
                   />
                   {pruned && head && ep ? (
-                    <text x={ep.x - 9} y={ep.y - 4} textAnchor="middle" fontSize={10} fill={DAG_COLORS.scissors}>
+                    <text
+                      x={ep.x - 9}
+                      y={ep.y - 4}
+                      textAnchor="middle"
+                      fontSize={10}
+                      fill={DAG_COLORS.scissors}
+                    >
                       ✂
                     </text>
                   ) : null}
@@ -306,7 +395,9 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
               const drift = isSelf ? null : getEdgeDrift(currentResult, a, b);
               const self = isSelf ? getSelfEffect(currentResult, baseId(b)) : null;
               const transfer = isSelf ? (self?.transfer ?? []) : (drift?.transfer ?? []);
-              const contribution = isSelf ? (self?.contribution ?? []) : (drift?.contribution ?? []);
+              const contribution = isSelf
+                ? (self?.contribution ?? [])
+                : (drift?.contribution ?? []);
               const driverLevel = isSelf ? (self?.level ?? []) : (drift?.driver_level ?? []);
               const col = pruned ? NEUTRAL : signColor(contribution[clampedDay] ?? 0);
               const key = `${a}>${b}`;
@@ -388,15 +479,41 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
       {/* graph note */}
       <div style={{ fontSize: 11.5, color: MUTED, margin: "8px 4px 0" }}>
         {`Showing the estimation graph for ${outcome} (${constructs.length} nodes); ★ marks the outcome.`}
-        {"  ·  Unrolled: each latent's faded t−1 card feeds its present-time self (the self-edge = its NodePotential −dV/dη)."}
+        {
+          "  ·  Unrolled: each latent's faded t−1 card feeds its present-time self (the self-edge = its NodePotential −dV/dη)."
+        }
       </div>
 
       {/* scrubber */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, marginTop: 12, background: "#fff", border: `1px solid ${DAG_COLORS.line}`, borderRadius: 12, padding: "12px 16px" }}>
-        <button type="button" onClick={() => setPlaying((p) => !p)} style={iconBtn} title="play / pause">
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 14,
+          marginTop: 12,
+          background: "#fff",
+          border: `1px solid ${DAG_COLORS.line}`,
+          borderRadius: 12,
+          padding: "12px 16px",
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setPlaying((p) => !p)}
+          style={iconBtn}
+          title="play / pause"
+        >
           {playing ? "⏸" : "▶"}
         </button>
-        <button type="button" onClick={() => { setPlaying(false); setDay(0); }} style={iconBtn} title="reset">
+        <button
+          type="button"
+          onClick={() => {
+            setPlaying(false);
+            setDay(0);
+          }}
+          style={iconBtn}
+          title="reset"
+        >
           ↺
         </button>
         <div style={{ flex: 1, position: "relative", display: "flex", alignItems: "center" }}>
@@ -411,15 +528,57 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
           />
           <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
             {[...interventions.entries()].map(([id, iv]) => (
-              <span key={id} style={{ position: "absolute", top: 0, bottom: 0, left: `${(iv.day / 60) * 100}%` }}>
-                <i style={{ position: "absolute", top: 2, bottom: 2, left: -1.25, width: 2.5, background: BLUE, borderRadius: 2 }} />
-                <span style={{ position: "absolute", top: -16, left: 0, transform: "translateX(-50%)", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                  <b style={{ fontSize: 9, fontWeight: 600, color: "#fff", background: BLUE, borderRadius: 4, padding: "1px 5px", whiteSpace: "nowrap" }}>
+              <span
+                key={id}
+                style={{ position: "absolute", top: 0, bottom: 0, left: `${(iv.day / 60) * 100}%` }}
+              >
+                <i
+                  style={{
+                    position: "absolute",
+                    top: 2,
+                    bottom: 2,
+                    left: -1.25,
+                    width: 2.5,
+                    background: BLUE,
+                    borderRadius: 2,
+                  }}
+                />
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -16,
+                    left: 0,
+                    transform: "translateX(-50%)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 3,
+                  }}
+                >
+                  <b
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 600,
+                      color: "#fff",
+                      background: BLUE,
+                      borderRadius: 4,
+                      padding: "1px 5px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
                     {`do · ${id.replace(/_/g, " ")} @d${iv.day}`}
                   </b>
                   <span
                     onClick={() => void removeDo()}
-                    style={{ cursor: "pointer", pointerEvents: "auto", fontSize: 9, fontWeight: 700, color: "#fff", background: RED, borderRadius: 4, padding: "1px 4px" }}
+                    style={{
+                      cursor: "pointer",
+                      pointerEvents: "auto",
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: "#fff",
+                      background: RED,
+                      borderRadius: 4,
+                      padding: "1px 4px",
+                    }}
                   >
                     ✕
                   </span>
@@ -428,11 +587,26 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
             ))}
           </div>
         </div>
-        <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 96, textAlign: "right", color: "#3a3f47" }}>
+        <span
+          style={{
+            fontVariantNumeric: "tabular-nums",
+            minWidth: 96,
+            textAlign: "right",
+            color: "#3a3f47",
+          }}
+        >
           {`day ${clampedDay}`}
         </span>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: MUTED, margin: "6px 8px 0" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          fontSize: 11,
+          color: MUTED,
+          margin: "6px 8px 0",
+        }}
+      >
         <span>1d</span>
         <span>7d</span>
         <span>30d</span>
@@ -442,7 +616,12 @@ export function InteractiveDag({ constructs, edges, indicators = [], result, onS
   );
 }
 
-const LABEL: React.CSSProperties = { fontSize: 11, letterSpacing: ".04em", textTransform: "uppercase", color: MUTED };
+const LABEL: React.CSSProperties = {
+  fontSize: 11,
+  letterSpacing: ".04em",
+  textTransform: "uppercase",
+  color: MUTED,
+};
 const zoomBtn: React.CSSProperties = {
   width: 26,
   height: 26,

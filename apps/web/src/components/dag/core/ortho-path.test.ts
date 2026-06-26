@@ -8,10 +8,12 @@ describe("orthoPath", () => {
   });
 
   it("draws a straight move+line for a two-point path", () => {
-    expect(orthoPath([
-      { x: 0, y: 0 },
-      { x: 10, y: 0 },
-    ])).toBe("M0,0L10,0");
+    expect(
+      orthoPath([
+        { x: 0, y: 0 },
+        { x: 10, y: 0 },
+      ]),
+    ).toBe("M0,0L10,0");
   });
 
   it("softens an interior corner with a quadratic fillet", () => {

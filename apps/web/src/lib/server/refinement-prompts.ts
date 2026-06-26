@@ -13,17 +13,14 @@ function isStage4Data(value: unknown): value is Stage4Data {
 }
 
 function isModelSpec(value: unknown): value is Stage4Data["model_spec"] {
-  return (
-    isRecord(value) &&
-    Array.isArray(value.likelihoods) &&
-    Array.isArray(value.parameters)
-  );
+  return isRecord(value) && Array.isArray(value.likelihoods) && Array.isArray(value.parameters);
 }
 
 function formatLikelihoodCards(data: Stage4Data): string {
   const rows = data.model_spec.likelihoods.map((likelihood) => {
     const sourceCount = likelihood.sources?.length ?? 0;
-    const sourceNote = sourceCount > 0 ? `, ${sourceCount} source${sourceCount === 1 ? "" : "s"}` : "";
+    const sourceNote =
+      sourceCount > 0 ? `, ${sourceCount} source${sourceCount === 1 ? "" : "s"}` : "";
     return `- \`${likelihood.variable}\`: \`${likelihood.distribution}\` + \`${likelihood.link}\`${sourceNote}\n  reasoning: ${likelihood.reasoning}`;
   });
   return rows.length > 0 ? rows.join("\n") : "(none)";

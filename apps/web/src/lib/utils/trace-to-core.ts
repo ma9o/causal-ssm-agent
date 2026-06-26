@@ -93,9 +93,10 @@ export function traceToModelMessages(messages: TraceMessage[]): ModelMessage[] {
               type: "tool-result",
               toolCallId: msg.tool_call_id,
               toolName: msg.tool_name ?? "unknown",
-              output: typeof (msg.tool_result ?? msg.content) === "string"
-                ? { type: "text" as const, value: msg.tool_result ?? msg.content }
-                : { type: "json" as const, value: msg.tool_result ?? msg.content },
+              output:
+                typeof (msg.tool_result ?? msg.content) === "string"
+                  ? { type: "text" as const, value: msg.tool_result ?? msg.content }
+                  : { type: "json" as const, value: msg.tool_result ?? msg.content },
             },
           ],
         });
@@ -154,7 +155,8 @@ export function uiMessagesToTraceMessages(messages: UIMessage[]): TraceMessage[]
   for (const message of messages) {
     const text = message.parts
       .filter(
-        (part): part is Extract<UIMessage["parts"][number], { type: "text" }> => part.type === "text",
+        (part): part is Extract<UIMessage["parts"][number], { type: "text" }> =>
+          part.type === "text",
       )
       .map((part) => part.text)
       .join("\n\n");
@@ -208,8 +210,7 @@ export function uiMessagesToTraceMessages(messages: UIMessage[]): TraceMessage[]
 
       traceMessages.push({
         role: "tool",
-        content:
-          part.state === "output-error" ? part.errorText : stringifyTraceValue(part.output),
+        content: part.state === "output-error" ? part.errorText : stringifyTraceValue(part.output),
         tool_call_id: part.toolCallId,
         tool_name: part.toolName,
         tool_result:
@@ -279,8 +280,7 @@ export function mergePersistedTrace(
   },
 ): LLMTrace {
   const baseUsage = baseTrace?.usage;
-  const reasoningTokens =
-    (baseUsage?.reasoning_tokens ?? 0) + (usage?.reasoningTokens ?? 0);
+  const reasoningTokens = (baseUsage?.reasoning_tokens ?? 0) + (usage?.reasoningTokens ?? 0);
 
   return {
     messages: [...(baseTrace?.messages ?? []), ...uiMessagesToTraceMessages(messages)],

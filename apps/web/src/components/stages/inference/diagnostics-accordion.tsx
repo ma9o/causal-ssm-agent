@@ -115,7 +115,9 @@ export function DiagnosticsAccordion({
               <Badge
                 variant={ppc.per_variable_warnings.every((w) => w.passed) ? "success" : "warning"}
               >
-                {ppc.per_variable_warnings.every((w) => w.passed) ? "Consistent" : "Misfit detected"}
+                {ppc.per_variable_warnings.every((w) => w.passed)
+                  ? "Consistent"
+                  : "Misfit detected"}
               </Badge>
             </span>
           </AccordionTrigger>

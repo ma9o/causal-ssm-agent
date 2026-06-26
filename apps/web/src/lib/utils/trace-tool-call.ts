@@ -4,9 +4,7 @@ export interface NormalizedTraceToolCall {
   input: unknown;
 }
 
-export function normalizeTraceToolCall(
-  toolCall: unknown,
-): NormalizedTraceToolCall | null {
+export function normalizeTraceToolCall(toolCall: unknown): NormalizedTraceToolCall | null {
   if (typeof toolCall !== "object" || toolCall === null) {
     return null;
   }

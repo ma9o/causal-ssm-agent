@@ -6,13 +6,25 @@ import { isMockMode } from "@/lib/api/mock-provider";
 import type { Stage5bData } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
 
-export default function Stage5bContent({ workspaceId, data }: { workspaceId: string; data: Stage5bData }) {
+export default function Stage5bContent({
+  workspaceId,
+  data,
+}: {
+  workspaceId: string;
+  data: Stage5bData;
+}) {
   const [activeData, setActiveData] = useState(data);
   const mock = isMockMode();
 
   return (
     <div className="space-y-4">
-      {mock && <MockMethodSwitcher workspaceId={workspaceId} baseData={data} onDataChange={setActiveData} />}
+      {mock && (
+        <MockMethodSwitcher
+          workspaceId={workspaceId}
+          baseData={data}
+          onDataChange={setActiveData}
+        />
+      )}
       <DiagnosticsAccordion
         ppc={activeData.ppc}
         mcmcDiagnostics={activeData.mcmc_diagnostics}

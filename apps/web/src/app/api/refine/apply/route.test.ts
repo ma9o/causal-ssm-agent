@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/workspace-access", () => ({
-  requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
-    ok: true,
-    workspaceId,
-  })),
+  requireWorkspaceAccess: vi
+    .fn()
+    .mockImplementation(async (_request: Request, workspaceId: string) => ({
+      ok: true,
+      workspaceId,
+    })),
 }));
 
 vi.mock("@/lib/runtime-urls", () => ({
@@ -43,13 +45,10 @@ describe("POST /api/refine/apply", () => {
     );
 
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ ok: true }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
     );
 
     const response = await POST(
@@ -125,8 +124,7 @@ describe("POST /api/refine/apply", () => {
             },
             {
               role: "assistant",
-              content:
-                "Preserve the statin-adherence scenario and compare it against rung 3 next.",
+              content: "Preserve the statin-adherence scenario and compare it against rung 3 next.",
               tool_is_error: false,
             },
           ],

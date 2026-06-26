@@ -140,7 +140,10 @@ export async function POST(request: Request) {
   const { workspaceId, stageId, stageData, rootFlowRunId } = await request.json();
 
   if (!workspaceId || !stageId || !stageData) {
-    return NextResponse.json({ error: "Missing workspaceId, stageId, or stageData" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing workspaceId, stageId, or stageData" },
+      { status: 400 },
+    );
   }
 
   const safeStageId = typeof stageId === "string" ? stageId.trim() : "";
@@ -166,7 +169,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const latestRootFlowRunId = safeRootFlowRunId ?? await findLatestWorkspaceRootFlowRunId(safeWorkspaceId);
+    const latestRootFlowRunId =
+      safeRootFlowRunId ?? (await findLatestWorkspaceRootFlowRunId(safeWorkspaceId));
 
     // Build parameters: if we have a prior flow run, reuse its params
     let sourceFlowRun: PrefectFlowRun | null = null;
@@ -179,13 +183,9 @@ export async function POST(request: Request) {
     // Find the causal-inference deployment
     const deploymentId = await findCausalInferenceDeploymentId();
     if (!deploymentId) {
-      return NextResponse.json(
-        { error: "causal-inference deployment not found" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "causal-inference deployment not found" }, { status: 404 });
     }
-    const existingOverrides =
-      (originalParams.stage_overrides as Record<string, unknown>) ?? {};
+    const existingOverrides = (originalParams.stage_overrides as Record<string, unknown>) ?? {};
     const {
       end_stage: _endStage,
       openrouter_access_mode: _oldOpenRouterAccessMode,
@@ -242,9 +242,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: launch.message,
-          ...(launch.rootFlowRunId
-            ? { rootFlowRunId: launch.rootFlowRunId }
-            : {}),
+          ...(launch.rootFlowRunId ? { rootFlowRunId: launch.rootFlowRunId } : {}),
         },
         { status: 409 },
       );

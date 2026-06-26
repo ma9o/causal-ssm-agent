@@ -25,10 +25,7 @@ export async function POST(request: Request) {
   const { workspaceId, stageId, rootFlowRunId, stagePatch, messages } = await request.json();
 
   if (!workspaceId || !stageId) {
-    return NextResponse.json(
-      { error: "Missing workspaceId or stageId" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Missing workspaceId or stageId" }, { status: 400 });
   }
 
   const safeStageId = stageId.trim();
@@ -52,10 +49,7 @@ export async function POST(request: Request) {
     currentStageData = JSON.parse(await readData(`${safeWorkspaceId}/run/${safeStageId}.json`));
   } catch (e: unknown) {
     if (isStorageNotFoundError(e)) {
-      return NextResponse.json(
-        { error: "Could not read current stage data" },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: "Could not read current stage data" }, { status: 404 });
     }
     return NextResponse.json(
       { error: `Failed to read stage data: ${e instanceof Error ? e.message : String(e)}` },
@@ -63,8 +57,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const { llm_trace: existingTrace, outcome: _outcome, _live: _liveField, ...originalDomain } =
-    currentStageData;
+  const {
+    llm_trace: existingTrace,
+    outcome: _outcome,
+    _live: _liveField,
+    ...originalDomain
+  } = currentStageData;
   const refinementSummary = summarizeRefinementMessages(refinementMessages);
   const mergedStagePatch = {
     ...refinementSummary.stagePatch,
@@ -84,10 +82,7 @@ export async function POST(request: Request) {
   };
 
   if (Object.keys(materializedPatch).length === 0) {
-    return NextResponse.json(
-      { error: "Nothing to materialize" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "Nothing to materialize" }, { status: 400 });
   }
 
   if (isTerminalStage) {
@@ -103,10 +98,7 @@ export async function POST(request: Request) {
 
       if (!persistRes.ok) {
         const error = await persistRes.text();
-        return NextResponse.json(
-          { error: `Persist failed: ${error}` },
-          { status: 502 },
-        );
+        return NextResponse.json({ error: `Persist failed: ${error}` }, { status: 502 });
       }
 
       return NextResponse.json({
@@ -147,10 +139,7 @@ export async function POST(request: Request) {
 
     if (!replayRes.ok) {
       const error = await replayRes.text();
-      return NextResponse.json(
-        { error: `Replay failed: ${error}` },
-        { status: 502 },
-      );
+      return NextResponse.json({ error: `Replay failed: ${error}` }, { status: 502 });
     }
 
     const replayResult = await replayRes.json();

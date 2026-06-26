@@ -1,21 +1,8 @@
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { AccessStatus } from "@/lib/auth-status";
 import { linkifyDocRefs } from "@/lib/utils/linkify-docs";
-import {
-  ArrowRight,
-  FileText,
-  KeyRound,
-  Loader2,
-  Upload,
-  X,
-} from "lucide-react";
+import { ArrowRight, FileText, KeyRound, Loader2, Upload, X } from "lucide-react";
 import { motion } from "motion/react";
 import prettyBytes from "pretty-bytes";
 import { useRef, useState } from "react";
@@ -75,9 +62,7 @@ function AccessMessage({ access }: { access: AccessStatus | null }) {
     return (
       <>
         <p className="text-sm font-medium">User mode</p>
-        <p className="text-xs text-muted-foreground">
-          Using your OpenRouter BYOK session.
-        </p>
+        <p className="text-xs text-muted-foreground">Using your OpenRouter BYOK session.</p>
       </>
     );
   }
@@ -104,9 +89,7 @@ function AccessMessage({ access }: { access: AccessStatus | null }) {
   if (access.mode === "none" && access.reason === "anonymous_exhausted") {
     return (
       <>
-        <p className="text-sm font-medium text-destructive">
-          Anonymous mode exhausted
-        </p>
+        <p className="text-sm font-medium text-destructive">Anonymous mode exhausted</p>
         <p className="text-xs text-muted-foreground">
           Sign in with OpenRouter to continue with your own key
         </p>
@@ -115,9 +98,7 @@ function AccessMessage({ access }: { access: AccessStatus | null }) {
   }
   return (
     <>
-      <p className="text-sm font-medium text-destructive">
-        OpenRouter access unavailable
-      </p>
+      <p className="text-sm font-medium text-destructive">OpenRouter access unavailable</p>
       <p className="text-xs text-muted-foreground">
         Configure the server OpenRouter key and try again.
       </p>
@@ -172,164 +153,148 @@ export function LandingPageView({
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-4 sm:space-y-6">
-        <motion.div className="text-center space-y-2" {...fadeIn}>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-            nof1-causal-lab
-          </h1>
-        </motion.div>
+      <motion.div className="text-center space-y-2" {...fadeIn}>
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">nof1-causal-lab</h1>
+      </motion.div>
 
-        <motion.div {...fadeInUp()}>
-          <Card
-            className={`shadow-sm ${noAccess ? "border-destructive/50" : ""}`}
-          >
-            <CardContent className="flex items-center justify-between py-4">
-              <div className="flex items-center gap-3">
-                <AccessIndicator access={access} />
-                <div>
-                  <AccessMessage access={access} />
-                </div>
+      <motion.div {...fadeInUp()}>
+        <Card className={`shadow-sm ${noAccess ? "border-destructive/50" : ""}`}>
+          <CardContent className="flex items-center justify-between py-4">
+            <div className="flex items-center gap-3">
+              <AccessIndicator access={access} />
+              <div>
+                <AccessMessage access={access} />
               </div>
-              {access?.mode === "user" ? (
-                <Button variant="ghost" size="sm" onClick={onSignOut}>
-                  Sign out
-                </Button>
-              ) : canOfferOpenRouterSignIn(access) ? (
-                <Button
-                  variant={noAccess ? "default" : "outline"}
-                  size="sm"
-                  onClick={onOpenRouterAuth}
-                >
-                  <KeyRound className="h-3.5 w-3.5 mr-1.5" />
-                  Sign in with OpenRouter
-                </Button>
-              ) : null}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div {...fadeInUp(0.05)}>
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Research Question</CardTitle>
-              <CardDescription>
-                What causal relationship do you want to investigate?
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <textarea
-                aria-label="Research question"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground min-h-[100px] resize-y"
-                placeholder="e.g., How does my daily screen time affect my sleep quality and mood?"
-                value={question}
-                onChange={(e) => onQuestionChange(e.target.value)}
-              />
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        <motion.div {...fadeInUp(0.15)}>
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>Data Upload</CardTitle>
-              <CardDescription>
-                {linkifyDocRefs(
-                  "Upload a ZIP or text file containing your observational data, without worrying about heterogeneity or sparsity. See docs/pipeline/02-indicator-extraction.md",
-                )}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div
-                className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
-                  dragOver
-                    ? "border-primary bg-primary/5"
-                    : "border-muted-foreground/25 hover:border-muted-foreground/50"
-                }`}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(true);
-                }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={handleDrop}
+            </div>
+            {access?.mode === "user" ? (
+              <Button variant="ghost" size="sm" onClick={onSignOut}>
+                Sign out
+              </Button>
+            ) : canOfferOpenRouterSignIn(access) ? (
+              <Button
+                variant={noAccess ? "default" : "outline"}
+                size="sm"
+                onClick={onOpenRouterAuth}
               >
-                {file ? (
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-6 w-6 text-primary" />
-                    <div>
-                      <p className="text-sm font-medium">{file.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {prettyBytes(file.size)}
-                      </p>
-                    </div>
+                <KeyRound className="h-3.5 w-3.5 mr-1.5" />
+                Sign in with OpenRouter
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      <motion.div {...fadeInUp(0.05)}>
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle>Research Question</CardTitle>
+            <CardDescription>What causal relationship do you want to investigate?</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <textarea
+              aria-label="Research question"
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground min-h-[100px] resize-y"
+              placeholder="e.g., How does my daily screen time affect my sleep quality and mood?"
+              value={question}
+              onChange={(e) => onQuestionChange(e.target.value)}
+            />
+          </CardContent>
+        </Card>
+      </motion.div>
+
+      <motion.div {...fadeInUp(0.15)}>
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle>Data Upload</CardTitle>
+            <CardDescription>
+              {linkifyDocRefs(
+                "Upload a ZIP or text file containing your observational data, without worrying about heterogeneity or sparsity. See docs/pipeline/02-indicator-extraction.md",
+              )}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div
+              className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
+                dragOver
+                  ? "border-primary bg-primary/5"
+                  : "border-muted-foreground/25 hover:border-muted-foreground/50"
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+            >
+              {file ? (
+                <div className="flex items-center gap-3">
+                  <FileText className="h-6 w-6 text-primary" />
+                  <div>
+                    <p className="text-sm font-medium">{file.name}</p>
+                    <p className="text-xs text-muted-foreground">{prettyBytes(file.size)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ml-2 rounded-full p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    onClick={onFileRemove}
+                    aria-label="Remove file"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">
+                    Drag and drop or{" "}
                     <button
                       type="button"
-                      className="ml-2 rounded-full p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                      onClick={onFileRemove}
-                      aria-label="Remove file"
+                      className="text-primary underline underline-offset-2 hover:no-underline"
+                      onClick={() => fileInputRef.current?.click()}
                     >
-                      <X className="h-4 w-4" />
+                      browse
                     </button>
-                  </div>
-                ) : (
-                  <>
-                    <Upload className="h-8 w-8 text-muted-foreground mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      Drag and drop or{" "}
-                      <button
-                        type="button"
-                        className="text-primary underline underline-offset-2 hover:no-underline"
-                        onClick={() => fileInputRef.current?.click()}
-                      >
-                        browse
-                      </button>
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground/60">
-                      ZIP or text file, up to {prettyBytes(MAX_FILE_SIZE)}
-                    </p>
-                  </>
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onFileSelect(f);
-                  }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground/60">
+                    ZIP or text file, up to {prettyBytes(MAX_FILE_SIZE)}
+                  </p>
+                </>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onFileSelect(f);
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
 
-        {error && (
-          <motion.p
-            className="text-sm text-destructive text-center"
-            {...fadeIn}
-          >
-            {error}
-          </motion.p>
-        )}
+      {error && (
+        <motion.p className="text-sm text-destructive text-center" {...fadeIn}>
+          {error}
+        </motion.p>
+      )}
 
-        <motion.div className="space-y-2" {...fadeInUp(0.25)}>
-          <Button
-            className="w-full"
-            size="lg"
-            onClick={onSubmit}
-            disabled={submitDisabled}
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Starting Analysis...
-              </>
-            ) : (
-              <>
-                Start Analysis
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </>
-            )}
-          </Button>
-        </motion.div>
+      <motion.div className="space-y-2" {...fadeInUp(0.25)}>
+        <Button className="w-full" size="lg" onClick={onSubmit} disabled={submitDisabled}>
+          {isSubmitting ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Starting Analysis...
+            </>
+          ) : (
+            <>
+              Start Analysis
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </>
+          )}
+        </Button>
+      </motion.div>
     </div>
   );
 }

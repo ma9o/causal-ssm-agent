@@ -61,7 +61,9 @@ describe("stage2-runtime", () => {
     expect(parseStage2Event(snapshotRecord)?.type).toBe("snapshot");
     expect(parseStage2Event(completedRecord)?.type).toBe("worker");
 
-    expect(reduceStage2Events([planRecord, runningRecord, completedRecord, snapshotRecord])).toEqual({
+    expect(
+      reduceStage2Events([planRecord, runningRecord, completedRecord, snapshotRecord]),
+    ).toEqual({
       plan: {
         total_workers: 3,
         max_concurrent_workers: 30,

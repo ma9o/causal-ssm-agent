@@ -22,7 +22,9 @@ describe("buildElkGraph", () => {
 
   it("honours direction and merges graph + per-node layout options", () => {
     const graph = buildElkGraph({
-      nodes: [{ id: "a", width: 1, height: 1, layoutOptions: { "elk.partitioning.partition": "2" } }],
+      nodes: [
+        { id: "a", width: 1, height: 1, layoutOptions: { "elk.partitioning.partition": "2" } },
+      ],
       edges: [],
       direction: "DOWN",
       layoutOptions: { "elk.partitioning.activate": "true" },

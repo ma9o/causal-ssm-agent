@@ -160,9 +160,7 @@ function summarizeStageExecutions(
   ) as Partial<Record<StageId, StageExecutionSummary>>;
 }
 
-type PrefectResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; status: number; statusText: string };
+type PrefectResult<T> = { ok: true; data: T } | { ok: false; status: number; statusText: string };
 
 async function prefectGetJson<T>(path: string): Promise<PrefectResult<T>> {
   const response = await prefectFetch(`${PREFECT_API}${path}`, { cache: "no-store" });
@@ -267,9 +265,7 @@ async function buildPersistedArtifactManifest(
   const stages = Object.fromEntries(
     STAGES.map((stage) => [
       stage.id,
-      completedStageIds.has(stage.id)
-        ? completedPersistedStageRun(createdAt)
-        : emptyStageRun(),
+      completedStageIds.has(stage.id) ? completedPersistedStageRun(createdAt) : emptyStageRun(),
     ]),
   ) as AnalysisStageRuns;
 

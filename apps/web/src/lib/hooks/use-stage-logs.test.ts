@@ -111,13 +111,7 @@ describe("fetchIncrementalPrefectLogs", () => {
 
     const logs = await fetchIncrementalPrefectLogs(["run-1"], existing, { limit: 2 });
 
-    expect(logs.map((entry) => entry.id)).toEqual([
-      "log-1",
-      "log-2",
-      "log-3",
-      "log-4",
-      "log-5",
-    ]);
+    expect(logs.map((entry) => entry.id)).toEqual(["log-1", "log-2", "log-3", "log-4", "log-5"]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const firstBody = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string);
@@ -160,11 +154,7 @@ describe("fetchIncrementalPrefectLogs", () => {
       offset: 0,
     });
 
-    expect(logs.map((entry) => entry.id)).toEqual([
-      "log-1",
-      "log-2",
-      "log-3",
-    ]);
+    expect(logs.map((entry) => entry.id)).toEqual(["log-1", "log-2", "log-3"]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const firstBody = JSON.parse((fetchMock.mock.calls[0]?.[1] as RequestInit).body as string);

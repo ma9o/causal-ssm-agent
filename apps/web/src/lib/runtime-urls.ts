@@ -18,10 +18,7 @@ export function getToolServerUrl(env: EnvMap = process.env): string {
   return trimTrailingSlash(env.TOOL_SERVER_URL ?? DEFAULT_TOOL_SERVER_URL);
 }
 
-export function getPrefectEventsUrl(
-  origin: string,
-  env: EnvMap = process.env,
-): string {
+export function getPrefectEventsUrl(origin: string, env: EnvMap = process.env): string {
   const configured = env.NEXT_PUBLIC_PREFECT_EVENTS_URL;
   if (configured) {
     return trimTrailingSlash(configured);
@@ -34,10 +31,7 @@ export function getPrefectEventsUrl(
   return `${origin.replace(/^http/, "ws")}/prefect/events/out`;
 }
 
-export function getPrefectLogsUrl(
-  origin: string,
-  env: EnvMap = process.env,
-): string {
+export function getPrefectLogsUrl(origin: string, env: EnvMap = process.env): string {
   const configured = env.NEXT_PUBLIC_PREFECT_LOGS_URL;
   if (configured) {
     return trimTrailingSlash(configured);

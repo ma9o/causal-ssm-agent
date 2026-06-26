@@ -34,9 +34,7 @@ function LogLine({ entry }: { entry: PrefectLogEntry }) {
     <div className="flex gap-2 leading-5 hover:bg-muted/30">
       <span className="shrink-0 text-muted-foreground/40 select-none">{ts}</span>
       <span className={cn("shrink-0 w-12 text-right", color)}>{level}</span>
-      <span className={cn("break-all", entry.level >= 40 && "text-red-500")}>
-        {entry.message}
-      </span>
+      <span className={cn("break-all", entry.level >= 40 && "text-red-500")}>{entry.message}</span>
     </div>
   );
 }
@@ -112,18 +110,12 @@ export function VirtualizedLogList({
   return (
     <div
       ref={parentRef}
-      className={cn(
-        "max-h-64 overflow-y-auto rounded-md font-mono text-[11px]",
-        className,
-      )}
+      className={cn("max-h-64 overflow-y-auto rounded-md font-mono text-[11px]", className)}
     >
       {logs.length === 0 ? (
         <p className="py-2 text-center text-muted-foreground/50">{emptyMessage}</p>
       ) : (
-        <div
-          className="relative w-full"
-          style={{ height: virtualizer.getTotalSize() }}
-        >
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((item) => {
             const entry = logs[item.index];
             return (

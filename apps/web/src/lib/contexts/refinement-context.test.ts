@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  refinementNeedsActivation,
-  refinementRequiresConfirmation,
-} from "./refinement-context";
+import { refinementNeedsActivation, refinementRequiresConfirmation } from "./refinement-context";
 
 describe("refinement helpers", () => {
   it("keeps terminal stage activation separate from downstream invalidation confirmation", () => {

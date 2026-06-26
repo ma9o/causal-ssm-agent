@@ -41,7 +41,8 @@ export const STAGE4_SECTION_ORDER: Array<{
   {
     id: "model_decisions",
     label: "Model Decisions",
-    tooltip: "Chooses likelihood functions and loading constraints for each indicator in the causal model.",
+    tooltip:
+      "Chooses likelihood functions and loading constraints for each indicator in the causal model.",
   },
   {
     id: "global_review",
@@ -82,7 +83,8 @@ export const STAGE4_SECTION_ORDER: Array<{
   {
     id: "done",
     label: "Complete",
-    tooltip: "All parameterized blocks have been accepted and the model specification is finalized.",
+    tooltip:
+      "All parameterized blocks have been accepted and the model specification is finalized.",
   },
 ];
 
@@ -125,12 +127,12 @@ interface RouteCandidate {
 }
 
 const SECTION_INDEX = new Map(STAGE4_SECTION_ORDER.map((section, index) => [section.id, index]));
-const X_POSITIONS = [...new Set(Object.values(STAGE4_SECTION_NODE_POSITION).map((pos) => pos.x))].sort(
-  (left, right) => left - right,
-);
-const Y_POSITIONS = [...new Set(Object.values(STAGE4_SECTION_NODE_POSITION).map((pos) => pos.y))].sort(
-  (left, right) => left - right,
-);
+const X_POSITIONS = [
+  ...new Set(Object.values(STAGE4_SECTION_NODE_POSITION).map((pos) => pos.x)),
+].sort((left, right) => left - right);
+const Y_POSITIONS = [
+  ...new Set(Object.values(STAGE4_SECTION_NODE_POSITION).map((pos) => pos.y)),
+].sort((left, right) => left - right);
 const COLUMN_BY_X = new Map(X_POSITIONS.map((x, index) => [x, index]));
 const ROW_BY_Y = new Map(Y_POSITIONS.map((y, index) => [y, index]));
 const X_BOUNDARIES = [
@@ -243,7 +245,9 @@ function shortestPath(nodes: RouteNode[], startId: string, endId: string): Stage
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const adjacency = buildRouteGraph(nodes);
-  const distances = new Map<string, number>(nodes.map((node) => [node.id, Number.POSITIVE_INFINITY]));
+  const distances = new Map<string, number>(
+    nodes.map((node) => [node.id, Number.POSITIVE_INFINITY]),
+  );
   const previous = new Map<string, string | null>(nodes.map((node) => [node.id, null]));
   const queue = new Set(nodes.map((node) => node.id));
 
@@ -418,10 +422,7 @@ export function deriveStage4SectionEdges(graph: Stage4Graph | null): Stage4Secti
   });
 }
 
-export function routeStage4SectionEdge(
-  from: Stage4SectionId,
-  to: Stage4SectionId,
-): Stage4Point[] {
+export function routeStage4SectionEdge(from: Stage4SectionId, to: Stage4SectionId): Stage4Point[] {
   const sourceCandidates = getRouteCandidates(from);
   const targetCandidates = getRouteCandidates(to);
 

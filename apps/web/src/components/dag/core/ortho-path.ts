@@ -20,7 +20,11 @@ export function orthoPath(points: Point[], radius = 12): string {
     const a = points[i - 1];
     const p = points[i];
     const b = points[i + 1];
-    const r = Math.min(radius, Math.hypot(p.x - a.x, p.y - a.y) / 2, Math.hypot(b.x - p.x, b.y - p.y) / 2);
+    const r = Math.min(
+      radius,
+      Math.hypot(p.x - a.x, p.y - a.y) / 2,
+      Math.hypot(b.x - p.x, b.y - p.y) / 2,
+    );
     const u = unit(p, a);
     const v = unit(p, b);
     d += `L${(p.x + u.x * r).toFixed(1)},${(p.y + u.y * r).toFixed(1)}Q${p.x},${p.y} ${(p.x + v.x * r).toFixed(1)},${(p.y + v.y * r).toFixed(1)}`;

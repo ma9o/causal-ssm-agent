@@ -8,13 +8,7 @@ import type { LLMTrace, StageMeta, StageOutcome } from "@nof1-causal-lab/api-typ
 import { type FormEvent, type ReactNode, useState } from "react";
 import { StagePresentationShellView } from "./stage-presentation-shell";
 
-function StoryTracePanel({
-  trace,
-  interactive,
-}: {
-  trace: LLMTrace;
-  interactive: boolean;
-}) {
+function StoryTracePanel({ trace, interactive }: { trace: LLMTrace; interactive: boolean }) {
   const [input, setInput] = useState("");
 
   function handleSubmit(event: FormEvent) {

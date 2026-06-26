@@ -82,9 +82,7 @@ describe("POST /api/upload", () => {
       creationPending: true,
       readOnly: false,
     });
-    vi.mocked(finalizeWorkspaceCreate).mockRejectedValue(
-      new Error("finalize failed"),
-    );
+    vi.mocked(finalizeWorkspaceCreate).mockRejectedValue(new Error("finalize failed"));
 
     const file = new File(["hello"], "data.csv", { type: "text/csv" });
     const formData = new FormData();

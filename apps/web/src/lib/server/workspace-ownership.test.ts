@@ -19,8 +19,8 @@ vi.mock("@/lib/server/workspace-session", () => ({
 
 vi.mock("@/lib/storage", () => ({
   LOCAL_DATA_DIR: "/tmp/data",
-  isStorageNotFoundError: vi.fn((error: unknown) =>
-    error instanceof Error && error.message.startsWith("ENOENT:"),
+  isStorageNotFoundError: vi.fn(
+    (error: unknown) => error instanceof Error && error.message.startsWith("ENOENT:"),
   ),
   prefixExists: vi.fn(),
   readData: vi.fn(),
@@ -115,8 +115,7 @@ describe("workspace-ownership", () => {
     vi.mocked(readAuthorizedWorkspaceIds).mockResolvedValue(["OWNED1", "SESSIONONLY"]);
     await authorizeWorkspacesForOpenRouterUser("or-user-123", ["OWNED1", "OWNED2"]);
     vi.mocked(prefixExists).mockImplementation(
-      async (path: string) =>
-        path === "OWNED1/" || path === "OWNED2/" || path === "DEFAULT/",
+      async (path: string) => path === "OWNED1/" || path === "OWNED2/" || path === "DEFAULT/",
     );
 
     const workspaces = await listAccessibleWorkspaces();

@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/storage", () => ({
-  isStorageNotFoundError: vi.fn((error: unknown) =>
-    error instanceof Error && error.message.startsWith("missing"),
+  isStorageNotFoundError: vi.fn(
+    (error: unknown) => error instanceof Error && error.message.startsWith("missing"),
   ),
   prefixExists: vi.fn(),
   readData: vi.fn(),
@@ -150,10 +150,7 @@ function stage2WorkerEvent(
   };
 }
 
-function stage2SnapshotEvent(
-  occurred: string,
-  overrides: Record<string, unknown> = {},
-) {
+function stage2SnapshotEvent(occurred: string, overrides: Record<string, unknown> = {}) {
   return {
     occurred,
     event: "nof1-causal-lab.stage2.snapshot",
@@ -1014,7 +1011,6 @@ describe("buildStage4ReplayState", () => {
       },
     });
   });
-
 });
 
 describe("buildStage2ReplayState", () => {

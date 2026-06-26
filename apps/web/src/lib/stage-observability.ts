@@ -28,9 +28,7 @@ export function getStageLogScopePolicy(stageId: StageId): StageLogScopePolicy {
   return STAGES.find((stage) => stage.id === stageId)?.logScopePolicy ?? "subflow";
 }
 
-export function toStageRuntimeRef(
-  stageRun: AnalysisStageRun | null | undefined,
-): StageRuntimeRef {
+export function toStageRuntimeRef(stageRun: AnalysisStageRun | null | undefined): StageRuntimeRef {
   return {
     ownerRootFlowRunId: stageRun?.ownerRootFlowRunId ?? null,
     stageSubflowRunId: stageRun?.stageSubflowRunId ?? null,
@@ -94,9 +92,7 @@ export function shouldRefreshStageLogScope(
   stageSubflowRunId: string | null,
 ): boolean {
   return (
-    isRunning &&
-    !!stageSubflowRunId &&
-    getStageLogScopePolicy(stageId) === "subflow-with-children"
+    isRunning && !!stageSubflowRunId && getStageLogScopePolicy(stageId) === "subflow-with-children"
   );
 }
 

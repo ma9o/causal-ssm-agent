@@ -1,15 +1,9 @@
 "use client";
 
-import {
-  LandingPageView,
-  MAX_FILE_SIZE,
-} from "@/components/landing/landing-page-view";
+import { LandingPageView, MAX_FILE_SIZE } from "@/components/landing/landing-page-view";
 import { AccessibleWorkspacesRail } from "@/components/pipeline/accessible-workspaces-rail";
 import { apiFetch } from "@/lib/api/client";
-import {
-  getAccessibleWorkspaces,
-  getAccessibleWorkspacesQueryKey,
-} from "@/lib/api/workspaces";
+import { getAccessibleWorkspaces, getAccessibleWorkspacesQueryKey } from "@/lib/api/workspaces";
 import { uploadFile } from "@/lib/api/endpoints";
 import { getMockFixture, isMockMode } from "@/lib/api/mock-provider";
 import { initiateOpenRouterAuth } from "@/lib/auth";
@@ -93,25 +87,18 @@ export default function LandingPage() {
       const launchId = launchIdRef.current ?? crypto.randomUUID();
       launchIdRef.current = launchId;
 
-      const { rootFlowRunId } = await apiFetch<{ rootFlowRunId: string }>(
-        "/api/runs",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            workspaceId,
-            launchId,
-            query: question,
-          }),
-        },
-      );
+      const { rootFlowRunId } = await apiFetch<{ rootFlowRunId: string }>("/api/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          workspaceId,
+          launchId,
+          query: question,
+        }),
+      });
 
-      router.push(
-        `/analysis/${workspaceId}?${new URLSearchParams({ rootFlowRunId }).toString()}`,
-      );
+      router.push(`/analysis/${workspaceId}?${new URLSearchParams({ rootFlowRunId }).toString()}`);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to start analysis",
-      );
+      setError(err instanceof Error ? err.message : "Failed to start analysis");
       setIsSubmitting(false);
     }
   };

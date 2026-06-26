@@ -29,11 +29,7 @@ describe("root env loader", () => {
     tempDir = mkdtempSync(join(tmpdir(), "root-env-"));
     mkdirSync(join(tempDir, "apps", "web"), { recursive: true });
     mkdirSync(join(tempDir, "packages"));
-    writeFileSync(
-      join(tempDir, ".env"),
-      "OPENROUTER_API_KEY=repo-root-key\n",
-      "utf8",
-    );
+    writeFileSync(join(tempDir, ".env"), "OPENROUTER_API_KEY=repo-root-key\n", "utf8");
 
     process.chdir(join(tempDir, "apps", "web"));
     delete process.env.OPENROUTER_API_KEY;

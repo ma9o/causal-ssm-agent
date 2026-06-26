@@ -16,11 +16,7 @@ type Part = UIMessage["parts"][number];
 /**
  * Build a UIMessage from role + parts, generating a stable id from the index.
  */
-function makeMsg(
-  role: "system" | "user" | "assistant",
-  parts: Part[],
-  idx: number,
-): UIMessage {
+function makeMsg(role: "system" | "user" | "assistant", parts: Part[], idx: number): UIMessage {
   return { id: `trace-${idx}`, role, parts };
 }
 

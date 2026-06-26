@@ -46,7 +46,9 @@ describe("buildRefinementContextMessages", () => {
     expect(messages[0]).toMatchObject({ role: "system" });
     expect(messages[1]).toMatchObject({ role: "user" });
     expect(String(messages[0].content)).toContain("live refinement path");
-    expect(String(messages[1].content)).toContain("All current Stage 4 decisions are shown together");
+    expect(String(messages[1].content)).toContain(
+      "All current Stage 4 decisions are shown together",
+    );
     expect(String(messages[1].content)).toContain("## Your Decisions");
     expect(String(messages[1].content)).toContain("### 1. Likelihood Choices");
     expect(String(messages[1].content)).toContain("### 2. Loading Constraints");
@@ -70,7 +72,9 @@ describe("buildRefinementContextMessages", () => {
       },
     });
 
-    expect(String(messages[1].content)).toContain('current prior: `Normal` with {"mu":-0.5,"sigma":0.2}');
+    expect(String(messages[1].content)).toContain(
+      'current prior: `Normal` with {"mu":-0.5,"sigma":0.2}',
+    );
     expect(String(messages[1].content)).toContain("`authored_priors`");
   });
 

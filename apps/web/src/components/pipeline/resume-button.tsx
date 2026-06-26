@@ -89,9 +89,7 @@ export function ResumeButton({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
     >
-      {error && (
-        <p className="mb-2 text-center text-sm text-destructive">{error}</p>
-      )}
+      {error && <p className="mb-2 text-center text-sm text-destructive">{error}</p>}
       <button
         type="button"
         onClick={handleResume}

@@ -20,12 +20,7 @@ function buildPath(points: Stage4Point[]): string {
   return `M ${first.x} ${first.y} ${rest.map((point) => `L ${point.x} ${point.y}`).join(" ")}`;
 }
 
-export function Stage4SectionEdge({
-  id,
-  data,
-  style,
-  animated,
-}: EdgeProps) {
+export function Stage4SectionEdge({ id, data, style, animated }: EdgeProps) {
   const edgeData = data as Stage4SectionEdgeData | undefined;
   const points = edgeData?.points ?? [];
   const path = buildPath(points);
@@ -76,7 +71,7 @@ export function Stage4SectionEdge({
         fill="none"
         stroke={stroke}
         strokeWidth={strokeWidth}
-        strokeDasharray={animated ? dashArray ?? "8,6" : dashArray}
+        strokeDasharray={animated ? (dashArray ?? "8,6") : dashArray}
         strokeLinecap="round"
         strokeLinejoin="round"
         opacity={opacity}

@@ -137,11 +137,7 @@ describe("Prefect log streaming integration", () => {
 
     globalThis.fetch = (input, init) => {
       const url =
-        typeof input === "string"
-          ? input
-          : input instanceof URL
-            ? input.toString()
-            : input.url;
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url === "/prefect/logs/filter") {
         return originalFetch(`${server?.apiBaseUrl}/logs/filter`, init);
@@ -165,76 +161,64 @@ describe("Prefect log streaming integration", () => {
     }
   }, 60_000);
 
-  it(
-    "shows that Prefect logs/out is live-only and requires REST catch-up for older logs",
-    async () => {
-      if (!server) {
-        throw new Error("Prefect server did not start");
-      }
-      const flowRunId = randomUUID();
-      const consumer = new PrefectLogConsumer([flowRunId], server.wsUrl);
-      consumers.add(consumer);
+  it("shows that Prefect logs/out is live-only and requires REST catch-up for older logs", async () => {
+    if (!server) {
+      throw new Error("Prefect server did not start");
+    }
+    const flowRunId = randomUUID();
+    const consumer = new PrefectLogConsumer([flowRunId], server.wsUrl);
+    consumers.add(consumer);
 
-      await emitLogs(server.apiBaseUrl, flowRunId, ["before-1", "before-2"]);
-      await consumer.bootstrap();
-      expect(consumer.logs.map((entry) => entry.message)).toEqual(["before-1", "before-2"]);
+    await emitLogs(server.apiBaseUrl, flowRunId, ["before-1", "before-2"]);
+    await consumer.bootstrap();
+    expect(consumer.logs.map((entry) => entry.message)).toEqual(["before-1", "before-2"]);
 
-      consumer.logs = [];
-      await consumer.connect();
-      await delay(250);
-      expect(consumer.logs).toHaveLength(0);
+    consumer.logs = [];
+    await consumer.connect();
+    await delay(250);
+    expect(consumer.logs).toHaveLength(0);
 
-      await emitLogs(server.apiBaseUrl, flowRunId, ["after-1", "after-2"]);
-      await waitForLogCount(consumer, 2);
-      expect(consumer.logs.map((entry) => entry.message)).toEqual(["after-1", "after-2"]);
+    await emitLogs(server.apiBaseUrl, flowRunId, ["after-1", "after-2"]);
+    await waitForLogCount(consumer, 2);
+    expect(consumer.logs.map((entry) => entry.message)).toEqual(["after-1", "after-2"]);
 
-      await consumer.catchUp();
-      expect(consumer.logs.map((entry) => entry.message)).toEqual(["after-1", "after-2"]);
+    await consumer.catchUp();
+    expect(consumer.logs.map((entry) => entry.message)).toEqual(["after-1", "after-2"]);
 
-      await consumer.catchUp(0);
-      expect(consumer.logs).toHaveLength(4);
-      expect(
-        [...consumer.logs]
-          .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
-          .map((entry) => entry.message),
-      ).toEqual(["before-1", "before-2", "after-1", "after-2"]);
-    },
-    30_000,
-  );
+    await consumer.catchUp(0);
+    expect(consumer.logs).toHaveLength(4);
+    expect(
+      [...consumer.logs]
+        .sort((left, right) => left.timestamp.localeCompare(right.timestamp))
+        .map((entry) => entry.message),
+    ).toEqual(["before-1", "before-2", "after-1", "after-2"]);
+  }, 30_000);
 
-  it(
-    "recovers logs emitted during a running stream gap only after an explicit catch-up",
-    async () => {
-      if (!server) {
-        throw new Error("Prefect server did not start");
-      }
-      const flowRunId = randomUUID();
-      const consumer = new PrefectLogConsumer([flowRunId], server.wsUrl);
-      consumers.add(consumer);
+  it("recovers logs emitted during a running stream gap only after an explicit catch-up", async () => {
+    if (!server) {
+      throw new Error("Prefect server did not start");
+    }
+    const flowRunId = randomUUID();
+    const consumer = new PrefectLogConsumer([flowRunId], server.wsUrl);
+    consumers.add(consumer);
 
-      await consumer.bootstrap();
-      expect(consumer.logs).toHaveLength(0);
+    await consumer.bootstrap();
+    expect(consumer.logs).toHaveLength(0);
 
-      await consumer.connect();
-      await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
-      await waitForLogCount(consumer, 1);
+    await consumer.connect();
+    await emitLogs(server.apiBaseUrl, flowRunId, ["live-1"]);
+    await waitForLogCount(consumer, 1);
 
-      await consumer.close();
-      await emitLogs(server.apiBaseUrl, flowRunId, ["missed-1", "missed-2"]);
-      await delay(250);
-      expect(consumer.logs.map((entry) => entry.message)).toEqual(["live-1"]);
+    await consumer.close();
+    await emitLogs(server.apiBaseUrl, flowRunId, ["missed-1", "missed-2"]);
+    await delay(250);
+    expect(consumer.logs.map((entry) => entry.message)).toEqual(["live-1"]);
 
-      await consumer.connect();
-      await delay(250);
-      expect(consumer.logs.map((entry) => entry.message)).toEqual(["live-1"]);
+    await consumer.connect();
+    await delay(250);
+    expect(consumer.logs.map((entry) => entry.message)).toEqual(["live-1"]);
 
-      await consumer.catchUp();
-      expect(consumer.logs.map((entry) => entry.message)).toEqual([
-        "live-1",
-        "missed-1",
-        "missed-2",
-      ]);
-    },
-    30_000,
-  );
+    await consumer.catchUp();
+    expect(consumer.logs.map((entry) => entry.message)).toEqual(["live-1", "missed-1", "missed-2"]);
+  }, 30_000);
 });

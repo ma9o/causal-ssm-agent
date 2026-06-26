@@ -66,7 +66,7 @@ export async function readData(relativePath: string): Promise<string> {
     const resp = await getS3().send(
       new GetObjectCommand({ Bucket: BUCKET, Key: r2Key(relativePath) }),
     );
-    return (await resp.Body!.transformToString("utf-8"));
+    return await resp.Body!.transformToString("utf-8");
   }
   return readFile(resolve(LOCAL_DATA_DIR, relativePath), "utf-8");
 }

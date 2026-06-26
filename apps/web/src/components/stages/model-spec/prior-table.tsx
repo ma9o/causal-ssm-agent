@@ -27,9 +27,7 @@ interface DensityPoint {
 
 function densityPoints(points: PriorRow["density_points"]): DensityPoint[] {
   return (points ?? []).flatMap((point) =>
-    typeof point.x === "number" && typeof point.y === "number"
-      ? [{ x: point.x, y: point.y }]
-      : [],
+    typeof point.x === "number" && typeof point.y === "number" ? [{ x: point.x, y: point.y }] : [],
   );
 }
 
@@ -176,7 +174,9 @@ const baseColumns = [
   col.accessor("reasoning", {
     header: "Reasoning",
     cell: (info) => (
-      <span className="max-w-xs whitespace-normal text-xs text-muted-foreground">{info.getValue()}</span>
+      <span className="max-w-xs whitespace-normal text-xs text-muted-foreground">
+        {info.getValue()}
+      </span>
     ),
   }),
   col.display({
@@ -238,8 +238,6 @@ const baseColumns = [
   }),
 ] as ColumnDef<PriorRow, unknown>[];
 
-export function PriorTable({
-  priors,
-}: { priors: PriorProposal[]; parameters?: ParameterSpec[] }) {
+export function PriorTable({ priors }: { priors: PriorProposal[]; parameters?: ParameterSpec[] }) {
   return <InfoTable columns={baseColumns} data={priors} estimateRowHeight={72} />;
 }

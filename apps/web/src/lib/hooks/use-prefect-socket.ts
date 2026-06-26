@@ -38,11 +38,9 @@ export function usePrefectSocketSubscription<TMessage extends PrefectSocketEnvel
   const handleSubscribed = useEffectEvent((socket: ReconnectingWebSocket) => {
     onSubscribed?.(socket);
   });
-  const handleMessage = useEffectEvent(
-    (message: TMessage, socket: ReconnectingWebSocket) => {
-      onMessage(message, socket);
-    },
-  );
+  const handleMessage = useEffectEvent((message: TMessage, socket: ReconnectingWebSocket) => {
+    onMessage(message, socket);
+  });
 
   useEffect(() => {
     if (!enabled) {

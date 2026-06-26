@@ -26,10 +26,12 @@ const { baseTrace, streamTextMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/workspace-access", () => ({
-  requireWorkspaceAccess: vi.fn().mockImplementation(async (_request: Request, workspaceId: string) => ({
-    ok: true,
-    workspaceId,
-  })),
+  requireWorkspaceAccess: vi
+    .fn()
+    .mockImplementation(async (_request: Request, workspaceId: string) => ({
+      ok: true,
+      workspaceId,
+    })),
 }));
 
 vi.mock("@/lib/server/openrouter-access", () => ({
@@ -76,7 +78,9 @@ describe("POST /api/refine", () => {
       if (path.endsWith("/stage-6.json") || path.endsWith("/stage-1a.json")) {
         return JSON.stringify({ llm_trace: baseTrace });
       }
-      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: "ENOENT" });
+      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), {
+        code: "ENOENT",
+      });
     });
   });
 
@@ -423,7 +427,9 @@ describe("POST /api/refine", () => {
           },
         });
       }
-      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: "ENOENT" });
+      throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), {
+        code: "ENOENT",
+      });
     });
 
     streamTextMock.mockImplementation(({ messages }) => ({
@@ -471,7 +477,9 @@ describe("POST /api/refine", () => {
     expect(payload.messages[3]).toMatchObject({
       role: "user",
     });
-    expect(String(payload.messages[3].content)).toContain("All current Stage 4 decisions are shown together");
+    expect(String(payload.messages[3].content)).toContain(
+      "All current Stage 4 decisions are shown together",
+    );
     expect(String(payload.messages[3].content)).toContain("## Your Decisions");
     expect(String(payload.messages[3].content)).toContain("beta_stress_sleep");
     expect(String(payload.messages[3].content)).not.toContain("## Full Current model_spec");
@@ -479,5 +487,4 @@ describe("POST /api/refine", () => {
       role: "user",
     });
   });
-
 });

@@ -40,13 +40,21 @@ function temporalInfo(column: ParquetSchemaColumn): TemporalInfo | null {
   const logicalType = column.logical_type?.type;
   const convertedType = column.converted_type;
 
-  if (logicalType === "TIMESTAMP" || convertedType === "TIMESTAMP_MILLIS" || convertedType === "TIMESTAMP_MICROS") {
+  if (
+    logicalType === "TIMESTAMP" ||
+    convertedType === "TIMESTAMP_MILLIS" ||
+    convertedType === "TIMESTAMP_MICROS"
+  ) {
     return { kind: "timestamp", unit: column.logical_type?.unit ?? convertedType };
   }
   if (logicalType === "DATE" || convertedType === "DATE") {
     return { kind: "date" };
   }
-  if (logicalType === "TIME" || convertedType === "TIME_MILLIS" || convertedType === "TIME_MICROS") {
+  if (
+    logicalType === "TIME" ||
+    convertedType === "TIME_MILLIS" ||
+    convertedType === "TIME_MICROS"
+  ) {
     return { kind: "time", unit: column.logical_type?.unit ?? convertedType };
   }
   return null;

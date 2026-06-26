@@ -1,10 +1,7 @@
 "use client";
 
 import { AnalysisFeed } from "@/components/pipeline/analysis-feed";
-import {
-  getAnalysisManifest,
-  getAnalysisManifestQueryKey,
-} from "@/lib/api/analysis";
+import { getAnalysisManifest, getAnalysisManifestQueryKey } from "@/lib/api/analysis";
 import { hasStoppedStage } from "@/lib/hooks/pipeline-progress";
 import { usePipelineStatus } from "@/lib/hooks/use-pipeline-status";
 import { useRunEvents } from "@/lib/hooks/use-run-events";
@@ -23,8 +20,8 @@ export default function AnalysisPage({
   const { workspaceId } = use(params);
   const rawBootstrapRootFlowRunId = use(searchParams).rootFlowRunId;
   const bootstrapRootFlowRunId = Array.isArray(rawBootstrapRootFlowRunId)
-    ? rawBootstrapRootFlowRunId[0] ?? null
-    : rawBootstrapRootFlowRunId ?? null;
+    ? (rawBootstrapRootFlowRunId[0] ?? null)
+    : (rawBootstrapRootFlowRunId ?? null);
   const progress = usePipelineStatus(workspaceId);
   const manifestQuery = useQuery({
     queryKey: getAnalysisManifestQueryKey(workspaceId, bootstrapRootFlowRunId),

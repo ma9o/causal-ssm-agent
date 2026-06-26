@@ -65,12 +65,7 @@ function CenteredStageSection({ children }: { children: ReactNode }) {
 }
 
 export function StagePresentationShellView(props: StagePresentationShellProps) {
-  const {
-    stage,
-    panelContent,
-    interactive = stage.interactive,
-    defaultPanelOpen = false,
-  } = props;
+  const { stage, panelContent, interactive = stage.interactive, defaultPanelOpen = false } = props;
   const section = renderStageSection(props);
 
   if (!panelContent) {
@@ -89,12 +84,7 @@ export function StagePresentationShellView(props: StagePresentationShellProps) {
 }
 
 export function StagePresentationShell(props: StagePresentationShellProps) {
-  const {
-    stage,
-    panelContent,
-    interactive = stage.interactive,
-    defaultPanelOpen = false,
-  } = props;
+  const { stage, panelContent, interactive = stage.interactive, defaultPanelOpen = false } = props;
   const section = renderStageSection(props);
 
   if (!panelContent) {

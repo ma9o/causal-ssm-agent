@@ -4,7 +4,10 @@ import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
 import { requireWorkspaceAccess } from "@/lib/workspace-access";
 import { buildAnalysisManifest } from "../_shared";
 
-export async function GET(request: Request, { params }: { params: Promise<{ workspaceId: string }> }) {
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ workspaceId: string }> },
+) {
   const { workspaceId } = await params;
   const workspaceAccess = await requireWorkspaceAccess(request, workspaceId);
   if (!workspaceAccess.ok) {

@@ -10,22 +10,19 @@ const anonymousWorkspaces: AccessibleWorkspaceList = {
   workspaces: [
     {
       href: "/analysis/A8X2MN4Q1L9P",
-      question:
-        "How does my evening phone use affect sleep quality the following morning?",
+      question: "How does my evening phone use affect sleep quality the following morning?",
       source: "session",
       workspaceId: "A8X2MN4Q1L9P",
     },
     {
       href: "/analysis/DEFAULT",
-      question:
-        "How does commute intensity affect stress and sleep in the DemoHealth fixture?",
+      question: "How does commute intensity affect stress and sleep in the DemoHealth fixture?",
       source: "shared",
       workspaceId: "DEFAULT",
     },
     {
       href: "/analysis/GOLDEN",
-      question:
-        "Golden fixture for smoke-testing the full pipeline and UI rendering.",
+      question: "Golden fixture for smoke-testing the full pipeline and UI rendering.",
       source: "shared",
       workspaceId: "GOLDEN",
     },
@@ -37,22 +34,19 @@ const userWorkspaces: AccessibleWorkspaceList = {
   workspaces: [
     {
       href: "/analysis/U19K4P2Q8M7R",
-      question:
-        "Does time spent outdoors reduce next-day rumination and improve mood stability?",
+      question: "Does time spent outdoors reduce next-day rumination and improve mood stability?",
       source: "user",
       workspaceId: "U19K4P2Q8M7R",
     },
     {
       href: "/analysis/U7F3D1C9X5TA",
-      question:
-        "What is the effect of caffeine timing on sleep onset latency and morning energy?",
+      question: "What is the effect of caffeine timing on sleep onset latency and morning energy?",
       source: "user",
       workspaceId: "U7F3D1C9X5TA",
     },
     {
       href: "/analysis/DEFAULT",
-      question:
-        "How does commute intensity affect stress and sleep in the DemoHealth fixture?",
+      question: "How does commute intensity affect stress and sleep in the DemoHealth fixture?",
       source: "shared",
       workspaceId: "DEFAULT",
     },
@@ -64,15 +58,13 @@ const localWorkspaces: AccessibleWorkspaceList = {
   workspaces: [
     {
       href: "/analysis/local-adhd-pilot",
-      question:
-        "Local ADHD pilot workspace with merged EMA and wearable measurements.",
+      question: "Local ADHD pilot workspace with merged EMA and wearable measurements.",
       source: "local",
       workspaceId: "local-adhd-pilot",
     },
     {
       href: "/analysis/local-sleep-study",
-      question:
-        "Local sleep study workspace with irregular actigraphy and survey exports.",
+      question: "Local sleep study workspace with irregular actigraphy and survey exports.",
       source: "local",
       workspaceId: "local-sleep-study",
     },
@@ -179,8 +171,7 @@ export const NoAccess: Story = {
 /** Both question and file filled — ready to submit. */
 export const ReadyToSubmit: Story = {
   args: {
-    question:
-      "How does my daily screen time affect my sleep quality and mood?",
+    question: "How does my daily screen time affect my sleep quality and mood?",
     file: { name: "google-takeout-2024.zip", size: 15_400_000 },
     submitDisabled: false,
   },
@@ -189,8 +180,7 @@ export const ReadyToSubmit: Story = {
 /** Analysis is being started — spinner active, submit disabled. */
 export const Submitting: Story = {
   args: {
-    question:
-      "How does my daily screen time affect my sleep quality and mood?",
+    question: "How does my daily screen time affect my sleep quality and mood?",
     file: { name: "google-takeout-2024.zip", size: 15_400_000 },
     isSubmitting: true,
     submitDisabled: true,

@@ -83,4 +83,6 @@ for (const file of files) {
   );
 }
 
-console.log(`Uploaded ${files.length} ${WORKSPACE_ID} artifact(s) to R2 prefix ${prefix}/${WORKSPACE_ID}/.`);
+console.log(
+  `Uploaded ${files.length} ${WORKSPACE_ID} artifact(s) to R2 prefix ${prefix}/${WORKSPACE_ID}/.`,
+);

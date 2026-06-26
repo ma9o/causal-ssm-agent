@@ -10,7 +10,9 @@ type WorkspaceRunSlotRow = {
   reservedAtMs: number;
 };
 
-export type WorkspaceRunSlotClaim = { status: "claimed"; reservationId: string } | { status: "busy" };
+export type WorkspaceRunSlotClaim =
+  | { status: "claimed"; reservationId: string }
+  | { status: "busy" };
 
 async function ensureSchema(): Promise<void> {
   const client = createControlStoreClient();
@@ -67,7 +69,11 @@ async function getSlot(workspaceId: string): Promise<WorkspaceRunSlotRow | null>
   return coerceRow(result.rows[0]);
 }
 
-async function tryInsertReservation(workspaceId: string, reservationId: string, nowMs: number): Promise<boolean> {
+async function tryInsertReservation(
+  workspaceId: string,
+  reservationId: string,
+  nowMs: number,
+): Promise<boolean> {
   const client = createControlStoreClient();
   const result = await client.execute({
     sql: `INSERT OR IGNORE INTO ${WORKSPACE_RUN_SLOT_TABLE}

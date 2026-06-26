@@ -65,9 +65,10 @@ export function buildStage4LikelihoodDiagnostics({
       const numericValues = observationsByIndicator.get(likelihood.variable) ?? [];
       const histogram = isDiscreteLikelihood(likelihood)
         ? buildCountFrequency(numericValues)
-        : buildHistogram(numericValues, Math.min(15, Math.ceil(Math.sqrt(numericValues.length)))).map(
-            ({ binCenter, count }) => ({ binCenter, count }),
-          );
+        : buildHistogram(
+            numericValues,
+            Math.min(15, Math.ceil(Math.sqrt(numericValues.length))),
+          ).map(({ binCenter, count }) => ({ binCenter, count }));
 
       return [
         likelihood.variable,

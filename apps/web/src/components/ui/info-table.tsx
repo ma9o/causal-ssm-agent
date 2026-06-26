@@ -320,7 +320,12 @@ export function InfoTable<TData>({
                     return (
                       <TableCell
                         key={cell.id}
-                        className={cn(alignClass, meta?.mono && "font-mono", severityClass(sev), isCompact && "py-0.5")}
+                        className={cn(
+                          alignClass,
+                          meta?.mono && "font-mono",
+                          severityClass(sev),
+                          isCompact && "py-0.5",
+                        )}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>

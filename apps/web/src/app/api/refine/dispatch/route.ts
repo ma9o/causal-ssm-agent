@@ -80,17 +80,14 @@ export async function POST(req: Request) {
     return workspaceAccess.response;
   }
 
-  const toolResponse = await fetch(
-    `${TOOL_SERVER}/api/tools/${safeStageId}/${tool}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        workspace_id: workspaceAccess.workspaceId,
-        input,
-      }),
-    },
-  );
+  const toolResponse = await fetch(`${TOOL_SERVER}/api/tools/${safeStageId}/${tool}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      workspace_id: workspaceAccess.workspaceId,
+      input,
+    }),
+  });
 
   if (!toolResponse.ok) {
     const message = await readToolErrorMessage(toolResponse);

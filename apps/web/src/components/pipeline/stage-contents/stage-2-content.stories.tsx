@@ -139,7 +139,8 @@ const STAGE2_STORY_LOG_MESSAGES = [
   },
   {
     level: 20,
-    message: "[stage2 chunk=0 windows=1 events=24] Finished in 2.8s with 14 extractions and 14 output rows",
+    message:
+      "[stage2 chunk=0 windows=1 events=24] Finished in 2.8s with 14 extractions and 14 output rows",
   },
   {
     level: 20,
@@ -174,13 +175,11 @@ const STAGE2_STORY_LOG_MESSAGES = [
   },
   {
     level: 20,
-    message:
-      "[stage2 chunk=244 windows=1 events=19] Model call returned 0 characters",
+    message: "[stage2 chunk=244 windows=1 events=19] Model call returned 0 characters",
   },
   {
     level: 20,
-    message:
-      "[stage2 chunk=244 windows=1 events=19] Validated 14 extractions into 14 output rows",
+    message: "[stage2 chunk=244 windows=1 events=19] Validated 14 extractions into 14 output rows",
   },
   {
     level: 20,
@@ -431,7 +430,9 @@ function createStage2ReplayController() {
     const workersToComplete = shuffledWorkers(eligibleWorkers).slice(0, completionBudget);
 
     for (const worker of workersToComplete) {
-      const workerIndex = runningWorkers.findIndex((candidate) => candidate.workerId === worker.workerId);
+      const workerIndex = runningWorkers.findIndex(
+        (candidate) => candidate.workerId === worker.workerId,
+      );
       if (workerIndex !== -1) {
         runningWorkers.splice(workerIndex, 1);
         events.push(finishWorker(worker.workerId));
@@ -483,9 +484,7 @@ function AnimatedStage2Running() {
         current = EMPTY_STAGE2_REPLAY_STATE;
       }
 
-      current = controller
-        .nextFrame()
-        .reduce<Stage2ReplayState>(applyRawStage2Event, current);
+      current = controller.nextFrame().reduce<Stage2ReplayState>(applyRawStage2Event, current);
       setState(current);
     }
 
@@ -526,7 +525,9 @@ export const Running = createStageStatusStory(stage, "running", {
 
 export const RunningHighRpm = {
   ...createStageStatusStory(stage, "running", {
-    runningContent: <Stage2RunningView workers={mockWorkers} total={mockWorkers.length} rpm={420} />,
+    runningContent: (
+      <Stage2RunningView workers={mockWorkers} total={mockWorkers.length} rpm={420} />
+    ),
   }),
   name: "Running (High RPM)",
 };

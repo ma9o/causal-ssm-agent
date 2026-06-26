@@ -1,4 +1,8 @@
-import type { ObservationRecord, Stage2Data, Stage2PersistedData } from "@nof1-causal-lab/api-types";
+import type {
+  ObservationRecord,
+  Stage2Data,
+  Stage2PersistedData,
+} from "@nof1-causal-lab/api-types";
 import type { FileMetaData } from "hyparquet";
 
 type ParquetSchemaColumn = {
@@ -89,7 +93,9 @@ async function derivePerIndicatorCounts(
     counts.set(indicator, (counts.get(indicator) ?? 0) + 1);
   }
 
-  return Object.fromEntries([...counts.entries()].sort(([left], [right]) => left.localeCompare(right)));
+  return Object.fromEntries(
+    [...counts.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  );
 }
 
 async function deriveExtractionSample(

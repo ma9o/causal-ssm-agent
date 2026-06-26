@@ -42,7 +42,6 @@ describe("evaluatePdf", () => {
       const points = evaluatePdf("HalfNormal", { sigma: 2 });
       expect(points[0].x).toBe(0);
     });
-
   });
 
   describe("Beta distribution", () => {

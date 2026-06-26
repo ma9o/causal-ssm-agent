@@ -27,10 +27,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing PKCE code verifier" }, { status: 400 });
   }
   if (!hasOpenRouterSessionSecret()) {
-    return NextResponse.json(
-      { error: "APP_SECRET is not configured" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "APP_SECRET is not configured" }, { status: 500 });
   }
 
   try {

@@ -114,14 +114,40 @@ export function DriftGlyph({
       <line x1={43} x2={43} y1={13} y2={H - 4} stroke="#eef1f4" strokeWidth={1} />
 
       {/* panel B — contribution over time */}
-      <path d={bSeg(n)} fill="none" stroke={color} strokeWidth={1} strokeOpacity={0.25} strokeLinecap="round" />
-      <path d={bSeg(day + 1)} fill="none" stroke={color} strokeWidth={1.6} strokeOpacity={1} strokeLinecap="round" />
+      <path
+        d={bSeg(n)}
+        fill="none"
+        stroke={color}
+        strokeWidth={1}
+        strokeOpacity={0.25}
+        strokeLinecap="round"
+      />
+      <path
+        d={bSeg(day + 1)}
+        fill="none"
+        stroke={color}
+        strokeWidth={1.6}
+        strokeOpacity={1}
+        strokeLinecap="round"
+      />
       <circle cx={XB(day).toFixed(1)} cy={Yc(cDay).toFixed(1)} r={2.2} fill={DAG_COLORS.ink} />
 
-      <text x={(xA0 + xA1) / 2} y={H - 1} textAnchor="middle" fontSize={5.5} fill={DAG_COLORS.muted}>
+      <text
+        x={(xA0 + xA1) / 2}
+        y={H - 1}
+        textAnchor="middle"
+        fontSize={5.5}
+        fill={DAG_COLORS.muted}
+      >
         {xlabel}
       </text>
-      <text x={(xB0 + xB1) / 2} y={H - 1} textAnchor="middle" fontSize={5.5} fill={DAG_COLORS.muted}>
+      <text
+        x={(xB0 + xB1) / 2}
+        y={H - 1}
+        textAnchor="middle"
+        fontSize={5.5}
+        fill={DAG_COLORS.muted}
+      >
         over time
       </text>
     </g>

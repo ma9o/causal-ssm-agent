@@ -136,7 +136,9 @@ export function parseStage2Event(
       plan: {
         total_workers: payload.total_workers,
         max_concurrent_workers:
-          typeof payload.max_concurrent_workers === "number" ? payload.max_concurrent_workers : null,
+          typeof payload.max_concurrent_workers === "number"
+            ? payload.max_concurrent_workers
+            : null,
         max_rpm: typeof payload.max_rpm === "number" ? payload.max_rpm : null,
       },
     };
@@ -179,7 +181,9 @@ export function parseStage2Event(
         n_llm_calls: typeof payload.n_llm_calls === "number" ? payload.n_llm_calls : null,
         error: typeof payload.error === "string" ? payload.error : null,
         completed_at:
-          payload.state === "completed" || payload.state === "failed" ? (event.occurred ?? null) : null,
+          payload.state === "completed" || payload.state === "failed"
+            ? (event.occurred ?? null)
+            : null,
       },
     };
   }
@@ -230,13 +234,15 @@ export function reduceStage2Events(events: readonly PrefectStage2EventRecord[]):
   }, EMPTY_STAGE2_REPLAY_STATE);
 }
 
-export function listStage2Workers(state: Stage2ReplayState | null | undefined): Stage2WorkerRecord[] {
-  return Object.values(state?.workers ?? {}).sort((left, right) => left.worker_id - right.worker_id);
+export function listStage2Workers(
+  state: Stage2ReplayState | null | undefined,
+): Stage2WorkerRecord[] {
+  return Object.values(state?.workers ?? {}).sort(
+    (left, right) => left.worker_id - right.worker_id,
+  );
 }
 
-export function summarizeStage2State(
-  state: Stage2ReplayState | null | undefined,
-): Stage2Summary {
+export function summarizeStage2State(state: Stage2ReplayState | null | undefined): Stage2Summary {
   const workers = listStage2Workers(state);
   if (state?.snapshot) {
     return {

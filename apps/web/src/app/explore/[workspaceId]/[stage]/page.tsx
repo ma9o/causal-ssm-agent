@@ -112,9 +112,7 @@ export default function ExplorePage({
     };
   }, [workspaceId, stage]);
 
-  const stageLabel = stage
-    .replace("-", " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+  const stageLabel = stage.replace("-", " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <div className="flex h-screen w-screen flex-col bg-neutral-950 text-neutral-200">
@@ -125,9 +123,7 @@ export default function ExplorePage({
           <span className="text-xs text-neutral-500">{workspaceId}</span>
         </div>
         {status === "loading" && (
-          <span className="animate-pulse text-xs text-neutral-500">
-            Loading dataframe...
-          </span>
+          <span className="animate-pulse text-xs text-neutral-500">Loading dataframe...</span>
         )}
       </header>
 

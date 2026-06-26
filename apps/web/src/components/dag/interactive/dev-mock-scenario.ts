@@ -117,9 +117,7 @@ export function synthesizeMockScenarios(
   }
 
   const isEndo = new Map(constructs.map((c) => [c.name, c.role === "endogenous"]));
-  const isVarying = new Map(
-    constructs.map((c) => [c.name, c.temporal_status === "time_varying"]),
-  );
+  const isVarying = new Map(constructs.map((c) => [c.name, c.temporal_status === "time_varying"]));
   const baselineLevel: Record<string, number> = {};
   const tau: Record<string, number> = {};
   const quartic: Record<string, number> = {};
@@ -300,9 +298,7 @@ export function synthesizeMockScenarios(
     action_node_trajectories: Object.fromEntries(
       constructs.map((c) => [c.name, reference[c.name].slice()]),
     ),
-    node_effect_trajectories: Object.fromEntries(
-      constructs.map((c) => [c.name, zeros.slice()]),
-    ),
+    node_effect_trajectories: Object.fromEntries(constructs.map((c) => [c.name, zeros.slice()])),
   };
   const baselineResult: Stage6SimulationResult = {
     start: {

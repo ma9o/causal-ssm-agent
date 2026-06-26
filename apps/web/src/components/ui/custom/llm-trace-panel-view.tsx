@@ -2,10 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { formatCompact } from "@/lib/utils/format";
-import type {
-  SuggestionAction,
-  SuggestionChip,
-} from "@/lib/utils/trace-to-core";
+import type { SuggestionAction, SuggestionChip } from "@/lib/utils/trace-to-core";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import type { UIMessage } from "ai";

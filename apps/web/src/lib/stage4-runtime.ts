@@ -150,7 +150,9 @@ export function parseStage4Event(
           : undefined,
         priors: Array.isArray(payload.priors)
           ? payload.priors
-              .filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
+              .filter(
+                (value): value is Record<string, unknown> => !!value && typeof value === "object",
+              )
               .map((prior) => ({
                 parameter: String(prior.parameter ?? ""),
                 distribution:

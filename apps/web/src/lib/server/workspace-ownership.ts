@@ -1,11 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { SHARED_WORKSPACE_IDS } from "@/lib/shared-workspaces";
-import {
-  LOCAL_DATA_DIR,
-  isStorageNotFoundError,
-  prefixExists,
-  readData,
-} from "@/lib/storage";
+import { LOCAL_DATA_DIR, isStorageNotFoundError, prefixExists, readData } from "@/lib/storage";
 import { createControlStoreClient } from "@/lib/server/control-store";
 import { resolveOpenRouterAccess } from "@/lib/server/openrouter-access";
 import { readAuthorizedWorkspaceIds } from "@/lib/server/workspace-session";
@@ -167,11 +162,7 @@ export async function authorizeWorkspacesForOpenRouterUser(
   const baseUpdatedAtMs = Date.now();
 
   for (const [index, workspaceId] of normalizedWorkspaceIds.entries()) {
-    await persistOpenRouterWorkspaceOwnership(
-      userId,
-      workspaceId,
-      baseUpdatedAtMs - index,
-    );
+    await persistOpenRouterWorkspaceOwnership(userId, workspaceId, baseUpdatedAtMs - index);
   }
 }
 
@@ -256,22 +247,17 @@ export async function listAccessibleWorkspaces(): Promise<AccessibleWorkspaceLis
 
   if (ownership.mode === "user") {
     entries.push(
-      ...await buildEntries(
-        await readOpenRouterOwnedWorkspaceIds(ownership.userId),
-        "user",
-      ),
+      ...(await buildEntries(await readOpenRouterOwnedWorkspaceIds(ownership.userId), "user")),
     );
   } else {
     const sharedSet = new Set(sharedWorkspaceIds);
     const sessionWorkspaceIds = (
-      await filterExistingWorkspaceIds(
-        deduplicateWorkspaceIds(await readAuthorizedWorkspaceIds()),
-      )
+      await filterExistingWorkspaceIds(deduplicateWorkspaceIds(await readAuthorizedWorkspaceIds()))
     ).filter((workspaceId) => !sharedSet.has(workspaceId));
-    entries.push(...await buildEntries(sessionWorkspaceIds, "session"));
+    entries.push(...(await buildEntries(sessionWorkspaceIds, "session")));
   }
 
-  entries.push(...await buildEntries(sharedWorkspaceIds, "shared"));
+  entries.push(...(await buildEntries(sharedWorkspaceIds, "shared")));
 
   return {
     mode: ownership.mode,

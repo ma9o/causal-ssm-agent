@@ -129,12 +129,7 @@ describe("layoutDag", () => {
       makeConstruct("C"),
       makeConstruct("D"),
     ];
-    const edges = [
-      makeEdge("A", "B"),
-      makeEdge("A", "C"),
-      makeEdge("B", "D"),
-      makeEdge("C", "D"),
-    ];
+    const edges = [makeEdge("A", "B"), makeEdge("A", "C"), makeEdge("B", "D"), makeEdge("C", "D")];
     const result = await layoutDag(constructs, edges);
     expect(result.nodes).toHaveLength(4);
     expect(result.edges).toHaveLength(4);

@@ -33,7 +33,10 @@ const MAX_RENDER_BINS = 20;
 const MEASUREMENT_CHART_WIDTH = 192;
 const MEASUREMENT_CHART_HEIGHT = 80;
 const MEASUREMENT_CHART_MARGIN = { top: 4, right: 6, bottom: 15, left: 4 };
-const priorSeriesCache = new WeakMap<number[], Map<string, Array<{ binCenter: number; prior: number }>>>();
+const priorSeriesCache = new WeakMap<
+  number[],
+  Map<string, Array<{ binCenter: number; prior: number }>>
+>();
 
 function capHistogramBins(
   bins: Array<{ binCenter: number; count: number }>,
@@ -124,11 +127,7 @@ function binPriorSamples(
   }));
 }
 
-function priorCacheKey(
-  dataBins: DisplayBin[],
-  nData: number,
-  isDiscrete: boolean,
-): string {
+function priorCacheKey(dataBins: DisplayBin[], nData: number, isDiscrete: boolean): string {
   return [
     isDiscrete ? "discrete" : "continuous",
     String(nData),
@@ -196,188 +195,203 @@ function linkLabel(link: string): string {
 
 // ── Inline chart ──────────────────────────────────────────
 
-const MeasurementSparkline = memo(function MeasurementSparkline({ row }: { row: MeasurementRow }) {
-  const nObs = row.diagnostics?.profile?.n_obs ?? 0;
-  const isDiscrete =
-    row.likelihood.distribution === "poisson" ||
-    row.likelihood.distribution === "bernoulli" ||
-    row.likelihood.distribution === "negative_binomial" ||
-    row.likelihood.distribution === "ordered_logistic";
-  const bins = useMemo(
-    () => capHistogramBins(row.diagnostics?.histogram ?? []),
-    [row.diagnostics?.histogram],
-  );
+const MeasurementSparkline = memo(
+  function MeasurementSparkline({ row }: { row: MeasurementRow }) {
+    const nObs = row.diagnostics?.profile?.n_obs ?? 0;
+    const isDiscrete =
+      row.likelihood.distribution === "poisson" ||
+      row.likelihood.distribution === "bernoulli" ||
+      row.likelihood.distribution === "negative_binomial" ||
+      row.likelihood.distribution === "ordered_logistic";
+    const bins = useMemo(
+      () => capHistogramBins(row.diagnostics?.histogram ?? []),
+      [row.diagnostics?.histogram],
+    );
 
-  const hasHistogram = bins.length > 0 && nObs > 0;
+    const hasHistogram = bins.length > 0 && nObs > 0;
 
-  const prior = useMemo(
-    () =>
-      hasHistogram && row.priorSamples && row.priorSamples.length > 0
-        ? getCachedPriorSamples(row.priorSamples, bins, nObs, isDiscrete)
-        : [],
-    [bins, hasHistogram, isDiscrete, nObs, row.priorSamples],
-  );
+    const prior = useMemo(
+      () =>
+        hasHistogram && row.priorSamples && row.priorSamples.length > 0
+          ? getCachedPriorSamples(row.priorSamples, bins, nObs, isDiscrete)
+          : [],
+      [bins, hasHistogram, isDiscrete, nObs, row.priorSamples],
+    );
 
-  const hasPrior = prior.length > 0;
+    const hasPrior = prior.length > 0;
 
-  const chartData: MeasurementChartPoint[] = useMemo(() => {
-    if (!hasHistogram) {
-      return [];
-    }
-    const priorByCenter = new Map(prior.map((entry) => [entry.binCenter, entry.prior]));
-    return bins.map((bin) => ({
-      ...bin,
-      ...(hasPrior ? { prior: priorByCenter.get(bin.binCenter) ?? 0 } : {}),
-    }));
-  }, [bins, hasHistogram, hasPrior, prior]);
-
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
-
-  if (!hasHistogram) {
-    return <span className="text-xs text-muted-foreground">--</span>;
-  }
-
-  const plotLeft = MEASUREMENT_CHART_MARGIN.left;
-  const plotRight = MEASUREMENT_CHART_WIDTH - MEASUREMENT_CHART_MARGIN.right;
-  const plotTop = MEASUREMENT_CHART_MARGIN.top;
-  const plotBottom = MEASUREMENT_CHART_HEIGHT - MEASUREMENT_CHART_MARGIN.bottom;
-  const [xMin, xMax] = measurementXDomain(chartData);
-  const xScale = scaleLinear().domain([xMin, xMax]).range([plotLeft, plotRight]);
-  const maxY = Math.max(
-    1,
-    ...chartData.map((bin) => bin.count),
-    ...chartData.map((bin) => bin.prior ?? 0),
-  );
-  const yScale = scaleLinear().domain([0, maxY]).nice().range([plotBottom, plotTop]);
-  const gridTicks = yScale.ticks(3).filter((tick) => tick > 0);
-  const defaultBarWidth = Math.max(2, (plotRight - plotLeft) / chartData.length - 1);
-  const priorPath = hasPrior
-    ? line<MeasurementChartPoint>()
-        .x((point) => xScale(point.binCenter))
-        .y((point) => yScale(point.prior ?? 0))
-        .curve(curveMonotoneX)(chartData)
-    : null;
-  const xLabels = xMin === xMax ? [xMin] : [xMin, xMax];
-
-  const hovered = hoverIndex != null && hoverIndex < chartData.length ? chartData[hoverIndex] : null;
-
-  const handleMove = (event: MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width === 0) return;
-    const pointerX = ((event.clientX - rect.left) / rect.width) * MEASUREMENT_CHART_WIDTH;
-    let nearest = 0;
-    let nearestDist = Number.POSITIVE_INFINITY;
-    for (let index = 0; index < chartData.length; index++) {
-      const dist = Math.abs(xScale(chartData[index].binCenter) - pointerX);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearest = index;
+    const chartData: MeasurementChartPoint[] = useMemo(() => {
+      if (!hasHistogram) {
+        return [];
       }
-    }
-    setHoverIndex(nearest);
-  };
+      const priorByCenter = new Map(prior.map((entry) => [entry.binCenter, entry.prior]));
+      return bins.map((bin) => ({
+        ...bin,
+        ...(hasPrior ? { prior: priorByCenter.get(bin.binCenter) ?? 0 } : {}),
+      }));
+    }, [bins, hasHistogram, hasPrior, prior]);
 
-  return (
-    <div
-      className="h-20 w-48 cursor-crosshair"
-      onMouseMove={handleMove}
-      onMouseLeave={() => setHoverIndex(null)}
-    >
-      <svg
-        className="h-full w-full"
-        viewBox={`0 0 ${MEASUREMENT_CHART_WIDTH} ${MEASUREMENT_CHART_HEIGHT}`}
-        role="img"
-        aria-label="Empirical data histogram overlaid with prior predictive line"
+    const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+    if (!hasHistogram) {
+      return <span className="text-xs text-muted-foreground">--</span>;
+    }
+
+    const plotLeft = MEASUREMENT_CHART_MARGIN.left;
+    const plotRight = MEASUREMENT_CHART_WIDTH - MEASUREMENT_CHART_MARGIN.right;
+    const plotTop = MEASUREMENT_CHART_MARGIN.top;
+    const plotBottom = MEASUREMENT_CHART_HEIGHT - MEASUREMENT_CHART_MARGIN.bottom;
+    const [xMin, xMax] = measurementXDomain(chartData);
+    const xScale = scaleLinear().domain([xMin, xMax]).range([plotLeft, plotRight]);
+    const maxY = Math.max(
+      1,
+      ...chartData.map((bin) => bin.count),
+      ...chartData.map((bin) => bin.prior ?? 0),
+    );
+    const yScale = scaleLinear().domain([0, maxY]).nice().range([plotBottom, plotTop]);
+    const gridTicks = yScale.ticks(3).filter((tick) => tick > 0);
+    const defaultBarWidth = Math.max(2, (plotRight - plotLeft) / chartData.length - 1);
+    const priorPath = hasPrior
+      ? line<MeasurementChartPoint>()
+          .x((point) => xScale(point.binCenter))
+          .y((point) => yScale(point.prior ?? 0))
+          .curve(curveMonotoneX)(chartData)
+      : null;
+    const xLabels = xMin === xMax ? [xMin] : [xMin, xMax];
+
+    const hovered =
+      hoverIndex != null && hoverIndex < chartData.length ? chartData[hoverIndex] : null;
+
+    const handleMove = (event: MouseEvent<HTMLDivElement>) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (rect.width === 0) return;
+      const pointerX = ((event.clientX - rect.left) / rect.width) * MEASUREMENT_CHART_WIDTH;
+      let nearest = 0;
+      let nearestDist = Number.POSITIVE_INFINITY;
+      for (let index = 0; index < chartData.length; index++) {
+        const dist = Math.abs(xScale(chartData[index].binCenter) - pointerX);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          nearest = index;
+        }
+      }
+      setHoverIndex(nearest);
+    };
+
+    return (
+      <div
+        className="h-20 w-48 cursor-crosshair"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIndex(null)}
       >
-        {gridTicks.map((tick) => (
+        <svg
+          className="h-full w-full"
+          viewBox={`0 0 ${MEASUREMENT_CHART_WIDTH} ${MEASUREMENT_CHART_HEIGHT}`}
+          role="img"
+          aria-label="Empirical data histogram overlaid with prior predictive line"
+        >
+          {gridTicks.map((tick) => (
+            <line
+              key={tick}
+              x1={plotLeft}
+              x2={plotRight}
+              y1={yScale(tick)}
+              y2={yScale(tick)}
+              stroke="var(--muted)"
+              strokeDasharray="3 3"
+            />
+          ))}
+          {chartData.map((bin, index) => {
+            const hasRange = bin.binStart !== bin.binEnd;
+            const rangeWidth = hasRange
+              ? xScale(bin.binEnd) - xScale(bin.binStart)
+              : defaultBarWidth;
+            const barWidth = Math.max(
+              2,
+              Math.min(isDiscrete ? 14 : Number.POSITIVE_INFINITY, rangeWidth - 1),
+            );
+            const x = hasRange ? xScale(bin.binStart) : xScale(bin.binCenter) - barWidth / 2;
+            const y = yScale(bin.count);
+            return (
+              <rect
+                key={`${bin.binStart}:${bin.binEnd}:${bin.binCenter}`}
+                x={x}
+                y={y}
+                width={barWidth}
+                height={plotBottom - y}
+                fill="var(--muted-foreground)"
+                opacity={hoverIndex === index ? 0.55 : 0.3}
+              />
+            );
+          })}
+          {priorPath && (
+            <path d={priorPath} fill="none" stroke="var(--primary)" strokeWidth={1.5} />
+          )}
           <line
-            key={tick}
             x1={plotLeft}
             x2={plotRight}
-            y1={yScale(tick)}
-            y2={yScale(tick)}
-            stroke="var(--muted)"
-            strokeDasharray="3 3"
+            y1={plotBottom}
+            y2={plotBottom}
+            stroke="var(--border)"
           />
-        ))}
-        {chartData.map((bin, index) => {
-          const hasRange = bin.binStart !== bin.binEnd;
-          const rangeWidth = hasRange ? xScale(bin.binEnd) - xScale(bin.binStart) : defaultBarWidth;
-          const barWidth = Math.max(2, Math.min(isDiscrete ? 14 : Number.POSITIVE_INFINITY, rangeWidth - 1));
-          const x = hasRange ? xScale(bin.binStart) : xScale(bin.binCenter) - barWidth / 2;
-          const y = yScale(bin.count);
-          return (
-            <rect
-              key={`${bin.binStart}:${bin.binEnd}:${bin.binCenter}`}
-              x={x}
-              y={y}
-              width={barWidth}
-              height={plotBottom - y}
+          {xLabels.map((value, index) => (
+            <text
+              key={value}
+              x={index === 0 ? plotLeft : plotRight}
+              y={MEASUREMENT_CHART_HEIGHT - 2}
+              textAnchor={index === 0 ? "start" : "end"}
               fill="var(--muted-foreground)"
-              opacity={hoverIndex === index ? 0.55 : 0.3}
-            />
-          );
-        })}
-        {priorPath && <path d={priorPath} fill="none" stroke="var(--primary)" strokeWidth={1.5} />}
-        <line x1={plotLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} stroke="var(--border)" />
-        {xLabels.map((value, index) => (
-          <text
-            key={value}
-            x={index === 0 ? plotLeft : plotRight}
-            y={MEASUREMENT_CHART_HEIGHT - 2}
-            textAnchor={index === 0 ? "start" : "end"}
-            fill="var(--muted-foreground)"
-            fontSize={9}
-          >
-            {formatNumber(value, 1)}
-          </text>
-        ))}
-        {hovered && (
-          <g pointerEvents="none">
-            <line
-              x1={xScale(hovered.binCenter)}
-              x2={xScale(hovered.binCenter)}
-              y1={plotTop}
-              y2={plotBottom}
-              stroke="var(--muted-foreground)"
-              strokeWidth={1}
-              opacity={0.5}
-            />
-            <circle
-              cx={xScale(hovered.binCenter)}
-              cy={yScale(hovered.count)}
-              r={2.5}
-              fill="var(--muted-foreground)"
-            />
-            {hasPrior && (
+              fontSize={9}
+            >
+              {formatNumber(value, 1)}
+            </text>
+          ))}
+          {hovered && (
+            <g pointerEvents="none">
+              <line
+                x1={xScale(hovered.binCenter)}
+                x2={xScale(hovered.binCenter)}
+                y1={plotTop}
+                y2={plotBottom}
+                stroke="var(--muted-foreground)"
+                strokeWidth={1}
+                opacity={0.5}
+              />
               <circle
                 cx={xScale(hovered.binCenter)}
-                cy={yScale(hovered.prior ?? 0)}
+                cy={yScale(hovered.count)}
                 r={2.5}
-                fill="var(--primary)"
+                fill="var(--muted-foreground)"
               />
-            )}
-            <SparklineTooltip
-              anchorX={xScale(hovered.binCenter)}
-              anchorY={yScale(hovered.count)}
-              width={MEASUREMENT_CHART_WIDTH}
-              height={MEASUREMENT_CHART_HEIGHT}
-              lines={[
-                `x = ${formatNumber(hovered.binCenter, 2)}`,
-                `count = ${formatNumber(hovered.count, 1)}`,
-                ...(hasPrior ? [`prior ≈ ${formatNumber(hovered.prior ?? 0, 1)}`] : []),
-              ]}
-            />
-          </g>
-        )}
-      </svg>
-    </div>
-  );
-},
-(previous, next) =>
-  previous.row.diagnostics === next.row.diagnostics &&
-  previous.row.priorSamples === next.row.priorSamples &&
-  previous.row.likelihood.distribution === next.row.likelihood.distribution,
+              {hasPrior && (
+                <circle
+                  cx={xScale(hovered.binCenter)}
+                  cy={yScale(hovered.prior ?? 0)}
+                  r={2.5}
+                  fill="var(--primary)"
+                />
+              )}
+              <SparklineTooltip
+                anchorX={xScale(hovered.binCenter)}
+                anchorY={yScale(hovered.count)}
+                width={MEASUREMENT_CHART_WIDTH}
+                height={MEASUREMENT_CHART_HEIGHT}
+                lines={[
+                  `x = ${formatNumber(hovered.binCenter, 2)}`,
+                  `count = ${formatNumber(hovered.count, 1)}`,
+                  ...(hasPrior ? [`prior ≈ ${formatNumber(hovered.prior ?? 0, 1)}`] : []),
+                ]}
+              />
+            </g>
+          )}
+        </svg>
+      </div>
+    );
+  },
+  (previous, next) =>
+    previous.row.diagnostics === next.row.diagnostics &&
+    previous.row.priorSamples === next.row.priorSamples &&
+    previous.row.likelihood.distribution === next.row.likelihood.distribution,
 );
 
 // ── Table columns ─────────────────────────────────────────

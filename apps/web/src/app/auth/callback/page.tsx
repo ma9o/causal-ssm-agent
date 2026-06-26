@@ -57,7 +57,9 @@ export default function AuthCallbackPage({
     return (
       <div className="flex min-h-screen items-center justify-center p-4">
         <div className="text-center space-y-4">
-          <p className="text-sm text-destructive">No authorization code received from OpenRouter.</p>
+          <p className="text-sm text-destructive">
+            No authorization code received from OpenRouter.
+          </p>
           <Link href="/" className="text-sm text-primary underline underline-offset-2">
             Return home
           </Link>
@@ -67,8 +69,8 @@ export default function AuthCallbackPage({
   }
 
   return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-      {error ?? validationError ? (
+    <div className="flex min-h-screen items-center justify-center p-4">
+      {(error ?? validationError) ? (
         <div className="text-center space-y-4">
           <p className="text-sm text-destructive">{error ?? validationError}</p>
           <Link href="/" className="text-sm text-primary underline underline-offset-2">

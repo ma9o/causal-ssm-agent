@@ -38,11 +38,11 @@ export function StageLogView({
       ? "Loading log backlog..."
       : bootstrapStatus === "error"
         ? "Failed to load historical logs."
-      : connectionState === "error"
-        ? "Live log stream unavailable."
-        : connectionState === "connecting" || connectionState === "authenticating"
-          ? "Connecting to live log stream..."
-          : "Waiting for logs...";
+        : connectionState === "error"
+          ? "Live log stream unavailable."
+          : connectionState === "connecting" || connectionState === "authenticating"
+            ? "Connecting to live log stream..."
+            : "Waiting for logs...";
 
   // While running, show logs inline in the card body (no collapsible)
   if (isRunning) {
@@ -50,7 +50,8 @@ export function StageLogView({
       <div>
         {connectionState === "error" && (
           <p className="mb-2 text-xs text-destructive">
-            Live log stream disconnected. Prefect `logs/out` must be available for running-stage logs.
+            Live log stream disconnected. Prefect `logs/out` must be available for running-stage
+            logs.
           </p>
         )}
         <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
@@ -58,7 +59,8 @@ export function StageLogView({
           Logs
           {logs.length > 0 && (
             <span className="text-muted-foreground/50">
-              ({logs.length}{trimmed > 0 ? `, showing last ${MAX_DISPLAY_LOGS}` : ""})
+              ({logs.length}
+              {trimmed > 0 ? `, showing last ${MAX_DISPLAY_LOGS}` : ""})
             </span>
           )}
         </div>
@@ -84,7 +86,8 @@ export function StageLogView({
         {open ? "Hide" : "Show"} logs
         {logs.length > 0 && (
           <span className="text-muted-foreground/50">
-            ({logs.length}{trimmed > 0 ? `, showing last ${MAX_DISPLAY_LOGS}` : ""})
+            ({logs.length}
+            {trimmed > 0 ? `, showing last ${MAX_DISPLAY_LOGS}` : ""})
           </span>
         )}
       </button>

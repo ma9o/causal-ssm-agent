@@ -89,7 +89,11 @@ export function resolveStageObservedStatus(
     return stageRunStatus;
   }
 
-  if (stageRunPriority === currentPriority && currentStatus === "completed" && stageRunStatus === "failed") {
+  if (
+    stageRunPriority === currentPriority &&
+    currentStatus === "completed" &&
+    stageRunStatus === "failed"
+  ) {
     return "failed";
   }
 
@@ -106,7 +110,9 @@ function resolveLogFlowRunIds(
   return stageSubflowRunId ? [stageSubflowRunId] : [];
 }
 
-function resolveStageRuntimeMetadata(event: Pick<StageRuntimeEventRecord, "stageSubflowRunId" | "logFlowRunIds">) {
+function resolveStageRuntimeMetadata(
+  event: Pick<StageRuntimeEventRecord, "stageSubflowRunId" | "logFlowRunIds">,
+) {
   const stageSubflowRunId = normalizeStageSubflowRunId(event.stageSubflowRunId);
   const explicitLogFlowRunIds = normalizeLogFlowRunIds(event.logFlowRunIds);
   return {
@@ -176,12 +182,21 @@ export function patchStageRun(
   const existingExecution = existingStageRun.execution;
   let execution = existingExecution;
 
-  if (!(event.status === "running" && existingExecution?.stateType && existingExecution.stateType !== "RUNNING")) {
+  if (
+    !(
+      event.status === "running" &&
+      existingExecution?.stateType &&
+      existingExecution.stateType !== "RUNNING"
+    )
+  ) {
     const startTime = existingExecution?.startTime ?? event.occurred ?? null;
     execution = {
       stateType: toExecutionStateType(event.status),
       startTime,
-      endTime: event.status === "running" ? null : (event.occurred ?? existingExecution?.endTime ?? startTime),
+      endTime:
+        event.status === "running"
+          ? null
+          : (event.occurred ?? existingExecution?.endTime ?? startTime),
     };
   }
 
