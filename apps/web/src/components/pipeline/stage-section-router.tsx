@@ -33,6 +33,7 @@ import {
   synthesizeMockScenarios,
 } from "@/components/dag/interactive/dev-mock-scenario";
 import { useRefinement } from "@/lib/contexts/refinement-context";
+import { isSharedWorkspaceId } from "@/lib/shared-workspaces";
 import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
 import { useStageLogs } from "@/lib/hooks/use-stage-logs";
@@ -295,13 +296,18 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
       edgePosteriors: buildEdgePosteriors({ stage1a, stage4, stage5b }),
     };
   }, [stage1a, stage1b, stage4, stage5b]);
-  // DEV-ONLY: synthesize the trajectory / drift visuals for the data's saved
-  // scenarios (each carries its own clamps + summary) against the projected
-  // estimation graph, so the interactive DAG is visible on the live stage-6 page
-  // until the backend simulate tool joins the local loop. Never runs in production.
+  // Synthesize the trajectory / drift visuals for the data's saved scenarios
+  // (each carries its own clamps + summary) against the projected estimation
+  // graph, so the interactive DAG is visible on the stage-6 page until the
+  // backend simulate tool joins the local loop. The trajectories are synthesized
+  // client-side (not real inference output), so in production this is restricted
+  // to curated shared/demo workspaces (DEMO, GOLDEN, …) and never fabricates
+  // scenarios for real user analyses. Dev runs it everywhere for previewing.
+  const allowMockScenarios =
+    process.env.NODE_ENV !== "production" || isSharedWorkspaceId(workspaceId);
   const mockScenarios = useMemo(
     () =>
-      process.env.NODE_ENV !== "production" && outcomeName && graph.constructs.length > 0
+      allowMockScenarios && outcomeName && graph.constructs.length > 0
         ? synthesizeMockScenarios(
             graph.constructs,
             graph.edges,
@@ -310,7 +316,7 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
             data.saved_scenarios,
           )
         : null,
-    [outcomeName, graph, data.saved_scenarios],
+    [allowMockScenarios, outcomeName, graph, data.saved_scenarios],
   );
   const scenarios = useMemo(
     () =>
