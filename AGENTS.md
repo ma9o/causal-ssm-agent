@@ -19,6 +19,8 @@ THINK VERY HARD
 - Notebooks under `apps/data-pipeline/notebooks/` are [marimo](https://docs.marimo.io/) notebooks: plain Python files (`@app.cell` functions), not `.ipynb`. Edit them as ordinary source. Open one with `uv run marimo edit notebooks/<name>.py`; run read-only with `uv run marimo run notebooks/<name>.py`.
 - marimo is reactive, so a variable may be defined by only one cell. Make cell-local variables `_`-prefixed (cell-private); share a value across cells by returning it (non-underscore) from its defining cell. A cell renders its last expression — return Plotly/Matplotlib figures rather than calling `fig.show()`.
 - Validate structure with `uv run marimo check --strict notebooks/<name>.py` (catches multiple-definition and unresolved-reference errors without executing). The notebooks are covered by `ruff`, `ty`, and `vulture` like the rest of the package.
+- Launch the editor from the repo root with `bun run --cwd apps/data-pipeline notebooks` (= `uv run marimo edit notebooks/`); the bare `bun run notebooks` fails because the script lives in the `apps/data-pipeline` workspace, not root.
+- To pair on a *live* kernel (the `marimo-pair` skill, attaching to a running session rather than editing the file as text): a specific notebook must be open in the browser — `marimo edit notebooks/` alone is just the file browser and exposes no session. Attach via `execute-code.sh --url http://localhost:2718 --token <access_token>`, taking the token from the startup banner's `?access_token=…`. Pass it through `--token` (or `MARIMO_TOKEN`), NOT inside the `--url` query string — the script appends `/api/sessions` after the query string and the malformed URL yields a misleading "No active sessions on the server".
 
 # Docs
 
