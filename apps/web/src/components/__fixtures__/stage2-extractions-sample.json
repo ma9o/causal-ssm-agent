@@ -1,0 +1,4516 @@
+{
+  "per_indicator_counts": {
+    "acute_stressor_event_count": 10,
+    "cyp2c19_metabolizer_status": 1588,
+    "daily_step_count": 1588,
+    "daylight_hours": 1588,
+    "exercise_minutes": 1588,
+    "gp_clinical_severity": 5,
+    "imessage_daily_volume": 1588,
+    "journal_affect_severity": 21,
+    "journal_entry_frequency": 1588,
+    "journal_rumination_intensity": 21,
+    "journal_word_count": 1588,
+    "late_night_message_count": 1588,
+    "late_refill_count": 1588,
+    "medical_event_count": 111,
+    "nightly_hrv_ms": 1448,
+    "pharmacy_fill_count": 1588,
+    "prescribed_dose_mg": 893,
+    "proportion_days_covered": 903,
+    "sleep_efficiency_pct": 1448,
+    "sleep_onset_latency_min": 1448,
+    "social_calendar_event_count": 369,
+    "state_of_mind_valence": 145,
+    "total_sleep_hours": 1448,
+    "walking_speed_mps": 1588,
+    "weekly_unique_partners": 1587
+  },
+  "combined_extractions_sample": [
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2023-05-22T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2023-05-30T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-09T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-10T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-11T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 2,
+      "anchor_time": "2025-11-12T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-13T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-14T00:00:00"
+    },
+    {
+      "indicator": "acute_stressor_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-15T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "cyp2c19_metabolizer_status",
+      "value": 0.5,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 9261,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8174,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 6350,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 9763,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8986,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 6756,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 9660,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8629,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 5861,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7995,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8957,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 6628,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 9326,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8560,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 6392,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7520,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 6740,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 3975,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 6309,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7916,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7040,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8695,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 10589,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8219,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8706,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 10435,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8147,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7948,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 9676,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8161,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7994,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 10162,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8661,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7936,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 10159,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7560,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 6196,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 9461,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 8768,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "daily_step_count",
+      "value": 7808,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.305,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 10.388,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 12.137,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 13.873,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14.994,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14.763,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 13.358,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 11.64,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.994,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.252,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 10.12,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 11.775,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 13.548,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14.873,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14.931,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 13.688,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 11.952,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 10.287,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.274,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.844,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 11.459,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 13.208,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14.684,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 15.032,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 12.31,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 10.563,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.367,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.583,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 11.06,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 12.857,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14.416,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 15.092,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 14.289,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 12.709,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 10.939,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.524,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 9.407,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 10.716,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "daylight_hours",
+      "value": 12.499,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 22,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 20,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 32,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 24,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 26,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 29,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 17,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 18,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 29,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 23,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 26,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 22,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 19,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 18,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 8,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 12,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 23,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 27,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 27,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 36,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 33,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 27,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 36,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 32,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 21,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 30,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 34,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 35,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 34,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 16,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 28,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 32,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "exercise_minutes",
+      "value": 27,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "gp_clinical_severity",
+      "value": 7.5,
+      "anchor_time": "2023-11-15T00:00:00"
+    },
+    {
+      "indicator": "gp_clinical_severity",
+      "value": 6,
+      "anchor_time": "2023-12-14T00:00:00"
+    },
+    {
+      "indicator": "gp_clinical_severity",
+      "value": 4,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "gp_clinical_severity",
+      "value": 1.5,
+      "anchor_time": "2024-09-17T00:00:00"
+    },
+    {
+      "indicator": "gp_clinical_severity",
+      "value": 1,
+      "anchor_time": "2026-04-22T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 7,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 10,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 14,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 8,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 9,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 8,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 6,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 4,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 8,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 5,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 2,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 5,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 6,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 5,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 7,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 6,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 8,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 10,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 6,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 8,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 10,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 8,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 11,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 8,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 6,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 6,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 12,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 9,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 9,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 10,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 10,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 7,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "imessage_daily_volume",
+      "value": 14,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 0,
+      "anchor_time": "2023-04-08T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 2,
+      "anchor_time": "2023-05-14T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 3,
+      "anchor_time": "2023-05-16T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 2,
+      "anchor_time": "2023-06-03T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 1,
+      "anchor_time": "2023-07-04T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 1,
+      "anchor_time": "2023-08-12T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 3,
+      "anchor_time": "2023-09-24T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 3,
+      "anchor_time": "2023-10-19T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 4,
+      "anchor_time": "2023-10-24T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 2,
+      "anchor_time": "2023-11-07T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 2,
+      "anchor_time": "2023-11-15T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 2,
+      "anchor_time": "2023-11-17T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 2,
+      "anchor_time": "2023-11-30T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 1,
+      "anchor_time": "2023-12-15T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 1,
+      "anchor_time": "2024-01-22T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 1,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 0,
+      "anchor_time": "2024-04-14T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 0,
+      "anchor_time": "2024-09-14T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 1,
+      "anchor_time": "2025-05-08T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 3,
+      "anchor_time": "2025-10-08T00:00:00"
+    },
+    {
+      "indicator": "journal_affect_severity",
+      "value": 1,
+      "anchor_time": "2026-04-22T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 1,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "journal_entry_frequency",
+      "value": 0,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 0.5,
+      "anchor_time": "2023-04-08T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 6.5,
+      "anchor_time": "2023-05-14T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 7.5,
+      "anchor_time": "2023-05-16T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 4.5,
+      "anchor_time": "2023-06-03T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 2,
+      "anchor_time": "2023-07-04T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 4,
+      "anchor_time": "2023-08-12T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 7.5,
+      "anchor_time": "2023-09-24T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 8.5,
+      "anchor_time": "2023-10-19T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 9.5,
+      "anchor_time": "2023-10-24T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 5.5,
+      "anchor_time": "2023-11-07T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 5,
+      "anchor_time": "2023-11-15T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 4,
+      "anchor_time": "2023-11-17T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 4.5,
+      "anchor_time": "2023-11-30T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 2.5,
+      "anchor_time": "2023-12-15T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 2,
+      "anchor_time": "2024-01-22T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 1.5,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 0.5,
+      "anchor_time": "2024-04-14T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 1,
+      "anchor_time": "2024-09-14T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 3.5,
+      "anchor_time": "2025-05-08T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 6.5,
+      "anchor_time": "2025-10-08T00:00:00"
+    },
+    {
+      "indicator": "journal_rumination_intensity",
+      "value": 3.5,
+      "anchor_time": "2026-04-22T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 103,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "journal_word_count",
+      "value": 0,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 2,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 0,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 2,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 2,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "late_night_message_count",
+      "value": 1,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "late_refill_count",
+      "value": 0,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-08-04T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-08-18T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-09-08T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-09-29T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-10-20T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-11-03T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 2,
+      "anchor_time": "2023-11-17T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-12-08T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2023-12-22T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-01-05T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-01-26T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-02-16T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-03-22T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-04-05T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-04-26T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-05-17T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-06-07T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-06-21T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-07-12T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-08-02T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-08-23T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-09-13T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-09-20T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-10-11T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-11-01T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2024-12-13T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-01-10T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-02-21T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-04-04T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-05-16T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-06-27T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-07-25T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-09-05T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-10-17T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-10T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 2,
+      "anchor_time": "2025-11-12T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2025-11-15T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2026-01-16T00:00:00"
+    },
+    {
+      "indicator": "medical_event_count",
+      "value": 1,
+      "anchor_time": "2026-04-17T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 37,
+      "anchor_time": "2022-03-01T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 47,
+      "anchor_time": "2022-04-19T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 41,
+      "anchor_time": "2022-05-27T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 51,
+      "anchor_time": "2022-07-04T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 40,
+      "anchor_time": "2022-08-10T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 50,
+      "anchor_time": "2022-09-17T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 39,
+      "anchor_time": "2022-10-24T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 45,
+      "anchor_time": "2022-12-02T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 40,
+      "anchor_time": "2023-01-08T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 47,
+      "anchor_time": "2023-02-14T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 45,
+      "anchor_time": "2023-03-24T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 37,
+      "anchor_time": "2023-05-01T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 45,
+      "anchor_time": "2023-06-09T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 37,
+      "anchor_time": "2023-07-18T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 44,
+      "anchor_time": "2023-08-25T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 36,
+      "anchor_time": "2023-10-07T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 24,
+      "anchor_time": "2023-11-13T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 43,
+      "anchor_time": "2023-12-21T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 39,
+      "anchor_time": "2024-01-27T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 44,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 45,
+      "anchor_time": "2024-04-12T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 53,
+      "anchor_time": "2024-05-19T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 48,
+      "anchor_time": "2024-06-25T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 48,
+      "anchor_time": "2024-08-03T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 50,
+      "anchor_time": "2024-09-09T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 45,
+      "anchor_time": "2024-10-18T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 51,
+      "anchor_time": "2024-11-24T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 40,
+      "anchor_time": "2025-01-02T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 52,
+      "anchor_time": "2025-02-08T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 44,
+      "anchor_time": "2025-03-17T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 54,
+      "anchor_time": "2025-04-24T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 47,
+      "anchor_time": "2025-06-01T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 52,
+      "anchor_time": "2025-07-09T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 47,
+      "anchor_time": "2025-08-15T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 51,
+      "anchor_time": "2025-09-21T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 44,
+      "anchor_time": "2025-10-30T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 39,
+      "anchor_time": "2025-12-09T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 51,
+      "anchor_time": "2026-01-15T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 42,
+      "anchor_time": "2026-02-21T00:00:00"
+    },
+    {
+      "indicator": "nightly_hrv_ms",
+      "value": 53,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 1,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "pharmacy_fill_count",
+      "value": 0,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 10,
+      "anchor_time": "2023-11-17T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 10,
+      "anchor_time": "2023-12-09T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 10,
+      "anchor_time": "2023-12-31T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 10,
+      "anchor_time": "2024-01-22T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 10,
+      "anchor_time": "2024-02-14T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-03-07T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-03-29T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-04-21T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-05-13T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-06-04T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-06-27T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-07-19T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-09-02T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-09-24T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-10-16T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-11-08T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-11-30T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2024-12-22T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-01-14T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-02-05T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-02-27T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-03-22T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-04-13T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-06-07T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-06-29T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-07-21T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-08-13T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-09-04T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-09-26T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-10-19T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-11-10T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-12-02T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2025-12-25T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2026-01-16T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2026-02-07T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2026-03-02T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2026-03-24T00:00:00"
+    },
+    {
+      "indicator": "prescribed_dose_mg",
+      "value": 20,
+      "anchor_time": "2026-04-15T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2023-11-17T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2023-12-09T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-01-01T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-01-23T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-02-15T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-03-08T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-03-31T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-04-23T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-05-15T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-06-07T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-06-29T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-07-22T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-08-13T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-09-05T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-09-28T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-10-20T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-11-12T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-12-04T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2024-12-27T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2025-01-18T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2025-02-10T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2025-03-05T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2025-03-27T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 1,
+      "anchor_time": "2025-04-19T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9815,
+      "anchor_time": "2025-05-11T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9823,
+      "anchor_time": "2025-06-03T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.983,
+      "anchor_time": "2025-06-25T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9836,
+      "anchor_time": "2025-07-18T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9842,
+      "anchor_time": "2025-08-10T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9847,
+      "anchor_time": "2025-09-01T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9853,
+      "anchor_time": "2025-09-24T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9857,
+      "anchor_time": "2025-10-16T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9862,
+      "anchor_time": "2025-11-08T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9866,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.987,
+      "anchor_time": "2025-12-23T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9874,
+      "anchor_time": "2026-01-15T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9877,
+      "anchor_time": "2026-02-06T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.988,
+      "anchor_time": "2026-03-01T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9883,
+      "anchor_time": "2026-03-23T00:00:00"
+    },
+    {
+      "indicator": "proportion_days_covered",
+      "value": 0.9886,
+      "anchor_time": "2026-04-15T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 83,
+      "anchor_time": "2022-03-01T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 89,
+      "anchor_time": "2022-04-19T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 87,
+      "anchor_time": "2022-05-27T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 91,
+      "anchor_time": "2022-07-04T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 86,
+      "anchor_time": "2022-08-10T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 92,
+      "anchor_time": "2022-09-17T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 85,
+      "anchor_time": "2022-10-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 88,
+      "anchor_time": "2022-12-02T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 85,
+      "anchor_time": "2023-01-08T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 90,
+      "anchor_time": "2023-02-14T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 87,
+      "anchor_time": "2023-03-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 85,
+      "anchor_time": "2023-05-01T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 87,
+      "anchor_time": "2023-06-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 84,
+      "anchor_time": "2023-07-18T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 87,
+      "anchor_time": "2023-08-25T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 78,
+      "anchor_time": "2023-10-07T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 71,
+      "anchor_time": "2023-11-13T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 84,
+      "anchor_time": "2023-12-21T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 83,
+      "anchor_time": "2024-01-27T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 88,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 86,
+      "anchor_time": "2024-04-12T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 91,
+      "anchor_time": "2024-05-19T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 88,
+      "anchor_time": "2024-06-25T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 90,
+      "anchor_time": "2024-08-03T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 88,
+      "anchor_time": "2024-09-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 87,
+      "anchor_time": "2024-10-18T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 88,
+      "anchor_time": "2024-11-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 82,
+      "anchor_time": "2025-01-02T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 90,
+      "anchor_time": "2025-02-08T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 85,
+      "anchor_time": "2025-03-17T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 92,
+      "anchor_time": "2025-04-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 87,
+      "anchor_time": "2025-06-01T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 91,
+      "anchor_time": "2025-07-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 87,
+      "anchor_time": "2025-08-15T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 90,
+      "anchor_time": "2025-09-21T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 84,
+      "anchor_time": "2025-10-30T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 83,
+      "anchor_time": "2025-12-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 89,
+      "anchor_time": "2026-01-15T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 85,
+      "anchor_time": "2026-02-21T00:00:00"
+    },
+    {
+      "indicator": "sleep_efficiency_pct",
+      "value": 90,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 15,
+      "anchor_time": "2022-03-01T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 19,
+      "anchor_time": "2022-04-19T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 7,
+      "anchor_time": "2022-05-27T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 14,
+      "anchor_time": "2022-07-04T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 9,
+      "anchor_time": "2022-08-10T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 12,
+      "anchor_time": "2022-09-17T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 12,
+      "anchor_time": "2022-10-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 10,
+      "anchor_time": "2022-12-02T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 18,
+      "anchor_time": "2023-01-08T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 9,
+      "anchor_time": "2023-02-14T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 18,
+      "anchor_time": "2023-03-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 15,
+      "anchor_time": "2023-05-01T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 24,
+      "anchor_time": "2023-06-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 15,
+      "anchor_time": "2023-07-18T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 17,
+      "anchor_time": "2023-08-25T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 41,
+      "anchor_time": "2023-10-07T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 42,
+      "anchor_time": "2023-11-13T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 22,
+      "anchor_time": "2023-12-21T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 14,
+      "anchor_time": "2024-01-27T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 16,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 16,
+      "anchor_time": "2024-04-12T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 7,
+      "anchor_time": "2024-05-19T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 15,
+      "anchor_time": "2024-06-25T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 5,
+      "anchor_time": "2024-08-03T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 18,
+      "anchor_time": "2024-09-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 6,
+      "anchor_time": "2024-10-18T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 19,
+      "anchor_time": "2024-11-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 14,
+      "anchor_time": "2025-01-02T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 15,
+      "anchor_time": "2025-02-08T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 10,
+      "anchor_time": "2025-03-17T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 11,
+      "anchor_time": "2025-04-24T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 14,
+      "anchor_time": "2025-06-01T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 6,
+      "anchor_time": "2025-07-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 17,
+      "anchor_time": "2025-08-15T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 7,
+      "anchor_time": "2025-09-21T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 25,
+      "anchor_time": "2025-10-30T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 13,
+      "anchor_time": "2025-12-09T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 17,
+      "anchor_time": "2026-01-15T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 10,
+      "anchor_time": "2026-02-21T00:00:00"
+    },
+    {
+      "indicator": "sleep_onset_latency_min",
+      "value": 17,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-01-09T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-02-06T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-03-06T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-04-03T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-04-25T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-05-25T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-06-20T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-07-24T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-09-17T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2023-12-28T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-03-04T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-04-01T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-04-27T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-05-21T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-06-18T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-07-16T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-08-13T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-09-10T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-10-08T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-11-04T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-11-29T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2024-12-25T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-01-20T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-02-17T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-03-17T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-04-14T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-05-10T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-06-03T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-07-01T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-07-22T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-08-19T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-09-15T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-10-12T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-10-30T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 2,
+      "anchor_time": "2025-11-27T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2025-12-23T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 2,
+      "anchor_time": "2026-01-13T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2026-02-10T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2026-03-10T00:00:00"
+    },
+    {
+      "indicator": "social_calendar_event_count",
+      "value": 1,
+      "anchor_time": "2026-04-07T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.49,
+      "anchor_time": "2023-10-27T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.32,
+      "anchor_time": "2023-10-30T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.28,
+      "anchor_time": "2023-11-28T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.23,
+      "anchor_time": "2023-12-20T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.15,
+      "anchor_time": "2023-12-27T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.09,
+      "anchor_time": "2024-01-22T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.15,
+      "anchor_time": "2024-01-27T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.32,
+      "anchor_time": "2024-02-13T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.05,
+      "anchor_time": "2024-02-21T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.32,
+      "anchor_time": "2024-02-27T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.18,
+      "anchor_time": "2024-03-21T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.46,
+      "anchor_time": "2024-03-28T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.31,
+      "anchor_time": "2024-04-20T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.58,
+      "anchor_time": "2024-04-28T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.63,
+      "anchor_time": "2024-05-25T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.54,
+      "anchor_time": "2024-05-30T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.69,
+      "anchor_time": "2024-06-25T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.63,
+      "anchor_time": "2024-07-26T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.68,
+      "anchor_time": "2024-09-23T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.45,
+      "anchor_time": "2024-09-28T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.38,
+      "anchor_time": "2024-10-30T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.42,
+      "anchor_time": "2024-12-24T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.43,
+      "anchor_time": "2025-01-23T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.44,
+      "anchor_time": "2025-01-30T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.4,
+      "anchor_time": "2025-03-25T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.38,
+      "anchor_time": "2025-03-28T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.56,
+      "anchor_time": "2025-05-29T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.49,
+      "anchor_time": "2025-06-27T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.63,
+      "anchor_time": "2025-08-28T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.57,
+      "anchor_time": "2025-09-25T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.09,
+      "anchor_time": "2025-10-20T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.09,
+      "anchor_time": "2025-10-25T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.09,
+      "anchor_time": "2025-10-31T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.13,
+      "anchor_time": "2025-11-16T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": -0.15,
+      "anchor_time": "2025-11-22T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.03,
+      "anchor_time": "2025-11-26T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.22,
+      "anchor_time": "2025-12-23T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.53,
+      "anchor_time": "2026-01-24T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.56,
+      "anchor_time": "2026-02-24T00:00:00"
+    },
+    {
+      "indicator": "state_of_mind_valence",
+      "value": 0.38,
+      "anchor_time": "2026-03-31T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.918,
+      "anchor_time": "2022-03-01T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.886,
+      "anchor_time": "2022-04-19T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.418,
+      "anchor_time": "2022-05-27T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.109,
+      "anchor_time": "2022-07-04T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.395,
+      "anchor_time": "2022-08-10T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.057,
+      "anchor_time": "2022-09-17T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.249,
+      "anchor_time": "2022-10-24T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.913,
+      "anchor_time": "2022-12-02T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.996,
+      "anchor_time": "2023-01-08T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.095,
+      "anchor_time": "2023-02-14T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.122,
+      "anchor_time": "2023-03-24T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.848,
+      "anchor_time": "2023-05-01T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.68,
+      "anchor_time": "2023-06-09T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.156,
+      "anchor_time": "2023-07-18T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.713,
+      "anchor_time": "2023-08-25T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 5.609,
+      "anchor_time": "2023-10-07T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 5.795,
+      "anchor_time": "2023-11-13T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.357,
+      "anchor_time": "2023-12-21T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.249,
+      "anchor_time": "2024-01-27T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.821,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.296,
+      "anchor_time": "2024-04-12T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.394,
+      "anchor_time": "2024-05-19T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.414,
+      "anchor_time": "2024-06-25T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.448,
+      "anchor_time": "2024-08-03T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.258,
+      "anchor_time": "2024-09-09T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.519,
+      "anchor_time": "2024-10-18T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.981,
+      "anchor_time": "2024-11-24T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.168,
+      "anchor_time": "2025-01-02T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.026,
+      "anchor_time": "2025-02-08T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.479,
+      "anchor_time": "2025-03-17T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.181,
+      "anchor_time": "2025-04-24T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.441,
+      "anchor_time": "2025-06-01T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.342,
+      "anchor_time": "2025-07-09T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.267,
+      "anchor_time": "2025-08-15T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.324,
+      "anchor_time": "2025-09-21T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 6.725,
+      "anchor_time": "2025-10-30T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.284,
+      "anchor_time": "2025-12-09T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.011,
+      "anchor_time": "2026-01-15T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.394,
+      "anchor_time": "2026-02-21T00:00:00"
+    },
+    {
+      "indicator": "total_sleep_hours",
+      "value": 7.08,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.35,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.39,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.33,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.36,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.4,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.35,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.35,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.39,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.32,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.32,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.38,
+      "anchor_time": "2023-02-02T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.34,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.33,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.38,
+      "anchor_time": "2023-06-01T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.35,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.31,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.33,
+      "anchor_time": "2023-09-28T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.27,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.28,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.36,
+      "anchor_time": "2024-01-25T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.37,
+      "anchor_time": "2024-03-05T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.34,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.4,
+      "anchor_time": "2024-05-23T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.4,
+      "anchor_time": "2024-07-02T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.35,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.4,
+      "anchor_time": "2024-09-19T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.39,
+      "anchor_time": "2024-10-29T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.32,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.38,
+      "anchor_time": "2025-01-16T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.39,
+      "anchor_time": "2025-02-25T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.34,
+      "anchor_time": "2025-04-06T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.39,
+      "anchor_time": "2025-05-15T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.41,
+      "anchor_time": "2025-06-24T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.35,
+      "anchor_time": "2025-08-03T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.39,
+      "anchor_time": "2025-09-11T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.37,
+      "anchor_time": "2025-10-21T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.29,
+      "anchor_time": "2025-11-30T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.38,
+      "anchor_time": "2026-01-08T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.4,
+      "anchor_time": "2026-02-17T00:00:00"
+    },
+    {
+      "indicator": "walking_speed_mps",
+      "value": 1.34,
+      "anchor_time": "2026-03-29T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-01-01T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-02-09T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-03-21T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-04-30T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-06-08T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-07-18T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-08-27T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-10-05T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-11-14T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2022-12-24T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2023-02-01T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2023-03-13T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2023-04-22T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2023-05-31T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2023-07-10T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 4,
+      "anchor_time": "2023-08-19T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 4,
+      "anchor_time": "2023-09-27T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 2,
+      "anchor_time": "2023-11-06T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 4,
+      "anchor_time": "2023-12-16T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 4,
+      "anchor_time": "2024-01-24T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2024-03-04T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2024-04-13T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2024-05-22T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2024-07-01T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2024-08-10T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2024-09-18T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2024-10-28T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2024-12-07T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2025-01-15T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2025-02-24T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2025-04-05T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2025-05-14T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2025-06-23T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2025-08-02T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2025-09-10T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2025-10-20T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 5,
+      "anchor_time": "2025-11-29T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2026-01-07T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2026-02-16T00:00:00"
+    },
+    {
+      "indicator": "weekly_unique_partners",
+      "value": 6,
+      "anchor_time": "2026-03-28T00:00:00"
+    }
+  ]
+}

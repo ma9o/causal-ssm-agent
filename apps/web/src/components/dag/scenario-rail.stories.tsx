@@ -2,18 +2,10 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { useState } from "react";
 import { buildStage6Scenarios } from "@/components/pipeline/stage-contents/stage-6-scenarios";
 import { withContainer } from "@/components/story-decorators";
-import {
-  materializedStage6Data,
-  materializedTrace,
-  outcomeName,
-} from "./__fixtures__/stage-6-materialized-fixture";
+import { materializedTrace } from "./__fixtures__/stage-6-materialized-fixture";
 import { ScenarioRail } from "./scenario-rail";
 
-const scenarios = buildStage6Scenarios({
-  interventionResults: materializedStage6Data.intervention_results,
-  outcomeName,
-  trace: materializedTrace,
-});
+const scenarios = buildStage6Scenarios({ trace: materializedTrace });
 
 function RailDemo() {
   const [selected, setSelected] = useState<string | null>(scenarios[0]?.key ?? null);

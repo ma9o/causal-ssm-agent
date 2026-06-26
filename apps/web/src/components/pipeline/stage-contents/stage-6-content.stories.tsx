@@ -9,7 +9,6 @@ import {
   indicators,
   materializedStage6Data,
   materializedTrace,
-  outcomeName,
 } from "@/components/dag/__fixtures__/stage-6-materialized-fixture";
 import { SimulationViewer } from "@/components/dag/simulation-viewer";
 import { LLMTracePanelView } from "@/components/ui/custom/llm-trace-panel-view";
@@ -23,11 +22,11 @@ const graph = { constructs, edges, indicators, edgePosteriors };
 const interventionResults = materializedStage6Data.intervention_results;
 
 function scenariosFor(trace: LLMTrace | null) {
-  return buildStage6Scenarios({ interventionResults, outcomeName, trace });
+  return buildStage6Scenarios({ trace });
 }
 
 const withSimsScenarios = scenariosFor(materializedTrace);
-const baselineOnlyScenarios = scenariosFor(null);
+const noSimsScenarios = scenariosFor(null);
 
 const meta = {
   title: "Pipeline/Stages/6 – Treatment Effects/Panel",
@@ -60,7 +59,6 @@ function CompletedInShell({
       outcome={materializedStage6Data.outcome}
       elapsedMs={9_400}
       trace={materializedTrace}
-      defaultPanelOpen
       logView={<StoryStageLogView storyId={storyId} status="completed" />}
       panelContent={
         <LLMTracePanelView
@@ -77,7 +75,6 @@ function CompletedInShell({
       <SimulationViewer
         scenarios={scenarios}
         graph={graph}
-        finalSummary={materializedStage6Data.final_summary}
         selectedKey={selectedKey}
         onSelect={setSelectedKey}
         rankingResults={interventionResults}
@@ -91,9 +88,9 @@ export const Completed: StoryObj = {
   render: () => <CompletedInShell scenarios={withSimsScenarios} storyId="stage-6-completed-sims" />,
 };
 
-export const CompletedBaselineOnly: StoryObj = {
-  name: "Completed (baseline ranking only)",
+export const CompletedNoSimulations: StoryObj = {
+  name: "Completed (no simulations — ranking only)",
   render: () => (
-    <CompletedInShell scenarios={baselineOnlyScenarios} storyId="stage-6-completed-baseline" />
+    <CompletedInShell scenarios={noSimsScenarios} storyId="stage-6-completed-no-sims" />
   ),
 };

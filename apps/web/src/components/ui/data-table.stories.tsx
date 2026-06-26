@@ -1,11 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import type { Stage2Data } from "@nof1-causal-lab/api-types";
 import { withContainer } from "@/components/story-decorators";
+import { stage2Data } from "@/components/__fixtures__/stage2-data";
 import { DataTable } from "./data-table";
-import fixture from "../../../../../data/DEMO/run/stage-2.json";
 
-const data = fixture as unknown as Stage2Data;
-const rows = data.combined_extractions_sample.slice(0, 50);
+const rows = stage2Data.combined_extractions_sample.slice(0, 50);
 
 const meta = {
   title: "UI/DataTable",

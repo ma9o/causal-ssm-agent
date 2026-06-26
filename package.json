@@ -18,6 +18,7 @@
     "integration:start": "bash scripts/start_agentic_integration_stack.sh",
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
+    "knip": "knip --production",
     "test": "turbo test",
     "format": "turbo format",
     "type-check": "turbo type-check",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "cspell": "^10.0.0",
+    "knip": "^6.20.0",
     "markdownlint-cli2": "^0.22.0",
     "mathjax-full": "3.2.2",
     "turbo": "^2"

@@ -12,27 +12,36 @@ import {
   materializedTrace,
   outcomeName,
 } from "./__fixtures__/stage-6-materialized-fixture";
+import {
+  buildDevMockMessages,
+  makeMockSimulate,
+  synthesizeMockScenarios,
+} from "./interactive/dev-mock-scenario";
 import { SimulationViewer } from "./simulation-viewer";
 
 /**
  * Stage 6 simulation viewer driven by the ideal materialized artifact.
  *
  * Two layers (per the stage's design):
- *  - Generative — the chat (right) mints new `simulate_*` scenarios. Disabled read-only.
- *  - Presentational — the viewer (left) re-slices a fixed scenario: pick a card,
- *    toggle the metric, scrub time. Selection is shared: chat "View" ↔ rail.
+ *  - Generative — the chat (right) mints new `simulate` scenarios. Disabled read-only.
+ *  - Presentational — the viewer (left) shows a rail of scenarios (the no-intervention
+ *    baseline first, then interventions), the LLM's blurb for the focused scenario,
+ *    and the living DAG. Selection is shared: chat "View" ↔ rail.
  *
- * Scenarios are sourced from the persisted trace via `buildStage6Scenarios`, so
- * this exercises the real production path (including string→object coercion).
+ * Scenarios come from the persisted trace (exercising the real string→object
+ * coercion + per-scenario blurbs) merged with synthesized rich mock scenarios
+ * (full drift + bands + indicators) so the viewer demonstrates the complete
+ * living DAG in context.
  */
 
+const mockScenarios = synthesizeMockScenarios(constructs, edges, indicators, outcomeName);
 const scenarios = buildStage6Scenarios({
-  interventionResults: materializedStage6Data.intervention_results,
-  outcomeName,
   trace: materializedTrace,
+  refinementMessages: buildDevMockMessages(mockScenarios),
 });
 
 const graph = { constructs, edges, indicators, edgePosteriors };
+const mockSimulate = makeMockSimulate(mockScenarios.baseline.result);
 
 function SimulationViewerWithChat({ readOnly }: { readOnly: boolean }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(scenarios[0]?.key ?? null);
@@ -43,10 +52,10 @@ function SimulationViewerWithChat({ readOnly }: { readOnly: boolean }) {
       <SimulationViewer
         scenarios={scenarios}
         graph={graph}
-        finalSummary={materializedStage6Data.final_summary}
         selectedKey={selectedKey}
         onSelect={setSelectedKey}
         rankingResults={materializedStage6Data.intervention_results}
+        onSimulate={readOnly ? undefined : mockSimulate}
       />
       <div className="flex h-[760px] min-h-0 flex-col rounded-lg border bg-muted/30 p-3">
         <LLMTracePanelView

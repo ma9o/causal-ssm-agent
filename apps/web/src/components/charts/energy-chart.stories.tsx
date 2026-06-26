@@ -6,6 +6,7 @@ import { EnergyChart } from "./energy-chart";
 const meta = {
   title: "Charts/EnergyChart",
   component: EnergyChart,
+  tags: ["visual"],
   decorators: [withContainer("max-w-3xl")],
 } satisfies Meta<typeof EnergyChart>;
 

@@ -13,12 +13,14 @@
  * string→object coercion for trace-sourced simulations.
  *
  * Scenarios exercised:
+ *  - no-intervention baseline (clamps: [], action ≡ reference) → affective_state
  *  - baseline-start shift, trajectory, full visualization (serotonergic → affective_state) [reused]
  *  - abducted-start counterfactual, trajectory, full visualization (adherence → affective_state) [reused]
  *  - baseline-start set mode, trajectory (sleep_quality := 0.5 → affective_state)
- *  - baseline-start end_state, NO trajectory/visualization (physical_activity → affective_state) — degraded path
  *  - baseline-start shift targeting a NON-global outcome (serotonergic → sleep_quality)
- *  - 8 baseline TreatmentEffects (do(t += 1 SD) → affective_state) from the real DEMO run
+ *
+ * The 8 baseline TreatmentEffects from the real DEMO run feed the collapsed
+ * "All treatments" ranking table (not the scenario carousel).
  */
 import type {
   LatentClampInput,
@@ -174,28 +176,42 @@ const serotoninOnSleepResult: SimulateScenarioResult = buildScenarioTrajectory({
   summary: { mean: 0.12, median: 0.11, lower_95: 0.02, upper_95: 0.23, prob_positive: 0.93 },
 });
 
-/** end_state with NO trajectory/visualization — degraded (summary-only) path. */
-const physicalEndStateResult: SimulateScenarioResult = {
-  start: BASELINE_START,
-  clamps: [{ variable: "physical_activity", mode: "shift", amount: 0.5, from_day: 0 }],
-  outcome: "affective_state",
-  estimand: "end_state",
-  reference_mean: BASELINE_STATE.affective_state ?? 0,
-  summary: { mean: 0.09, median: 0.09, lower_95: 0.0, upper_95: 0.18, prob_positive: 0.92 },
-  effect_trajectory: null,
-  visualization: null,
-  manifest_effects: null,
-  warnings: ["No temporal information available; reporting the end-state effect only."],
-};
+/** No-intervention baseline: the reference world (no clamps), action ≡ reference. */
+function buildBaselineReference(outcome: string, horizonDays: number): SimulateScenarioResult {
+  const days = dailyGrid(horizonDays);
+  const reference = Object.fromEntries(
+    Object.entries(BASELINE_STATE).map(([node, value]) => [
+      node,
+      constantArray(value, days.length),
+    ]),
+  );
+  return {
+    start: BASELINE_START,
+    clamps: [],
+    outcome,
+    estimand: "trajectory",
+    reference_mean: BASELINE_STATE[outcome] ?? 0,
+    summary: { mean: 0, median: 0, lower_95: 0, upper_95: 0, prob_positive: 0.5 },
+    effect_trajectory: toEffectTrajectory(days, constantArray(0, days.length)),
+    visualization: {
+      reference_node_trajectories: reference,
+      action_node_trajectories: Object.fromEntries(
+        Object.entries(reference).map(([node, series]) => [node, series.slice()]),
+      ),
+      node_effect_trajectories: Object.fromEntries(
+        Object.keys(BASELINE_STATE).map((node) => [node, constantArray(0, days.length)]),
+      ),
+      start_state: null,
+    },
+    manifest_effects: null,
+    warnings: [],
+  };
+}
 
-/** All synthesized simulations, oldest → newest (newest drives the default rail focus). */
-export const simulationResults: Stage6SimulationResult[] = [
-  serotoninOnSleepResult,
-  physicalEndStateResult,
-  sleepSetResult,
-  counterfactualResult,
-  interventionResult,
-];
+const baselineReferenceResult: SimulateScenarioResult = buildBaselineReference(
+  "affective_state",
+  60,
+);
 
 // ── persisted trace assembly (tool_result as JSON string) ───────────────────
 
@@ -220,18 +236,18 @@ interface ScenarioTurn {
 
 const SCENARIO_TURNS: ScenarioTurn[] = [
   {
+    userQuery: "Before we intervene, show me the system with no do() — the reference baseline.",
+    answer:
+      "**No intervention — the reference world.** With nothing clamped, every construct holds near its set-point and affective_state stays at its baseline level. This is the reference all the intervention scenarios below are compared against.",
+    result: baselineReferenceResult,
+    horizonDays: 60,
+  },
+  {
     userQuery:
       "If a +1 SD serotonergic boost mainly works through sleep, what does it do to sleep_quality alone over a month?",
     answer:
       "A +1 SD serotonergic shift lifts sleep_quality by ~+0.12 SD over ~3 weeks — a smaller, slower channel than its direct effect on mood.",
     result: serotoninOnSleepResult,
-    horizonDays: 30,
-  },
-  {
-    userQuery: "What's the steady-state mood gain from a half-SD bump in physical activity?",
-    answer:
-      "Raising physical_activity by +0.5 SD yields an end-state affective_state gain of ~+0.09 SD. No temporal path is available for this query, so only the end state is reported.",
-    result: physicalEndStateResult,
     horizonDays: 30,
   },
   {

@@ -7,19 +7,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { formatNumber } from "@/lib/utils/format";
 import type { LikelihoodSpec, Stage4LikelihoodDiagnostics } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
+import { scaleLinear } from "d3-scale";
+import { curveMonotoneX, line } from "d3-shape";
 import katex from "katex";
 import { ExternalLink } from "lucide-react";
-import { memo, useMemo } from "react";
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { type MouseEvent, memo, useMemo, useState } from "react";
+import { SparklineTooltip } from "./sparkline-tooltip";
 
 // ── Row type ──────────────────────────────────────────────
 
@@ -37,6 +30,9 @@ interface DisplayBin {
 }
 
 const MAX_RENDER_BINS = 20;
+const MEASUREMENT_CHART_WIDTH = 192;
+const MEASUREMENT_CHART_HEIGHT = 80;
+const MEASUREMENT_CHART_MARGIN = { top: 4, right: 6, bottom: 15, left: 4 };
 const priorSeriesCache = new WeakMap<number[], Map<string, Array<{ binCenter: number; prior: number }>>>();
 
 function capHistogramBins(
@@ -166,6 +162,21 @@ function getCachedPriorSamples(
   return computed;
 }
 
+interface MeasurementChartPoint extends DisplayBin {
+  prior?: number;
+}
+
+function measurementXDomain(data: MeasurementChartPoint[]): [number, number] {
+  const min = Math.min(...data.map((bin) => Math.min(bin.binStart, bin.binCenter)));
+  const max = Math.max(...data.map((bin) => Math.max(bin.binEnd, bin.binCenter)));
+
+  if (min === max) {
+    return [min - 0.5, max + 0.5];
+  }
+
+  return [min, max];
+}
+
 // ── Link label helper ─────────────────────────────────────
 
 function linkLabel(link: string): string {
@@ -209,7 +220,7 @@ const MeasurementSparkline = memo(function MeasurementSparkline({ row }: { row: 
 
   const hasPrior = prior.length > 0;
 
-  const chartData = useMemo(() => {
+  const chartData: MeasurementChartPoint[] = useMemo(() => {
     if (!hasHistogram) {
       return [];
     }
@@ -220,57 +231,146 @@ const MeasurementSparkline = memo(function MeasurementSparkline({ row }: { row: 
     }));
   }, [bins, hasHistogram, hasPrior, prior]);
 
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
   if (!hasHistogram) {
     return <span className="text-xs text-muted-foreground">--</span>;
   }
 
+  const plotLeft = MEASUREMENT_CHART_MARGIN.left;
+  const plotRight = MEASUREMENT_CHART_WIDTH - MEASUREMENT_CHART_MARGIN.right;
+  const plotTop = MEASUREMENT_CHART_MARGIN.top;
+  const plotBottom = MEASUREMENT_CHART_HEIGHT - MEASUREMENT_CHART_MARGIN.bottom;
+  const [xMin, xMax] = measurementXDomain(chartData);
+  const xScale = scaleLinear().domain([xMin, xMax]).range([plotLeft, plotRight]);
+  const maxY = Math.max(
+    1,
+    ...chartData.map((bin) => bin.count),
+    ...chartData.map((bin) => bin.prior ?? 0),
+  );
+  const yScale = scaleLinear().domain([0, maxY]).nice().range([plotBottom, plotTop]);
+  const gridTicks = yScale.ticks(3).filter((tick) => tick > 0);
+  const defaultBarWidth = Math.max(2, (plotRight - plotLeft) / chartData.length - 1);
+  const priorPath = hasPrior
+    ? line<MeasurementChartPoint>()
+        .x((point) => xScale(point.binCenter))
+        .y((point) => yScale(point.prior ?? 0))
+        .curve(curveMonotoneX)(chartData)
+    : null;
+  const xLabels = xMin === xMax ? [xMin] : [xMin, xMax];
+
+  const hovered = hoverIndex != null && hoverIndex < chartData.length ? chartData[hoverIndex] : null;
+
+  const handleMove = (event: MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const pointerX = ((event.clientX - rect.left) / rect.width) * MEASUREMENT_CHART_WIDTH;
+    let nearest = 0;
+    let nearestDist = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < chartData.length; index++) {
+      const dist = Math.abs(xScale(chartData[index].binCenter) - pointerX);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = index;
+      }
+    }
+    setHoverIndex(nearest);
+  };
+
   return (
-    <div className="h-20 w-48">
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={chartData} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-          <XAxis
-            dataKey="binCenter"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            tickFormatter={(v: number) => formatNumber(v, 1)}
-            tick={{ fontSize: 9 }}
-            tickLine={false}
-            axisLine={{ stroke: "var(--border)" }}
+    <div
+      className="h-20 w-48 cursor-crosshair"
+      onMouseMove={handleMove}
+      onMouseLeave={() => setHoverIndex(null)}
+    >
+      <svg
+        className="h-full w-full"
+        viewBox={`0 0 ${MEASUREMENT_CHART_WIDTH} ${MEASUREMENT_CHART_HEIGHT}`}
+        role="img"
+        aria-label="Empirical data histogram overlaid with prior predictive line"
+      >
+        {gridTicks.map((tick) => (
+          <line
+            key={tick}
+            x1={plotLeft}
+            x2={plotRight}
+            y1={yScale(tick)}
+            y2={yScale(tick)}
+            stroke="var(--muted)"
+            strokeDasharray="3 3"
           />
-          <YAxis hide />
-          <RechartsTooltip
-            formatter={(v: number | string | undefined, name: string | undefined) => {
-              const numeric = typeof v === "number" ? v : Number(v);
-              return [
-                Number.isFinite(numeric) ? formatNumber(numeric, 1) : "--",
-                name === "prior" ? "prior pred." : "count",
-              ] as const;
-            }}
-            labelFormatter={(l: unknown) => {
-              const numeric = typeof l === "number" ? l : Number(l);
-              return Number.isFinite(numeric) ? `x = ${formatNumber(numeric, 2)}` : "x = --";
-            }}
-            contentStyle={{ fontSize: 10, padding: "2px 6px" }}
-          />
-          <Bar
-            dataKey="count"
-            fill="var(--muted-foreground)"
-            opacity={0.3}
-            barSize={isDiscrete ? 14 : undefined}
-          />
-          {hasPrior && (
-            <Line
-              type="monotone"
-              dataKey="prior"
-              stroke="var(--primary)"
-              strokeWidth={1.5}
-              dot={false}
-              isAnimationActive={false}
+        ))}
+        {chartData.map((bin, index) => {
+          const hasRange = bin.binStart !== bin.binEnd;
+          const rangeWidth = hasRange ? xScale(bin.binEnd) - xScale(bin.binStart) : defaultBarWidth;
+          const barWidth = Math.max(2, Math.min(isDiscrete ? 14 : Number.POSITIVE_INFINITY, rangeWidth - 1));
+          const x = hasRange ? xScale(bin.binStart) : xScale(bin.binCenter) - barWidth / 2;
+          const y = yScale(bin.count);
+          return (
+            <rect
+              key={`${bin.binStart}:${bin.binEnd}:${bin.binCenter}`}
+              x={x}
+              y={y}
+              width={barWidth}
+              height={plotBottom - y}
+              fill="var(--muted-foreground)"
+              opacity={hoverIndex === index ? 0.55 : 0.3}
             />
-          )}
-        </ComposedChart>
-      </ResponsiveContainer>
+          );
+        })}
+        {priorPath && <path d={priorPath} fill="none" stroke="var(--primary)" strokeWidth={1.5} />}
+        <line x1={plotLeft} x2={plotRight} y1={plotBottom} y2={plotBottom} stroke="var(--border)" />
+        {xLabels.map((value, index) => (
+          <text
+            key={value}
+            x={index === 0 ? plotLeft : plotRight}
+            y={MEASUREMENT_CHART_HEIGHT - 2}
+            textAnchor={index === 0 ? "start" : "end"}
+            fill="var(--muted-foreground)"
+            fontSize={9}
+          >
+            {formatNumber(value, 1)}
+          </text>
+        ))}
+        {hovered && (
+          <g pointerEvents="none">
+            <line
+              x1={xScale(hovered.binCenter)}
+              x2={xScale(hovered.binCenter)}
+              y1={plotTop}
+              y2={plotBottom}
+              stroke="var(--muted-foreground)"
+              strokeWidth={1}
+              opacity={0.5}
+            />
+            <circle
+              cx={xScale(hovered.binCenter)}
+              cy={yScale(hovered.count)}
+              r={2.5}
+              fill="var(--muted-foreground)"
+            />
+            {hasPrior && (
+              <circle
+                cx={xScale(hovered.binCenter)}
+                cy={yScale(hovered.prior ?? 0)}
+                r={2.5}
+                fill="var(--primary)"
+              />
+            )}
+            <SparklineTooltip
+              anchorX={xScale(hovered.binCenter)}
+              anchorY={yScale(hovered.count)}
+              width={MEASUREMENT_CHART_WIDTH}
+              height={MEASUREMENT_CHART_HEIGHT}
+              lines={[
+                `x = ${formatNumber(hovered.binCenter, 2)}`,
+                `count = ${formatNumber(hovered.count, 1)}`,
+                ...(hasPrior ? [`prior ≈ ${formatNumber(hovered.prior ?? 0, 1)}`] : []),
+              ]}
+            />
+          </g>
+        )}
+      </svg>
     </div>
   );
 },

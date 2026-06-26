@@ -1,6 +1,6 @@
 "use client";
 
-import { CausalDag } from "@/components/dag/causal-dag";
+import { StructureDag } from "@/components/dag/structure-dag";
 import { ConstructDetailPanel } from "@/components/stages/latent-model/construct-detail-panel";
 import { EdgeList } from "@/components/stages/latent-model/edge-list";
 import type { Stage1aData } from "@nof1-causal-lab/api-types";
@@ -12,11 +12,10 @@ export default function Stage1aContent({ data }: { data: Stage1aData }) {
 
   return (
     <div className="space-y-4">
-      <CausalDag
+      <StructureDag
         constructs={data.latent_model.constructs}
         edges={data.latent_model.edges}
         onNodeClick={setSelectedConstruct}
-        height="min(600px, 70vh)"
       />
       {selected && <ConstructDetailPanel construct={selected} />}
       <EdgeList edges={data.latent_model.edges} />

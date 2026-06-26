@@ -1,6 +1,5 @@
 import type { Meta } from "@storybook/nextjs-vite";
 import { STAGES } from "@nof1-causal-lab/api-types";
-import type { Stage2Data } from "@nof1-causal-lab/api-types";
 import {
   createCompletedStageStory,
   createStageStatusStory,
@@ -25,10 +24,9 @@ import { Stage2RunningView } from "./stage-2-running-content";
 import { StoryStageLogView } from "../stage-story-log-stream";
 import { StageStoryTemplate } from "../stage-story-template";
 import { useEffect, useMemo, useState } from "react";
-import fixture from "../../../../../../data/DEMO/run/stage-2.json";
+import { stage2Data as data } from "@/components/__fixtures__/stage2-data";
 
 const stage = STAGES.find((s) => s.id === "stage-2")!;
-const data = fixture as unknown as Stage2Data;
 const workspaceId = "demo-user";
 
 /* ── Mock data for running state ── */

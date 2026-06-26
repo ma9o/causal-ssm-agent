@@ -26,6 +26,12 @@ import {
 } from "react";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import type { AnalysisStageRun } from "@/lib/api/analysis";
+import { createSimulateDispatch } from "@/components/dag/interactive/dispatch-simulate";
+import {
+  buildDevMockMessages,
+  makeMockSimulate,
+  synthesizeMockScenarios,
+} from "@/components/dag/interactive/dev-mock-scenario";
 import { useRefinement } from "@/lib/contexts/refinement-context";
 import type { PipelineProgress, StageRunStatus, StageTiming } from "@/lib/hooks/use-run-events";
 import { useStageData } from "@/lib/hooks/use-stage-data";
@@ -197,7 +203,6 @@ function StageSectionRouterInner({
       }
       invalidated={invalidated}
       logView={logView}
-      defaultPanelOpen={stage.id === "stage-6"}
       panelContent={
         projectedStageData?.llm_trace ? (
           <Suspense fallback={null}>
@@ -260,7 +265,7 @@ function Stage5bConnectedContent({
 }
 
 function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; data: Stage6Data }) {
-  const { refinementMessages, selectedScenarioKey, selectScenario } = useRefinement();
+  const { refinementMessages, selectedScenarioKey, selectScenario, readOnly } = useRefinement();
   const { data: stage1a } = useStageData<Stage1aData>(workspaceId, "stage-1a", true);
   const { data: stage1b } = useStageData<Stage1bData>(workspaceId, "stage-1b", true);
   const { data: stage4 } = useStageData<Stage4Data>(workspaceId, "stage-4", true);
@@ -270,34 +275,72 @@ function Stage6ConnectedContent({ workspaceId, data }: { workspaceId: string; da
     () => stage1a?.latent_model.constructs.find((construct) => construct.is_outcome)?.name ?? null,
     [stage1a],
   );
+  // Stage 6 visualizes the estimation projection — the retained latent states plus
+  // the observed known-input drivers that the SSM actually fits and simulates — not
+  // the full theoretical Stage 1a model. Nodes dropped in Stage 1b (marginalized
+  // root confounders, non-identifiable treatments) are therefore excluded, and known
+  // inputs render as exogenous (held drivers, no self-dynamics) since they leave the
+  // latent state vector.
+  const graph = useMemo(() => {
+    const estimation = stage1b?.causal_spec.estimation;
+    const stateOrder = new Set(estimation?.state_order ?? []);
+    const knownInputs = new Set((estimation?.known_inputs ?? []).map((input) => input.construct));
+    const constructs = (stage1a?.latent_model.constructs ?? [])
+      .filter((c) => stateOrder.has(c.name) || knownInputs.has(c.name))
+      .map((c) => (knownInputs.has(c.name) ? { ...c, role: "exogenous" as const } : c));
+    return {
+      constructs,
+      edges: estimation?.edges ?? [],
+      indicators: stage1b?.causal_spec.measurement.indicators,
+      edgePosteriors: buildEdgePosteriors({ stage1a, stage4, stage5b }),
+    };
+  }, [stage1a, stage1b, stage4, stage5b]);
+  // DEV-ONLY: synthesize the trajectory / drift visuals for the data's saved
+  // scenarios (each carries its own clamps + summary) against the projected
+  // estimation graph, so the interactive DAG is visible on the live stage-6 page
+  // until the backend simulate tool joins the local loop. Never runs in production.
+  const mockScenarios = useMemo(
+    () =>
+      process.env.NODE_ENV !== "production" && outcomeName && graph.constructs.length > 0
+        ? synthesizeMockScenarios(
+            graph.constructs,
+            graph.edges,
+            graph.indicators ?? [],
+            outcomeName,
+            data.saved_scenarios,
+          )
+        : null,
+    [outcomeName, graph, data.saved_scenarios],
+  );
   const scenarios = useMemo(
     () =>
       buildStage6Scenarios({
-        interventionResults: data.intervention_results,
-        outcomeName,
         trace: data.llm_trace,
-        refinementMessages: refinementMessages["stage-6"] ?? [],
+        refinementMessages: [
+          ...(refinementMessages["stage-6"] ?? []),
+          ...(mockScenarios ? buildDevMockMessages(mockScenarios) : []),
+        ],
       }),
-    [data.intervention_results, data.llm_trace, outcomeName, refinementMessages],
+    [data.llm_trace, refinementMessages, mockScenarios],
   );
-  const graph = useMemo(
-    () => ({
-      constructs: stage1a?.latent_model.constructs ?? [],
-      edges: stage1a?.latent_model.edges ?? [],
-      indicators: stage1b?.causal_spec.measurement.indicators,
-      edgePosteriors: buildEdgePosteriors({ stage1a, stage4, stage5b }),
-    }),
-    [stage1a, stage1b, stage4, stage5b],
+  const onSimulate = useMemo(
+    () =>
+      mockScenarios
+        ? makeMockSimulate(mockScenarios.baseline.result)
+        : readOnly
+          ? undefined
+          : createSimulateDispatch(workspaceId),
+    [mockScenarios, readOnly, workspaceId],
   );
 
   return (
     <SimulationViewer
       scenarios={scenarios}
       graph={graph}
-      finalSummary={data.final_summary}
       selectedKey={selectedScenarioKey}
       onSelect={selectScenario}
       rankingResults={data.intervention_results}
+      onSimulate={onSimulate}
     />
   );
 }

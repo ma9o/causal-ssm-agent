@@ -1,0 +1,28 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignoreWorkspaces": [
+    ".",
+    "apps/data-pipeline",
+    "packages/api-types",
+    "packages/typescript-config"
+  ],
+  "workspaces": {
+    "apps/web": {
+      "ignoreExportsUsedInFile": true,
+      "project": [
+        "src/**/*.{ts,tsx}!",
+        "!src/**/*.stories.tsx",
+        "!src/**/*.test.{ts,tsx}",
+        "!src/**/__fixtures__/**",
+        "!src/**/story-decorators.tsx",
+        "!src/**/stage-story-*.{ts,tsx}",
+        "!src/integration/**"
+      ],
+      "ignoreDependencies": [
+        "@tailwindcss/typography",
+        "shadcn",
+        "tw-animate-css"
+      ]
+    }
+  }
+}

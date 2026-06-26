@@ -23,6 +23,7 @@ function ScenarioCard({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const isBaseline = scenario.provenance === "baseline";
   const positive = scenario.summary.mean >= 0;
   return (
     <button
@@ -36,28 +37,31 @@ function ScenarioCard({
       )}
     >
       <div className="flex items-center justify-between gap-1">
-        <Badge
-          variant={scenario.provenance === "baseline" ? "outline" : "secondary"}
-          className="px-1.5 py-0 text-[10px]"
-        >
+        <Badge variant={isBaseline ? "outline" : "secondary"} className="px-1.5 py-0 text-[10px]">
           {provenanceLabel(scenario)}
         </Badge>
-        <span className="text-[10px] text-muted-foreground">
-          P&gt;0 {Math.round(scenario.summary.probPositive * 100)}%
-        </span>
+        {isBaseline ? null : (
+          <span className="text-[10px] text-muted-foreground">
+            P&gt;0 {Math.round(scenario.summary.probPositive * 100)}%
+          </span>
+        )}
       </div>
       <div className="truncate font-mono text-[11px] text-foreground" title={scenario.title}>
         {scenario.title}
       </div>
       <div className="flex items-baseline justify-between gap-1">
-        <span
-          className={cn(
-            "font-mono text-base font-semibold tabular-nums",
-            positive ? "text-teal-600 dark:text-teal-400" : "text-rose-600 dark:text-rose-400",
-          )}
-        >
-          {signed(scenario.summary.mean)}
-        </span>
+        {isBaseline ? (
+          <span className="font-mono text-xs text-muted-foreground">reference</span>
+        ) : (
+          <span
+            className={cn(
+              "font-mono text-base font-semibold tabular-nums",
+              positive ? "text-teal-600 dark:text-teal-400" : "text-rose-600 dark:text-rose-400",
+            )}
+          >
+            {signed(scenario.summary.mean)}
+          </span>
+        )}
         <span className="truncate text-[10px] text-muted-foreground" title={scenario.outcome}>
           → {scenario.outcome}
         </span>
@@ -67,8 +71,8 @@ function ScenarioCard({
 }
 
 /**
- * Horizontal rail of selectable scenario cards (one in focus). Materialized
- * simulations come first (newest first), followed by the baseline ranking.
+ * Horizontal rail of selectable scenario cards (one in focus). The no-intervention
+ * baseline comes first, followed by the intervention scenarios (newest first).
  */
 export function ScenarioRail({
   scenarios,

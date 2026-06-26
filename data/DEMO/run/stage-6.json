@@ -25,7 +25,7 @@
       },
       {
         "role": "assistant",
-        "content": "**Baseline interventional ranking (do(treatment += 1 SD) \u2192 affective_state).** Sleep quality and serotonergic exposure are the two strongest identifiable levers on mood for this patient. Steady-state mood gains accumulate over ~32\u201345 days through the AR(1) persistence of affective_state (\u03c1\u0302 \u2248 0.78). Social engagement was flagged as non-identifiable in stage-1b (no admissible adjustment set), so it does not appear in the ranking. Two illustrative follow-up scenarios are saved; live simulation requires the fitted-model artifact and is not available in this DEMO snapshot.",
+        "content": "**Baseline interventional ranking (do(treatment += 1 SD) → affective_state).** Sleep quality and serotonergic exposure are the two strongest identifiable levers on mood for this patient. Steady-state mood gains accumulate over ~32–45 days through the AR(1) persistence of affective_state (ρ̂ ≈ 0.78). Social engagement was flagged as non-identifiable in stage-1b (no admissible adjustment set), so it does not appear in the ranking. Two illustrative follow-up scenarios are saved; live simulation requires the fitted-model artifact and is not available in this DEMO snapshot.",
         "reasoning": "Identifiable treatments rank by latent effect on affective_state. Sleep quality is the strongest positive lever (0.33), followed by serotonergic exposure (0.27) and physical activity (0.19). cyp2c19 metabolizer status and life events load show the strongest negative associations. Social engagement was excluded as non-identifiable in stage-1b. Time-to-peak is ~13 days for the direct-acting treatments, consistent with the AR(1) persistence of affective_state. Need to flag the power_scaling concerns (beta_serotonergic_exposure_* are prior-dominated; obs_shape has prior-data conflict) and the PPC misfits on late_night_message_count and exercise_minutes (under-dispersion). Wrap up by pointing to the follow-up tools for inspection and rung-2/3 simulation. Keep markdown plain and concise.",
         "tool_calls": null,
         "tool_call_id": null,
@@ -8198,15 +8198,70 @@
   ],
   "saved_scenarios": [
     {
-      "label": "Continue SSRI vs taper",
-      "query": "What is the projected affective-state trajectory if I continue escitalopram at the current dose for another 6 months versus tapering off starting now?",
-      "summary": "Continuing escitalopram sustains the steady-state mood lift (~+0.26 latent SD by week 8); tapering returns affective state toward baseline over ~12 weeks, with the largest decay during the first 4 weeks post-taper."
+      "label": "Continue escitalopram",
+      "query": "What happens to my mood over the next 6 months if I keep escitalopram at the current dose?",
+      "summary": "**Why this reference.** We clamp the pharmacological lever itself — serotonergic_exposure — rather than adherence, and hold it at the current high level (0.9) from day 0, so this scenario is the factual 'stay on the dose' world that every taper and behavioral alternative below is measured against. **What happens.** Mood holds at its medicated set-point: affective_state settles ~+0.26 SD above the unmedicated set-point by week 8, the level reached as the AR(1) persistence of mood (rho-hat ≈ 0.78) integrates the steady drug input. Because exposure never changes there is no transient — the trajectory stays essentially flat and the indicators just scatter around the model's fit, making this the 'stay the course' baseline for the taper comparison.",
+      "clamps": [
+        {
+          "variable": "serotonergic_exposure",
+          "value": 0.9,
+          "from_day": 0
+        }
+      ]
     },
     {
-      "label": "Sleep restoration intervention",
-      "query": "If I prioritize sleep quality enough to add 0.5 SD to nightly sleep_quality, what's the downstream impact on mood over 30 days?",
-      "summary": "A +0.5 SD shift in sleep_quality raises affective_state by ~+0.16 SD at steady state, materializing over ~10 days. Comparable in magnitude to the direct SSRI effect for this patient."
+      "label": "Taper off escitalopram",
+      "query": "If I taper off escitalopram starting now, how far and how fast does my mood drift back?",
+      "summary": "**Why this intervention.** To isolate the drug's own contribution we do() serotonergic_exposure down to a near-zero floor (0.12, the residual baseline tone left after washout) starting at day 7 — the one-week delay leaves a visible still-medicated segment before the taper, so the drop reads as caused by withdrawal rather than by the mere passage of time. **What happens.** affective_state relaxes back toward its unmedicated baseline set-point over ~12 weeks, steepest in the first 3–4 weeks while the persistence term (rho-hat ≈ 0.78) still carries the old medicated momentum. The model attributes ≈ −0.24 SD of that decline to removing the drug rather than to spontaneous recovery — i.e. the medication is still doing measurable work, which is exactly what the behavioral alternatives below are then asked to replace.",
+      "clamps": [
+        {
+          "variable": "serotonergic_exposure",
+          "value": 0.12,
+          "from_day": 7
+        }
+      ]
+    },
+    {
+      "label": "Prioritize sleep quality",
+      "query": "If I get my sleep quality up by about half a standard deviation, what does that do to my mood?",
+      "summary": "**Why this intervention.** Sleep quality is the single strongest identifiable lever in the baseline ranking (+0.33 SD per SD), so we test it first among the non-drug options — pinning sleep_quality high (0.85, ≈ +0.5 SD over this patient's usual) from day 7 to mirror a realistic 'start sleeping better now' change rather than an instantaneous jump. **What happens.** affective_state gains ≈ +0.16 SD at steady state and materializes fast (~10 days), because the sleep→mood edge is direct with little intermediate buffering. For this patient that one behavioral lever is roughly comparable in magnitude to the direct pharmacological effect of the SSRI — the headline reason it is worth surfacing as a standalone alternative.",
+      "clamps": [
+        {
+          "variable": "sleep_quality",
+          "value": 0.85,
+          "from_day": 7
+        }
+      ]
+    },
+    {
+      "label": "Increase physical activity",
+      "query": "How much would consistently exercising more move my mood?",
+      "summary": "**Why this intervention.** physical_activity ranks third among the identifiable levers, so we clamp it high (0.8) from day 7 to size the 'just exercise more' option on its own — held at the same start day as the sleep scenario so the two single-lever effects stay directly comparable. **What happens.** A smaller, slower mood gain (≈ +0.10 SD, peaking near day 18). Part of the effect is indirect: raising activity also lifts sleep_quality downstream, which then feeds affective_state, so the response builds through a two-step path. That makes it a real but secondary lever, and explains why its peak lags the more direct sleep intervention.",
+      "clamps": [
+        {
+          "variable": "physical_activity",
+          "value": 0.8,
+          "from_day": 7
+        }
+      ]
+    },
+    {
+      "label": "Behavioral bundle: sleep + activity",
+      "query": "If I improve both sleep and activity together instead of relying on medication, can I match the drug?",
+      "summary": "**Why this intervention.** The decisive question is whether behavior can substitute for the drug, so we clamp both behavioral levers together — sleep_quality at 0.85 and physical_activity at 0.8 — at the same day-7 start as the single-lever scenarios, making the bundle directly comparable to each part and to the taper. **What happens.** The two channels stack to ≈ +0.22 SD at steady state, slightly less than their naive sum because activity's effect overlaps the shared sleep pathway. That climb approaches the medicated trajectory without escitalopram and recovers most of the ≈ −0.24 SD lost to tapering — the closest non-pharmacological substitute the fitted model supports for this patient.",
+      "clamps": [
+        {
+          "variable": "sleep_quality",
+          "value": 0.85,
+          "from_day": 7
+        },
+        {
+          "variable": "physical_activity",
+          "value": 0.8,
+          "from_day": 7
+        }
+      ]
     }
   ],
-  "final_summary": "**Baseline interventional ranking (do(treatment += 1 SD) \u2192 affective_state).** Sleep quality and serotonergic exposure are the two strongest identifiable levers on mood for this patient. Steady-state mood gains accumulate over ~32\u201345 days through the AR(1) persistence of affective_state (\u03c1\u0302 \u2248 0.78). Social engagement was flagged as non-identifiable in stage-1b (no admissible adjustment set), so it does not appear in the ranking. Two illustrative follow-up scenarios are saved; live simulation requires the fitted-model artifact and is not available in this DEMO snapshot."
+  "final_summary": "**Baseline interventional ranking — do(treatment += 1 SD) → affective_state.** Sleep quality (+0.33 SD) and serotonergic exposure (+0.27 SD) are the two strongest identifiable levers on this patient's mood, with physical activity (+0.19 SD) a meaningful third. Effects accumulate over ~30–45 days through the AR(1) persistence of affective_state (rho-hat ≈ 0.78). Social engagement is excluded from the ranking — stage-1b found no admissible adjustment set, so its effect is non-identifiable. The saved scenarios below contrast continuing versus tapering escitalopram against the behavioral alternatives (sleep, activity, and the two combined): they suggest the medication is still doing real work (≈ −0.24 SD if withdrawn), but a sleep-plus-activity bundle recovers most of that gain. Trajectories shown here are illustrative — the live counterfactual engine runs against the fitted-model artifact, which is not bundled in this DEMO snapshot."
 }

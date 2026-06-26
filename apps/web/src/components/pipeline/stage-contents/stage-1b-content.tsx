@@ -1,7 +1,6 @@
 "use client";
 
-import { CausalDag } from "@/components/dag/causal-dag";
-import type { ConstructStatus } from "@/components/dag/construct-node";
+import { type ConstructStatus, StructureDag } from "@/components/dag/structure-dag";
 import { IndicatorTable } from "@/components/stages/measurement/indicator-table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,21 +8,12 @@ import type { Stage1bData } from "@nof1-causal-lab/api-types";
 import { AlertTriangle } from "lucide-react";
 import { useMemo } from "react";
 
-function edgeKey(source: string, target: string): string {
-  return `${source} ${target}`;
-}
-
-interface IdentifiabilityViewModel {
-  nodeStatuses: Record<string, ConstructStatus>;
-  blockingEdges: Set<string>;
-}
-
-function useIdentifiabilityViewModel(data: Stage1bData): IdentifiabilityViewModel {
+function useNodeStatuses(data: Stage1bData): Record<string, ConstructStatus> {
   const spec = data.causal_spec;
   return useMemo(() => {
     const statuses: Record<string, ConstructStatus> = {};
 
-    // Collect marginalized confounders across all identified treatments
+    // Marginalized confounders integrated out across all identified treatments.
     const marginalized = new Set<string>();
     for (const status of Object.values(spec.identifiability?.identifiable_treatments ?? {})) {
       for (const c of status?.marginalized_confounders ?? []) {
@@ -31,17 +21,14 @@ function useIdentifiabilityViewModel(data: Stage1bData): IdentifiabilityViewMode
       }
     }
 
-    // Collect both the blocked treatments and their blocking confounders
-    // so the non-identifiable pair reads as red on both ends.
+    // Blocked treatments and their blocking confounders read red on both ends.
     const blocking = new Set<string>();
-    const blockingEdges = new Set<string>();
     for (const [treatment, status] of Object.entries(
       spec.identifiability?.non_identifiable_treatments ?? {},
     )) {
       blocking.add(treatment);
       for (const c of status?.confounders ?? []) {
         blocking.add(c);
-        blockingEdges.add(edgeKey(c, treatment));
       }
     }
 
@@ -55,7 +42,7 @@ function useIdentifiabilityViewModel(data: Stage1bData): IdentifiabilityViewMode
       }
     }
 
-    return { nodeStatuses: statuses, blockingEdges };
+    return statuses;
   }, [spec]);
 }
 
@@ -63,7 +50,7 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
   const spec = data.causal_spec;
   const nonId = spec.identifiability?.non_identifiable_treatments ?? {};
   const nonIdEntries = Object.entries(nonId);
-  const { nodeStatuses, blockingEdges } = useIdentifiabilityViewModel(data);
+  const nodeStatuses = useNodeStatuses(data);
 
   return (
     <div className="space-y-4">
@@ -76,24 +63,26 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
             </AlertTitle>
             <AlertDescription className="mt-2 space-y-2">
               <p>
-                {nonIdEntries.length} treatment(s) were found to be non-identifiable. If possible, address the blocking confounders (marked with red badges below) to achieve identifiability.
+                {nonIdEntries.length} treatment(s) were found to be non-identifiable. If possible,
+                address the blocking confounders (marked with red badges below) to achieve
+                identifiability.
               </p>
-            <div className="space-y-1.5">
-              {nonIdEntries.map(([name, status]) => (
-                <div key={name} className="flex flex-wrap items-center gap-1.5 text-sm">
-                  <span className="font-medium">{name}</span>
-                  <span className="text-destructive/70">&larr;</span>
-                  {status?.confounders.map((c) => (
-                    <Badge key={c} variant="destructive" className="text-xs">
-                      {c}
-                    </Badge>
-                  ))}
-                  {status?.notes && (
-                    <span className="text-muted-foreground text-xs">({status.notes})</span>
-                  )}
-                </div>
-              ))}
-            </div>
+              <div className="space-y-1.5">
+                {nonIdEntries.map(([name, status]) => (
+                  <div key={name} className="flex flex-wrap items-center gap-1.5 text-sm">
+                    <span className="font-medium">{name}</span>
+                    <span className="text-destructive/70">&larr;</span>
+                    {status?.confounders.map((c) => (
+                      <Badge key={c} variant="destructive" className="text-xs">
+                        {c}
+                      </Badge>
+                    ))}
+                    {status?.notes && (
+                      <span className="text-muted-foreground text-xs">({status.notes})</span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </AlertDescription>
           </Alert>
         ) : (
@@ -104,8 +93,8 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
             </AlertTitle>
             <AlertDescription className="mt-2 space-y-2">
               <p>
-                {nonIdEntries.length} treatment(s) remain non-identifiable and will be excluded
-                from downstream intervention analysis. Identifiable treatments still remain.
+                {nonIdEntries.length} treatment(s) remain non-identifiable and will be excluded from
+                downstream intervention analysis. Identifiable treatments still remain.
               </p>
               <div className="space-y-1.5">
                 {nonIdEntries.map(([name, status]) => (
@@ -126,13 +115,11 @@ export default function Stage1bContent({ data }: { data: Stage1bData }) {
             </AlertDescription>
           </Alert>
         ))}
-      <CausalDag
+      <StructureDag
         constructs={spec.latent.constructs}
         edges={spec.latent.edges}
         indicators={spec.measurement.indicators}
         nodeStatuses={nodeStatuses}
-        blockingEdges={blockingEdges}
-        height="min(600px, 70vh)"
       />
       <IndicatorTable indicators={spec.measurement.indicators} />
     </div>
