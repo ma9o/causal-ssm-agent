@@ -96,7 +96,7 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun run ci:web
+      - run: bun run --cwd apps/web check
 
   api-types:
     needs: changes
@@ -129,7 +129,7 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun run ci:api-types
+      - run: bun run --cwd packages/api-types check
 
   python:
     needs: changes
@@ -158,7 +158,7 @@ jobs:
       - run: uv sync --frozen --group dev
         working-directory: apps/data-pipeline
 
-      - run: bun run ci:data-pipeline
+      - run: bun run --cwd apps/data-pipeline check
 
   docs:
     needs: changes
@@ -191,4 +191,4 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - run: bun run ci:docs
+      - run: bun run docs:check
