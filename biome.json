@@ -21,7 +21,8 @@
       "!**/dist",
       "!**/generated",
       "!packages/api-types/schemas",
-      "!apps/web/public/perspective"
+      "!apps/web/public/perspective",
+      "!apps/web/src/app/globals.css"
     ]
   }
 }
