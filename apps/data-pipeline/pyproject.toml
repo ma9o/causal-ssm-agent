@@ -61,6 +61,11 @@ dev = [
     "nbconvert>=7.16.6",
     "nbformat>=5.10.4",
     "plotly>=6.7.0",
+    # slim[openai], NOT full pydantic-ai: the full meta-package pulls every
+    # provider extra, whose combined pins cap resolution at 1.38.0 — below
+    # marimo's required pydantic-ai-slim[openai]>=1.107.0 (OpenAIChatCompatibleProvider).
+    "pydantic-ai-slim[openai]>=1.107.0,<2.0.0",
+    "pymc>=5.16",
     "pytest>=9.0.2",
     "pytest-instafail>=0.5.0",
     "pytest-timeout>=2.3.1",

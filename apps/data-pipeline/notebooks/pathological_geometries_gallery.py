@@ -5,14 +5,14 @@ app = marimo.App(width="medium")
 
 
 @app.cell
-def _():
+def imports_marimo():
     import marimo as mo
 
     return (mo,)
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def intro(mo):
     mo.md(r"""
     # Pathological geometries gallery, with sampler overlays
 
@@ -26,7 +26,7 @@ def _(mo):
 
 
 @app.cell
-def _():
+def imports():
     from dataclasses import fields, replace
     from functools import partial
 
@@ -112,7 +112,7 @@ def _():
 
 
 @app.cell
-def _(
+def figure_helpers(
     SAMPLER_CFG,
     SAMPLER_FN,
     SHOW_LAPLACE,
@@ -490,7 +490,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def gaussian_md(mo):
     mo.md(r"""
     ## 1. Baseline — isotropic Gaussian
     """)
@@ -498,14 +498,14 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Identity, TransformedTarget, metrics_point, plot_with):
+def gaussian_fig(Gaussian, Identity, TransformedTarget, metrics_point, plot_with):
     _target = TransformedTarget(Gaussian(dim=2), Identity())
     plot_with("Gaussian (baseline)", _target, recovery=metrics_point)
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def student_t_md(mo):
     mo.md(r"""
     ## 2. Heavy tails — Student-t (ν = 2)
     """)
@@ -513,7 +513,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def student_t_fig(
     Identity,
     StudentT,
     TransformedTarget,
@@ -534,7 +534,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def cauchy_md(mo):
     mo.md(r"""
     ## 3. Cauchy — pathological tails
     """)
@@ -542,7 +542,7 @@ def _(mo):
 
 
 @app.cell
-def _(Cauchy, Identity, TransformedTarget, metrics_point, partial, plot_with):
+def cauchy_fig(Cauchy, Identity, TransformedTarget, metrics_point, partial, plot_with):
     _target = TransformedTarget(Cauchy(dim=2, scale=0.5), Identity())
     plot_with(
         "Cauchy (log-scale)",
@@ -556,7 +556,7 @@ def _(Cauchy, Identity, TransformedTarget, metrics_point, partial, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def shear_md(mo):
     mo.md(r"""
     ## 4. Shear — linear correlation / elongated ridge
     """)
@@ -564,7 +564,7 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Shear, TransformedTarget, metrics_point, plot_with):
+def shear_fig(Gaussian, Shear, TransformedTarget, metrics_point, plot_with):
     _target = TransformedTarget(Gaussian(dim=2), Shear(theta=0.7, scale=(2.2, 0.4)))
     plot_with(
         "Shear — correlated ridge",
@@ -577,7 +577,7 @@ def _(Gaussian, Shear, TransformedTarget, metrics_point, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def bend_md(mo):
     mo.md(r"""
     ## 5. Bend — banana (Rosenbrock)
     """)
@@ -585,7 +585,7 @@ def _(mo):
 
 
 @app.cell
-def _(Bend, Gaussian, TransformedTarget, metrics_point, plot_with):
+def bend_fig(Bend, Gaussian, TransformedTarget, metrics_point, plot_with):
     _target = TransformedTarget(Gaussian(dim=2), Bend(f=lambda x: 0.5 * x**2 - 1.0))
     plot_with(
         "Bend — banana curvature",
@@ -598,7 +598,7 @@ def _(Bend, Gaussian, TransformedTarget, metrics_point, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def funnel_md(mo):
     mo.md(r"""
     ## 6. Funnel — Neal's hierarchical scale
     """)
@@ -606,7 +606,7 @@ def _(mo):
 
 
 @app.cell
-def _(Funnel, Gaussian, TransformedTarget, metrics_point, plot_with):
+def funnel_fig(Funnel, Gaussian, TransformedTarget, metrics_point, plot_with):
     _target = TransformedTarget(Gaussian(dim=2, scale=1.2), Funnel(g=lambda x: 0.6 * x))
     plot_with(
         "Funnel (log-scale)",
@@ -620,7 +620,7 @@ def _(Funnel, Gaussian, TransformedTarget, metrics_point, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def softplus_md(mo):
     mo.md(r"""
     ## 7. Softplus — positive-orthant support
 
@@ -630,7 +630,7 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Softplus, TransformedTarget, metrics_point, plot_with):
+def softplus_fig(Gaussian, Softplus, TransformedTarget, metrics_point, plot_with):
     _target = TransformedTarget(Gaussian(dim=2, loc=0.0, scale=1.0), Softplus(axes=(0, 1)))
     plot_with(
         "Softplus — positive orthant",
@@ -644,7 +644,7 @@ def _(Gaussian, Softplus, TransformedTarget, metrics_point, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def logit_md(mo):
     mo.md(r"""
     ## 8. Logit — bounded support (unit square)
     """)
@@ -652,7 +652,7 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Logit, TransformedTarget, metrics_point, plot_with):
+def logit_fig(Gaussian, Logit, TransformedTarget, metrics_point, plot_with):
     _target = TransformedTarget(Gaussian(dim=2, scale=1.5), Logit(axes=(0, 1)))
     plot_with(
         "Logit — bounded (0, 1)^2",
@@ -666,7 +666,7 @@ def _(Gaussian, Logit, TransformedTarget, metrics_point, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def mirror_md(mo):
     mo.md(r"""
     ## 9. Mirror — bimodality
     """)
@@ -674,7 +674,7 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Mirror, Shift, TransformedTarget, metrics_point, plot_with):
+def mirror_fig(Gaussian, Mirror, Shift, TransformedTarget, metrics_point, plot_with):
     _shifted = TransformedTarget(Gaussian(dim=2, scale=0.4), Shift(offset=(1.4, 0.0)))
     _target = Mirror(_shifted, flip_axes=(0,))
     plot_with(
@@ -689,7 +689,7 @@ def _(Gaussian, Mirror, Shift, TransformedTarget, metrics_point, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def mixture_md(mo):
     mo.md(r"""
     ## 10. Mixture — three unequal modes
     """)
@@ -697,7 +697,7 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Mixture, Shift, TransformedTarget, metrics_point, plot_with):
+def mixture_fig(Gaussian, Mixture, Shift, TransformedTarget, metrics_point, plot_with):
     def _blob(dx, dy, scale=0.4):
         return TransformedTarget(Gaussian(dim=2, scale=scale), Shift(offset=(dx, dy)))
 
@@ -716,7 +716,7 @@ def _(Gaussian, Mixture, Shift, TransformedTarget, metrics_point, plot_with):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def invariance_additive_md(mo):
     mo.md(r"""
     ## 11. Invariance — additive ridge (`φ = a + b`)
     """)
@@ -724,7 +724,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def invariance_additive_fig(
     Gaussian,
     Identity,
     TransformedTarget,
@@ -747,7 +747,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def invariance_hyperbolic_md(mo):
     mo.md(r"""
     ## 12. Invariance — hyperbolic ridge (`φ = a · b`)
     """)
@@ -755,7 +755,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def invariance_hyperbolic_fig(
     Gaussian,
     Identity,
     TransformedTarget,
@@ -779,7 +779,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def invariance_rotational_md(mo):
     mo.md(r"""
     ## 13. Invariance — rotational (ring)
     """)
@@ -787,7 +787,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def invariance_rotational_fig(
     Gaussian,
     Identity,
     TransformedTarget,
@@ -811,7 +811,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def invariance_angular_md(mo):
     mo.md(r"""
     ## 14. Invariance — angular (`φ = atan2(b, a)`)
     """)
@@ -819,7 +819,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def invariance_angular_fig(
     Gaussian,
     Identity,
     TransformedTarget,
@@ -845,7 +845,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def kitchen_sink_md(mo):
     mo.md(r"""
     ## 15. Kitchen sink — stack them all
     """)
@@ -853,7 +853,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def kitchen_sink_fig(
     Bend,
     Chain,
     Funnel,
@@ -893,7 +893,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def pathfinder_appendix_md(mo):
     mo.md(r"""
     ---
 
@@ -911,7 +911,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def pathfinder_helpers(
     PathfinderConfig,
     SHOW_LAPLACE,
     fields,
@@ -1228,7 +1228,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def pathfinder_bend_md(mo):
     mo.md(r"""
     ### A. Bend (banana) — one Gaussian can't track curvature
 
@@ -1238,7 +1238,7 @@ def _(mo):
 
 
 @app.cell
-def _(Bend, Gaussian, TransformedTarget, plot_pathfinder):
+def pathfinder_bend_fig(Bend, Gaussian, TransformedTarget, plot_pathfinder):
     _target = TransformedTarget(Gaussian(dim=2), Bend(f=lambda x: 0.5 * x**2 - 1.0))
     plot_pathfinder(
         "Bend — banana curvature",
@@ -1251,7 +1251,7 @@ def _(Bend, Gaussian, TransformedTarget, plot_pathfinder):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def pathfinder_funnel_md(mo):
     mo.md(r"""
     ### B. Funnel — ELBO peaks *before* L-BFGS reaches the neck
 
@@ -1261,7 +1261,7 @@ def _(mo):
 
 
 @app.cell
-def _(Funnel, Gaussian, TransformedTarget, plot_pathfinder):
+def pathfinder_funnel_fig(Funnel, Gaussian, TransformedTarget, plot_pathfinder):
     _target = TransformedTarget(Gaussian(dim=2, scale=1.2), Funnel(g=lambda x: 0.6 * x))
     plot_pathfinder(
         "Funnel (log-scale)", _target, a_range=(-3.5, 3.5), b_range=(-8, 8), log_scale=True
@@ -1270,7 +1270,7 @@ def _(Funnel, Gaussian, TransformedTarget, plot_pathfinder):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def multipath_appendix_md(mo):
     mo.md(r"""
     ---
 
@@ -1290,7 +1290,7 @@ def _(mo):
 
 
 @app.cell
-def _(
+def multipath_helpers(
     MultiPathfinderConfig,
     SHOW_LAPLACE,
     fields,
@@ -1520,7 +1520,7 @@ def _(
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def multipath_mirror_md(mo):
     mo.md(r"""
     ### C. Mirror — both modes recovered
 
@@ -1530,7 +1530,7 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Mirror, Shift, TransformedTarget, plot_multipath):
+def multipath_mirror_fig(Gaussian, Mirror, Shift, TransformedTarget, plot_multipath):
     _shifted = TransformedTarget(Gaussian(dim=2, scale=0.4), Shift(offset=(1.4, 0.0)))
     _target = Mirror(_shifted, flip_axes=(0,))
     plot_multipath(
@@ -1544,7 +1544,7 @@ def _(Gaussian, Mirror, Shift, TransformedTarget, plot_multipath):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def multipath_mixture_md(mo):
     mo.md(r"""
     ### D. Mixture — three modes, coverage ~ true weights
 
@@ -1554,7 +1554,7 @@ def _(mo):
 
 
 @app.cell
-def _(Gaussian, Mixture, Shift, TransformedTarget, plot_multipath):
+def multipath_mixture_fig(Gaussian, Mixture, Shift, TransformedTarget, plot_multipath):
     def _blob(dx, dy, scale=0.4):
         return TransformedTarget(Gaussian(dim=2, scale=scale), Shift(offset=(dx, dy)))
 
@@ -1572,7 +1572,7 @@ def _(Gaussian, Mixture, Shift, TransformedTarget, plot_multipath):
 
 
 @app.cell(hide_code=True)
-def _(mo):
+def multipath_funnel_md(mo):
     mo.md(r"""
     ### E. Funnel — scale mixture captures more than a single Gaussian
 
@@ -1582,7 +1582,7 @@ def _(mo):
 
 
 @app.cell
-def _(Funnel, Gaussian, TransformedTarget, plot_multipath):
+def multipath_funnel_fig(Funnel, Gaussian, TransformedTarget, plot_multipath):
     _target = TransformedTarget(Gaussian(dim=2, scale=1.2), Funnel(g=lambda x: 0.6 * x))
     plot_multipath(
         "Funnel — multi-path (K=12)",
