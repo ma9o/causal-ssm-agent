@@ -40,6 +40,9 @@ dependencies = [
     "temporalio>=1.30.0",
 ]
 
+[project.scripts]
+nof1-mcp = "nof1_causal_lab.mcp_gateway:main"
+
 [build-system]
 requires = ["uv_build>=0.8.24,<0.11.0"]
 build-backend = "uv_build"

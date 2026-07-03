@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
     ArtifactId,
@@ -404,6 +404,30 @@ _STAGE_RUNNERS = {
     "stage-4": _run_stage4,
     "stage-5b": _run_stage5b,
     "stage-6": _run_stage6,
+}
+
+ExecutionClass = Literal["deterministic", "batch_llm", "judgment"]
+
+# Execution classes (runner-level routing metadata; the pure machine graph
+# knows nothing about LLM-ness):
+#
+# - "deterministic": pure computation, no credentials (validation, SSM
+#   inference; identification/compile run inside stage executions and writes).
+# - "batch_llm": bulk LLM compute over data — infra like GPU fitting; reads
+#   the ambient OPENROUTER_API_KEY of the executing process.
+# - "judgment": dialogue-shaped proposal work (constructs, spec, priors,
+#   narrative). Transitional: still runnable in-service; the endgame is an
+#   external agent writing these artifacts via `write` moves, at which point
+#   these stages leave the graph.
+STAGE_EXECUTION_CLASS: dict[str, ExecutionClass] = {
+    "stage-0": "batch_llm",
+    "stage-1a": "judgment",
+    "stage-1b": "judgment",
+    "stage-2": "batch_llm",
+    "stage-3": "deterministic",
+    "stage-4": "judgment",
+    "stage-5b": "deterministic",
+    "stage-6": "judgment",
 }
 
 _MODAL_STAGES = frozenset({"stage-4", "stage-5b"})
