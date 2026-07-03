@@ -183,12 +183,11 @@ start_process \
   "bun run dev --port $WEB_PORT"
 wait_for_http "http://localhost:${WEB_PORT}" "Next.js frontend"
 
-auth_status="$(curl -sf "http://localhost:${WEB_PORT}/api/auth/status")"
-auth_mode="$(printf '%s' "$auth_status" | jq -r '.mode')"
-auth_can_run="$(printf '%s' "$auth_status" | jq -r '.canRun')"
+capabilities="$(curl -sf "http://localhost:${WEB_PORT}/api/capabilities")"
+moves_enabled="$(printf '%s' "$capabilities" | jq -r '.moves_enabled')"
 
-if [[ "$auth_can_run" != "true" ]]; then
-  die "/api/auth/status returned canRun=$auth_can_run mode=$auth_mode"
+if [[ "$moves_enabled" != "true" ]]; then
+  die "/api/capabilities returned moves_enabled=$moves_enabled (is the facade read-only?)"
 fi
 
 cat <<EOF
@@ -197,7 +196,7 @@ cat <<EOF
 [integration-stack]   Episode worker: task queue nof1-episodes
 [integration-stack]   Tool server + episode facade: http://localhost:${TOOL_PORT}
 [integration-stack]   Web app: http://localhost:${WEB_PORT}
-[integration-stack]   Auth status: mode=$auth_mode canRun=$auth_can_run
+[integration-stack]   Capabilities: moves_enabled=$moves_enabled
 [integration-stack]   Logs: $LOG_DIR
 EOF
 
