@@ -163,6 +163,7 @@ ignore_decorators = [
     "@scorer",
     "@app.*",
     "@router.*",
+    "@*_router.*",
     "@register_*",
     "@field_validator",
     "@model_validator",
@@ -174,6 +175,8 @@ ignore_decorators = [
     "@*.defvjp",
     "@*.list_tools",
     "@*.call_tool",
+    # MCP gateway tools are invoked by the MCP runtime, never by our code
+    "@mcp.tool",
 ]
 ignore_names = [
     "test_*",

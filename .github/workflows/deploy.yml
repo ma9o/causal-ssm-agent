@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       web: ${{ steps.filter.outputs.web }}
-      demo: ${{ steps.filter.outputs.demo }}
       python: ${{ steps.filter.outputs.python }}
       docs: ${{ steps.filter.outputs.docs }}
     steps:
@@ -31,12 +30,6 @@ jobs:
               - 'tsconfig.json'
               - 'package.json'
               - '.github/workflows/ci.yml'
-            demo:
-              - 'data/DEMO/**'
-              - 'apps/web/scripts/sync-demo-workspace-to-r2.ts'
-              - 'apps/web/package.json'
-              - 'bun.lock'
-              - '.github/workflows/deploy.yml'
             python:
               - 'apps/data-pipeline/**'
               - 'packages/api-types/**'
@@ -229,41 +222,6 @@ jobs:
       - run: uv run modal deploy src/nof1_causal_lab/flows/modal_runners.py
 
   # ---------------------------------------------------------------------------
-  # Upload public demo workspace artifacts to R2
-  # Public shared workspaces are data artifacts, so syncing them should not
-  # force a Vercel deployment when the web app code has not changed.
-  # ---------------------------------------------------------------------------
-  sync-demo-r2:
-    needs: changes
-    if: needs.changes.outputs.demo == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: "1.2.23"
-      - uses: actions/setup-node@v6
-        with:
-          node-version-file: .node-version
-
-      - name: Cache bun install
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: bun-install-${{ runner.os }}-
-
-      - run: bun install --frozen-lockfile
-      - name: Upload demo workspace to R2
-        run: bun run --cwd apps/web sync-demo-r2
-        env:
-          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
-          R2_PREFIX: data
-
-  # ---------------------------------------------------------------------------
   # Deploy web app to Vercel (production)
   # GitHub secrets → Vercel env vars → available at runtime
   # ---------------------------------------------------------------------------
@@ -303,8 +261,7 @@ jobs:
           }
           sync_env() { printf '%s' "$2" | bunx vercel env add "$1" production --yes --force --token="$VERCEL_TOKEN"; }
           sync_env DEPLOYMENT_ENV           production
-          sync_required_env APP_SECRET           "${{ secrets.APP_SECRET }}"
-          sync_required_env OPENROUTER_API_KEY   "${{ secrets.OPENROUTER_API_KEY }}"
+          sync_required_env TOOL_SERVER_URL      "${{ secrets.TOOL_SERVER_URL }}"
           sync_env R2_ENDPOINT_URL          "${{ secrets.R2_ENDPOINT_URL }}"
           sync_env R2_ACCESS_KEY_ID         "${{ secrets.R2_ACCESS_KEY_ID }}"
           sync_env R2_SECRET_ACCESS_KEY     "${{ secrets.R2_SECRET_ACCESS_KEY }}"
