@@ -38,6 +38,7 @@ dependencies = [
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
     "ipython>=9.12.0",
     "sympy>=1.14.0",
+    "temporalio>=1.30.0",
 ]
 
 [build-system]
