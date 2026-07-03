@@ -57,3 +57,14 @@ export const RuntimeFailed: Story = {
     context: "Fits the Bayesian model and runs convergence diagnostics.",
   },
 };
+
+/** Completed stage whose produced artifacts went stale after an upstream write. */
+export const Stale: Story = {
+  args: {
+    number: "1b",
+    title: "Measurement & Nonparametric Identification",
+    status: "completed",
+    context: "Maps latent constructs to observable indicators.",
+    staleArtifactIds: ["causal_spec", "identification_report"],
+  },
+};

@@ -20,6 +20,7 @@ import {
   parseStage4Event,
   type Stage4ReplayState,
 } from "@/lib/stage4-runtime";
+import { groupStaleArtifactsByStage, hasStaleArtifacts } from "@/lib/artifact-staleness";
 import { STAGE_PROGRESS_EVENT_FILTER_PREFIX, type StageProgressStatus } from "@/lib/stage-runtime";
 import type { StageId } from "@nof1-causal-lab/api-types";
 import { STAGES } from "@nof1-causal-lab/api-types";
@@ -44,7 +45,7 @@ function getPipelineStatusQueryKey(workspaceId: string) {
   return ["pipeline", workspaceId, "status"] as const;
 }
 
-function getEpisodeProgressQueryKey(workspaceId: string) {
+export function getEpisodeProgressQueryKey(workspaceId: string) {
   return ["episode", workspaceId, "progress"] as const;
 }
 
@@ -275,6 +276,12 @@ export function useRunEvents(
         );
         lastSeqRef.current = Math.max(lastSeqRef.current, transition.seq);
       }
+
+      queryClient.setQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId), (old) => ({
+        ...(old ?? initialProgress()),
+        staleArtifactsByStage: groupStaleArtifactsByStage(payload.artifacts),
+        autoRunning: payload.autoRunning,
+      }));
     },
     [queryClient, updateStage, workspaceId],
   );
@@ -337,7 +344,11 @@ export function useRunEvents(
       const progress = workspaceId
         ? queryClient.getQueryData<PipelineProgress>(getPipelineStatusQueryKey(workspaceId))
         : undefined;
-      return payload.autoRunning || hasRunningStage(progress) ? PROGRESS_POLL_INTERVAL_MS : false;
+      return payload.autoRunning ||
+        hasRunningStage(progress) ||
+        hasStaleArtifacts(payload.artifacts)
+        ? PROGRESS_POLL_INTERVAL_MS
+        : false;
     },
     staleTime: 0,
     gcTime: 0,

@@ -80,6 +80,7 @@ type StageSectionRouterProps = {
   timing?: StageTiming;
   stageRun?: AnalysisStageRun;
   errorMessage?: string;
+  staleArtifactIds?: string[];
 };
 
 function stageRunsEqual(previous?: AnalysisStageRun, next?: AnalysisStageRun): boolean {
@@ -97,6 +98,7 @@ function StageSectionRouterInner({
   timing,
   stageRun,
   errorMessage,
+  staleArtifactIds,
 }: StageSectionRouterProps) {
   const { isInvalidated, pendingStagePatches, refiningStageId, setPrefill, readOnly } =
     useRefinement();
@@ -135,6 +137,7 @@ function StageSectionRouterInner({
       elapsedMs={elapsedMs}
       context={stage.description}
       errorMessage={errorMessage}
+      staleArtifactIds={staleArtifactIds}
       loadingHint={stage.loadingHint}
       actions={
         stage.id === "stage-3" && isCompleted && projectedStageData && !readOnly ? (
@@ -186,6 +189,7 @@ export const StageSectionRouter = memo(
     previous.timing?.startedAt === next.timing?.startedAt &&
     previous.timing?.completedAt === next.timing?.completedAt &&
     previous.errorMessage === next.errorMessage &&
+    (previous.staleArtifactIds?.join("|") ?? "") === (next.staleArtifactIds?.join("|") ?? "") &&
     stageRunsEqual(previous.stageRun, next.stageRun),
 );
 

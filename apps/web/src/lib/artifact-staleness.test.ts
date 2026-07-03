@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import type { EpisodeArtifactStatus } from "@/lib/api/analysis";
+import { groupStaleArtifactsByStage, hasStaleArtifacts } from "./artifact-staleness";
+
+function artifact(overrides: Partial<EpisodeArtifactStatus>): EpisodeArtifactStatus {
+  return {
+    artifact_id: "constructs",
+    exists: true,
+    stale: false,
+    version: 1,
+    provenance: "computed",
+    produced_by: "stage-1a",
+    ...overrides,
+  };
+}
+
+describe("groupStaleArtifactsByStage", () => {
+  it("groups stale existing artifacts by producing stage", () => {
+    const report = [
+      artifact({ artifact_id: "constructs", stale: true, produced_by: "stage-1a" }),
+      artifact({ artifact_id: "causal_spec", stale: true, produced_by: "stage-1b" }),
+      artifact({ artifact_id: "identification_report", stale: true, produced_by: "stage-1b" }),
+      artifact({ artifact_id: "model_data", stale: false, produced_by: "stage-2" }),
+    ];
+
+    expect(groupStaleArtifactsByStage(report)).toEqual({
+      "stage-1a": ["constructs"],
+      "stage-1b": ["causal_spec", "identification_report"],
+    });
+  });
+
+  it("ignores absent artifacts even when flagged stale", () => {
+    const report = [
+      artifact({ artifact_id: "estimands", exists: false, stale: true, produced_by: "stage-1b" }),
+    ];
+
+    expect(groupStaleArtifactsByStage(report)).toEqual({});
+  });
+
+  it("ignores root artifacts with no producing stage", () => {
+    const report = [
+      artifact({ artifact_id: "question", stale: true, produced_by: null, provenance: "human" }),
+    ];
+
+    expect(groupStaleArtifactsByStage(report)).toEqual({});
+  });
+});
+
+describe("hasStaleArtifacts", () => {
+  it("is true iff any stage-produced artifact is stale", () => {
+    expect(hasStaleArtifacts([artifact({ stale: false })])).toBe(false);
+    expect(hasStaleArtifacts([artifact({ stale: true })])).toBe(true);
+  });
+});

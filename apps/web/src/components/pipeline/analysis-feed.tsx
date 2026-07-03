@@ -16,6 +16,7 @@ import { NewStagesNotification } from "./new-stages-notification";
 import { PipelineProgressBar } from "./progress-bar";
 import { ResumeButton } from "./resume-button";
 import { StageSectionRouter } from "./stage-section-router";
+import { StaleRecomputeBanner } from "./stale-recompute-banner";
 
 function FeedContent({
   workspaceId,
@@ -42,6 +43,7 @@ function FeedContent({
     <div>
       <PipelineProgressBar progress={progress} question={question} workspaceId={workspaceId} />
       <div className="space-y-4 px-4 py-6 sm:space-y-6 sm:px-6 lg:px-10 2xl:px-12">
+        <StaleRecomputeBanner workspaceId={workspaceId} progress={progress} />
         {visibleStages.map((stage) => (
           <LazyStageMount key={stage.id} stage={stage}>
             <StageSectionRouter
@@ -51,6 +53,7 @@ function FeedContent({
               status={progress.stages[stage.id]}
               timing={progress.timings[stage.id]}
               errorMessage={progress.stageErrors[stage.id]}
+              staleArtifactIds={progress.staleArtifactsByStage[stage.id]}
             />
           </LazyStageMount>
         ))}

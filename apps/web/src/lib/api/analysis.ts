@@ -54,6 +54,16 @@ export interface EpisodeEventRecord {
   cursor: string;
 }
 
+/** Per-artifact freshness status computed by the episode machine. */
+export interface EpisodeArtifactStatus {
+  artifact_id: string;
+  exists: boolean;
+  stale: boolean;
+  version: number | null;
+  provenance: string | null;
+  produced_by: string | null;
+}
+
 export type EpisodeMove =
   | { kind: "run"; stage_id: string }
   | { kind: "write"; artifact_id: string; provenance: string };
@@ -73,6 +83,7 @@ export interface EpisodeProgressPayload {
   workspaceId: string;
   autoRunning: boolean;
   seq: number;
+  artifacts: EpisodeArtifactStatus[];
   transitions: EpisodeTransitionRecord[];
   events: EpisodeEventRecord[];
 }
@@ -91,6 +102,14 @@ export async function getEpisodeProgress(
 ): Promise<EpisodeProgressPayload> {
   const search = after ? `?${new URLSearchParams({ after }).toString()}` : "";
   return apiFetch<EpisodeProgressPayload>(`/api/analysis/${workspaceId}/progress${search}`);
+}
+
+export async function recomputeStaleStages(
+  workspaceId: string,
+): Promise<{ ok: true; workspaceId: string }> {
+  return apiFetch<{ ok: true; workspaceId: string }>(`/api/analysis/${workspaceId}/recompute`, {
+    method: "POST",
+  });
 }
 
 export async function replayStageOverride(

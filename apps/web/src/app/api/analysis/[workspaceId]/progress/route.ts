@@ -6,8 +6,9 @@ import { requireWorkspaceAccess } from "@/lib/workspace-access";
  * GET /api/analysis/[workspaceId]/progress?after=<cursor>
  *
  * Server-side proxy over the episode facade for client polling: episode
- * status (auto_running), the transition journal, and intra-stage telemetry
- * events after the given cursor.
+ * status (auto_running plus the per-artifact freshness report), the
+ * transition journal, and intra-stage telemetry events after the given
+ * cursor.
  */
 export async function GET(
   request: Request,
@@ -34,6 +35,7 @@ export async function GET(
       workspaceId: normalizedWorkspaceId,
       autoRunning: status.auto_running,
       seq: status.seq,
+      artifacts: status.artifacts,
       transitions: timeline.transitions,
       events: events.events,
     });

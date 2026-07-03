@@ -1,7 +1,7 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PipelineProgress } from "@/lib/hooks/use-run-events";
 import { STAGES } from "@nof1-causal-lab/api-types";
-import { Check, Loader2, X } from "lucide-react";
+import { Check, Loader2, RefreshCw, X } from "lucide-react";
 import Link from "next/link";
 
 function formatWorkspaceIdBadge(workspaceId: string): string {
@@ -50,27 +50,34 @@ export function PipelineProgressBar({
         <div className="flex items-center gap-1.5">
           {STAGES.map((stage) => {
             const status = progress.stages[stage.id];
+            const stale =
+              (progress.staleArtifactsByStage[stage.id]?.length ?? 0) > 0 && status !== "running";
             const isClickable = status !== "pending";
 
             const tooltipIcon =
               status === "failed" ? (
                 <X className="h-3 w-3 text-destructive" />
+              ) : stale ? (
+                <RefreshCw className="h-3 w-3 text-warning" />
               ) : status === "completed" ? (
                 <Check className="h-3 w-3 text-success" />
               ) : status === "running" ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : null;
 
-            const tooltipSuffix = status === "failed" ? " (execution failed)" : "";
+            const tooltipSuffix =
+              status === "failed" ? " (execution failed)" : stale ? " (stale)" : "";
 
             const segmentColor =
               status === "failed"
                 ? "bg-destructive"
-                : status === "completed"
-                  ? "bg-success"
-                  : status === "running"
-                    ? "bg-primary animate-pulse-subtle"
-                    : "bg-secondary";
+                : stale
+                  ? "bg-warning"
+                  : status === "completed"
+                    ? "bg-success"
+                    : status === "running"
+                      ? "bg-primary animate-pulse-subtle"
+                      : "bg-secondary";
 
             return (
               <Tooltip key={stage.id}>

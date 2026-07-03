@@ -22,6 +22,7 @@ export function StageSection({
   runningContent,
   invalidated = false,
   actions,
+  staleArtifactIds,
 }: {
   id?: string;
   number: string;
@@ -38,6 +39,8 @@ export function StageSection({
   invalidated?: boolean;
   /** Optional actions rendered top-right of the card header. */
   actions?: ReactNode;
+  /** Stale artifacts this stage produced (backend freshness report). */
+  staleArtifactIds?: string[];
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [prevStatus, setPrevStatus] = useState(status);
@@ -78,7 +81,13 @@ export function StageSection({
         }
       >
         <div className="flex-1 min-w-0">
-          <StageHeader number={number} title={title} status={status} context={context} />
+          <StageHeader
+            number={number}
+            title={title}
+            status={status}
+            context={context}
+            staleArtifactIds={staleArtifactIds}
+          />
           {invalidated && (
             <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground">
               <RotateCcw className="h-3 w-3" />

@@ -1,5 +1,6 @@
 import type { StageId, StageStatus } from "@nof1-causal-lab/api-types";
 import { STAGES } from "@nof1-causal-lab/api-types";
+import type { StaleArtifactsByStage } from "@/lib/artifact-staleness";
 
 export type StageRunStatus = Exclude<StageStatus, "blocked">;
 
@@ -13,6 +14,10 @@ export interface PipelineProgress {
   timings: Partial<Record<StageId, StageTiming>>;
   /** Failure detail per stage (raised transition / failed telemetry event). */
   stageErrors: Partial<Record<StageId, string>>;
+  /** Backend-computed freshness report, grouped by producing stage for display. */
+  staleArtifactsByStage: StaleArtifactsByStage;
+  /** Whether the facade's auto-run driver is currently active. */
+  autoRunning: boolean;
   currentStage: StageId | null;
   isComplete: boolean;
   isFailed: boolean;
@@ -45,6 +50,8 @@ export function initialProgress(): PipelineProgress {
     stages,
     timings: {},
     stageErrors: {},
+    staleArtifactsByStage: {},
+    autoRunning: false,
     currentStage: null,
     isComplete: false,
     isFailed: false,

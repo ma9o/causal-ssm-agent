@@ -21,6 +21,7 @@ export type StagePresentationShellProps = {
   actions?: ReactNode;
   runningContent?: ReactNode;
   invalidated?: boolean;
+  staleArtifactIds?: string[];
   panelContent?: ReactNode;
   interactive?: boolean;
   defaultPanelOpen?: boolean;
@@ -37,6 +38,7 @@ function renderStageSection({
   actions,
   runningContent,
   invalidated,
+  staleArtifactIds,
   children,
 }: StagePresentationShellProps) {
   return (
@@ -51,6 +53,7 @@ function renderStageSection({
       actions={actions}
       runningContent={runningContent}
       invalidated={invalidated}
+      staleArtifactIds={staleArtifactIds}
     >
       {children}
     </StageSection>
