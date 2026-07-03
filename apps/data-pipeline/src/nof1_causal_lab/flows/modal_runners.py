@@ -1,26 +1,22 @@
-"""Modal-backed runners for expensive pipeline stages.
+"""Modal-backed execution for expensive stages.
 
-When DEPLOYMENT_ENV=production, the stage registry swaps local runners for
-these Modal-backed versions. Stages 4 and 5b run on Modal's compute; the
-remaining stages run locally on Prefect.
+When ``DEPLOYMENT_ENV=production``, ``machine.runners.execute_stage``
+routes stage-4 and stage-5b here. The remote function runs the same
+``execute_stage_locally`` against the same R2-backed artifact store —
+Modal is compute placement, not a different execution path. Version
+stamps come back as plain dicts (Modal pickles across an image boundary).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import modal
 
 if TYPE_CHECKING:
-    from .stage_contracts import (
-        BaseStageContract,
-        Stage1bContract,
-        Stage2Contract,
-        Stage3Contract,
-        Stage4Contract,
-        Stage5bContract,
-    )
+    from nof1_causal_lab.machine.artifacts import ArtifactId
+    from nof1_causal_lab.machine.runners import ExecOptions, StageRunResult
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Modal images
@@ -69,77 +65,41 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
     gpu=GPU_A100_80GB,
     secrets=[secrets],
 )
-def _run_stage5b(
-    stage4: Stage4Contract,
-    stage2: Stage2Contract,
-    inference_method: str | None,
+async def _run_stage_gpu(
     workspace_id: str,
-) -> Stage5bContract:
-    """Run stage 5b on Modal and persist artifacts to R2."""
-    from nof1_causal_lab.flows.dag import stage5b
+    stage_id: str,
+    pins: dict[str, int],
+    options: dict[str, Any],
+) -> dict[str, Any]:
+    """Run a stage on Modal GPU compute against the R2 artifact store."""
+    from nof1_causal_lab.machine.runners import ExecOptions, execute_stage_locally
 
-    return stage5b(stage4, stage2, workspace_id, inference_method)
-
-
-@app.function(
-    timeout=10800,
-    cpu=8,
-    memory=32768,
-    image=gpu_image,
-    gpu=GPU_A100_80GB,
-    secrets=[secrets],
-)
-def _run_stage5b_payload(
-    compiled_ssm: dict | None,
-    data_for_model_parquet: bytes,
-    sampler_config: dict,
-    workspace_id: str,
-    compute_loo_diagnostics: bool,
-) -> BaseStageContract:
-    """Run stage 5b on Modal using caller-supplied artifacts."""
-    import io
-
-    import polars as pl
-
-    from nof1_causal_lab.flows.dag import _filter_to_contract
-    from nof1_causal_lab.flows.stages.stage5b.contracts import Stage5bContract
-    from nof1_causal_lab.flows.stages.stage5b.flow import run_stage5b_with_data
-
-    data_for_model = pl.read_parquet(io.BytesIO(data_for_model_parquet))
-    result = run_stage5b_with_data(
-        compiled_ssm=compiled_ssm,
-        data_for_model=data_for_model,
-        sampler_config=sampler_config,
-        workspace_id=workspace_id,
-        compute_loo_diagnostics=compute_loo_diagnostics,
+    result = await execute_stage_locally(
+        workspace_id,
+        stage_id,
+        pins,  # type: ignore[arg-type]
+        ExecOptions.model_validate(options),
     )
-    return Stage5bContract.model_validate(_filter_to_contract(Stage5bContract, result))
+    return result.model_dump(mode="json")
 
 
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
-async def _run_stage4(
-    question: str,
-    stage1b: Stage1bContract,
-    stage2: Stage2Contract,
-    stage3: Stage3Contract,
-    enable_literature: bool,
+async def _run_stage_cpu(
     workspace_id: str,
-    openrouter_api_key: str | None,
-    root_run_id: str | None,
-) -> Stage4Contract:
-    """Run stage 4 on Modal."""
-    from nof1_causal_lab.flows.dag import stage4
+    stage_id: str,
+    pins: dict[str, int],
+    options: dict[str, Any],
+) -> dict[str, Any]:
+    """Run a stage on Modal CPU compute against the R2 artifact store."""
+    from nof1_causal_lab.machine.runners import ExecOptions, execute_stage_locally
 
-    return await stage4(
-        question,
-        stage1b,
-        stage2,
-        stage3,
-        enable_literature,
-        workspace_id=workspace_id,
-        openrouter_api_key=openrouter_api_key,
-        root_run_id=root_run_id,
+    result = await execute_stage_locally(
+        workspace_id,
+        stage_id,
+        pins,  # type: ignore[arg-type]
+        ExecOptions.model_validate(options),
     )
+    return result.model_dump(mode="json")
 
 
 @app.function(
@@ -168,18 +128,34 @@ def _warm_stage4_compile_cache(
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Runner callables (bound by the registry)
+# Runner callables (bound by machine.runners)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+_GPU_STAGES = frozenset({"stage-5b"})
 
-def modal_stage5b_runner(
-    stage4: Stage4Contract,
-    stage2: Stage2Contract,
-    workspace_id: str = "",
-    inference_method: str | None = None,
-) -> Stage5bContract:
-    """Invoke stage 5b on Modal."""
-    return _run_stage5b.remote(stage4, stage2, inference_method, workspace_id)
+
+async def run_stage_on_modal(
+    workspace_id: str,
+    stage_id: str,
+    pins: dict[ArtifactId, int],
+    options: ExecOptions,
+) -> StageRunResult:
+    """Invoke a stage remotely; the single-use key ref is resolved here so
+    only the raw key (never the ref, which is locally consumed) transits."""
+    from nof1_causal_lab.machine.runners import StageRunResult, resolve_openrouter_api_key
+
+    api_key = resolve_openrouter_api_key(options)
+    remote_options = options.model_copy(
+        update={"openrouter_secret_ref": None, "openrouter_api_key": api_key}
+    )
+    remote_fn = _run_stage_gpu if stage_id in _GPU_STAGES else _run_stage_cpu
+    raw = await remote_fn.remote.aio(
+        workspace_id,
+        stage_id,
+        dict(pins),
+        remote_options.model_dump(mode="json"),
+    )
+    return StageRunResult.model_validate(raw)
 
 
 def spawn_stage4_model_compile_warmup(
@@ -197,27 +173,3 @@ def spawn_stage4_model_compile_warmup(
         topology_fingerprint,
     )
     return str(function_call.object_id)
-
-
-async def modal_stage4_runner(
-    question: str,
-    stage1b: Stage1bContract,
-    stage2: Stage2Contract,
-    stage3: Stage3Contract,
-    enable_literature: bool,
-    workspace_id: str,
-    root_run_id: str | None = None,
-) -> Stage4Contract:
-    """Invoke stage 4 on Modal."""
-    from nof1_causal_lab.utils.openrouter_client import get_openrouter_api_key
-
-    return await _run_stage4.remote.aio(
-        question,
-        stage1b,
-        stage2,
-        stage3,
-        enable_literature,
-        workspace_id,
-        get_openrouter_api_key(),
-        root_run_id,
-    )
