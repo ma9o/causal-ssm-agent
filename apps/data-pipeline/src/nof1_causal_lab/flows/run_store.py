@@ -1,9 +1,9 @@
 """Run-level artifact persistence for the causal inference pipeline.
 
-Centralises all file-system I/O for pipeline run artifacts:
-parquet DataFrames, pickled objects, stage snapshots, and public
-JSON payloads.  Every module that needs to save or load run artifacts
-should import from here instead of duplicating path logic.
+Run-dir I/O that remains outside the versioned artifact store: the
+web-facing stage JSON projection and stage-4's private compile-cache /
+checkpoint machinery. Everything the machine owns lives in
+nof1_causal_lab.machine.store.
 """
 
 from __future__ import annotations
@@ -25,12 +25,8 @@ logger = logging.getLogger(__name__)
 # Filename constants for run artifacts
 # ---------------------------------------------------------------------------
 
-STAGE0_PARQUET_FILENAMES = ("stage0-raw-input.parquet",)
-STAGE2_MODEL_PARQUET_FILENAMES = ("stage2-model-data.parquet",)
-STAGE4_COMPILED_SSM_FILENAMES = ("stage4-compiled-ssm.json",)
 STAGE4_JAX_CACHE_FILENAMES = ("stage4-jax-cache.tar.gz",)
 STAGE4_JAX_CACHE_METADATA_FILENAMES = ("stage4-jax-cache-metadata.json",)
-STAGE5B_PICKLE_FILENAMES = ("stage5b-fitted-result.pkl",)
 STAGE4_CHECKPOINT_DIRNAME = "stage-4-checkpoints"
 STAGE4_CHECKPOINT_CURSOR_FILENAME = "cursor.json"
 STAGE4_DONE_CHECKPOINT_CACHE_KEY = "__done__"
@@ -60,17 +56,6 @@ def existing_run_dir(workspace_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def save_parquet(df: Any, workspace_id: str, filename: str) -> str:
-    """Write a Polars DataFrame to parquet in the run directory."""
-    path = storage.join(ensure_run_dir(workspace_id), filename)
-    if storage.is_remote():
-        with storage.get_fs().open(path, "wb") as f:
-            df.write_parquet(f)
-    else:
-        df.write_parquet(path)
-    return path
-
-
 def load_parquet(path: str) -> Any:
     """Read a Polars DataFrame from a parquet path."""
     import polars as pl
@@ -81,14 +66,6 @@ def load_parquet(path: str) -> Any:
 # ---------------------------------------------------------------------------
 # Pickle I/O
 # ---------------------------------------------------------------------------
-
-
-def save_pickle(value: Any, workspace_id: str, filename: str) -> str:
-    """Pickle a value into the run directory."""
-    path = storage.join(ensure_run_dir(workspace_id), filename)
-    with storage.open_file(path, "wb") as f:
-        cloudpickle.dump(value, f)
-    return path
 
 
 def load_pickle(path: str) -> Any:

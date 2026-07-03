@@ -149,6 +149,20 @@ class ArtifactStore:
             return cloudpickle.load(f)
 
 
+def current_artifact_file(workspace_id: str, artifact_id: ArtifactId, filename: str) -> str:
+    """Path to a file of the episode's CURRENT version of an artifact.
+
+    For query-plane consumers that only need "the current X" without
+    threading explicit pins. Raises FileNotFoundError when the artifact
+    does not exist in the episode state.
+    """
+    state = EpisodeJournal(workspace_id).latest_state()
+    info = state.get(artifact_id)
+    if info is None:
+        raise FileNotFoundError(f"No current '{artifact_id}' artifact for workspace {workspace_id}")
+    return ArtifactStore(workspace_id).file_path(artifact_id, info.version, filename)
+
+
 # ---------------------------------------------------------------------------
 # Episode journal (transition log projection / read model)
 # ---------------------------------------------------------------------------

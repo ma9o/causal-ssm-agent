@@ -131,7 +131,6 @@ export interface StageData<T = unknown> {
 export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
-export type StageOutcome = "success" | "warn" | "fail";
 export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
 
 export interface Stage0DateRange {
@@ -146,8 +145,6 @@ export interface Stage0ColumnDescription {
 }
 
 export interface Stage0Data {
-  outcome: StageOutcome;
-  fail_reason?: string | null;
   llm_trace?: import("./generated/models").LLMTrace | null;
   n_records: number;
   n_columns: number;
@@ -171,8 +168,6 @@ export interface ObservationRecord {
 }
 
 export interface Stage2Data {
-  outcome: StageOutcome;
-  fail_reason?: string | null;
   llm_trace?: import("./generated/models").LLMTrace | null;
   workers: import("./generated/models").WorkerStatusContract[];
   per_indicator_counts: {

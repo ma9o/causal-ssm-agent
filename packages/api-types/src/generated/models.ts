@@ -110,8 +110,6 @@ export interface CausalSSMContracts {
   "stage-6": Stage6Contract;
 }
 export interface Stage0Contract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   column_descriptions: Stage0ColumnDescriptionContract[];
 }
@@ -154,8 +152,6 @@ export interface Stage0ColumnDescriptionContract {
   description: string;
 }
 export interface Stage1AContract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   latent_model: LatentModel;
 }
@@ -234,8 +230,6 @@ export interface EdgeSource {
   snippet: string;
 }
 export interface Stage1BContract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   causal_spec: CausalSpec;
 }
@@ -439,8 +433,6 @@ export interface KnownInput {
   missing_policy: "zero" | "forward_fill";
 }
 export interface Stage2Contract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   workers: WorkerStatusContract[];
 }
@@ -452,8 +444,6 @@ export interface WorkerStatusContract {
   error?: string | null;
 }
 export interface Stage3Contract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   is_valid: boolean;
   indicators: {
     [k: string]: IndicatorAuditContract | undefined;
@@ -500,8 +490,6 @@ export interface ValidationIssueContract {
   message: string;
 }
 export interface Stage4Contract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   model_spec: ModelSpec;
   authored_priors: {
@@ -652,8 +640,6 @@ export interface PriorSource {
   study_interval_days?: number | null;
 }
 export interface Stage5BContract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   ppc: PPCResultContract;
   inference_metadata: InferenceMetadataContract;
   mcmc_diagnostics?: MCMCDiagnostics | null;
@@ -834,8 +820,6 @@ export interface PosteriorPair {
   divergent?: boolean[] | null;
 }
 export interface Stage6Contract {
-  outcome: "success" | "warn" | "fail";
-  fail_reason?: string | null;
   llm_trace?: LLMTrace | null;
   intervention_results: TreatmentEffectContract[];
   saved_scenarios?: SavedScenarioContract[] | null;

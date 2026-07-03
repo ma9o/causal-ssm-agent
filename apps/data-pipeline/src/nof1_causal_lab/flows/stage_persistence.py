@@ -52,11 +52,3 @@ def persist_validated_web_result(stage_id: str, data: dict, workspace_id: str) -
     if callable(summary):
         logger.info(summary())
     return payload
-
-
-def persist_web_patch(stage_id: str, patch: dict, workspace_id: str) -> dict:
-    """Merge a web-payload patch, validate it, and persist it."""
-    from .run_store import load_public_payload
-
-    current = load_public_payload(workspace_id, stage_id)
-    return persist_validated_web_result(stage_id, {**current, **patch}, workspace_id)

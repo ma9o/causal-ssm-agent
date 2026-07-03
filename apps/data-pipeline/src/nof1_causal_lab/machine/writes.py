@@ -14,9 +14,11 @@ would leave downstream enabledness keyed to superseded findings.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
+if TYPE_CHECKING:
+    from pydantic import BaseModel
+
 
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
     ArtifactId,

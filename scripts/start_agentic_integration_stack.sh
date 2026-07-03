@@ -8,11 +8,9 @@ ENV_FILE="$REPO_ROOT/.env"
 STACK_DIR="$REPO_ROOT/.local/agentic-integration-stack"
 LOG_DIR="$STACK_DIR/logs"
 
-PREFECT_PORT=4200
+TEMPORAL_PORT=7233
 TOOL_PORT=8100
 WEB_PORT=3000
-PREFECT_API_URL="http://localhost:${PREFECT_PORT}/api"
-PREFECT_DB_PATH="/tmp/nof1-causal-lab-prefect.db"
 
 START_TIMEOUT_SECONDS="${START_TIMEOUT_SECONDS:-90}"
 POLL_INTERVAL_SECONDS=1
@@ -22,9 +20,9 @@ usage() {
 Usage: bash scripts/start_agentic_integration_stack.sh
 
 Starts the local integration-test stack described in docs/guides/agentic_integration_testing.md:
-  1. Prefect server on port 4200 using the dedicated SQLite database
-  2. Pipeline deployment poller
-  3. Tool server on port 8100
+  1. Temporal dev server on port 7233 (ephemeral state)
+  2. Episode worker (Temporal task queue nof1-episodes)
+  3. Tool server on port 8100 (tools + episode facade)
   4. Next.js frontend on port 3000
 
 Logs are written under .local/agentic-integration-stack/logs/.
@@ -80,15 +78,14 @@ wait_for_http() {
   done
 }
 
-wait_for_deployment() {
+wait_for_port() {
+  local port="$1"
+  local label="$2"
   local elapsed=0
 
-  until curl -s -X POST "$PREFECT_API_URL/deployments/filter" \
-    -H 'Content-Type: application/json' \
-    -d '{"deployments":{"name":{"any_":["causal-inference"]}}}' \
-    | jq -er '.[0].id' >/dev/null 2>&1; do
+  until is_listening "$port"; do
     if (( elapsed >= START_TIMEOUT_SECONDS )); then
-      die "Timed out waiting for the causal-inference deployment to register"
+      die "Timed out waiting for $label on port $port"
     fi
     sleep "$POLL_INTERVAL_SECONDS"
     ((elapsed += POLL_INTERVAL_SECONDS))
@@ -149,36 +146,34 @@ need_cmd uv
 
 mkdir -p "$LOG_DIR"
 
-prefect_log="$LOG_DIR/prefect.log"
-pipeline_log="$LOG_DIR/pipeline.log"
+temporal_log="$LOG_DIR/temporal.log"
+worker_log="$LOG_DIR/worker.log"
 tool_log="$LOG_DIR/tool-server.log"
 web_log="$LOG_DIR/web.log"
 
-require_port_free "$PREFECT_PORT" "Prefect server"
+require_port_free "$TEMPORAL_PORT" "Temporal dev server"
 require_port_free "$TOOL_PORT" "Tool server"
 require_port_free "$WEB_PORT" "Next.js dev server"
-require_process_absent "python -m nof1_causal_lab\\.flows\\.pipeline" "Pipeline deployment process"
-
-rm -f "$PREFECT_DB_PATH" "$PREFECT_DB_PATH-shm" "$PREFECT_DB_PATH-wal"
-start_process \
-  "prefect" \
-  "$REPO_ROOT/apps/data-pipeline" \
-  "$prefect_log" \
-  "PREFECT_SERVER_DATABASE_CONNECTION_URL='sqlite+aiosqlite:////tmp/nof1-causal-lab-prefect.db' uv run prefect server start"
-wait_for_http "$PREFECT_API_URL/health" "Prefect server"
+require_process_absent "nof1_causal_lab\\.machine\\.temporal\\.worker" "Episode worker process"
 
 start_process \
-  "pipeline" \
+  "temporal" \
   "$REPO_ROOT/apps/data-pipeline" \
-  "$pipeline_log" \
-  "PREFECT_API_URL='$PREFECT_API_URL' uv run python -m nof1_causal_lab.flows.pipeline"
-wait_for_deployment
+  "$temporal_log" \
+  "uv run python scripts/temporal_dev_server.py --port $TEMPORAL_PORT"
+wait_for_port "$TEMPORAL_PORT" "Temporal dev server"
+
+start_process \
+  "worker" \
+  "$REPO_ROOT/apps/data-pipeline" \
+  "$worker_log" \
+  "TEMPORAL_ADDRESS='localhost:$TEMPORAL_PORT' uv run python -m nof1_causal_lab.machine.temporal.worker"
 
 start_process \
   "tool-server" \
   "$REPO_ROOT/apps/data-pipeline" \
   "$tool_log" \
-  "uv run uvicorn nof1_causal_lab.tool_server:app --port $TOOL_PORT"
+  "TEMPORAL_ADDRESS='localhost:$TEMPORAL_PORT' uv run uvicorn nof1_causal_lab.tool_server:app --port $TOOL_PORT"
 wait_for_http "http://localhost:${TOOL_PORT}/api/tools/docs" "tool server"
 
 start_process \
@@ -187,14 +182,6 @@ start_process \
   "$web_log" \
   "bun run dev --port $WEB_PORT"
 wait_for_http "http://localhost:${WEB_PORT}" "Next.js frontend"
-
-deployment_id="$(
-  curl -s -X POST "$PREFECT_API_URL/deployments/filter" \
-    -H 'Content-Type: application/json' \
-    -d '{"deployments":{"name":{"any_":["causal-inference"]}}}' \
-    | jq -r '.[0].id // empty'
-)"
-[[ -n "$deployment_id" ]] || die "causal-inference deployment was not found after startup"
 
 auth_status="$(curl -sf "http://localhost:${WEB_PORT}/api/auth/status")"
 auth_mode="$(printf '%s' "$auth_status" | jq -r '.mode')"
@@ -206,9 +193,9 @@ fi
 
 cat <<EOF
 [integration-stack] Stack ready (kill this process to tear down)
-[integration-stack]   Prefect API: $PREFECT_API_URL
-[integration-stack]   Deployment: causal-inference ($deployment_id)
-[integration-stack]   Tool server: http://localhost:${TOOL_PORT}
+[integration-stack]   Temporal: localhost:${TEMPORAL_PORT} (ephemeral dev server)
+[integration-stack]   Episode worker: task queue nof1-episodes
+[integration-stack]   Tool server + episode facade: http://localhost:${TOOL_PORT}
 [integration-stack]   Web app: http://localhost:${WEB_PORT}
 [integration-stack]   Auth status: mode=$auth_mode canRun=$auth_can_run
 [integration-stack]   Logs: $LOG_DIR

@@ -13,25 +13,18 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.machine.errors import ArtifactWriteRejected, StageExecutionError
-from nof1_causal_lab.machine.moves import TransitionEffects
+
+# Runtime imports (not TYPE_CHECKING): temporalio resolves activity type
+# hints at registration time to drive payload conversion.
+from nof1_causal_lab.machine.moves import TransitionEffects  # noqa: TC001
 from nof1_causal_lab.machine.runners import execute_stage
 from nof1_causal_lab.machine.store import EpisodeJournal, TransitionRecord, utc_now_iso
-from nof1_causal_lab.machine.temporal.messages import (
+from nof1_causal_lab.machine.temporal.messages import (  # noqa: TC001
     JournalInput,
     RunStageInput,
     WriteArtifactInput,
 )
 from nof1_causal_lab.machine.writes import execute_write
-
-# Deterministic failures the workflow surfaces to the navigator instead of
-# retrying: typed stage errors, rejected writes, and bad references.
-NON_RETRYABLE_ERRORS = [
-    "StageExecutionError",
-    "ModelCompileError",
-    "ModelFitError",
-    "ArtifactWriteRejected",
-    "ValueError",
-]
 
 
 @activity.defn

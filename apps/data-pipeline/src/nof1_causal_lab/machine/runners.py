@@ -21,8 +21,6 @@ import asyncio
 import os
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel
-
 from nof1_causal_lab.machine.artifacts import (  # noqa: TC001 (pydantic field annotations)
     ArtifactId,
     ArtifactVersionInfo,
@@ -35,6 +33,7 @@ from nof1_causal_lab.machine.store import ArtifactStore
 
 if TYPE_CHECKING:
     import polars as pl
+    from pydantic import BaseModel
 
 
 def _filter_to_contract(cls: type[BaseModel], data: dict[str, Any]) -> dict[str, Any]:

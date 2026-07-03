@@ -270,31 +270,6 @@ def format_prior_proposal_errors(errors: dict[str, str]) -> str:
     return "\n\n".join(blocks)
 
 
-def validate_prior_proposals(priors: dict[str, dict] | None) -> dict[str, dict]:
-    """Schema-validate prior proposals before Stage 4 assembly."""
-    validated, errors = partition_prior_proposals(priors)
-    if errors:
-        raise ValueError(format_prior_proposal_errors(errors))
-    return validated
-
-
-def coerce_stage4_override_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Accept a replay payload and keep only authored stage-4 fields."""
-    model_spec = payload.get("model_spec")
-    if not isinstance(model_spec, dict):
-        raise ValueError("Stage 4 replay requires a 'model_spec' object")
-
-    authored_priors = payload.get("authored_priors")
-    if not isinstance(authored_priors, dict):
-        raise ValueError("Stage 4 replay requires an 'authored_priors' object")
-
-    return {
-        "model_spec": model_spec,
-        "authored_priors": validate_prior_proposals(authored_priors),
-        "llm_trace": payload.get("llm_trace"),
-    }
-
-
 def build_prior_predictive_samples(
     validation: AssemblyValidation,
     model_spec: dict,

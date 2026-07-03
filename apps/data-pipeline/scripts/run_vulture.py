@@ -177,9 +177,7 @@ def _collect_data_class_fields(paths: list[Path]) -> set[str]:
                 tree = ast.parse(py_path.read_text(encoding="utf-8"))
             except (SyntaxError, UnicodeDecodeError):
                 continue
-            classes_by_file[py_path] = [
-                n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)
-            ]
+            classes_by_file[py_path] = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
 
     known: set[str] = set()
     while True:
@@ -242,9 +240,7 @@ def _collect_string_type_refs(paths: list[Path]) -> set[str]:
                         func_name = func.attr
                     if func_name in TYPING_CAST_FUNCS and node.args:
                         first_arg = node.args[0]
-                        if isinstance(first_arg, ast.Constant) and isinstance(
-                            first_arg.value, str
-                        ):
+                        if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
                             refs.update(IDENT.findall(first_arg.value))
     return refs
 

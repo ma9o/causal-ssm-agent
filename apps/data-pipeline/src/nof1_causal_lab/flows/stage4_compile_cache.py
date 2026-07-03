@@ -17,7 +17,6 @@ from typing_extensions import TypeIs
 from nof1_causal_lab.utils import storage
 
 from .run_store import (
-    STAGE2_MODEL_PARQUET_FILENAMES,
     STAGE4_JAX_CACHE_FILENAMES,
     STAGE4_JAX_CACHE_METADATA_FILENAMES,
     ensure_run_dir,
@@ -259,8 +258,10 @@ def warm_stage4_compile_cache_artifact(
                 f"expected {topology_fingerprint}, got {actual_fingerprint}"
             )
 
+        from nof1_causal_lab.machine.store import current_artifact_file
+
         data_for_model = load_parquet(
-            find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
+            current_artifact_file(workspace_id, "model_data", "model_data.parquet")
         )
         _reset_cache_dir(_jax_persistent_cache_dir())
         _warm_compiled_ssm_runtime(compiled_ssm, data_for_model)

@@ -31,15 +31,10 @@ from pydantic import ValidationError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from nof1_causal_lab.flows.run_store import (
-    STAGE0_PARQUET_FILENAMES,
-    STAGE2_MODEL_PARQUET_FILENAMES,
-    find_run_artifact,
-    load_parquet,
-    load_public_payload,
-)
+from nof1_causal_lab.flows.run_store import load_parquet, load_public_payload
 from nof1_causal_lab.flows.stage_contracts import STAGE_CONTRACTS
-from nof1_causal_lab.flows.stage_registry import get_execution_order
+from nof1_causal_lab.machine.graph import topological_stage_order
+from nof1_causal_lab.machine.store import current_artifact_file
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.data import runs_dir
 
@@ -73,7 +68,7 @@ def _stage_json_path(workspace_id: str, stage_id: str) -> str:
 
 
 def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
-    order = list(get_execution_order())
+    order = list(topological_stage_order())
     if up_to is not None and up_to not in order:
         raise ValueError(f"Unknown stage '{up_to}'. Expected one of: {', '.join(order)}")
     if up_to is not None:
@@ -91,7 +86,7 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
     model_indicators: set[str] | None = None
     if "stage-2" in stages:
         try:
-            parquet_path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
+            parquet_path = current_artifact_file(workspace_id, "model_data", "model_data.parquet")
             df = load_parquet(parquet_path)
             if "indicator" in df.columns:
                 model_indicators = set(df["indicator"].unique().to_list())
@@ -101,7 +96,7 @@ def load_run_context(workspace_id: str, *, up_to: str | None) -> RunContext:
     raw_input_columns: set[str] | None = None
     if "stage-0" in stages:
         try:
-            raw_path = find_run_artifact(workspace_id, STAGE0_PARQUET_FILENAMES)
+            raw_path = current_artifact_file(workspace_id, "raw_data", "raw.parquet")
             raw_input_columns = set(load_parquet(raw_path).columns)
         except FileNotFoundError:
             pass

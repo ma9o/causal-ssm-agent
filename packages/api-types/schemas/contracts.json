@@ -2161,28 +2161,6 @@
     "Stage0Contract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2203,8 +2181,7 @@
         }
       },
       "required": [
-        "column_descriptions",
-        "outcome"
+        "column_descriptions"
       ],
       "title": "Stage0Contract",
       "type": "object"
@@ -2212,28 +2189,6 @@
     "Stage1aContract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2250,8 +2205,7 @@
         }
       },
       "required": [
-        "latent_model",
-        "outcome"
+        "latent_model"
       ],
       "title": "Stage1aContract",
       "type": "object"
@@ -2259,28 +2213,6 @@
     "Stage1bContract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2297,8 +2229,7 @@
         }
       },
       "required": [
-        "causal_spec",
-        "outcome"
+        "causal_spec"
       ],
       "title": "Stage1bContract",
       "type": "object"
@@ -2306,28 +2237,6 @@
     "Stage2Contract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2348,7 +2257,6 @@
         }
       },
       "required": [
-        "outcome",
         "workers"
       ],
       "title": "Stage2Contract",
@@ -2357,28 +2265,6 @@
     "Stage3Contract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "is_valid": {
           "title": "Is Valid",
           "type": "boolean"
@@ -2401,8 +2287,7 @@
       "required": [
         "dataset_issues",
         "indicators",
-        "is_valid",
-        "outcome"
+        "is_valid"
       ],
       "title": "Stage3Contract",
       "type": "object"
@@ -2410,28 +2295,6 @@
     "Stage4Contract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2512,7 +2375,6 @@
       "required": [
         "authored_priors",
         "model_spec",
-        "outcome",
         "resolved_priors"
       ],
       "title": "Stage4Contract",
@@ -2521,28 +2383,6 @@
     "Stage5bContract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "ppc": {
           "$ref": "#/$defs/PPCResultContract"
         },
@@ -2615,7 +2455,6 @@
       },
       "required": [
         "inference_metadata",
-        "outcome",
         "ppc"
       ],
       "title": "Stage5bContract",
@@ -2624,28 +2463,6 @@
     "Stage6Contract": {
       "additionalProperties": false,
       "properties": {
-        "outcome": {
-          "default": "success",
-          "enum": [
-            "success",
-            "warn",
-            "fail"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "fail_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fail Reason"
-        },
         "llm_trace": {
           "anyOf": [
             {
@@ -2693,8 +2510,7 @@
         }
       },
       "required": [
-        "intervention_results",
-        "outcome"
+        "intervention_results"
       ],
       "title": "Stage6Contract",
       "type": "object"

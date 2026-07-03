@@ -2,9 +2,10 @@
 
 Exposes pipeline tool schemas and execution over HTTP so the Next.js
 refinement route can proxy LLM tool calls to the same Python validation
-logic the pipeline uses.
+logic the stages use, plus the episode facade (moves via the Temporal
+workflow, reads via the journal read model).
 
-Run alongside Prefect::
+Run alongside the Temporal dev server and episode worker::
 
     cd apps/data-pipeline
     uv run uvicorn nof1_causal_lab.tool_server:app --port 8100
@@ -25,9 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-from nof1_causal_lab.flows.run_store import load_parquet, load_pickle
 from nof1_causal_lab.flows.stage_contracts import STAGE_TOOLS
-from nof1_causal_lab.flows.stage_persistence import persist_web_patch
 from nof1_causal_lab.flows.stages.stage1a.grounding import stage1a_grounding
 from nof1_causal_lab.flows.stages.stage1b.grounding import stage1b_grounding
 from nof1_causal_lab.flows.stages.stage4.tool_registry import (
@@ -54,7 +53,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.causal_spec import (
-    get_estimable_treatments,
     get_estimation_constructs,
     get_estimation_state_order,
     get_indicators,
@@ -73,6 +71,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from nof1_causal_lab.episode_api import router as episode_router  # noqa: E402
+
+app.include_router(episode_router)
+
 
 # ---------------------------------------------------------------------------
 # Result loading
@@ -85,15 +87,6 @@ def _load_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
     if not storage.exists(path):
         raise HTTPException(404, f"Stage result not found: {path}")
     return storage.read_json(path)
-
-
-def _load_optional_stage_result(workspace_id: str, stage_id: str) -> dict[str, Any]:
-    try:
-        return _load_stage_result(workspace_id, stage_id)
-    except HTTPException as exc:
-        if exc.status_code == 404:
-            return {}
-        raise
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -285,21 +278,55 @@ def _resolve_counterfactual_start(
 
 
 def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
-    stage1b = _load_stage_result(workspace_id, "stage-1b")
-    stage4 = _load_optional_stage_result(workspace_id, "stage-4")
-    stage5b = _load_stage_result(workspace_id, "stage-5b")
-    stage6 = _load_optional_stage_result(workspace_id, "stage-6")
+    """Query-plane context: pinned artifact versions + provenance freshness.
 
-    from nof1_causal_lab.flows.run_store import (
-        STAGE2_MODEL_PARQUET_FILENAMES,
-        STAGE5B_PICKLE_FILENAMES,
-        find_run_artifact,
+    Everything is read from the versioned store at the episode's *current*
+    versions; ``model_data`` comes from the version the posterior was
+    actually fitted on (its ``derived_from`` pin). Freshness of the whole
+    serving chain rides along so simulations from a superseded model are
+    hard-flagged rather than silently served.
+    """
+    from nof1_causal_lab.machine.moves import freshness_report
+    from nof1_causal_lab.machine.store import ArtifactStore, EpisodeJournal
+
+    state = EpisodeJournal(workspace_id).latest_state()
+    posterior_info = state.get("posterior")
+    if posterior_info is None:
+        raise HTTPException(404, f"No fitted posterior for workspace {workspace_id}")
+    store = ArtifactStore(workspace_id)
+
+    fitted_artifact = store.read_pickle_file("posterior", posterior_info.version, "fitted.pkl")
+    stage5b = store.read_json_file("posterior", posterior_info.version, "diagnostics.json")
+
+    model_data_pin = posterior_info.derived_from.get("model_data")
+    if model_data_pin is None:
+        raise HTTPException(500, "posterior artifact is missing its model_data pin")
+    data_for_model = store.read_parquet_file("model_data", model_data_pin, "model_data.parquet")
+
+    spec_info = state.get("causal_spec")
+    if spec_info is None:
+        raise HTTPException(404, f"No causal_spec for workspace {workspace_id}")
+    stage1b = store.read_json_file("causal_spec", spec_info.version, "causal_spec.json")
+
+    compiled_info = state.get("compiled_ssm")
+    stage4 = (
+        store.read_json_file("compiled_ssm", compiled_info.version, "report.json")
+        if compiled_info is not None
+        else {}
+    )
+    ranking_info = state.get("baseline_ranking")
+    stage6 = (
+        store.read_json_file("baseline_ranking", ranking_info.version, "baseline_ranking.json")
+        if ranking_info is not None
+        else {}
+    )
+    estimands_info = state.get("estimands")
+    estimands = (
+        store.read_json_file("estimands", estimands_info.version, "estimands.json")
+        if estimands_info is not None
+        else {"treatments": []}
     )
 
-    data_for_model_path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
-    fitted_result_path = find_run_artifact(workspace_id, STAGE5B_PICKLE_FILENAMES)
-    fitted_artifact = load_pickle(fitted_result_path)
-    data_for_model = load_parquet(data_for_model_path)
     fitted_spec = getattr(fitted_artifact, "spec", None)
     if fitted_spec is None:
         raise HTTPException(
@@ -313,11 +340,14 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
     fitted_artifact.observation_support = runtime.observation_support
 
     causal_spec = stage1b.get("causal_spec", {})
-    non_identifiable = (causal_spec.get("identifiability") or {}).get(
-        "non_identifiable_treatments"
-    ) or {}
     outcome_name = get_outcome_name(causal_spec)
-    treatments = get_estimable_treatments(causal_spec)
+
+    serving_chain = ("posterior", "baseline_ranking", "causal_spec", "estimands", "compiled_ssm")
+    stale_artifacts = [
+        status.artifact_id
+        for status in freshness_report(state)
+        if status.stale and status.artifact_id in serving_chain
+    ]
 
     return {
         "_workspace_id": workspace_id,
@@ -329,7 +359,8 @@ def _build_stage6_context(workspace_id: str) -> dict[str, Any]:
         "_prepared_runtime": runtime,
         "_observation_timestamps": _extract_observation_timestamps(runtime.observation_data),
         "_outcome_name": outcome_name,
-        "_identifiable_treatments": [t for t in treatments if t not in non_identifiable],
+        "_identifiable_treatments": list(estimands.get("treatments", [])),
+        "_stale_artifacts": stale_artifacts,
     }
 
 
@@ -555,6 +586,14 @@ def _collect_stage6_warnings(
     extra_warnings: list[str] | None = None,
 ) -> list[str]:
     warnings: list[str] = []
+    stale_artifacts = ctx.get("_stale_artifacts") or []
+    if stale_artifacts:
+        warnings.append(
+            "STALE PROVENANCE: "
+            + ", ".join(stale_artifacts)
+            + " were superseded after this posterior was produced; results below "
+            "reflect the old model. Re-run the fit chain to refresh."
+        )
     if include_diagnostic_warnings and treatments:
         stage5b = ctx.get("stage-5b", {})
         for item in stage5b.get("ppc", {}).get("per_variable_warnings", []) or []:
@@ -881,11 +920,6 @@ class ToolCallRequest(BaseModel):
     input: dict[str, Any]
 
 
-class PersistStagePatchRequest(BaseModel):
-    workspace_id: str
-    patch: dict[str, Any]
-
-
 @app.get("/api/tools/{stage_id}")
 def get_tool_schemas(stage_id: str) -> list[dict[str, Any]]:
     """Return tool definitions for a stage (name, description, JSON Schema parameters/results)."""
@@ -963,12 +997,3 @@ async def execute_tool(stage_id: str, tool_name: str, request: ToolCallRequest) 
             },
         ) from exc
     return payload
-
-
-@app.post("/api/stages/{stage_id}/persist-web-patch")
-def persist_stage_web_patch(stage_id: str, request: PersistStagePatchRequest) -> dict[str, Any]:
-    """Persist a validated patch to a stage's public payload and refresh snapshot web state."""
-    return {
-        "ok": True,
-        "payload": persist_web_patch(stage_id, request.patch, request.workspace_id),
-    }

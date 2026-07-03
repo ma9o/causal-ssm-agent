@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
-from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.flows.run_store import load_parquet
@@ -111,16 +110,12 @@ def _parse_json_arg(args: dict[str, Any], param_name: str) -> tuple[Any | None, 
 
 
 def _load_stage2_data_for_model(workspace_id: str) -> Any:
-    """Load Stage 2 canonical modeling rows for public Stage 4 tool execution."""
-    from nof1_causal_lab.flows.run_store import (
-        STAGE2_MODEL_PARQUET_FILENAMES,
-        find_run_artifact,
-    )
+    from nof1_causal_lab.machine.store import current_artifact_file
 
     try:
-        path = find_run_artifact(workspace_id, STAGE2_MODEL_PARQUET_FILENAMES)
-    except FileNotFoundError as exc:
-        raise HTTPException(500, "Stage 2 model data parquet not found") from exc
+        path = current_artifact_file(workspace_id, "model_data", "model_data.parquet")
+    except FileNotFoundError:
+        return None
     return load_parquet(path)
 
 

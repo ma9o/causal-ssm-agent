@@ -205,7 +205,9 @@ def export_metadata() -> dict:
     }
 
 
-def _write_or_check_json(path: Path, payload: dict, *, check: bool, changed_paths: list[Path]) -> None:
+def _write_or_check_json(
+    path: Path, payload: dict, *, check: bool, changed_paths: list[Path]
+) -> None:
     rendered = json.dumps(payload, indent=2) + "\n"
     if check:
         if not path.exists() or path.read_text() != rendered:
@@ -263,7 +265,9 @@ def main(*, check: bool = False) -> bool:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="Verify generated schemas without writing files.")
+    parser.add_argument(
+        "--check", action="store_true", help="Verify generated schemas without writing files."
+    )
     args = parser.parse_args()
     if main(check=args.check):
         sys.exit(1)

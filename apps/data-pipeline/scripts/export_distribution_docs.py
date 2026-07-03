@@ -77,7 +77,9 @@ def _export_parameters(*, check: bool) -> bool:
     defaults_body = render_prior_parameter_guidance_markdown_table()
 
     updated = _replace_section(original, "## Parameter Roles", roles_body, _PARAMETERS_PATH)
-    updated = _replace_section(updated, "## Supported Prior Families", families_body, _PARAMETERS_PATH)
+    updated = _replace_section(
+        updated, "## Supported Prior Families", families_body, _PARAMETERS_PATH
+    )
     updated = _replace_section(updated, "## Common Defaults", defaults_body, _PARAMETERS_PATH)
 
     if check:
@@ -107,9 +109,15 @@ def _export_likelihoods(*, check: bool) -> bool:
         ]
     )
 
-    updated = _replace_section(original, "## Dtype-to-Distribution Mapping", dtype_body, _LIKELIHOODS_PATH)
-    updated = _replace_section(updated, "## Distribution Families", render_distribution_families_prose(), _LIKELIHOODS_PATH)
-    updated = _replace_section(updated, "## Link Functions", render_link_functions_prose(), _LIKELIHOODS_PATH)
+    updated = _replace_section(
+        original, "## Dtype-to-Distribution Mapping", dtype_body, _LIKELIHOODS_PATH
+    )
+    updated = _replace_section(
+        updated, "## Distribution Families", render_distribution_families_prose(), _LIKELIHOODS_PATH
+    )
+    updated = _replace_section(
+        updated, "## Link Functions", render_link_functions_prose(), _LIKELIHOODS_PATH
+    )
 
     if check:
         changed = updated != original
@@ -131,12 +139,17 @@ def export_prior_distribution_docs(*, check: bool = False) -> bool:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true", help="Verify generated docs without writing files.")
+    parser.add_argument(
+        "--check", action="store_true", help="Verify generated docs without writing files."
+    )
     args = parser.parse_args()
 
     has_changes = export_prior_distribution_docs(check=args.check)
     if args.check:
         if has_changes:
-            print("Distribution docs codegen is out of date. Run `bun run docs:codegen`.", file=sys.stderr)
+            print(
+                "Distribution docs codegen is out of date. Run `bun run docs:codegen`.",
+                file=sys.stderr,
+            )
             sys.exit(1)
         print("Distribution docs checked.")
