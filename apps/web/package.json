@@ -15,7 +15,6 @@
     "test": "vitest run",
     "test:visual": "vitest run --config vitest.visual.config.ts",
     "test:visual:update": "vitest run --config vitest.visual.config.ts --update",
-    "sync-demo-r2": "bun scripts/sync-demo-workspace-to-r2.ts",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "postinstall": "node scripts/copy-perspective-assets.mjs"
@@ -27,7 +26,6 @@
     "@finos/perspective-viewer": "^3.8.0",
     "@finos/perspective-viewer-d3fc": "^3.8.0",
     "@finos/perspective-viewer-datagrid": "^3.8.0",
-    "@next/env": "^16.2.1",
     "@nof1-causal-lab/api-types": "workspace:*",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-query": "^5.90.21",
