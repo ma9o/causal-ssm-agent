@@ -168,9 +168,7 @@ def test_load_run_context_respects_up_to_when_loading_stage2_artifacts(monkeypat
     def fake_current_artifact_file(_workspace_id: str, artifact_id: str, _filename: str) -> str:
         if artifact_id == "raw_data":
             return "/tmp/raw.parquet"
-        raise AssertionError(
-            f"{artifact_id} should not be loaded past --up-to stage-1b"
-        )
+        raise AssertionError(f"{artifact_id} should not be loaded past --up-to stage-1b")
 
     monkeypatch.setattr(validate_run, "current_artifact_file", fake_current_artifact_file)
     monkeypatch.setattr(validate_run, "load_parquet", lambda _path: FakeRawDataFrame())
