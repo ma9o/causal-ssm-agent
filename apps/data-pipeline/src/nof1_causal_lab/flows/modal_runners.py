@@ -84,6 +84,18 @@ async def _run_stage_gpu(
     return result.model_dump(mode="json")
 
 
+@app.function(
+    image=cpu_image.env({"EPISODE_FACADE_READ_ONLY": "1"}),
+    secrets=[secrets],
+)
+@modal.asgi_app()
+def read_facade():
+    """The hosted viewer's backend: journal reads over the R2 store, no moves."""
+    from nof1_causal_lab.read_facade import create_read_facade_app
+
+    return create_read_facade_app()
+
+
 @app.function(timeout=3600, cpu=4, memory=8192, secrets=[secrets])
 async def _run_stage_cpu(
     workspace_id: str,
